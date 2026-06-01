@@ -15,10 +15,12 @@ env = environ.Env(
 environ.Env.read_env(BASE_DIR / ".env")
 
 SECRET_KEY = env("DJANGO_SECRET_KEY", default="unsafe-local-dev-key-change-me")
-DEBUG = env.bool("DJANGO_DEBUG", default=True)
+ENVIRONMENT = env("ENVIRONMENT", default="local")
+IS_PRODUCTION = ENVIRONMENT == "production"
+
+DEBUG = env.bool("DJANGO_DEBUG", default=not IS_PRODUCTION)
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
 
-ENVIRONMENT = env("ENVIRONMENT", default="local")
 PLATFORM_BRAND_NAME = env("PLATFORM_BRAND_NAME", default="BANXUM")
 LEGAL_OPERATOR_NAME = env("LEGAL_OPERATOR_NAME", default="Garanta Finanzgruppe AG")
 
@@ -103,6 +105,55 @@ USE_TZ = True
 STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "accounts_auth.User"
+
+SESSION_COOKIE_SECURE = env.bool("SESSION_COOKIE_SECURE", default=IS_PRODUCTION)
+CSRF_COOKIE_SECURE = env.bool("CSRF_COOKIE_SECURE", default=IS_PRODUCTION)
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = env("SESSION_COOKIE_SAMESITE", default="Lax")
+CSRF_COOKIE_SAMESITE = env("CSRF_COOKIE_SAMESITE", default="Lax")
+SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=IS_PRODUCTION)
+SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=31536000 if IS_PRODUCTION else 0)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool(
+    "SECURE_HSTS_INCLUDE_SUBDOMAINS",
+    default=IS_PRODUCTION,
+)
+SECURE_HSTS_PRELOAD = env.bool("SECURE_HSTS_PRELOAD", default=IS_PRODUCTION)
+if env.bool("DJANGO_USE_X_FORWARDED_PROTO", default=IS_PRODUCTION):
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+TRUST_X_FORWARDED_FOR = env.bool("TRUST_X_FORWARDED_FOR", default=False)
+
+REGISTRATION_TERMS_VERSION = env("REGISTRATION_TERMS_VERSION", default="registration-v1")
+REGISTRATION_TERMS_HASH = env(
+    "REGISTRATION_TERMS_HASH",
+    default="3b0ba70e0b1d68a6acd2135c832cf114f6db2fb5c8896625c1f28f3ba7bd8dca",
+)
+AUTH_DELIVERY_SECRET_ENCRYPTION_KEY = env("AUTH_DELIVERY_SECRET_ENCRYPTION_KEY", default="")
+AUTH_SECRET_DIGEST_PEPPER = env("AUTH_SECRET_DIGEST_PEPPER", default="")
+AUTH_MAGIC_LINK_COOLDOWN_SECONDS = env.int("AUTH_MAGIC_LINK_COOLDOWN_SECONDS", default=60)
+AUTH_MAGIC_LINK_HOURLY_LIMIT = env.int("AUTH_MAGIC_LINK_HOURLY_LIMIT", default=5)
+AUTH_MAGIC_LINK_DAILY_LIMIT = env.int("AUTH_MAGIC_LINK_DAILY_LIMIT", default=20)
+AUTH_REGISTRATION_COOLDOWN_SECONDS = env.int("AUTH_REGISTRATION_COOLDOWN_SECONDS", default=10)
+AUTH_REGISTRATION_HOURLY_LIMIT = env.int("AUTH_REGISTRATION_HOURLY_LIMIT", default=20)
+AUTH_REGISTRATION_DAILY_LIMIT = env.int("AUTH_REGISTRATION_DAILY_LIMIT", default=100)
+AUTH_SENSITIVE_CODE_COOLDOWN_SECONDS = env.int(
+    "AUTH_SENSITIVE_CODE_COOLDOWN_SECONDS",
+    default=60,
+)
+CACHE_URL = env("CACHE_URL", default="")
+if CACHE_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": CACHE_URL,
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "banxum-local-cache",
+        }
+    }
 
 REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",

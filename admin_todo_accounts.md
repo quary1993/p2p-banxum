@@ -1,7 +1,7 @@
 # Admin TODO: Accounts, Credentials, API Access, and Domains
 
 Status: Working list.
-Last updated: 2026-05-29.
+Last updated: 2026-06-01.
 
 This file tracks accounts, credentials, API access, domains, portals, and third-party access that must be provided to make the platform functional.
 
@@ -141,6 +141,7 @@ Provide:
 - GitHub Actions secrets access.
 - AWS ECR repository access for staging/production images.
 - Deployment target credentials.
+- Deployment secret values or approval for engineering to generate and install them, including Django secret keys, auth delivery-secret encryption keys, auth digest peppers, database passwords, Redis passwords where applicable, and provider webhook secrets.
 - Branch protection expectations, if Garanta wants them.
 - Permission to configure GitHub Actions OIDC access to AWS if available.
 

@@ -10,6 +10,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from backend.apps.accounts_auth.api.request_meta import client_ip, user_agent
 from backend.apps.accounts_auth.api.serializers import (
     AuthenticatedUserResponseSerializer,
     MagicLinkConsumeSerializer,
@@ -18,10 +19,15 @@ from backend.apps.accounts_auth.api.serializers import (
     NaturalPersonRegistrationResponseSerializer,
     serialize_user,
 )
+from backend.apps.accounts_auth.api.throttles import (
+    MagicLinkRequestThrottle,
+    NaturalPersonRegistrationThrottle,
+)
 from backend.apps.accounts_auth.models import User
 from backend.apps.accounts_auth.services import (
     DuplicateEmailError,
     InvalidOrExpiredTokenError,
+    InvalidTermsAcceptanceError,
     MagicLinkConsumeCommand,
     MagicLinkRequestCommand,
     RegisterNaturalPersonCommand,
@@ -31,21 +37,10 @@ from backend.apps.accounts_auth.services import (
 )
 
 
-def _client_ip(request: Request) -> str | None:
-    forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
-    if forwarded_for:
-        return str(forwarded_for).split(",")[0].strip()
-    remote_addr = request.META.get("REMOTE_ADDR")
-    return str(remote_addr) if remote_addr else None
-
-
-def _user_agent(request: Request) -> str:
-    return str(request.META.get("HTTP_USER_AGENT", ""))
-
-
 class NaturalPersonRegistrationView(APIView):
     authentication_classes: list[type] = []
     permission_classes: list[type] = []
+    throttle_classes = [NaturalPersonRegistrationThrottle]
 
     @extend_schema(
         request=NaturalPersonRegistrationRequestSerializer,
@@ -63,19 +58,22 @@ class NaturalPersonRegistrationView(APIView):
                     phone_number=data["phone_number"],
                     terms_version=data["terms_version"],
                     terms_hash=data["terms_hash"],
-                    ip_address=_client_ip(request),
-                    user_agent=_user_agent(request),
+                    ip_address=client_ip(request),
+                    user_agent=user_agent(request),
                     marketing_consent=data["marketing_consent"],
                 )
             )
         except DuplicateEmailError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        except InvalidTermsAcceptanceError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response({"user": serialize_user(user)}, status=status.HTTP_201_CREATED)
 
 
 class MagicLinkRequestView(APIView):
     authentication_classes: list[type] = []
     permission_classes: list[type] = []
+    throttle_classes = [MagicLinkRequestThrottle]
 
     @extend_schema(request=MagicLinkRequestSerializer, responses={202: None})
     def post(self, request: Request) -> Response:
@@ -86,8 +84,8 @@ class MagicLinkRequestView(APIView):
             issue_magic_link(
                 MagicLinkRequestCommand(
                     email=data["email"],
-                    ip_address=_client_ip(request),
-                    user_agent=_user_agent(request),
+                    ip_address=client_ip(request),
+                    user_agent=user_agent(request),
                 )
             )
         except InvalidOrExpiredTokenError:
@@ -111,8 +109,8 @@ class MagicLinkConsumeView(APIView):
             user = consume_magic_link(
                 MagicLinkConsumeCommand(
                     raw_token=data["token"],
-                    ip_address=_client_ip(request),
-                    user_agent=_user_agent(request),
+                    ip_address=client_ip(request),
+                    user_agent=user_agent(request),
                 )
             )
         except InvalidOrExpiredTokenError as exc:
