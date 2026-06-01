@@ -1,0 +1,20 @@
+[importlinter]
+root_package = backend
+
+[importlinter:contract:domain_modules_are_independent]
+name = Domain modules must not import peer modules until explicit service boundaries are defined
+type = independence
+modules =
+    backend.apps.accounts_auth
+    backend.apps.kyc_compliance
+    backend.apps.entities
+    backend.apps.loans
+    backend.apps.marketplace_primary
+    backend.apps.ledger
+    backend.apps.servicing
+    backend.apps.secondary_market
+    backend.apps.fx
+    backend.apps.documents
+    backend.apps.communications
+    backend.apps.reporting
+    backend.apps.admin_ops

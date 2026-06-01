@@ -1,0 +1,60 @@
+[project]
+name = "banxum-platform"
+version = "0.1.0"
+description = "BANXUM modular monolith backend"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "celery>=5.5,<6",
+  "django>=5.2,<5.3",
+  "django-environ>=0.12,<0.13",
+  "django-storages>=1.14,<2",
+  "djangorestframework>=3.16,<4",
+  "drf-spectacular>=0.28,<0.29",
+  "psycopg[binary]>=3.2,<4",
+  "pydantic>=2.11,<3",
+  "redis>=6,<7",
+  "structlog>=25,<26",
+]
+
+[dependency-groups]
+dev = [
+  "django-stubs[compatible-mypy]>=5.2,<6",
+  "djangorestframework-stubs>=3.16,<4",
+  "factory-boy>=3.3,<4",
+  "freezegun>=1.5,<2",
+  "import-linter>=2.3,<3",
+  "mypy>=1.16,<2",
+  "pytest>=8.4,<9",
+  "pytest-django>=4.11,<5",
+  "ruff>=0.11,<0.12",
+]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "backend.config.settings"
+python_files = ["test_*.py", "*_test.py"]
+testpaths = ["backend"]
+pythonpath = ["."]
+django_find_project = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "DJ"]
+ignore = ["DJ008"]
+
+[tool.mypy]
+python_version = "3.12"
+plugins = ["mypy_django_plugin.main", "mypy_drf_plugin.main"]
+strict = true
+warn_unused_ignores = true
+warn_return_any = true
+exclude = ["backend/.*/migrations/.*"]
+
+[[tool.mypy.overrides]]
+module = ["celery", "environ"]
+ignore_missing_imports = true
+
+[tool.django-stubs]
+django_settings_module = "backend.config.settings"

@@ -1,0 +1,39 @@
+openapi: 3.0.3
+info:
+  title: BANXUM API
+  version: 0.1.0
+  description: Internal API for BANXUM investor and admin portals.
+paths:
+  /api/v1/health/:
+    get:
+      operationId: v1_health_retrieve
+      tags:
+      - v1
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+          description: ''
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        platform:
+          type: string
+        operator:
+          type: string
+        timezone:
+          type: string
+        environment:
+          type: string
+      required:
+      - environment
+      - operator
+      - platform
+      - status
+      - timezone
