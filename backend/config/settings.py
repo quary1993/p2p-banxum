@@ -156,6 +156,17 @@ AUTH_PHONE_VERIFICATION_CONFIRM_DAILY_LIMIT = env.int(
     "AUTH_PHONE_VERIFICATION_CONFIRM_DAILY_LIMIT",
     default=50,
 )
+DIDIT_ENVIRONMENT = env("DIDIT_ENVIRONMENT", default=ENVIRONMENT)
+DIDIT_WORKFLOW_ID = env("DIDIT_WORKFLOW_ID", default="didit-natural-person-lender-v1")
+DIDIT_MOCK_VERIFICATION_BASE_URL = env(
+    "DIDIT_MOCK_VERIFICATION_BASE_URL",
+    default="https://mock.didit.local/verify",
+)
+DIDIT_WEBHOOK_SECRET = env("DIDIT_WEBHOOK_SECRET", default="")
+DIDIT_WEBHOOK_REQUIRE_SIGNATURE = env.bool(
+    "DIDIT_WEBHOOK_REQUIRE_SIGNATURE",
+    default=IS_PRODUCTION,
+)
 REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")
 CACHE_URL = env(
     "CACHE_URL",

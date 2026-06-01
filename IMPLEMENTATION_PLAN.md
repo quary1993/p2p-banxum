@@ -30,6 +30,7 @@ Implemented and committed:
 - Phase 1 platform core foundation: currency registry, money/rate/time primitives, platform settings, audit events, domain events, outbox retry/idempotency, stored-file metadata/access checks, and DB-level append-only guards.
 - Phase 2 first accounts/auth slice: custom user model, natural-person lender registration record, registration terms acceptance evidence, magic-link login tokens, sensitive-action email codes, basic session auth API endpoints, and focused tests.
 - Phase 2 phone-verification foundation: authenticated phone verification request/confirm API, phone challenge records, encrypted local/mock verification codes, SMS outbox trigger without plaintext code payload, cooldown/attempt controls, audit/domain events, and focused tests.
+- Phase 2 KYC compliance foundation: user KYC case/session/event records, mock Didit hosted-session creation, signed Didit webhook processing, provider-status normalization, KYC financial-access gate, audit/domain events, authenticated status/session API, and focused tests.
 
 Accepted implementation deferrals from the platform-core audit:
 
@@ -39,6 +40,7 @@ Accepted implementation deferrals from the platform-core audit:
 - Stored-file `infected`/`failed` scan transitions and audit events are deferred to the storage/scanner adapter module.
 - Strict setting `value_type` schema validation is deferred to the superadmin settings UI and settings registry module.
 - Real Twilio dispatch/verification-provider execution is deferred until the communications/provider worker slice because Twilio sandbox credentials, Verify service configuration, and delivery-webhook handling are external inputs. The current accounts slice records the auditable challenge and queues a redacted SMS outbox message.
+- Real Didit session creation, report download, provider artifact storage, and provider-native status mapping are deferred until Didit sandbox credentials, workflow IDs, webhook signing details, and report/export API behavior are available. The current KYC slice provides the internal status/evidence backbone, mock session URLs, and signed webhook ingestion boundary.
 
 Recent audit dispositions:
 

@@ -42,12 +42,39 @@ export interface AuthenticatedUserResponse {
   user: UserSummary;
 }
 
+export interface DiditWebhookResponse {
+  status: StatusEnum;
+  idempotent: boolean;
+}
+
 export interface HealthResponse {
   status: string;
   platform: string;
   operator: string;
   timezone: string;
   environment: string;
+}
+
+export interface KycSessionResponse {
+  status: StatusEnum;
+  /** @nullable */
+  provider_session_id: string | null;
+  /** @nullable */
+  verification_url: string | null;
+  already_approved: boolean;
+}
+
+export interface KycStatusResponse {
+  status: StatusEnum;
+  financial_access_allowed: boolean;
+  phone_verified: boolean;
+  provider: string;
+  provider_session_id: string;
+  /** @nullable */
+  verification_url: string | null;
+  manual_review_required: boolean;
+  detected_flags: string[];
+  risk_classification: string;
 }
 
 export interface MagicLinkConsume {
@@ -93,6 +120,37 @@ export interface PhoneVerificationRequestResponse {
   expires_at: string | null;
   phone_verified: boolean;
 }
+
+/**
+ * * `not_started` - Not started
+* `pending` - Pending
+* `approved` - Approved
+* `declined` - Declined
+* `manual_review` - Manual review
+* `high_risk` - High risk
+* `sanctions_hit` - Sanctions hit
+* `pep_hit` - PEP hit
+* `adverse_media_hit` - Adverse media hit
+* `expired` - Expired
+* `reverification_required` - Re-verification required
+ */
+export type StatusEnum = typeof StatusEnum[keyof typeof StatusEnum];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const StatusEnum = {
+  not_started: 'not_started',
+  pending: 'pending',
+  approved: 'approved',
+  declined: 'declined',
+  manual_review: 'manual_review',
+  high_risk: 'high_risk',
+  sanctions_hit: 'sanctions_hit',
+  pep_hit: 'pep_hit',
+  adverse_media_hit: 'adverse_media_hit',
+  expired: 'expired',
+  reverification_required: 'reverification_required',
+} as const;
 
 export interface UserSummary {
   id: string;
@@ -568,6 +626,211 @@ export function useV1HealthRetrieve<TData = Awaited<ReturnType<typeof v1HealthRe
 }
 
 
+
+
+
+export const v1KycSessionCreate = (
+    
+ signal?: AbortSignal
+) => {
+      
+      
+      return httpClient<KycSessionResponse>(
+      {url: `/api/v1/kyc/session/`, method: 'POST', signal
+    },
+      );
+    }
+  
+
+
+export const getV1KycSessionCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1KycSessionCreate>>, TError,void, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1KycSessionCreate>>, TError,void, TContext> => {
+
+const mutationKey = ['v1KycSessionCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1KycSessionCreate>>, void> = () => {
+          
+
+          return  v1KycSessionCreate()
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1KycSessionCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1KycSessionCreate>>>
+    
+    export type V1KycSessionCreateMutationError = unknown
+
+    export const useV1KycSessionCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1KycSessionCreate>>, TError,void, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1KycSessionCreate>>,
+        TError,
+        void,
+        TContext
+      > => {
+
+      const mutationOptions = getV1KycSessionCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    
+export const v1KycStatusRetrieve = (
+    
+ signal?: AbortSignal
+) => {
+      
+      
+      return httpClient<KycStatusResponse>(
+      {url: `/api/v1/kyc/status/`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getV1KycStatusRetrieveQueryKey = () => {
+    return [
+    `/api/v1/kyc/status/`
+    ] as const;
+    }
+
+    
+export const getV1KycStatusRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1KycStatusRetrieve>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycStatusRetrieve>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1KycStatusRetrieveQueryKey();
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1KycStatusRetrieve>>> = ({ signal }) => v1KycStatusRetrieve(signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1KycStatusRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1KycStatusRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1KycStatusRetrieve>>>
+export type V1KycStatusRetrieveQueryError = unknown
+
+
+export function useV1KycStatusRetrieve<TData = Awaited<ReturnType<typeof v1KycStatusRetrieve>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycStatusRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1KycStatusRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1KycStatusRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1KycStatusRetrieve<TData = Awaited<ReturnType<typeof v1KycStatusRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycStatusRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1KycStatusRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1KycStatusRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1KycStatusRetrieve<TData = Awaited<ReturnType<typeof v1KycStatusRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycStatusRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1KycStatusRetrieve<TData = Awaited<ReturnType<typeof v1KycStatusRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycStatusRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1KycStatusRetrieveQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1KycWebhooksDiditCreate = (
+    
+ signal?: AbortSignal
+) => {
+      
+      
+      return httpClient<DiditWebhookResponse>(
+      {url: `/api/v1/kyc/webhooks/didit/`, method: 'POST', signal
+    },
+      );
+    }
+  
+
+
+export const getV1KycWebhooksDiditCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1KycWebhooksDiditCreate>>, TError,void, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1KycWebhooksDiditCreate>>, TError,void, TContext> => {
+
+const mutationKey = ['v1KycWebhooksDiditCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1KycWebhooksDiditCreate>>, void> = () => {
+          
+
+          return  v1KycWebhooksDiditCreate()
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1KycWebhooksDiditCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1KycWebhooksDiditCreate>>>
+    
+    export type V1KycWebhooksDiditCreateMutationError = unknown
+
+    export const useV1KycWebhooksDiditCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1KycWebhooksDiditCreate>>, TError,void, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1KycWebhooksDiditCreate>>,
+        TError,
+        void,
+        TContext
+      > => {
+
+      const mutationOptions = getV1KycWebhooksDiditCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+
+
 export const getV1AuthMagicLinkConsumeCreateResponseMock = (overrideResponse: Partial< AuthenticatedUserResponse > = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
 
 export const getV1AuthMeRetrieveResponseMock = (overrideResponse: Partial< AuthenticatedUserResponse > = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
@@ -579,6 +842,12 @@ export const getV1AuthPhoneRequestCreateResponseMock = (overrideResponse: Partia
 export const getV1AuthRegisterNaturalPersonCreateResponseMock = (overrideResponse: Partial< NaturalPersonRegistrationResponse > = {}): NaturalPersonRegistrationResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
 
 export const getV1HealthRetrieveResponseMock = (overrideResponse: Partial< HealthResponse > = {}): HealthResponse => ({status: faker.string.alpha({length: {min: 10, max: 20}}), platform: faker.string.alpha({length: {min: 10, max: 20}}), operator: faker.string.alpha({length: {min: 10, max: 20}}), timezone: faker.string.alpha({length: {min: 10, max: 20}}), environment: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getV1KycSessionCreateResponseMock = (overrideResponse: Partial< KycSessionResponse > = {}): KycSessionResponse => ({status: faker.helpers.arrayElement(Object.values(StatusEnum)), provider_session_id: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), verification_url: faker.helpers.arrayElement([faker.internet.url(), null]), already_approved: faker.datatype.boolean(), ...overrideResponse})
+
+export const getV1KycStatusRetrieveResponseMock = (overrideResponse: Partial< KycStatusResponse > = {}): KycStatusResponse => ({status: faker.helpers.arrayElement(Object.values(StatusEnum)), financial_access_allowed: faker.datatype.boolean(), phone_verified: faker.datatype.boolean(), provider: faker.string.alpha({length: {min: 10, max: 20}}), provider_session_id: faker.string.alpha({length: {min: 10, max: 20}}), verification_url: faker.helpers.arrayElement([faker.internet.url(), null]), manual_review_required: faker.datatype.boolean(), detected_flags: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), risk_classification: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getV1KycWebhooksDiditCreateResponseMock = (overrideResponse: Partial< DiditWebhookResponse > = {}): DiditWebhookResponse => ({status: faker.helpers.arrayElement(Object.values(StatusEnum)), idempotent: faker.datatype.boolean(), ...overrideResponse})
 
 
 export const getV1AuthMagicLinkConsumeCreateMockHandler = (overrideResponse?: AuthenticatedUserResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AuthenticatedUserResponse> | AuthenticatedUserResponse), options?: RequestHandlerOptions) => {
@@ -662,6 +931,42 @@ export const getV1HealthRetrieveMockHandler = (overrideResponse?: HealthResponse
       })
   }, options)
 }
+
+export const getV1KycSessionCreateMockHandler = (overrideResponse?: KycSessionResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<KycSessionResponse> | KycSessionResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/kyc/session/', async (info) => {await delay(1000);
+  
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1KycSessionCreateResponseMock()),
+      { status: 202,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1KycStatusRetrieveMockHandler = (overrideResponse?: KycStatusResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<KycStatusResponse> | KycStatusResponse), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/kyc/status/', async (info) => {await delay(1000);
+  
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1KycStatusRetrieveResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1KycWebhooksDiditCreateMockHandler = (overrideResponse?: DiditWebhookResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<DiditWebhookResponse> | DiditWebhookResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/kyc/webhooks/didit/', async (info) => {await delay(1000);
+  
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1KycWebhooksDiditCreateResponseMock()),
+      { status: 202,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
 export const getBanxumApiMock = () => [
   getV1AuthMagicLinkConsumeCreateMockHandler(),
   getV1AuthMagicLinkRequestCreateMockHandler(),
@@ -669,5 +974,8 @@ export const getBanxumApiMock = () => [
   getV1AuthPhoneConfirmCreateMockHandler(),
   getV1AuthPhoneRequestCreateMockHandler(),
   getV1AuthRegisterNaturalPersonCreateMockHandler(),
-  getV1HealthRetrieveMockHandler()
+  getV1HealthRetrieveMockHandler(),
+  getV1KycSessionCreateMockHandler(),
+  getV1KycStatusRetrieveMockHandler(),
+  getV1KycWebhooksDiditCreateMockHandler()
 ]

@@ -138,6 +138,46 @@ paths:
               schema:
                 $ref: '#/components/schemas/HealthResponse'
           description: ''
+  /api/v1/kyc/session/:
+    post:
+      operationId: v1_kyc_session_create
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycSessionResponse'
+          description: ''
+  /api/v1/kyc/status/:
+    get:
+      operationId: v1_kyc_status_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycStatusResponse'
+          description: ''
+  /api/v1/kyc/webhooks/didit/:
+    post:
+      operationId: v1_kyc_webhooks_didit_create
+      tags:
+      - v1
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiditWebhookResponse'
+          description: ''
 components:
   schemas:
     AuthenticatedUserResponse:
@@ -147,6 +187,16 @@ components:
           $ref: '#/components/schemas/UserSummary'
       required:
       - user
+    DiditWebhookResponse:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+        idempotent:
+          type: boolean
+      required:
+      - idempotent
+      - status
     HealthResponse:
       type: object
       properties:
@@ -166,6 +216,60 @@ components:
       - platform
       - status
       - timezone
+    KycSessionResponse:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+        provider_session_id:
+          type: string
+          nullable: true
+        verification_url:
+          type: string
+          format: uri
+          nullable: true
+        already_approved:
+          type: boolean
+      required:
+      - already_approved
+      - provider_session_id
+      - status
+      - verification_url
+    KycStatusResponse:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+        financial_access_allowed:
+          type: boolean
+        phone_verified:
+          type: boolean
+        provider:
+          type: string
+        provider_session_id:
+          type: string
+        verification_url:
+          type: string
+          format: uri
+          nullable: true
+        manual_review_required:
+          type: boolean
+        detected_flags:
+          type: array
+          items:
+            type: string
+        risk_classification:
+          type: string
+      required:
+      - detected_flags
+      - financial_access_allowed
+      - manual_review_required
+      - phone_verified
+      - provider
+      - provider_session_id
+      - risk_classification
+      - status
+      - verification_url
     MagicLinkConsume:
       type: object
       properties:
@@ -254,6 +358,32 @@ components:
       - expires_at
       - phone_verified
       - status
+    StatusEnum:
+      enum:
+      - not_started
+      - pending
+      - approved
+      - declined
+      - manual_review
+      - high_risk
+      - sanctions_hit
+      - pep_hit
+      - adverse_media_hit
+      - expired
+      - reverification_required
+      type: string
+      description: |-
+        * `not_started` - Not started
+        * `pending` - Pending
+        * `approved` - Approved
+        * `declined` - Declined
+        * `manual_review` - Manual review
+        * `high_risk` - High risk
+        * `sanctions_hit` - Sanctions hit
+        * `pep_hit` - PEP hit
+        * `adverse_media_hit` - Adverse media hit
+        * `expired` - Expired
+        * `reverification_required` - Re-verification required
     UserSummary:
       type: object
       properties:
