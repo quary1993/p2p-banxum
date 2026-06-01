@@ -62,6 +62,46 @@ paths:
               schema:
                 $ref: '#/components/schemas/AuthenticatedUserResponse'
           description: ''
+  /api/v1/auth/phone/confirm/:
+    post:
+      operationId: v1_auth_phone_confirm_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PhoneVerificationConfirmRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PhoneVerificationConfirmRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PhoneVerificationConfirmRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PhoneVerificationConfirmResponse'
+          description: ''
+  /api/v1/auth/phone/request/:
+    post:
+      operationId: v1_auth_phone_request_create
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PhoneVerificationRequestResponse'
+          description: ''
   /api/v1/auth/register/natural-person/:
     post:
       operationId: v1_auth_register_natural_person_create
@@ -175,6 +215,45 @@ components:
           $ref: '#/components/schemas/UserSummary'
       required:
       - user
+    PhoneVerificationConfirmRequest:
+      type: object
+      properties:
+        challenge_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          pattern: ^\d{6}$
+      required:
+      - challenge_id
+      - code
+    PhoneVerificationConfirmResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/UserSummary'
+      required:
+      - user
+    PhoneVerificationRequestResponse:
+      type: object
+      properties:
+        challenge_id:
+          type: string
+          format: uuid
+          nullable: true
+        status:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        phone_verified:
+          type: boolean
+      required:
+      - challenge_id
+      - expires_at
+      - phone_verified
+      - status
     UserSummary:
       type: object
       properties:

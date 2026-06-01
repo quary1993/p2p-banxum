@@ -75,6 +75,25 @@ export interface NaturalPersonRegistrationResponse {
   user: UserSummary;
 }
 
+export interface PhoneVerificationConfirmRequest {
+  challenge_id: string;
+  /** @pattern ^\d{6}$ */
+  code: string;
+}
+
+export interface PhoneVerificationConfirmResponse {
+  user: UserSummary;
+}
+
+export interface PhoneVerificationRequestResponse {
+  /** @nullable */
+  challenge_id: string | null;
+  status: string;
+  /** @nullable */
+  expires_at: string | null;
+  phone_verified: boolean;
+}
+
 export interface UserSummary {
   id: string;
   email: string;
@@ -290,6 +309,122 @@ export function useV1AuthMeRetrieve<TData = Awaited<ReturnType<typeof v1AuthMeRe
 
 
 
+export const v1AuthPhoneConfirmCreate = (
+    phoneVerificationConfirmRequest: PhoneVerificationConfirmRequest,
+ signal?: AbortSignal
+) => {
+      
+      
+      return httpClient<PhoneVerificationConfirmResponse>(
+      {url: `/api/v1/auth/phone/confirm/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: phoneVerificationConfirmRequest, signal
+    },
+      );
+    }
+  
+
+
+export const getV1AuthPhoneConfirmCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthPhoneConfirmCreate>>, TError,{data: PhoneVerificationConfirmRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthPhoneConfirmCreate>>, TError,{data: PhoneVerificationConfirmRequest}, TContext> => {
+
+const mutationKey = ['v1AuthPhoneConfirmCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthPhoneConfirmCreate>>, {data: PhoneVerificationConfirmRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthPhoneConfirmCreate(data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthPhoneConfirmCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthPhoneConfirmCreate>>>
+    export type V1AuthPhoneConfirmCreateMutationBody = PhoneVerificationConfirmRequest
+    export type V1AuthPhoneConfirmCreateMutationError = unknown
+
+    export const useV1AuthPhoneConfirmCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthPhoneConfirmCreate>>, TError,{data: PhoneVerificationConfirmRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthPhoneConfirmCreate>>,
+        TError,
+        {data: PhoneVerificationConfirmRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1AuthPhoneConfirmCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    
+export const v1AuthPhoneRequestCreate = (
+    
+ signal?: AbortSignal
+) => {
+      
+      
+      return httpClient<PhoneVerificationRequestResponse>(
+      {url: `/api/v1/auth/phone/request/`, method: 'POST', signal
+    },
+      );
+    }
+  
+
+
+export const getV1AuthPhoneRequestCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthPhoneRequestCreate>>, TError,void, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthPhoneRequestCreate>>, TError,void, TContext> => {
+
+const mutationKey = ['v1AuthPhoneRequestCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthPhoneRequestCreate>>, void> = () => {
+          
+
+          return  v1AuthPhoneRequestCreate()
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthPhoneRequestCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthPhoneRequestCreate>>>
+    
+    export type V1AuthPhoneRequestCreateMutationError = unknown
+
+    export const useV1AuthPhoneRequestCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthPhoneRequestCreate>>, TError,void, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthPhoneRequestCreate>>,
+        TError,
+        void,
+        TContext
+      > => {
+
+      const mutationOptions = getV1AuthPhoneRequestCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    
 export const v1AuthRegisterNaturalPersonCreate = (
     naturalPersonRegistrationRequest: NaturalPersonRegistrationRequest,
  signal?: AbortSignal
@@ -437,6 +572,10 @@ export const getV1AuthMagicLinkConsumeCreateResponseMock = (overrideResponse: Pa
 
 export const getV1AuthMeRetrieveResponseMock = (overrideResponse: Partial< AuthenticatedUserResponse > = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
 
+export const getV1AuthPhoneConfirmCreateResponseMock = (overrideResponse: Partial< PhoneVerificationConfirmResponse > = {}): PhoneVerificationConfirmResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
+
+export const getV1AuthPhoneRequestCreateResponseMock = (overrideResponse: Partial< PhoneVerificationRequestResponse > = {}): PhoneVerificationRequestResponse => ({challenge_id: faker.helpers.arrayElement([faker.string.uuid(), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), expires_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), phone_verified: faker.datatype.boolean(), ...overrideResponse})
+
 export const getV1AuthRegisterNaturalPersonCreateResponseMock = (overrideResponse: Partial< NaturalPersonRegistrationResponse > = {}): NaturalPersonRegistrationResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
 
 export const getV1HealthRetrieveResponseMock = (overrideResponse: Partial< HealthResponse > = {}): HealthResponse => ({status: faker.string.alpha({length: {min: 10, max: 20}}), platform: faker.string.alpha({length: {min: 10, max: 20}}), operator: faker.string.alpha({length: {min: 10, max: 20}}), timezone: faker.string.alpha({length: {min: 10, max: 20}}), environment: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
@@ -476,6 +615,30 @@ export const getV1AuthMeRetrieveMockHandler = (overrideResponse?: AuthenticatedU
   }, options)
 }
 
+export const getV1AuthPhoneConfirmCreateMockHandler = (overrideResponse?: PhoneVerificationConfirmResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<PhoneVerificationConfirmResponse> | PhoneVerificationConfirmResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/phone/confirm/', async (info) => {await delay(1000);
+  
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthPhoneConfirmCreateResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1AuthPhoneRequestCreateMockHandler = (overrideResponse?: PhoneVerificationRequestResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<PhoneVerificationRequestResponse> | PhoneVerificationRequestResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/phone/request/', async (info) => {await delay(1000);
+  
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthPhoneRequestCreateResponseMock()),
+      { status: 202,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
 export const getV1AuthRegisterNaturalPersonCreateMockHandler = (overrideResponse?: NaturalPersonRegistrationResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<NaturalPersonRegistrationResponse> | NaturalPersonRegistrationResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/auth/register/natural-person/', async (info) => {await delay(1000);
   
@@ -503,6 +666,8 @@ export const getBanxumApiMock = () => [
   getV1AuthMagicLinkConsumeCreateMockHandler(),
   getV1AuthMagicLinkRequestCreateMockHandler(),
   getV1AuthMeRetrieveMockHandler(),
+  getV1AuthPhoneConfirmCreateMockHandler(),
+  getV1AuthPhoneRequestCreateMockHandler(),
   getV1AuthRegisterNaturalPersonCreateMockHandler(),
   getV1HealthRetrieveMockHandler()
 ]

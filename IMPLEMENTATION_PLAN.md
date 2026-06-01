@@ -29,6 +29,7 @@ Implemented and committed:
 - Phase 0 bootstrap: Django/React scaffold, CI, `make agent-check`, OpenAPI generation, generated frontend client, MSW setup, import-boundary checks, local Docker Compose, and app smoke tests.
 - Phase 1 platform core foundation: currency registry, money/rate/time primitives, platform settings, audit events, domain events, outbox retry/idempotency, stored-file metadata/access checks, and DB-level append-only guards.
 - Phase 2 first accounts/auth slice: custom user model, natural-person lender registration record, registration terms acceptance evidence, magic-link login tokens, sensitive-action email codes, basic session auth API endpoints, and focused tests.
+- Phase 2 phone-verification foundation: authenticated phone verification request/confirm API, phone challenge records, encrypted local/mock verification codes, SMS outbox trigger without plaintext code payload, cooldown/attempt controls, audit/domain events, and focused tests.
 
 Accepted implementation deferrals from the platform-core audit:
 
@@ -37,6 +38,7 @@ Accepted implementation deferrals from the platform-core audit:
 - Outbox claim/dispatch with `select_for_update(skip_locked)` is deferred to the background worker module. The current module owns the durable record, retry schedule, and idempotent enqueue behavior.
 - Stored-file `infected`/`failed` scan transitions and audit events are deferred to the storage/scanner adapter module.
 - Strict setting `value_type` schema validation is deferred to the superadmin settings UI and settings registry module.
+- Real Twilio dispatch/verification-provider execution is deferred until the communications/provider worker slice because Twilio sandbox credentials, Verify service configuration, and delivery-webhook handling are external inputs. The current accounts slice records the auditable challenge and queues a redacted SMS outbox message.
 
 ## 1. Review Outcome
 

@@ -11,6 +11,7 @@ from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 
 from backend.apps.accounts_auth.api.request_meta import client_ip
+from backend.apps.accounts_auth.models import User
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,3 +106,18 @@ class NaturalPersonRegistrationThrottle(AuthThrottle):
         WindowRule("hour", 60 * 60, settings.AUTH_REGISTRATION_HOURLY_LIMIT),
         WindowRule("day", 24 * 60 * 60, settings.AUTH_REGISTRATION_DAILY_LIMIT),
     )
+
+
+class PhoneVerificationRequestThrottle(AuthThrottle):
+    scope = "phone_verification_request"
+    cooldown_rules = (CooldownRule("cooldown", settings.AUTH_PHONE_VERIFICATION_COOLDOWN_SECONDS),)
+    window_rules = (
+        WindowRule("hour", 60 * 60, settings.AUTH_PHONE_VERIFICATION_HOURLY_LIMIT),
+        WindowRule("day", 24 * 60 * 60, settings.AUTH_PHONE_VERIFICATION_DAILY_LIMIT),
+    )
+
+    def get_identifiers(self, request: Request) -> tuple[str, ...]:
+        identifiers = list(super().get_identifiers(request))
+        if isinstance(request.user, User):
+            identifiers.append(f"user:{request.user.id}")
+        return tuple(identifiers)

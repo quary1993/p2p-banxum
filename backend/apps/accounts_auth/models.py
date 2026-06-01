@@ -146,6 +146,53 @@ class EmailLoginToken(TimestampedModel):
         return self.used_at is not None
 
 
+class PhoneVerificationStatus(models.TextChoices):
+    PENDING = "pending", "Pending"
+    VERIFIED = "verified", "Verified"
+    FAILED = "failed", "Failed"
+    SUPERSEDED = "superseded", "Superseded"
+    EXPIRED = "expired", "Expired"
+
+
+class PhoneVerificationChallenge(TimestampedModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="phone_verification_challenges",
+    )
+    phone_number = models.CharField(max_length=32)
+    provider = models.CharField(max_length=32)
+    provider_reference = models.CharField(max_length=128, blank=True)
+    status = models.CharField(
+        max_length=32,
+        choices=PhoneVerificationStatus.choices,
+        default=PhoneVerificationStatus.PENDING,
+    )
+    code_digest = models.CharField(max_length=64, blank=True)
+    encrypted_code = models.TextField(blank=True)
+    expires_at = models.DateTimeField()
+    verified_at = models.DateTimeField(null=True, blank=True)
+    superseded_at = models.DateTimeField(null=True, blank=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    max_attempts = models.PositiveSmallIntegerField(default=3)
+    requested_ip = models.GenericIPAddressField(null=True, blank=True)
+    requested_user_agent = models.TextField(blank=True)
+    confirmed_ip = models.GenericIPAddressField(null=True, blank=True)
+    confirmed_user_agent = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["user", "status", "expires_at"]),
+            models.Index(fields=["expires_at"]),
+        ]
+
+    @property
+    def is_verified(self) -> bool:
+        return self.status == PhoneVerificationStatus.VERIFIED
+
+
 class SensitiveAction(models.TextChoices):
     ADMIN_LOGIN = "admin_login", "Admin login"
     WITHDRAWAL = "withdrawal", "Withdrawal"

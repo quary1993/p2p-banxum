@@ -17,6 +17,8 @@ from backend.apps.accounts_auth.models import (
     AccountStatus,
     AccountType,
     EmailLoginToken,
+    PhoneVerificationChallenge,
+    PhoneVerificationStatus,
     RegistrationTermsAcceptance,
     SensitiveAction,
     SensitiveActionCode,
@@ -57,6 +59,14 @@ class InvalidTermsAcceptanceError(AccountsAuthError):
 
 
 class SensitiveActionCodeThrottleError(AccountsAuthError):
+    pass
+
+
+class PhoneVerificationThrottleError(AccountsAuthError):
+    pass
+
+
+class PhoneAlreadyVerifiedError(AccountsAuthError):
     pass
 
 
@@ -144,6 +154,29 @@ class SensitiveActionCodeIssueResult:
 @dataclass(frozen=True, slots=True)
 class SensitiveActionCodeConsumeCommand:
     code_id: str
+    raw_code: str
+    ip_address: str | None = None
+    user_agent: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class PhoneVerificationRequestCommand:
+    user: User
+    ip_address: str | None = None
+    user_agent: str = ""
+    ttl: timedelta | None = None
+    max_attempts: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PhoneVerificationRequestResult:
+    challenge: PhoneVerificationChallenge
+    raw_code: str
+
+
+@dataclass(frozen=True, slots=True)
+class PhoneVerificationConfirmCommand:
+    challenge_id: str
     raw_code: str
     ip_address: str | None = None
     user_agent: str = ""
@@ -361,6 +394,200 @@ def issue_sensitive_action_code(
     return SensitiveActionCodeIssueResult(code_record=code_record, raw_code=raw_code)
 
 
+@transaction.atomic
+def request_phone_verification(
+    command: PhoneVerificationRequestCommand,
+) -> PhoneVerificationRequestResult:
+    user = command.user
+    if not user.can_login:
+        raise InvalidOrExpiredCodeError("Account cannot receive a phone verification code.")
+    if user.is_phone_verified:
+        raise PhoneAlreadyVerifiedError("Phone number is already verified.")
+    if not user.phone_number.strip():
+        raise AccountsAuthError("Phone number is required.")
+
+    now = timezone.now()
+    cooldown_seconds = settings.AUTH_PHONE_VERIFICATION_COOLDOWN_SECONDS
+    latest_active = (
+        PhoneVerificationChallenge.objects.filter(
+            user=user,
+            status=PhoneVerificationStatus.PENDING,
+            superseded_at__isnull=True,
+            expires_at__gt=now,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if latest_active is not None:
+        elapsed = now - latest_active.created_at
+        if elapsed < timedelta(seconds=cooldown_seconds):
+            raise PhoneVerificationThrottleError("Phone verification requested too recently.")
+
+        PhoneVerificationChallenge.objects.filter(
+            user=user,
+            status=PhoneVerificationStatus.PENDING,
+            superseded_at__isnull=True,
+            expires_at__gt=now,
+        ).update(
+            status=PhoneVerificationStatus.SUPERSEDED,
+            superseded_at=now,
+        )
+
+    ttl = command.ttl or timedelta(seconds=settings.AUTH_PHONE_VERIFICATION_TTL_SECONDS)
+    max_attempts = command.max_attempts or settings.AUTH_PHONE_VERIFICATION_MAX_ATTEMPTS
+    if max_attempts <= 0:
+        raise AccountsAuthError("max_attempts must be positive.")
+
+    raw_code = f"{secrets.randbelow(1_000_000):06d}"
+    challenge = PhoneVerificationChallenge.objects.create(
+        user=user,
+        phone_number=user.phone_number,
+        provider=settings.PHONE_VERIFICATION_PROVIDER,
+        code_digest=digest_secret(raw_code),
+        encrypted_code=encrypt_delivery_secret(raw_code),
+        expires_at=now + ttl,
+        max_attempts=max_attempts,
+        requested_ip=command.ip_address,
+        requested_user_agent=command.user_agent,
+    )
+    enqueue_outbox_message(
+        OutboxCommand(
+            idempotency_key=f"phone-verification:{challenge.id}",
+            topic="sms.phone_verification_requested",
+            payload={
+                "user_id": str(user.id),
+                "phone_number": user.phone_number,
+                "delivery_secret_type": "phone_verification_code",
+                "delivery_secret_ref": str(challenge.id),
+                "secret_redacted": True,
+                "expires_at": challenge.expires_at.isoformat(),
+            },
+        )
+    )
+    record_audit_event(
+        AuditCommand(
+            actor=ActorRef("investor", str(user.id)),
+            action="auth.phone_verification_requested",
+            target_type="User",
+            target_id=str(user.id),
+            metadata={"provider": challenge.provider},
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="PhoneVerificationRequested",
+            aggregate_type="User",
+            aggregate_id=str(user.id),
+            payload={"challenge_id": str(challenge.id), "provider": challenge.provider},
+            idempotency_key=f"user:{user.id}:phone-verification:{challenge.id}:requested",
+        )
+    )
+    return PhoneVerificationRequestResult(challenge=challenge, raw_code=raw_code)
+
+
+def confirm_phone_verification(
+    command: PhoneVerificationConfirmCommand,
+) -> PhoneVerificationChallenge:
+    failure: AccountsAuthError | None = None
+    with transaction.atomic():
+        challenge = (
+            PhoneVerificationChallenge.objects.select_for_update()
+            .filter(id=command.challenge_id)
+            .first()
+        )
+        now = timezone.now()
+        if (
+            challenge is None
+            or challenge.status != PhoneVerificationStatus.PENDING
+            or challenge.expires_at <= now
+            or challenge.superseded_at is not None
+        ):
+            if (
+                challenge is not None
+                and challenge.status == PhoneVerificationStatus.PENDING
+                and challenge.expires_at <= now
+            ):
+                challenge.status = PhoneVerificationStatus.EXPIRED
+                challenge.save(update_fields=["status", "updated_at"])
+            _audit_auth_failure(
+                action="auth.phone_verification_failed",
+                user_id=str(challenge.user_id) if challenge is not None else "",
+                metadata={"reason": "invalid_expired_or_superseded"},
+            )
+            failure = InvalidOrExpiredCodeError("Phone verification code is invalid or expired.")
+        elif challenge.attempts >= challenge.max_attempts:
+            _audit_auth_failure(
+                action="auth.phone_verification_failed",
+                user_id=str(challenge.user_id),
+                metadata={"reason": "too_many_attempts"},
+            )
+            failure = TooManyCodeAttemptsError("Phone verification attempt limit exceeded.")
+        elif not secrets.compare_digest(challenge.code_digest, digest_secret(command.raw_code)):
+            challenge.attempts += 1
+            if challenge.attempts >= challenge.max_attempts:
+                challenge.status = PhoneVerificationStatus.FAILED
+                challenge.save(update_fields=["attempts", "status", "updated_at"])
+                _audit_auth_failure(
+                    action="auth.phone_verification_failed",
+                    user_id=str(challenge.user_id),
+                    metadata={"reason": "too_many_attempts"},
+                )
+                failure = TooManyCodeAttemptsError(
+                    "Phone verification attempt limit exceeded."
+                )
+            else:
+                challenge.save(update_fields=["attempts", "updated_at"])
+                _audit_auth_failure(
+                    action="auth.phone_verification_failed",
+                    user_id=str(challenge.user_id),
+                    metadata={"reason": "invalid_code"},
+                )
+                failure = InvalidOrExpiredCodeError(
+                    "Phone verification code is invalid or expired."
+                )
+        elif failure is None:
+            challenge.attempts += 1
+            challenge.status = PhoneVerificationStatus.VERIFIED
+            challenge.verified_at = now
+            challenge.confirmed_ip = command.ip_address
+            challenge.confirmed_user_agent = command.user_agent
+            challenge.save(
+                update_fields=[
+                    "attempts",
+                    "status",
+                    "verified_at",
+                    "confirmed_ip",
+                    "confirmed_user_agent",
+                    "updated_at",
+                ]
+            )
+            challenge.user.phone_verified_at = now
+            challenge.user.save(update_fields=["phone_verified_at"])
+            record_audit_event(
+                AuditCommand(
+                    actor=ActorRef("investor", str(challenge.user_id)),
+                    action="auth.phone_verified",
+                    target_type="User",
+                    target_id=str(challenge.user_id),
+                    metadata={"challenge_id": str(challenge.id)},
+                )
+            )
+            record_domain_event(
+                DomainEventCommand(
+                    event_type="PhoneVerified",
+                    aggregate_type="User",
+                    aggregate_id=str(challenge.user_id),
+                    payload={"challenge_id": str(challenge.id)},
+                    idempotency_key=f"user:{challenge.user_id}:phone-verified",
+                )
+            )
+
+    if failure is not None:
+        raise failure
+    assert challenge is not None
+    return challenge
+
+
 def consume_sensitive_action_code(
     command: SensitiveActionCodeConsumeCommand,
 ) -> SensitiveActionCode:
@@ -446,3 +673,7 @@ def delivery_secret_for_magic_link(token: EmailLoginToken) -> str:
 
 def delivery_secret_for_sensitive_action_code(code_record: SensitiveActionCode) -> str:
     return decrypt_delivery_secret(code_record.encrypted_code)
+
+
+def delivery_secret_for_phone_verification(challenge: PhoneVerificationChallenge) -> str:
+    return decrypt_delivery_secret(challenge.encrypted_code)

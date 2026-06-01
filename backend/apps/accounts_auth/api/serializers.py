@@ -42,5 +42,21 @@ class AuthenticatedUserResponseSerializer(serializers.Serializer[Any]):
     user = UserSummarySerializer()
 
 
+class PhoneVerificationRequestResponseSerializer(serializers.Serializer[Any]):
+    challenge_id = serializers.UUIDField(allow_null=True)
+    status = serializers.CharField()
+    expires_at = serializers.DateTimeField(allow_null=True)
+    phone_verified = serializers.BooleanField()
+
+
+class PhoneVerificationConfirmRequestSerializer(serializers.Serializer[Any]):
+    challenge_id = serializers.UUIDField()
+    code = serializers.RegexField(regex=r"^\d{6}$")
+
+
+class PhoneVerificationConfirmResponseSerializer(serializers.Serializer[Any]):
+    user = UserSummarySerializer()
+
+
 def serialize_user(user: User) -> dict[str, Any]:
     return dict(UserSummarySerializer(user).data)
