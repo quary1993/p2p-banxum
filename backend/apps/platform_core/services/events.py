@@ -74,6 +74,16 @@ def enqueue_outbox_message(command: OutboxCommand) -> OutboxMessage:
 
 
 @transaction.atomic
+def record_event_and_enqueue(
+    event_command: DomainEventCommand,
+    outbox_command: OutboxCommand,
+) -> tuple[DomainEvent, OutboxMessage]:
+    domain_event = record_domain_event(event_command)
+    outbox_message = enqueue_outbox_message(outbox_command)
+    return domain_event, outbox_message
+
+
+@transaction.atomic
 def mark_outbox_processed(message: OutboxMessage) -> OutboxMessage:
     message.status = OutboxStatus.PROCESSED
     message.processed_at = timezone.now()
@@ -86,7 +96,7 @@ def mark_outbox_processed(message: OutboxMessage) -> OutboxMessage:
 def mark_outbox_failed(message: OutboxMessage, error: str) -> OutboxMessage:
     message.attempts += 1
     message.last_error = error[:4000]
-    if message.attempts >= len(RETRY_DELAYS):
+    if message.attempts > len(RETRY_DELAYS):
         message.status = OutboxStatus.DEAD_LETTER
         message.next_attempt_at = None
     else:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -21,6 +22,8 @@ class Money:
     currency: str
 
     def __post_init__(self) -> None:
+        if type(self.amount_minor) is not int:
+            raise MoneyError("Money amount_minor must be an integer minor-unit amount.")
         object.__setattr__(self, "currency", normalize_currency(self.currency))
 
     def _assert_same_currency(self, other: Money) -> None:
@@ -75,3 +78,35 @@ class Rate:
 
     def apply_to_minor_units(self, amount_minor: int, *, rounding: str = ROUND_HALF_UP) -> int:
         return int((Decimal(amount_minor) * self.value).quantize(Decimal("1"), rounding=rounding))
+
+
+def allocate_by_weights(total: Money, weights: Sequence[int]) -> list[Money]:
+    if total.amount_minor < 0:
+        raise MoneyError("Cannot allocate a negative amount.")
+    if not weights:
+        raise MoneyError("At least one allocation weight is required.")
+    if any(type(weight) is not int for weight in weights):
+        raise MoneyError("Allocation weights must be integers.")
+    if any(weight < 0 for weight in weights):
+        raise MoneyError("Allocation weights cannot be negative.")
+
+    weight_sum = sum(weights)
+    if weight_sum <= 0:
+        raise MoneyError("At least one allocation weight must be positive.")
+
+    raw_products = [total.amount_minor * weight for weight in weights]
+    base_amounts = [product // weight_sum for product in raw_products]
+    remainders = [product % weight_sum for product in raw_products]
+    residue = total.amount_minor - sum(base_amounts)
+
+    ranked_indexes = sorted(range(len(weights)), key=lambda index: (-remainders[index], index))
+    for index in ranked_indexes[:residue]:
+        base_amounts[index] += 1
+
+    return [Money(amount, total.currency) for amount in base_amounts]
+
+
+def split_evenly(total: Money, parts: int) -> list[Money]:
+    if type(parts) is not int or parts <= 0:
+        raise MoneyError("parts must be a positive integer.")
+    return allocate_by_weights(total, [1] * parts)
