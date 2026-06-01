@@ -5,6 +5,7 @@ UV ?= uv
 NPM ?= npm
 COMPOSE ?= docker compose
 TEST ?=
+MIGRATION_CHECK_DATABASE_URL ?= sqlite:///:memory:
 
 .PHONY: setup up down test test-backend test-frontend lint lint-backend lint-frontend lint-imports typecheck typecheck-backend typecheck-frontend migrate migration-check seed api-schema api-client check-generated agent-check backend-run frontend-run docker-build frontend-build
 
@@ -55,7 +56,7 @@ migrate:
 	$(UV) run python backend/manage.py migrate
 
 migration-check:
-	$(UV) run python backend/manage.py makemigrations --check --dry-run
+	DATABASE_URL="$(MIGRATION_CHECK_DATABASE_URL)" $(UV) run python backend/manage.py makemigrations --check --dry-run
 
 seed:
 	$(UV) run python backend/manage.py seed_demo
@@ -67,8 +68,14 @@ api-schema:
 api-client:
 	cd frontend && $(NPM) run api:generate
 
-check-generated: api-schema api-client
-	git diff --exit-code openapi/schema.yaml frontend/src/api/generated
+check-generated:
+	@before=$$(mktemp); after=$$(mktemp); \
+	trap 'rm -f "$$before" "$$after"' EXIT; \
+	git diff --no-ext-diff HEAD -- openapi/schema.yaml frontend/src/api/generated > "$$before"; \
+	$(MAKE) api-schema; \
+	$(MAKE) api-client; \
+	git diff --no-ext-diff HEAD -- openapi/schema.yaml frontend/src/api/generated > "$$after"; \
+	diff -u "$$before" "$$after"
 
 frontend-build:
 	cd frontend && $(NPM) run build

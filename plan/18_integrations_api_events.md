@@ -319,7 +319,7 @@ Reporting should be designed as on-demand admin exports at launch, with report d
 7. Answered by SEC-DEC-002/SEC-DEC-003: launch events/logs are append-only and not deleted; financial records are retained for at least 10 years, and granular cleanup/archive policy is future scope.
 8. Answered by KYC-DEC-007 and KYC-DEC-005: no Didit ongoing-monitoring webhook/status events are consumed by the platform in v1. Didit handles provider-side monitoring where enabled, and Garanta handles resulting account actions manually/off-platform. Launch onboarding webhooks, report downloads, raw payload retention where possible, provider references, and local evidence exports remain in scope.
 9. Answered by RPT-DEC-004: no BI/data warehouse is required at launch, but events and reporting exports should be structured for later BI.
-10. Answered for planning: sender domain and SendGrid/Twilio production account details are TBD and tracked in ADMIN_TODO.
+10. Answered for planning: sender domain and SendGrid/Twilio production account details are TBD and tracked in `admin_todo_accounts.md`.
 11. Updated by ACC-DEC-001/ACC-DEC-002/ACC-DEC-008: investor authentication uses magic-link email events plus sensitive-action email-code events; admin authentication uses database admin users plus email-code events; initial superadmin credentials are environment-configured.
 12. Answered by INT-DEC-003: Didit integration UX remains flexible.
 13. Answered by INT-DEC-006: banking/payment integration is manual at launch and future-ready for automation.

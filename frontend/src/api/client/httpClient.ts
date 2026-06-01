@@ -3,12 +3,14 @@ export const httpClient = async <T>({
   method,
   data,
   params,
+  headers,
   signal
 }: {
   url: string;
   method: string;
   data?: unknown;
   params?: Record<string, unknown>;
+  headers?: HeadersInit;
   signal?: AbortSignal;
 }): Promise<T> => {
   const apiBaseUrl = typeof window === "undefined" ? "http://localhost:8000" : window.location.origin;
@@ -23,9 +25,11 @@ export const httpClient = async <T>({
   const response = await fetch(requestUrl, {
     method,
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      ...headers
     },
     body: data === undefined ? undefined : JSON.stringify(data),
+    credentials: "same-origin",
     signal
   });
 

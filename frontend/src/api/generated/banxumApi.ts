@@ -6,16 +6,20 @@
  * OpenAPI spec version: 0.1.0
  */
 import {
+  useMutation,
   useQuery
 } from '@tanstack/react-query';
 import type {
   DataTag,
   DefinedInitialDataOptions,
   DefinedUseQueryResult,
+  MutationFunction,
   QueryClient,
   QueryFunction,
   QueryKey,
   UndefinedInitialDataOptions,
+  UseMutationOptions,
+  UseMutationResult,
   UseQueryOptions,
   UseQueryResult
 } from '@tanstack/react-query';
@@ -34,6 +38,10 @@ import type {
 } from 'msw';
 
 import { httpClient } from '../client/httpClient';
+export interface AuthenticatedUserResponse {
+  user: UserSummary;
+}
+
 export interface HealthResponse {
   status: string;
   platform: string;
@@ -42,6 +50,305 @@ export interface HealthResponse {
   environment: string;
 }
 
+export interface MagicLinkConsume {
+  token: string;
+}
+
+export interface MagicLinkRequest {
+  email: string;
+}
+
+export interface NaturalPersonRegistrationRequest {
+  email: string;
+  /** @maxLength 255 */
+  full_name: string;
+  /** @maxLength 32 */
+  phone_number: string;
+  /** @maxLength 64 */
+  terms_version: string;
+  /** @maxLength 128 */
+  terms_hash: string;
+  marketing_consent?: boolean;
+}
+
+export interface NaturalPersonRegistrationResponse {
+  user: UserSummary;
+}
+
+export interface UserSummary {
+  id: string;
+  email: string;
+  full_name: string;
+  account_type: string;
+  status: string;
+  phone_verified: boolean;
+  marketing_consent: boolean;
+}
+
+export const v1AuthMagicLinkConsumeCreate = (
+    magicLinkConsume: MagicLinkConsume,
+ signal?: AbortSignal
+) => {
+      
+      
+      return httpClient<AuthenticatedUserResponse>(
+      {url: `/api/v1/auth/magic-link/consume/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: magicLinkConsume, signal
+    },
+      );
+    }
+  
+
+
+export const getV1AuthMagicLinkConsumeCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthMagicLinkConsumeCreate>>, TError,{data: MagicLinkConsume}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthMagicLinkConsumeCreate>>, TError,{data: MagicLinkConsume}, TContext> => {
+
+const mutationKey = ['v1AuthMagicLinkConsumeCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthMagicLinkConsumeCreate>>, {data: MagicLinkConsume}> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthMagicLinkConsumeCreate(data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthMagicLinkConsumeCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthMagicLinkConsumeCreate>>>
+    export type V1AuthMagicLinkConsumeCreateMutationBody = MagicLinkConsume
+    export type V1AuthMagicLinkConsumeCreateMutationError = unknown
+
+    export const useV1AuthMagicLinkConsumeCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthMagicLinkConsumeCreate>>, TError,{data: MagicLinkConsume}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthMagicLinkConsumeCreate>>,
+        TError,
+        {data: MagicLinkConsume},
+        TContext
+      > => {
+
+      const mutationOptions = getV1AuthMagicLinkConsumeCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    
+export const v1AuthMagicLinkRequestCreate = (
+    magicLinkRequest: MagicLinkRequest,
+ signal?: AbortSignal
+) => {
+      
+      
+      return httpClient<void>(
+      {url: `/api/v1/auth/magic-link/request/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: magicLinkRequest, signal
+    },
+      );
+    }
+  
+
+
+export const getV1AuthMagicLinkRequestCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthMagicLinkRequestCreate>>, TError,{data: MagicLinkRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthMagicLinkRequestCreate>>, TError,{data: MagicLinkRequest}, TContext> => {
+
+const mutationKey = ['v1AuthMagicLinkRequestCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthMagicLinkRequestCreate>>, {data: MagicLinkRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthMagicLinkRequestCreate(data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthMagicLinkRequestCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthMagicLinkRequestCreate>>>
+    export type V1AuthMagicLinkRequestCreateMutationBody = MagicLinkRequest
+    export type V1AuthMagicLinkRequestCreateMutationError = unknown
+
+    export const useV1AuthMagicLinkRequestCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthMagicLinkRequestCreate>>, TError,{data: MagicLinkRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthMagicLinkRequestCreate>>,
+        TError,
+        {data: MagicLinkRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1AuthMagicLinkRequestCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    
+export const v1AuthMeRetrieve = (
+    
+ signal?: AbortSignal
+) => {
+      
+      
+      return httpClient<AuthenticatedUserResponse>(
+      {url: `/api/v1/auth/me/`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getV1AuthMeRetrieveQueryKey = () => {
+    return [
+    `/api/v1/auth/me/`
+    ] as const;
+    }
+
+    
+export const getV1AuthMeRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1AuthMeRetrieve>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthMeRetrieve>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1AuthMeRetrieveQueryKey();
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AuthMeRetrieve>>> = ({ signal }) => v1AuthMeRetrieve(signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AuthMeRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1AuthMeRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1AuthMeRetrieve>>>
+export type V1AuthMeRetrieveQueryError = unknown
+
+
+export function useV1AuthMeRetrieve<TData = Awaited<ReturnType<typeof v1AuthMeRetrieve>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthMeRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AuthMeRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1AuthMeRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AuthMeRetrieve<TData = Awaited<ReturnType<typeof v1AuthMeRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthMeRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AuthMeRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1AuthMeRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AuthMeRetrieve<TData = Awaited<ReturnType<typeof v1AuthMeRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthMeRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1AuthMeRetrieve<TData = Awaited<ReturnType<typeof v1AuthMeRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthMeRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1AuthMeRetrieveQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1AuthRegisterNaturalPersonCreate = (
+    naturalPersonRegistrationRequest: NaturalPersonRegistrationRequest,
+ signal?: AbortSignal
+) => {
+      
+      
+      return httpClient<NaturalPersonRegistrationResponse>(
+      {url: `/api/v1/auth/register/natural-person/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: naturalPersonRegistrationRequest, signal
+    },
+      );
+    }
+  
+
+
+export const getV1AuthRegisterNaturalPersonCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthRegisterNaturalPersonCreate>>, TError,{data: NaturalPersonRegistrationRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthRegisterNaturalPersonCreate>>, TError,{data: NaturalPersonRegistrationRequest}, TContext> => {
+
+const mutationKey = ['v1AuthRegisterNaturalPersonCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthRegisterNaturalPersonCreate>>, {data: NaturalPersonRegistrationRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthRegisterNaturalPersonCreate(data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthRegisterNaturalPersonCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthRegisterNaturalPersonCreate>>>
+    export type V1AuthRegisterNaturalPersonCreateMutationBody = NaturalPersonRegistrationRequest
+    export type V1AuthRegisterNaturalPersonCreateMutationError = unknown
+
+    export const useV1AuthRegisterNaturalPersonCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthRegisterNaturalPersonCreate>>, TError,{data: NaturalPersonRegistrationRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthRegisterNaturalPersonCreate>>,
+        TError,
+        {data: NaturalPersonRegistrationRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1AuthRegisterNaturalPersonCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    
 export const v1HealthRetrieve = (
     
  signal?: AbortSignal
@@ -126,8 +433,60 @@ export function useV1HealthRetrieve<TData = Awaited<ReturnType<typeof v1HealthRe
 }
 
 
+export const getV1AuthMagicLinkConsumeCreateResponseMock = (overrideResponse: Partial< AuthenticatedUserResponse > = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
+
+export const getV1AuthMeRetrieveResponseMock = (overrideResponse: Partial< AuthenticatedUserResponse > = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
+
+export const getV1AuthRegisterNaturalPersonCreateResponseMock = (overrideResponse: Partial< NaturalPersonRegistrationResponse > = {}): NaturalPersonRegistrationResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
+
 export const getV1HealthRetrieveResponseMock = (overrideResponse: Partial< HealthResponse > = {}): HealthResponse => ({status: faker.string.alpha({length: {min: 10, max: 20}}), platform: faker.string.alpha({length: {min: 10, max: 20}}), operator: faker.string.alpha({length: {min: 10, max: 20}}), timezone: faker.string.alpha({length: {min: 10, max: 20}}), environment: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
+
+export const getV1AuthMagicLinkConsumeCreateMockHandler = (overrideResponse?: AuthenticatedUserResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AuthenticatedUserResponse> | AuthenticatedUserResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/magic-link/consume/', async (info) => {await delay(1000);
+  
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthMagicLinkConsumeCreateResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1AuthMagicLinkRequestCreateMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/magic-link/request/', async (info) => {await delay(1000);
+  if (typeof overrideResponse === 'function') {await overrideResponse(info); }
+    return new HttpResponse(null,
+      { status: 202,
+        
+      })
+  }, options)
+}
+
+export const getV1AuthMeRetrieveMockHandler = (overrideResponse?: AuthenticatedUserResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AuthenticatedUserResponse> | AuthenticatedUserResponse), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/auth/me/', async (info) => {await delay(1000);
+  
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthMeRetrieveResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1AuthRegisterNaturalPersonCreateMockHandler = (overrideResponse?: NaturalPersonRegistrationResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<NaturalPersonRegistrationResponse> | NaturalPersonRegistrationResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/register/natural-person/', async (info) => {await delay(1000);
+  
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthRegisterNaturalPersonCreateResponseMock()),
+      { status: 201,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
 
 export const getV1HealthRetrieveMockHandler = (overrideResponse?: HealthResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<HealthResponse> | HealthResponse), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/health/', async (info) => {await delay(1000);
@@ -141,5 +500,9 @@ export const getV1HealthRetrieveMockHandler = (overrideResponse?: HealthResponse
   }, options)
 }
 export const getBanxumApiMock = () => [
+  getV1AuthMagicLinkConsumeCreateMockHandler(),
+  getV1AuthMagicLinkRequestCreateMockHandler(),
+  getV1AuthMeRetrieveMockHandler(),
+  getV1AuthRegisterNaturalPersonCreateMockHandler(),
   getV1HealthRetrieveMockHandler()
 ]

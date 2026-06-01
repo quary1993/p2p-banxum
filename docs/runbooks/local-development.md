@@ -31,6 +31,8 @@ make frontend-run
 
 `make up` runs backend migrations before starting the backend container. When running without Docker, run `make migrate` yourself before `make backend-run`.
 
+If an old local SQLite database was created before the custom accounts user model existed, delete `db.sqlite3` and rerun `make migrate`. This does not affect PostgreSQL-backed staging or production databases.
+
 ## Handoff Checks
 
 ```bash

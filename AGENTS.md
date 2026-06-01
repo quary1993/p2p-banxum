@@ -5,6 +5,7 @@ This repository implements BANXUM, a Swiss P2P lending platform operated by Gara
 ## Working Rules
 
 - Read the relevant planning module before editing implementation files.
+- Use `IMPLEMENTATION_PLAN.md` and `AGENTS.md` as the engineering source of truth. Do not create persistent audit reports, completed work-item files, or app-local README stubs; merge durable decisions into the canonical docs instead.
 - Keep implementation slices narrow and module-owned.
 - Put business mutations in services, not in Django model `save()` methods, serializers, views, or signals.
 - Financial mutations must be append-only, transaction-safe, and covered by focused tests before handoff.

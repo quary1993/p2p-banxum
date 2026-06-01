@@ -4,6 +4,88 @@ info:
   version: 0.1.0
   description: Internal API for BANXUM investor and admin portals.
 paths:
+  /api/v1/auth/magic-link/consume/:
+    post:
+      operationId: v1_auth_magic_link_consume_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MagicLinkConsume'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MagicLinkConsume'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MagicLinkConsume'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticatedUserResponse'
+          description: ''
+  /api/v1/auth/magic-link/request/:
+    post:
+      operationId: v1_auth_magic_link_request_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MagicLinkRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MagicLinkRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MagicLinkRequest'
+        required: true
+      responses:
+        '202':
+          description: No response body
+  /api/v1/auth/me/:
+    get:
+      operationId: v1_auth_me_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticatedUserResponse'
+          description: ''
+  /api/v1/auth/register/natural-person/:
+    post:
+      operationId: v1_auth_register_natural_person_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NaturalPersonRegistrationRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/NaturalPersonRegistrationRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/NaturalPersonRegistrationRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NaturalPersonRegistrationResponse'
+          description: ''
   /api/v1/health/:
     get:
       operationId: v1_health_retrieve
@@ -18,6 +100,13 @@ paths:
           description: ''
 components:
   schemas:
+    AuthenticatedUserResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/UserSummary'
+      required:
+      - user
     HealthResponse:
       type: object
       properties:
@@ -37,3 +126,84 @@ components:
       - platform
       - status
       - timezone
+    MagicLinkConsume:
+      type: object
+      properties:
+        token:
+          type: string
+      required:
+      - token
+    MagicLinkRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+      required:
+      - email
+    NaturalPersonRegistrationRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        full_name:
+          type: string
+          maxLength: 255
+        phone_number:
+          type: string
+          maxLength: 32
+        terms_version:
+          type: string
+          maxLength: 64
+        terms_hash:
+          type: string
+          maxLength: 128
+        marketing_consent:
+          type: boolean
+          default: false
+      required:
+      - email
+      - full_name
+      - phone_number
+      - terms_hash
+      - terms_version
+    NaturalPersonRegistrationResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/UserSummary'
+      required:
+      - user
+    UserSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        full_name:
+          type: string
+        account_type:
+          type: string
+        status:
+          type: string
+        phone_verified:
+          type: boolean
+        marketing_consent:
+          type: boolean
+      required:
+      - account_type
+      - email
+      - full_name
+      - id
+      - marketing_consent
+      - phone_verified
+      - status
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid

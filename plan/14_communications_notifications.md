@@ -379,7 +379,7 @@ Regards,
 3. Answered by COMMS-DEC-002: marketing sending is future scope, but v1 captures optional marketing consent and maintains SendGrid lists/audiences for future newsletters.
 4. Answered by COMMS-DEC-003: all transactional emails are mandatory where legally permitted, including account/KYC, investment, document, balance, repayment, withdrawal/FX, late/default/recovery, terms, and user-involved secondary-market transaction emails.
 5. Partly answered by RISK-DEC-004: arrears/default investor updates may be sent by bulk email and/or public loan note when something material changes; borrower outreach remains offline and is not structured in v1.
-6. Answered for planning: sender domain is TBD and tracked in ADMIN_TODO.
+6. Answered for planning: sender domain is TBD and tracked in `admin_todo_accounts.md`.
 7. Answered by COMMS-DEC-001: SendGrid is the launch email provider; Twilio is used for phone verification.
 8. Answered by COMMS-DEC-006: no support tickets at launch; normal email support is enough and support email should be exposed on the site/FAQ.
 9. Answered by COMMS-DEC-004: failed emails retry a few times, then create an admin notification/task; full sent email content is stored.

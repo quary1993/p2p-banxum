@@ -1,13 +1,42 @@
 # BANXUM V1 Implementation Plan
 
 Status: Implementation blueprint, agent-optimized.
-Last updated: 2026-05-30.
+Last updated: 2026-06-01.
 
 This document turns the completed `/plan` documentation into an engineering implementation plan for the first production version of BANXUM.
 
-The plan assumes Garanta Finanzgruppe AG operates the platform as a Swiss VQF-affiliated entity for the documented activities, and that the final legal, banking, accounting, technical, account/access, and provider-specific TODOs will be closed before handling real client money. The TODOs are split into `admin_todo_garanta.md`, `admin_todo_accounts.md`, and `admin_todo_tech.md`, with `ADMIN_TODO.md` kept as an index.
+The plan assumes Garanta Finanzgruppe AG operates the platform as a Swiss VQF-affiliated entity for the documented activities, and that the final legal, banking, accounting, technical, account/access, and provider-specific TODOs will be closed before handling real client money. The TODOs are split into `admin_todo_garanta.md`, `admin_todo_accounts.md`, and `admin_todo_tech.md`.
 
 Authoritative business timezone: Europe/Zurich. Store timestamps in UTC, but calculate and render business deadlines, reminders, funding cutoffs, late/default statuses, penalties, day buckets, and reports using Europe/Zurich unless a module explicitly overrides it.
+
+## 0. Documentation Policy
+
+Canonical documentation is intentionally small:
+
+- `/plan/*.md`: product, compliance, and operating-model decisions from the Q/A process.
+- `IMPLEMENTATION_PLAN.md`: engineering architecture, module order, implementation status, durable deferrals, and technical decisions.
+- `AGENTS.md`: short working rules and command guide for coding agents.
+- `admin_todo_garanta.md`, `admin_todo_accounts.md`, and `admin_todo_tech.md`: unresolved or go-live TODOs by audience.
+- `docs/runbooks/*`: operational procedures that must stay executable.
+- `docs/claude-design/TODO.md`: UI/UX polish handoff items.
+
+Resolved audits, completed work-item specs, boilerplate module READMEs, and temporary notes should not remain as separate files. Durable decisions from those artifacts must be merged into the canonical documents above, then the temporary file should be deleted.
+
+## 0.1 Implementation Status
+
+Implemented and committed:
+
+- Phase 0 bootstrap: Django/React scaffold, CI, `make agent-check`, OpenAPI generation, generated frontend client, MSW setup, import-boundary checks, local Docker Compose, and app smoke tests.
+- Phase 1 platform core foundation: currency registry, money/rate/time primitives, platform settings, audit events, domain events, outbox retry/idempotency, stored-file metadata/access checks, and DB-level append-only guards.
+- Phase 2 first accounts/auth slice: custom user model, natural-person lender registration record, registration terms acceptance evidence, magic-link login tokens, sensitive-action email codes, basic session auth API endpoints, and focused tests.
+
+Accepted implementation deferrals from the platform-core audit:
+
+- Numeric balance penalty settings are deferred to the ledger/balance-ageing module because penalties must be posted through ledger entries, ageing lots, and accounting metadata. Until then `balance.penalty_policy_display` is display-only.
+- Migration-seeded default platform settings are deferred to the admin/settings module because several launch settings remain deployment-specific. Until a verified settings bootstrap gate exists, deployments must run the seed command after migrations.
+- Outbox claim/dispatch with `select_for_update(skip_locked)` is deferred to the background worker module. The current module owns the durable record, retry schedule, and idempotent enqueue behavior.
+- Stored-file `infected`/`failed` scan transitions and audit events are deferred to the storage/scanner adapter module.
+- Strict setting `value_type` schema validation is deferred to the superadmin settings UI and settings registry module.
 
 ## 1. Review Outcome
 
@@ -35,7 +64,6 @@ All written planning files were reviewed one by one:
 - `plan/19_infrastructure_devops.md`
 - `plan/20_qna_workflow.md`
 - `plan/21_consistency_review.md`
-- `ADMIN_TODO.md`
 - `admin_todo_garanta.md`
 - `admin_todo_accounts.md`
 - `admin_todo_tech.md`
@@ -233,8 +261,7 @@ The implementation should include these tools from the first sprint:
 - Orval configuration committed under the frontend workspace so `make api-client` is deterministic.
 - CI fails if the generated OpenAPI schema or Orval-generated frontend client is stale.
 - Backend and frontend fixture/seed factories that create realistic domain objects without calling real providers.
-- A `docs/work-items/` folder for implementation task specs when work is split across agents.
-- A `docs/adr/` folder for architecture decision records.
+- Temporary implementation task specs are allowed only for active multi-agent work and should be merged into this plan or deleted when resolved.
 - A `docs/runbooks/` folder for operations, deployment, backups, reconciliation, and go-live procedures.
 
 ## 5. Architectural Principles
@@ -340,13 +367,12 @@ Use workflow records with:
 
 ## 6. Domain Modules
 
-Implement the monolith as Django apps or internal packages with clear ownership. Each module must have a small README that explains what the module owns, what it may import, which services are public to other modules, which events it emits, and which tests protect its invariants.
+Implement the monolith as Django apps or internal packages with clear ownership. Module ownership is defined in this section, `AGENTS.md`, public service/selector modules, import-boundary checks, and focused tests. Avoid app-local boilerplate READMEs unless a module has genuinely unusual operational behavior that cannot live in this plan or a runbook.
 
 Preferred backend module layout:
 
 ```text
 backend/apps/<module>/
-  README.md
   models/
   migrations/
   services/
@@ -399,20 +425,6 @@ frontend/src/
     auth/
     permissions/
 ```
-
-Agent-facing module README template:
-
-- Purpose.
-- Owned tables/models.
-- Public services/selectors.
-- API endpoints.
-- Background jobs.
-- Domain events emitted/consumed.
-- Ledger impact, if any.
-- Permission rules.
-- Important invariants.
-- Common tests and fixtures.
-- Non-goals/out-of-scope behavior.
 
 Import-boundary rule:
 
@@ -815,8 +827,7 @@ Tasks:
 - Add frontend linting, formatting, typing, and test tooling.
 - Add Docker Compose for local PostgreSQL, Redis, object storage, mail sink, and app containers.
 - Add base CI workflow in GitHub Actions.
-- Add ADR folder for architectural decisions.
-- Add `docs/work-items/`, `docs/runbooks/`, and module README template.
+- Add `docs/runbooks/` for durable operating procedures.
 - Add secure settings structure for local, staging, and production.
 - Add seed command for local development users and example data.
 - Add engineering rules for financial mutations, migrations, logging, and test requirements.
@@ -833,7 +844,7 @@ Acceptance criteria:
 - Secrets are not committed.
 - Agents have a single source of truth for commands, module boundaries, and handoff checks.
 - Backend schema generation and frontend API client generation work locally and in CI.
-- A new domain module can be scaffolded with the expected README/test/service layout.
+- A new domain module can be scaffolded with the expected test/service/selector layout.
 
 Tests:
 
@@ -2398,7 +2409,7 @@ Do not enable production real-money operations until these are complete:
 ## 20. Suggested Implementation Order Summary
 
 1. Bootstrap project, CI, Docker, settings, and deployment skeleton.
-2. Add agent-facing repo conventions: `AGENTS.md`, Makefile commands, module templates, import boundaries, OpenAPI generation, generated frontend client, MSW mocks, and fixture conventions.
+2. Add agent-facing repo conventions: `AGENTS.md`, Makefile commands, import boundaries, OpenAPI generation, generated frontend client, MSW mocks, and fixture conventions.
 3. Build foundation primitives: money, config, audit, events, files, jobs.
 4. Build accounts, auth, KYC, phone verification, and role gates.
 5. Build admin portal shell and configuration.

@@ -1,6 +1,6 @@
 # BANXUM Planning Index
 
-Status: Module-by-module Q/A completed for current scope; remaining launch inputs are tracked in ADMIN_TODO.
+Status: Module-by-module Q/A completed for current scope; remaining launch inputs are tracked in the split admin TODO files.
 
 BANXUM is planned as a peer-to-peer lending platform operated by Garanta Finanzgruppe AG, a FINMA-regulated Swiss entity. The planning approach is to split the business and technology platform into modules, document each module, then review each module through a Q/A session before marking it as requirements-ready.
 
