@@ -343,6 +343,7 @@ Production/staging note:
 
 - Set `CACHE_URL` or environment-specific `REDIS_URL` to a shared Redis instance/database so rate limits are enforced across all app workers.
 - Set dedicated `AUTH_DELIVERY_SECRET_ENCRYPTION_KEY` and `AUTH_SECRET_DIGEST_PEPPER`. If these are left empty, local fallback derives short-lived token/code encryption and digests from `DJANGO_SECRET_KEY`; this is acceptable for local development but couples in-flight auth secrets to `DJANGO_SECRET_KEY` rotation.
+- Set `DIDIT_WEBHOOK_SECRET` and keep `DIDIT_WEBHOOK_REQUIRE_SIGNATURE=true` for staging and production. The application hard-requires signed Didit webhooks outside local development and deploy checks fail unsafe non-local configurations.
 
 ### Template Variable Registry Validation
 

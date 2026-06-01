@@ -18,6 +18,7 @@ Provide:
 - Didit sandbox account access.
 - Sandbox API credentials.
 - Sandbox webhook signing secret or verification configuration.
+- Confirmation that staging/sandbox Didit webhooks are signed and that the platform should reject unsigned sandbox/staging webhooks.
 - Didit workflow ID for natural-person lender onboarding.
 - Confirmation of the chosen Didit flow: hosted redirect, iframe, SDK, or mixed flow.
 - Callback/webhook URL requirements from Didit.
@@ -177,6 +178,7 @@ Provide:
 
 - Didit production account access and production API credentials.
 - Didit production webhook signing secret.
+- Confirmation that production Didit webhook signatures are enabled and must be required by the platform.
 - Didit production report download/export permissions.
 - Didit production webhook/report retention settings.
 - SendGrid production transactional email API key.

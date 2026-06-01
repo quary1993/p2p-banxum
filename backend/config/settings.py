@@ -165,7 +165,7 @@ DIDIT_MOCK_VERIFICATION_BASE_URL = env(
 DIDIT_WEBHOOK_SECRET = env("DIDIT_WEBHOOK_SECRET", default="")
 DIDIT_WEBHOOK_REQUIRE_SIGNATURE = env.bool(
     "DIDIT_WEBHOOK_REQUIRE_SIGNATURE",
-    default=IS_PRODUCTION,
+    default=ENVIRONMENT != "local",
 )
 REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")
 CACHE_URL = env(

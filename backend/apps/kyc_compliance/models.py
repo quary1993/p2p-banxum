@@ -5,7 +5,7 @@ import uuid
 from django.conf import settings
 from django.db import models
 
-from backend.apps.platform_core.models.base import TimestampedModel
+from backend.apps.platform_core.models.base import AppendOnlyModel, TimestampedModel
 
 
 class KycSubjectType(models.TextChoices):
@@ -121,8 +121,7 @@ class KycProviderSession(TimestampedModel):
         ]
 
 
-class KycProviderEvent(TimestampedModel):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+class KycProviderEvent(AppendOnlyModel, TimestampedModel):
     case = models.ForeignKey(
         KycVerificationCase,
         on_delete=models.PROTECT,

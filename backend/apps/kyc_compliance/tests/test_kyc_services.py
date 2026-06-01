@@ -11,6 +11,7 @@ from django.db.models import Model
 from django.test import Client
 from django.utils import timezone
 
+from backend.apps.kyc_compliance.checks import check_didit_webhook_signature_config
 from backend.apps.kyc_compliance.models import (
     KycProviderEvent,
     KycProviderSession,
@@ -23,8 +24,10 @@ from backend.apps.kyc_compliance.services import (
     create_kyc_session,
     process_didit_event,
     user_can_access_financial_features,
+    verify_didit_webhook_signature,
 )
 from backend.apps.platform_core.models import AuditEvent, DomainEvent
+from backend.apps.platform_core.models.base import AppendOnlyViolation
 
 
 def create_lender(email: str = "investor@example.test") -> Model:
@@ -178,6 +181,31 @@ def test_didit_event_processing_is_idempotent() -> None:
 
 
 @pytest.mark.django_db
+def test_provider_events_are_append_only() -> None:
+    user = create_lender()
+    session_result = create_kyc_session(CreateKycSessionCommand(user=user))
+    assert session_result.session is not None
+    result = process_didit_event(
+        ProviderKycEventCommand(
+            provider_event_id="didit-event-append-only",
+            provider_event_type="verification.processing",
+            provider_status="processing",
+            provider_session_id=session_result.session.provider_session_id,
+            vendor_data=f"user:{user.pk}",
+            raw_payload={"id": "didit-event-append-only"},
+        )
+    )
+
+    result.event.provider_status = "approved"
+    with pytest.raises(AppendOnlyViolation):
+        result.event.save()
+    with pytest.raises(AppendOnlyViolation):
+        KycProviderEvent.objects.filter(id=result.event.id).update(provider_status="approved")
+    with pytest.raises(AppendOnlyViolation):
+        KycProviderEvent.objects.filter(id=result.event.id).delete()
+
+
+@pytest.mark.django_db
 def test_kyc_status_and_session_api_flow(client: Client) -> None:
     user = create_lender()
     client.force_login(cast(Any, user))
@@ -235,3 +263,38 @@ def test_didit_webhook_requires_valid_signature_when_configured(
     assert invalid.status_code == 403
     assert valid.status_code == 202
     assert valid.json()["status"] == KycStatus.APPROVED
+
+
+def test_didit_webhook_signature_is_required_outside_local_even_if_env_disables_it(
+    settings: Any,
+) -> None:
+    settings.ENVIRONMENT = "production"
+    settings.DIDIT_WEBHOOK_REQUIRE_SIGNATURE = False
+    settings.DIDIT_WEBHOOK_SECRET = ""
+
+    assert verify_didit_webhook_signature(raw_body=b"{}", signature="") is False
+
+
+def test_didit_webhook_signature_uses_secret_outside_local_even_if_env_disables_it(
+    settings: Any,
+) -> None:
+    settings.ENVIRONMENT = "staging"
+    settings.DIDIT_WEBHOOK_REQUIRE_SIGNATURE = False
+    settings.DIDIT_WEBHOOK_SECRET = "test-secret"
+    body = b'{"id":"event"}'
+    signature = hmac.new(b"test-secret", body, hashlib.sha256).hexdigest()
+
+    assert verify_didit_webhook_signature(raw_body=body, signature="") is False
+    assert verify_didit_webhook_signature(raw_body=body, signature=signature) is True
+
+
+def test_didit_webhook_signature_system_check_flags_non_local_unsafe_config(
+    settings: Any,
+) -> None:
+    settings.ENVIRONMENT = "production"
+    settings.DIDIT_WEBHOOK_REQUIRE_SIGNATURE = False
+    settings.DIDIT_WEBHOOK_SECRET = ""
+
+    errors = check_didit_webhook_signature_config(None)
+
+    assert {error.id for error in errors} == {"kyc_compliance.E001", "kyc_compliance.E002"}

@@ -414,8 +414,12 @@ def user_can_access_financial_features(user: Model) -> bool:
 
 
 def verify_didit_webhook_signature(*, raw_body: bytes, signature: str) -> bool:
-    secret = settings.DIDIT_WEBHOOK_SECRET
-    if not secret and not settings.DIDIT_WEBHOOK_REQUIRE_SIGNATURE:
+    secret = str(settings.DIDIT_WEBHOOK_SECRET)
+    signature_required = (
+        bool(settings.DIDIT_WEBHOOK_REQUIRE_SIGNATURE)
+        or str(settings.ENVIRONMENT).lower() != "local"
+    )
+    if not signature_required:
         return True
     if not secret or not signature:
         return False

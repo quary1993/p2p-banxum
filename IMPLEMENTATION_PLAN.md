@@ -52,6 +52,10 @@ Recent audit dispositions:
 - Fixed-bucket throttle windows and cache `add`/`incr` behavior are accepted for v1 as low severity. They are sufficient for abuse friction and can be replaced by a stricter distributed-rate-limit backend if launch traffic or abuse patterns justify it.
 - Earlier platform-core audit items reported as still open are closed in the current codebase: outbox retry reaches the 48-hour delay and has sequence tests, append-only tables have DB triggers for PostgreSQL and SQLite, money allocation/splitting helpers have deterministic residue tests, and Zurich business-date helpers have tests.
 - Registration terms hash handling is closed for the current auth scope because the server validates submitted terms against configured canonical `REGISTRATION_TERMS_VERSION` and `REGISTRATION_TERMS_HASH`. The documents/templates module will later replace the settings-backed source with persisted template/version ownership.
+- Didit webhook signature enforcement was hardened. Non-local environments require a valid signature regardless of copied environment overrides, deploy checks flag missing/disabled Didit signature config, and env examples no longer pin an unsafe false value.
+- KYC provider events are append-only at the Django model/service layer. Stronger DB-level append-only guards for non-core regulatory evidence tables can be added with the broader evidence-storage hardening pass if needed.
+- Didit webhook `raw_payload` currently stores provider evidence as JSON in PostgreSQL. This is acceptable for the mock/internal foundation under encrypted infrastructure storage, but field-level encryption or restricted evidence-object storage is deferred to the KYC evidence-storage hardening/provider-artifact slice before production KYC data is retained.
+- The KYC financial-access gate is a primitive until financial endpoints exist. Every deposit, withdrawal, primary investment, secondary-market action, FX exchange, document-acceptance-for-transaction, and later money-moving endpoint must call the KYC/phone/account-status gate server-side before mutation.
 
 ## 1. Review Outcome
 
