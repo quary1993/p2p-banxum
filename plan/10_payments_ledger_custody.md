@@ -1,0 +1,923 @@
+# Payments, Ledger, Custody, and Reconciliation
+
+Status: Draft. Updated with balance, FX, identity, payment, recovery allocation, secondary-market settlement, marketplace, Bexio ledger metadata, and manual bank-operation reconciliation decisions on 2026-06-01.
+
+## Purpose
+
+Define the movement, safeguarding, accounting, and reconciliation of funds across investors, borrowers, platform fees, repayments, refunds, and operational exceptions.
+
+This is one of the highest-risk modules. Its design has direct licensing, regulatory, operational, and accounting consequences.
+
+## Scope
+
+- Investor funding flows.
+- Investor multi-currency balances.
+- Deposits, withdrawals, and balance ageing.
+- Borrower drawdowns.
+- Repayment collection.
+- Investor distributions credited to balances.
+- Platform fees.
+- Refunds and reversals.
+- Secondary-market settlement.
+- Currency exchange.
+- Client money segregation or payment partner model.
+- Internal subledger.
+- Bank/payment provider reconciliation.
+- Exception handling.
+
+## Money Model Options
+
+The operating model now uses platform investor balances.
+
+Investors may hold multi-currency balances on the website. Deposits, borrower repayment/installment proceeds, refund amounts, and secondary-market seller proceeds can be credited to investor balances. Investors can use balances to invest, reinvest, buy on the secondary market, exchange currencies, or withdraw funds.
+
+This model must be validated against Garanta's regulatory permissions before implementation because it materially changes the earlier per-investment settlement model.
+
+## Terminology
+
+In this module, "project" means the funding campaign for a specific loan. A project is not a separate legal entity and does not imply a separate bank account.
+
+## Selected Launch Money Model
+
+Garanta may hold investor funds in segregated settlement or collection accounts and reflect them as investor balances in the platform. Launch uses one segregated collection account/IBAN per enabled currency. Funds are separated from Garanta operating funds at bank-account level and separated by investor, currency, source ledger entry, loan/funding campaign, secondary-market transaction, or FX transaction through internal ledger entries and reconciliation.
+
+Launch requirements:
+
+- Each investor balance must be tracked by currency and source ledger entry.
+- Each balance-affecting ledger entry must have a received timestamp and ageing deadlines.
+- Launch currencies are CHF and EUR; enabled currencies are configurable by superadmin.
+- Launch uses one collection account/IBAN per enabled currency, with references and ledger allocation.
+- Funds must be non-interest-bearing.
+- Funds must not be used for Garanta's own account.
+- Funds must be invested/reinvested or withdrawn within the configured deadlines and never held beyond the regulatory maximum without penalty handling/escalation.
+- The platform must track a 30-day investment/reinvestment deadline and a 60-day absolute withdrawal deadline for each balance source entry, unless legal/compliance changes the interpretation.
+- The 60-day deadline is non-extendable in platform terms.
+- Any balance source entry approaching the 60-day deadline must create investor reminders and finance/compliance visibility.
+- The platform must support withdrawal flows from investor balances.
+- The platform must support currency exchange between enabled balance currencies using a neutral public/free market-rate provider where legally and technically permitted, with platform FX fee applied.
+
+## Decisions
+
+### PAY-DEC-001: Launch Currencies
+
+Status: Accepted.
+Date: 2026-05-15.
+Owner: Garanta management / finance / product.
+
+Decision:
+Launch currencies are CHF and EUR. Enabled currencies must be configurable by superadmin so the platform can add more currencies later.
+
+Each loan is single-currency. Investor balances are multi-currency. Launch uses one collection account/IBAN per enabled currency.
+
+Rationale:
+Currency must be a first-class attribute on loans, orders, payment instructions, ledger entries, fees, repayments, reports, and documents.
+
+Follow-ups:
+Define superadmin currency configuration fields, including currency code, active/inactive status, deposit availability, withdrawal availability, FX availability, collection account/IBAN, rounding precision, and display rules.
+
+### PAY-DEC-002: Collection Account Model
+
+Status: Accepted.
+Date: 2026-05-15.
+Owner: Garanta management / finance / compliance.
+
+Decision:
+Launch uses one segregated collection account/IBAN per enabled currency for investor deposits, balances, loans/projects, repayments, withdrawals, and settlement activity in that currency rather than one account per project. Each lender transfer must include a payment reference that lets admin and the ledger allocate funds to the correct investor balance, loan, order, or transaction.
+
+At launch, the payment reference may be the lender ID or a stable bank-compatible code derived from part of the lender ID. The exact formatting remains dependent on the selected bank/payment partner and payment rails.
+
+Rationale:
+One collection account/IBAN per currency simplifies banking operations while internal references and ledger entries preserve investor-balance, loan-level, and transaction-level tracking.
+
+Follow-ups:
+Select the bank/payment partner, confirm final bank-compatible payment reference format, and configure bank-specific labels/formats for the generic bank-operation declaration and reconciliation screens.
+
+### PAY-DEC-003: Investor Multi-Currency Balances
+
+Status: Accepted.
+Date: 2026-05-20.
+Owner: Garanta compliance / finance / product.
+
+Decision:
+Investor balances are in scope. Investors may hold website balances in enabled currencies, starting with CHF and EUR.
+
+Balance sources include:
+
+- Investor deposits.
+- Borrower repayment/installment proceeds.
+- Secondary-market seller proceeds.
+- Refunds or excess funds credited to balance where permitted by policy.
+- Currency-exchange proceeds.
+
+Investors may use available balances to invest in primary-market loans, buy on the secondary market, exchange currency, or withdraw to their bank account.
+
+Rationale:
+The product model now includes website balances and multi-currency balance management.
+
+Follow-ups:
+Validate the balance model against Garanta's regulatory permissions, banking/FinTech licence requirements, VQF/SRO scope, bank account setup, client-money disclosures, accounting treatment, and AML monitoring obligations before implementation.
+
+### PAY-DEC-004: Manual Admin Payment Confirmation
+
+Status: Accepted.
+Date: 2026-05-15.
+Owner: Garanta finance / operations.
+
+Decision:
+Incoming deposits, borrower repayments, withdrawals, borrower disbursements, currency-exchange execution evidence, Garanta-owned transfers, and relevant secondary-market payments are confirmed manually by admin at launch. Bank-feed or automated confirmation may be added later if the bank supports it.
+
+Rationale:
+Manual confirmation is operationally sufficient for launch and keeps provider complexity lower, while the workflow should remain extensible to automated bank feeds.
+
+Follow-ups:
+Bank-specific statement/import fields and evidence labels remain configurable once the bank/payment partner is selected.
+
+### PAY-DEC-005: Repayment Distribution
+
+Status: Accepted.
+Date: 2026-05-15.
+Owner: Garanta finance / operations.
+
+Decision:
+Repayments are credited to investor balances rather than automatically paid directly to investor bank accounts. Admin enters the borrower amount received, and the system correlates it with the next due installment by default. If the amount is lower or higher than expected, the system warns admin. If admin proceeds, the system classifies the received amount as a regular installment payment, partial installment payment, multiple-installment payment for a late/default loan, or early repayment for a healthy loan. The system accepts that amount, recalculates the schedule where required, and produces the list of lenders due to receive a pro-rata part of that payment as balance credits.
+
+Investors can then withdraw or reinvest credited balances subject to balance ageing/deadline rules.
+
+Rationale:
+The platform calculates proportional distributions and evidence, while actual external payment execution remains manual where funds leave Garanta accounts.
+
+Follow-ups:
+Define rounding rules, internal distribution artifact/export format, and balance-credit confirmation workflow. Later withdrawal bank payment failures/returns are handled offline after the in-platform withdrawal has been finalized.
+
+### PAY-DEC-006: Borrower Success Fee and Lender Payment Fee
+
+Status: Accepted.
+Date: 2026-05-15.
+Owner: Garanta management / finance.
+
+Decision:
+Garanta charges the borrower a flat success fee of 2% to 4% when the loan is fully financed or accepted by admin as a partial close. The success fee has no investor/client website impact and is stored for accounting/net-revenue reporting. The fee is deducted from the borrower disbursement, while the borrower remains obligated to repay the full funded principal before the success-fee deduction plus agreed interest.
+
+Example:
+If a CHF 100,000 loan is funded by four lenders at CHF 25,000 each and has 10% interest, Garanta disburses CHF 96,000 to CHF 98,000 to the borrower depending on the configured borrower success fee. The borrower still owes CHF 100,000 principal plus the agreed interest.
+
+The borrower repayment schedule is not affected by the borrower success fee.
+
+The platform should support a configurable `lender_payment_fee` applied per lender installment distribution to cover bank transaction costs. Launch value is 0.
+
+Rationale:
+The fee model must preserve investor economics, borrower repayment obligations, and schedule calculations while allowing Garanta to track net revenue at disbursement.
+
+Follow-ups:
+Confirm the exact configurable fee range, tax/VAT/reverse-charge treatment, and whether lender payment fee is deducted from lender distributions or charged separately if activated later. Borrower success fee is withheld from disbursement and tracked in statements/exports; no platform invoice is generated at launch.
+
+### PAY-DEC-007: Overpayments, Wrong References, and Unmatched Funds
+
+Status: Accepted.
+Date: 2026-05-15.
+Owner: Garanta finance / operations.
+
+Decision:
+If a lender sends more than the required amount, Garanta returns the surplus. If a lender sends funds with the wrong payment reference, admin attempts to identify the sender, including by matching bank account name where possible, and contacts the lender off-platform. Until matched or returned, the payment is treated as unmatched/suspense.
+
+With the balance model, surplus or unmatched funds may be credited to investor balance only when the sender and entitlement are sufficiently identified and policy permits. Otherwise, they remain in suspense or are returned.
+
+Rationale:
+Incorrect funds must not be silently allocated. The platform needs suspense handling, audit notes, and refund workflows.
+
+Follow-ups:
+Define minimum evidence for manual matching, refund approval workflow, and how long unmatched funds may remain unresolved.
+
+### PAY-DEC-008: Underfunded or Deadline-Reached Campaigns
+
+Status: Accepted.
+Date: 2026-05-15.
+Owner: Garanta operations / finance / credit.
+
+Decision:
+When a loan reaches the funding deadline or approaches the 60-day holding limit without full funding, admin decides whether to release funds back to investor balances/withdraw funds or move forward with the loan using a partial amount. Lenders must be notified if the loan proceeds with a partial amount.
+
+Lender reconfirmation is not required for partial funding, because this will be covered in the initial terms of service. Notification is enough.
+
+There is no fixed minimum partial funding threshold at launch. Admin decides case by case.
+
+If admin accepts a partially funded loan, the accepted funded amount becomes the final loan principal. The borrower success fee applies to the accepted funded principal, and the borrower repays the accepted funded principal plus agreed interest. The repayment schedule is generated or regenerated from the accepted funded principal.
+
+If funds are not used for the loan and are credited back to investor balance, the credited amount receives its own balance ledger entry and ageing deadlines according to the balance policy.
+
+Rationale:
+The platform must support both refund and admin-approved partial close outcomes, while preserving the 60-day holding limit and investor notification requirements.
+
+Follow-ups:
+Define the initial TOS language for partial funding and investor notification wording.
+
+### PAY-DEC-009: Secondary-Market Settlement
+
+Status: Accepted.
+Date: 2026-05-15. Updated 2026-05-29.
+Owner: Garanta finance / operations / product.
+
+Decision:
+For secondary-market transactions, money moves through Garanta's collection account or investor balances. A lender lists an entire holding from a loan/project. Another lender buys that listed holding and pays from eligible balance or by sending money to Garanta. Garanta deducts applicable maker and taker secondary-market fees, updates assigned-claim ownership, and credits the seller's net proceeds to the seller balance.
+
+Partial transfers of one holding are not allowed. If a lender has multiple separate holdings in the same project, each holding may be transferred separately in full.
+
+Accrued interest up to settlement is calculated separately, daily, pro rata, and belongs to the seller up to transfer date when the loan/project is current/performing. Future interest after settlement belongs to the buyer.
+
+Launch secondary-market fees are:
+
+- Maker/seller fee: 0.25%, deducted from seller proceeds.
+- Taker/buyer fee: 0.75%, charged to the buyer side.
+
+Both fees are charged at settlement. Fees are calculated on the agreed transfer price, excluding accrued interest, and rounded half-up to the nearest cent/minor currency unit. Minimum fee support is configurable.
+
+Secondary-market settlement formulas:
+
+- Seller fee = transfer price x maker/seller fee rate, rounded half-up, subject to any configured minimum fee.
+- Buyer fee = transfer price x taker/buyer fee rate, rounded half-up, subject to any configured minimum fee.
+- Seller net proceeds = transfer price + accrued interest - seller fee.
+- Buyer total cost = transfer price + accrued interest + buyer fee.
+
+Secondary-market settlement should normally be processed much faster than 60 days from receipt or reservation of buyer funds. The maximum operational settlement period is 60 days.
+
+Rationale:
+The platform needs a controlled settlement record for assignment transfers and balance credits/debits.
+
+Follow-ups:
+Define balance debit/credit timing, transfer effective date, failed settlement handling, operational escalation before the 60-day maximum period, and any non-zero minimum fee.
+
+### PAY-DEC-010: Collection Account per Currency
+
+Status: Accepted.
+Date: 2026-05-15.
+Owner: Garanta finance / operations.
+
+Decision:
+Launch uses one collection account/IBAN per enabled currency. CHF balances/loans use the CHF collection account/IBAN. EUR balances/loans use the EUR collection account/IBAN.
+
+Rationale:
+Separating collection accounts by currency reduces reconciliation complexity and avoids mixing currency balances.
+
+Follow-ups:
+Confirm bank/payment partner, IBANs, account names, payment rails, and statement export formats for CHF and EUR.
+
+### PAY-DEC-011: Single-Currency Loans
+
+Status: Accepted.
+Date: 2026-05-15.
+Owner: Garanta product / finance.
+
+Decision:
+Each loan is single-currency. Orders, payment instructions, repayment schedules, ledger entries, lender distributions, and reports for that loan use the loan currency.
+
+Rationale:
+Single-currency loan accounting keeps investor economics, borrower obligations, and payment reconciliation clear.
+
+Follow-ups:
+Ensure product configuration and loan setup require exactly one currency.
+
+### PAY-DEC-012: Cross-Currency Incoming Transfers
+
+Status: Accepted.
+Date: 2026-05-15.
+Owner: Garanta finance / product.
+
+Decision:
+Cross-currency funding is not advised because banks may auto-convert and charge fees. Garanta does not block it from the platform side as long as the correct amount arrives in the correct Garanta collection account with the correct client/payment identifier.
+
+Rationale:
+The platform should reconcile based on the amount actually received in the loan currency and the payment reference. Bank conversion fees and shortfalls remain operational/payment exceptions.
+
+Follow-ups:
+Add transfer instruction warnings that lenders should send the loan currency and are responsible for any bank conversion charges or shortfalls.
+
+### PAY-DEC-013: Partial Funding Consent and Notification
+
+Status: Accepted.
+Date: 2026-05-15.
+Owner: Garanta legal / product / operations.
+
+Decision:
+If admin decides to proceed with a partially funded loan, lender reconfirmation is not required. Notification is enough because partial funding permission will be included in the initial terms of service.
+
+Rationale:
+This keeps partial-close operations practical while making the consent basis explicit in the initial legal terms.
+
+Follow-ups:
+Add partial-funding consent language to platform terms and investment acknowledgements.
+
+### PAY-DEC-014: Partial Funding Threshold
+
+Status: Accepted.
+Date: 2026-05-15.
+Owner: Garanta credit / operations.
+
+Decision:
+There is no fixed minimum partial funding threshold at launch. Admin decides case by case whether to proceed with a partial amount.
+
+Rationale:
+Real estate backed loan economics may vary by deal, and the first launch version should preserve operational flexibility.
+
+Follow-ups:
+Capture admin reason codes for partial funding decisions and consider configurable thresholds later.
+
+### PAY-DEC-015: Internal Distribution Artifacts
+
+Status: Accepted.
+Date: 2026-05-16.
+Owner: Garanta finance / operations / technology.
+
+Decision:
+For lender repayment distributions, the system should show the distribution list in the admin interface and maintain internal distribution artifacts, including balance-credit records, payment/account statements, and any bank export needed where external payment processing occurs. These artifacts are internal to the platform/admin finance workflow and are not sent to lenders as files by default.
+
+Lenders receive an email notification that their balance was credited and the amount. The amount may represent a partial installment, full installment, multiple installments, late/default recovery payment, or early repayment.
+
+Rationale:
+Admin needs a clear human-readable distribution list and internal evidence artifacts. Lender communication remains simple and email-based.
+
+Follow-ups:
+Define internal statement/export format with the selected bank/payment partner, including file type, required fields, signing/upload process, and reconciliation of balance credits and executed withdrawals.
+
+### PAY-DEC-016: Primary-Market Oversubscription Refunds
+
+Status: Accepted.
+Date: 2026-05-16.
+Owner: Garanta finance / operations / product.
+
+Decision:
+When a lender payment exceeds remaining loan capacity, the system calculates the accepted amount and the surplus refund amount for admin. The accepted amount is registered to the valid open order, and the excess is marked refund due.
+
+If no remaining capacity exists, the related order is closed in a final non-invested status and the full received amount is marked refund due. Admin is alerted to return the full amount.
+
+Rationale:
+The payment workflow must preserve first-come-first-served allocation and avoid retaining excess lender funds.
+
+Follow-ups:
+Define refund file/export handling, refund evidence fields, and whether exceptional admin overrides are allowed.
+
+### PAY-DEC-017: Balance Ageing, Reinvestment Deadline, Withdrawal Deadline, and Penalty
+
+Status: Accepted.
+Date: 2026-05-20.
+Owner: Garanta compliance / finance / product.
+
+Decision:
+Every investor balance source ledger entry has a received timestamp and ageing deadlines.
+
+Launch interpretation:
+
+- Balance ageing and reminder day counts use Europe/Zurich calendar days.
+- Funds should be invested or reinvested within 30 days of the received timestamp.
+- Funds must be withdrawn no later than 60 days after the received timestamp if they are not invested/reinvested.
+- The 60-day limit is regulatory/compliance-driven and cannot be extended by Garanta through product or support processes.
+- If a balance source remains unwithdrawn after day 60, it becomes subject to an env/deployment-configurable penalty policy.
+- Launch default penalty mechanics: 1% simple daily penalty on the overdue source balance, applied once per Europe/Zurich calendar day after day 60, capped at the remaining overdue source balance, and never creating a negative balance or a claim against the investor beyond that source balance.
+- If penalty charges fully consume the remaining overdue source balance, the source entry moves to a terminal `penalty_exhausted` status with zero remaining amount. The event remains fully ledgered and reportable.
+- Penalty policy is configured through environment/deployment settings at launch. Reminder schedule and reminder templates remain superadmin-configurable.
+- Currency exchange does not reset the 30/60-day ageing clocks. The target-currency balance source entry inherits ageing deadlines from the source balance entries consumed by the FX transaction.
+- If one FX conversion consumes multiple source balance entries with different expiry timestamps, v1 may use the newest/latest consumed expiry timestamp for the resulting target-currency balance entry. The ledger must retain full lineage to every consumed source entry.
+
+Reminder schedule:
+
+- Day 25.
+- Day 46.
+- Day 53.
+- Day 58.
+- Day 59.
+- Day 60, announcing that the balance is subject to penalties.
+
+Rationale:
+The platform must prevent long-term deposit-taking behavior and keep investors informed before regulatory/compliance deadlines are reached.
+
+Follow-ups:
+Confirm forced-withdrawal authority and exact penalty legal wording/tax treatment.
+
+### PAY-DEC-018: Currency Exchange Service
+
+Status: Accepted.
+Date: 2026-05-22. Updated 2026-06-01.
+Owner: Garanta product / finance / superadmin.
+
+Decision:
+The investor portal has a separate currency-exchange menu section. Investors can exchange between enabled balance currencies.
+
+FX in Garanta is an auxiliary settlement function, not a trading, investment, or speculative function.
+
+The platform uses Yahoo Finance as the launch FX rate source, subject to provider terms being legally and technically acceptable, and applies a configurable platform FX fee. Launch default FX fee: 1.5%.
+
+Launch enabled FX pairs:
+
+- CHF/EUR.
+- EUR/CHF.
+
+Additional currency pairs can be added later through configuration.
+
+No minimum exchange amount applies at launch.
+
+A maximum conversion limit applies at launch: CHF 100,000 per investor per day, or the equivalent in another enabled currency. The limit is configurable by admin with audit trail.
+
+Executable FX quotes are fetched live from Yahoo Finance when the investor requests a quote, subject to final access-method and terms-of-use confirmation. The executable quote is fixed for 1 minute for investor approval. If the investor does not approve within that window, the quote expires and must be refreshed.
+
+The platform separately polls FX rates in the background for display-only indicative rates. Display-only rates are not executable unless converted into a fresh executable quote.
+
+FX storage, display, and rounding:
+
+- Store FX rates, execution rates, fees, and intermediate FX calculation values with at least 6 decimal places in the database.
+- Website balances and ordinary money amounts are displayed with 2 decimals.
+- During FX quote and confirmation, the investor may see exchange details with 4 decimals before confirming.
+- Half-up rounding is used for FX source debit, target credit, fees, displayed quote amounts, and posted ledger amounts.
+
+FX quote sanity controls:
+
+- Reject missing, zero, negative, non-numeric, infinite, malformed, stale, or wrong-pair rates.
+- Reject or hold executable quotes if they deviate materially from configured reference checks. Launch reference threshold: +/- 5% compared with previous-day average from the same Yahoo Finance provider triggers an alert and should not auto-execute unless a reviewed fallback policy permits it.
+- For background display ticks, a +/- 2% move from the last accepted display tick invalidates and skips the tick instead of displaying it.
+- Support configurable min/max allowed bounds per currency pair.
+- If provider data permits, validate reverse-pair/inverse consistency within a small configurable tolerance.
+- Fallback-provider divergence checks are future-ready but not required at launch.
+- Store quote provider, pair, raw rate, platform fee, final customer rate, requested amount, timestamp, expiry timestamp, sanity-check results, and source payload reference.
+
+Superadmin configures enabled currencies and FX fee parameters.
+Admin can configure the launch per-investor daily maximum conversion limit.
+
+Rationale:
+Investors need multi-currency balance support, and the platform needs transparent, configurable FX pricing.
+
+Follow-ups:
+Validate Yahoo Finance API licensing/terms of use, define polling interval, configure min/max pair bounds, define failed-rate fallback behavior, and finalize disclosure wording.
+
+### PAY-DEC-019: Ledger Entry Direction and Received Timestamp
+
+Status: Accepted.
+Date: 2026-05-20.
+Owner: Garanta finance / technology.
+
+Decision:
+The platform ledger records every money movement with explicit direction:
+
+- `in`: value entering or increasing an investor/platform balance, liability, receivable, or account.
+- `out`: value leaving or decreasing an investor/platform balance, liability, receivable, or account.
+
+Every money-movement ledger entry must include a received timestamp. Every investor balance source entry must include received timestamp, currency, amount, source type, investor, ageing status, reinvestment deadline, withdrawal deadline, and remaining amount if partially consumed.
+
+Rationale:
+Balance ageing, deadline monitoring, withdrawal eligibility, reinvestment eligibility, penalties, and auditability require source-level balance tracking rather than only aggregate balances.
+
+Follow-ups:
+Define whether the ledger stores direction as a field in addition to debit/credit postings, or as a user-facing classification over double-entry postings.
+
+### PAY-DEC-020: Admin FX Delta Query and External Execution
+
+Status: Accepted.
+Date: 2026-05-20. Updated 2026-06-01.
+Owner: Garanta finance / operations.
+
+Decision:
+The admin interface must allow admin to query total currency-exchange deltas for any day or period.
+
+The query should show the net currency amounts Garanta needs to buy/sell externally for each currency pair, the platform FX fees charged, and the residual settlement difference after external execution is declared. Admin uses this information to perform external currency exchange at the end of the day or beginning of the next day and records execution evidence.
+
+Rationale:
+Garanta uses FX as an auxiliary settlement function and does not intend to take speculative currency positions. Admin needs a clear operational view of exchange deltas to execute offsetting FX externally.
+
+Follow-ups:
+Define evidence requirements for admin external FX settlement. Intraday/overnight unhedged exposure alerts are not required at launch.
+
+### PAY-DEC-021: Balance Eligibility After 30 Days and FIFO Consumption
+
+Status: Accepted.
+Date: 2026-05-20.
+Owner: Garanta compliance / finance / product.
+
+Decision:
+Balance source entries are consumed FIFO within each currency, using the oldest eligible source entries first for investments, withdrawals, FX, fees, and penalties.
+
+Funds can be invested or reinvested only while their source entry is within the 30-day investment/reinvestment period. After day 30, that source entry cannot be used for primary-market investment, secondary-market purchase, or reinvestment because Garanta cannot hold the funds for a further loan funding period.
+
+Primary-market investment from balance is blocked unless every consumed source entry has a 30-day investment/reinvestment deadline on or after the loan funding deadline. This prevents committed funds from being released after a failed campaign already past their own investment window. Source entries that do not have enough remaining investment window are withdraw-only for that investment and cannot be committed or reserved.
+
+The investor portal must show explicit errors when an investor tries to invest with an ineligible balance source. It must also show a per-currency balance breakdown:
+
+- Amount available for investment/reinvestment.
+- Amount that must be withdrawn.
+- Amount that can be exchanged into another currency if FX is allowed and the source entry is still eligible under ageing rules.
+- Amount in penalty/frozen status.
+
+If an investor exchanges a source entry into another currency, the target-currency entry does not receive fresh 30/60-day ageing deadlines. The target-currency entry inherits the investment/reinvestment deadline and withdrawal deadline from the consumed source entry. If one FX conversion consumes multiple source entries with different deadlines, v1 may set the resulting target-currency entry deadlines from the newest/latest expiry timestamp among the consumed entries. The ledger must retain source lineage to the original funds for audit and regulatory review.
+
+Rationale:
+The platform must prevent funds that are already too old from entering another funding period while still giving investors clear usable-balance visibility.
+
+Follow-ups:
+Monitor whether legal/compliance later requires stricter per-source splitting for FX target entries instead of the v1 newest/latest-expiry inheritance rule.
+
+### PAY-DEC-022: Forced Withdrawal, Missing IBAN Freeze, and Penalty Mode
+
+Status: Accepted.
+Date: 2026-05-20.
+Owner: Garanta compliance / finance / operations.
+
+Decision:
+When a balance source reaches the 60-day holding limit, admin attempts a forced withdrawal if Garanta has a usable verified IBAN for the investor and the balance can be returned.
+
+Final reminders must state that Garanta Finanzgruppe AG needs a usable IBAN to return funds if the investor does not withdraw them before the 60-day deadline.
+
+If no usable IBAN is available, penalty mode is enabled after day 60. Further investor financial actions are frozen, except the action needed to declare or update a usable IBAN. Read-only access remains available for portfolio, documents, tax information statements, notices, and messages. The investor portal must show a blocking banner stating that to unlock financial actions, the user must first declare a usable IBAN account where Garanta can send the due funds.
+
+Day-60 evaluation, forced-withdrawal queues, and penalty-mode transitions use Europe/Zurich calendar days.
+
+When admin records a withdrawal or forced withdrawal as executed, the withdrawal is final in the platform. If the bank transfer later fails or returns, Garanta handles that situation offline. The platform may store an admin note or document as evidence, but it does not reopen the finalized withdrawal automatically.
+
+Rationale:
+Forced withdrawal is preferred over continuing to hold funds. If Garanta cannot return the funds because no usable IBAN is known, the platform must prevent further financial activity until the return path is resolved while keeping read-only access available.
+
+Follow-ups:
+Define usable IBAN validation rules, forced-withdrawal evidence requirements, and optional note/document fields for offline handling of returned transfers.
+
+### PAY-DEC-023: Balance Timestamp Rules
+
+Status: Accepted.
+Date: 2026-05-20.
+Owner: Garanta finance / operations / technology.
+
+Decision:
+Balance ageing received timestamps are assigned as follows:
+
+- Deposits: bank value date.
+- Borrower installment/repayment/recovery payments: bank value date.
+- Secondary-market transactions: internal transaction timestamp.
+- Currency exchanges: internal transaction timestamp.
+
+Rationale:
+External cash movements should age from bank value date, while purely platform-internal settlement events should age from the platform event timestamp.
+
+Follow-ups:
+Define fallback behavior when bank value date is missing, corrected, or disputed.
+
+### PAY-DEC-024: Instant Investor FX and End-of-Day External Settlement
+
+Status: Accepted.
+Date: 2026-05-20.
+Owner: Garanta finance / operations / product.
+
+Decision:
+Investor currency exchange is instant in the platform. When an investor accepts an FX quote, the platform immediately debits the source currency balance and credits the target currency balance according to the accepted quote.
+
+Admin settles the aggregate external currency exchange at the end of the day or at the beginning of the next day based on the platform FX delta reports.
+
+Rationale:
+Instant platform FX gives investors immediate usability, while admin FX delta reports allow Garanta to offset currency exposure operationally.
+
+Follow-ups:
+No intraday/overnight unhedged exposure alerts are required at launch. Quote lock/expiry is defined in PAY-DEC-018 as 1 minute. External execution differences are handled through PAY-DEC-027.
+
+### PAY-DEC-025: Admin-Created Legal-Entity Lender Balances
+
+Status: Accepted.
+Date: 2026-05-20.
+Owner: Garanta operations / compliance / product.
+
+Decision:
+When Garanta creates and KYB/AML-approves accounts for legal-entity lenders, those accounts behave like regular lender accounts for balances, deposits, withdrawals, primary-market investing, secondary-market activity, currency exchange, ageing, reminders, and penalties.
+
+The difference is onboarding: legal-entity lender KYC/KYB/AML is performed off-platform and recorded by admin. Legal-entity lender accounts do not use the natural-person Didit registration KYC flow.
+
+Rationale:
+The financial ledger and balance model should treat legal-entity lenders consistently with other lenders once admin has created and KYB/AML-approved the account.
+
+Follow-ups:
+Define whether the single legal-entity lender representative login is enabled for all admin-created accounts or only case by case. Multi-user legal-entity roles/signatory permissions are out of scope for launch.
+
+### PAY-DEC-026: Manual Bank Operation Declaration and Reconciliation Equation
+
+Status: Accepted.
+Date: 2026-06-01.
+Owner: Garanta finance / operations / accounting.
+
+Decision:
+All external bank/PSP/EMI movements are declared by admin at launch as explicit bank-operation records linked to ledger events. The launch bank-operation taxonomy is:
+
+- `lender_deposit`: investor funds received into the relevant currency collection account and credited to investor balance after matching.
+- `lender_withdrawal`: investor balance paid out to the investor bank account, including forced withdrawals.
+- `borrower_loan_disbursement`: initial borrower loan payment/drawdown from the collection account to the borrower after funding conditions are met. The disbursement is net of borrower success fee where applicable, while borrower principal obligation remains the accepted funded principal.
+- `borrower_repayment`: borrower installment, early repayment, recovery payment where handled through servicing, or other borrower-originated loan payment received into the collection account.
+- `garanta_out`: transfer of accrued Garanta commissions, FX fees/margin, secondary-market fees, penalties/handling fees if activated, or other Garanta-owned amounts from collection/settlement accounts to Garanta operating accounts.
+- `garanta_in`: transfer of Garanta-owned funds into collection/settlement accounts, reserved for future financing of defaults, guaranteed loans, liquidity support, corrections, or other Garanta-funded support.
+- `currency_exchange_external_settlement`: external FX transaction executed by Garanta to offset user currency exchanges already settled instantly inside the platform.
+
+Every declared bank operation stores operation type, amount, currency, booking date, value date, bank account/IBAN or PSP account, payer/payee name, payer/payee account identifier where available, bank/PSP reference, payment description/reference, linked platform event(s), reconciliation status, confirming admin, confirmation timestamp, evidence attachment/reference, and notes.
+
+The purpose of bank-operation declaration is to allow ledger-bank reconciliation at any point where no pending external operation remains open. At the end of each day, after admin has declared due deposits, withdrawals, borrower disbursements, borrower repayments, Garanta transfers, FX settlement, and any other known bank operations, the platform should be able to compare:
+
+```text
+bank-stated balance by currency
+= investor balance liabilities by currency
++ Garanta-owned accrued revenue/commission balance still held in collection accounts by currency
++ suspense/unmatched cash by currency, if any
++ other explicitly pending or exception balances by currency, if any
+```
+
+When there are no suspense items, unmatched payments, pending withdrawals/disbursements/refunds/FX settlements, or other open bank operations, the simplified expected relationship is:
+
+```text
+bank-stated balance by currency
+= investor balances by currency
++ Garanta accrued commissions/revenue held in the collection account by currency
+```
+
+Any difference is a reconciliation break and must create an admin work item with source report, currency, amount difference, candidate causes, admin notes, and audit trail.
+
+The reconciliation process must create an audit trail and must support later automation through bank statement import or bank/API feeds while preserving the same matching, evidence, exception-handling, and approval rules used by the manual launch workflow.
+
+Rationale:
+The platform must be reconcilable against bank statements, not only internally balanced. Declaring bank operations gives Garanta a controlled bridge between external cash and the immutable operational ledger.
+
+Follow-ups:
+Bank-specific statement fields, statement import formats, and final evidence requirements depend on the selected bank/payment partner and remain provider/account TODOs.
+
+### PAY-DEC-027: External FX Settlement, Realized FX Gain/Loss, and Residual Currency Delta
+
+Status: Accepted.
+Date: 2026-06-01.
+Owner: Garanta finance / operations / accounting.
+
+Decision:
+Investor FX remains instant inside the platform. Accepted user FX quotes immediately debit source-currency balance lots, credit target-currency balance lots, and post configured FX fee revenue.
+
+Admin later queries the FX delta report for a day or period, checks/downloads any necessary report, executes the external FX transaction needed to offset the platform's user FX activity, and declares the `currency_exchange_external_settlement` bank operation. The declared external FX settlement stores sold currency, sold amount, bought currency, bought amount, booking date, value date, bank/PSP references, evidence, and notes. The platform infers the actual executed conversion rate including all fees/costs from the final realized amounts declared by admin.
+
+After the external FX settlement is declared, the platform calculates realized FX result by comparing:
+
+- the aggregate internal user FX source/target amounts and applied platform rates/fees; against
+- the actual external currency amounts bought/sold and execution rate/costs declared by admin.
+
+The platform must report the resulting realized surplus or deficit by currency. Positive differences are Garanta-owned FX gain/margin where accounting policy classifies them as such; negative differences are Garanta-owned FX loss/cost. The exact accounting account and tax treatment remain configurable for the Bexio mapping.
+
+Rationale:
+Garanta gives users instant platform FX but settles externally later. The platform therefore needs a clear operational view of external settlement differences so Garanta can avoid hidden currency exposure and report FX gain/loss separately from investor balances.
+
+Follow-ups:
+Confirm final accounting labels and Bexio account mapping for realized FX gain/loss, execution costs, and residual currency deltas.
+
+## Ledger Principles
+
+- Use double-entry accounting for all monetary events.
+- Every external payment maps to internal ledger entries.
+- Every external bank/PSP/EMI movement is represented by a declared bank-operation record linked to ledger event(s).
+- Every money movement has an `in` or `out` direction and received timestamp for operational/user-facing traceability.
+- Every financial event is stored individually with event ID, event type, booking date, value date, currency, gross amount, net amount, debit/credit mapping, lender reference, borrower reference, loan/project reference, bank/PSP reference, evidence reference, tax metadata, and reversal/correction history.
+- Investor balance source entries carry received timestamp, source type, ageing deadlines, and remaining unconsumed amount.
+- Ledger entries are immutable; corrections use reversing entries.
+- Operational statuses and accounting entries are separate but linked.
+- Reconciliation runs daily at minimum.
+- Bank-stated balances must reconcile to ledger-stated investor balances, Garanta-owned accrued revenue held in collection accounts, suspense/unmatched cash, and explicit pending/exception balances by currency.
+- Fees, taxes, principal, contractual interest, default/penalty interest, future/inactive late fees if enabled later, refunds, penalties, recovery costs, currency-exchange fees, recovery rounding differences, and write-offs are separate accounts/categories.
+- Client-money/settlement flows are not Garanta revenue. This includes lender principal, borrower repayments, interest distributed to lenders, deposits, withdrawals, and recovery distributions.
+- Garanta revenue/P&L-relevant items are ledgered separately, including Garanta fees, borrower success fees, secondary-market fees, FX margin/fees, penalties/handling fees if activated, and operating costs.
+- Garanta accrued commissions/revenue held in collection accounts remain separately reportable until transferred out through a `garanta_out` bank operation.
+- VAT/reverse-charge treatment is represented through configurable tax metadata and later Bexio mapping, not hardcoded ledger logic.
+
+## Core Ledger Accounts
+
+Examples:
+
+- Lender settlement liability.
+- Investor balance liability by currency.
+- Investor balance ageing source lots.
+- Investor receivable.
+- Borrower loan receivable.
+- Borrower payable.
+- Principal payable to investors.
+- Interest payable to investors.
+- Platform fee revenue.
+- Payment provider clearing.
+- Segregated collection account.
+- Bank operation clearing.
+- Loan/funding-campaign settlement liability.
+- Suspense/unmatched cash.
+- Refund payable.
+- FX clearing.
+- FX fee revenue.
+- Realized FX gain/loss.
+- Garanta accrued revenue/commission balance in collection accounts.
+- Garanta operating-account transfer clearing.
+- Recovery fee revenue.
+- Third-party recovery cost category.
+- Balance ageing penalty revenue or penalty payable treatment, subject to accounting/legal review.
+- Write-off/loss account.
+- Recovery gross amount memo/reporting category.
+- Externally deducted legal/recovery cost category.
+- Net recovery received clearing.
+- Recovery rounding difference account/category.
+
+## Payment Flows
+
+### Investor Funding
+
+1. Investor completes registration-time terms and KYC/AML, or admin confirms legal-entity lender KYB/AML approval where the investor is a legal entity.
+2. Investor deposits funds into the relevant currency collection account or uses existing available balance.
+3. Admin manually confirms deposits where needed by recording a `lender_deposit` bank operation.
+4. Ledger records the deposit as an `in` movement and creates or increases the investor balance liability in that currency.
+5. The deposit balance source entry receives a received timestamp based on bank value date, a 30-day investment/reinvestment deadline, and a 60-day withdrawal deadline.
+6. Investor creates a primary-market investment order using available balance.
+7. Pending unfunded order has no effect on loan funding capacity until sufficient eligible balance is reserved or allocated according to order rules.
+8. System checks remaining loan capacity using first-come-first-served order based on balance allocation timestamp or bank value date where external payment timing is relevant.
+9. If the order fits within remaining capacity, ledger debits available investor balance and records loan/funding-campaign settlement liability and funded/validated order state.
+10. If the order partially exceeds remaining capacity, ledger allocates the accepted portion and leaves/recredits the excess to investor balance with appropriate ageing treatment.
+11. If no capacity remains, the order closes in a final non-invested status and funds remain in investor balance or are withdrawn according to investor instruction and balance rules.
+12. Allocated loan funds remain segregated until the funding campaign succeeds, expires, reaches the 60-day limit, or is returned to investor balance/withdrawn.
+
+### Borrower Drawdown
+
+1. Loan reaches funding conditions and any offline contractual prerequisites are confirmed, including borrower KYB/AML approval and no compliance hold.
+2. Admin confirms final release readiness.
+3. Borrower success fee is calculated for accounting/net-revenue tracking and deducted from borrower disbursement.
+4. Payment instruction is sent to borrower bank account for net disbursement.
+5. Admin records a `borrower_loan_disbursement` bank operation and settlement evidence.
+6. Ledger records full borrower principal, borrower success fee revenue, net cash movement, and settlement liability clearance.
+7. Garanta success fee remains as Garanta-owned accrued revenue in the collection-account ledger until transferred to operating cash through a `garanta_out` bank operation.
+
+### Repayment Distribution
+
+1. Borrower repayment is received into the collection account.
+2. Admin enters the borrower amount received and records a `borrower_repayment` bank operation.
+3. System correlates the amount with the next due installment by default.
+4. If the amount is lower or higher than expected, the system shows a warning.
+5. If admin proceeds, ledger allocates amount to fees, penalties, current installment interest, current installment principal, and then future outstanding principal where the event is an early repayment or multi-installment payment.
+6. System recalculates the schedule for the same future period using remaining outstanding principal when the received amount changes expected principal/interest timing.
+7. System calculates each lender's proportional distribution and any lender payment fee. Launch lender payment fee is 0.
+8. Ledger credits each lender's investor balance as an `in` movement with a new received timestamp based on the borrower payment bank value date and ageing deadlines.
+9. System presents the distribution list with lenders, amounts, currencies, and balance-credit references.
+10. System maintains internal distribution artifacts and evidence.
+11. Investor may withdraw, reinvest, or exchange credited balances subject to balance ageing rules.
+12. Lenders receive email notification of the credited amount.
+
+### Recovery Distribution
+
+1. Loan is in default or recovery status.
+2. Admin records a recovery payment through the appropriate `borrower_repayment`/recovery bank operation with gross recovered amount, externally deducted legal/recovery costs, net amount received by Garanta, currency, recovery bank value date or receipt date, evidence, and notes. The workflow then requires the additional default/recovery fields in the next step.
+3. Because the loan is defaulted/recovery status, the admin workflow asks for third-party recovery/legal costs and whether the Garanta percentage recovery fee applies to this payment.
+4. System applies the project recovery waterfall. Unless a project-specific waterfall overrides it, the default order is external recovery/legal costs, platform-approved recovery costs including applied Garanta recovery fee, principal, contractual interest accrued until default, default/penalty interest, and other penalties/costs.
+5. Normal contractual interest is cut off at the official default declaration date.
+6. Default/penalty interest accrues from the official default declaration date instead of regular interest only if configured in the relevant loan/project agreement. It is calculated using the project `default_penalty_interest_percent` and reported separately from contractual interest.
+7. Lender-facing recovery buckets are allocated pro rata to lenders holding participations in the project based on current principal balance at the recovery event time, unless the project agreement defines a different allocation method.
+8. System separately classifies principal, contractual interest accrued until default, default/penalty interest after default if applicable, other penalties/costs, third-party recovery costs, Garanta recovery fee, and recovery rounding difference.
+9. Lender distribution lines are rounded half-up to the currency minor unit, and any difference between distributable lender recovery amount and rounded lender distributions is recorded separately as a recovery rounding difference.
+10. Ledger posts recovery receipt, third-party cost classification, recovery fee revenue where applied, investor balance credits, category splits, and rounding difference entries.
+11. System generates a recovery/write-off report and affected-lender notification.
+
+### Secondary-Market Settlement
+
+1. Seller lists an eligible assigned holding in full.
+2. Buyer passes eligibility and disclosure checks.
+3. Transfer terms are confirmed.
+4. Buyer pays from available balance or by depositing funds that are credited to balance.
+5. Garanta deducts applicable maker and taker secondary-market fees from the relevant balance/settlement amounts.
+6. Assignment transfer documentation is executed or recorded.
+7. Net proceeds are credited to the seller's balance with an internal transaction timestamp and ageing deadlines.
+8. Ledger records buyer claim acquisition, seller proceeds, fees, and balance/settlement cash movement.
+9. Servicing records update future distributions to the buyer from the effective transfer date.
+
+### Withdrawal
+
+1. Investor requests withdrawal from an available currency balance.
+2. Platform validates KYC/KYB/AML status, bank account, available balance, currency, and any compliance hold.
+3. Ledger reserves or debits the selected balance source entries using FIFO consumption.
+4. Admin executes or records the outgoing bank payment.
+5. Admin records a `lender_withdrawal` bank operation.
+6. Ledger records `out` movement, finalized withdrawal status, bank evidence, and remaining balance source amounts.
+7. Investor receives withdrawal notification.
+
+### Currency Exchange
+
+1. Investor opens the currency-exchange section.
+2. Investor selects source currency, target currency, and amount for an enabled pair. Launch enabled pairs are CHF/EUR and EUR/CHF.
+3. Platform validates that there is no minimum exchange amount and that the requested amount does not exceed the configured per-investor daily maximum conversion limit, initially CHF 100,000 per investor per day or equivalent.
+4. Platform retrieves a live executable quote from Yahoo Finance, validates sanity checks, applies the platform FX fee, and fixes the quote for 1 minute.
+5. Investor reviews the quote. Normal balances and amounts display 2 decimals, while the FX confirmation view may show exchange details with 4 decimals.
+6. Investor accepts the fixed quote and required FX terms before expiry, or refreshes the quote after expiry.
+7. Ledger debits source currency balance and instantly credits target currency balance according to the accepted quote, using FIFO consumption on the source currency. FX rates and intermediate values are stored with at least 6 decimal places and half-up rounding is applied.
+8. The target-currency source entry inherits 30/60-day ageing deadlines from the consumed source balance entries. If multiple source entries are consumed, v1 uses the newest/latest consumed expiry timestamp while retaining source-entry lineage.
+9. Background display-only FX rates are polled separately and may be skipped if sanity checks fail.
+10. Admin queries net FX deltas by day/period.
+11. Admin executes the required external currency exchange at end of day or beginning of next day.
+12. Admin records a `currency_exchange_external_settlement` bank operation with actual sold amount, bought amount, value date, references, and evidence. The platform infers the actual executed rate including fees/costs from declared final realized amounts.
+13. Ledger records FX fee revenue and external FX clearing/reconciliation.
+14. Platform calculates realized FX surplus/deficit by currency and reports FX gain/loss separately from investor balances.
+
+### Garanta Revenue Transfer
+
+1. Garanta fees, borrower success fees, secondary-market fees, FX fees/margin, balance penalties/handling fees if activated, and other Garanta-owned amounts accrue in the platform ledger when the underlying business event occurs.
+2. Accrued Garanta-owned amounts may remain in collection/settlement accounts until Garanta periodically transfers them to an operating account.
+3. Admin records the outgoing transfer as a `garanta_out` bank operation.
+4. Ledger reduces Garanta accrued revenue/commission balance held in the collection account and records transfer to operating cash/clearing according to the accounting export mapping.
+5. The accrued revenue report remains able to show revenue earned for arbitrary date ranges independent of whether cash has already been transferred out.
+
+### Garanta Funding-In
+
+1. If Garanta ever needs to fund defaults, guaranteed loans, liquidity support, corrections, or other Garanta-funded support, admin records the incoming transfer as a `garanta_in` bank operation.
+2. Ledger classifies the amount as Garanta-owned funding, not investor money.
+3. Any later allocation to investors, borrowers, losses, guarantees, or corrections must be posted through explicit ledger events and audit notes.
+
+## Controls
+
+- No manual ledger mutation.
+- All money movement requires idempotency keys.
+- Bank account changes require verification and approval.
+- Investor balances are held per investor and currency.
+- Enabled balance currencies are configurable by superadmin.
+- Balance source entries must track received timestamp, source type, reinvestment deadline, withdrawal deadline, and remaining amount.
+- FX-generated balance source entries do not reset the 30/60-day ageing clocks.
+- FX-generated balance source entries inherit deadlines from the source currency entries consumed and must retain lineage to those source entries.
+- If one FX conversion consumes multiple source entries with different deadlines, v1 may use the newest/latest consumed expiry timestamp for the target entry.
+- Balance consumption is FIFO within each currency.
+- Balance entries older than 30 days cannot be used for primary-market investment, secondary-market purchase, or reinvestment.
+- Primary-market balance-funded orders must be blocked if the loan funding deadline is later than the selected source entries' 30-day investment/reinvestment deadlines.
+- The investor portal must show explicit errors and a per-currency breakdown of investable balance, withdraw-required balance, FX-eligible balance, and penalty/frozen balance.
+- Deposits, repayment/installment credits, secondary-market seller proceeds, refunds credited to balance, and FX proceeds are subject to balance ageing rules.
+- Balance reminders are sent at day 25, 46, 53, 58, 59, and 60 based on received timestamp and remaining unconsumed balance source amount.
+- Reminder email templates are configurable by superadmin and must state that the regulatory/compliance requirement to avoid holding user funds beyond 60 days cannot be extended.
+- Balances remaining after day 60 are subject to the env/deployment-configurable penalty policy. Launch default is 1% simple daily penalty on the overdue source balance, capped at that source's remaining amount, with terminal `penalty_exhausted` status if fully consumed.
+- If a usable verified IBAN is known at day 60, admin attempts forced withdrawal.
+- If no usable IBAN is known at day 60, penalty mode is enabled and investor financial actions are frozen except declaring/updating a usable IBAN; read-only access remains available.
+- Withdrawals and forced withdrawals are final in-platform once admin records them as executed; later bank failures or returns are handled offline.
+- Penalties, if applied, must be ledgered explicitly and auditable.
+- Recovery payments must separately ledger/report gross recovered amount, externally deducted legal/recovery costs, third-party costs declared at recovery time, Garanta recovery fee decision/amount, net amount received by Garanta, waterfall allocation, lender distributions, and recovery rounding differences.
+- Recovery distributions must apply the project-specific recovery waterfall. Default waterfall: external recovery/legal costs, platform-approved recovery costs including applied Garanta recovery fee, principal, contractual interest accrued until default, default/penalty interest, and other penalties/costs.
+- Lender-facing recovery buckets are allocated pro rata by current principal balance of each lender holding at the recovery event time unless the project agreement defines a different method.
+- Contractual interest stops accruing on the official default declaration date. Default/penalty interest starts from that date instead of regular interest only if provided in the relevant agreement/project configuration and is classified separately.
+- Fund release requires loan close, offline contractual prerequisites, payment reconciliation, and approval.
+- Fund release and borrower-side transaction processing require borrower KYB/AML approval and no compliance hold.
+- Secondary-market settlement requires buyer eligibility, valid transfer documentation, payment reconciliation, and servicing-record update.
+- Secondary-market settlement must normally complete much faster than 60 days after buyer funds arrive or balance is reserved and must never exceed the 60-day maximum operational settlement period.
+- Loan/funding-campaign funds must remain segregated from Garanta operating funds.
+- Loan/funding-campaign funds must not accrue or pay interest.
+- Loan/funding-campaign funds must be released to the borrower, released back to investor balance, or withdrawn/refunded within the permitted period and no later than 60 days after receipt without escalation/penalty handling.
+- The system must alert investors, finance, and compliance before balance source entries or funding campaigns reach the 60-day limit.
+- Unmatched payments go to suspense.
+- Overpayments must be returned to the lender or credited to identified investor balance where policy permits.
+- Primary-market surplus caused by oversubscription must be returned to the lender or credited to identified investor balance after admin review/processing.
+- If no remaining loan capacity exists when funds are validated, the full payment is refund due and the order must not create investor exposure.
+- Payment reference may use lender ID or a stable bank-compatible code derived from part of the lender ID; final format depends on bank/payment partner selection.
+- Wrong-reference payments must be manually investigated, matched only with sufficient evidence, or returned.
+- Cross-currency transfers are reconciled only by the amount received in the loan currency; lenders are responsible for bank conversion fees or shortfalls.
+- Lender distribution artifacts must be internal, reproducible, and auditable.
+- Lender distribution artifacts are not sent to lenders by default; lenders receive email balance-credit notifications.
+- Currency exchange is an auxiliary settlement function, not a trading/speculative function.
+- Launch FX pairs are CHF/EUR and EUR/CHF. Additional pairs are configurable later.
+- Currency exchange has no launch minimum amount and has a launch maximum conversion limit of CHF 100,000 per investor per day or equivalent, configurable by admin with audit trail.
+- Currency exchange must apply the configured FX fee, use a live Yahoo Finance executable quote fixed for 1 minute, settle instantly in platform balances after investor acceptance, inherit target source ageing deadlines from consumed source entries, and preserve accepted quote/rate evidence.
+- FX rates and intermediate FX values must be stored with at least 6 decimals. Website balances and ordinary amounts show 2 decimals; FX confirmation may show 4 decimals before confirmation. Half-up rounding applies.
+- FX display rates are background-polled and indicative only; suspicious ticks must be skipped, and broken/stale/malformed executable rates must be rejected before quote issuance.
+- Previous-day-average sanity checks use the same Yahoo Finance provider. No unhedged/exposure alerts are required at launch.
+- Admin must be able to query net FX deltas by day/period and record external FX execution evidence.
+- Admin must declare all external bank operations using the accepted operation taxonomy before treating external cash as reconciled.
+- When no pending bank operation, suspense item, unmatched cash, pending withdrawal/disbursement/refund/FX settlement, or explicit exception balance exists, collection-account bank balances by currency must equal investor balances plus Garanta accrued commissions/revenue held in those accounts.
+- Reconciliation reports must show bank-stated balance, ledger-stated investor balances, Garanta accrued revenue/commission balance, suspense/unmatched cash, pending/exception balances, and resulting difference by currency.
+- `garanta_out` transfers reduce Garanta accrued revenue/commission balances held in collection accounts and must not reduce investor balances.
+- `garanta_in` transfers are Garanta-owned funds and must not be classified as investor deposits.
+- External FX settlement must calculate and report realized FX gain/loss or surplus/deficit by currency after admin declares actual executed rate and fees.
+- Reconciliation breaks create work items.
+- High-risk payment actions do not require dual approval at launch, but the workflow must support enabling dual approval later.
+- Secondary-market fee ledger entries must separately report maker/seller fee and taker/buyer fee, calculated on transfer price excluding accrued interest and rounded half-up to the nearest cent/minor currency unit.
+- Secondary-market settlement ledger entries must separately record transfer price, accrued interest due to seller, seller net proceeds, buyer total cost, buyer fee, seller fee, and assigned-holding ownership transfer.
+- Ledger exports must tie to accounting reports.
+
+## Dependencies
+
+- Operating Model and Compliance.
+- Marketplace, Investments, and Allocations.
+- Loan Servicing and Repayments.
+- Accounting, Tax, and Finance Operations.
+- Security, Privacy, and Auditability.
+- Integrations, APIs, and Event Architecture.
+
+## Q/A Backlog
+
+1. Superseded by PAY-DEC-003/PAY-DEC-017: Garanta may hold investor balances in enabled currencies, with source-level ageing and a 60-day absolute deadline.
+2. Partly answered: bank/payment partner is not yet selected. Launch model uses one segregated collection account/IBAN per currency for all loans/projects with references and ledger allocation. Payment reference may use the lender ID or a stable bank-compatible code derived from part of the lender ID, pending final bank/payment partner format.
+3. Answered by PAY-DEC-003: investor multi-currency balances are in scope.
+4. Answered by PAY-DEC-005: repayments are credited to lender balances based on system-calculated lender distribution lists.
+5. Answered by PAY-DEC-001: CHF and EUR at launch; enabled currencies configurable by superadmin.
+6. Answered by PAY-DEC-015 and SERV-DEC-012: lender distribution list and internal distribution artifacts are maintained for admin/finance; they are not sent to lenders as files by default.
+7. Answered by Operating Model DEC-010 and PAY-DEC-004/PAY-DEC-005: admin confirms operational payments and fund release readiness.
+8. Answered by PAY-DEC-007 and PAY-DEC-016: surplus can be credited to balance where policy permits or returned; wrong-reference payments are investigated off-platform and held in suspense until matched, credited, or returned.
+9. Answered by FIN-DEC-002: platform ledger is the immutable transaction-level operational subledger/source of truth and exports configurable monthly debit/credit accounting data to Bexio.
+10. Answered by PAY-DEC-009: secondary-market money moves through Garanta's collection account or investor balance for full-holding transfers; maker/seller fee is 0.25% and taker/buyer fee is 0.75%, both calculated on transfer price excluding accrued interest, rounded half-up, and charged at settlement; accrued interest to settlement belongs to seller; net proceeds are credited to seller balance within the maximum operational period.
+11. Answered by PAY-DEC-008: admin decides refund all or proceed with partial funding and notify lenders when a deadline/limit is reached.
+12. Answered by PAY-DEC-010: one collection account/IBAN per enabled currency.
+13. Answered by PAY-DEC-011: each loan is single-currency.
+14. Answered by PAY-DEC-012: cross-currency transfers are not advised but not blocked if correct amount/reference arrives.
+15. Answered by PAY-DEC-013 and PAY-DEC-014: partial close requires notification only, with no fixed minimum threshold; admin decides case by case.
+16. Answered by PAY-DEC-016: when lender funds exceed remaining loan capacity, accepted amount is allocated and excess is refund due or balance-creditable according to policy; if no capacity remains, no investor exposure is created.
+17. Answered by PAY-DEC-017: balance reminders occur on days 25, 46, 53, 58, 59, and 60; day-60 reminder announces penalties.
+18. Answered by PAY-DEC-018: currency exchange is an auxiliary settlement function, not trading/speculation; launch pairs are CHF/EUR and EUR/CHF, with no minimum amount, CHF 100,000 per-investor daily maximum or equivalent configurable by admin, Yahoo Finance source rates, configurable 1.5% launch platform fee, live executable quotes fixed for 1 minute, background display polling, same-provider sanity checks, at-least-6-decimal stored precision, 2-decimal normal display, 4-decimal FX confirmation display, and half-up rounding.
+19. Answered by PAY-DEC-019: all money movements are ledgered with `in`/`out` direction and source-level received timestamps.
+20. Answered by PAY-DEC-020: admin can query FX deltas by day/period and record external FX execution.
+21. Answered by PAY-DEC-021: balance source entries are consumed FIFO; entries older than 30 days cannot be invested/reinvested and are withdraw-only. Balance-funded primary-market orders are blocked if the loan funding deadline exceeds the consumed source entries' remaining 30-day investment window. FX conversion does not reset ageing or restore investment eligibility; target-currency entries inherit deadlines from consumed source entries, using the newest/latest consumed expiry timestamp when multiple source entries are consumed in one exchange.
+22. Answered by PAY-DEC-022: day-60 funds trigger forced withdrawal if usable IBAN is known; otherwise penalty mode freezes financial actions until usable IBAN is declared while preserving read-only access. Withdrawals are final in-platform once admin records execution; later bank failures/returns are handled offline.
+23. Answered by PAY-DEC-023: deposits and installment payments use bank value date; secondary-market and FX events use internal transaction timestamp.
+24. Answered by PAY-DEC-024/PAY-DEC-027: investor FX settles instantly in platform balances; admin settles external FX at end of day or next morning using delta reports and records final realized sold/bought amounts from which the platform infers actual execution rate including fees/costs.
+25. Answered by PAY-DEC-026: all launch external bank movements are admin-declared bank operations using lender deposit, lender withdrawal, borrower loan disbursement, borrower repayment, Garanta out, Garanta in, and currency-exchange external settlement types.
+26. Answered by PAY-DEC-026/PAY-DEC-027: reconciliation compares bank-stated balances with investor balances, Garanta accrued revenue held in collection accounts, suspense/unmatched cash, and pending/exception balances by currency; external FX settlement records actual execution details and calculates realized FX surplus/deficit by currency.
+25. Updated by PAY-DEC-025 and KYC-DEC-008: admin-created legal-entity lender accounts behave like regular lenders for balances and transactions only after off-platform KYB/AML is recorded and approved by admin.
