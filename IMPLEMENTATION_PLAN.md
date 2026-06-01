@@ -40,6 +40,17 @@ Accepted implementation deferrals from the platform-core audit:
 - Strict setting `value_type` schema validation is deferred to the superadmin settings UI and settings registry module.
 - Real Twilio dispatch/verification-provider execution is deferred until the communications/provider worker slice because Twilio sandbox credentials, Verify service configuration, and delivery-webhook handling are external inputs. The current accounts slice records the auditable challenge and queues a redacted SMS outbox message.
 
+Recent audit dispositions:
+
+- Phone verification confirm ownership was fixed by binding confirmation to the authenticated user in the service layer and adding cross-user regression tests.
+- Phone verification confirm throttling was added as defense in depth. Magic-link consume remains unthrottled because it uses single-use 256-bit tokens; this is low severity and not worth patching until a broader auth-abuse throttle pass.
+- Staging and production throttle cache behavior was closed by defaulting `CACHE_URL` to shared `REDIS_URL` outside local environments. Local in-memory cache remains acceptable for development and tests.
+- `PhoneVerified` domain-event idempotency was changed from per-user to per-challenge so future phone re-verification does not get deduplicated accidentally.
+- Short-lived auth secret encryption/digest fallback to `SECRET_KEY` is accepted for local development. Production and staging should set dedicated `AUTH_DELIVERY_SECRET_ENCRYPTION_KEY` and `AUTH_SECRET_DIGEST_PEPPER`; rotating `SECRET_KEY` may invalidate in-flight short-lived tokens/codes if those dedicated values are absent.
+- Fixed-bucket throttle windows and cache `add`/`incr` behavior are accepted for v1 as low severity. They are sufficient for abuse friction and can be replaced by a stricter distributed-rate-limit backend if launch traffic or abuse patterns justify it.
+- Earlier platform-core audit items reported as still open are closed in the current codebase: outbox retry reaches the 48-hour delay and has sequence tests, append-only tables have DB triggers for PostgreSQL and SQLite, money allocation/splitting helpers have deterministic residue tests, and Zurich business-date helpers have tests.
+- Registration terms hash handling is closed for the current auth scope because the server validates submitted terms against configured canonical `REGISTRATION_TERMS_VERSION` and `REGISTRATION_TERMS_HASH`. The documents/templates module will later replace the settings-backed source with persisted template/version ownership.
+
 ## 1. Review Outcome
 
 All written planning files were reviewed one by one:

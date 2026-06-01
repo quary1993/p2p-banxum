@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import timedelta
 from typing import Any
 
@@ -72,6 +73,7 @@ def test_phone_verification_confirm_sets_user_phone_verified(investor: User) -> 
 
     challenge = confirm_phone_verification(
         PhoneVerificationConfirmCommand(
+            user=investor,
             challenge_id=str(result.challenge.id),
             raw_code=result.raw_code,
         )
@@ -92,10 +94,47 @@ def test_phone_verification_confirm_sets_user_phone_verified(investor: User) -> 
     with pytest.raises(InvalidOrExpiredCodeError):
         confirm_phone_verification(
             PhoneVerificationConfirmCommand(
+                user=investor,
                 challenge_id=str(result.challenge.id),
                 raw_code=result.raw_code,
             )
         )
+
+
+@pytest.mark.django_db
+def test_phone_verification_confirm_rejects_challenge_owned_by_another_user(
+    investor: User,
+) -> None:
+    other_user = User.objects.create_user(
+        email="other@example.test",
+        full_name="Other Investor",
+        account_type=AccountType.NATURAL_PERSON_LENDER,
+        status=AccountStatus.PENDING_KYC,
+        phone_number="+41790000001",
+    )
+    result = request_phone_verification(PhoneVerificationRequestCommand(user=investor))
+
+    with pytest.raises(InvalidOrExpiredCodeError):
+        confirm_phone_verification(
+            PhoneVerificationConfirmCommand(
+                user=other_user,
+                challenge_id=str(result.challenge.id),
+                raw_code=result.raw_code,
+            )
+        )
+
+    result.challenge.refresh_from_db()
+    investor.refresh_from_db()
+    other_user.refresh_from_db()
+    assert result.challenge.status == PhoneVerificationStatus.PENDING
+    assert result.challenge.attempts == 0
+    assert investor.phone_verified_at is None
+    assert other_user.phone_verified_at is None
+    assert AuditEvent.objects.filter(
+        action="auth.phone_verification_failed",
+        target_id=str(other_user.id),
+        metadata__reason="invalid_expired_or_superseded",
+    ).exists()
 
 
 @pytest.mark.django_db
@@ -109,6 +148,7 @@ def test_phone_verification_enforces_max_attempts(investor: User) -> None:
     with pytest.raises(InvalidOrExpiredCodeError):
         confirm_phone_verification(
             PhoneVerificationConfirmCommand(
+                user=investor,
                 challenge_id=str(result.challenge.id),
                 raw_code=wrong_code,
             )
@@ -122,6 +162,7 @@ def test_phone_verification_enforces_max_attempts(investor: User) -> None:
     with pytest.raises(TooManyCodeAttemptsError):
         confirm_phone_verification(
             PhoneVerificationConfirmCommand(
+                user=investor,
                 challenge_id=str(result.challenge.id),
                 raw_code=other_wrong_code,
             )
@@ -140,6 +181,7 @@ def test_expired_phone_verification_is_rejected(investor: User) -> None:
     with pytest.raises(InvalidOrExpiredCodeError):
         confirm_phone_verification(
             PhoneVerificationConfirmCommand(
+                user=investor,
                 challenge_id=str(result.challenge.id),
                 raw_code=result.raw_code,
             )
@@ -173,6 +215,7 @@ def test_phone_verification_reissue_supersedes_prior_active_challenge(
     with pytest.raises(InvalidOrExpiredCodeError):
         confirm_phone_verification(
             PhoneVerificationConfirmCommand(
+                user=investor,
                 challenge_id=str(first.challenge.id),
                 raw_code=first.raw_code,
             )
@@ -180,6 +223,7 @@ def test_phone_verification_reissue_supersedes_prior_active_challenge(
 
     confirmed = confirm_phone_verification(
         PhoneVerificationConfirmCommand(
+            user=investor,
             challenge_id=str(second.challenge.id),
             raw_code=second.raw_code,
         )
@@ -192,6 +236,7 @@ def test_phone_verification_request_rejects_already_verified_user(investor: User
     result = request_phone_verification(PhoneVerificationRequestCommand(user=investor))
     confirm_phone_verification(
         PhoneVerificationConfirmCommand(
+            user=investor,
             challenge_id=str(result.challenge.id),
             raw_code=result.raw_code,
         )
@@ -225,6 +270,62 @@ def test_phone_verification_api_flow(client: Client, investor: User) -> None:
 
     assert confirm_response.status_code == 200
     assert confirm_response.json()["user"]["phone_verified"] is True
+
+
+@pytest.mark.django_db
+def test_phone_verification_confirm_api_rejects_challenge_owned_by_another_user(
+    client: Client,
+    investor: User,
+) -> None:
+    other_user = User.objects.create_user(
+        email="other@example.test",
+        full_name="Other Investor",
+        account_type=AccountType.NATURAL_PERSON_LENDER,
+        status=AccountStatus.PENDING_KYC,
+        phone_number="+41790000001",
+    )
+    result = request_phone_verification(PhoneVerificationRequestCommand(user=investor))
+    client.force_login(other_user)
+
+    response = client.post(
+        "/api/v1/auth/phone/confirm/",
+        data={"challenge_id": str(result.challenge.id), "code": result.raw_code},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    result.challenge.refresh_from_db()
+    investor.refresh_from_db()
+    other_user.refresh_from_db()
+    assert result.challenge.status == PhoneVerificationStatus.PENDING
+    assert result.challenge.attempts == 0
+    assert investor.phone_verified_at is None
+    assert other_user.phone_verified_at is None
+
+
+@pytest.mark.django_db
+def test_phone_verification_confirm_api_throttles_repeated_attempts(
+    client: Client,
+    investor: User,
+    settings: Any,
+) -> None:
+    client.force_login(investor)
+
+    for _ in range(settings.AUTH_PHONE_VERIFICATION_CONFIRM_HOURLY_LIMIT):
+        response = client.post(
+            "/api/v1/auth/phone/confirm/",
+            data={"challenge_id": str(uuid.uuid4()), "code": "000000"},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+    blocked = client.post(
+        "/api/v1/auth/phone/confirm/",
+        data={"challenge_id": str(uuid.uuid4()), "code": "000000"},
+        content_type="application/json",
+    )
+
+    assert blocked.status_code == 429
 
 
 @pytest.mark.django_db

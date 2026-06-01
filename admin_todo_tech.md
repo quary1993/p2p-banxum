@@ -60,10 +60,11 @@ Decision:
 - Use WAL archiving or daily logical backups at launch; RDS point-in-time recovery is a later scaling/safety upgrade.
 - Use Redis in Docker at launch, with separate Redis instances or strict DB/namespace separation for staging and production.
 - Redis is treated as disposable operational state. Durable financial state must remain in PostgreSQL and append-only ledger/event tables.
+- Use shared Redis-backed Django cache for staging and production throttles. `CACHE_URL` must point to the environment-specific Redis instance/database or namespace; local in-memory cache is acceptable only for local development and tests.
 
 Rationale:
 
-Self-hosted PostgreSQL and Redis minimize launch cost. This is acceptable only because launch traffic is expected to be low and the platform has daily encrypted backups, manual restore runbooks, ledger integrity checks, and a documented RDS migration path.
+Self-hosted PostgreSQL and Redis minimize launch cost. This is acceptable only because launch traffic is expected to be low and the platform has daily encrypted backups, manual restore runbooks, ledger integrity checks, shared-cache throttling in non-local environments, and a documented RDS/ElastiCache migration path.
 
 ### Object Storage and KYC Evidence Storage
 
@@ -319,6 +320,12 @@ Decision:
   - 3 attempts.
   - resend cooldown: 60 seconds.
   - rate-limited by user and IP.
+- Phone verification:
+  - code expiry: 10 minutes.
+  - 3 attempts.
+  - resend cooldown: 60 seconds.
+  - request rate limit: 5 per user/IP per hour and 20 per day.
+  - confirm rate limit: 10 per user/IP per hour and 50 per day, without a cooldown so a user can correct a mistyped code immediately.
 - Admin authentication:
   - email/password plus email code.
   - password minimum 14 characters.
@@ -331,6 +338,11 @@ Decision:
 Rationale:
 
 These defaults are consistent with the existing user/account plan and are strict enough for v1 without adding MFA hardware/app complexity.
+
+Production/staging note:
+
+- Set `CACHE_URL` or environment-specific `REDIS_URL` to a shared Redis instance/database so rate limits are enforced across all app workers.
+- Set dedicated `AUTH_DELIVERY_SECRET_ENCRYPTION_KEY` and `AUTH_SECRET_DIGEST_PEPPER`. If these are left empty, local fallback derives short-lived token/code encryption and digests from `DJANGO_SECRET_KEY`; this is acceptable for local development but couples in-flight auth secrets to `DJANGO_SECRET_KEY` rotation.
 
 ### Template Variable Registry Validation
 

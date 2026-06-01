@@ -121,3 +121,17 @@ class PhoneVerificationRequestThrottle(AuthThrottle):
         if isinstance(request.user, User):
             identifiers.append(f"user:{request.user.id}")
         return tuple(identifiers)
+
+
+class PhoneVerificationConfirmThrottle(AuthThrottle):
+    scope = "phone_verification_confirm"
+    window_rules = (
+        WindowRule("hour", 60 * 60, settings.AUTH_PHONE_VERIFICATION_CONFIRM_HOURLY_LIMIT),
+        WindowRule("day", 24 * 60 * 60, settings.AUTH_PHONE_VERIFICATION_CONFIRM_DAILY_LIMIT),
+    )
+
+    def get_identifiers(self, request: Request) -> tuple[str, ...]:
+        identifiers = list(super().get_identifiers(request))
+        if isinstance(request.user, User):
+            identifiers.append(f"user:{request.user.id}")
+        return tuple(identifiers)

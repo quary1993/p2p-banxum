@@ -25,6 +25,7 @@ from backend.apps.accounts_auth.api.serializers import (
 from backend.apps.accounts_auth.api.throttles import (
     MagicLinkRequestThrottle,
     NaturalPersonRegistrationThrottle,
+    PhoneVerificationConfirmThrottle,
     PhoneVerificationRequestThrottle,
 )
 from backend.apps.accounts_auth.models import User
@@ -187,6 +188,7 @@ class PhoneVerificationRequestView(APIView):
 
 class PhoneVerificationConfirmView(APIView):
     permission_classes = [IsAuthenticated]
+    throttle_classes = [PhoneVerificationConfirmThrottle]
 
     @extend_schema(
         request=PhoneVerificationConfirmRequestSerializer,
@@ -199,6 +201,7 @@ class PhoneVerificationConfirmView(APIView):
         try:
             confirm_phone_verification(
                 PhoneVerificationConfirmCommand(
+                    user=cast(User, request.user),
                     challenge_id=str(data["challenge_id"]),
                     raw_code=data["code"],
                     ip_address=client_ip(request),

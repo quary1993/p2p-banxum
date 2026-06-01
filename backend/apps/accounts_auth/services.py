@@ -176,6 +176,7 @@ class PhoneVerificationRequestResult:
 
 @dataclass(frozen=True, slots=True)
 class PhoneVerificationConfirmCommand:
+    user: User
     challenge_id: str
     raw_code: str
     ip_address: str | None = None
@@ -492,7 +493,7 @@ def confirm_phone_verification(
     with transaction.atomic():
         challenge = (
             PhoneVerificationChallenge.objects.select_for_update()
-            .filter(id=command.challenge_id)
+            .filter(id=command.challenge_id, user=command.user)
             .first()
         )
         now = timezone.now()
@@ -511,7 +512,7 @@ def confirm_phone_verification(
                 challenge.save(update_fields=["status", "updated_at"])
             _audit_auth_failure(
                 action="auth.phone_verification_failed",
-                user_id=str(challenge.user_id) if challenge is not None else "",
+                user_id=str(command.user.id),
                 metadata={"reason": "invalid_expired_or_superseded"},
             )
             failure = InvalidOrExpiredCodeError("Phone verification code is invalid or expired.")
@@ -578,7 +579,7 @@ def confirm_phone_verification(
                     aggregate_type="User",
                     aggregate_id=str(challenge.user_id),
                     payload={"challenge_id": str(challenge.id)},
-                    idempotency_key=f"user:{challenge.user_id}:phone-verified",
+                    idempotency_key=f"user:{challenge.user_id}:phone-verification:{challenge.id}:verified",
                 )
             )
 
