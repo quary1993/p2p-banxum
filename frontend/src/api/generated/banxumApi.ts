@@ -249,6 +249,194 @@ export interface AuthenticatedUserResponse {
   user: UserSummary;
 }
 
+export interface BorrowerDocument {
+  id: string;
+  borrower_id: string;
+  document_type: string;
+  display_name: string;
+  description: string;
+  stored_file_id: number;
+  investor_visible: boolean;
+  created_by_admin_id: string;
+  created_by_account_type: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BorrowerDocumentCreateRequest {
+  stored_file_id: number;
+  document_type: BorrowerDocumentTypeEnum;
+  /** @maxLength 255 */
+  display_name: string;
+  description?: string;
+  investor_visible?: boolean;
+  note?: string;
+}
+
+/**
+ * * `presentation` - Borrower presentation
+* `financials` - Financial PDF
+* `kyb_evidence` - KYB/AML evidence
+* `generic` - Generic borrower document
+* `other` - Other
+ */
+export type BorrowerDocumentTypeEnum = typeof BorrowerDocumentTypeEnum[keyof typeof BorrowerDocumentTypeEnum];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const BorrowerDocumentTypeEnum = {
+  presentation: 'presentation',
+  financials: 'financials',
+  kyb_evidence: 'kyb_evidence',
+  generic: 'generic',
+  other: 'other',
+} as const;
+
+export interface BorrowerEntity {
+  id: string;
+  legal_name: string;
+  year_founded: number;
+  entity_type: string;
+  kyb_status: string;
+  compliance_hold: boolean;
+  can_transact: boolean;
+  country: string;
+  registration_number: string;
+  registered_address: string;
+  operating_address: string;
+  industry_activity: string;
+  ownership_structure: string;
+  beneficial_owners: unknown;
+  directors_officers: unknown;
+  authorized_signatories: unknown;
+  bank_account_details: unknown;
+  financials_currency: string;
+  /** @nullable */
+  assets_minor: number | null;
+  /** @nullable */
+  liabilities_minor: number | null;
+  /** @nullable */
+  revenue_last_year_minor: number | null;
+  /** @nullable */
+  profit_last_year_minor: number | null;
+  created_by_admin_id: string;
+  /** @nullable */
+  updated_by_admin_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type BorrowerEntityCreateRequestBeneficialOwnersItem = {[key: string]: unknown};
+
+export type BorrowerEntityCreateRequestDirectorsOfficersItem = {[key: string]: unknown};
+
+export type BorrowerEntityCreateRequestAuthorizedSignatoriesItem = {[key: string]: unknown};
+
+export type BorrowerEntityCreateRequestBankAccountDetails = {[key: string]: unknown};
+
+export interface BorrowerEntityCreateRequest {
+  /** @maxLength 255 */
+  legal_name: string;
+  year_founded: number;
+  entity_type?: BorrowerEntityTypeEnum;
+  kyb_status?: BorrowerKybStatusEnum;
+  compliance_hold?: boolean;
+  /** @maxLength 64 */
+  country?: string;
+  /** @maxLength 128 */
+  registration_number?: string;
+  registered_address?: string;
+  operating_address?: string;
+  industry_activity?: string;
+  ownership_structure?: string;
+  beneficial_owners?: BorrowerEntityCreateRequestBeneficialOwnersItem[];
+  directors_officers?: BorrowerEntityCreateRequestDirectorsOfficersItem[];
+  authorized_signatories?: BorrowerEntityCreateRequestAuthorizedSignatoriesItem[];
+  bank_account_details?: BorrowerEntityCreateRequestBankAccountDetails;
+  /** @maxLength 3 */
+  financials_currency?: string;
+  /** @nullable */
+  assets_minor?: number | null;
+  /** @nullable */
+  liabilities_minor?: number | null;
+  /** @nullable */
+  revenue_last_year_minor?: number | null;
+  /** @nullable */
+  profit_last_year_minor?: number | null;
+  note?: string;
+  evidence_summary?: string;
+}
+
+export interface BorrowerEntityEvent {
+  id: string;
+  borrower_id: string;
+  event_type: string;
+  actor_user_id: string;
+  actor_account_type: string;
+  previous_kyb_status: string;
+  new_kyb_status: string;
+  note: string;
+  evidence_summary: string;
+  metadata: unknown;
+  occurred_at: string;
+}
+
+/**
+ * * `swiss_company` - Swiss company
+* `non_swiss_company` - Non-Swiss company
+* `real_estate_project_company` - Real estate project company
+* `special_purpose_vehicle` - Special purpose vehicle
+* `other` - Other
+ */
+export type BorrowerEntityTypeEnum = typeof BorrowerEntityTypeEnum[keyof typeof BorrowerEntityTypeEnum];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const BorrowerEntityTypeEnum = {
+  swiss_company: 'swiss_company',
+  non_swiss_company: 'non_swiss_company',
+  real_estate_project_company: 'real_estate_project_company',
+  special_purpose_vehicle: 'special_purpose_vehicle',
+  other: 'other',
+} as const;
+
+export type BorrowerInvestorDisclosureDocumentsItem = {[key: string]: unknown};
+
+export interface BorrowerInvestorDisclosure {
+  legal_name: string;
+  year_founded: number;
+  country?: string;
+  financials_currency?: string;
+  assets_minor?: number;
+  liabilities_minor?: number;
+  revenue_last_year_minor?: number;
+  profit_last_year_minor?: number;
+  documents?: BorrowerInvestorDisclosureDocumentsItem[];
+}
+
+/**
+ * * `not_started` - Not started
+* `pending` - Pending
+* `approved` - Approved
+* `declined` - Declined
+* `manual_review` - Manual review
+* `expired` - Expired
+* `reverification_required` - Re-verification required
+ */
+export type BorrowerKybStatusEnum = typeof BorrowerKybStatusEnum[keyof typeof BorrowerKybStatusEnum];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const BorrowerKybStatusEnum = {
+  not_started: 'not_started',
+  pending: 'pending',
+  approved: 'approved',
+  declined: 'declined',
+  manual_review: 'manual_review',
+  expired: 'expired',
+  reverification_required: 'reverification_required',
+} as const;
+
 /**
  * * `approve` - Approve
 * `decline` - Decline
@@ -472,6 +660,51 @@ export interface PatchedAdminTaskUpdateRequest {
   completion_note?: string;
 }
 
+export type PatchedBorrowerEntityUpdateRequestBeneficialOwnersItem = {[key: string]: unknown};
+
+export type PatchedBorrowerEntityUpdateRequestDirectorsOfficersItem = {[key: string]: unknown};
+
+export type PatchedBorrowerEntityUpdateRequestAuthorizedSignatoriesItem = {[key: string]: unknown};
+
+export type PatchedBorrowerEntityUpdateRequestBankAccountDetails = {[key: string]: unknown};
+
+export interface PatchedBorrowerEntityUpdateRequest {
+  /** @maxLength 255 */
+  legal_name?: string;
+  year_founded?: number;
+  entity_type?: BorrowerEntityTypeEnum;
+  kyb_status?: BorrowerKybStatusEnum;
+  compliance_hold?: boolean;
+  /** @maxLength 64 */
+  country?: string;
+  /** @maxLength 128 */
+  registration_number?: string;
+  registered_address?: string;
+  operating_address?: string;
+  industry_activity?: string;
+  ownership_structure?: string;
+  beneficial_owners?: PatchedBorrowerEntityUpdateRequestBeneficialOwnersItem[];
+  directors_officers?: PatchedBorrowerEntityUpdateRequestDirectorsOfficersItem[];
+  authorized_signatories?: PatchedBorrowerEntityUpdateRequestAuthorizedSignatoriesItem[];
+  bank_account_details?: PatchedBorrowerEntityUpdateRequestBankAccountDetails;
+  /** @maxLength 3 */
+  financials_currency?: string;
+  /** @nullable */
+  assets_minor?: number | null;
+  /** @nullable */
+  liabilities_minor?: number | null;
+  /** @nullable */
+  revenue_last_year_minor?: number | null;
+  /** @nullable */
+  profit_last_year_minor?: number | null;
+  clear_assets?: boolean;
+  clear_liabilities?: boolean;
+  clear_revenue_last_year?: boolean;
+  clear_profit_last_year?: boolean;
+  note?: string;
+  evidence_summary?: string;
+}
+
 export interface PhoneVerificationConfirmRequest {
   challenge_id: string;
   /** @pattern ^\d{6}$ */
@@ -621,6 +854,69 @@ export const V1AdminOpsTasksListTaskType = {
   reporting: 'reporting',
   support: 'support',
   other: 'other',
+} as const;
+
+export type V1EntitiesAdminBorrowersListParams = {
+compliance_hold?: boolean;
+/**
+ * @maxLength 64
+ */
+country?: string;
+/**
+ * * `swiss_company` - Swiss company
+* `non_swiss_company` - Non-Swiss company
+* `real_estate_project_company` - Real estate project company
+* `special_purpose_vehicle` - Special purpose vehicle
+* `other` - Other
+ * @minLength 1
+ */
+entity_type?: V1EntitiesAdminBorrowersListEntityType;
+/**
+ * * `not_started` - Not started
+* `pending` - Pending
+* `approved` - Approved
+* `declined` - Declined
+* `manual_review` - Manual review
+* `expired` - Expired
+* `reverification_required` - Re-verification required
+ * @minLength 1
+ */
+kyb_status?: V1EntitiesAdminBorrowersListKybStatus;
+/**
+ * @minimum 1
+ * @maximum 250
+ */
+limit?: number;
+/**
+ * @maxLength 255
+ */
+q?: string;
+};
+
+export type V1EntitiesAdminBorrowersListEntityType = typeof V1EntitiesAdminBorrowersListEntityType[keyof typeof V1EntitiesAdminBorrowersListEntityType];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const V1EntitiesAdminBorrowersListEntityType = {
+  swiss_company: 'swiss_company',
+  non_swiss_company: 'non_swiss_company',
+  real_estate_project_company: 'real_estate_project_company',
+  special_purpose_vehicle: 'special_purpose_vehicle',
+  other: 'other',
+} as const;
+
+export type V1EntitiesAdminBorrowersListKybStatus = typeof V1EntitiesAdminBorrowersListKybStatus[keyof typeof V1EntitiesAdminBorrowersListKybStatus];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const V1EntitiesAdminBorrowersListKybStatus = {
+  not_started: 'not_started',
+  pending: 'pending',
+  approved: 'approved',
+  declined: 'declined',
+  manual_review: 'manual_review',
+  expired: 'expired',
+  reverification_required: 'reverification_required',
 } as const;
 
 export const v1AdminOpsAuditEventsList = (
@@ -1708,6 +2004,620 @@ const {mutation: mutationOptions} = options ?
       return useMutation(mutationOptions, queryClient);
     }
     
+export const v1EntitiesAdminBorrowersList = (
+    params?: V1EntitiesAdminBorrowersListParams,
+ signal?: AbortSignal
+) => {
+      
+      
+      return httpClient<BorrowerEntity[]>(
+      {url: `/api/v1/entities/admin/borrowers/`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+  
+
+
+
+export const getV1EntitiesAdminBorrowersListQueryKey = (params?: V1EntitiesAdminBorrowersListParams,) => {
+    return [
+    `/api/v1/entities/admin/borrowers/`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+    
+export const getV1EntitiesAdminBorrowersListQueryOptions = <TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersList>>, TError = unknown>(params?: V1EntitiesAdminBorrowersListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersList>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1EntitiesAdminBorrowersListQueryKey(params);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersList>>> = ({ signal }) => v1EntitiesAdminBorrowersList(params, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1EntitiesAdminBorrowersListQueryResult = NonNullable<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersList>>>
+export type V1EntitiesAdminBorrowersListQueryError = unknown
+
+
+export function useV1EntitiesAdminBorrowersList<TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersList>>, TError = unknown>(
+ params: undefined |  V1EntitiesAdminBorrowersListParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1EntitiesAdminBorrowersList>>,
+          TError,
+          Awaited<ReturnType<typeof v1EntitiesAdminBorrowersList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1EntitiesAdminBorrowersList<TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersList>>, TError = unknown>(
+ params?: V1EntitiesAdminBorrowersListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1EntitiesAdminBorrowersList>>,
+          TError,
+          Awaited<ReturnType<typeof v1EntitiesAdminBorrowersList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1EntitiesAdminBorrowersList<TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersList>>, TError = unknown>(
+ params?: V1EntitiesAdminBorrowersListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1EntitiesAdminBorrowersList<TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersList>>, TError = unknown>(
+ params?: V1EntitiesAdminBorrowersListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersList>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1EntitiesAdminBorrowersListQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1EntitiesAdminBorrowersCreate = (
+    borrowerEntityCreateRequest: BorrowerEntityCreateRequest,
+ signal?: AbortSignal
+) => {
+      
+      
+      return httpClient<BorrowerEntity>(
+      {url: `/api/v1/entities/admin/borrowers/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: borrowerEntityCreateRequest, signal
+    },
+      );
+    }
+  
+
+
+export const getV1EntitiesAdminBorrowersCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersCreate>>, TError,{data: BorrowerEntityCreateRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersCreate>>, TError,{data: BorrowerEntityCreateRequest}, TContext> => {
+
+const mutationKey = ['v1EntitiesAdminBorrowersCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersCreate>>, {data: BorrowerEntityCreateRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1EntitiesAdminBorrowersCreate(data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1EntitiesAdminBorrowersCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersCreate>>>
+    export type V1EntitiesAdminBorrowersCreateMutationBody = BorrowerEntityCreateRequest
+    export type V1EntitiesAdminBorrowersCreateMutationError = unknown
+
+    export const useV1EntitiesAdminBorrowersCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersCreate>>, TError,{data: BorrowerEntityCreateRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1EntitiesAdminBorrowersCreate>>,
+        TError,
+        {data: BorrowerEntityCreateRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1EntitiesAdminBorrowersCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    
+export const v1EntitiesAdminBorrowersRetrieve = (
+    borrowerId: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return httpClient<BorrowerEntity>(
+      {url: `/api/v1/entities/admin/borrowers/${borrowerId}/`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getV1EntitiesAdminBorrowersRetrieveQueryKey = (borrowerId?: string,) => {
+    return [
+    `/api/v1/entities/admin/borrowers/${borrowerId}/`
+    ] as const;
+    }
+
+    
+export const getV1EntitiesAdminBorrowersRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersRetrieve>>, TError = unknown>(borrowerId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersRetrieve>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1EntitiesAdminBorrowersRetrieveQueryKey(borrowerId);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersRetrieve>>> = ({ signal }) => v1EntitiesAdminBorrowersRetrieve(borrowerId, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(borrowerId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1EntitiesAdminBorrowersRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersRetrieve>>>
+export type V1EntitiesAdminBorrowersRetrieveQueryError = unknown
+
+
+export function useV1EntitiesAdminBorrowersRetrieve<TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersRetrieve>>, TError = unknown>(
+ borrowerId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1EntitiesAdminBorrowersRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1EntitiesAdminBorrowersRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1EntitiesAdminBorrowersRetrieve<TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersRetrieve>>, TError = unknown>(
+ borrowerId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1EntitiesAdminBorrowersRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1EntitiesAdminBorrowersRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1EntitiesAdminBorrowersRetrieve<TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersRetrieve>>, TError = unknown>(
+ borrowerId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1EntitiesAdminBorrowersRetrieve<TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersRetrieve>>, TError = unknown>(
+ borrowerId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1EntitiesAdminBorrowersRetrieveQueryOptions(borrowerId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1EntitiesAdminBorrowersPartialUpdate = (
+    borrowerId: string,
+    patchedBorrowerEntityUpdateRequest: PatchedBorrowerEntityUpdateRequest,
+ ) => {
+      
+      
+      return httpClient<BorrowerEntity>(
+      {url: `/api/v1/entities/admin/borrowers/${borrowerId}/`, method: 'PATCH',
+      headers: {'Content-Type': 'application/json', },
+      data: patchedBorrowerEntityUpdateRequest
+    },
+      );
+    }
+  
+
+
+export const getV1EntitiesAdminBorrowersPartialUpdateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersPartialUpdate>>, TError,{borrowerId: string;data: PatchedBorrowerEntityUpdateRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersPartialUpdate>>, TError,{borrowerId: string;data: PatchedBorrowerEntityUpdateRequest}, TContext> => {
+
+const mutationKey = ['v1EntitiesAdminBorrowersPartialUpdate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersPartialUpdate>>, {borrowerId: string;data: PatchedBorrowerEntityUpdateRequest}> = (props) => {
+          const {borrowerId,data} = props ?? {};
+
+          return  v1EntitiesAdminBorrowersPartialUpdate(borrowerId,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1EntitiesAdminBorrowersPartialUpdateMutationResult = NonNullable<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersPartialUpdate>>>
+    export type V1EntitiesAdminBorrowersPartialUpdateMutationBody = PatchedBorrowerEntityUpdateRequest
+    export type V1EntitiesAdminBorrowersPartialUpdateMutationError = unknown
+
+    export const useV1EntitiesAdminBorrowersPartialUpdate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersPartialUpdate>>, TError,{borrowerId: string;data: PatchedBorrowerEntityUpdateRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1EntitiesAdminBorrowersPartialUpdate>>,
+        TError,
+        {borrowerId: string;data: PatchedBorrowerEntityUpdateRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1EntitiesAdminBorrowersPartialUpdateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    
+export const v1EntitiesAdminBorrowersDocumentsList = (
+    borrowerId: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return httpClient<BorrowerDocument[]>(
+      {url: `/api/v1/entities/admin/borrowers/${borrowerId}/documents/`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getV1EntitiesAdminBorrowersDocumentsListQueryKey = (borrowerId?: string,) => {
+    return [
+    `/api/v1/entities/admin/borrowers/${borrowerId}/documents/`
+    ] as const;
+    }
+
+    
+export const getV1EntitiesAdminBorrowersDocumentsListQueryOptions = <TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsList>>, TError = unknown>(borrowerId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsList>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1EntitiesAdminBorrowersDocumentsListQueryKey(borrowerId);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsList>>> = ({ signal }) => v1EntitiesAdminBorrowersDocumentsList(borrowerId, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(borrowerId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1EntitiesAdminBorrowersDocumentsListQueryResult = NonNullable<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsList>>>
+export type V1EntitiesAdminBorrowersDocumentsListQueryError = unknown
+
+
+export function useV1EntitiesAdminBorrowersDocumentsList<TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsList>>, TError = unknown>(
+ borrowerId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1EntitiesAdminBorrowersDocumentsList<TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsList>>, TError = unknown>(
+ borrowerId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1EntitiesAdminBorrowersDocumentsList<TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsList>>, TError = unknown>(
+ borrowerId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1EntitiesAdminBorrowersDocumentsList<TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsList>>, TError = unknown>(
+ borrowerId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsList>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1EntitiesAdminBorrowersDocumentsListQueryOptions(borrowerId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1EntitiesAdminBorrowersDocumentsCreate = (
+    borrowerId: string,
+    borrowerDocumentCreateRequest: BorrowerDocumentCreateRequest,
+ signal?: AbortSignal
+) => {
+      
+      
+      return httpClient<BorrowerDocument>(
+      {url: `/api/v1/entities/admin/borrowers/${borrowerId}/documents/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: borrowerDocumentCreateRequest, signal
+    },
+      );
+    }
+  
+
+
+export const getV1EntitiesAdminBorrowersDocumentsCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsCreate>>, TError,{borrowerId: string;data: BorrowerDocumentCreateRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsCreate>>, TError,{borrowerId: string;data: BorrowerDocumentCreateRequest}, TContext> => {
+
+const mutationKey = ['v1EntitiesAdminBorrowersDocumentsCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsCreate>>, {borrowerId: string;data: BorrowerDocumentCreateRequest}> = (props) => {
+          const {borrowerId,data} = props ?? {};
+
+          return  v1EntitiesAdminBorrowersDocumentsCreate(borrowerId,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1EntitiesAdminBorrowersDocumentsCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsCreate>>>
+    export type V1EntitiesAdminBorrowersDocumentsCreateMutationBody = BorrowerDocumentCreateRequest
+    export type V1EntitiesAdminBorrowersDocumentsCreateMutationError = unknown
+
+    export const useV1EntitiesAdminBorrowersDocumentsCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsCreate>>, TError,{borrowerId: string;data: BorrowerDocumentCreateRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsCreate>>,
+        TError,
+        {borrowerId: string;data: BorrowerDocumentCreateRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1EntitiesAdminBorrowersDocumentsCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    
+export const v1EntitiesAdminBorrowersEventsList = (
+    borrowerId: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return httpClient<BorrowerEntityEvent[]>(
+      {url: `/api/v1/entities/admin/borrowers/${borrowerId}/events/`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getV1EntitiesAdminBorrowersEventsListQueryKey = (borrowerId?: string,) => {
+    return [
+    `/api/v1/entities/admin/borrowers/${borrowerId}/events/`
+    ] as const;
+    }
+
+    
+export const getV1EntitiesAdminBorrowersEventsListQueryOptions = <TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersEventsList>>, TError = unknown>(borrowerId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersEventsList>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1EntitiesAdminBorrowersEventsListQueryKey(borrowerId);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersEventsList>>> = ({ signal }) => v1EntitiesAdminBorrowersEventsList(borrowerId, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(borrowerId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersEventsList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1EntitiesAdminBorrowersEventsListQueryResult = NonNullable<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersEventsList>>>
+export type V1EntitiesAdminBorrowersEventsListQueryError = unknown
+
+
+export function useV1EntitiesAdminBorrowersEventsList<TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersEventsList>>, TError = unknown>(
+ borrowerId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersEventsList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1EntitiesAdminBorrowersEventsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1EntitiesAdminBorrowersEventsList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1EntitiesAdminBorrowersEventsList<TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersEventsList>>, TError = unknown>(
+ borrowerId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersEventsList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1EntitiesAdminBorrowersEventsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1EntitiesAdminBorrowersEventsList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1EntitiesAdminBorrowersEventsList<TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersEventsList>>, TError = unknown>(
+ borrowerId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersEventsList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1EntitiesAdminBorrowersEventsList<TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersEventsList>>, TError = unknown>(
+ borrowerId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersEventsList>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1EntitiesAdminBorrowersEventsListQueryOptions(borrowerId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve = (
+    borrowerId: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return httpClient<BorrowerInvestorDisclosure>(
+      {url: `/api/v1/entities/admin/borrowers/${borrowerId}/investor-disclosure-preview/`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getV1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieveQueryKey = (borrowerId?: string,) => {
+    return [
+    `/api/v1/entities/admin/borrowers/${borrowerId}/investor-disclosure-preview/`
+    ] as const;
+    }
+
+    
+export const getV1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve>>, TError = unknown>(borrowerId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieveQueryKey(borrowerId);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve>>> = ({ signal }) => v1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve(borrowerId, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(borrowerId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve>>>
+export type V1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieveQueryError = unknown
+
+
+export function useV1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve<TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve>>, TError = unknown>(
+ borrowerId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve<TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve>>, TError = unknown>(
+ borrowerId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve<TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve>>, TError = unknown>(
+ borrowerId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve<TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve>>, TError = unknown>(
+ borrowerId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieveQueryOptions(borrowerId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
 export const v1HealthRetrieve = (
     
  signal?: AbortSignal
@@ -2174,6 +3084,24 @@ export const getV1AuthPhoneRequestCreateResponseMock = (overrideResponse: Partia
 
 export const getV1AuthRegisterNaturalPersonCreateResponseMock = (overrideResponse: Partial< NaturalPersonRegistrationResponse > = {}): NaturalPersonRegistrationResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
 
+export const getV1EntitiesAdminBorrowersListResponseMock = (): BorrowerEntity[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), legal_name: faker.string.alpha({length: {min: 10, max: 20}}), year_founded: faker.number.int({min: undefined, max: undefined}), entity_type: faker.string.alpha({length: {min: 10, max: 20}}), kyb_status: faker.string.alpha({length: {min: 10, max: 20}}), compliance_hold: faker.datatype.boolean(), can_transact: faker.datatype.boolean(), country: faker.string.alpha({length: {min: 10, max: 20}}), registration_number: faker.string.alpha({length: {min: 10, max: 20}}), registered_address: faker.string.alpha({length: {min: 10, max: 20}}), operating_address: faker.string.alpha({length: {min: 10, max: 20}}), industry_activity: faker.string.alpha({length: {min: 10, max: 20}}), ownership_structure: faker.string.alpha({length: {min: 10, max: 20}}), beneficial_owners: {}, directors_officers: {}, authorized_signatories: {}, bank_account_details: {}, financials_currency: faker.string.alpha({length: {min: 10, max: 20}}), assets_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), liabilities_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), revenue_last_year_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), profit_last_year_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`})))
+
+export const getV1EntitiesAdminBorrowersCreateResponseMock = (overrideResponse: Partial< BorrowerEntity > = {}): BorrowerEntity => ({id: faker.string.uuid(), legal_name: faker.string.alpha({length: {min: 10, max: 20}}), year_founded: faker.number.int({min: undefined, max: undefined}), entity_type: faker.string.alpha({length: {min: 10, max: 20}}), kyb_status: faker.string.alpha({length: {min: 10, max: 20}}), compliance_hold: faker.datatype.boolean(), can_transact: faker.datatype.boolean(), country: faker.string.alpha({length: {min: 10, max: 20}}), registration_number: faker.string.alpha({length: {min: 10, max: 20}}), registered_address: faker.string.alpha({length: {min: 10, max: 20}}), operating_address: faker.string.alpha({length: {min: 10, max: 20}}), industry_activity: faker.string.alpha({length: {min: 10, max: 20}}), ownership_structure: faker.string.alpha({length: {min: 10, max: 20}}), beneficial_owners: {}, directors_officers: {}, authorized_signatories: {}, bank_account_details: {}, financials_currency: faker.string.alpha({length: {min: 10, max: 20}}), assets_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), liabilities_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), revenue_last_year_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), profit_last_year_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+
+export const getV1EntitiesAdminBorrowersRetrieveResponseMock = (overrideResponse: Partial< BorrowerEntity > = {}): BorrowerEntity => ({id: faker.string.uuid(), legal_name: faker.string.alpha({length: {min: 10, max: 20}}), year_founded: faker.number.int({min: undefined, max: undefined}), entity_type: faker.string.alpha({length: {min: 10, max: 20}}), kyb_status: faker.string.alpha({length: {min: 10, max: 20}}), compliance_hold: faker.datatype.boolean(), can_transact: faker.datatype.boolean(), country: faker.string.alpha({length: {min: 10, max: 20}}), registration_number: faker.string.alpha({length: {min: 10, max: 20}}), registered_address: faker.string.alpha({length: {min: 10, max: 20}}), operating_address: faker.string.alpha({length: {min: 10, max: 20}}), industry_activity: faker.string.alpha({length: {min: 10, max: 20}}), ownership_structure: faker.string.alpha({length: {min: 10, max: 20}}), beneficial_owners: {}, directors_officers: {}, authorized_signatories: {}, bank_account_details: {}, financials_currency: faker.string.alpha({length: {min: 10, max: 20}}), assets_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), liabilities_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), revenue_last_year_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), profit_last_year_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+
+export const getV1EntitiesAdminBorrowersPartialUpdateResponseMock = (overrideResponse: Partial< BorrowerEntity > = {}): BorrowerEntity => ({id: faker.string.uuid(), legal_name: faker.string.alpha({length: {min: 10, max: 20}}), year_founded: faker.number.int({min: undefined, max: undefined}), entity_type: faker.string.alpha({length: {min: 10, max: 20}}), kyb_status: faker.string.alpha({length: {min: 10, max: 20}}), compliance_hold: faker.datatype.boolean(), can_transact: faker.datatype.boolean(), country: faker.string.alpha({length: {min: 10, max: 20}}), registration_number: faker.string.alpha({length: {min: 10, max: 20}}), registered_address: faker.string.alpha({length: {min: 10, max: 20}}), operating_address: faker.string.alpha({length: {min: 10, max: 20}}), industry_activity: faker.string.alpha({length: {min: 10, max: 20}}), ownership_structure: faker.string.alpha({length: {min: 10, max: 20}}), beneficial_owners: {}, directors_officers: {}, authorized_signatories: {}, bank_account_details: {}, financials_currency: faker.string.alpha({length: {min: 10, max: 20}}), assets_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), liabilities_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), revenue_last_year_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), profit_last_year_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+
+export const getV1EntitiesAdminBorrowersDocumentsListResponseMock = (): BorrowerDocument[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), borrower_id: faker.string.uuid(), document_type: faker.string.alpha({length: {min: 10, max: 20}}), display_name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.string.alpha({length: {min: 10, max: 20}}), stored_file_id: faker.number.int({min: undefined, max: undefined}), investor_visible: faker.datatype.boolean(), created_by_admin_id: faker.string.uuid(), created_by_account_type: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`})))
+
+export const getV1EntitiesAdminBorrowersDocumentsCreateResponseMock = (overrideResponse: Partial< BorrowerDocument > = {}): BorrowerDocument => ({id: faker.string.uuid(), borrower_id: faker.string.uuid(), document_type: faker.string.alpha({length: {min: 10, max: 20}}), display_name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.string.alpha({length: {min: 10, max: 20}}), stored_file_id: faker.number.int({min: undefined, max: undefined}), investor_visible: faker.datatype.boolean(), created_by_admin_id: faker.string.uuid(), created_by_account_type: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+
+export const getV1EntitiesAdminBorrowersEventsListResponseMock = (): BorrowerEntityEvent[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), borrower_id: faker.string.uuid(), event_type: faker.string.alpha({length: {min: 10, max: 20}}), actor_user_id: faker.string.uuid(), actor_account_type: faker.string.alpha({length: {min: 10, max: 20}}), previous_kyb_status: faker.string.alpha({length: {min: 10, max: 20}}), new_kyb_status: faker.string.alpha({length: {min: 10, max: 20}}), note: faker.string.alpha({length: {min: 10, max: 20}}), evidence_summary: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, occurred_at: `${faker.date.past().toISOString().split('.')[0]}Z`})))
+
+export const getV1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieveResponseMock = (overrideResponse: Partial< BorrowerInvestorDisclosure > = {}): BorrowerInvestorDisclosure => ({legal_name: faker.string.alpha({length: {min: 10, max: 20}}), year_founded: faker.number.int({min: undefined, max: undefined}), country: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), financials_currency: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), assets_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), undefined]), liabilities_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), undefined]), revenue_last_year_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), undefined]), profit_last_year_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), undefined]), documents: faker.helpers.arrayElement([Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({
+        [faker.string.alphanumeric(5)]: {}
+      })), undefined]), ...overrideResponse})
+
 export const getV1HealthRetrieveResponseMock = (overrideResponse: Partial< HealthResponse > = {}): HealthResponse => ({status: faker.string.alpha({length: {min: 10, max: 20}}), platform: faker.string.alpha({length: {min: 10, max: 20}}), operator: faker.string.alpha({length: {min: 10, max: 20}}), timezone: faker.string.alpha({length: {min: 10, max: 20}}), environment: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getV1KycAdminCasesManualReviewCreateResponseMock = (overrideResponse: Partial< KycManualReviewDecisionResponse > = {}): KycManualReviewDecisionResponse => ({case: {id: faker.string.uuid(), subject_type: faker.string.alpha({length: {min: 10, max: 20}}), subject_reference: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), provider: faker.string.alpha({length: {min: 10, max: 20}}), provider_environment: faker.string.alpha({length: {min: 10, max: 20}}), workflow_id: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), manual_review_required: faker.datatype.boolean(), blocking_reason: faker.string.alpha({length: {min: 10, max: 20}}), risk_classification: faker.string.alpha({length: {min: 10, max: 20}}), detected_flags: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), provider_session_id: faker.string.alpha({length: {min: 10, max: 20}}), provider_verification_id: faker.string.alpha({length: {min: 10, max: 20}}), provider_report_id: faker.string.alpha({length: {min: 10, max: 20}}), aml_screening_id: faker.string.alpha({length: {min: 10, max: 20}}), provider_subject_id: faker.string.alpha({length: {min: 10, max: 20}}), decision_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, decision: {id: faker.string.uuid(), case_id: faker.string.uuid(), actor_user_id: faker.string.uuid(), actor_account_type: faker.string.alpha({length: {min: 10, max: 20}}), decision: faker.string.alpha({length: {min: 10, max: 20}}), reason_code: faker.string.alpha({length: {min: 10, max: 20}}), previous_status: faker.string.alpha({length: {min: 10, max: 20}}), new_status: faker.string.alpha({length: {min: 10, max: 20}}), note: faker.string.alpha({length: {min: 10, max: 20}}), evidence_summary: faker.string.alpha({length: {min: 10, max: 20}}), decided_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, ...overrideResponse})
@@ -2377,6 +3305,102 @@ export const getV1AuthRegisterNaturalPersonCreateMockHandler = (overrideResponse
   }, options)
 }
 
+export const getV1EntitiesAdminBorrowersListMockHandler = (overrideResponse?: BorrowerEntity[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<BorrowerEntity[]> | BorrowerEntity[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/entities/admin/borrowers/', async (info) => {await delay(1000);
+  
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1EntitiesAdminBorrowersListResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1EntitiesAdminBorrowersCreateMockHandler = (overrideResponse?: BorrowerEntity | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<BorrowerEntity> | BorrowerEntity), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/entities/admin/borrowers/', async (info) => {await delay(1000);
+  
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1EntitiesAdminBorrowersCreateResponseMock()),
+      { status: 201,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1EntitiesAdminBorrowersRetrieveMockHandler = (overrideResponse?: BorrowerEntity | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<BorrowerEntity> | BorrowerEntity), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/entities/admin/borrowers/:borrowerId/', async (info) => {await delay(1000);
+  
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1EntitiesAdminBorrowersRetrieveResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1EntitiesAdminBorrowersPartialUpdateMockHandler = (overrideResponse?: BorrowerEntity | ((info: Parameters<Parameters<typeof http.patch>[1]>[0]) => Promise<BorrowerEntity> | BorrowerEntity), options?: RequestHandlerOptions) => {
+  return http.patch('*/api/v1/entities/admin/borrowers/:borrowerId/', async (info) => {await delay(1000);
+  
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1EntitiesAdminBorrowersPartialUpdateResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1EntitiesAdminBorrowersDocumentsListMockHandler = (overrideResponse?: BorrowerDocument[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<BorrowerDocument[]> | BorrowerDocument[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/entities/admin/borrowers/:borrowerId/documents/', async (info) => {await delay(1000);
+  
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1EntitiesAdminBorrowersDocumentsListResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1EntitiesAdminBorrowersDocumentsCreateMockHandler = (overrideResponse?: BorrowerDocument | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<BorrowerDocument> | BorrowerDocument), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/entities/admin/borrowers/:borrowerId/documents/', async (info) => {await delay(1000);
+  
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1EntitiesAdminBorrowersDocumentsCreateResponseMock()),
+      { status: 201,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1EntitiesAdminBorrowersEventsListMockHandler = (overrideResponse?: BorrowerEntityEvent[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<BorrowerEntityEvent[]> | BorrowerEntityEvent[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/entities/admin/borrowers/:borrowerId/events/', async (info) => {await delay(1000);
+  
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1EntitiesAdminBorrowersEventsListResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieveMockHandler = (overrideResponse?: BorrowerInvestorDisclosure | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<BorrowerInvestorDisclosure> | BorrowerInvestorDisclosure), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/entities/admin/borrowers/:borrowerId/investor-disclosure-preview/', async (info) => {await delay(1000);
+  
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieveResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
 export const getV1HealthRetrieveMockHandler = (overrideResponse?: HealthResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<HealthResponse> | HealthResponse), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/health/', async (info) => {await delay(1000);
   
@@ -2465,6 +3489,14 @@ export const getBanxumApiMock = () => [
   getV1AuthPhoneConfirmCreateMockHandler(),
   getV1AuthPhoneRequestCreateMockHandler(),
   getV1AuthRegisterNaturalPersonCreateMockHandler(),
+  getV1EntitiesAdminBorrowersListMockHandler(),
+  getV1EntitiesAdminBorrowersCreateMockHandler(),
+  getV1EntitiesAdminBorrowersRetrieveMockHandler(),
+  getV1EntitiesAdminBorrowersPartialUpdateMockHandler(),
+  getV1EntitiesAdminBorrowersDocumentsListMockHandler(),
+  getV1EntitiesAdminBorrowersDocumentsCreateMockHandler(),
+  getV1EntitiesAdminBorrowersEventsListMockHandler(),
+  getV1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieveMockHandler(),
   getV1HealthRetrieveMockHandler(),
   getV1KycAdminCasesManualReviewCreateMockHandler(),
   getV1KycAdminManualReviewsListMockHandler(),

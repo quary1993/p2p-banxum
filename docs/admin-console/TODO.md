@@ -43,3 +43,10 @@ Each entry should include:
 - Current first-version behavior: no UI was implemented in this slice; only backend API, OpenAPI schema, generated TypeScript client, append-only task-event evidence, and tests exist.
 - Required admin-console improvement: Codex should implement the admin operational task workflow, including dashboard entry point, filters, saved views, SLA/due-date states, priority indicators, assignment controls, related-object links, empty states, task completion/cancellation copy, task event history display, and audit-log search ergonomics.
 - Priority: important.
+
+## 2026-06-02: Borrower Entity Foundation
+
+- Screen or component: borrower list, borrower detail, KYB/compliance status controls, borrower document panel, investor-disclosure preview.
+- Current first-version behavior: no UI was implemented in this slice; only backend API, OpenAPI schema, generated TypeScript client, borrower/document/event models, append-only borrower event evidence, and tests exist.
+- Required admin-console improvement: Codex should implement the admin borrower workflow, including dense borrower search/filter table, create/edit forms, KYB status confirmation copy, compliance-hold indicators, optional financial disclosure inputs with currency/minor-unit formatting, operational fields, document linking/upload states, clean-scan visibility states, investor-disclosure preview, and borrower event history.
+- Priority: important.

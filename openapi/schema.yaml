@@ -502,6 +502,258 @@ paths:
               schema:
                 $ref: '#/components/schemas/NaturalPersonRegistrationResponse'
           description: ''
+  /api/v1/entities/admin/borrowers/:
+    get:
+      operationId: v1_entities_admin_borrowers_list
+      parameters:
+      - in: query
+        name: compliance_hold
+        schema:
+          type: boolean
+      - in: query
+        name: country
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: entity_type
+        schema:
+          enum:
+          - swiss_company
+          - non_swiss_company
+          - real_estate_project_company
+          - special_purpose_vehicle
+          - other
+          type: string
+          minLength: 1
+        description: |-
+          * `swiss_company` - Swiss company
+          * `non_swiss_company` - Non-Swiss company
+          * `real_estate_project_company` - Real estate project company
+          * `special_purpose_vehicle` - Special purpose vehicle
+          * `other` - Other
+      - in: query
+        name: kyb_status
+        schema:
+          enum:
+          - not_started
+          - pending
+          - approved
+          - declined
+          - manual_review
+          - expired
+          - reverification_required
+          type: string
+          minLength: 1
+        description: |-
+          * `not_started` - Not started
+          * `pending` - Pending
+          * `approved` - Approved
+          * `declined` - Declined
+          * `manual_review` - Manual review
+          * `expired` - Expired
+          * `reverification_required` - Re-verification required
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 250
+          minimum: 1
+          default: 100
+      - in: query
+        name: q
+        schema:
+          type: string
+          maxLength: 255
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BorrowerEntity'
+          description: ''
+    post:
+      operationId: v1_entities_admin_borrowers_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BorrowerEntityCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BorrowerEntityCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BorrowerEntityCreateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BorrowerEntity'
+          description: ''
+  /api/v1/entities/admin/borrowers/{borrower_id}/:
+    get:
+      operationId: v1_entities_admin_borrowers_retrieve
+      parameters:
+      - in: path
+        name: borrower_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BorrowerEntity'
+          description: ''
+    patch:
+      operationId: v1_entities_admin_borrowers_partial_update
+      parameters:
+      - in: path
+        name: borrower_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedBorrowerEntityUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedBorrowerEntityUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedBorrowerEntityUpdateRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BorrowerEntity'
+          description: ''
+  /api/v1/entities/admin/borrowers/{borrower_id}/documents/:
+    get:
+      operationId: v1_entities_admin_borrowers_documents_list
+      parameters:
+      - in: path
+        name: borrower_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BorrowerDocument'
+          description: ''
+    post:
+      operationId: v1_entities_admin_borrowers_documents_create
+      parameters:
+      - in: path
+        name: borrower_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BorrowerDocumentCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BorrowerDocumentCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BorrowerDocumentCreateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BorrowerDocument'
+          description: ''
+  /api/v1/entities/admin/borrowers/{borrower_id}/events/:
+    get:
+      operationId: v1_entities_admin_borrowers_events_list
+      parameters:
+      - in: path
+        name: borrower_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BorrowerEntityEvent'
+          description: ''
+  /api/v1/entities/admin/borrowers/{borrower_id}/investor-disclosure-preview/:
+    get:
+      operationId: v1_entities_admin_borrowers_investor_disclosure_preview_retrieve
+      parameters:
+      - in: path
+        name: borrower_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BorrowerInvestorDisclosure'
+          description: ''
   /api/v1/health/:
     get:
       operationId: v1_health_retrieve
@@ -974,6 +1226,343 @@ components:
           $ref: '#/components/schemas/UserSummary'
       required:
       - user
+    BorrowerDocument:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        borrower_id:
+          type: string
+          format: uuid
+        document_type:
+          type: string
+        display_name:
+          type: string
+        description:
+          type: string
+        stored_file_id:
+          type: integer
+        investor_visible:
+          type: boolean
+        created_by_admin_id:
+          type: string
+          format: uuid
+        created_by_account_type:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - borrower_id
+      - created_at
+      - created_by_account_type
+      - created_by_admin_id
+      - description
+      - display_name
+      - document_type
+      - id
+      - investor_visible
+      - stored_file_id
+      - updated_at
+    BorrowerDocumentCreateRequest:
+      type: object
+      properties:
+        stored_file_id:
+          type: integer
+        document_type:
+          $ref: '#/components/schemas/BorrowerDocumentTypeEnum'
+        display_name:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+        investor_visible:
+          type: boolean
+          default: false
+        note:
+          type: string
+      required:
+      - display_name
+      - document_type
+      - stored_file_id
+    BorrowerDocumentTypeEnum:
+      enum:
+      - presentation
+      - financials
+      - kyb_evidence
+      - generic
+      - other
+      type: string
+      description: |-
+        * `presentation` - Borrower presentation
+        * `financials` - Financial PDF
+        * `kyb_evidence` - KYB/AML evidence
+        * `generic` - Generic borrower document
+        * `other` - Other
+    BorrowerEntity:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        legal_name:
+          type: string
+        year_founded:
+          type: integer
+        entity_type:
+          type: string
+        kyb_status:
+          type: string
+        compliance_hold:
+          type: boolean
+        can_transact:
+          type: boolean
+        country:
+          type: string
+        registration_number:
+          type: string
+        registered_address:
+          type: string
+        operating_address:
+          type: string
+        industry_activity:
+          type: string
+        ownership_structure:
+          type: string
+        beneficial_owners: {}
+        directors_officers: {}
+        authorized_signatories: {}
+        bank_account_details: {}
+        financials_currency:
+          type: string
+        assets_minor:
+          type: integer
+          nullable: true
+        liabilities_minor:
+          type: integer
+          nullable: true
+        revenue_last_year_minor:
+          type: integer
+          nullable: true
+        profit_last_year_minor:
+          type: integer
+          nullable: true
+        created_by_admin_id:
+          type: string
+          format: uuid
+        updated_by_admin_id:
+          type: string
+          format: uuid
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - assets_minor
+      - authorized_signatories
+      - bank_account_details
+      - beneficial_owners
+      - can_transact
+      - compliance_hold
+      - country
+      - created_at
+      - created_by_admin_id
+      - directors_officers
+      - entity_type
+      - financials_currency
+      - id
+      - industry_activity
+      - kyb_status
+      - legal_name
+      - liabilities_minor
+      - operating_address
+      - ownership_structure
+      - profit_last_year_minor
+      - registered_address
+      - registration_number
+      - revenue_last_year_minor
+      - updated_at
+      - updated_by_admin_id
+      - year_founded
+    BorrowerEntityCreateRequest:
+      type: object
+      properties:
+        legal_name:
+          type: string
+          maxLength: 255
+        year_founded:
+          type: integer
+        entity_type:
+          allOf:
+          - $ref: '#/components/schemas/BorrowerEntityTypeEnum'
+          default: swiss_company
+        kyb_status:
+          allOf:
+          - $ref: '#/components/schemas/BorrowerKybStatusEnum'
+          default: pending
+        compliance_hold:
+          type: boolean
+          default: false
+        country:
+          type: string
+          maxLength: 64
+        registration_number:
+          type: string
+          maxLength: 128
+        registered_address:
+          type: string
+        operating_address:
+          type: string
+        industry_activity:
+          type: string
+        ownership_structure:
+          type: string
+        beneficial_owners:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+        directors_officers:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+        authorized_signatories:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+        bank_account_details:
+          type: object
+          additionalProperties: {}
+        financials_currency:
+          type: string
+          maxLength: 3
+        assets_minor:
+          type: integer
+          nullable: true
+        liabilities_minor:
+          type: integer
+          nullable: true
+        revenue_last_year_minor:
+          type: integer
+          nullable: true
+        profit_last_year_minor:
+          type: integer
+          nullable: true
+        note:
+          type: string
+        evidence_summary:
+          type: string
+      required:
+      - legal_name
+      - year_founded
+    BorrowerEntityEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        borrower_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+        actor_user_id:
+          type: string
+          format: uuid
+        actor_account_type:
+          type: string
+        previous_kyb_status:
+          type: string
+        new_kyb_status:
+          type: string
+        note:
+          type: string
+        evidence_summary:
+          type: string
+        metadata: {}
+        occurred_at:
+          type: string
+          format: date-time
+      required:
+      - actor_account_type
+      - actor_user_id
+      - borrower_id
+      - event_type
+      - evidence_summary
+      - id
+      - metadata
+      - new_kyb_status
+      - note
+      - occurred_at
+      - previous_kyb_status
+    BorrowerEntityTypeEnum:
+      enum:
+      - swiss_company
+      - non_swiss_company
+      - real_estate_project_company
+      - special_purpose_vehicle
+      - other
+      type: string
+      description: |-
+        * `swiss_company` - Swiss company
+        * `non_swiss_company` - Non-Swiss company
+        * `real_estate_project_company` - Real estate project company
+        * `special_purpose_vehicle` - Special purpose vehicle
+        * `other` - Other
+    BorrowerInvestorDisclosure:
+      type: object
+      properties:
+        legal_name:
+          type: string
+        year_founded:
+          type: integer
+        country:
+          type: string
+        financials_currency:
+          type: string
+        assets_minor:
+          type: integer
+        liabilities_minor:
+          type: integer
+        revenue_last_year_minor:
+          type: integer
+        profit_last_year_minor:
+          type: integer
+        documents:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+      required:
+      - legal_name
+      - year_founded
+    BorrowerKybStatusEnum:
+      enum:
+      - not_started
+      - pending
+      - approved
+      - declined
+      - manual_review
+      - expired
+      - reverification_required
+      type: string
+      description: |-
+        * `not_started` - Not started
+        * `pending` - Pending
+        * `approved` - Approved
+        * `declined` - Declined
+        * `manual_review` - Manual review
+        * `expired` - Expired
+        * `reverification_required` - Re-verification required
     DecisionEnum:
       enum:
       - approve
@@ -1349,6 +1938,83 @@ components:
         notes:
           type: string
         completion_note:
+          type: string
+    PatchedBorrowerEntityUpdateRequest:
+      type: object
+      properties:
+        legal_name:
+          type: string
+          maxLength: 255
+        year_founded:
+          type: integer
+        entity_type:
+          $ref: '#/components/schemas/BorrowerEntityTypeEnum'
+        kyb_status:
+          $ref: '#/components/schemas/BorrowerKybStatusEnum'
+        compliance_hold:
+          type: boolean
+        country:
+          type: string
+          maxLength: 64
+        registration_number:
+          type: string
+          maxLength: 128
+        registered_address:
+          type: string
+        operating_address:
+          type: string
+        industry_activity:
+          type: string
+        ownership_structure:
+          type: string
+        beneficial_owners:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+        directors_officers:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+        authorized_signatories:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+        bank_account_details:
+          type: object
+          additionalProperties: {}
+        financials_currency:
+          type: string
+          maxLength: 3
+        assets_minor:
+          type: integer
+          nullable: true
+        liabilities_minor:
+          type: integer
+          nullable: true
+        revenue_last_year_minor:
+          type: integer
+          nullable: true
+        profit_last_year_minor:
+          type: integer
+          nullable: true
+        clear_assets:
+          type: boolean
+          default: false
+        clear_liabilities:
+          type: boolean
+          default: false
+        clear_revenue_last_year:
+          type: boolean
+          default: false
+        clear_profit_last_year:
+          type: boolean
+          default: false
+        note:
+          type: string
+        evidence_summary:
           type: string
     PhoneVerificationConfirmRequest:
       type: object
