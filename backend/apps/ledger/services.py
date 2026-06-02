@@ -68,6 +68,8 @@ MAX_IDEMPOTENCY_KEY_LENGTH = 160
 REQUEST_FINGERPRINT_METADATA_KEY = "request_fingerprint"
 CANCELLATION_FINGERPRINT_METADATA_KEY = "cancellation_request_fingerprint"
 CANCELLATION_IDEMPOTENCY_METADATA_KEY = "cancellation_idempotency_key"
+INVESTMENT_RESERVATION_FINGERPRINT_METADATA_KEY = "investment_reservation_fingerprint"
+INVESTMENT_RELEASE_FINGERPRINT_METADATA_KEY = "investment_release_fingerprint"
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,6 +254,47 @@ class BalanceConsumptionPlanLine:
     amount_minor: int
     investment_deadline_at: datetime
     withdrawal_deadline_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ReserveInvestmentBalanceCommand:
+    actor: Model
+    investor_user_id: str
+    loan_id: str
+    amount_minor: int
+    currency: str
+    loan_funding_deadline: date
+    source_type: str
+    source_id: str
+    idempotency_key: str
+    as_of: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class InvestmentBalanceReservationResult:
+    journal_entry: LedgerJournalEntry
+    lot_allocations: list[dict[str, Any]]
+
+
+@dataclass(frozen=True, slots=True)
+class ReleaseInvestmentBalanceReservationCommand:
+    actor: Model
+    investor_user_id: str
+    loan_id: str
+    amount_minor: int
+    currency: str
+    source_type: str
+    source_id: str
+    reservation_journal_entry_id: str
+    lot_allocations: list[dict[str, Any]]
+    reason: str
+    idempotency_key: str
+    as_of: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class InvestmentBalanceReleaseResult:
+    journal_entry: LedgerJournalEntry
 
 
 @dataclass(frozen=True, slots=True)
@@ -2232,6 +2275,442 @@ def plan_investment_balance_consumption(
         if remaining == 0:
             return plan
     raise LedgerValidationError("Insufficient eligible balance for the requested investment.")
+
+
+def _investment_actor_for_id(actor: Model, investor_user_id: str) -> Model:
+    investor = _lender_account_for_id(investor_user_id)
+    if is_admin_actor(actor):
+        return investor
+    if str(actor.pk) != str(investor.pk):
+        raise LedgerAuthorizationError("Investor can only reserve their own balance.")
+    if not user_can_access_financial_features(actor):
+        raise LedgerAuthorizationError("Investor account cannot access financial features.")
+    return actor
+
+
+def _reservation_request_fingerprint(
+    command: ReserveInvestmentBalanceCommand,
+    *,
+    investor_user_id: str,
+    currency_code: str,
+    amount_minor: int,
+    idempotency_key: str,
+) -> str:
+    actor_ref = actor_ref_for_user(command.actor)
+    return _stable_json_fingerprint(
+        {
+            "actor_type": actor_ref.actor_type,
+            "actor_id": actor_ref.actor_id,
+            "investor_user_id": investor_user_id,
+            "loan_id": str(command.loan_id),
+            "amount_minor": amount_minor,
+            "currency": currency_code,
+            "loan_funding_deadline": command.loan_funding_deadline.isoformat(),
+            "source_type": command.source_type.strip(),
+            "source_id": command.source_id.strip(),
+            "idempotency_key": idempotency_key,
+        }
+    )
+
+
+def _release_request_fingerprint(
+    command: ReleaseInvestmentBalanceReservationCommand,
+    *,
+    investor_user_id: str,
+    currency_code: str,
+    amount_minor: int,
+    idempotency_key: str,
+) -> str:
+    actor_ref = actor_ref_for_user(command.actor)
+    return _stable_json_fingerprint(
+        {
+            "actor_type": actor_ref.actor_type,
+            "actor_id": actor_ref.actor_id,
+            "investor_user_id": investor_user_id,
+            "loan_id": str(command.loan_id),
+            "amount_minor": amount_minor,
+            "currency": currency_code,
+            "source_type": command.source_type.strip(),
+            "source_id": command.source_id.strip(),
+            "reservation_journal_entry_id": str(command.reservation_journal_entry_id),
+            "lot_allocations": command.lot_allocations,
+            "reason": command.reason.strip(),
+            "idempotency_key": idempotency_key,
+        }
+    )
+
+
+def _existing_investment_reservation(
+    journal_idempotency_key: str,
+    *,
+    expected_fingerprint: str,
+) -> InvestmentBalanceReservationResult | None:
+    existing = LedgerJournalEntry.objects.filter(idempotency_key=journal_idempotency_key).first()
+    if existing is None:
+        return None
+    metadata = cast(dict[str, Any], existing.metadata)
+    if metadata.get(INVESTMENT_RESERVATION_FINGERPRINT_METADATA_KEY) != expected_fingerprint:
+        raise LedgerValidationError("Idempotency key was already used for a different request.")
+    return InvestmentBalanceReservationResult(
+        journal_entry=existing,
+        lot_allocations=list(cast(list[dict[str, Any]], metadata.get("lot_allocations", []))),
+    )
+
+
+def _existing_investment_release(
+    journal_idempotency_key: str,
+    *,
+    expected_fingerprint: str,
+) -> InvestmentBalanceReleaseResult | None:
+    existing = LedgerJournalEntry.objects.filter(idempotency_key=journal_idempotency_key).first()
+    if existing is None:
+        return None
+    metadata = cast(dict[str, Any], existing.metadata)
+    if metadata.get(INVESTMENT_RELEASE_FINGERPRINT_METADATA_KEY) != expected_fingerprint:
+        raise LedgerValidationError("Idempotency key was already used for a different request.")
+    return InvestmentBalanceReleaseResult(journal_entry=existing)
+
+
+def _investment_lots_for_update(
+    *,
+    investor_user_id: str,
+    currency: Currency,
+) -> list[InvestorBalanceLot]:
+    return list(
+        InvestorBalanceLot.objects.select_for_update()
+        .filter(
+            investor_user_id=investor_user_id,
+            currency=currency,
+            status=BalanceLotStatus.AVAILABLE,
+            available_amount_minor__gt=0,
+        )
+        .order_by("received_at", "created_at", "id")
+    )
+
+
+def _consume_lots_for_investment(
+    *,
+    lots: list[InvestorBalanceLot],
+    amount_minor: int,
+    currency_code: str,
+    loan_funding_deadline: date,
+    as_of: datetime,
+) -> list[dict[str, Any]]:
+    remaining = amount_minor
+    allocations: list[dict[str, Any]] = []
+    for lot in lots:
+        _validate_lot_conservation(lot)
+        if remaining <= 0:
+            break
+        if as_of > lot.investment_deadline_at:
+            continue
+        investment_deadline_date = to_business_time(lot.investment_deadline_at).date()
+        if loan_funding_deadline > investment_deadline_date:
+            continue
+        amount = min(remaining, lot.available_amount_minor)
+        if amount <= 0:
+            continue
+        status_before_investment = str(lot.status)
+        available_before_investment = lot.available_amount_minor
+        invested_before_investment = lot.invested_amount_minor
+        new_available = lot.available_amount_minor - amount
+        new_invested = lot.invested_amount_minor + amount
+        new_status = BalanceLotStatus.CONSUMED if new_available == 0 else lot.status
+        _validate_lot_conservation_values(
+            original_amount_minor=lot.original_amount_minor,
+            available_amount_minor=new_available,
+            invested_amount_minor=new_invested,
+            withdrawn_amount_minor=lot.withdrawn_amount_minor,
+            penalized_amount_minor=lot.penalized_amount_minor,
+            currency_code=currency_code,
+        )
+        lot.available_amount_minor = new_available
+        lot.invested_amount_minor = new_invested
+        lot.status = new_status
+        lot.save(update_fields=["available_amount_minor", "invested_amount_minor", "status"])
+        allocations.append(
+            {
+                "lot_id": str(lot.id),
+                "amount_minor": amount,
+                "status_before_investment": status_before_investment,
+                "available_before_investment_minor": available_before_investment,
+                "invested_before_investment_minor": invested_before_investment,
+                "received_at": lot.received_at.isoformat(),
+                "investment_deadline_at": lot.investment_deadline_at.isoformat(),
+                "withdrawal_deadline_at": lot.withdrawal_deadline_at.isoformat(),
+                "source_type": lot.source_type,
+                "source_id": lot.source_id,
+            }
+        )
+        remaining -= amount
+    if remaining > 0:
+        raise LedgerValidationError("Insufficient eligible balance for the requested investment.")
+    return allocations
+
+
+def _restore_lots_from_investment_allocations(
+    *,
+    investor_user_id: str,
+    currency: Currency,
+    allocations: list[dict[str, Any]],
+) -> int:
+    if not allocations:
+        raise LedgerValidationError("Investment reservation has no lot allocations to release.")
+    lot_ids: list[str] = []
+    for allocation in allocations:
+        lot_id = str(allocation.get("lot_id", ""))
+        if not lot_id:
+            raise LedgerValidationError("Investment allocation is missing a lot id.")
+        lot_ids.append(lot_id)
+    lots = {
+        str(lot.id): lot
+        for lot in InvestorBalanceLot.objects.select_for_update().filter(
+            id__in=lot_ids,
+            investor_user_id=investor_user_id,
+            currency=currency,
+        )
+    }
+    total_released = 0
+    for allocation in allocations:
+        lot_id = str(allocation["lot_id"])
+        lot = lots.get(lot_id)
+        if lot is None:
+            raise LedgerValidationError("Investment allocation references an unavailable lot.")
+        amount_value = allocation.get("amount_minor")
+        if type(amount_value) is not int:
+            raise LedgerValidationError("Investment allocation amount must be integer minor units.")
+        amount = _validate_money(amount_value, currency.code, "Investment allocation amount")
+        previous_status = str(
+            allocation.get("status_before_investment") or BalanceLotStatus.AVAILABLE
+        )
+        if previous_status != BalanceLotStatus.AVAILABLE:
+            raise LedgerValidationError("Investment allocation has an invalid previous lot status.")
+        _validate_lot_conservation(lot)
+        new_available = lot.available_amount_minor + amount
+        new_invested = lot.invested_amount_minor - amount
+        if new_invested < 0:
+            raise LedgerValidationError("Investment allocation would over-release a balance lot.")
+        _validate_lot_conservation_values(
+            original_amount_minor=lot.original_amount_minor,
+            available_amount_minor=new_available,
+            invested_amount_minor=new_invested,
+            withdrawn_amount_minor=lot.withdrawn_amount_minor,
+            penalized_amount_minor=lot.penalized_amount_minor,
+            currency_code=currency.code,
+        )
+        lot.available_amount_minor = new_available
+        lot.invested_amount_minor = new_invested
+        lot.status = previous_status
+        lot.save(update_fields=["available_amount_minor", "invested_amount_minor", "status"])
+        total_released += amount
+    return total_released
+
+
+@transaction.atomic
+def reserve_investor_balance_for_investment(
+    command: ReserveInvestmentBalanceCommand,
+) -> InvestmentBalanceReservationResult:
+    currency = _enabled_currency(command.currency)
+    amount_minor = _validate_money(command.amount_minor, currency.code, "Investment amount")
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    source_type = _clean_required(command.source_type, "Source type")
+    source_id = _clean_required(command.source_id, "Source id")
+    investor = _investment_actor_for_id(command.actor, command.investor_user_id)
+    investor_id = str(investor.pk)
+    as_of = command.as_of or now_utc()
+    value_date = business_date(as_of)
+    journal_idempotency_key = _derived_idempotency_key(
+        "ledger-investment-reserve",
+        idempotency_key,
+    )
+    request_fingerprint = _reservation_request_fingerprint(
+        command,
+        investor_user_id=investor_id,
+        currency_code=currency.code,
+        amount_minor=amount_minor,
+        idempotency_key=idempotency_key,
+    )
+    existing = _existing_investment_reservation(
+        journal_idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing is not None:
+        return existing
+
+    lots = _investment_lots_for_update(investor_user_id=investor_id, currency=currency)
+    existing_after_locks = _existing_investment_reservation(
+        journal_idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing_after_locks is not None:
+        return existing_after_locks
+    allocations = _consume_lots_for_investment(
+        lots=lots,
+        amount_minor=amount_minor,
+        currency_code=currency.code,
+        loan_funding_deadline=command.loan_funding_deadline,
+        as_of=as_of,
+    )
+    investor_liability_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.INVESTOR_BALANCE_LIABILITY,
+        currency=currency,
+        owner_type="investor",
+        owner_id=investor_id,
+        name=f"{currency.code} investor balance liability {investor_id}",
+    )
+    loan_funding_escrow_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.LOAN_FUNDING_ESCROW,
+        currency=currency,
+        owner_type="loan",
+        owner_id=str(command.loan_id),
+        name=f"{currency.code} loan funding escrow {command.loan_id}",
+    )
+    journal_entry = post_journal_entry(
+        PostJournalEntryCommand(
+            actor=command.actor,
+            event_type="primary_investment_balance_reserved",
+            direction=LedgerDirection.INTERNAL,
+            currency=currency.code,
+            gross_amount_minor=amount_minor,
+            net_amount_minor=amount_minor,
+            booking_date=value_date,
+            value_date=value_date,
+            effective_at=as_of,
+            received_at=as_of,
+            source_type=source_type,
+            source_id=source_id,
+            lender_user_id=investor_id,
+            loan_id=str(command.loan_id),
+            idempotency_key=journal_idempotency_key,
+            postings=[
+                PostingCommand(
+                    account=investor_liability_account,
+                    side=LedgerPostingSide.DEBIT,
+                    amount_minor=amount_minor,
+                    memo="Investor balance liability reserved for primary investment",
+                ),
+                PostingCommand(
+                    account=loan_funding_escrow_account,
+                    side=LedgerPostingSide.CREDIT,
+                    amount_minor=amount_minor,
+                    memo="Loan funding escrow credited by primary investment",
+                ),
+            ],
+            metadata={
+                INVESTMENT_RESERVATION_FINGERPRINT_METADATA_KEY: request_fingerprint,
+                "lot_allocations": allocations,
+                "loan_funding_deadline": command.loan_funding_deadline.isoformat(),
+            },
+        )
+    )
+    return InvestmentBalanceReservationResult(
+        journal_entry=journal_entry,
+        lot_allocations=allocations,
+    )
+
+
+@transaction.atomic
+def release_investor_balance_investment_reservation(
+    command: ReleaseInvestmentBalanceReservationCommand,
+) -> InvestmentBalanceReleaseResult:
+    _require_admin_actor(command.actor)
+    currency = _enabled_currency(command.currency)
+    amount_minor = _validate_money(command.amount_minor, currency.code, "Investment release amount")
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    source_type = _clean_required(command.source_type, "Source type")
+    source_id = _clean_required(command.source_id, "Source id")
+    investor = _lender_account_for_id(command.investor_user_id)
+    investor_id = str(investor.pk)
+    reason = _clean_required(command.reason, "Release reason")
+    as_of = command.as_of or now_utc()
+    value_date = business_date(as_of)
+    journal_idempotency_key = _derived_idempotency_key(
+        "ledger-investment-release",
+        idempotency_key,
+    )
+    request_fingerprint = _release_request_fingerprint(
+        command,
+        investor_user_id=investor_id,
+        currency_code=currency.code,
+        amount_minor=amount_minor,
+        idempotency_key=idempotency_key,
+    )
+    existing = _existing_investment_release(
+        journal_idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing is not None:
+        return existing
+    reservation_journal = LedgerJournalEntry.objects.filter(
+        id=command.reservation_journal_entry_id,
+        lender_user_id=investor_id,
+        loan_id=command.loan_id,
+        currency=currency,
+    ).first()
+    if reservation_journal is None:
+        raise LedgerValidationError("Investment reservation journal entry does not exist.")
+
+    total_released = _restore_lots_from_investment_allocations(
+        investor_user_id=investor_id,
+        currency=currency,
+        allocations=command.lot_allocations,
+    )
+    if total_released != amount_minor:
+        raise LedgerValidationError("Released lot allocations do not match the release amount.")
+    investor_liability_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.INVESTOR_BALANCE_LIABILITY,
+        currency=currency,
+        owner_type="investor",
+        owner_id=investor_id,
+        name=f"{currency.code} investor balance liability {investor_id}",
+    )
+    loan_funding_escrow_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.LOAN_FUNDING_ESCROW,
+        currency=currency,
+        owner_type="loan",
+        owner_id=str(command.loan_id),
+        name=f"{currency.code} loan funding escrow {command.loan_id}",
+    )
+    journal_entry = post_journal_entry(
+        PostJournalEntryCommand(
+            actor=command.actor,
+            event_type="primary_investment_balance_released",
+            direction=LedgerDirection.INTERNAL,
+            currency=currency.code,
+            gross_amount_minor=amount_minor,
+            net_amount_minor=amount_minor,
+            booking_date=value_date,
+            value_date=value_date,
+            effective_at=as_of,
+            received_at=as_of,
+            source_type=source_type,
+            source_id=source_id,
+            lender_user_id=investor_id,
+            loan_id=str(command.loan_id),
+            idempotency_key=journal_idempotency_key,
+            reversal_of=reservation_journal,
+            postings=[
+                PostingCommand(
+                    account=loan_funding_escrow_account,
+                    side=LedgerPostingSide.DEBIT,
+                    amount_minor=amount_minor,
+                    memo="Loan funding escrow released",
+                ),
+                PostingCommand(
+                    account=investor_liability_account,
+                    side=LedgerPostingSide.CREDIT,
+                    amount_minor=amount_minor,
+                    memo="Investor balance restored after primary investment release",
+                ),
+            ],
+            metadata={
+                INVESTMENT_RELEASE_FINGERPRINT_METADATA_KEY: request_fingerprint,
+                "lot_allocations": command.lot_allocations,
+                "release_reason": reason,
+            },
+        )
+    )
+    return InvestmentBalanceReleaseResult(journal_entry=journal_entry)
 
 
 def investor_balance_liability_minor(*, currency: Currency) -> int:

@@ -1555,6 +1555,144 @@ paths:
                 items:
                   $ref: '#/components/schemas/LoanInstallment'
           description: ''
+  /api/v1/marketplace/primary/admin/orders/{order_id}/release-balance/:
+    post:
+      operationId: v1_marketplace_primary_admin_orders_release_balance_create
+      parameters:
+      - in: path
+        name: order_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrimaryInvestmentOrderReleaseRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PrimaryInvestmentOrderReleaseRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PrimaryInvestmentOrderReleaseRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrimaryInvestmentOrder'
+          description: ''
+  /api/v1/marketplace/primary/loans/:
+    get:
+      operationId: v1_marketplace_primary_loans_list
+      parameters:
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 250
+          minimum: 1
+          default: 100
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MarketplaceLoanPreview'
+          description: ''
+  /api/v1/marketplace/primary/loans/{loan_id}/:
+    get:
+      operationId: v1_marketplace_primary_loans_retrieve
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketplaceLoanDetail'
+          description: ''
+  /api/v1/marketplace/primary/orders/:
+    post:
+      operationId: v1_marketplace_primary_orders_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrimaryInvestmentOrderCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PrimaryInvestmentOrderCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PrimaryInvestmentOrderCreateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrimaryInvestmentOrder'
+          description: ''
+  /api/v1/marketplace/primary/orders/{order_id}/allocate-balance/:
+    post:
+      operationId: v1_marketplace_primary_orders_allocate_balance_create
+      parameters:
+      - in: path
+        name: order_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrimaryInvestmentOrderAllocateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PrimaryInvestmentOrderAllocateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PrimaryInvestmentOrderAllocateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrimaryInvestmentOrder'
+          description: ''
 components:
   schemas:
     AccountAccessChangeRequest:
@@ -3899,6 +4037,131 @@ components:
       - due_date
       - interest_minor
       - principal_minor
+    MarketplaceLoanDetail:
+      type: object
+      properties:
+        loan_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        purpose:
+          type: string
+        collateral_type:
+          type: string
+        interest_rate_bps:
+          type: integer
+        term_months:
+          type: integer
+        risk_rating:
+          type: string
+        funding_deadline:
+          type: string
+          format: date
+        status:
+          type: string
+        currency:
+          type: string
+        principal_minor:
+          type: integer
+        committed_principal_minor:
+          type: integer
+        remaining_capacity_minor:
+          type: integer
+        borrower_id:
+          type: string
+          format: uuid
+        investor_summary:
+          type: string
+        purpose_description:
+          type: string
+        collateral_value_minor:
+          type: integer
+        collateral_description:
+          type: string
+        ltv_bps:
+          type: integer
+          nullable: true
+        ltv_warnings:
+          type: array
+          items:
+            type: string
+        repayment_type:
+          type: string
+        first_payment_date:
+          type: string
+          format: date
+        schedule_version:
+          type: integer
+      required:
+      - borrower_id
+      - collateral_description
+      - collateral_type
+      - collateral_value_minor
+      - committed_principal_minor
+      - currency
+      - first_payment_date
+      - funding_deadline
+      - interest_rate_bps
+      - investor_summary
+      - loan_id
+      - ltv_bps
+      - ltv_warnings
+      - principal_minor
+      - purpose
+      - purpose_description
+      - remaining_capacity_minor
+      - repayment_type
+      - risk_rating
+      - schedule_version
+      - status
+      - term_months
+      - title
+    MarketplaceLoanPreview:
+      type: object
+      properties:
+        loan_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        purpose:
+          type: string
+        collateral_type:
+          type: string
+        interest_rate_bps:
+          type: integer
+        term_months:
+          type: integer
+        risk_rating:
+          type: string
+        funding_deadline:
+          type: string
+          format: date
+        status:
+          type: string
+        currency:
+          type: string
+        principal_minor:
+          type: integer
+        committed_principal_minor:
+          type: integer
+        remaining_capacity_minor:
+          type: integer
+      required:
+      - collateral_type
+      - committed_principal_minor
+      - currency
+      - funding_deadline
+      - interest_rate_bps
+      - loan_id
+      - principal_minor
+      - purpose
+      - remaining_capacity_minor
+      - risk_rating
+      - status
+      - term_months
+      - title
     NaturalPersonRegistrationRequest:
       type: object
       properties:
@@ -4145,6 +4408,135 @@ components:
       - expires_at
       - phone_verified
       - status
+    PrimaryInvestmentOrder:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        loan_id:
+          type: string
+          format: uuid
+        investor_user_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+        requested_amount_minor:
+          type: integer
+        allocated_amount_minor:
+          type: integer
+        currency:
+          type: string
+        document_acceptance_id:
+          type: string
+          format: uuid
+          nullable: true
+        reservation_journal_entry_id:
+          type: string
+          format: uuid
+          nullable: true
+        release_journal_entry_id:
+          type: string
+          format: uuid
+          nullable: true
+        lot_allocations: {}
+        created_by_user_id:
+          type: string
+          format: uuid
+        allocated_at:
+          type: string
+          format: date-time
+          nullable: true
+        released_at:
+          type: string
+          format: date-time
+          nullable: true
+        closed_at:
+          type: string
+          format: date-time
+          nullable: true
+        closed_by_admin_id:
+          type: string
+          format: uuid
+          nullable: true
+        notes:
+          type: string
+        admin_notes:
+          type: string
+        metadata: {}
+        idempotency_key:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - admin_notes
+      - allocated_amount_minor
+      - allocated_at
+      - closed_at
+      - closed_by_admin_id
+      - created_at
+      - created_by_user_id
+      - currency
+      - document_acceptance_id
+      - id
+      - idempotency_key
+      - investor_user_id
+      - loan_id
+      - lot_allocations
+      - metadata
+      - notes
+      - release_journal_entry_id
+      - released_at
+      - requested_amount_minor
+      - reservation_journal_entry_id
+      - status
+      - updated_at
+    PrimaryInvestmentOrderAllocateRequest:
+      type: object
+      properties:
+        document_acceptance_id:
+          type: string
+          format: uuid
+        idempotency_key:
+          type: string
+          maxLength: 160
+      required:
+      - document_acceptance_id
+      - idempotency_key
+    PrimaryInvestmentOrderCreateRequest:
+      type: object
+      properties:
+        loan_id:
+          type: string
+          format: uuid
+        amount_minor:
+          type: integer
+          minimum: 1
+        idempotency_key:
+          type: string
+          maxLength: 160
+        notes:
+          type: string
+      required:
+      - amount_minor
+      - idempotency_key
+      - loan_id
+    PrimaryInvestmentOrderReleaseRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+        idempotency_key:
+          type: string
+          maxLength: 160
+      required:
+      - idempotency_key
+      - reason
     PublicDocumentTemplateVersion:
       type: object
       properties:

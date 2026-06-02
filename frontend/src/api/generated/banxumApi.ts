@@ -1167,6 +1167,49 @@ export interface ManualScheduleRowRequest {
   interest_minor: number;
 }
 
+export interface MarketplaceLoanDetail {
+  loan_id: string;
+  title: string;
+  purpose: string;
+  collateral_type: string;
+  interest_rate_bps: number;
+  term_months: number;
+  risk_rating: string;
+  funding_deadline: string;
+  status: string;
+  currency: string;
+  principal_minor: number;
+  committed_principal_minor: number;
+  remaining_capacity_minor: number;
+  borrower_id: string;
+  investor_summary: string;
+  purpose_description: string;
+  collateral_value_minor: number;
+  collateral_description: string;
+  /** @nullable */
+  ltv_bps: number | null;
+  ltv_warnings: string[];
+  repayment_type: string;
+  first_payment_date: string;
+  schedule_version: number;
+}
+
+export interface MarketplaceLoanPreview {
+  loan_id: string;
+  title: string;
+  purpose: string;
+  collateral_type: string;
+  interest_rate_bps: number;
+  term_months: number;
+  risk_rating: string;
+  funding_deadline: string;
+  status: string;
+  currency: string;
+  principal_minor: number;
+  committed_principal_minor: number;
+  remaining_capacity_minor: number;
+}
+
 export interface NaturalPersonRegistrationRequest {
   email: string;
   /** @maxLength 255 */
@@ -1306,6 +1349,59 @@ export interface PhoneVerificationRequestResponse {
   /** @nullable */
   expires_at: string | null;
   phone_verified: boolean;
+}
+
+export interface PrimaryInvestmentOrder {
+  id: string;
+  loan_id: string;
+  investor_user_id: string;
+  status: string;
+  requested_amount_minor: number;
+  allocated_amount_minor: number;
+  currency: string;
+  /** @nullable */
+  document_acceptance_id: string | null;
+  /** @nullable */
+  reservation_journal_entry_id: string | null;
+  /** @nullable */
+  release_journal_entry_id: string | null;
+  lot_allocations: unknown;
+  created_by_user_id: string;
+  /** @nullable */
+  allocated_at: string | null;
+  /** @nullable */
+  released_at: string | null;
+  /** @nullable */
+  closed_at: string | null;
+  /** @nullable */
+  closed_by_admin_id: string | null;
+  notes: string;
+  admin_notes: string;
+  metadata: unknown;
+  idempotency_key: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PrimaryInvestmentOrderAllocateRequest {
+  document_acceptance_id: string;
+  /** @maxLength 160 */
+  idempotency_key: string;
+}
+
+export interface PrimaryInvestmentOrderCreateRequest {
+  loan_id: string;
+  /** @minimum 1 */
+  amount_minor: number;
+  /** @maxLength 160 */
+  idempotency_key: string;
+  notes?: string;
+}
+
+export interface PrimaryInvestmentOrderReleaseRequest {
+  reason: string;
+  /** @maxLength 160 */
+  idempotency_key: string;
 }
 
 export interface PublicDocumentTemplateVersion {
@@ -1868,6 +1964,14 @@ export const V1LoansAdminLoansListStatus = {
   published: 'published',
   cancelled: 'cancelled',
 } as const;
+
+export type V1MarketplacePrimaryLoansListParams = {
+/**
+ * @minimum 1
+ * @maximum 250
+ */
+limit?: number;
+};
 
 export const v1AdminOpsAuditEventsList = (
     params?: V1AdminOpsAuditEventsListParams,
@@ -5384,6 +5488,364 @@ export function useV1LoansAdminLoansScheduleList<TData = Awaited<ReturnType<type
 }
 
 
+
+
+
+export const v1MarketplacePrimaryAdminOrdersReleaseBalanceCreate = (
+    orderId: string,
+    primaryInvestmentOrderReleaseRequest: PrimaryInvestmentOrderReleaseRequest,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<PrimaryInvestmentOrder>(
+      {url: `/api/v1/marketplace/primary/admin/orders/${orderId}/release-balance/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: primaryInvestmentOrderReleaseRequest, signal
+    },
+      );
+    }
+
+
+
+export const getV1MarketplacePrimaryAdminOrdersReleaseBalanceCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryAdminOrdersReleaseBalanceCreate>>, TError,{orderId: string;data: PrimaryInvestmentOrderReleaseRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryAdminOrdersReleaseBalanceCreate>>, TError,{orderId: string;data: PrimaryInvestmentOrderReleaseRequest}, TContext> => {
+
+const mutationKey = ['v1MarketplacePrimaryAdminOrdersReleaseBalanceCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1MarketplacePrimaryAdminOrdersReleaseBalanceCreate>>, {orderId: string;data: PrimaryInvestmentOrderReleaseRequest}> = (props) => {
+          const {orderId,data} = props ?? {};
+
+          return  v1MarketplacePrimaryAdminOrdersReleaseBalanceCreate(orderId,data,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1MarketplacePrimaryAdminOrdersReleaseBalanceCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1MarketplacePrimaryAdminOrdersReleaseBalanceCreate>>>
+    export type V1MarketplacePrimaryAdminOrdersReleaseBalanceCreateMutationBody = PrimaryInvestmentOrderReleaseRequest
+    export type V1MarketplacePrimaryAdminOrdersReleaseBalanceCreateMutationError = unknown
+
+    export const useV1MarketplacePrimaryAdminOrdersReleaseBalanceCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryAdminOrdersReleaseBalanceCreate>>, TError,{orderId: string;data: PrimaryInvestmentOrderReleaseRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1MarketplacePrimaryAdminOrdersReleaseBalanceCreate>>,
+        TError,
+        {orderId: string;data: PrimaryInvestmentOrderReleaseRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1MarketplacePrimaryAdminOrdersReleaseBalanceCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+
+export const v1MarketplacePrimaryLoansList = (
+    params?: V1MarketplacePrimaryLoansListParams,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<MarketplaceLoanPreview[]>(
+      {url: `/api/v1/marketplace/primary/loans/`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+
+
+
+
+export const getV1MarketplacePrimaryLoansListQueryKey = (params?: V1MarketplacePrimaryLoansListParams,) => {
+    return [
+    `/api/v1/marketplace/primary/loans/`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+
+export const getV1MarketplacePrimaryLoansListQueryOptions = <TData = Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>, TError = unknown>(params?: V1MarketplacePrimaryLoansListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1MarketplacePrimaryLoansListQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>> = ({ signal }) => v1MarketplacePrimaryLoansList(params, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1MarketplacePrimaryLoansListQueryResult = NonNullable<Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>>
+export type V1MarketplacePrimaryLoansListQueryError = unknown
+
+
+export function useV1MarketplacePrimaryLoansList<TData = Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>, TError = unknown>(
+ params: undefined |  V1MarketplacePrimaryLoansListParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>,
+          TError,
+          Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1MarketplacePrimaryLoansList<TData = Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>, TError = unknown>(
+ params?: V1MarketplacePrimaryLoansListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>,
+          TError,
+          Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1MarketplacePrimaryLoansList<TData = Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>, TError = unknown>(
+ params?: V1MarketplacePrimaryLoansListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1MarketplacePrimaryLoansList<TData = Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>, TError = unknown>(
+ params?: V1MarketplacePrimaryLoansListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryLoansList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1MarketplacePrimaryLoansListQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1MarketplacePrimaryLoansRetrieve = (
+    loanId: string,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<MarketplaceLoanDetail>(
+      {url: `/api/v1/marketplace/primary/loans/${loanId}/`, method: 'GET', signal
+    },
+      );
+    }
+
+
+
+
+export const getV1MarketplacePrimaryLoansRetrieveQueryKey = (loanId?: string,) => {
+    return [
+    `/api/v1/marketplace/primary/loans/${loanId}/`
+    ] as const;
+    }
+
+
+export const getV1MarketplacePrimaryLoansRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1MarketplacePrimaryLoansRetrieve>>, TError = unknown>(loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryLoansRetrieve>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1MarketplacePrimaryLoansRetrieveQueryKey(loanId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1MarketplacePrimaryLoansRetrieve>>> = ({ signal }) => v1MarketplacePrimaryLoansRetrieve(loanId, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(loanId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryLoansRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1MarketplacePrimaryLoansRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1MarketplacePrimaryLoansRetrieve>>>
+export type V1MarketplacePrimaryLoansRetrieveQueryError = unknown
+
+
+export function useV1MarketplacePrimaryLoansRetrieve<TData = Awaited<ReturnType<typeof v1MarketplacePrimaryLoansRetrieve>>, TError = unknown>(
+ loanId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryLoansRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1MarketplacePrimaryLoansRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1MarketplacePrimaryLoansRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1MarketplacePrimaryLoansRetrieve<TData = Awaited<ReturnType<typeof v1MarketplacePrimaryLoansRetrieve>>, TError = unknown>(
+ loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryLoansRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1MarketplacePrimaryLoansRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1MarketplacePrimaryLoansRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1MarketplacePrimaryLoansRetrieve<TData = Awaited<ReturnType<typeof v1MarketplacePrimaryLoansRetrieve>>, TError = unknown>(
+ loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryLoansRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1MarketplacePrimaryLoansRetrieve<TData = Awaited<ReturnType<typeof v1MarketplacePrimaryLoansRetrieve>>, TError = unknown>(
+ loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryLoansRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1MarketplacePrimaryLoansRetrieveQueryOptions(loanId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1MarketplacePrimaryOrdersCreate = (
+    primaryInvestmentOrderCreateRequest: PrimaryInvestmentOrderCreateRequest,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<PrimaryInvestmentOrder>(
+      {url: `/api/v1/marketplace/primary/orders/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: primaryInvestmentOrderCreateRequest, signal
+    },
+      );
+    }
+
+
+
+export const getV1MarketplacePrimaryOrdersCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryOrdersCreate>>, TError,{data: PrimaryInvestmentOrderCreateRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryOrdersCreate>>, TError,{data: PrimaryInvestmentOrderCreateRequest}, TContext> => {
+
+const mutationKey = ['v1MarketplacePrimaryOrdersCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1MarketplacePrimaryOrdersCreate>>, {data: PrimaryInvestmentOrderCreateRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1MarketplacePrimaryOrdersCreate(data,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1MarketplacePrimaryOrdersCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1MarketplacePrimaryOrdersCreate>>>
+    export type V1MarketplacePrimaryOrdersCreateMutationBody = PrimaryInvestmentOrderCreateRequest
+    export type V1MarketplacePrimaryOrdersCreateMutationError = unknown
+
+    export const useV1MarketplacePrimaryOrdersCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryOrdersCreate>>, TError,{data: PrimaryInvestmentOrderCreateRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1MarketplacePrimaryOrdersCreate>>,
+        TError,
+        {data: PrimaryInvestmentOrderCreateRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1MarketplacePrimaryOrdersCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+
+export const v1MarketplacePrimaryOrdersAllocateBalanceCreate = (
+    orderId: string,
+    primaryInvestmentOrderAllocateRequest: PrimaryInvestmentOrderAllocateRequest,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<PrimaryInvestmentOrder>(
+      {url: `/api/v1/marketplace/primary/orders/${orderId}/allocate-balance/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: primaryInvestmentOrderAllocateRequest, signal
+    },
+      );
+    }
+
+
+
+export const getV1MarketplacePrimaryOrdersAllocateBalanceCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryOrdersAllocateBalanceCreate>>, TError,{orderId: string;data: PrimaryInvestmentOrderAllocateRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryOrdersAllocateBalanceCreate>>, TError,{orderId: string;data: PrimaryInvestmentOrderAllocateRequest}, TContext> => {
+
+const mutationKey = ['v1MarketplacePrimaryOrdersAllocateBalanceCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1MarketplacePrimaryOrdersAllocateBalanceCreate>>, {orderId: string;data: PrimaryInvestmentOrderAllocateRequest}> = (props) => {
+          const {orderId,data} = props ?? {};
+
+          return  v1MarketplacePrimaryOrdersAllocateBalanceCreate(orderId,data,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1MarketplacePrimaryOrdersAllocateBalanceCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1MarketplacePrimaryOrdersAllocateBalanceCreate>>>
+    export type V1MarketplacePrimaryOrdersAllocateBalanceCreateMutationBody = PrimaryInvestmentOrderAllocateRequest
+    export type V1MarketplacePrimaryOrdersAllocateBalanceCreateMutationError = unknown
+
+    export const useV1MarketplacePrimaryOrdersAllocateBalanceCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1MarketplacePrimaryOrdersAllocateBalanceCreate>>, TError,{orderId: string;data: PrimaryInvestmentOrderAllocateRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1MarketplacePrimaryOrdersAllocateBalanceCreate>>,
+        TError,
+        {orderId: string;data: PrimaryInvestmentOrderAllocateRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1MarketplacePrimaryOrdersAllocateBalanceCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+
+
 export const getV1AdminOpsAuditEventsListResponseMock = (): AuditEvent[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), occurred_at: `${faker.date.past().toISOString().split('.')[0]}Z`, actor_type: faker.string.alpha({length: {min: 10, max: 20}}), actor_id: faker.string.alpha({length: {min: 10, max: 20}}), action: faker.string.alpha({length: {min: 10, max: 20}}), target_type: faker.string.alpha({length: {min: 10, max: 20}}), target_id: faker.string.alpha({length: {min: 10, max: 20}}), request_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})))
 
 export const getV1AdminOpsTasksListResponseMock = (): AdminTask[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), task_type: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), assigned_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_by_id: faker.string.uuid(), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), notes: faker.string.alpha({length: {min: 10, max: 20}}), related_object_type: faker.string.alpha({length: {min: 10, max: 20}}), related_object_id: faker.string.alpha({length: {min: 10, max: 20}}), completed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), completion_note: faker.string.alpha({length: {min: 10, max: 20}}), is_terminal: faker.datatype.boolean(), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`})))
@@ -5483,6 +5945,16 @@ export const getV1LoansAdminLoansEventsListResponseMock = (): LoanEvent[] => (Ar
 export const getV1LoansAdminLoansPublishCreateResponseMock = (overrideResponse: Partial< Loan > = {}): Loan => ({id: faker.string.uuid(), borrower_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int({min: undefined, max: undefined}), term_months: faker.number.int({min: undefined, max: undefined}), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_only_months: faker.number.int({min: undefined, max: undefined}), funding_deadline: faker.date.past().toISOString().split('T')[0], first_payment_date: faker.date.past().toISOString().split('T')[0], collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_value_minor: faker.number.int({min: undefined, max: undefined}), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), borrower_success_fee_bps: faker.number.int({min: undefined, max: undefined}), lender_payment_fee_minor: faker.number.int({min: undefined, max: undefined}), default_penalty_interest_bps: faker.number.int({min: undefined, max: undefined}), recovery_fee_bps: faker.number.int({min: undefined, max: undefined}), recovery_waterfall_version: faker.string.alpha({length: {min: 10, max: 20}}), schedule_version: faker.number.int({min: undefined, max: undefined}), total_scheduled_principal_minor: faker.number.int({min: undefined, max: undefined}), total_scheduled_interest_minor: faker.number.int({min: undefined, max: undefined}), committed_principal_minor: faker.number.int({min: undefined, max: undefined}), ltv_bps: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), ltv_warnings: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), published_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
 
 export const getV1LoansAdminLoansScheduleListResponseMock = (): LoanInstallment[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), loan_id: faker.string.uuid(), schedule_version: faker.number.int({min: undefined, max: undefined}), installment_number: faker.number.int({min: undefined, max: undefined}), due_date: faker.date.past().toISOString().split('T')[0], principal_minor: faker.number.int({min: undefined, max: undefined}), interest_minor: faker.number.int({min: undefined, max: undefined}), total_minor: faker.number.int({min: undefined, max: undefined}), admin_overridden: faker.datatype.boolean(), metadata: {}, created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`})))
+
+export const getV1MarketplacePrimaryAdminOrdersReleaseBalanceCreateResponseMock = (overrideResponse: Partial< PrimaryInvestmentOrder > = {}): PrimaryInvestmentOrder => ({id: faker.string.uuid(), loan_id: faker.string.uuid(), investor_user_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), requested_amount_minor: faker.number.int({min: undefined, max: undefined}), allocated_amount_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), document_acceptance_id: faker.helpers.arrayElement([faker.string.uuid(), null]), reservation_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), release_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), lot_allocations: {}, created_by_user_id: faker.string.uuid(), allocated_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), released_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), closed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), closed_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), notes: faker.string.alpha({length: {min: 10, max: 20}}), admin_notes: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, idempotency_key: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+
+export const getV1MarketplacePrimaryLoansListResponseMock = (): MarketplaceLoanPreview[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({loan_id: faker.string.uuid(), title: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int({min: undefined, max: undefined}), term_months: faker.number.int({min: undefined, max: undefined}), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), funding_deadline: faker.date.past().toISOString().split('T')[0], status: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int({min: undefined, max: undefined}), committed_principal_minor: faker.number.int({min: undefined, max: undefined}), remaining_capacity_minor: faker.number.int({min: undefined, max: undefined})})))
+
+export const getV1MarketplacePrimaryLoansRetrieveResponseMock = (overrideResponse: Partial< MarketplaceLoanDetail > = {}): MarketplaceLoanDetail => ({loan_id: faker.string.uuid(), title: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int({min: undefined, max: undefined}), term_months: faker.number.int({min: undefined, max: undefined}), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), funding_deadline: faker.date.past().toISOString().split('T')[0], status: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int({min: undefined, max: undefined}), committed_principal_minor: faker.number.int({min: undefined, max: undefined}), remaining_capacity_minor: faker.number.int({min: undefined, max: undefined}), borrower_id: faker.string.uuid(), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), collateral_value_minor: faker.number.int({min: undefined, max: undefined}), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), ltv_bps: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), ltv_warnings: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), first_payment_date: faker.date.past().toISOString().split('T')[0], schedule_version: faker.number.int({min: undefined, max: undefined}), ...overrideResponse})
+
+export const getV1MarketplacePrimaryOrdersCreateResponseMock = (overrideResponse: Partial< PrimaryInvestmentOrder > = {}): PrimaryInvestmentOrder => ({id: faker.string.uuid(), loan_id: faker.string.uuid(), investor_user_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), requested_amount_minor: faker.number.int({min: undefined, max: undefined}), allocated_amount_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), document_acceptance_id: faker.helpers.arrayElement([faker.string.uuid(), null]), reservation_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), release_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), lot_allocations: {}, created_by_user_id: faker.string.uuid(), allocated_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), released_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), closed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), closed_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), notes: faker.string.alpha({length: {min: 10, max: 20}}), admin_notes: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, idempotency_key: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+
+export const getV1MarketplacePrimaryOrdersAllocateBalanceCreateResponseMock = (overrideResponse: Partial< PrimaryInvestmentOrder > = {}): PrimaryInvestmentOrder => ({id: faker.string.uuid(), loan_id: faker.string.uuid(), investor_user_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), requested_amount_minor: faker.number.int({min: undefined, max: undefined}), allocated_amount_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), document_acceptance_id: faker.helpers.arrayElement([faker.string.uuid(), null]), reservation_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), release_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), lot_allocations: {}, created_by_user_id: faker.string.uuid(), allocated_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), released_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), closed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), closed_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), notes: faker.string.alpha({length: {min: 10, max: 20}}), admin_notes: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, idempotency_key: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
 
 
 export const getV1AdminOpsAuditEventsListMockHandler = (overrideResponse?: AuditEvent[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AuditEvent[]> | AuditEvent[]), options?: RequestHandlerOptions) => {
@@ -6082,6 +6554,66 @@ export const getV1LoansAdminLoansScheduleListMockHandler = (overrideResponse?: L
       })
   }, options)
 }
+
+export const getV1MarketplacePrimaryAdminOrdersReleaseBalanceCreateMockHandler = (overrideResponse?: PrimaryInvestmentOrder | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<PrimaryInvestmentOrder> | PrimaryInvestmentOrder), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/marketplace/primary/admin/orders/:orderId/release-balance/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1MarketplacePrimaryAdminOrdersReleaseBalanceCreateResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1MarketplacePrimaryLoansListMockHandler = (overrideResponse?: MarketplaceLoanPreview[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<MarketplaceLoanPreview[]> | MarketplaceLoanPreview[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/marketplace/primary/loans/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1MarketplacePrimaryLoansListResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1MarketplacePrimaryLoansRetrieveMockHandler = (overrideResponse?: MarketplaceLoanDetail | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<MarketplaceLoanDetail> | MarketplaceLoanDetail), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/marketplace/primary/loans/:loanId/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1MarketplacePrimaryLoansRetrieveResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1MarketplacePrimaryOrdersCreateMockHandler = (overrideResponse?: PrimaryInvestmentOrder | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<PrimaryInvestmentOrder> | PrimaryInvestmentOrder), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/marketplace/primary/orders/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1MarketplacePrimaryOrdersCreateResponseMock()),
+      { status: 201,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1MarketplacePrimaryOrdersAllocateBalanceCreateMockHandler = (overrideResponse?: PrimaryInvestmentOrder | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<PrimaryInvestmentOrder> | PrimaryInvestmentOrder), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/marketplace/primary/orders/:orderId/allocate-balance/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1MarketplacePrimaryOrdersAllocateBalanceCreateResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
 export const getBanxumApiMock = () => [
   getV1AdminOpsAuditEventsListMockHandler(),
   getV1AdminOpsTasksListMockHandler(),
@@ -6132,5 +6664,10 @@ export const getBanxumApiMock = () => [
   getV1LoansAdminLoansPartialUpdateMockHandler(),
   getV1LoansAdminLoansEventsListMockHandler(),
   getV1LoansAdminLoansPublishCreateMockHandler(),
-  getV1LoansAdminLoansScheduleListMockHandler()
+  getV1LoansAdminLoansScheduleListMockHandler(),
+  getV1MarketplacePrimaryAdminOrdersReleaseBalanceCreateMockHandler(),
+  getV1MarketplacePrimaryLoansListMockHandler(),
+  getV1MarketplacePrimaryLoansRetrieveMockHandler(),
+  getV1MarketplacePrimaryOrdersCreateMockHandler(),
+  getV1MarketplacePrimaryOrdersAllocateBalanceCreateMockHandler()
 ]
