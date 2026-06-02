@@ -182,6 +182,7 @@ DIDIT_WEBHOOK_REQUIRE_SIGNATURE = env.bool(
     "DIDIT_WEBHOOK_REQUIRE_SIGNATURE",
     default=ENVIRONMENT != "local",
 )
+BALANCE_PENALTY_BPS_PER_DAY = env.int("BALANCE_PENALTY_BPS_PER_DAY", default=100)
 REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")
 CACHE_URL = env(
     "CACHE_URL",
@@ -222,9 +223,7 @@ SPECTACULAR_SETTINGS = {
         "AdminTaskPriorityEnum": "backend.apps.admin_ops.models.AdminTaskPriority.choices",
         "AdminTaskStatusEnum": "backend.apps.admin_ops.models.AdminTaskStatus.choices",
         "AdminTaskTypeEnum": "backend.apps.admin_ops.models.AdminTaskType.choices",
-        "BorrowerDocumentTypeEnum": (
-            "backend.apps.entities.models.BorrowerDocumentType.choices"
-        ),
+        "BorrowerDocumentTypeEnum": ("backend.apps.entities.models.BorrowerDocumentType.choices"),
         "BorrowerEntityTypeEnum": "backend.apps.entities.models.BorrowerEntityType.choices",
         "BorrowerKybStatusEnum": "backend.apps.entities.models.BorrowerKybStatus.choices",
         "KycStatusEnum": "backend.apps.kyc_compliance.models.KycStatus.choices",

@@ -50,3 +50,10 @@ Each entry should include:
 - Current first-version behavior: no UI was implemented in this slice; only backend API, OpenAPI schema, generated TypeScript client, borrower/document/event models, append-only borrower event evidence, and tests exist.
 - Required admin-console improvement: Codex should implement the admin borrower workflow, including dense borrower search/filter table, create/edit forms, KYB status confirmation copy, compliance-hold indicators, optional financial disclosure inputs with currency/minor-unit formatting, operational fields, document linking/upload states, clean-scan visibility states, investor-disclosure preview, and borrower event history.
 - Priority: important.
+
+## 2026-06-02: Ledger Balance Ageing Operations
+
+- Screen or component: investor payout-instruction management, balance-ageing scan, forced-withdrawal queue, penalty-mode review.
+- Current first-version behavior: no UI was implemented in this slice; only backend API, OpenAPI schema, generated TypeScript client, payout-instruction model, ageing scan service, forced-withdrawal request generation, penalty-mode transition evidence, and tests exist.
+- Required admin-console improvement: Codex should implement operational screens for registering verified payout IBANs, reviewing active payout instructions by investor/currency, running or inspecting balance-ageing scans, seeing due reminders, identifying forced-withdrawal requests, reviewing lots moved into penalty mode because no usable IBAN exists, and linking each item to ledger evidence/audit events.
+- Priority: important.

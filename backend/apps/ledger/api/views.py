@@ -11,8 +11,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from backend.apps.ledger.api.serializers import (
+    BalanceAgeingScanRequestSerializer,
+    BalanceAgeingScanResponseSerializer,
     InvestorBalanceSummaryQuerySerializer,
     InvestorBalanceSummarySerializer,
+    InvestorPayoutInstructionRegisterRequestSerializer,
+    InvestorPayoutInstructionRegisterResponseSerializer,
     InvestorWithdrawalCancelRequestSerializer,
     InvestorWithdrawalCancelResponseSerializer,
     InvestorWithdrawalFinalizeRequestSerializer,
@@ -23,10 +27,12 @@ from backend.apps.ledger.api.serializers import (
     LenderDepositDeclareResponseSerializer,
     ReconciliationSnapshotCreateRequestSerializer,
     ReconciliationSnapshotSerializer,
+    serialize_balance_ageing_scan_result,
     serialize_balance_lot,
     serialize_balance_summary,
     serialize_bank_operation,
     serialize_journal_entry,
+    serialize_payout_instruction,
     serialize_reconciliation_snapshot,
     serialize_withdrawal_request,
 )
@@ -37,12 +43,16 @@ from backend.apps.ledger.services import (
     FinalizeInvestorWithdrawalCommand,
     LedgerAuthorizationError,
     LedgerValidationError,
+    RegisterInvestorPayoutInstructionCommand,
     RequestInvestorWithdrawalCommand,
+    RunBalanceAgeingScanCommand,
     cancel_investor_withdrawal,
     create_reconciliation_snapshot,
     declare_lender_deposit,
     finalize_investor_withdrawal,
+    register_investor_payout_instruction,
     request_investor_withdrawal,
+    run_balance_ageing_scan,
     summarize_investor_balance,
 )
 from backend.apps.platform_core.domain.access import is_admin_actor
@@ -97,6 +107,42 @@ class LenderDepositDeclareView(APIView):
                 "journal_entry": serialize_journal_entry(result.journal_entry),
                 "balance_lot": serialize_balance_lot(result.balance_lot),
             },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class InvestorPayoutInstructionRegisterView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=InvestorPayoutInstructionRegisterRequestSerializer,
+        responses={201: InvestorPayoutInstructionRegisterResponseSerializer},
+    )
+    def post(self, request: Request) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = InvestorPayoutInstructionRegisterRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            payout_instruction = register_investor_payout_instruction(
+                RegisterInvestorPayoutInstructionCommand(
+                    actor=cast(Model, request.user),
+                    investor_user_id=str(data["investor_user_id"]),
+                    currency=data["currency"],
+                    destination_iban=data["destination_iban"],
+                    destination_account_name=data["destination_account_name"],
+                    is_verified_usable=data.get("is_verified_usable", True),
+                    notes=data.get("notes", ""),
+                    metadata=data.get("metadata"),
+                )
+            )
+        except LedgerAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except LedgerValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {"payout_instruction": serialize_payout_instruction(payout_instruction)},
             status=status.HTTP_201_CREATED,
         )
 
@@ -276,4 +322,36 @@ class ReconciliationSnapshotCreateView(APIView):
         return Response(
             serialize_reconciliation_snapshot(snapshot),
             status=status.HTTP_201_CREATED,
+        )
+
+
+class BalanceAgeingScanView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=BalanceAgeingScanRequestSerializer,
+        responses={200: BalanceAgeingScanResponseSerializer},
+    )
+    def post(self, request: Request) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = BalanceAgeingScanRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            result = run_balance_ageing_scan(
+                RunBalanceAgeingScanCommand(
+                    actor=cast(Model, request.user),
+                    as_of=data.get("as_of"),
+                    currency=data.get("currency"),
+                    dry_run=data.get("dry_run", False),
+                )
+            )
+        except LedgerAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except LedgerValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            serialize_balance_ageing_scan_result(result),
+            status=status.HTTP_200_OK,
         )

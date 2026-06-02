@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Any, cast
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.db.models import Model, Sum
@@ -17,6 +18,8 @@ from backend.apps.ledger.models import (
     BankOperationStatus,
     BankOperationType,
     InvestorBalanceLot,
+    InvestorPayoutInstruction,
+    InvestorPayoutInstructionStatus,
     InvestorWithdrawalRequest,
     InvestorWithdrawalRequestStatus,
     LedgerAccount,
@@ -34,7 +37,13 @@ from backend.apps.platform_core.domain.access import (
     user_can_access_financial_features,
 )
 from backend.apps.platform_core.domain.money import Money, MoneyError, normalize_currency
-from backend.apps.platform_core.domain.time import business_timezone, now_utc, to_business_time
+from backend.apps.platform_core.domain.time import (
+    business_date,
+    business_timezone,
+    calendar_day_difference,
+    now_utc,
+    to_business_time,
+)
 from backend.apps.platform_core.models import Currency
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import DomainEventCommand, record_domain_event
@@ -54,6 +63,7 @@ class LedgerValidationError(LedgerError):
 
 INVESTMENT_DEADLINE_DAYS = 30
 WITHDRAWAL_DEADLINE_DAYS = 60
+BALANCE_AGEING_REMINDER_DAYS = (25, 46, 53, 58, 59, 60)
 MAX_IDEMPOTENCY_KEY_LENGTH = 160
 REQUEST_FINGERPRINT_METADATA_KEY = "request_fingerprint"
 CANCELLATION_FINGERPRINT_METADATA_KEY = "cancellation_request_fingerprint"
@@ -121,6 +131,18 @@ class LenderDepositResult:
 
 
 @dataclass(frozen=True, slots=True)
+class RegisterInvestorPayoutInstructionCommand:
+    actor: Model
+    investor_user_id: str
+    currency: str
+    destination_iban: str
+    destination_account_name: str
+    is_verified_usable: bool = True
+    notes: str = ""
+    metadata: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class RequestInvestorWithdrawalCommand:
     actor: Model
     amount_minor: int
@@ -164,6 +186,52 @@ class InvestorWithdrawalFinalizeResult:
 class InvestorWithdrawalCancelResult:
     withdrawal_request: InvestorWithdrawalRequest
     journal_entry: LedgerJournalEntry
+
+
+@dataclass(frozen=True, slots=True)
+class BalanceAgeingReminderDue:
+    lot_id: str
+    investor_user_id: str
+    currency: str
+    amount_minor: int
+    day: int
+    withdrawal_deadline_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class BalanceAgeingPenaltyModeTransition:
+    lot_id: str
+    investor_user_id: str
+    currency: str
+    amount_minor: int
+    days_overdue: int
+
+
+@dataclass(frozen=True, slots=True)
+class BalanceAgeingForcedWithdrawalCandidate:
+    investor_user_id: str
+    currency: str
+    amount_minor: int
+    lot_ids: list[str]
+    payout_instruction_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class BalanceAgeingScanResult:
+    as_of: datetime
+    reminders_due: list[BalanceAgeingReminderDue]
+    forced_withdrawal_candidates: list[BalanceAgeingForcedWithdrawalCandidate]
+    forced_withdrawal_requests: list[InvestorWithdrawalRequest]
+    penalty_mode_transitions: list[BalanceAgeingPenaltyModeTransition]
+    skipped_lot_ids: list[str]
+
+
+@dataclass(frozen=True, slots=True)
+class RunBalanceAgeingScanCommand:
+    actor: Model
+    as_of: datetime | None = None
+    currency: str | None = None
+    dry_run: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -370,6 +438,17 @@ def _investor_for_id(investor_user_id: str) -> Model:
         raise LedgerValidationError("Investor account does not exist.")
     if not is_lender_actor(investor):
         raise LedgerValidationError("Investor account must be an active lender account.")
+    return investor
+
+
+def _lender_account_for_id(investor_user_id: str) -> Model:
+    user_model = get_user_model()
+    investor = cast(Model | None, user_model.objects.filter(id=investor_user_id).first())
+    if investor is None:
+        raise LedgerValidationError("Investor account does not exist.")
+    account_type = str(getattr(investor, "account_type", ""))
+    if account_type not in {"natural_person_lender", "legal_entity_lender_representative"}:
+        raise LedgerValidationError("Account must be a lender account.")
     return investor
 
 
@@ -749,6 +828,62 @@ def _existing_lender_deposit_result(
         cast(LedgerJournalEntry, existing_journal),
         cast(InvestorBalanceLot, existing_lot),
     )
+
+
+@transaction.atomic
+def register_investor_payout_instruction(
+    command: RegisterInvestorPayoutInstructionCommand,
+) -> InvestorPayoutInstruction:
+    _require_admin_actor(command.actor)
+    investor = _lender_account_for_id(command.investor_user_id)
+    currency = _enabled_currency(command.currency)
+    destination_iban = _clean_iban(command.destination_iban)
+    account_name = _clean_required(command.destination_account_name, "Destination account name")
+    verified_at = now_utc() if command.is_verified_usable else None
+
+    InvestorPayoutInstruction.objects.select_for_update().filter(
+        investor_user_id=investor.pk,
+        currency=currency,
+        status=InvestorPayoutInstructionStatus.ACTIVE,
+    ).update(status=InvestorPayoutInstructionStatus.DISABLED)
+    instruction = InvestorPayoutInstruction.objects.create(
+        investor_user_id=investor.pk,
+        currency=currency,
+        destination_iban=destination_iban,
+        destination_account_name=account_name,
+        is_verified_usable=command.is_verified_usable,
+        verified_by_admin_id=command.actor.pk if command.is_verified_usable else None,
+        verified_at=verified_at,
+        created_by_admin_id=command.actor.pk,
+        notes=command.notes.strip(),
+        metadata=command.metadata or {},
+    )
+    actor_ref = actor_ref_for_user(command.actor)
+    event_metadata = {
+        "investor_user_id": str(investor.pk),
+        "currency": currency.code,
+        "instruction_id": str(instruction.id),
+        "is_verified_usable": instruction.is_verified_usable,
+    }
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref,
+            action="ledger.investor_payout_instruction_registered",
+            target_type="InvestorPayoutInstruction",
+            target_id=str(instruction.id),
+            metadata=event_metadata,
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="InvestorPayoutInstructionRegistered",
+            aggregate_type="InvestorPayoutInstruction",
+            aggregate_id=str(instruction.id),
+            payload=event_metadata,
+            idempotency_key=f"payout-instruction:{instruction.id}:registered",
+        )
+    )
+    return instruction
 
 
 @transaction.atomic
@@ -1587,6 +1722,387 @@ def cancel_investor_withdrawal(
         )
     )
     return InvestorWithdrawalCancelResult(withdrawal_request, journal_entry)
+
+
+def _active_verified_payout_instruction(
+    *,
+    investor_user_id: str,
+    currency: Currency,
+) -> InvestorPayoutInstruction | None:
+    return (
+        InvestorPayoutInstruction.objects.filter(
+            investor_user_id=investor_user_id,
+            currency=currency,
+            status=InvestorPayoutInstructionStatus.ACTIVE,
+            is_verified_usable=True,
+        )
+        .order_by("-verified_at", "-created_at", "-id")
+        .first()
+    )
+
+
+def _record_balance_ageing_reminder_due(
+    *,
+    actor: Model,
+    lot: InvestorBalanceLot,
+    day: int,
+    as_of: datetime,
+) -> None:
+    payload = {
+        "investor_user_id": str(lot.investor_user_id),
+        "currency": lot.currency_id,
+        "lot_id": str(lot.id),
+        "amount_minor": lot.available_amount_minor,
+        "day": day,
+        "as_of": as_of.isoformat(),
+        "withdrawal_deadline_at": lot.withdrawal_deadline_at.isoformat(),
+    }
+    record_domain_event(
+        DomainEventCommand(
+            event_type="BalanceAgeingReminderDue",
+            aggregate_type="InvestorBalanceLot",
+            aggregate_id=str(lot.id),
+            payload=payload,
+            idempotency_key=f"balance-lot:{lot.id}:ageing-reminder-day:{day}",
+        )
+    )
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(actor),
+            action="ledger.balance_ageing_reminder_due",
+            target_type="InvestorBalanceLot",
+            target_id=str(lot.id),
+            metadata=payload,
+        )
+    )
+
+
+def _forced_withdrawal_request_fingerprint(
+    *,
+    actor_id: str,
+    investor_user_id: str,
+    currency_code: str,
+    amount_minor: int,
+    destination_iban: str,
+    payout_instruction_id: str,
+    lot_ids: list[str],
+    idempotency_key: str,
+) -> str:
+    return _stable_json_fingerprint(
+        {
+            "actor_id": actor_id,
+            "investor_user_id": investor_user_id,
+            "currency": currency_code,
+            "amount_minor": amount_minor,
+            "destination_iban": destination_iban,
+            "payout_instruction_id": payout_instruction_id,
+            "lot_ids": lot_ids,
+            "idempotency_key": idempotency_key,
+        }
+    )
+
+
+def _create_forced_withdrawal_request(
+    *,
+    actor: Model,
+    investor_user_id: str,
+    currency: Currency,
+    amount_minor: int,
+    payout_instruction: InvestorPayoutInstruction,
+    lot_ids: list[str],
+    as_of: datetime,
+) -> InvestorWithdrawalRequest:
+    amount_minor = _validate_money(amount_minor, currency.code, "Forced withdrawal amount")
+    idempotency_key = _derived_idempotency_key(
+        "forced-withdrawal",
+        f"{investor_user_id}:{currency.code}:{business_date(as_of).isoformat()}:{':'.join(lot_ids)}",
+    )
+    destination_iban = _clean_iban(payout_instruction.destination_iban)
+    request_fingerprint = _forced_withdrawal_request_fingerprint(
+        actor_id=str(actor.pk),
+        investor_user_id=investor_user_id,
+        currency_code=currency.code,
+        amount_minor=amount_minor,
+        destination_iban=destination_iban,
+        payout_instruction_id=str(payout_instruction.id),
+        lot_ids=lot_ids,
+        idempotency_key=idempotency_key,
+    )
+    existing = _existing_withdrawal_request_for_idempotency(
+        idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing is not None:
+        return existing
+    metadata = {
+        REQUEST_FINGERPRINT_METADATA_KEY: request_fingerprint,
+        "payout_instruction_id": str(payout_instruction.id),
+        "forced_withdrawal_lot_ids": lot_ids,
+        "generated_by": "balance_ageing_scan",
+    }
+    try:
+        withdrawal_request = InvestorWithdrawalRequest.objects.create(
+            investor_user_id=investor_user_id,
+            amount_minor=amount_minor,
+            currency=currency,
+            destination_iban=destination_iban,
+            destination_account_name=payout_instruction.destination_account_name,
+            requested_by_user_id=actor.pk,
+            requested_at=as_of,
+            is_forced=True,
+            notes=(
+                "Forced withdrawal generated by balance ageing scan because the "
+                "source balance reached the 60-day holding limit."
+            ),
+            metadata=metadata,
+            idempotency_key=idempotency_key,
+        )
+    except IntegrityError:
+        existing_after_race = _existing_withdrawal_request_for_idempotency(
+            idempotency_key,
+            expected_fingerprint=request_fingerprint,
+        )
+        if existing_after_race is None:
+            raise
+        return existing_after_race
+
+    lots = _withdrawal_lots_for_update(investor_user_id=investor_user_id, currency=currency)
+    allocations = _consume_lots_for_withdrawal(
+        lots=lots,
+        amount_minor=amount_minor,
+        currency_code=currency.code,
+    )
+    investor_liability_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.INVESTOR_BALANCE_LIABILITY,
+        currency=currency,
+        owner_type="investor",
+        owner_id=investor_user_id,
+        name=f"{currency.code} investor balance liability {investor_user_id}",
+    )
+    withdrawal_payable_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.WITHDRAWAL_PAYABLE,
+        currency=currency,
+        owner_type="investor",
+        owner_id=investor_user_id,
+        name=f"{currency.code} withdrawal payable {investor_user_id}",
+    )
+    value_date = business_date(as_of)
+    journal_entry = post_journal_entry(
+        PostJournalEntryCommand(
+            actor=actor,
+            event_type="forced_withdrawal_requested",
+            direction=LedgerDirection.OUT,
+            currency=currency.code,
+            gross_amount_minor=amount_minor,
+            net_amount_minor=amount_minor,
+            booking_date=value_date,
+            value_date=value_date,
+            effective_at=as_of,
+            received_at=as_of,
+            source_type="withdrawal_request",
+            source_id=str(withdrawal_request.id),
+            lender_user_id=investor_user_id,
+            idempotency_key=_derived_idempotency_key(
+                "ledger-forced-withdrawal-request",
+                idempotency_key,
+            ),
+            postings=[
+                PostingCommand(
+                    account=investor_liability_account,
+                    side=LedgerPostingSide.DEBIT,
+                    amount_minor=amount_minor,
+                    memo="Investor balance liability reserved for forced withdrawal",
+                ),
+                PostingCommand(
+                    account=withdrawal_payable_account,
+                    side=LedgerPostingSide.CREDIT,
+                    amount_minor=amount_minor,
+                    memo="Forced withdrawal payable created",
+                ),
+            ],
+            metadata={
+                "withdrawal_request_id": str(withdrawal_request.id),
+                "payout_instruction_id": str(payout_instruction.id),
+            },
+        )
+    )
+    withdrawal_request.request_journal_entry = journal_entry
+    withdrawal_request.lot_allocations = allocations
+    withdrawal_request.save(
+        update_fields=["request_journal_entry", "lot_allocations", "updated_at"]
+    )
+    event_metadata = {
+        "investor_user_id": investor_user_id,
+        "currency": currency.code,
+        "amount_minor": amount_minor,
+        "withdrawal_request_id": str(withdrawal_request.id),
+        "journal_entry_id": str(journal_entry.id),
+        "payout_instruction_id": str(payout_instruction.id),
+        "lot_allocations": allocations,
+    }
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(actor),
+            action="ledger.forced_withdrawal_requested",
+            target_type="InvestorWithdrawalRequest",
+            target_id=str(withdrawal_request.id),
+            metadata=event_metadata,
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="ForcedWithdrawalRequested",
+            aggregate_type="InvestorWithdrawalRequest",
+            aggregate_id=str(withdrawal_request.id),
+            payload=event_metadata,
+            idempotency_key=f"withdrawal-request:{withdrawal_request.id}:forced-requested",
+        )
+    )
+    return withdrawal_request
+
+
+@transaction.atomic
+def run_balance_ageing_scan(command: RunBalanceAgeingScanCommand) -> BalanceAgeingScanResult:
+    _require_admin_actor(command.actor)
+    as_of = command.as_of or now_utc()
+    to_business_time(as_of)
+    currency = _enabled_currency(command.currency) if command.currency else None
+    queryset = InvestorBalanceLot.objects.select_for_update().filter(
+        available_amount_minor__gt=0,
+        status__in=[BalanceLotStatus.AVAILABLE, BalanceLotStatus.PENALTY_MODE],
+    )
+    if currency is not None:
+        queryset = queryset.filter(currency=currency)
+    lots = list(
+        queryset.select_related("currency").order_by(
+            "investor_user_id", "currency", "received_at", "id"
+        )
+    )
+
+    reminders_due: list[BalanceAgeingReminderDue] = []
+    penalty_mode_transitions: list[BalanceAgeingPenaltyModeTransition] = []
+    forced_withdrawal_candidates: list[BalanceAgeingForcedWithdrawalCandidate] = []
+    forced_withdrawal_requests: list[InvestorWithdrawalRequest] = []
+    skipped_lot_ids: list[str] = []
+    overdue_by_investor_currency: dict[tuple[str, str], list[InvestorBalanceLot]] = {}
+
+    for lot in lots:
+        _validate_lot_conservation(lot)
+        days_held = calendar_day_difference(lot.received_at, as_of)
+        if lot.status == BalanceLotStatus.AVAILABLE and days_held in BALANCE_AGEING_REMINDER_DAYS:
+            reminder = BalanceAgeingReminderDue(
+                lot_id=str(lot.id),
+                investor_user_id=str(lot.investor_user_id),
+                currency=lot.currency_id,
+                amount_minor=lot.available_amount_minor,
+                day=days_held,
+                withdrawal_deadline_at=lot.withdrawal_deadline_at,
+            )
+            reminders_due.append(reminder)
+            if not command.dry_run:
+                _record_balance_ageing_reminder_due(
+                    actor=command.actor,
+                    lot=lot,
+                    day=days_held,
+                    as_of=as_of,
+                )
+        if business_date(as_of) >= business_date(lot.withdrawal_deadline_at):
+            key = (str(lot.investor_user_id), lot.currency_id)
+            overdue_by_investor_currency.setdefault(key, []).append(lot)
+
+    for (investor_user_id, currency_code), overdue_lots in overdue_by_investor_currency.items():
+        if not overdue_lots:
+            continue
+        overdue_currency = overdue_lots[0].currency
+        payout_instruction = _active_verified_payout_instruction(
+            investor_user_id=investor_user_id,
+            currency=overdue_currency,
+        )
+        amount_minor = sum(lot.available_amount_minor for lot in overdue_lots)
+        lot_ids = [str(lot.id) for lot in overdue_lots]
+        if payout_instruction is not None:
+            candidate = BalanceAgeingForcedWithdrawalCandidate(
+                investor_user_id=investor_user_id,
+                currency=currency_code,
+                amount_minor=amount_minor,
+                lot_ids=lot_ids,
+                payout_instruction_id=str(payout_instruction.id),
+            )
+            forced_withdrawal_candidates.append(candidate)
+            if not command.dry_run:
+                forced_withdrawal_requests.append(
+                    _create_forced_withdrawal_request(
+                        actor=command.actor,
+                        investor_user_id=investor_user_id,
+                        currency=overdue_currency,
+                        amount_minor=amount_minor,
+                        payout_instruction=payout_instruction,
+                        lot_ids=lot_ids,
+                        as_of=as_of,
+                    )
+                )
+            continue
+
+        for lot in overdue_lots:
+            if lot.status == BalanceLotStatus.PENALTY_MODE:
+                skipped_lot_ids.append(str(lot.id))
+                continue
+            transition = BalanceAgeingPenaltyModeTransition(
+                lot_id=str(lot.id),
+                investor_user_id=str(lot.investor_user_id),
+                currency=lot.currency_id,
+                amount_minor=lot.available_amount_minor,
+                days_overdue=max(0, calendar_day_difference(lot.withdrawal_deadline_at, as_of)),
+            )
+            penalty_mode_transitions.append(transition)
+            if command.dry_run:
+                continue
+            lot.status = BalanceLotStatus.PENALTY_MODE
+            lineage = list(cast(list[dict[str, Any]], lot.lineage))
+            lineage.append(
+                {
+                    "event": "penalty_mode_enabled",
+                    "as_of": as_of.isoformat(),
+                    "penalty_bps_per_day": int(settings.BALANCE_PENALTY_BPS_PER_DAY),
+                    "reason": "No verified usable payout instruction at 60-day holding limit.",
+                }
+            )
+            lot.lineage = lineage
+            lot.save(update_fields=["status", "lineage", "updated_at"])
+            event_metadata = {
+                "investor_user_id": str(lot.investor_user_id),
+                "currency": lot.currency_id,
+                "amount_minor": lot.available_amount_minor,
+                "days_overdue": transition.days_overdue,
+                "penalty_bps_per_day": int(settings.BALANCE_PENALTY_BPS_PER_DAY),
+            }
+            record_audit_event(
+                AuditCommand(
+                    actor=actor_ref_for_user(command.actor),
+                    action="ledger.balance_penalty_mode_enabled",
+                    target_type="InvestorBalanceLot",
+                    target_id=str(lot.id),
+                    metadata=event_metadata,
+                )
+            )
+            record_domain_event(
+                DomainEventCommand(
+                    event_type="BalancePenaltyModeEnabled",
+                    aggregate_type="InvestorBalanceLot",
+                    aggregate_id=str(lot.id),
+                    payload=event_metadata,
+                    idempotency_key=f"balance-lot:{lot.id}:penalty-mode-enabled",
+                )
+            )
+
+    return BalanceAgeingScanResult(
+        as_of=as_of,
+        reminders_due=reminders_due,
+        forced_withdrawal_candidates=forced_withdrawal_candidates,
+        forced_withdrawal_requests=forced_withdrawal_requests,
+        penalty_mode_transitions=penalty_mode_transitions,
+        skipped_lot_ids=skipped_lot_ids,
+    )
 
 
 def summarize_investor_balance(

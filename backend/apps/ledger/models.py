@@ -88,6 +88,11 @@ class InvestorWithdrawalRequestStatus(models.TextChoices):
     CANCELLED = "cancelled", "Cancelled"
 
 
+class InvestorPayoutInstructionStatus(models.TextChoices):
+    ACTIVE = "active", "Active"
+    DISABLED = "disabled", "Disabled"
+
+
 class LedgerAccount(TimestampedModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     code = models.CharField(max_length=160, unique=True)
@@ -298,6 +303,43 @@ class InvestorBalanceLot(TimestampedModel):
             models.Index(fields=["currency", "investment_deadline_at"]),
             models.Index(fields=["currency", "withdrawal_deadline_at"]),
             models.Index(fields=["source_type", "source_id"]),
+        ]
+
+
+class InvestorPayoutInstruction(TimestampedModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    investor_user_id = models.UUIDField()
+    currency = models.ForeignKey(
+        "platform_core.Currency",
+        on_delete=models.PROTECT,
+        related_name="investor_payout_instructions",
+    )
+    status = models.CharField(
+        max_length=32,
+        choices=InvestorPayoutInstructionStatus.choices,
+        default=InvestorPayoutInstructionStatus.ACTIVE,
+    )
+    destination_iban = models.CharField(max_length=128)
+    destination_account_name = models.CharField(max_length=255)
+    is_verified_usable = models.BooleanField(default=False)
+    verified_by_admin_id = models.UUIDField(null=True, blank=True)
+    verified_at = models.DateTimeField(null=True, blank=True)
+    created_by_admin_id = models.UUIDField()
+    notes = models.TextField(blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["investor_user_id", "currency", "-created_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["investor_user_id", "currency"],
+                condition=Q(status=InvestorPayoutInstructionStatus.ACTIVE),
+                name="ledger_one_active_payout_instruction_per_currency",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["investor_user_id", "currency", "status"]),
+            models.Index(fields=["is_verified_usable", "status"]),
         ]
 
 

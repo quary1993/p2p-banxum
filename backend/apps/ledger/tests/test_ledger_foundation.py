@@ -16,6 +16,7 @@ from backend.apps.ledger.models import (
     BalanceLotStatus,
     BankOperation,
     InvestorBalanceLot,
+    InvestorPayoutInstruction,
     InvestorWithdrawalRequest,
     InvestorWithdrawalRequestStatus,
     LedgerAccountType,
@@ -33,7 +34,9 @@ from backend.apps.ledger.services import (
     LedgerValidationError,
     PostingCommand,
     PostJournalEntryCommand,
+    RegisterInvestorPayoutInstructionCommand,
     RequestInvestorWithdrawalCommand,
+    RunBalanceAgeingScanCommand,
     cancel_investor_withdrawal,
     create_reconciliation_snapshot,
     declare_lender_deposit,
@@ -41,7 +44,9 @@ from backend.apps.ledger.services import (
     get_or_create_ledger_account,
     plan_investment_balance_consumption,
     post_journal_entry,
+    register_investor_payout_instruction,
     request_investor_withdrawal,
+    run_balance_ageing_scan,
     summarize_investor_balance,
 )
 from backend.apps.platform_core.domain.time import business_timezone
@@ -542,6 +547,223 @@ def test_investment_consumption_plan_uses_fifo_and_funding_deadline(
             loan_funding_deadline=date(2026, 2, 5),
             as_of=_received_at(date(2026, 1, 15)),
         )
+
+
+@pytest.mark.django_db
+def test_register_payout_instruction_replaces_prior_active_instruction(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    first = register_investor_payout_instruction(
+        RegisterInvestorPayoutInstructionCommand(
+            actor=admin_user,
+            investor_user_id=str(investor.pk),
+            currency="CHF",
+            destination_iban="CH9300762011623852957",
+            destination_account_name="Ledger Investor",
+            notes="Initial return account.",
+        )
+    )
+    second = register_investor_payout_instruction(
+        RegisterInvestorPayoutInstructionCommand(
+            actor=admin_user,
+            investor_user_id=str(investor.pk),
+            currency="CHF",
+            destination_iban="CH5604835012345678009",
+            destination_account_name="Ledger Investor Updated",
+        )
+    )
+
+    first.refresh_from_db()
+    assert first.status == "disabled"
+    assert second.status == "active"
+    assert second.is_verified_usable is True
+    assert second.verified_by_admin_id == admin_user.pk
+    assert (
+        InvestorPayoutInstruction.objects.filter(
+            investor_user_id=investor.pk,
+            currency_id="CHF",
+            status="active",
+        ).count()
+        == 1
+    )
+    assert DomainEvent.objects.filter(
+        event_type="InvestorPayoutInstructionRegistered",
+        aggregate_id=str(second.id),
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_balance_ageing_scan_records_reminder_due(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    deposit = declare_lender_deposit(_deposit_command(admin_user, investor))
+
+    result = run_balance_ageing_scan(
+        RunBalanceAgeingScanCommand(
+            actor=admin_user,
+            as_of=_received_at(date(2026, 1, 26)),
+        )
+    )
+    rerun = run_balance_ageing_scan(
+        RunBalanceAgeingScanCommand(
+            actor=admin_user,
+            as_of=_received_at(date(2026, 1, 26)),
+        )
+    )
+
+    assert result.reminders_due[0].lot_id == str(deposit.balance_lot.id)
+    assert result.reminders_due[0].day == 25
+    assert rerun.reminders_due[0].day == 25
+    assert (
+        DomainEvent.objects.filter(
+            event_type="BalanceAgeingReminderDue",
+            aggregate_id=str(deposit.balance_lot.id),
+        ).count()
+        == 1
+    )
+    assert (
+        AuditEvent.objects.filter(
+            action="ledger.balance_ageing_reminder_due",
+            target_id=str(deposit.balance_lot.id),
+        ).count()
+        == 2
+    )
+
+
+@pytest.mark.django_db
+def test_balance_ageing_scan_creates_forced_withdrawal_when_iban_exists(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    deposit = declare_lender_deposit(_deposit_command(admin_user, investor))
+    payout_instruction = register_investor_payout_instruction(
+        RegisterInvestorPayoutInstructionCommand(
+            actor=admin_user,
+            investor_user_id=str(investor.pk),
+            currency="CHF",
+            destination_iban="CH9300762011623852957",
+            destination_account_name="Ledger Investor",
+        )
+    )
+
+    result = run_balance_ageing_scan(
+        RunBalanceAgeingScanCommand(
+            actor=admin_user,
+            as_of=_received_at(date(2026, 3, 2)),
+        )
+    )
+    lot = InvestorBalanceLot.objects.get(id=deposit.balance_lot.id)
+    withdrawal_request = result.forced_withdrawal_requests[0]
+    snapshot = create_reconciliation_snapshot(
+        CreateReconciliationSnapshotCommand(
+            actor=admin_user,
+            currency="CHF",
+            as_of_date=date(2026, 3, 2),
+            bank_stated_balance_minor=100_00,
+        )
+    )
+    rerun = run_balance_ageing_scan(
+        RunBalanceAgeingScanCommand(
+            actor=admin_user,
+            as_of=_received_at(date(2026, 3, 2)),
+        )
+    )
+
+    assert result.forced_withdrawal_candidates[0].payout_instruction_id == str(
+        payout_instruction.id
+    )
+    assert withdrawal_request.is_forced is True
+    assert withdrawal_request.amount_minor == 100_00
+    assert withdrawal_request.destination_iban == "CH9300762011623852957"
+    assert withdrawal_request.lot_allocations[0]["lot_id"] == str(deposit.balance_lot.id)
+    assert lot.status == BalanceLotStatus.CONSUMED
+    assert lot.available_amount_minor == 0
+    assert lot.withdrawn_amount_minor == 100_00
+    assert snapshot.reconciliation_difference_minor == 0
+    assert snapshot.metadata["withdrawal_payable_minor"] == 100_00
+    assert rerun.forced_withdrawal_requests == []
+    assert InvestorWithdrawalRequest.objects.filter(is_forced=True).count() == 1
+    assert DomainEvent.objects.filter(
+        event_type="ForcedWithdrawalRequested",
+        aggregate_id=str(withdrawal_request.id),
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_balance_ageing_scan_enables_penalty_mode_when_no_iban_exists(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    deposit = declare_lender_deposit(_deposit_command(admin_user, investor))
+
+    result = run_balance_ageing_scan(
+        RunBalanceAgeingScanCommand(
+            actor=admin_user,
+            as_of=_received_at(date(2026, 3, 2)),
+        )
+    )
+    lot = InvestorBalanceLot.objects.get(id=deposit.balance_lot.id)
+    summary = summarize_investor_balance(
+        investor_user_id=str(investor.pk),
+        currency="CHF",
+        as_of=_received_at(date(2026, 3, 2)),
+    )
+    rerun = run_balance_ageing_scan(
+        RunBalanceAgeingScanCommand(
+            actor=admin_user,
+            as_of=_received_at(date(2026, 3, 2)),
+        )
+    )
+
+    assert result.penalty_mode_transitions[0].lot_id == str(deposit.balance_lot.id)
+    assert lot.status == BalanceLotStatus.PENALTY_MODE
+    assert lot.available_amount_minor == 100_00
+    assert lot.lineage[-1]["event"] == "penalty_mode_enabled"
+    assert lot.lineage[-1]["penalty_bps_per_day"] == 100
+    assert summary.penalty_mode_minor == 100_00
+    assert rerun.penalty_mode_transitions == []
+    assert rerun.skipped_lot_ids == [str(deposit.balance_lot.id)]
+    assert (
+        DomainEvent.objects.filter(
+            event_type="BalancePenaltyModeEnabled",
+            aggregate_id=str(deposit.balance_lot.id),
+        ).count()
+        == 1
+    )
+
+
+@pytest.mark.django_db
+def test_payout_instruction_and_balance_ageing_scan_api(
+    client: Client,
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    declare_lender_deposit(_deposit_command(admin_user, investor))
+    client.force_login(cast(Any, admin_user))
+
+    instruction_response = client.post(
+        "/api/v1/ledger/admin/payout-instructions/",
+        data={
+            "investor_user_id": str(investor.pk),
+            "currency": "CHF",
+            "destination_iban": "CH9300762011623852957",
+            "destination_account_name": "Ledger Investor",
+        },
+        content_type="application/json",
+    )
+    scan_response = client.post(
+        "/api/v1/ledger/admin/balance-ageing-scans/",
+        data={"as_of": "2026-03-02T00:00:00+01:00", "currency": "CHF"},
+        content_type="application/json",
+    )
+
+    assert instruction_response.status_code == 201
+    assert instruction_response.json()["payout_instruction"]["is_verified_usable"] is True
+    assert scan_response.status_code == 200
+    assert scan_response.json()["forced_withdrawal_requests"][0]["is_forced"] is True
 
 
 @pytest.mark.django_db

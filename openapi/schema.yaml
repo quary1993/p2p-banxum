@@ -855,6 +855,31 @@ paths:
               schema:
                 $ref: '#/components/schemas/DiditWebhookResponse'
           description: ''
+  /api/v1/ledger/admin/balance-ageing-scans/:
+    post:
+      operationId: v1_ledger_admin_balance_ageing_scans_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BalanceAgeingScanRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BalanceAgeingScanRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BalanceAgeingScanRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalanceAgeingScanResponse'
+          description: ''
   /api/v1/ledger/admin/investor-balance-summary/:
     get:
       operationId: v1_ledger_admin_investor_balance_summary_retrieve
@@ -908,6 +933,32 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/LenderDepositDeclareResponse'
+          description: ''
+  /api/v1/ledger/admin/payout-instructions/:
+    post:
+      operationId: v1_ledger_admin_payout_instructions_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvestorPayoutInstructionRegisterRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/InvestorPayoutInstructionRegisterRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/InvestorPayoutInstructionRegisterRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorPayoutInstructionRegisterResponse'
           description: ''
   /api/v1/ledger/admin/reconciliation-snapshots/:
     post:
@@ -1702,6 +1753,114 @@ components:
           $ref: '#/components/schemas/UserSummary'
       required:
       - user
+    BalanceAgeingForcedWithdrawalCandidate:
+      type: object
+      properties:
+        investor_user_id:
+          type: string
+        currency:
+          type: string
+        amount_minor:
+          type: integer
+        lot_ids:
+          type: array
+          items:
+            type: string
+        payout_instruction_id:
+          type: string
+      required:
+      - amount_minor
+      - currency
+      - investor_user_id
+      - lot_ids
+      - payout_instruction_id
+    BalanceAgeingPenaltyModeTransition:
+      type: object
+      properties:
+        lot_id:
+          type: string
+        investor_user_id:
+          type: string
+        currency:
+          type: string
+        amount_minor:
+          type: integer
+        days_overdue:
+          type: integer
+      required:
+      - amount_minor
+      - currency
+      - days_overdue
+      - investor_user_id
+      - lot_id
+    BalanceAgeingReminderDue:
+      type: object
+      properties:
+        lot_id:
+          type: string
+        investor_user_id:
+          type: string
+        currency:
+          type: string
+        amount_minor:
+          type: integer
+        day:
+          type: integer
+        withdrawal_deadline_at:
+          type: string
+          format: date-time
+      required:
+      - amount_minor
+      - currency
+      - day
+      - investor_user_id
+      - lot_id
+      - withdrawal_deadline_at
+    BalanceAgeingScanRequest:
+      type: object
+      properties:
+        as_of:
+          type: string
+          format: date-time
+        currency:
+          type: string
+          maxLength: 3
+        dry_run:
+          type: boolean
+          default: false
+    BalanceAgeingScanResponse:
+      type: object
+      properties:
+        as_of:
+          type: string
+          format: date-time
+        reminders_due:
+          type: array
+          items:
+            $ref: '#/components/schemas/BalanceAgeingReminderDue'
+        forced_withdrawal_candidates:
+          type: array
+          items:
+            $ref: '#/components/schemas/BalanceAgeingForcedWithdrawalCandidate'
+        forced_withdrawal_requests:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvestorWithdrawalRequest'
+        penalty_mode_transitions:
+          type: array
+          items:
+            $ref: '#/components/schemas/BalanceAgeingPenaltyModeTransition'
+        skipped_lot_ids:
+          type: array
+          items:
+            type: string
+      required:
+      - as_of
+      - forced_withdrawal_candidates
+      - forced_withdrawal_requests
+      - penalty_mode_transitions
+      - reminders_due
+      - skipped_lot_ids
     BankOperation:
       type: object
       properties:
@@ -2288,6 +2447,93 @@ components:
       - penalty_mode_minor
       - total_available_minor
       - withdraw_only_minor
+    InvestorPayoutInstruction:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        investor_user_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+        status:
+          type: string
+        destination_iban:
+          type: string
+        destination_account_name:
+          type: string
+        is_verified_usable:
+          type: boolean
+        verified_by_admin_id:
+          type: string
+          format: uuid
+          nullable: true
+        verified_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_by_admin_id:
+          type: string
+          format: uuid
+        notes:
+          type: string
+        metadata: {}
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - created_at
+      - created_by_admin_id
+      - currency
+      - destination_account_name
+      - destination_iban
+      - id
+      - investor_user_id
+      - is_verified_usable
+      - metadata
+      - notes
+      - status
+      - updated_at
+      - verified_at
+      - verified_by_admin_id
+    InvestorPayoutInstructionRegisterRequest:
+      type: object
+      properties:
+        investor_user_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+          maxLength: 3
+        destination_iban:
+          type: string
+          maxLength: 128
+        destination_account_name:
+          type: string
+          maxLength: 255
+        is_verified_usable:
+          type: boolean
+          default: true
+        notes:
+          type: string
+        metadata: {}
+      required:
+      - currency
+      - destination_account_name
+      - destination_iban
+      - investor_user_id
+    InvestorPayoutInstructionRegisterResponse:
+      type: object
+      properties:
+        payout_instruction:
+          $ref: '#/components/schemas/InvestorPayoutInstruction'
+      required:
+      - payout_instruction
     InvestorWithdrawalCancelRequest:
       type: object
       properties:

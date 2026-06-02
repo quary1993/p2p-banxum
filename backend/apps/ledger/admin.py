@@ -5,6 +5,7 @@ from django.contrib import admin
 from backend.apps.ledger.models import (
     BankOperation,
     InvestorBalanceLot,
+    InvestorPayoutInstruction,
     InvestorWithdrawalRequest,
     LedgerAccount,
     LedgerJournalEntry,
@@ -86,6 +87,21 @@ class InvestorBalanceLotAdmin(ReadOnlyLedgerAdmin):
     list_filter = ("status", "currency", "source_type")
     search_fields = ("investor_user_id", "source_id")
     readonly_fields = tuple(field.name for field in InvestorBalanceLot._meta.fields)
+
+
+@admin.register(InvestorPayoutInstruction)
+class InvestorPayoutInstructionAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
+    list_display = (
+        "investor_user_id",
+        "currency",
+        "status",
+        "is_verified_usable",
+        "destination_iban",
+        "verified_at",
+    )
+    list_filter = ("status", "currency", "is_verified_usable")
+    search_fields = ("investor_user_id", "destination_iban", "destination_account_name")
+    readonly_fields = ("id", "created_at", "updated_at")
 
 
 @admin.register(InvestorWithdrawalRequest)

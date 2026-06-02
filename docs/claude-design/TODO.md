@@ -18,3 +18,10 @@ Backend/API-only implementation slices do not create a visible UI surface. When 
 - Current first-version behavior: simple operational shell with top bar, module navigation preview, and status summary.
 - Suggested improvement: Claude Design should define the final user-facing/investor information architecture, density, navigation states, responsive behavior, and component tokens before production user-facing portal screens are built out.
 - Priority: important.
+
+## 2026-06-02: Investor Balance Ageing And Return-IBAN States
+
+- Screen or component: investor balance dashboard, withdrawal flow, payout-IBAN declaration, ageing reminders, penalty-mode/frozen-action banner.
+- Current first-version behavior: no user-facing UI was implemented in this slice; backend APIs now produce balance-ageing reminder events, forced-withdrawal requests, and penalty-mode lot states.
+- Suggested improvement: Claude Design should design the investor-facing balance breakdown for investable, withdraw-only, overdue, and penalty-mode funds; reminder messaging hierarchy; the required usable-IBAN declaration/update flow; and a blocking financial-action banner that keeps read-only account access available while clearly explaining the regulatory 60-day limit.
+- Priority: important.
