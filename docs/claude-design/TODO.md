@@ -1,37 +1,20 @@
 # Claude Design TODO
 
-This file captures UI/UX improvements that should be reviewed by Claude Design. Implementation agents should add entries whenever they build or touch UI/UX.
+This file captures user-facing UI/UX improvements that should be reviewed by Claude Design. Implementation agents should add entries here when they build or touch public, investor, client-portal, onboarding, marketplace, documents, payments, FX, reporting, or account-settings UI visible to platform users.
+
+Admin console UI/UX is not owned by Claude Design. Admin console screens are implemented and designed by the Codex implementation agent and tracked in `docs/admin-console/TODO.md`.
 
 ## Standing Instruction
 
-Claude Design should do a complete product-wide UI/UX pass before launch, covering both investor and admin portals end to end. This should include information architecture, navigation, page density, table behavior, forms, confirmations, status/error states, responsive behavior, accessibility, component tokens, and visual consistency across all modules.
+Claude Design should do a complete user-facing UI/UX pass before launch, covering public pages, registration/login, KYC handoff, investor portal, marketplace, investment flows, balance/FX/withdrawal flows, portfolio, documents, statements, account settings, support/FAQ, and all user-facing notifications or status states.
 
-Backend/API-only implementation slices do not create a visible UI surface. When a later slice adds a first-version screen, it should still be treated as implementation-grade UI until Claude Design reviews or redesigns it.
+For user-facing screens, this should include information architecture, navigation, page density, table behavior, forms, confirmations, status/error states, responsive behavior, accessibility, component tokens, and visual consistency across all modules.
+
+Backend/API-only implementation slices do not create a visible UI surface. When a later slice adds a first-version user-facing screen, it should still be treated as implementation-grade UI until Claude Design reviews or redesigns it.
 
 ## 2026-06-01: Initial Portal Shell
 
 - Screen or component: root React scaffold shell.
 - Current first-version behavior: simple operational shell with top bar, module navigation preview, and status summary.
-- Suggested improvement: Claude Design should define the final admin/investor information architecture, density, navigation states, responsive behavior, and component tokens before production portal screens are built out.
-- Priority: important.
-
-## 2026-06-02: Admin Authentication Foundation
-
-- Screen or component: admin login, admin email-code confirmation, and superadmin admin-user creation screens.
-- Current first-version behavior: no UI was implemented in this slice; only backend API, OpenAPI schema, generated TypeScript client, and tests exist.
-- Suggested improvement: when the admin portal UI is implemented, Claude Design should design or redesign the full admin authentication journey, including password entry, email-code confirmation, locked/error states, resend/cooldown messaging, first superadmin bootstrap guidance, regular-admin creation form, and audit-friendly operational copy.
-- Priority: important.
-
-## 2026-06-02: KYC Manual Review And Account Controls
-
-- Screen or component: KYC manual-review queue, KYC case decision panel, account restrict/lock/close/reactivate controls.
-- Current first-version behavior: no UI was implemented in this slice; only backend API, OpenAPI schema, generated TypeScript client, append-only evidence models, and tests exist.
-- Suggested improvement: Claude Design should design or redesign the full admin compliance workflow, including queue filters, risk/status badges, provider-reference display, evidence summaries, decision forms, non-overridable sanctions/decline messaging, re-verification flow, account-control confirmation dialogs, closure clean-account confirmation copy, audit trail display, and clear distinction between Didit provider review and Garanta internal review.
-- Priority: important.
-
-## 2026-06-02: Admin Operations Task Queue
-
-- Screen or component: admin task queue, task detail, task event history, audit-log search.
-- Current first-version behavior: no UI was implemented in this slice; only backend API, OpenAPI schema, generated TypeScript client, append-only task-event evidence, and tests exist.
-- Suggested improvement: Claude Design should design or redesign the admin operational task workflow, including dashboard entry point, filters, saved views, SLA/due-date states, priority indicators, assignment controls, related-object links, empty states, task completion/cancellation copy, task event history display, and audit-log search ergonomics.
+- Suggested improvement: Claude Design should define the final user-facing/investor information architecture, density, navigation states, responsive behavior, and component tokens before production user-facing portal screens are built out.
 - Priority: important.

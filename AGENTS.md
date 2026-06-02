@@ -17,16 +17,18 @@ This repository implements BANXUM, a Swiss P2P lending platform operated by Gara
 
 ## UI/UX Handoff Rule
 
-When a task touches UI/UX, implement a practical first version that satisfies the documented behavior. Also record design-polish and UX follow-up items for Claude Design in `docs/claude-design/TODO.md`.
+When a task touches UI/UX, implement a practical first version that satisfies the documented behavior.
 
-Claude Design is expected to do a complete product-wide UI/UX pass before launch, covering both investor and admin portals end to end. Treat implementation-built screens as functional first versions until that pass happens.
+For user-facing/public/investor UI, record design-polish and UX follow-up items for Claude Design in `docs/claude-design/TODO.md`. Claude Design is expected to do a complete user-facing UI/UX pass before launch, covering public pages, onboarding, KYC handoff, investor portal, marketplace, investment flows, balance/FX/withdrawal flows, portfolio, documents, statements, account settings, support, and user-facing notifications/status states.
 
-Each Claude Design TODO entry should include:
+For admin console UI, do not hand UI/UX work to Claude Design. The admin console is designed and implemented by Codex during implementation, with follow-up items tracked in `docs/admin-console/TODO.md`. Admin screens should be dense, operational, restrained, auditable, and optimized for repeated internal work.
+
+Each UI/UX TODO entry should include:
 
 - Date.
 - Screen or component.
 - Current first-version behavior.
-- Suggested improvement.
+- Suggested improvement or required admin-console improvement.
 - Priority: blocking polish, important, or nice-to-have.
 
 Do not block backend or workflow implementation just because final visual design is pending, but do not leave UI/UX improvement ideas only in chat.
