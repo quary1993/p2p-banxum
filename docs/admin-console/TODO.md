@@ -57,3 +57,10 @@ Each entry should include:
 - Current first-version behavior: no UI was implemented in this slice; only backend API, OpenAPI schema, generated TypeScript client, payout-instruction model, ageing scan service, forced-withdrawal request generation, penalty-mode transition evidence, and tests exist.
 - Required admin-console improvement: Codex should implement operational screens for registering verified payout IBANs, reviewing active payout instructions by investor/currency, running or inspecting balance-ageing scans, seeing due reminders, identifying forced-withdrawal requests, reviewing lots moved into penalty mode because no usable IBAN exists, and linking each item to ledger evidence/audit events.
 - Priority: important.
+
+## 2026-06-02: Document Templates And Clickwrap Evidence
+
+- Screen or component: superadmin document-template/version editor, template publication workflow, clickwrap evidence viewer.
+- Current first-version behavior: no UI was implemented in this slice; only backend API, OpenAPI schema, generated TypeScript client, immutable template versions, publication service, current-template lookup, clickwrap acceptance evidence, append-only guards, and tests exist.
+- Required admin-console improvement: Codex should implement the superadmin template editor and publication flow, including category/key/language selection, body editor, checkbox-label editor, variable-scope helper panel, placeholder validation errors, legal-review reference fields, version history, current-published marker, acceptance evidence search, and links from transaction/admin workflows to accepted document evidence.
+- Priority: important.

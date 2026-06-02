@@ -502,6 +502,179 @@ paths:
               schema:
                 $ref: '#/components/schemas/NaturalPersonRegistrationResponse'
           description: ''
+  /api/v1/documents/acceptances/:
+    post:
+      operationId: v1_documents_acceptances_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocumentAcceptanceCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DocumentAcceptanceCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DocumentAcceptanceCreateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentAcceptanceEvidence'
+          description: ''
+  /api/v1/documents/admin/templates/versions/:
+    get:
+      operationId: v1_documents_admin_templates_versions_list
+      parameters:
+      - in: query
+        name: category
+        schema:
+          enum:
+          - registration
+          - primary_market_investment
+          - secondary_market_purchase
+          - secondary_market_listing
+          type: string
+          minLength: 1
+        description: |-
+          * `registration` - Registration terms
+          * `primary_market_investment` - Primary-market investment
+          * `secondary_market_purchase` - Secondary-market purchase
+          * `secondary_market_listing` - Secondary-market listing
+        required: true
+      - in: query
+        name: language
+        schema:
+          type: string
+          default: en
+          maxLength: 8
+          minLength: 1
+      - in: query
+        name: template_key
+        schema:
+          type: string
+          default: default
+          maxLength: 128
+          minLength: 1
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DocumentTemplateVersion'
+          description: ''
+    post:
+      operationId: v1_documents_admin_templates_versions_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocumentTemplateVersionCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DocumentTemplateVersionCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DocumentTemplateVersionCreateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentTemplateVersion'
+          description: ''
+  /api/v1/documents/admin/templates/versions/{template_version_id}/publish/:
+    post:
+      operationId: v1_documents_admin_templates_versions_publish_create
+      parameters:
+      - in: path
+        name: template_version_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocumentTemplateVersionPublishRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DocumentTemplateVersionPublishRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DocumentTemplateVersionPublishRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentTemplateVersion'
+          description: ''
+  /api/v1/documents/templates/current/:
+    get:
+      operationId: v1_documents_templates_current_retrieve
+      parameters:
+      - in: query
+        name: category
+        schema:
+          enum:
+          - registration
+          - primary_market_investment
+          - secondary_market_purchase
+          - secondary_market_listing
+          type: string
+          minLength: 1
+        description: |-
+          * `registration` - Registration terms
+          * `primary_market_investment` - Primary-market investment
+          * `secondary_market_purchase` - Secondary-market purchase
+          * `secondary_market_listing` - Secondary-market listing
+        required: true
+      - in: query
+        name: language
+        schema:
+          type: string
+          default: en
+          maxLength: 8
+          minLength: 1
+      - in: query
+        name: template_key
+        schema:
+          type: string
+          default: default
+          maxLength: 128
+          minLength: 1
+      tags:
+      - v1
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentTemplateVersion'
+          description: ''
   /api/v1/entities/admin/borrowers/:
     get:
       operationId: v1_entities_admin_borrowers_list
@@ -2280,6 +2453,18 @@ components:
         * `manual_review` - Manual review
         * `expired` - Expired
         * `reverification_required` - Re-verification required
+    CategoryEnum:
+      enum:
+      - registration
+      - primary_market_investment
+      - secondary_market_purchase
+      - secondary_market_listing
+      type: string
+      description: |-
+        * `registration` - Registration terms
+        * `primary_market_investment` - Primary-market investment
+        * `secondary_market_purchase` - Secondary-market purchase
+        * `secondary_market_listing` - Secondary-market listing
     CollateralTypeEnum:
       enum:
       - real_estate
@@ -2334,6 +2519,259 @@ components:
       required:
       - idempotent
       - status
+    DocumentAcceptanceCreateRequest:
+      type: object
+      properties:
+        category:
+          $ref: '#/components/schemas/CategoryEnum'
+        template_key:
+          type: string
+          default: default
+          maxLength: 128
+        language:
+          type: string
+          default: en
+          maxLength: 8
+        expected_template_version_id:
+          type: string
+          format: uuid
+        accepted_checkbox_labels:
+          type: array
+          items:
+            type: string
+        context_type:
+          type: string
+          maxLength: 64
+        context_id:
+          type: string
+          maxLength: 128
+        data_snapshot: {}
+        idempotency_key:
+          type: string
+          maxLength: 160
+        metadata: {}
+      required:
+      - accepted_checkbox_labels
+      - category
+      - context_id
+      - context_type
+      - idempotency_key
+    DocumentAcceptanceEvidence:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        category:
+          type: string
+        template_id:
+          type: string
+          format: uuid
+        template_version_id:
+          type: string
+          format: uuid
+        template_version_number:
+          type: integer
+        template_hash:
+          type: string
+        context_type:
+          type: string
+        context_id:
+          type: string
+        accepted_checkbox_labels: {}
+        data_snapshot: {}
+        accepted_at:
+          type: string
+          format: date-time
+        ip_address:
+          type: string
+          nullable: true
+        user_agent:
+          type: string
+        idempotency_key:
+          type: string
+          nullable: true
+        metadata: {}
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - accepted_at
+      - accepted_checkbox_labels
+      - category
+      - context_id
+      - context_type
+      - created_at
+      - data_snapshot
+      - id
+      - idempotency_key
+      - ip_address
+      - metadata
+      - template_hash
+      - template_id
+      - template_version_id
+      - template_version_number
+      - updated_at
+      - user_agent
+      - user_id
+    DocumentTemplate:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        category:
+          type: string
+        template_key:
+          type: string
+        language:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        current_published_version_id:
+          type: string
+          format: uuid
+          nullable: true
+        created_by_superadmin_id:
+          type: string
+          format: uuid
+        updated_by_superadmin_id:
+          type: string
+          format: uuid
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - category
+      - created_at
+      - created_by_superadmin_id
+      - current_published_version_id
+      - description
+      - id
+      - language
+      - name
+      - template_key
+      - updated_at
+      - updated_by_superadmin_id
+    DocumentTemplateVersion:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        template:
+          $ref: '#/components/schemas/DocumentTemplate'
+        version_number:
+          type: integer
+        status:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+        checkbox_labels: {}
+        variable_schema: {}
+        content_hash:
+          type: string
+        created_by_superadmin_id:
+          type: string
+          format: uuid
+        source_version_id:
+          type: string
+          format: uuid
+          nullable: true
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+        legal_review_reference:
+          type: string
+        metadata: {}
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - body
+      - checkbox_labels
+      - content_hash
+      - created_at
+      - created_by_superadmin_id
+      - id
+      - legal_review_reference
+      - metadata
+      - published_at
+      - source_version_id
+      - status
+      - template
+      - title
+      - updated_at
+      - variable_schema
+      - version_number
+    DocumentTemplateVersionCreateRequest:
+      type: object
+      properties:
+        category:
+          $ref: '#/components/schemas/CategoryEnum'
+        template_key:
+          type: string
+          default: default
+          maxLength: 128
+        language:
+          type: string
+          default: en
+          maxLength: 8
+        name:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+        title:
+          type: string
+          maxLength: 255
+        body:
+          type: string
+        checkbox_labels:
+          type: array
+          items:
+            type: string
+        variable_schema: {}
+        publish_now:
+          type: boolean
+          default: false
+        legal_review_reference:
+          type: string
+        metadata: {}
+        note:
+          type: string
+      required:
+      - body
+      - category
+      - checkbox_labels
+      - name
+      - title
+    DocumentTemplateVersionPublishRequest:
+      type: object
+      properties:
+        legal_review_reference:
+          type: string
+        metadata: {}
+        note:
+          type: string
     HealthResponse:
       type: object
       properties:

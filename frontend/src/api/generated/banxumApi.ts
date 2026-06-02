@@ -506,6 +506,23 @@ export const BorrowerKybStatusEnum = {
 } as const;
 
 /**
+ * * `registration` - Registration terms
+* `primary_market_investment` - Primary-market investment
+* `secondary_market_purchase` - Secondary-market purchase
+* `secondary_market_listing` - Secondary-market listing
+ */
+export type CategoryEnum = typeof CategoryEnum[keyof typeof CategoryEnum];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const CategoryEnum = {
+  registration: 'registration',
+  primary_market_investment: 'primary_market_investment',
+  secondary_market_purchase: 'secondary_market_purchase',
+  secondary_market_listing: 'secondary_market_listing',
+} as const;
+
+/**
  * * `real_estate` - Real estate
 * `corporate_guarantee` - Corporate guarantee
 * `personal_guarantee` - Personal guarantee
@@ -562,6 +579,110 @@ export const DecisionEnum = {
 export interface DiditWebhookResponse {
   status: KycStatusEnum;
   idempotent: boolean;
+}
+
+export interface DocumentAcceptanceCreateRequest {
+  category: CategoryEnum;
+  /** @maxLength 128 */
+  template_key?: string;
+  /** @maxLength 8 */
+  language?: string;
+  expected_template_version_id?: string;
+  accepted_checkbox_labels: string[];
+  /** @maxLength 64 */
+  context_type: string;
+  /** @maxLength 128 */
+  context_id: string;
+  data_snapshot?: unknown;
+  /** @maxLength 160 */
+  idempotency_key: string;
+  metadata?: unknown;
+}
+
+export interface DocumentAcceptanceEvidence {
+  id: string;
+  user_id: string;
+  category: string;
+  template_id: string;
+  template_version_id: string;
+  template_version_number: number;
+  template_hash: string;
+  context_type: string;
+  context_id: string;
+  accepted_checkbox_labels: unknown;
+  data_snapshot: unknown;
+  accepted_at: string;
+  /** @nullable */
+  ip_address: string | null;
+  user_agent: string;
+  /** @nullable */
+  idempotency_key: string | null;
+  metadata: unknown;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocumentTemplate {
+  id: string;
+  category: string;
+  template_key: string;
+  language: string;
+  name: string;
+  description: string;
+  /** @nullable */
+  current_published_version_id: string | null;
+  created_by_superadmin_id: string;
+  /** @nullable */
+  updated_by_superadmin_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocumentTemplateVersion {
+  id: string;
+  template: DocumentTemplate;
+  version_number: number;
+  status: string;
+  title: string;
+  body: string;
+  checkbox_labels: unknown;
+  variable_schema: unknown;
+  content_hash: string;
+  created_by_superadmin_id: string;
+  /** @nullable */
+  source_version_id: string | null;
+  /** @nullable */
+  published_at: string | null;
+  legal_review_reference: string;
+  metadata: unknown;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocumentTemplateVersionCreateRequest {
+  category: CategoryEnum;
+  /** @maxLength 128 */
+  template_key?: string;
+  /** @maxLength 8 */
+  language?: string;
+  /** @maxLength 255 */
+  name: string;
+  description?: string;
+  /** @maxLength 255 */
+  title: string;
+  body: string;
+  checkbox_labels: string[];
+  variable_schema?: unknown;
+  publish_now?: boolean;
+  legal_review_reference?: string;
+  metadata?: unknown;
+  note?: string;
+}
+
+export interface DocumentTemplateVersionPublishRequest {
+  legal_review_reference?: string;
+  metadata?: unknown;
+  note?: string;
 }
 
 export interface HealthResponse {
@@ -1453,6 +1574,70 @@ export const V1AdminOpsTasksListTaskType = {
   reporting: 'reporting',
   support: 'support',
   other: 'other',
+} as const;
+
+export type V1DocumentsAdminTemplatesVersionsListParams = {
+/**
+ * * `registration` - Registration terms
+* `primary_market_investment` - Primary-market investment
+* `secondary_market_purchase` - Secondary-market purchase
+* `secondary_market_listing` - Secondary-market listing
+ * @minLength 1
+ */
+category: V1DocumentsAdminTemplatesVersionsListCategory;
+/**
+ * @minLength 1
+ * @maxLength 8
+ */
+language?: string;
+/**
+ * @minLength 1
+ * @maxLength 128
+ */
+template_key?: string;
+};
+
+export type V1DocumentsAdminTemplatesVersionsListCategory = typeof V1DocumentsAdminTemplatesVersionsListCategory[keyof typeof V1DocumentsAdminTemplatesVersionsListCategory];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const V1DocumentsAdminTemplatesVersionsListCategory = {
+  registration: 'registration',
+  primary_market_investment: 'primary_market_investment',
+  secondary_market_purchase: 'secondary_market_purchase',
+  secondary_market_listing: 'secondary_market_listing',
+} as const;
+
+export type V1DocumentsTemplatesCurrentRetrieveParams = {
+/**
+ * * `registration` - Registration terms
+* `primary_market_investment` - Primary-market investment
+* `secondary_market_purchase` - Secondary-market purchase
+* `secondary_market_listing` - Secondary-market listing
+ * @minLength 1
+ */
+category: V1DocumentsTemplatesCurrentRetrieveCategory;
+/**
+ * @minLength 1
+ * @maxLength 8
+ */
+language?: string;
+/**
+ * @minLength 1
+ * @maxLength 128
+ */
+template_key?: string;
+};
+
+export type V1DocumentsTemplatesCurrentRetrieveCategory = typeof V1DocumentsTemplatesCurrentRetrieveCategory[keyof typeof V1DocumentsTemplatesCurrentRetrieveCategory];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const V1DocumentsTemplatesCurrentRetrieveCategory = {
+  registration: 'registration',
+  primary_market_investment: 'primary_market_investment',
+  secondary_market_purchase: 'secondary_market_purchase',
+  secondary_market_listing: 'secondary_market_listing',
 } as const;
 
 export type V1EntitiesAdminBorrowersListParams = {
@@ -2754,6 +2939,360 @@ const {mutation: mutationOptions} = options ?
 
       return useMutation(mutationOptions, queryClient);
     }
+
+export const v1DocumentsAcceptancesCreate = (
+    documentAcceptanceCreateRequest: DocumentAcceptanceCreateRequest,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<DocumentAcceptanceEvidence>(
+      {url: `/api/v1/documents/acceptances/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: documentAcceptanceCreateRequest, signal
+    },
+      );
+    }
+
+
+
+export const getV1DocumentsAcceptancesCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1DocumentsAcceptancesCreate>>, TError,{data: DocumentAcceptanceCreateRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1DocumentsAcceptancesCreate>>, TError,{data: DocumentAcceptanceCreateRequest}, TContext> => {
+
+const mutationKey = ['v1DocumentsAcceptancesCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1DocumentsAcceptancesCreate>>, {data: DocumentAcceptanceCreateRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1DocumentsAcceptancesCreate(data,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1DocumentsAcceptancesCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1DocumentsAcceptancesCreate>>>
+    export type V1DocumentsAcceptancesCreateMutationBody = DocumentAcceptanceCreateRequest
+    export type V1DocumentsAcceptancesCreateMutationError = unknown
+
+    export const useV1DocumentsAcceptancesCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1DocumentsAcceptancesCreate>>, TError,{data: DocumentAcceptanceCreateRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1DocumentsAcceptancesCreate>>,
+        TError,
+        {data: DocumentAcceptanceCreateRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1DocumentsAcceptancesCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+
+export const v1DocumentsAdminTemplatesVersionsList = (
+    params: V1DocumentsAdminTemplatesVersionsListParams,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<DocumentTemplateVersion[]>(
+      {url: `/api/v1/documents/admin/templates/versions/`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+
+
+
+
+export const getV1DocumentsAdminTemplatesVersionsListQueryKey = (params?: V1DocumentsAdminTemplatesVersionsListParams,) => {
+    return [
+    `/api/v1/documents/admin/templates/versions/`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+
+export const getV1DocumentsAdminTemplatesVersionsListQueryOptions = <TData = Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsList>>, TError = unknown>(params: V1DocumentsAdminTemplatesVersionsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsList>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1DocumentsAdminTemplatesVersionsListQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsList>>> = ({ signal }) => v1DocumentsAdminTemplatesVersionsList(params, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1DocumentsAdminTemplatesVersionsListQueryResult = NonNullable<Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsList>>>
+export type V1DocumentsAdminTemplatesVersionsListQueryError = unknown
+
+
+export function useV1DocumentsAdminTemplatesVersionsList<TData = Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsList>>, TError = unknown>(
+ params: V1DocumentsAdminTemplatesVersionsListParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1DocumentsAdminTemplatesVersionsList<TData = Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsList>>, TError = unknown>(
+ params: V1DocumentsAdminTemplatesVersionsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1DocumentsAdminTemplatesVersionsList<TData = Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsList>>, TError = unknown>(
+ params: V1DocumentsAdminTemplatesVersionsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1DocumentsAdminTemplatesVersionsList<TData = Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsList>>, TError = unknown>(
+ params: V1DocumentsAdminTemplatesVersionsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1DocumentsAdminTemplatesVersionsListQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1DocumentsAdminTemplatesVersionsCreate = (
+    documentTemplateVersionCreateRequest: DocumentTemplateVersionCreateRequest,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<DocumentTemplateVersion>(
+      {url: `/api/v1/documents/admin/templates/versions/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: documentTemplateVersionCreateRequest, signal
+    },
+      );
+    }
+
+
+
+export const getV1DocumentsAdminTemplatesVersionsCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsCreate>>, TError,{data: DocumentTemplateVersionCreateRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsCreate>>, TError,{data: DocumentTemplateVersionCreateRequest}, TContext> => {
+
+const mutationKey = ['v1DocumentsAdminTemplatesVersionsCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsCreate>>, {data: DocumentTemplateVersionCreateRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1DocumentsAdminTemplatesVersionsCreate(data,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1DocumentsAdminTemplatesVersionsCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsCreate>>>
+    export type V1DocumentsAdminTemplatesVersionsCreateMutationBody = DocumentTemplateVersionCreateRequest
+    export type V1DocumentsAdminTemplatesVersionsCreateMutationError = unknown
+
+    export const useV1DocumentsAdminTemplatesVersionsCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsCreate>>, TError,{data: DocumentTemplateVersionCreateRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsCreate>>,
+        TError,
+        {data: DocumentTemplateVersionCreateRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1DocumentsAdminTemplatesVersionsCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+
+export const v1DocumentsAdminTemplatesVersionsPublishCreate = (
+    templateVersionId: string,
+    documentTemplateVersionPublishRequest: DocumentTemplateVersionPublishRequest,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<DocumentTemplateVersion>(
+      {url: `/api/v1/documents/admin/templates/versions/${templateVersionId}/publish/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: documentTemplateVersionPublishRequest, signal
+    },
+      );
+    }
+
+
+
+export const getV1DocumentsAdminTemplatesVersionsPublishCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsPublishCreate>>, TError,{templateVersionId: string;data: DocumentTemplateVersionPublishRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsPublishCreate>>, TError,{templateVersionId: string;data: DocumentTemplateVersionPublishRequest}, TContext> => {
+
+const mutationKey = ['v1DocumentsAdminTemplatesVersionsPublishCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsPublishCreate>>, {templateVersionId: string;data: DocumentTemplateVersionPublishRequest}> = (props) => {
+          const {templateVersionId,data} = props ?? {};
+
+          return  v1DocumentsAdminTemplatesVersionsPublishCreate(templateVersionId,data,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1DocumentsAdminTemplatesVersionsPublishCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsPublishCreate>>>
+    export type V1DocumentsAdminTemplatesVersionsPublishCreateMutationBody = DocumentTemplateVersionPublishRequest
+    export type V1DocumentsAdminTemplatesVersionsPublishCreateMutationError = unknown
+
+    export const useV1DocumentsAdminTemplatesVersionsPublishCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsPublishCreate>>, TError,{templateVersionId: string;data: DocumentTemplateVersionPublishRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1DocumentsAdminTemplatesVersionsPublishCreate>>,
+        TError,
+        {templateVersionId: string;data: DocumentTemplateVersionPublishRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1DocumentsAdminTemplatesVersionsPublishCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+
+export const v1DocumentsTemplatesCurrentRetrieve = (
+    params: V1DocumentsTemplatesCurrentRetrieveParams,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<DocumentTemplateVersion>(
+      {url: `/api/v1/documents/templates/current/`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+
+
+
+
+export const getV1DocumentsTemplatesCurrentRetrieveQueryKey = (params?: V1DocumentsTemplatesCurrentRetrieveParams,) => {
+    return [
+    `/api/v1/documents/templates/current/`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+
+export const getV1DocumentsTemplatesCurrentRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentRetrieve>>, TError = unknown>(params: V1DocumentsTemplatesCurrentRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentRetrieve>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1DocumentsTemplatesCurrentRetrieveQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentRetrieve>>> = ({ signal }) => v1DocumentsTemplatesCurrentRetrieve(params, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1DocumentsTemplatesCurrentRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentRetrieve>>>
+export type V1DocumentsTemplatesCurrentRetrieveQueryError = unknown
+
+
+export function useV1DocumentsTemplatesCurrentRetrieve<TData = Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentRetrieve>>, TError = unknown>(
+ params: V1DocumentsTemplatesCurrentRetrieveParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1DocumentsTemplatesCurrentRetrieve<TData = Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentRetrieve>>, TError = unknown>(
+ params: V1DocumentsTemplatesCurrentRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1DocumentsTemplatesCurrentRetrieve<TData = Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentRetrieve>>, TError = unknown>(
+ params: V1DocumentsTemplatesCurrentRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1DocumentsTemplatesCurrentRetrieve<TData = Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentRetrieve>>, TError = unknown>(
+ params: V1DocumentsTemplatesCurrentRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1DocumentsTemplatesCurrentRetrieveQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
 
 export const v1EntitiesAdminBorrowersList = (
     params?: V1EntitiesAdminBorrowersListParams,
@@ -4861,6 +5400,16 @@ export const getV1AuthPhoneRequestCreateResponseMock = (overrideResponse: Partia
 
 export const getV1AuthRegisterNaturalPersonCreateResponseMock = (overrideResponse: Partial< NaturalPersonRegistrationResponse > = {}): NaturalPersonRegistrationResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
 
+export const getV1DocumentsAcceptancesCreateResponseMock = (overrideResponse: Partial< DocumentAcceptanceEvidence > = {}): DocumentAcceptanceEvidence => ({id: faker.string.uuid(), user_id: faker.string.uuid(), category: faker.string.alpha({length: {min: 10, max: 20}}), template_id: faker.string.uuid(), template_version_id: faker.string.uuid(), template_version_number: faker.number.int({min: undefined, max: undefined}), template_hash: faker.string.alpha({length: {min: 10, max: 20}}), context_type: faker.string.alpha({length: {min: 10, max: 20}}), context_id: faker.string.alpha({length: {min: 10, max: 20}}), accepted_checkbox_labels: {}, data_snapshot: {}, accepted_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ip_address: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), user_agent: faker.string.alpha({length: {min: 10, max: 20}}), idempotency_key: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), metadata: {}, created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+
+export const getV1DocumentsAdminTemplatesVersionsListResponseMock = (): DocumentTemplateVersion[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), template: {id: faker.string.uuid(), category: faker.string.alpha({length: {min: 10, max: 20}}), template_key: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.string.alpha({length: {min: 10, max: 20}}), current_published_version_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_by_superadmin_id: faker.string.uuid(), updated_by_superadmin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, version_number: faker.number.int({min: undefined, max: undefined}), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), body: faker.string.alpha({length: {min: 10, max: 20}}), checkbox_labels: {}, variable_schema: {}, content_hash: faker.string.alpha({length: {min: 10, max: 20}}), created_by_superadmin_id: faker.string.uuid(), source_version_id: faker.helpers.arrayElement([faker.string.uuid(), null]), published_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), legal_review_reference: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`})))
+
+export const getV1DocumentsAdminTemplatesVersionsCreateResponseMock = (overrideResponse: Partial< DocumentTemplateVersion > = {}): DocumentTemplateVersion => ({id: faker.string.uuid(), template: {id: faker.string.uuid(), category: faker.string.alpha({length: {min: 10, max: 20}}), template_key: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.string.alpha({length: {min: 10, max: 20}}), current_published_version_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_by_superadmin_id: faker.string.uuid(), updated_by_superadmin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, version_number: faker.number.int({min: undefined, max: undefined}), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), body: faker.string.alpha({length: {min: 10, max: 20}}), checkbox_labels: {}, variable_schema: {}, content_hash: faker.string.alpha({length: {min: 10, max: 20}}), created_by_superadmin_id: faker.string.uuid(), source_version_id: faker.helpers.arrayElement([faker.string.uuid(), null]), published_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), legal_review_reference: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+
+export const getV1DocumentsAdminTemplatesVersionsPublishCreateResponseMock = (overrideResponse: Partial< DocumentTemplateVersion > = {}): DocumentTemplateVersion => ({id: faker.string.uuid(), template: {id: faker.string.uuid(), category: faker.string.alpha({length: {min: 10, max: 20}}), template_key: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.string.alpha({length: {min: 10, max: 20}}), current_published_version_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_by_superadmin_id: faker.string.uuid(), updated_by_superadmin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, version_number: faker.number.int({min: undefined, max: undefined}), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), body: faker.string.alpha({length: {min: 10, max: 20}}), checkbox_labels: {}, variable_schema: {}, content_hash: faker.string.alpha({length: {min: 10, max: 20}}), created_by_superadmin_id: faker.string.uuid(), source_version_id: faker.helpers.arrayElement([faker.string.uuid(), null]), published_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), legal_review_reference: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+
+export const getV1DocumentsTemplatesCurrentRetrieveResponseMock = (overrideResponse: Partial< DocumentTemplateVersion > = {}): DocumentTemplateVersion => ({id: faker.string.uuid(), template: {id: faker.string.uuid(), category: faker.string.alpha({length: {min: 10, max: 20}}), template_key: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.string.alpha({length: {min: 10, max: 20}}), current_published_version_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_by_superadmin_id: faker.string.uuid(), updated_by_superadmin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, version_number: faker.number.int({min: undefined, max: undefined}), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), body: faker.string.alpha({length: {min: 10, max: 20}}), checkbox_labels: {}, variable_schema: {}, content_hash: faker.string.alpha({length: {min: 10, max: 20}}), created_by_superadmin_id: faker.string.uuid(), source_version_id: faker.helpers.arrayElement([faker.string.uuid(), null]), published_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), legal_review_reference: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+
 export const getV1EntitiesAdminBorrowersListResponseMock = (): BorrowerEntity[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), legal_name: faker.string.alpha({length: {min: 10, max: 20}}), year_founded: faker.number.int({min: undefined, max: undefined}), entity_type: faker.string.alpha({length: {min: 10, max: 20}}), kyb_status: faker.string.alpha({length: {min: 10, max: 20}}), compliance_hold: faker.datatype.boolean(), can_transact: faker.datatype.boolean(), country: faker.string.alpha({length: {min: 10, max: 20}}), registration_number: faker.string.alpha({length: {min: 10, max: 20}}), registered_address: faker.string.alpha({length: {min: 10, max: 20}}), operating_address: faker.string.alpha({length: {min: 10, max: 20}}), industry_activity: faker.string.alpha({length: {min: 10, max: 20}}), ownership_structure: faker.string.alpha({length: {min: 10, max: 20}}), beneficial_owners: {}, directors_officers: {}, authorized_signatories: {}, bank_account_details: {}, financials_currency: faker.string.alpha({length: {min: 10, max: 20}}), assets_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), liabilities_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), revenue_last_year_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), profit_last_year_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`})))
 
 export const getV1EntitiesAdminBorrowersCreateResponseMock = (overrideResponse: Partial< BorrowerEntity > = {}): BorrowerEntity => ({id: faker.string.uuid(), legal_name: faker.string.alpha({length: {min: 10, max: 20}}), year_founded: faker.number.int({min: undefined, max: undefined}), entity_type: faker.string.alpha({length: {min: 10, max: 20}}), kyb_status: faker.string.alpha({length: {min: 10, max: 20}}), compliance_hold: faker.datatype.boolean(), can_transact: faker.datatype.boolean(), country: faker.string.alpha({length: {min: 10, max: 20}}), registration_number: faker.string.alpha({length: {min: 10, max: 20}}), registered_address: faker.string.alpha({length: {min: 10, max: 20}}), operating_address: faker.string.alpha({length: {min: 10, max: 20}}), industry_activity: faker.string.alpha({length: {min: 10, max: 20}}), ownership_structure: faker.string.alpha({length: {min: 10, max: 20}}), beneficial_owners: {}, directors_officers: {}, authorized_signatories: {}, bank_account_details: {}, financials_currency: faker.string.alpha({length: {min: 10, max: 20}}), assets_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), liabilities_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), revenue_last_year_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), profit_last_year_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
@@ -5107,6 +5656,66 @@ export const getV1AuthRegisterNaturalPersonCreateMockHandler = (overrideResponse
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AuthRegisterNaturalPersonCreateResponseMock()),
       { status: 201,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1DocumentsAcceptancesCreateMockHandler = (overrideResponse?: DocumentAcceptanceEvidence | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<DocumentAcceptanceEvidence> | DocumentAcceptanceEvidence), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/documents/acceptances/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1DocumentsAcceptancesCreateResponseMock()),
+      { status: 201,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1DocumentsAdminTemplatesVersionsListMockHandler = (overrideResponse?: DocumentTemplateVersion[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<DocumentTemplateVersion[]> | DocumentTemplateVersion[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/documents/admin/templates/versions/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1DocumentsAdminTemplatesVersionsListResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1DocumentsAdminTemplatesVersionsCreateMockHandler = (overrideResponse?: DocumentTemplateVersion | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<DocumentTemplateVersion> | DocumentTemplateVersion), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/documents/admin/templates/versions/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1DocumentsAdminTemplatesVersionsCreateResponseMock()),
+      { status: 201,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1DocumentsAdminTemplatesVersionsPublishCreateMockHandler = (overrideResponse?: DocumentTemplateVersion | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<DocumentTemplateVersion> | DocumentTemplateVersion), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/documents/admin/templates/versions/:templateVersionId/publish/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1DocumentsAdminTemplatesVersionsPublishCreateResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1DocumentsTemplatesCurrentRetrieveMockHandler = (overrideResponse?: DocumentTemplateVersion | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<DocumentTemplateVersion> | DocumentTemplateVersion), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/documents/templates/current/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1DocumentsTemplatesCurrentRetrieveResponseMock()),
+      { status: 200,
         headers: { 'Content-Type': 'application/json' }
       })
   }, options)
@@ -5476,6 +6085,11 @@ export const getBanxumApiMock = () => [
   getV1AuthPhoneConfirmCreateMockHandler(),
   getV1AuthPhoneRequestCreateMockHandler(),
   getV1AuthRegisterNaturalPersonCreateMockHandler(),
+  getV1DocumentsAcceptancesCreateMockHandler(),
+  getV1DocumentsAdminTemplatesVersionsListMockHandler(),
+  getV1DocumentsAdminTemplatesVersionsCreateMockHandler(),
+  getV1DocumentsAdminTemplatesVersionsPublishCreateMockHandler(),
+  getV1DocumentsTemplatesCurrentRetrieveMockHandler(),
   getV1EntitiesAdminBorrowersListMockHandler(),
   getV1EntitiesAdminBorrowersCreateMockHandler(),
   getV1EntitiesAdminBorrowersRetrieveMockHandler(),

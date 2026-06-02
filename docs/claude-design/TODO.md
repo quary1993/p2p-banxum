@@ -25,3 +25,10 @@ Backend/API-only implementation slices do not create a visible UI surface. When 
 - Current first-version behavior: no user-facing UI was implemented in this slice; backend APIs now produce balance-ageing reminder events, forced-withdrawal requests, and penalty-mode lot states.
 - Suggested improvement: Claude Design should design the investor-facing balance breakdown for investable, withdraw-only, overdue, and penalty-mode funds; reminder messaging hierarchy; the required usable-IBAN declaration/update flow; and a blocking financial-action banner that keeps read-only account access available while clearly explaining the regulatory 60-day limit.
 - Priority: important.
+
+## 2026-06-02: Clickwrap Acceptance And Document Downloads
+
+- Screen or component: registration terms display, primary-market investment acceptance, secondary-market purchase/listing acceptance, document evidence/download states.
+- Current first-version behavior: no user-facing UI was implemented in this slice; backend APIs now expose current published templates and create immutable acceptance evidence for authenticated transaction contexts.
+- Suggested improvement: Claude Design should design the checkbox/clickwrap acceptance presentation, long-form legal text layout, required checkbox hierarchy, stale-template refresh state, accepted-document confirmation state, and user-facing document package/download surfaces for investor portal transactions.
+- Priority: important.
