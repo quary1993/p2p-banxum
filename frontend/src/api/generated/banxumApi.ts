@@ -438,6 +438,43 @@ export const BorrowerKybStatusEnum = {
 } as const;
 
 /**
+ * * `real_estate` - Real estate
+* `corporate_guarantee` - Corporate guarantee
+* `personal_guarantee` - Personal guarantee
+* `receivables` - Receivables
+* `invoices` - Invoices
+* `equipment` - Equipment
+* `inventory` - Inventory
+* `securities_pledge` - Securities pledge
+* `cash_collateral` - Cash collateral
+* `share_pledge` - Share pledge
+* `asset_backed` - Asset backed
+* `mixed_collateral` - Mixed collateral
+* `unsecured_exception` - Unsecured exception
+* `other` - Other
+ */
+export type CollateralTypeEnum = typeof CollateralTypeEnum[keyof typeof CollateralTypeEnum];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const CollateralTypeEnum = {
+  real_estate: 'real_estate',
+  corporate_guarantee: 'corporate_guarantee',
+  personal_guarantee: 'personal_guarantee',
+  receivables: 'receivables',
+  invoices: 'invoices',
+  equipment: 'equipment',
+  inventory: 'inventory',
+  securities_pledge: 'securities_pledge',
+  cash_collateral: 'cash_collateral',
+  share_pledge: 'share_pledge',
+  asset_backed: 'asset_backed',
+  mixed_collateral: 'mixed_collateral',
+  unsecured_exception: 'unsecured_exception',
+  other: 'other',
+} as const;
+
+/**
  * * `approve` - Approve
 * `decline` - Decline
 * `request_reverification` - Request re-verification
@@ -602,12 +639,118 @@ export interface KycStatusResponse {
   risk_classification: string;
 }
 
+export interface Loan {
+  id: string;
+  borrower_id: string;
+  status: string;
+  title: string;
+  investor_summary: string;
+  purpose: string;
+  purpose_description: string;
+  principal_minor: number;
+  currency: string;
+  interest_rate_bps: number;
+  term_months: number;
+  repayment_type: string;
+  interest_only_months: number;
+  funding_deadline: string;
+  first_payment_date: string;
+  collateral_type: string;
+  collateral_value_minor: number;
+  collateral_description: string;
+  risk_rating: string;
+  borrower_success_fee_bps: number;
+  lender_payment_fee_minor: number;
+  default_penalty_interest_bps: number;
+  recovery_fee_bps: number;
+  recovery_waterfall_version: string;
+  schedule_version: number;
+  total_scheduled_principal_minor: number;
+  total_scheduled_interest_minor: number;
+  committed_principal_minor: number;
+  /** @nullable */
+  ltv_bps: number | null;
+  ltv_warnings: string[];
+  /** @nullable */
+  published_at: string | null;
+  created_by_admin_id: string;
+  /** @nullable */
+  updated_by_admin_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LoanCreateRequest {
+  borrower_id: string;
+  /** @maxLength 255 */
+  title: string;
+  investor_summary: string;
+  purpose: PurposeEnum;
+  purpose_description?: string;
+  principal_minor: number;
+  /** @maxLength 3 */
+  currency: string;
+  interest_rate_bps: number;
+  term_months: number;
+  repayment_type?: RepaymentTypeEnum;
+  interest_only_months?: number;
+  funding_deadline?: string;
+  first_payment_date?: string;
+  collateral_type?: CollateralTypeEnum;
+  collateral_value_minor: number;
+  collateral_description?: string;
+  risk_rating: RiskRatingEnum;
+  borrower_success_fee_bps?: number;
+  lender_payment_fee_minor?: number;
+  default_penalty_interest_bps?: number;
+  recovery_fee_bps?: number;
+  recovery_waterfall_version?: string;
+  manual_schedule_rows?: ManualScheduleRowRequest[];
+  note?: string;
+}
+
+export interface LoanEvent {
+  id: string;
+  loan_id: string;
+  event_type: string;
+  actor_user_id: string;
+  actor_account_type: string;
+  previous_status: string;
+  new_status: string;
+  note: string;
+  metadata: unknown;
+  occurred_at: string;
+}
+
+export interface LoanInstallment {
+  id: string;
+  loan_id: string;
+  schedule_version: number;
+  installment_number: number;
+  due_date: string;
+  principal_minor: number;
+  interest_minor: number;
+  total_minor: number;
+  admin_overridden: boolean;
+  metadata: unknown;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface MagicLinkConsume {
   token: string;
 }
 
 export interface MagicLinkRequest {
   email: string;
+}
+
+export interface ManualScheduleRowRequest {
+  due_date: string;
+  /** @minimum 0 */
+  principal_minor: number;
+  /** @minimum 0 */
+  interest_minor: number;
 }
 
 export interface NaturalPersonRegistrationRequest {
@@ -705,6 +848,33 @@ export interface PatchedBorrowerEntityUpdateRequest {
   evidence_summary?: string;
 }
 
+export interface PatchedLoanUpdateRequest {
+  /** @maxLength 255 */
+  title?: string;
+  investor_summary?: string;
+  purpose?: PurposeEnum;
+  purpose_description?: string;
+  principal_minor?: number;
+  interest_rate_bps?: number;
+  term_months?: number;
+  repayment_type?: RepaymentTypeEnum;
+  interest_only_months?: number;
+  funding_deadline?: string;
+  first_payment_date?: string;
+  collateral_type?: CollateralTypeEnum;
+  collateral_value_minor?: number;
+  collateral_description?: string;
+  risk_rating?: RiskRatingEnum;
+  borrower_success_fee_bps?: number;
+  lender_payment_fee_minor?: number;
+  default_penalty_interest_bps?: number;
+  recovery_fee_bps?: number;
+  recovery_waterfall_version?: string;
+  manual_schedule_rows?: ManualScheduleRowRequest[];
+  investor_message?: string;
+  note?: string;
+}
+
 export interface PhoneVerificationConfirmRequest {
   challenge_id: string;
   /** @pattern ^\d{6}$ */
@@ -723,6 +893,113 @@ export interface PhoneVerificationRequestResponse {
   expires_at: string | null;
   phone_verified: boolean;
 }
+
+export interface PublishLoanRequest {
+  note?: string;
+}
+
+/**
+ * * `working_capital` - Working capital
+* `liquidity` - Liquidity
+* `refinancing` - Refinancing
+* `debt_consolidation` - Debt consolidation
+* `acquisition` - Acquisition
+* `bridge_financing` - Bridge financing
+* `project_finance` - Project finance
+* `corporate_project_finance` - Corporate project finance
+* `capex` - Capex / business expansion
+* `development` - Development
+* `inventory_trade_finance` - Inventory or trade finance
+* `other` - Other
+ */
+export type PurposeEnum = typeof PurposeEnum[keyof typeof PurposeEnum];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const PurposeEnum = {
+  working_capital: 'working_capital',
+  liquidity: 'liquidity',
+  refinancing: 'refinancing',
+  debt_consolidation: 'debt_consolidation',
+  acquisition: 'acquisition',
+  bridge_financing: 'bridge_financing',
+  project_finance: 'project_finance',
+  corporate_project_finance: 'corporate_project_finance',
+  capex: 'capex',
+  development: 'development',
+  inventory_trade_finance: 'inventory_trade_finance',
+  other: 'other',
+} as const;
+
+/**
+ * * `equal_installments` - Equal installments
+* `bullet_periodic_interest` - Bullet principal with periodic interest
+* `amortizing_principal_interest` - Amortizing principal and interest
+* `interest_only_then_bullet` - Interest-only then bullet
+* `interest_only_then_amortizing` - Interest-only then amortizing
+ */
+export type RepaymentTypeEnum = typeof RepaymentTypeEnum[keyof typeof RepaymentTypeEnum];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const RepaymentTypeEnum = {
+  equal_installments: 'equal_installments',
+  bullet_periodic_interest: 'bullet_periodic_interest',
+  amortizing_principal_interest: 'amortizing_principal_interest',
+  interest_only_then_bullet: 'interest_only_then_bullet',
+  interest_only_then_amortizing: 'interest_only_then_amortizing',
+} as const;
+
+/**
+ * * `AAA` - AAA
+* `AA+` - AA+
+* `AA` - AA
+* `AA-` - AA-
+* `A+` - A+
+* `A` - A
+* `A-` - A-
+* `BBB+` - BBB+
+* `BBB` - BBB
+* `BBB-` - BBB-
+* `BB+` - BB+
+* `BB` - BB
+* `BB-` - BB-
+* `B+` - B+
+* `B` - B
+* `B-` - B-
+* `CCC` - CCC
+* `CC` - CC
+* `C` - C
+* `D` - D
+* `unrated` - Unrated
+ */
+export type RiskRatingEnum = typeof RiskRatingEnum[keyof typeof RiskRatingEnum];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const RiskRatingEnum = {
+  AAA: 'AAA',
+  'AA+': 'AA+',
+  AA: 'AA',
+  'AA-': 'AA-',
+  'A+': 'A+',
+  A: 'A',
+  'A-': 'A-',
+  'BBB+': 'BBB+',
+  BBB: 'BBB',
+  'BBB-': 'BBB-',
+  'BB+': 'BB+',
+  BB: 'BB',
+  'BB-': 'BB-',
+  'B+': 'B+',
+  B: 'B',
+  'B-': 'B-',
+  CCC: 'CCC',
+  CC: 'CC',
+  C: 'C',
+  D: 'D',
+  unrated: 'unrated',
+} as const;
 
 export interface UserSummary {
   id: string;
@@ -919,19 +1196,162 @@ export const V1EntitiesAdminBorrowersListKybStatus = {
   reverification_required: 'reverification_required',
 } as const;
 
+export type V1LoansAdminLoansListParams = {
+borrower_id?: string;
+/**
+ * @maxLength 3
+ */
+currency?: string;
+/**
+ * @minimum 1
+ * @maximum 250
+ */
+limit?: number;
+/**
+ * * `working_capital` - Working capital
+* `liquidity` - Liquidity
+* `refinancing` - Refinancing
+* `debt_consolidation` - Debt consolidation
+* `acquisition` - Acquisition
+* `bridge_financing` - Bridge financing
+* `project_finance` - Project finance
+* `corporate_project_finance` - Corporate project finance
+* `capex` - Capex / business expansion
+* `development` - Development
+* `inventory_trade_finance` - Inventory or trade finance
+* `other` - Other
+ * @minLength 1
+ */
+purpose?: V1LoansAdminLoansListPurpose;
+/**
+ * @maxLength 255
+ */
+q?: string;
+/**
+ * * `equal_installments` - Equal installments
+* `bullet_periodic_interest` - Bullet principal with periodic interest
+* `amortizing_principal_interest` - Amortizing principal and interest
+* `interest_only_then_bullet` - Interest-only then bullet
+* `interest_only_then_amortizing` - Interest-only then amortizing
+ * @minLength 1
+ */
+repayment_type?: V1LoansAdminLoansListRepaymentType;
+/**
+ * * `AAA` - AAA
+* `AA+` - AA+
+* `AA` - AA
+* `AA-` - AA-
+* `A+` - A+
+* `A` - A
+* `A-` - A-
+* `BBB+` - BBB+
+* `BBB` - BBB
+* `BBB-` - BBB-
+* `BB+` - BB+
+* `BB` - BB
+* `BB-` - BB-
+* `B+` - B+
+* `B` - B
+* `B-` - B-
+* `CCC` - CCC
+* `CC` - CC
+* `C` - C
+* `D` - D
+* `unrated` - Unrated
+ * @minLength 1
+ */
+risk_rating?: V1LoansAdminLoansListRiskRating;
+/**
+ * * `draft` - Draft
+* `published` - Published
+* `cancelled` - Cancelled
+ * @minLength 1
+ */
+status?: V1LoansAdminLoansListStatus;
+};
+
+export type V1LoansAdminLoansListPurpose = typeof V1LoansAdminLoansListPurpose[keyof typeof V1LoansAdminLoansListPurpose];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const V1LoansAdminLoansListPurpose = {
+  working_capital: 'working_capital',
+  liquidity: 'liquidity',
+  refinancing: 'refinancing',
+  debt_consolidation: 'debt_consolidation',
+  acquisition: 'acquisition',
+  bridge_financing: 'bridge_financing',
+  project_finance: 'project_finance',
+  corporate_project_finance: 'corporate_project_finance',
+  capex: 'capex',
+  development: 'development',
+  inventory_trade_finance: 'inventory_trade_finance',
+  other: 'other',
+} as const;
+
+export type V1LoansAdminLoansListRepaymentType = typeof V1LoansAdminLoansListRepaymentType[keyof typeof V1LoansAdminLoansListRepaymentType];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const V1LoansAdminLoansListRepaymentType = {
+  equal_installments: 'equal_installments',
+  bullet_periodic_interest: 'bullet_periodic_interest',
+  amortizing_principal_interest: 'amortizing_principal_interest',
+  interest_only_then_bullet: 'interest_only_then_bullet',
+  interest_only_then_amortizing: 'interest_only_then_amortizing',
+} as const;
+
+export type V1LoansAdminLoansListRiskRating = typeof V1LoansAdminLoansListRiskRating[keyof typeof V1LoansAdminLoansListRiskRating];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const V1LoansAdminLoansListRiskRating = {
+  AAA: 'AAA',
+  'AA+': 'AA+',
+  AA: 'AA',
+  'AA-': 'AA-',
+  'A+': 'A+',
+  A: 'A',
+  'A-': 'A-',
+  'BBB+': 'BBB+',
+  BBB: 'BBB',
+  'BBB-': 'BBB-',
+  'BB+': 'BB+',
+  BB: 'BB',
+  'BB-': 'BB-',
+  'B+': 'B+',
+  B: 'B',
+  'B-': 'B-',
+  CCC: 'CCC',
+  CC: 'CC',
+  C: 'C',
+  D: 'D',
+  unrated: 'unrated',
+} as const;
+
+export type V1LoansAdminLoansListStatus = typeof V1LoansAdminLoansListStatus[keyof typeof V1LoansAdminLoansListStatus];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const V1LoansAdminLoansListStatus = {
+  draft: 'draft',
+  published: 'published',
+  cancelled: 'cancelled',
+} as const;
+
 export const v1AdminOpsAuditEventsList = (
     params?: V1AdminOpsAuditEventsListParams,
  signal?: AbortSignal
 ) => {
-      
-      
+
+
       return httpClient<AuditEvent[]>(
       {url: `/api/v1/admin-ops/audit-events/`, method: 'GET',
         params, signal
     },
       );
     }
-  
+
 
 
 
@@ -941,7 +1361,7 @@ export const getV1AdminOpsAuditEventsListQueryKey = (params?: V1AdminOpsAuditEve
     ] as const;
     }
 
-    
+
 export const getV1AdminOpsAuditEventsListQueryOptions = <TData = Awaited<ReturnType<typeof v1AdminOpsAuditEventsList>>, TError = unknown>(params?: V1AdminOpsAuditEventsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsAuditEventsList>>, TError, TData>>, }
 ) => {
 
@@ -949,13 +1369,13 @@ const {query: queryOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getV1AdminOpsAuditEventsListQueryKey(params);
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AdminOpsAuditEventsList>>> = ({ signal }) => v1AdminOpsAuditEventsList(params, signal);
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsAuditEventsList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -991,7 +1411,7 @@ export function useV1AdminOpsAuditEventsList<TData = Awaited<ReturnType<typeof v
 
 export function useV1AdminOpsAuditEventsList<TData = Awaited<ReturnType<typeof v1AdminOpsAuditEventsList>>, TError = unknown>(
  params?: V1AdminOpsAuditEventsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsAuditEventsList>>, TError, TData>>, }
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getV1AdminOpsAuditEventsListQueryOptions(params,options)
@@ -1011,15 +1431,15 @@ export const v1AdminOpsTasksList = (
     params?: V1AdminOpsTasksListParams,
  signal?: AbortSignal
 ) => {
-      
-      
+
+
       return httpClient<AdminTask[]>(
       {url: `/api/v1/admin-ops/tasks/`, method: 'GET',
         params, signal
     },
       );
     }
-  
+
 
 
 
@@ -1029,7 +1449,7 @@ export const getV1AdminOpsTasksListQueryKey = (params?: V1AdminOpsTasksListParam
     ] as const;
     }
 
-    
+
 export const getV1AdminOpsTasksListQueryOptions = <TData = Awaited<ReturnType<typeof v1AdminOpsTasksList>>, TError = unknown>(params?: V1AdminOpsTasksListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsTasksList>>, TError, TData>>, }
 ) => {
 
@@ -1037,13 +1457,13 @@ const {query: queryOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getV1AdminOpsTasksListQueryKey(params);
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AdminOpsTasksList>>> = ({ signal }) => v1AdminOpsTasksList(params, signal);
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsTasksList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -1079,7 +1499,7 @@ export function useV1AdminOpsTasksList<TData = Awaited<ReturnType<typeof v1Admin
 
 export function useV1AdminOpsTasksList<TData = Awaited<ReturnType<typeof v1AdminOpsTasksList>>, TError = unknown>(
  params?: V1AdminOpsTasksListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsTasksList>>, TError, TData>>, }
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getV1AdminOpsTasksListQueryOptions(params,options)
@@ -1099,8 +1519,8 @@ export const v1AdminOpsTasksCreate = (
     adminTaskCreateRequest: AdminTaskCreateRequest,
  signal?: AbortSignal
 ) => {
-      
-      
+
+
       return httpClient<AdminTask>(
       {url: `/api/v1/admin-ops/tasks/`, method: 'POST',
       headers: {'Content-Type': 'application/json', },
@@ -1108,7 +1528,7 @@ export const v1AdminOpsTasksCreate = (
     },
       );
     }
-  
+
 
 
 export const getV1AdminOpsTasksCreateMutationOptions = <TError = unknown,
@@ -1122,7 +1542,7 @@ const {mutation: mutationOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }};
 
-      
+
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AdminOpsTasksCreate>>, {data: AdminTaskCreateRequest}> = (props) => {
@@ -1131,7 +1551,7 @@ const {mutation: mutationOptions} = options ?
           return  v1AdminOpsTasksCreate(data,)
         }
 
-        
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1153,19 +1573,19 @@ const {mutation: mutationOptions} = options ?
 
       return useMutation(mutationOptions, queryClient);
     }
-    
+
 export const v1AdminOpsTasksRetrieve = (
     taskId: string,
  signal?: AbortSignal
 ) => {
-      
-      
+
+
       return httpClient<AdminTask>(
       {url: `/api/v1/admin-ops/tasks/${taskId}/`, method: 'GET', signal
     },
       );
     }
-  
+
 
 
 
@@ -1175,7 +1595,7 @@ export const getV1AdminOpsTasksRetrieveQueryKey = (taskId?: string,) => {
     ] as const;
     }
 
-    
+
 export const getV1AdminOpsTasksRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1AdminOpsTasksRetrieve>>, TError = unknown>(taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsTasksRetrieve>>, TError, TData>>, }
 ) => {
 
@@ -1183,13 +1603,13 @@ const {query: queryOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getV1AdminOpsTasksRetrieveQueryKey(taskId);
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AdminOpsTasksRetrieve>>> = ({ signal }) => v1AdminOpsTasksRetrieve(taskId, signal);
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, enabled: !!(taskId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsTasksRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -1225,7 +1645,7 @@ export function useV1AdminOpsTasksRetrieve<TData = Awaited<ReturnType<typeof v1A
 
 export function useV1AdminOpsTasksRetrieve<TData = Awaited<ReturnType<typeof v1AdminOpsTasksRetrieve>>, TError = unknown>(
  taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsTasksRetrieve>>, TError, TData>>, }
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getV1AdminOpsTasksRetrieveQueryOptions(taskId,options)
@@ -1245,8 +1665,8 @@ export const v1AdminOpsTasksPartialUpdate = (
     taskId: string,
     patchedAdminTaskUpdateRequest: PatchedAdminTaskUpdateRequest,
  ) => {
-      
-      
+
+
       return httpClient<AdminTask>(
       {url: `/api/v1/admin-ops/tasks/${taskId}/`, method: 'PATCH',
       headers: {'Content-Type': 'application/json', },
@@ -1254,7 +1674,7 @@ export const v1AdminOpsTasksPartialUpdate = (
     },
       );
     }
-  
+
 
 
 export const getV1AdminOpsTasksPartialUpdateMutationOptions = <TError = unknown,
@@ -1268,7 +1688,7 @@ const {mutation: mutationOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }};
 
-      
+
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AdminOpsTasksPartialUpdate>>, {taskId: string;data: PatchedAdminTaskUpdateRequest}> = (props) => {
@@ -1277,7 +1697,7 @@ const {mutation: mutationOptions} = options ?
           return  v1AdminOpsTasksPartialUpdate(taskId,data,)
         }
 
-        
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1299,19 +1719,19 @@ const {mutation: mutationOptions} = options ?
 
       return useMutation(mutationOptions, queryClient);
     }
-    
+
 export const v1AdminOpsTasksEventsList = (
     taskId: string,
  signal?: AbortSignal
 ) => {
-      
-      
+
+
       return httpClient<AdminTaskEvent[]>(
       {url: `/api/v1/admin-ops/tasks/${taskId}/events/`, method: 'GET', signal
     },
       );
     }
-  
+
 
 
 
@@ -1321,7 +1741,7 @@ export const getV1AdminOpsTasksEventsListQueryKey = (taskId?: string,) => {
     ] as const;
     }
 
-    
+
 export const getV1AdminOpsTasksEventsListQueryOptions = <TData = Awaited<ReturnType<typeof v1AdminOpsTasksEventsList>>, TError = unknown>(taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsTasksEventsList>>, TError, TData>>, }
 ) => {
 
@@ -1329,13 +1749,13 @@ const {query: queryOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getV1AdminOpsTasksEventsListQueryKey(taskId);
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AdminOpsTasksEventsList>>> = ({ signal }) => v1AdminOpsTasksEventsList(taskId, signal);
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, enabled: !!(taskId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsTasksEventsList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -1371,7 +1791,7 @@ export function useV1AdminOpsTasksEventsList<TData = Awaited<ReturnType<typeof v
 
 export function useV1AdminOpsTasksEventsList<TData = Awaited<ReturnType<typeof v1AdminOpsTasksEventsList>>, TError = unknown>(
  taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsTasksEventsList>>, TError, TData>>, }
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getV1AdminOpsTasksEventsListQueryOptions(taskId,options)
@@ -1391,8 +1811,8 @@ export const v1AuthAdminLoginConfirmCreate = (
     adminLoginConfirmRequest: AdminLoginConfirmRequest,
  signal?: AbortSignal
 ) => {
-      
-      
+
+
       return httpClient<AuthenticatedUserResponse>(
       {url: `/api/v1/auth/admin/login/confirm/`, method: 'POST',
       headers: {'Content-Type': 'application/json', },
@@ -1400,7 +1820,7 @@ export const v1AuthAdminLoginConfirmCreate = (
     },
       );
     }
-  
+
 
 
 export const getV1AuthAdminLoginConfirmCreateMutationOptions = <TError = unknown,
@@ -1414,7 +1834,7 @@ const {mutation: mutationOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }};
 
-      
+
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthAdminLoginConfirmCreate>>, {data: AdminLoginConfirmRequest}> = (props) => {
@@ -1423,7 +1843,7 @@ const {mutation: mutationOptions} = options ?
           return  v1AuthAdminLoginConfirmCreate(data,)
         }
 
-        
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1445,13 +1865,13 @@ const {mutation: mutationOptions} = options ?
 
       return useMutation(mutationOptions, queryClient);
     }
-    
+
 export const v1AuthAdminLoginStartCreate = (
     adminLoginStartRequest: AdminLoginStartRequest,
  signal?: AbortSignal
 ) => {
-      
-      
+
+
       return httpClient<AdminLoginStartResponse>(
       {url: `/api/v1/auth/admin/login/start/`, method: 'POST',
       headers: {'Content-Type': 'application/json', },
@@ -1459,7 +1879,7 @@ export const v1AuthAdminLoginStartCreate = (
     },
       );
     }
-  
+
 
 
 export const getV1AuthAdminLoginStartCreateMutationOptions = <TError = unknown,
@@ -1473,7 +1893,7 @@ const {mutation: mutationOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }};
 
-      
+
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthAdminLoginStartCreate>>, {data: AdminLoginStartRequest}> = (props) => {
@@ -1482,7 +1902,7 @@ const {mutation: mutationOptions} = options ?
           return  v1AuthAdminLoginStartCreate(data,)
         }
 
-        
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1504,13 +1924,13 @@ const {mutation: mutationOptions} = options ?
 
       return useMutation(mutationOptions, queryClient);
     }
-    
+
 export const v1AuthAdminUsersCreate = (
     adminUserCreateRequest: AdminUserCreateRequest,
  signal?: AbortSignal
 ) => {
-      
-      
+
+
       return httpClient<AuthenticatedUserResponse>(
       {url: `/api/v1/auth/admin/users/`, method: 'POST',
       headers: {'Content-Type': 'application/json', },
@@ -1518,7 +1938,7 @@ export const v1AuthAdminUsersCreate = (
     },
       );
     }
-  
+
 
 
 export const getV1AuthAdminUsersCreateMutationOptions = <TError = unknown,
@@ -1532,7 +1952,7 @@ const {mutation: mutationOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }};
 
-      
+
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthAdminUsersCreate>>, {data: AdminUserCreateRequest}> = (props) => {
@@ -1541,7 +1961,7 @@ const {mutation: mutationOptions} = options ?
           return  v1AuthAdminUsersCreate(data,)
         }
 
-        
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1563,14 +1983,14 @@ const {mutation: mutationOptions} = options ?
 
       return useMutation(mutationOptions, queryClient);
     }
-    
+
 export const v1AuthAdminUsersAccessCreate = (
     userId: string,
     accountAccessChangeRequest: AccountAccessChangeRequest,
  signal?: AbortSignal
 ) => {
-      
-      
+
+
       return httpClient<AccountAccessChangeResponse>(
       {url: `/api/v1/auth/admin/users/${userId}/access/`, method: 'POST',
       headers: {'Content-Type': 'application/json', },
@@ -1578,7 +1998,7 @@ export const v1AuthAdminUsersAccessCreate = (
     },
       );
     }
-  
+
 
 
 export const getV1AuthAdminUsersAccessCreateMutationOptions = <TError = unknown,
@@ -1592,7 +2012,7 @@ const {mutation: mutationOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }};
 
-      
+
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthAdminUsersAccessCreate>>, {userId: string;data: AccountAccessChangeRequest}> = (props) => {
@@ -1601,7 +2021,7 @@ const {mutation: mutationOptions} = options ?
           return  v1AuthAdminUsersAccessCreate(userId,data,)
         }
 
-        
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1623,13 +2043,13 @@ const {mutation: mutationOptions} = options ?
 
       return useMutation(mutationOptions, queryClient);
     }
-    
+
 export const v1AuthMagicLinkConsumeCreate = (
     magicLinkConsume: MagicLinkConsume,
  signal?: AbortSignal
 ) => {
-      
-      
+
+
       return httpClient<AuthenticatedUserResponse>(
       {url: `/api/v1/auth/magic-link/consume/`, method: 'POST',
       headers: {'Content-Type': 'application/json', },
@@ -1637,7 +2057,7 @@ export const v1AuthMagicLinkConsumeCreate = (
     },
       );
     }
-  
+
 
 
 export const getV1AuthMagicLinkConsumeCreateMutationOptions = <TError = unknown,
@@ -1651,7 +2071,7 @@ const {mutation: mutationOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }};
 
-      
+
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthMagicLinkConsumeCreate>>, {data: MagicLinkConsume}> = (props) => {
@@ -1660,7 +2080,7 @@ const {mutation: mutationOptions} = options ?
           return  v1AuthMagicLinkConsumeCreate(data,)
         }
 
-        
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1682,13 +2102,13 @@ const {mutation: mutationOptions} = options ?
 
       return useMutation(mutationOptions, queryClient);
     }
-    
+
 export const v1AuthMagicLinkRequestCreate = (
     magicLinkRequest: MagicLinkRequest,
  signal?: AbortSignal
 ) => {
-      
-      
+
+
       return httpClient<void>(
       {url: `/api/v1/auth/magic-link/request/`, method: 'POST',
       headers: {'Content-Type': 'application/json', },
@@ -1696,7 +2116,7 @@ export const v1AuthMagicLinkRequestCreate = (
     },
       );
     }
-  
+
 
 
 export const getV1AuthMagicLinkRequestCreateMutationOptions = <TError = unknown,
@@ -1710,7 +2130,7 @@ const {mutation: mutationOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }};
 
-      
+
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthMagicLinkRequestCreate>>, {data: MagicLinkRequest}> = (props) => {
@@ -1719,7 +2139,7 @@ const {mutation: mutationOptions} = options ?
           return  v1AuthMagicLinkRequestCreate(data,)
         }
 
-        
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1741,19 +2161,19 @@ const {mutation: mutationOptions} = options ?
 
       return useMutation(mutationOptions, queryClient);
     }
-    
+
 export const v1AuthMeRetrieve = (
-    
+
  signal?: AbortSignal
 ) => {
-      
-      
+
+
       return httpClient<AuthenticatedUserResponse>(
       {url: `/api/v1/auth/me/`, method: 'GET', signal
     },
       );
     }
-  
+
 
 
 
@@ -1763,7 +2183,7 @@ export const getV1AuthMeRetrieveQueryKey = () => {
     ] as const;
     }
 
-    
+
 export const getV1AuthMeRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1AuthMeRetrieve>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthMeRetrieve>>, TError, TData>>, }
 ) => {
 
@@ -1771,13 +2191,13 @@ const {query: queryOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getV1AuthMeRetrieveQueryKey();
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AuthMeRetrieve>>> = ({ signal }) => v1AuthMeRetrieve(signal);
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AuthMeRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -1813,7 +2233,7 @@ export function useV1AuthMeRetrieve<TData = Awaited<ReturnType<typeof v1AuthMeRe
 
 export function useV1AuthMeRetrieve<TData = Awaited<ReturnType<typeof v1AuthMeRetrieve>>, TError = unknown>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AuthMeRetrieve>>, TError, TData>>, }
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getV1AuthMeRetrieveQueryOptions(options)
@@ -1833,8 +2253,8 @@ export const v1AuthPhoneConfirmCreate = (
     phoneVerificationConfirmRequest: PhoneVerificationConfirmRequest,
  signal?: AbortSignal
 ) => {
-      
-      
+
+
       return httpClient<PhoneVerificationConfirmResponse>(
       {url: `/api/v1/auth/phone/confirm/`, method: 'POST',
       headers: {'Content-Type': 'application/json', },
@@ -1842,7 +2262,7 @@ export const v1AuthPhoneConfirmCreate = (
     },
       );
     }
-  
+
 
 
 export const getV1AuthPhoneConfirmCreateMutationOptions = <TError = unknown,
@@ -1856,7 +2276,7 @@ const {mutation: mutationOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }};
 
-      
+
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthPhoneConfirmCreate>>, {data: PhoneVerificationConfirmRequest}> = (props) => {
@@ -1865,7 +2285,7 @@ const {mutation: mutationOptions} = options ?
           return  v1AuthPhoneConfirmCreate(data,)
         }
 
-        
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1887,19 +2307,19 @@ const {mutation: mutationOptions} = options ?
 
       return useMutation(mutationOptions, queryClient);
     }
-    
+
 export const v1AuthPhoneRequestCreate = (
-    
+
  signal?: AbortSignal
 ) => {
-      
-      
+
+
       return httpClient<PhoneVerificationRequestResponse>(
       {url: `/api/v1/auth/phone/request/`, method: 'POST', signal
     },
       );
     }
-  
+
 
 
 export const getV1AuthPhoneRequestCreateMutationOptions = <TError = unknown,
@@ -1913,22 +2333,22 @@ const {mutation: mutationOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }};
 
-      
+
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthPhoneRequestCreate>>, void> = () => {
-          
+
 
           return  v1AuthPhoneRequestCreate()
         }
 
-        
+
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type V1AuthPhoneRequestCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthPhoneRequestCreate>>>
-    
+
     export type V1AuthPhoneRequestCreateMutationError = unknown
 
     export const useV1AuthPhoneRequestCreate = <TError = unknown,
@@ -1944,13 +2364,13 @@ const {mutation: mutationOptions} = options ?
 
       return useMutation(mutationOptions, queryClient);
     }
-    
+
 export const v1AuthRegisterNaturalPersonCreate = (
     naturalPersonRegistrationRequest: NaturalPersonRegistrationRequest,
  signal?: AbortSignal
 ) => {
-      
-      
+
+
       return httpClient<NaturalPersonRegistrationResponse>(
       {url: `/api/v1/auth/register/natural-person/`, method: 'POST',
       headers: {'Content-Type': 'application/json', },
@@ -1958,7 +2378,7 @@ export const v1AuthRegisterNaturalPersonCreate = (
     },
       );
     }
-  
+
 
 
 export const getV1AuthRegisterNaturalPersonCreateMutationOptions = <TError = unknown,
@@ -1972,7 +2392,7 @@ const {mutation: mutationOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }};
 
-      
+
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthRegisterNaturalPersonCreate>>, {data: NaturalPersonRegistrationRequest}> = (props) => {
@@ -1981,7 +2401,7 @@ const {mutation: mutationOptions} = options ?
           return  v1AuthRegisterNaturalPersonCreate(data,)
         }
 
-        
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -2003,20 +2423,20 @@ const {mutation: mutationOptions} = options ?
 
       return useMutation(mutationOptions, queryClient);
     }
-    
+
 export const v1EntitiesAdminBorrowersList = (
     params?: V1EntitiesAdminBorrowersListParams,
  signal?: AbortSignal
 ) => {
-      
-      
+
+
       return httpClient<BorrowerEntity[]>(
       {url: `/api/v1/entities/admin/borrowers/`, method: 'GET',
         params, signal
     },
       );
     }
-  
+
 
 
 
@@ -2026,7 +2446,7 @@ export const getV1EntitiesAdminBorrowersListQueryKey = (params?: V1EntitiesAdmin
     ] as const;
     }
 
-    
+
 export const getV1EntitiesAdminBorrowersListQueryOptions = <TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersList>>, TError = unknown>(params?: V1EntitiesAdminBorrowersListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersList>>, TError, TData>>, }
 ) => {
 
@@ -2034,13 +2454,13 @@ const {query: queryOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getV1EntitiesAdminBorrowersListQueryKey(params);
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersList>>> = ({ signal }) => v1EntitiesAdminBorrowersList(params, signal);
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -2076,7 +2496,7 @@ export function useV1EntitiesAdminBorrowersList<TData = Awaited<ReturnType<typeo
 
 export function useV1EntitiesAdminBorrowersList<TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersList>>, TError = unknown>(
  params?: V1EntitiesAdminBorrowersListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersList>>, TError, TData>>, }
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getV1EntitiesAdminBorrowersListQueryOptions(params,options)
@@ -2096,8 +2516,8 @@ export const v1EntitiesAdminBorrowersCreate = (
     borrowerEntityCreateRequest: BorrowerEntityCreateRequest,
  signal?: AbortSignal
 ) => {
-      
-      
+
+
       return httpClient<BorrowerEntity>(
       {url: `/api/v1/entities/admin/borrowers/`, method: 'POST',
       headers: {'Content-Type': 'application/json', },
@@ -2105,7 +2525,7 @@ export const v1EntitiesAdminBorrowersCreate = (
     },
       );
     }
-  
+
 
 
 export const getV1EntitiesAdminBorrowersCreateMutationOptions = <TError = unknown,
@@ -2119,7 +2539,7 @@ const {mutation: mutationOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }};
 
-      
+
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersCreate>>, {data: BorrowerEntityCreateRequest}> = (props) => {
@@ -2128,7 +2548,7 @@ const {mutation: mutationOptions} = options ?
           return  v1EntitiesAdminBorrowersCreate(data,)
         }
 
-        
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -2150,19 +2570,19 @@ const {mutation: mutationOptions} = options ?
 
       return useMutation(mutationOptions, queryClient);
     }
-    
+
 export const v1EntitiesAdminBorrowersRetrieve = (
     borrowerId: string,
  signal?: AbortSignal
 ) => {
-      
-      
+
+
       return httpClient<BorrowerEntity>(
       {url: `/api/v1/entities/admin/borrowers/${borrowerId}/`, method: 'GET', signal
     },
       );
     }
-  
+
 
 
 
@@ -2172,7 +2592,7 @@ export const getV1EntitiesAdminBorrowersRetrieveQueryKey = (borrowerId?: string,
     ] as const;
     }
 
-    
+
 export const getV1EntitiesAdminBorrowersRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersRetrieve>>, TError = unknown>(borrowerId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersRetrieve>>, TError, TData>>, }
 ) => {
 
@@ -2180,13 +2600,13 @@ const {query: queryOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getV1EntitiesAdminBorrowersRetrieveQueryKey(borrowerId);
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersRetrieve>>> = ({ signal }) => v1EntitiesAdminBorrowersRetrieve(borrowerId, signal);
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, enabled: !!(borrowerId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -2222,7 +2642,7 @@ export function useV1EntitiesAdminBorrowersRetrieve<TData = Awaited<ReturnType<t
 
 export function useV1EntitiesAdminBorrowersRetrieve<TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersRetrieve>>, TError = unknown>(
  borrowerId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersRetrieve>>, TError, TData>>, }
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getV1EntitiesAdminBorrowersRetrieveQueryOptions(borrowerId,options)
@@ -2242,8 +2662,8 @@ export const v1EntitiesAdminBorrowersPartialUpdate = (
     borrowerId: string,
     patchedBorrowerEntityUpdateRequest: PatchedBorrowerEntityUpdateRequest,
  ) => {
-      
-      
+
+
       return httpClient<BorrowerEntity>(
       {url: `/api/v1/entities/admin/borrowers/${borrowerId}/`, method: 'PATCH',
       headers: {'Content-Type': 'application/json', },
@@ -2251,7 +2671,7 @@ export const v1EntitiesAdminBorrowersPartialUpdate = (
     },
       );
     }
-  
+
 
 
 export const getV1EntitiesAdminBorrowersPartialUpdateMutationOptions = <TError = unknown,
@@ -2265,7 +2685,7 @@ const {mutation: mutationOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }};
 
-      
+
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersPartialUpdate>>, {borrowerId: string;data: PatchedBorrowerEntityUpdateRequest}> = (props) => {
@@ -2274,7 +2694,7 @@ const {mutation: mutationOptions} = options ?
           return  v1EntitiesAdminBorrowersPartialUpdate(borrowerId,data,)
         }
 
-        
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -2296,19 +2716,19 @@ const {mutation: mutationOptions} = options ?
 
       return useMutation(mutationOptions, queryClient);
     }
-    
+
 export const v1EntitiesAdminBorrowersDocumentsList = (
     borrowerId: string,
  signal?: AbortSignal
 ) => {
-      
-      
+
+
       return httpClient<BorrowerDocument[]>(
       {url: `/api/v1/entities/admin/borrowers/${borrowerId}/documents/`, method: 'GET', signal
     },
       );
     }
-  
+
 
 
 
@@ -2318,7 +2738,7 @@ export const getV1EntitiesAdminBorrowersDocumentsListQueryKey = (borrowerId?: st
     ] as const;
     }
 
-    
+
 export const getV1EntitiesAdminBorrowersDocumentsListQueryOptions = <TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsList>>, TError = unknown>(borrowerId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsList>>, TError, TData>>, }
 ) => {
 
@@ -2326,13 +2746,13 @@ const {query: queryOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getV1EntitiesAdminBorrowersDocumentsListQueryKey(borrowerId);
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsList>>> = ({ signal }) => v1EntitiesAdminBorrowersDocumentsList(borrowerId, signal);
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, enabled: !!(borrowerId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -2368,7 +2788,7 @@ export function useV1EntitiesAdminBorrowersDocumentsList<TData = Awaited<ReturnT
 
 export function useV1EntitiesAdminBorrowersDocumentsList<TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsList>>, TError = unknown>(
  borrowerId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsList>>, TError, TData>>, }
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getV1EntitiesAdminBorrowersDocumentsListQueryOptions(borrowerId,options)
@@ -2389,8 +2809,8 @@ export const v1EntitiesAdminBorrowersDocumentsCreate = (
     borrowerDocumentCreateRequest: BorrowerDocumentCreateRequest,
  signal?: AbortSignal
 ) => {
-      
-      
+
+
       return httpClient<BorrowerDocument>(
       {url: `/api/v1/entities/admin/borrowers/${borrowerId}/documents/`, method: 'POST',
       headers: {'Content-Type': 'application/json', },
@@ -2398,7 +2818,7 @@ export const v1EntitiesAdminBorrowersDocumentsCreate = (
     },
       );
     }
-  
+
 
 
 export const getV1EntitiesAdminBorrowersDocumentsCreateMutationOptions = <TError = unknown,
@@ -2412,7 +2832,7 @@ const {mutation: mutationOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }};
 
-      
+
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersDocumentsCreate>>, {borrowerId: string;data: BorrowerDocumentCreateRequest}> = (props) => {
@@ -2421,7 +2841,7 @@ const {mutation: mutationOptions} = options ?
           return  v1EntitiesAdminBorrowersDocumentsCreate(borrowerId,data,)
         }
 
-        
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -2443,19 +2863,19 @@ const {mutation: mutationOptions} = options ?
 
       return useMutation(mutationOptions, queryClient);
     }
-    
+
 export const v1EntitiesAdminBorrowersEventsList = (
     borrowerId: string,
  signal?: AbortSignal
 ) => {
-      
-      
+
+
       return httpClient<BorrowerEntityEvent[]>(
       {url: `/api/v1/entities/admin/borrowers/${borrowerId}/events/`, method: 'GET', signal
     },
       );
     }
-  
+
 
 
 
@@ -2465,7 +2885,7 @@ export const getV1EntitiesAdminBorrowersEventsListQueryKey = (borrowerId?: strin
     ] as const;
     }
 
-    
+
 export const getV1EntitiesAdminBorrowersEventsListQueryOptions = <TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersEventsList>>, TError = unknown>(borrowerId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersEventsList>>, TError, TData>>, }
 ) => {
 
@@ -2473,13 +2893,13 @@ const {query: queryOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getV1EntitiesAdminBorrowersEventsListQueryKey(borrowerId);
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersEventsList>>> = ({ signal }) => v1EntitiesAdminBorrowersEventsList(borrowerId, signal);
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, enabled: !!(borrowerId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersEventsList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -2515,7 +2935,7 @@ export function useV1EntitiesAdminBorrowersEventsList<TData = Awaited<ReturnType
 
 export function useV1EntitiesAdminBorrowersEventsList<TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersEventsList>>, TError = unknown>(
  borrowerId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersEventsList>>, TError, TData>>, }
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getV1EntitiesAdminBorrowersEventsListQueryOptions(borrowerId,options)
@@ -2535,14 +2955,14 @@ export const v1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve = (
     borrowerId: string,
  signal?: AbortSignal
 ) => {
-      
-      
+
+
       return httpClient<BorrowerInvestorDisclosure>(
       {url: `/api/v1/entities/admin/borrowers/${borrowerId}/investor-disclosure-preview/`, method: 'GET', signal
     },
       );
     }
-  
+
 
 
 
@@ -2552,7 +2972,7 @@ export const getV1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieveQueryKe
     ] as const;
     }
 
-    
+
 export const getV1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve>>, TError = unknown>(borrowerId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve>>, TError, TData>>, }
 ) => {
 
@@ -2560,13 +2980,13 @@ const {query: queryOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getV1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieveQueryKey(borrowerId);
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve>>> = ({ signal }) => v1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve(borrowerId, signal);
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, enabled: !!(borrowerId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -2602,7 +3022,7 @@ export function useV1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve<TDa
 
 export function useV1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve<TData = Awaited<ReturnType<typeof v1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve>>, TError = unknown>(
  borrowerId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve>>, TError, TData>>, }
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getV1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieveQueryOptions(borrowerId,options)
@@ -2619,17 +3039,17 @@ export function useV1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieve<TDa
 
 
 export const v1HealthRetrieve = (
-    
+
  signal?: AbortSignal
 ) => {
-      
-      
+
+
       return httpClient<HealthResponse>(
       {url: `/api/v1/health/`, method: 'GET', signal
     },
       );
     }
-  
+
 
 
 
@@ -2639,7 +3059,7 @@ export const getV1HealthRetrieveQueryKey = () => {
     ] as const;
     }
 
-    
+
 export const getV1HealthRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1HealthRetrieve>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1HealthRetrieve>>, TError, TData>>, }
 ) => {
 
@@ -2647,13 +3067,13 @@ const {query: queryOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getV1HealthRetrieveQueryKey();
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof v1HealthRetrieve>>> = ({ signal }) => v1HealthRetrieve(signal);
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1HealthRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -2689,7 +3109,7 @@ export function useV1HealthRetrieve<TData = Awaited<ReturnType<typeof v1HealthRe
 
 export function useV1HealthRetrieve<TData = Awaited<ReturnType<typeof v1HealthRetrieve>>, TError = unknown>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1HealthRetrieve>>, TError, TData>>, }
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getV1HealthRetrieveQueryOptions(options)
@@ -2710,8 +3130,8 @@ export const v1KycAdminCasesManualReviewCreate = (
     kycManualReviewDecisionRequest: KycManualReviewDecisionRequest,
  signal?: AbortSignal
 ) => {
-      
-      
+
+
       return httpClient<KycManualReviewDecisionResponse>(
       {url: `/api/v1/kyc/admin/cases/${caseId}/manual-review/`, method: 'POST',
       headers: {'Content-Type': 'application/json', },
@@ -2719,7 +3139,7 @@ export const v1KycAdminCasesManualReviewCreate = (
     },
       );
     }
-  
+
 
 
 export const getV1KycAdminCasesManualReviewCreateMutationOptions = <TError = unknown,
@@ -2733,7 +3153,7 @@ const {mutation: mutationOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }};
 
-      
+
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1KycAdminCasesManualReviewCreate>>, {caseId: string;data: KycManualReviewDecisionRequest}> = (props) => {
@@ -2742,7 +3162,7 @@ const {mutation: mutationOptions} = options ?
           return  v1KycAdminCasesManualReviewCreate(caseId,data,)
         }
 
-        
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -2764,19 +3184,19 @@ const {mutation: mutationOptions} = options ?
 
       return useMutation(mutationOptions, queryClient);
     }
-    
+
 export const v1KycAdminManualReviewsList = (
-    
+
  signal?: AbortSignal
 ) => {
-      
-      
+
+
       return httpClient<KycAdminCase[]>(
       {url: `/api/v1/kyc/admin/manual-reviews/`, method: 'GET', signal
     },
       );
     }
-  
+
 
 
 
@@ -2786,7 +3206,7 @@ export const getV1KycAdminManualReviewsListQueryKey = () => {
     ] as const;
     }
 
-    
+
 export const getV1KycAdminManualReviewsListQueryOptions = <TData = Awaited<ReturnType<typeof v1KycAdminManualReviewsList>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminManualReviewsList>>, TError, TData>>, }
 ) => {
 
@@ -2794,13 +3214,13 @@ const {query: queryOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getV1KycAdminManualReviewsListQueryKey();
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof v1KycAdminManualReviewsList>>> = ({ signal }) => v1KycAdminManualReviewsList(signal);
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminManualReviewsList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -2836,7 +3256,7 @@ export function useV1KycAdminManualReviewsList<TData = Awaited<ReturnType<typeof
 
 export function useV1KycAdminManualReviewsList<TData = Awaited<ReturnType<typeof v1KycAdminManualReviewsList>>, TError = unknown>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminManualReviewsList>>, TError, TData>>, }
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getV1KycAdminManualReviewsListQueryOptions(options)
@@ -2853,17 +3273,17 @@ export function useV1KycAdminManualReviewsList<TData = Awaited<ReturnType<typeof
 
 
 export const v1KycSessionCreate = (
-    
+
  signal?: AbortSignal
 ) => {
-      
-      
+
+
       return httpClient<KycSessionResponse>(
       {url: `/api/v1/kyc/session/`, method: 'POST', signal
     },
       );
     }
-  
+
 
 
 export const getV1KycSessionCreateMutationOptions = <TError = unknown,
@@ -2877,22 +3297,22 @@ const {mutation: mutationOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }};
 
-      
+
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1KycSessionCreate>>, void> = () => {
-          
+
 
           return  v1KycSessionCreate()
         }
 
-        
+
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type V1KycSessionCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1KycSessionCreate>>>
-    
+
     export type V1KycSessionCreateMutationError = unknown
 
     export const useV1KycSessionCreate = <TError = unknown,
@@ -2908,19 +3328,19 @@ const {mutation: mutationOptions} = options ?
 
       return useMutation(mutationOptions, queryClient);
     }
-    
+
 export const v1KycStatusRetrieve = (
-    
+
  signal?: AbortSignal
 ) => {
-      
-      
+
+
       return httpClient<KycStatusResponse>(
       {url: `/api/v1/kyc/status/`, method: 'GET', signal
     },
       );
     }
-  
+
 
 
 
@@ -2930,7 +3350,7 @@ export const getV1KycStatusRetrieveQueryKey = () => {
     ] as const;
     }
 
-    
+
 export const getV1KycStatusRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1KycStatusRetrieve>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycStatusRetrieve>>, TError, TData>>, }
 ) => {
 
@@ -2938,13 +3358,13 @@ const {query: queryOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getV1KycStatusRetrieveQueryKey();
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof v1KycStatusRetrieve>>> = ({ signal }) => v1KycStatusRetrieve(signal);
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1KycStatusRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -2980,7 +3400,7 @@ export function useV1KycStatusRetrieve<TData = Awaited<ReturnType<typeof v1KycSt
 
 export function useV1KycStatusRetrieve<TData = Awaited<ReturnType<typeof v1KycStatusRetrieve>>, TError = unknown>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycStatusRetrieve>>, TError, TData>>, }
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getV1KycStatusRetrieveQueryOptions(options)
@@ -2997,17 +3417,17 @@ export function useV1KycStatusRetrieve<TData = Awaited<ReturnType<typeof v1KycSt
 
 
 export const v1KycWebhooksDiditCreate = (
-    
+
  signal?: AbortSignal
 ) => {
-      
-      
+
+
       return httpClient<DiditWebhookResponse>(
       {url: `/api/v1/kyc/webhooks/didit/`, method: 'POST', signal
     },
       );
     }
-  
+
 
 
 export const getV1KycWebhooksDiditCreateMutationOptions = <TError = unknown,
@@ -3021,22 +3441,22 @@ const {mutation: mutationOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }};
 
-      
+
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1KycWebhooksDiditCreate>>, void> = () => {
-          
+
 
           return  v1KycWebhooksDiditCreate()
         }
 
-        
+
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type V1KycWebhooksDiditCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1KycWebhooksDiditCreate>>>
-    
+
     export type V1KycWebhooksDiditCreateMutationError = unknown
 
     export const useV1KycWebhooksDiditCreate = <TError = unknown,
@@ -3052,6 +3472,529 @@ const {mutation: mutationOptions} = options ?
 
       return useMutation(mutationOptions, queryClient);
     }
+
+export const v1LoansAdminLoansList = (
+    params?: V1LoansAdminLoansListParams,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<Loan[]>(
+      {url: `/api/v1/loans/admin/loans/`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+
+
+
+
+export const getV1LoansAdminLoansListQueryKey = (params?: V1LoansAdminLoansListParams,) => {
+    return [
+    `/api/v1/loans/admin/loans/`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+
+export const getV1LoansAdminLoansListQueryOptions = <TData = Awaited<ReturnType<typeof v1LoansAdminLoansList>>, TError = unknown>(params?: V1LoansAdminLoansListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansList>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1LoansAdminLoansListQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1LoansAdminLoansList>>> = ({ signal }) => v1LoansAdminLoansList(params, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1LoansAdminLoansListQueryResult = NonNullable<Awaited<ReturnType<typeof v1LoansAdminLoansList>>>
+export type V1LoansAdminLoansListQueryError = unknown
+
+
+export function useV1LoansAdminLoansList<TData = Awaited<ReturnType<typeof v1LoansAdminLoansList>>, TError = unknown>(
+ params: undefined |  V1LoansAdminLoansListParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1LoansAdminLoansList>>,
+          TError,
+          Awaited<ReturnType<typeof v1LoansAdminLoansList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1LoansAdminLoansList<TData = Awaited<ReturnType<typeof v1LoansAdminLoansList>>, TError = unknown>(
+ params?: V1LoansAdminLoansListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1LoansAdminLoansList>>,
+          TError,
+          Awaited<ReturnType<typeof v1LoansAdminLoansList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1LoansAdminLoansList<TData = Awaited<ReturnType<typeof v1LoansAdminLoansList>>, TError = unknown>(
+ params?: V1LoansAdminLoansListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1LoansAdminLoansList<TData = Awaited<ReturnType<typeof v1LoansAdminLoansList>>, TError = unknown>(
+ params?: V1LoansAdminLoansListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1LoansAdminLoansListQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1LoansAdminLoansCreate = (
+    loanCreateRequest: LoanCreateRequest,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<Loan>(
+      {url: `/api/v1/loans/admin/loans/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: loanCreateRequest, signal
+    },
+      );
+    }
+
+
+
+export const getV1LoansAdminLoansCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1LoansAdminLoansCreate>>, TError,{data: LoanCreateRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1LoansAdminLoansCreate>>, TError,{data: LoanCreateRequest}, TContext> => {
+
+const mutationKey = ['v1LoansAdminLoansCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1LoansAdminLoansCreate>>, {data: LoanCreateRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1LoansAdminLoansCreate(data,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1LoansAdminLoansCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1LoansAdminLoansCreate>>>
+    export type V1LoansAdminLoansCreateMutationBody = LoanCreateRequest
+    export type V1LoansAdminLoansCreateMutationError = unknown
+
+    export const useV1LoansAdminLoansCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1LoansAdminLoansCreate>>, TError,{data: LoanCreateRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1LoansAdminLoansCreate>>,
+        TError,
+        {data: LoanCreateRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1LoansAdminLoansCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+
+export const v1LoansAdminLoansRetrieve = (
+    loanId: string,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<Loan>(
+      {url: `/api/v1/loans/admin/loans/${loanId}/`, method: 'GET', signal
+    },
+      );
+    }
+
+
+
+
+export const getV1LoansAdminLoansRetrieveQueryKey = (loanId?: string,) => {
+    return [
+    `/api/v1/loans/admin/loans/${loanId}/`
+    ] as const;
+    }
+
+
+export const getV1LoansAdminLoansRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1LoansAdminLoansRetrieve>>, TError = unknown>(loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansRetrieve>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1LoansAdminLoansRetrieveQueryKey(loanId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1LoansAdminLoansRetrieve>>> = ({ signal }) => v1LoansAdminLoansRetrieve(loanId, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(loanId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1LoansAdminLoansRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1LoansAdminLoansRetrieve>>>
+export type V1LoansAdminLoansRetrieveQueryError = unknown
+
+
+export function useV1LoansAdminLoansRetrieve<TData = Awaited<ReturnType<typeof v1LoansAdminLoansRetrieve>>, TError = unknown>(
+ loanId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1LoansAdminLoansRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1LoansAdminLoansRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1LoansAdminLoansRetrieve<TData = Awaited<ReturnType<typeof v1LoansAdminLoansRetrieve>>, TError = unknown>(
+ loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1LoansAdminLoansRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1LoansAdminLoansRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1LoansAdminLoansRetrieve<TData = Awaited<ReturnType<typeof v1LoansAdminLoansRetrieve>>, TError = unknown>(
+ loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1LoansAdminLoansRetrieve<TData = Awaited<ReturnType<typeof v1LoansAdminLoansRetrieve>>, TError = unknown>(
+ loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1LoansAdminLoansRetrieveQueryOptions(loanId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1LoansAdminLoansPartialUpdate = (
+    loanId: string,
+    patchedLoanUpdateRequest: PatchedLoanUpdateRequest,
+ ) => {
+
+
+      return httpClient<Loan>(
+      {url: `/api/v1/loans/admin/loans/${loanId}/`, method: 'PATCH',
+      headers: {'Content-Type': 'application/json', },
+      data: patchedLoanUpdateRequest
+    },
+      );
+    }
+
+
+
+export const getV1LoansAdminLoansPartialUpdateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1LoansAdminLoansPartialUpdate>>, TError,{loanId: string;data: PatchedLoanUpdateRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1LoansAdminLoansPartialUpdate>>, TError,{loanId: string;data: PatchedLoanUpdateRequest}, TContext> => {
+
+const mutationKey = ['v1LoansAdminLoansPartialUpdate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1LoansAdminLoansPartialUpdate>>, {loanId: string;data: PatchedLoanUpdateRequest}> = (props) => {
+          const {loanId,data} = props ?? {};
+
+          return  v1LoansAdminLoansPartialUpdate(loanId,data,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1LoansAdminLoansPartialUpdateMutationResult = NonNullable<Awaited<ReturnType<typeof v1LoansAdminLoansPartialUpdate>>>
+    export type V1LoansAdminLoansPartialUpdateMutationBody = PatchedLoanUpdateRequest
+    export type V1LoansAdminLoansPartialUpdateMutationError = unknown
+
+    export const useV1LoansAdminLoansPartialUpdate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1LoansAdminLoansPartialUpdate>>, TError,{loanId: string;data: PatchedLoanUpdateRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1LoansAdminLoansPartialUpdate>>,
+        TError,
+        {loanId: string;data: PatchedLoanUpdateRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1LoansAdminLoansPartialUpdateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+
+export const v1LoansAdminLoansEventsList = (
+    loanId: string,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<LoanEvent[]>(
+      {url: `/api/v1/loans/admin/loans/${loanId}/events/`, method: 'GET', signal
+    },
+      );
+    }
+
+
+
+
+export const getV1LoansAdminLoansEventsListQueryKey = (loanId?: string,) => {
+    return [
+    `/api/v1/loans/admin/loans/${loanId}/events/`
+    ] as const;
+    }
+
+
+export const getV1LoansAdminLoansEventsListQueryOptions = <TData = Awaited<ReturnType<typeof v1LoansAdminLoansEventsList>>, TError = unknown>(loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansEventsList>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1LoansAdminLoansEventsListQueryKey(loanId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1LoansAdminLoansEventsList>>> = ({ signal }) => v1LoansAdminLoansEventsList(loanId, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(loanId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansEventsList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1LoansAdminLoansEventsListQueryResult = NonNullable<Awaited<ReturnType<typeof v1LoansAdminLoansEventsList>>>
+export type V1LoansAdminLoansEventsListQueryError = unknown
+
+
+export function useV1LoansAdminLoansEventsList<TData = Awaited<ReturnType<typeof v1LoansAdminLoansEventsList>>, TError = unknown>(
+ loanId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansEventsList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1LoansAdminLoansEventsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1LoansAdminLoansEventsList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1LoansAdminLoansEventsList<TData = Awaited<ReturnType<typeof v1LoansAdminLoansEventsList>>, TError = unknown>(
+ loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansEventsList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1LoansAdminLoansEventsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1LoansAdminLoansEventsList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1LoansAdminLoansEventsList<TData = Awaited<ReturnType<typeof v1LoansAdminLoansEventsList>>, TError = unknown>(
+ loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansEventsList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1LoansAdminLoansEventsList<TData = Awaited<ReturnType<typeof v1LoansAdminLoansEventsList>>, TError = unknown>(
+ loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansEventsList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1LoansAdminLoansEventsListQueryOptions(loanId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1LoansAdminLoansPublishCreate = (
+    loanId: string,
+    publishLoanRequest: PublishLoanRequest,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<Loan>(
+      {url: `/api/v1/loans/admin/loans/${loanId}/publish/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: publishLoanRequest, signal
+    },
+      );
+    }
+
+
+
+export const getV1LoansAdminLoansPublishCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1LoansAdminLoansPublishCreate>>, TError,{loanId: string;data: PublishLoanRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1LoansAdminLoansPublishCreate>>, TError,{loanId: string;data: PublishLoanRequest}, TContext> => {
+
+const mutationKey = ['v1LoansAdminLoansPublishCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1LoansAdminLoansPublishCreate>>, {loanId: string;data: PublishLoanRequest}> = (props) => {
+          const {loanId,data} = props ?? {};
+
+          return  v1LoansAdminLoansPublishCreate(loanId,data,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1LoansAdminLoansPublishCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1LoansAdminLoansPublishCreate>>>
+    export type V1LoansAdminLoansPublishCreateMutationBody = PublishLoanRequest
+    export type V1LoansAdminLoansPublishCreateMutationError = unknown
+
+    export const useV1LoansAdminLoansPublishCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1LoansAdminLoansPublishCreate>>, TError,{loanId: string;data: PublishLoanRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1LoansAdminLoansPublishCreate>>,
+        TError,
+        {loanId: string;data: PublishLoanRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1LoansAdminLoansPublishCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+
+export const v1LoansAdminLoansScheduleList = (
+    loanId: string,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<LoanInstallment[]>(
+      {url: `/api/v1/loans/admin/loans/${loanId}/schedule/`, method: 'GET', signal
+    },
+      );
+    }
+
+
+
+
+export const getV1LoansAdminLoansScheduleListQueryKey = (loanId?: string,) => {
+    return [
+    `/api/v1/loans/admin/loans/${loanId}/schedule/`
+    ] as const;
+    }
+
+
+export const getV1LoansAdminLoansScheduleListQueryOptions = <TData = Awaited<ReturnType<typeof v1LoansAdminLoansScheduleList>>, TError = unknown>(loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansScheduleList>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1LoansAdminLoansScheduleListQueryKey(loanId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1LoansAdminLoansScheduleList>>> = ({ signal }) => v1LoansAdminLoansScheduleList(loanId, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(loanId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansScheduleList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1LoansAdminLoansScheduleListQueryResult = NonNullable<Awaited<ReturnType<typeof v1LoansAdminLoansScheduleList>>>
+export type V1LoansAdminLoansScheduleListQueryError = unknown
+
+
+export function useV1LoansAdminLoansScheduleList<TData = Awaited<ReturnType<typeof v1LoansAdminLoansScheduleList>>, TError = unknown>(
+ loanId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansScheduleList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1LoansAdminLoansScheduleList>>,
+          TError,
+          Awaited<ReturnType<typeof v1LoansAdminLoansScheduleList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1LoansAdminLoansScheduleList<TData = Awaited<ReturnType<typeof v1LoansAdminLoansScheduleList>>, TError = unknown>(
+ loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansScheduleList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1LoansAdminLoansScheduleList>>,
+          TError,
+          Awaited<ReturnType<typeof v1LoansAdminLoansScheduleList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1LoansAdminLoansScheduleList<TData = Awaited<ReturnType<typeof v1LoansAdminLoansScheduleList>>, TError = unknown>(
+ loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansScheduleList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1LoansAdminLoansScheduleList<TData = Awaited<ReturnType<typeof v1LoansAdminLoansScheduleList>>, TError = unknown>(
+ loanId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LoansAdminLoansScheduleList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1LoansAdminLoansScheduleListQueryOptions(loanId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
 
 
 export const getV1AdminOpsAuditEventsListResponseMock = (): AuditEvent[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), occurred_at: `${faker.date.past().toISOString().split('.')[0]}Z`, actor_type: faker.string.alpha({length: {min: 10, max: 20}}), actor_id: faker.string.alpha({length: {min: 10, max: 20}}), action: faker.string.alpha({length: {min: 10, max: 20}}), target_type: faker.string.alpha({length: {min: 10, max: 20}}), target_id: faker.string.alpha({length: {min: 10, max: 20}}), request_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})))
@@ -3114,10 +4057,24 @@ export const getV1KycStatusRetrieveResponseMock = (overrideResponse: Partial< Ky
 
 export const getV1KycWebhooksDiditCreateResponseMock = (overrideResponse: Partial< DiditWebhookResponse > = {}): DiditWebhookResponse => ({status: faker.helpers.arrayElement(Object.values(KycStatusEnum)), idempotent: faker.datatype.boolean(), ...overrideResponse})
 
+export const getV1LoansAdminLoansListResponseMock = (): Loan[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), borrower_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int({min: undefined, max: undefined}), term_months: faker.number.int({min: undefined, max: undefined}), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_only_months: faker.number.int({min: undefined, max: undefined}), funding_deadline: faker.date.past().toISOString().split('T')[0], first_payment_date: faker.date.past().toISOString().split('T')[0], collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_value_minor: faker.number.int({min: undefined, max: undefined}), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), borrower_success_fee_bps: faker.number.int({min: undefined, max: undefined}), lender_payment_fee_minor: faker.number.int({min: undefined, max: undefined}), default_penalty_interest_bps: faker.number.int({min: undefined, max: undefined}), recovery_fee_bps: faker.number.int({min: undefined, max: undefined}), recovery_waterfall_version: faker.string.alpha({length: {min: 10, max: 20}}), schedule_version: faker.number.int({min: undefined, max: undefined}), total_scheduled_principal_minor: faker.number.int({min: undefined, max: undefined}), total_scheduled_interest_minor: faker.number.int({min: undefined, max: undefined}), committed_principal_minor: faker.number.int({min: undefined, max: undefined}), ltv_bps: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), ltv_warnings: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), published_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`})))
+
+export const getV1LoansAdminLoansCreateResponseMock = (overrideResponse: Partial< Loan > = {}): Loan => ({id: faker.string.uuid(), borrower_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int({min: undefined, max: undefined}), term_months: faker.number.int({min: undefined, max: undefined}), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_only_months: faker.number.int({min: undefined, max: undefined}), funding_deadline: faker.date.past().toISOString().split('T')[0], first_payment_date: faker.date.past().toISOString().split('T')[0], collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_value_minor: faker.number.int({min: undefined, max: undefined}), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), borrower_success_fee_bps: faker.number.int({min: undefined, max: undefined}), lender_payment_fee_minor: faker.number.int({min: undefined, max: undefined}), default_penalty_interest_bps: faker.number.int({min: undefined, max: undefined}), recovery_fee_bps: faker.number.int({min: undefined, max: undefined}), recovery_waterfall_version: faker.string.alpha({length: {min: 10, max: 20}}), schedule_version: faker.number.int({min: undefined, max: undefined}), total_scheduled_principal_minor: faker.number.int({min: undefined, max: undefined}), total_scheduled_interest_minor: faker.number.int({min: undefined, max: undefined}), committed_principal_minor: faker.number.int({min: undefined, max: undefined}), ltv_bps: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), ltv_warnings: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), published_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+
+export const getV1LoansAdminLoansRetrieveResponseMock = (overrideResponse: Partial< Loan > = {}): Loan => ({id: faker.string.uuid(), borrower_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int({min: undefined, max: undefined}), term_months: faker.number.int({min: undefined, max: undefined}), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_only_months: faker.number.int({min: undefined, max: undefined}), funding_deadline: faker.date.past().toISOString().split('T')[0], first_payment_date: faker.date.past().toISOString().split('T')[0], collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_value_minor: faker.number.int({min: undefined, max: undefined}), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), borrower_success_fee_bps: faker.number.int({min: undefined, max: undefined}), lender_payment_fee_minor: faker.number.int({min: undefined, max: undefined}), default_penalty_interest_bps: faker.number.int({min: undefined, max: undefined}), recovery_fee_bps: faker.number.int({min: undefined, max: undefined}), recovery_waterfall_version: faker.string.alpha({length: {min: 10, max: 20}}), schedule_version: faker.number.int({min: undefined, max: undefined}), total_scheduled_principal_minor: faker.number.int({min: undefined, max: undefined}), total_scheduled_interest_minor: faker.number.int({min: undefined, max: undefined}), committed_principal_minor: faker.number.int({min: undefined, max: undefined}), ltv_bps: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), ltv_warnings: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), published_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+
+export const getV1LoansAdminLoansPartialUpdateResponseMock = (overrideResponse: Partial< Loan > = {}): Loan => ({id: faker.string.uuid(), borrower_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int({min: undefined, max: undefined}), term_months: faker.number.int({min: undefined, max: undefined}), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_only_months: faker.number.int({min: undefined, max: undefined}), funding_deadline: faker.date.past().toISOString().split('T')[0], first_payment_date: faker.date.past().toISOString().split('T')[0], collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_value_minor: faker.number.int({min: undefined, max: undefined}), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), borrower_success_fee_bps: faker.number.int({min: undefined, max: undefined}), lender_payment_fee_minor: faker.number.int({min: undefined, max: undefined}), default_penalty_interest_bps: faker.number.int({min: undefined, max: undefined}), recovery_fee_bps: faker.number.int({min: undefined, max: undefined}), recovery_waterfall_version: faker.string.alpha({length: {min: 10, max: 20}}), schedule_version: faker.number.int({min: undefined, max: undefined}), total_scheduled_principal_minor: faker.number.int({min: undefined, max: undefined}), total_scheduled_interest_minor: faker.number.int({min: undefined, max: undefined}), committed_principal_minor: faker.number.int({min: undefined, max: undefined}), ltv_bps: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), ltv_warnings: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), published_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+
+export const getV1LoansAdminLoansEventsListResponseMock = (): LoanEvent[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), loan_id: faker.string.uuid(), event_type: faker.string.alpha({length: {min: 10, max: 20}}), actor_user_id: faker.string.uuid(), actor_account_type: faker.string.alpha({length: {min: 10, max: 20}}), previous_status: faker.string.alpha({length: {min: 10, max: 20}}), new_status: faker.string.alpha({length: {min: 10, max: 20}}), note: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, occurred_at: `${faker.date.past().toISOString().split('.')[0]}Z`})))
+
+export const getV1LoansAdminLoansPublishCreateResponseMock = (overrideResponse: Partial< Loan > = {}): Loan => ({id: faker.string.uuid(), borrower_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int({min: undefined, max: undefined}), term_months: faker.number.int({min: undefined, max: undefined}), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_only_months: faker.number.int({min: undefined, max: undefined}), funding_deadline: faker.date.past().toISOString().split('T')[0], first_payment_date: faker.date.past().toISOString().split('T')[0], collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_value_minor: faker.number.int({min: undefined, max: undefined}), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), borrower_success_fee_bps: faker.number.int({min: undefined, max: undefined}), lender_payment_fee_minor: faker.number.int({min: undefined, max: undefined}), default_penalty_interest_bps: faker.number.int({min: undefined, max: undefined}), recovery_fee_bps: faker.number.int({min: undefined, max: undefined}), recovery_waterfall_version: faker.string.alpha({length: {min: 10, max: 20}}), schedule_version: faker.number.int({min: undefined, max: undefined}), total_scheduled_principal_minor: faker.number.int({min: undefined, max: undefined}), total_scheduled_interest_minor: faker.number.int({min: undefined, max: undefined}), committed_principal_minor: faker.number.int({min: undefined, max: undefined}), ltv_bps: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), ltv_warnings: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), published_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+
+export const getV1LoansAdminLoansScheduleListResponseMock = (): LoanInstallment[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), loan_id: faker.string.uuid(), schedule_version: faker.number.int({min: undefined, max: undefined}), installment_number: faker.number.int({min: undefined, max: undefined}), due_date: faker.date.past().toISOString().split('T')[0], principal_minor: faker.number.int({min: undefined, max: undefined}), interest_minor: faker.number.int({min: undefined, max: undefined}), total_minor: faker.number.int({min: undefined, max: undefined}), admin_overridden: faker.datatype.boolean(), metadata: {}, created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`})))
+
 
 export const getV1AdminOpsAuditEventsListMockHandler = (overrideResponse?: AuditEvent[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AuditEvent[]> | AuditEvent[]), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/admin-ops/audit-events/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AdminOpsAuditEventsListResponseMock()),
@@ -3129,7 +4086,7 @@ export const getV1AdminOpsAuditEventsListMockHandler = (overrideResponse?: Audit
 
 export const getV1AdminOpsTasksListMockHandler = (overrideResponse?: AdminTask[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AdminTask[]> | AdminTask[]), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/admin-ops/tasks/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AdminOpsTasksListResponseMock()),
@@ -3141,7 +4098,7 @@ export const getV1AdminOpsTasksListMockHandler = (overrideResponse?: AdminTask[]
 
 export const getV1AdminOpsTasksCreateMockHandler = (overrideResponse?: AdminTask | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AdminTask> | AdminTask), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/admin-ops/tasks/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AdminOpsTasksCreateResponseMock()),
@@ -3153,7 +4110,7 @@ export const getV1AdminOpsTasksCreateMockHandler = (overrideResponse?: AdminTask
 
 export const getV1AdminOpsTasksRetrieveMockHandler = (overrideResponse?: AdminTask | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AdminTask> | AdminTask), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/admin-ops/tasks/:taskId/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AdminOpsTasksRetrieveResponseMock()),
@@ -3165,7 +4122,7 @@ export const getV1AdminOpsTasksRetrieveMockHandler = (overrideResponse?: AdminTa
 
 export const getV1AdminOpsTasksPartialUpdateMockHandler = (overrideResponse?: AdminTask | ((info: Parameters<Parameters<typeof http.patch>[1]>[0]) => Promise<AdminTask> | AdminTask), options?: RequestHandlerOptions) => {
   return http.patch('*/api/v1/admin-ops/tasks/:taskId/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AdminOpsTasksPartialUpdateResponseMock()),
@@ -3177,7 +4134,7 @@ export const getV1AdminOpsTasksPartialUpdateMockHandler = (overrideResponse?: Ad
 
 export const getV1AdminOpsTasksEventsListMockHandler = (overrideResponse?: AdminTaskEvent[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AdminTaskEvent[]> | AdminTaskEvent[]), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/admin-ops/tasks/:taskId/events/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AdminOpsTasksEventsListResponseMock()),
@@ -3189,7 +4146,7 @@ export const getV1AdminOpsTasksEventsListMockHandler = (overrideResponse?: Admin
 
 export const getV1AuthAdminLoginConfirmCreateMockHandler = (overrideResponse?: AuthenticatedUserResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AuthenticatedUserResponse> | AuthenticatedUserResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/auth/admin/login/confirm/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AuthAdminLoginConfirmCreateResponseMock()),
@@ -3201,7 +4158,7 @@ export const getV1AuthAdminLoginConfirmCreateMockHandler = (overrideResponse?: A
 
 export const getV1AuthAdminLoginStartCreateMockHandler = (overrideResponse?: AdminLoginStartResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AdminLoginStartResponse> | AdminLoginStartResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/auth/admin/login/start/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AuthAdminLoginStartCreateResponseMock()),
@@ -3213,7 +4170,7 @@ export const getV1AuthAdminLoginStartCreateMockHandler = (overrideResponse?: Adm
 
 export const getV1AuthAdminUsersCreateMockHandler = (overrideResponse?: AuthenticatedUserResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AuthenticatedUserResponse> | AuthenticatedUserResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/auth/admin/users/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AuthAdminUsersCreateResponseMock()),
@@ -3225,7 +4182,7 @@ export const getV1AuthAdminUsersCreateMockHandler = (overrideResponse?: Authenti
 
 export const getV1AuthAdminUsersAccessCreateMockHandler = (overrideResponse?: AccountAccessChangeResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AccountAccessChangeResponse> | AccountAccessChangeResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/auth/admin/users/:userId/access/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AuthAdminUsersAccessCreateResponseMock()),
@@ -3237,7 +4194,7 @@ export const getV1AuthAdminUsersAccessCreateMockHandler = (overrideResponse?: Ac
 
 export const getV1AuthMagicLinkConsumeCreateMockHandler = (overrideResponse?: AuthenticatedUserResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AuthenticatedUserResponse> | AuthenticatedUserResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/auth/magic-link/consume/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AuthMagicLinkConsumeCreateResponseMock()),
@@ -3252,14 +4209,14 @@ export const getV1AuthMagicLinkRequestCreateMockHandler = (overrideResponse?: vo
   if (typeof overrideResponse === 'function') {await overrideResponse(info); }
     return new HttpResponse(null,
       { status: 202,
-        
+
       })
   }, options)
 }
 
 export const getV1AuthMeRetrieveMockHandler = (overrideResponse?: AuthenticatedUserResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AuthenticatedUserResponse> | AuthenticatedUserResponse), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/auth/me/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AuthMeRetrieveResponseMock()),
@@ -3271,7 +4228,7 @@ export const getV1AuthMeRetrieveMockHandler = (overrideResponse?: AuthenticatedU
 
 export const getV1AuthPhoneConfirmCreateMockHandler = (overrideResponse?: PhoneVerificationConfirmResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<PhoneVerificationConfirmResponse> | PhoneVerificationConfirmResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/auth/phone/confirm/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AuthPhoneConfirmCreateResponseMock()),
@@ -3283,7 +4240,7 @@ export const getV1AuthPhoneConfirmCreateMockHandler = (overrideResponse?: PhoneV
 
 export const getV1AuthPhoneRequestCreateMockHandler = (overrideResponse?: PhoneVerificationRequestResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<PhoneVerificationRequestResponse> | PhoneVerificationRequestResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/auth/phone/request/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AuthPhoneRequestCreateResponseMock()),
@@ -3295,7 +4252,7 @@ export const getV1AuthPhoneRequestCreateMockHandler = (overrideResponse?: PhoneV
 
 export const getV1AuthRegisterNaturalPersonCreateMockHandler = (overrideResponse?: NaturalPersonRegistrationResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<NaturalPersonRegistrationResponse> | NaturalPersonRegistrationResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/auth/register/natural-person/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AuthRegisterNaturalPersonCreateResponseMock()),
@@ -3307,7 +4264,7 @@ export const getV1AuthRegisterNaturalPersonCreateMockHandler = (overrideResponse
 
 export const getV1EntitiesAdminBorrowersListMockHandler = (overrideResponse?: BorrowerEntity[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<BorrowerEntity[]> | BorrowerEntity[]), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/entities/admin/borrowers/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1EntitiesAdminBorrowersListResponseMock()),
@@ -3319,7 +4276,7 @@ export const getV1EntitiesAdminBorrowersListMockHandler = (overrideResponse?: Bo
 
 export const getV1EntitiesAdminBorrowersCreateMockHandler = (overrideResponse?: BorrowerEntity | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<BorrowerEntity> | BorrowerEntity), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/entities/admin/borrowers/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1EntitiesAdminBorrowersCreateResponseMock()),
@@ -3331,7 +4288,7 @@ export const getV1EntitiesAdminBorrowersCreateMockHandler = (overrideResponse?: 
 
 export const getV1EntitiesAdminBorrowersRetrieveMockHandler = (overrideResponse?: BorrowerEntity | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<BorrowerEntity> | BorrowerEntity), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/entities/admin/borrowers/:borrowerId/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1EntitiesAdminBorrowersRetrieveResponseMock()),
@@ -3343,7 +4300,7 @@ export const getV1EntitiesAdminBorrowersRetrieveMockHandler = (overrideResponse?
 
 export const getV1EntitiesAdminBorrowersPartialUpdateMockHandler = (overrideResponse?: BorrowerEntity | ((info: Parameters<Parameters<typeof http.patch>[1]>[0]) => Promise<BorrowerEntity> | BorrowerEntity), options?: RequestHandlerOptions) => {
   return http.patch('*/api/v1/entities/admin/borrowers/:borrowerId/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1EntitiesAdminBorrowersPartialUpdateResponseMock()),
@@ -3355,7 +4312,7 @@ export const getV1EntitiesAdminBorrowersPartialUpdateMockHandler = (overrideResp
 
 export const getV1EntitiesAdminBorrowersDocumentsListMockHandler = (overrideResponse?: BorrowerDocument[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<BorrowerDocument[]> | BorrowerDocument[]), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/entities/admin/borrowers/:borrowerId/documents/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1EntitiesAdminBorrowersDocumentsListResponseMock()),
@@ -3367,7 +4324,7 @@ export const getV1EntitiesAdminBorrowersDocumentsListMockHandler = (overrideResp
 
 export const getV1EntitiesAdminBorrowersDocumentsCreateMockHandler = (overrideResponse?: BorrowerDocument | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<BorrowerDocument> | BorrowerDocument), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/entities/admin/borrowers/:borrowerId/documents/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1EntitiesAdminBorrowersDocumentsCreateResponseMock()),
@@ -3379,7 +4336,7 @@ export const getV1EntitiesAdminBorrowersDocumentsCreateMockHandler = (overrideRe
 
 export const getV1EntitiesAdminBorrowersEventsListMockHandler = (overrideResponse?: BorrowerEntityEvent[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<BorrowerEntityEvent[]> | BorrowerEntityEvent[]), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/entities/admin/borrowers/:borrowerId/events/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1EntitiesAdminBorrowersEventsListResponseMock()),
@@ -3391,7 +4348,7 @@ export const getV1EntitiesAdminBorrowersEventsListMockHandler = (overrideRespons
 
 export const getV1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieveMockHandler = (overrideResponse?: BorrowerInvestorDisclosure | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<BorrowerInvestorDisclosure> | BorrowerInvestorDisclosure), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/entities/admin/borrowers/:borrowerId/investor-disclosure-preview/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieveResponseMock()),
@@ -3403,7 +4360,7 @@ export const getV1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieveMockHan
 
 export const getV1HealthRetrieveMockHandler = (overrideResponse?: HealthResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<HealthResponse> | HealthResponse), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/health/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1HealthRetrieveResponseMock()),
@@ -3415,7 +4372,7 @@ export const getV1HealthRetrieveMockHandler = (overrideResponse?: HealthResponse
 
 export const getV1KycAdminCasesManualReviewCreateMockHandler = (overrideResponse?: KycManualReviewDecisionResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<KycManualReviewDecisionResponse> | KycManualReviewDecisionResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/kyc/admin/cases/:caseId/manual-review/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1KycAdminCasesManualReviewCreateResponseMock()),
@@ -3427,7 +4384,7 @@ export const getV1KycAdminCasesManualReviewCreateMockHandler = (overrideResponse
 
 export const getV1KycAdminManualReviewsListMockHandler = (overrideResponse?: KycAdminCase[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<KycAdminCase[]> | KycAdminCase[]), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/kyc/admin/manual-reviews/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1KycAdminManualReviewsListResponseMock()),
@@ -3439,7 +4396,7 @@ export const getV1KycAdminManualReviewsListMockHandler = (overrideResponse?: Kyc
 
 export const getV1KycSessionCreateMockHandler = (overrideResponse?: KycSessionResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<KycSessionResponse> | KycSessionResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/kyc/session/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1KycSessionCreateResponseMock()),
@@ -3451,7 +4408,7 @@ export const getV1KycSessionCreateMockHandler = (overrideResponse?: KycSessionRe
 
 export const getV1KycStatusRetrieveMockHandler = (overrideResponse?: KycStatusResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<KycStatusResponse> | KycStatusResponse), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/kyc/status/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1KycStatusRetrieveResponseMock()),
@@ -3463,11 +4420,95 @@ export const getV1KycStatusRetrieveMockHandler = (overrideResponse?: KycStatusRe
 
 export const getV1KycWebhooksDiditCreateMockHandler = (overrideResponse?: DiditWebhookResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<DiditWebhookResponse> | DiditWebhookResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/kyc/webhooks/didit/', async (info) => {await delay(1000);
-  
+
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1KycWebhooksDiditCreateResponseMock()),
       { status: 202,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1LoansAdminLoansListMockHandler = (overrideResponse?: Loan[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<Loan[]> | Loan[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/loans/admin/loans/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1LoansAdminLoansListResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1LoansAdminLoansCreateMockHandler = (overrideResponse?: Loan | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<Loan> | Loan), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/loans/admin/loans/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1LoansAdminLoansCreateResponseMock()),
+      { status: 201,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1LoansAdminLoansRetrieveMockHandler = (overrideResponse?: Loan | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<Loan> | Loan), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/loans/admin/loans/:loanId/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1LoansAdminLoansRetrieveResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1LoansAdminLoansPartialUpdateMockHandler = (overrideResponse?: Loan | ((info: Parameters<Parameters<typeof http.patch>[1]>[0]) => Promise<Loan> | Loan), options?: RequestHandlerOptions) => {
+  return http.patch('*/api/v1/loans/admin/loans/:loanId/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1LoansAdminLoansPartialUpdateResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1LoansAdminLoansEventsListMockHandler = (overrideResponse?: LoanEvent[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<LoanEvent[]> | LoanEvent[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/loans/admin/loans/:loanId/events/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1LoansAdminLoansEventsListResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1LoansAdminLoansPublishCreateMockHandler = (overrideResponse?: Loan | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<Loan> | Loan), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/loans/admin/loans/:loanId/publish/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1LoansAdminLoansPublishCreateResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1LoansAdminLoansScheduleListMockHandler = (overrideResponse?: LoanInstallment[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<LoanInstallment[]> | LoanInstallment[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/loans/admin/loans/:loanId/schedule/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1LoansAdminLoansScheduleListResponseMock()),
+      { status: 200,
         headers: { 'Content-Type': 'application/json' }
       })
   }, options)
@@ -3502,5 +4543,12 @@ export const getBanxumApiMock = () => [
   getV1KycAdminManualReviewsListMockHandler(),
   getV1KycSessionCreateMockHandler(),
   getV1KycStatusRetrieveMockHandler(),
-  getV1KycWebhooksDiditCreateMockHandler()
+  getV1KycWebhooksDiditCreateMockHandler(),
+  getV1LoansAdminLoansListMockHandler(),
+  getV1LoansAdminLoansCreateMockHandler(),
+  getV1LoansAdminLoansRetrieveMockHandler(),
+  getV1LoansAdminLoansPartialUpdateMockHandler(),
+  getV1LoansAdminLoansEventsListMockHandler(),
+  getV1LoansAdminLoansPublishCreateMockHandler(),
+  getV1LoansAdminLoansScheduleListMockHandler()
 ]

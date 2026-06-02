@@ -855,6 +855,310 @@ paths:
               schema:
                 $ref: '#/components/schemas/DiditWebhookResponse'
           description: ''
+  /api/v1/loans/admin/loans/:
+    get:
+      operationId: v1_loans_admin_loans_list
+      parameters:
+      - in: query
+        name: borrower_id
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: currency
+        schema:
+          type: string
+          maxLength: 3
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 250
+          minimum: 1
+          default: 100
+      - in: query
+        name: purpose
+        schema:
+          enum:
+          - working_capital
+          - liquidity
+          - refinancing
+          - debt_consolidation
+          - acquisition
+          - bridge_financing
+          - project_finance
+          - corporate_project_finance
+          - capex
+          - development
+          - inventory_trade_finance
+          - other
+          type: string
+          minLength: 1
+        description: |-
+          * `working_capital` - Working capital
+          * `liquidity` - Liquidity
+          * `refinancing` - Refinancing
+          * `debt_consolidation` - Debt consolidation
+          * `acquisition` - Acquisition
+          * `bridge_financing` - Bridge financing
+          * `project_finance` - Project finance
+          * `corporate_project_finance` - Corporate project finance
+          * `capex` - Capex / business expansion
+          * `development` - Development
+          * `inventory_trade_finance` - Inventory or trade finance
+          * `other` - Other
+      - in: query
+        name: q
+        schema:
+          type: string
+          maxLength: 255
+      - in: query
+        name: repayment_type
+        schema:
+          enum:
+          - equal_installments
+          - bullet_periodic_interest
+          - amortizing_principal_interest
+          - interest_only_then_bullet
+          - interest_only_then_amortizing
+          type: string
+          minLength: 1
+        description: |-
+          * `equal_installments` - Equal installments
+          * `bullet_periodic_interest` - Bullet principal with periodic interest
+          * `amortizing_principal_interest` - Amortizing principal and interest
+          * `interest_only_then_bullet` - Interest-only then bullet
+          * `interest_only_then_amortizing` - Interest-only then amortizing
+      - in: query
+        name: risk_rating
+        schema:
+          enum:
+          - AAA
+          - AA+
+          - AA
+          - AA-
+          - A+
+          - A
+          - A-
+          - BBB+
+          - BBB
+          - BBB-
+          - BB+
+          - BB
+          - BB-
+          - B+
+          - B
+          - B-
+          - CCC
+          - CC
+          - C
+          - D
+          - unrated
+          type: string
+          minLength: 1
+        description: |-
+          * `AAA` - AAA
+          * `AA+` - AA+
+          * `AA` - AA
+          * `AA-` - AA-
+          * `A+` - A+
+          * `A` - A
+          * `A-` - A-
+          * `BBB+` - BBB+
+          * `BBB` - BBB
+          * `BBB-` - BBB-
+          * `BB+` - BB+
+          * `BB` - BB
+          * `BB-` - BB-
+          * `B+` - B+
+          * `B` - B
+          * `B-` - B-
+          * `CCC` - CCC
+          * `CC` - CC
+          * `C` - C
+          * `D` - D
+          * `unrated` - Unrated
+      - in: query
+        name: status
+        schema:
+          enum:
+          - draft
+          - published
+          - cancelled
+          type: string
+          minLength: 1
+        description: |-
+          * `draft` - Draft
+          * `published` - Published
+          * `cancelled` - Cancelled
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Loan'
+          description: ''
+    post:
+      operationId: v1_loans_admin_loans_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoanCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoanCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoanCreateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Loan'
+          description: ''
+  /api/v1/loans/admin/loans/{loan_id}/:
+    get:
+      operationId: v1_loans_admin_loans_retrieve
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Loan'
+          description: ''
+    patch:
+      operationId: v1_loans_admin_loans_partial_update
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedLoanUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedLoanUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedLoanUpdateRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Loan'
+          description: ''
+  /api/v1/loans/admin/loans/{loan_id}/events/:
+    get:
+      operationId: v1_loans_admin_loans_events_list
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LoanEvent'
+          description: ''
+  /api/v1/loans/admin/loans/{loan_id}/publish/:
+    post:
+      operationId: v1_loans_admin_loans_publish_create
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublishLoanRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PublishLoanRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PublishLoanRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Loan'
+          description: ''
+  /api/v1/loans/admin/loans/{loan_id}/schedule/:
+    get:
+      operationId: v1_loans_admin_loans_schedule_list
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LoanInstallment'
+          description: ''
 components:
   schemas:
     AccountAccessChangeRequest:
@@ -1563,6 +1867,38 @@ components:
         * `manual_review` - Manual review
         * `expired` - Expired
         * `reverification_required` - Re-verification required
+    CollateralTypeEnum:
+      enum:
+      - real_estate
+      - corporate_guarantee
+      - personal_guarantee
+      - receivables
+      - invoices
+      - equipment
+      - inventory
+      - securities_pledge
+      - cash_collateral
+      - share_pledge
+      - asset_backed
+      - mixed_collateral
+      - unsecured_exception
+      - other
+      type: string
+      description: |-
+        * `real_estate` - Real estate
+        * `corporate_guarantee` - Corporate guarantee
+        * `personal_guarantee` - Personal guarantee
+        * `receivables` - Receivables
+        * `invoices` - Invoices
+        * `equipment` - Equipment
+        * `inventory` - Inventory
+        * `securities_pledge` - Securities pledge
+        * `cash_collateral` - Cash collateral
+        * `share_pledge` - Share pledge
+        * `asset_backed` - Asset backed
+        * `mixed_collateral` - Mixed collateral
+        * `unsecured_exception` - Unsecured exception
+        * `other` - Other
     DecisionEnum:
       enum:
       - approve
@@ -1848,6 +2184,289 @@ components:
       - risk_classification
       - status
       - verification_url
+    Loan:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        borrower_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+        title:
+          type: string
+        investor_summary:
+          type: string
+        purpose:
+          type: string
+        purpose_description:
+          type: string
+        principal_minor:
+          type: integer
+        currency:
+          type: string
+        interest_rate_bps:
+          type: integer
+        term_months:
+          type: integer
+        repayment_type:
+          type: string
+        interest_only_months:
+          type: integer
+        funding_deadline:
+          type: string
+          format: date
+        first_payment_date:
+          type: string
+          format: date
+        collateral_type:
+          type: string
+        collateral_value_minor:
+          type: integer
+        collateral_description:
+          type: string
+        risk_rating:
+          type: string
+        borrower_success_fee_bps:
+          type: integer
+        lender_payment_fee_minor:
+          type: integer
+        default_penalty_interest_bps:
+          type: integer
+        recovery_fee_bps:
+          type: integer
+        recovery_waterfall_version:
+          type: string
+        schedule_version:
+          type: integer
+        total_scheduled_principal_minor:
+          type: integer
+        total_scheduled_interest_minor:
+          type: integer
+        committed_principal_minor:
+          type: integer
+        ltv_bps:
+          type: integer
+          nullable: true
+        ltv_warnings:
+          type: array
+          items:
+            type: string
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_by_admin_id:
+          type: string
+          format: uuid
+        updated_by_admin_id:
+          type: string
+          format: uuid
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - borrower_id
+      - borrower_success_fee_bps
+      - collateral_description
+      - collateral_type
+      - collateral_value_minor
+      - committed_principal_minor
+      - created_at
+      - created_by_admin_id
+      - currency
+      - default_penalty_interest_bps
+      - first_payment_date
+      - funding_deadline
+      - id
+      - interest_only_months
+      - interest_rate_bps
+      - investor_summary
+      - lender_payment_fee_minor
+      - ltv_bps
+      - ltv_warnings
+      - principal_minor
+      - published_at
+      - purpose
+      - purpose_description
+      - recovery_fee_bps
+      - recovery_waterfall_version
+      - repayment_type
+      - risk_rating
+      - schedule_version
+      - status
+      - term_months
+      - title
+      - total_scheduled_interest_minor
+      - total_scheduled_principal_minor
+      - updated_at
+      - updated_by_admin_id
+    LoanCreateRequest:
+      type: object
+      properties:
+        borrower_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          maxLength: 255
+        investor_summary:
+          type: string
+        purpose:
+          $ref: '#/components/schemas/PurposeEnum'
+        purpose_description:
+          type: string
+        principal_minor:
+          type: integer
+        currency:
+          type: string
+          maxLength: 3
+        interest_rate_bps:
+          type: integer
+        term_months:
+          type: integer
+        repayment_type:
+          allOf:
+          - $ref: '#/components/schemas/RepaymentTypeEnum'
+          default: equal_installments
+        interest_only_months:
+          type: integer
+          default: 0
+        funding_deadline:
+          type: string
+          format: date
+        first_payment_date:
+          type: string
+          format: date
+        collateral_type:
+          allOf:
+          - $ref: '#/components/schemas/CollateralTypeEnum'
+          default: real_estate
+        collateral_value_minor:
+          type: integer
+        collateral_description:
+          type: string
+        risk_rating:
+          $ref: '#/components/schemas/RiskRatingEnum'
+        borrower_success_fee_bps:
+          type: integer
+          default: 200
+        lender_payment_fee_minor:
+          type: integer
+          default: 0
+        default_penalty_interest_bps:
+          type: integer
+          default: 0
+        recovery_fee_bps:
+          type: integer
+          default: 0
+        recovery_waterfall_version:
+          type: string
+          default: v1
+        manual_schedule_rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/ManualScheduleRowRequest'
+        note:
+          type: string
+      required:
+      - borrower_id
+      - collateral_value_minor
+      - currency
+      - interest_rate_bps
+      - investor_summary
+      - principal_minor
+      - purpose
+      - risk_rating
+      - term_months
+      - title
+    LoanEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        loan_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+        actor_user_id:
+          type: string
+          format: uuid
+        actor_account_type:
+          type: string
+        previous_status:
+          type: string
+        new_status:
+          type: string
+        note:
+          type: string
+        metadata: {}
+        occurred_at:
+          type: string
+          format: date-time
+      required:
+      - actor_account_type
+      - actor_user_id
+      - event_type
+      - id
+      - loan_id
+      - metadata
+      - new_status
+      - note
+      - occurred_at
+      - previous_status
+    LoanInstallment:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        loan_id:
+          type: string
+          format: uuid
+        schedule_version:
+          type: integer
+        installment_number:
+          type: integer
+        due_date:
+          type: string
+          format: date
+        principal_minor:
+          type: integer
+        interest_minor:
+          type: integer
+        total_minor:
+          type: integer
+        admin_overridden:
+          type: boolean
+        metadata: {}
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - admin_overridden
+      - created_at
+      - due_date
+      - id
+      - installment_number
+      - interest_minor
+      - loan_id
+      - metadata
+      - principal_minor
+      - schedule_version
+      - total_minor
+      - updated_at
     MagicLinkConsume:
       type: object
       properties:
@@ -1863,6 +2482,22 @@ components:
           format: email
       required:
       - email
+    ManualScheduleRowRequest:
+      type: object
+      properties:
+        due_date:
+          type: string
+          format: date
+        principal_minor:
+          type: integer
+          minimum: 0
+        interest_minor:
+          type: integer
+          minimum: 0
+      required:
+      - due_date
+      - interest_minor
+      - principal_minor
     NaturalPersonRegistrationRequest:
       type: object
       properties:
@@ -2016,6 +2651,60 @@ components:
           type: string
         evidence_summary:
           type: string
+    PatchedLoanUpdateRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          maxLength: 255
+        investor_summary:
+          type: string
+        purpose:
+          $ref: '#/components/schemas/PurposeEnum'
+        purpose_description:
+          type: string
+        principal_minor:
+          type: integer
+        interest_rate_bps:
+          type: integer
+        term_months:
+          type: integer
+        repayment_type:
+          $ref: '#/components/schemas/RepaymentTypeEnum'
+        interest_only_months:
+          type: integer
+        funding_deadline:
+          type: string
+          format: date
+        first_payment_date:
+          type: string
+          format: date
+        collateral_type:
+          $ref: '#/components/schemas/CollateralTypeEnum'
+        collateral_value_minor:
+          type: integer
+        collateral_description:
+          type: string
+        risk_rating:
+          $ref: '#/components/schemas/RiskRatingEnum'
+        borrower_success_fee_bps:
+          type: integer
+        lender_payment_fee_minor:
+          type: integer
+        default_penalty_interest_bps:
+          type: integer
+        recovery_fee_bps:
+          type: integer
+        recovery_waterfall_version:
+          type: string
+        manual_schedule_rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/ManualScheduleRowRequest'
+        investor_message:
+          type: string
+        note:
+          type: string
     PhoneVerificationConfirmRequest:
       type: object
       properties:
@@ -2055,6 +2744,99 @@ components:
       - expires_at
       - phone_verified
       - status
+    PublishLoanRequest:
+      type: object
+      properties:
+        note:
+          type: string
+    PurposeEnum:
+      enum:
+      - working_capital
+      - liquidity
+      - refinancing
+      - debt_consolidation
+      - acquisition
+      - bridge_financing
+      - project_finance
+      - corporate_project_finance
+      - capex
+      - development
+      - inventory_trade_finance
+      - other
+      type: string
+      description: |-
+        * `working_capital` - Working capital
+        * `liquidity` - Liquidity
+        * `refinancing` - Refinancing
+        * `debt_consolidation` - Debt consolidation
+        * `acquisition` - Acquisition
+        * `bridge_financing` - Bridge financing
+        * `project_finance` - Project finance
+        * `corporate_project_finance` - Corporate project finance
+        * `capex` - Capex / business expansion
+        * `development` - Development
+        * `inventory_trade_finance` - Inventory or trade finance
+        * `other` - Other
+    RepaymentTypeEnum:
+      enum:
+      - equal_installments
+      - bullet_periodic_interest
+      - amortizing_principal_interest
+      - interest_only_then_bullet
+      - interest_only_then_amortizing
+      type: string
+      description: |-
+        * `equal_installments` - Equal installments
+        * `bullet_periodic_interest` - Bullet principal with periodic interest
+        * `amortizing_principal_interest` - Amortizing principal and interest
+        * `interest_only_then_bullet` - Interest-only then bullet
+        * `interest_only_then_amortizing` - Interest-only then amortizing
+    RiskRatingEnum:
+      enum:
+      - AAA
+      - AA+
+      - AA
+      - AA-
+      - A+
+      - A
+      - A-
+      - BBB+
+      - BBB
+      - BBB-
+      - BB+
+      - BB
+      - BB-
+      - B+
+      - B
+      - B-
+      - CCC
+      - CC
+      - C
+      - D
+      - unrated
+      type: string
+      description: |-
+        * `AAA` - AAA
+        * `AA+` - AA+
+        * `AA` - AA
+        * `AA-` - AA-
+        * `A+` - A+
+        * `A` - A
+        * `A-` - A-
+        * `BBB+` - BBB+
+        * `BBB` - BBB
+        * `BBB-` - BBB-
+        * `BB+` - BB+
+        * `BB` - BB
+        * `BB-` - BB-
+        * `B+` - B+
+        * `B` - B
+        * `B-` - B-
+        * `CCC` - CCC
+        * `CC` - CC
+        * `C` - C
+        * `D` - D
+        * `unrated` - Unrated
     UserSummary:
       type: object
       properties:

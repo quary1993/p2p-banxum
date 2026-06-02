@@ -13,6 +13,7 @@ urlpatterns = [
     path("api/v1/kyc/", include("backend.apps.kyc_compliance.api.urls")),
     path("api/v1/admin-ops/", include("backend.apps.admin_ops.api.urls")),
     path("api/v1/entities/", include("backend.apps.entities.api.urls")),
+    path("api/v1/loans/", include("backend.apps.loans.api.urls")),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
 ]

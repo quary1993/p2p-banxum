@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "test": "vitest",
     "typecheck": "tsc -b --pretty false",
-    "api:generate": "orval --config orval.config.ts"
+    "api:generate": "orval --config orval.config.ts && node scripts/strip-generated-trailing-whitespace.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.80.7",
