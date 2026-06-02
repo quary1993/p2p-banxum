@@ -378,6 +378,50 @@ def test_second_repayment_advances_to_next_unpaid_installment(
     ]
     assert {holding.current_principal_minor for holding in holdings} == {0}
     assert {holding.status for holding in holdings} == {"closed"}
+    cast(Any, loan).refresh_from_db()
+    assert cast(Any, loan).status == "repaid"
+    assert DomainEvent.objects.filter(
+        event_type="LoanServicingStatusChanged",
+        aggregate_id=str(loan.pk),
+        payload__new_status="repaid",
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_status_scan_marks_fully_paid_late_loan_repaid(
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+    first = record_borrower_repayment(_repayment_command(admin_user, loan))
+    second = record_borrower_repayment(
+        _repayment_command(
+            admin_user,
+            loan,
+            amount_minor=27_200_00,
+            idempotency_key="servicing-scan-repaid-second",
+        )
+    )
+    cast(Any, loan).status = "late"
+    cast(Any, loan).save(update_fields=["status", "updated_at"])
+
+    result = scan_loan_servicing_statuses(
+        ScanLoanServicingStatusesCommand(
+            actor=admin_user,
+            as_of_date=date(2026, 4, 1),
+            loan_ids=(str(loan.pk),),
+        )
+    )
+    cast(Any, loan).refresh_from_db()
+
+    assert first.repayment_event.installment.installment_number == 1
+    assert second.repayment_event.installment.installment_number == 2
+    assert cast(Any, loan).status == "repaid"
+    assert len(result.changes) == 1
+    assert result.changes[0].previous_status == "late"
+    assert result.changes[0].new_status == "repaid"
+    assert result.changes[0].outstanding_minor == 0
 
 
 @pytest.mark.django_db

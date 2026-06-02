@@ -47,6 +47,7 @@ REQUEST_FINGERPRINT_METADATA_KEY = "request_fingerprint"
 LOAN_STATUS_FUNDED = "funded"
 LOAN_STATUS_LATE = "late"
 LOAN_STATUS_DEFAULTED = "defaulted"
+LOAN_STATUS_REPAID = "repaid"
 REPAYMENT_ALLOWED_LOAN_STATUSES = {LOAN_STATUS_FUNDED, LOAN_STATUS_LATE}
 STATUS_SCAN_LOAN_STATUSES = {LOAN_STATUS_FUNDED, LOAN_STATUS_LATE}
 LATE_THRESHOLD_DAYS = 5
@@ -281,7 +282,7 @@ def _first_outstanding_installment_status(
         if days_past_due >= LATE_THRESHOLD_DAYS:
             return LOAN_STATUS_LATE, days_past_due, outstanding, cast(Model, installment)
         return LOAN_STATUS_FUNDED, days_past_due, outstanding, cast(Model, installment)
-    return LOAN_STATUS_FUNDED, 0, 0, None
+    return LOAN_STATUS_REPAID, 0, 0, None
 
 
 def _record_loan_servicing_status_change(
@@ -376,13 +377,14 @@ def _refresh_loan_status_after_repayment(
     repayment_event_id: str,
 ) -> LoanServicingStatusChange | None:
     loan_ref = cast(Any, loan)
-    if str(loan_ref.status) != LOAN_STATUS_LATE:
+    if str(loan_ref.status) not in {LOAN_STATUS_FUNDED, LOAN_STATUS_LATE}:
         return None
     new_status, days_past_due, outstanding, installment = _first_outstanding_installment_status(
         loan,
         as_of_date=as_of_date,
     )
     if new_status == LOAN_STATUS_DEFAULTED:
+        # Repayment recording never escalates a loan into default; the status scanner owns that.
         return None
     return _record_loan_servicing_status_change(
         loan=loan,
