@@ -12,6 +12,17 @@ from backend.apps.ledger.models import (
 )
 
 
+class ReadOnlyLedgerAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
+    def has_add_permission(self, request, obj=None):  # type: ignore[no-untyped-def]
+        return False
+
+    def has_change_permission(self, request, obj=None):  # type: ignore[no-untyped-def]
+        return False
+
+    def has_delete_permission(self, request, obj=None):  # type: ignore[no-untyped-def]
+        return False
+
+
 @admin.register(LedgerAccount)
 class LedgerAccountAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     list_display = ("code", "account_type", "currency", "owner_type", "owner_id", "is_active")
@@ -21,7 +32,7 @@ class LedgerAccountAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
 
 
 @admin.register(BankOperation)
-class BankOperationAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
+class BankOperationAdmin(ReadOnlyLedgerAdmin):
     list_display = (
         "operation_type",
         "status",
@@ -35,12 +46,9 @@ class BankOperationAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     search_fields = ("bank_reference", "payment_reference", "linked_object_id")
     readonly_fields = tuple(field.name for field in BankOperation._meta.fields)
 
-    def has_add_permission(self, request, obj=None):  # type: ignore[no-untyped-def]
-        return False
-
 
 @admin.register(LedgerJournalEntry)
-class LedgerJournalEntryAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
+class LedgerJournalEntryAdmin(ReadOnlyLedgerAdmin):
     list_display = (
         "event_type",
         "direction",
@@ -54,23 +62,17 @@ class LedgerJournalEntryAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     search_fields = ("source_id", "bank_reference", "idempotency_key")
     readonly_fields = tuple(field.name for field in LedgerJournalEntry._meta.fields)
 
-    def has_add_permission(self, request, obj=None):  # type: ignore[no-untyped-def]
-        return False
-
 
 @admin.register(LedgerPosting)
-class LedgerPostingAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
+class LedgerPostingAdmin(ReadOnlyLedgerAdmin):
     list_display = ("journal_entry", "account", "side", "amount_minor", "currency")
     list_filter = ("side", "currency", "account__account_type")
     search_fields = ("journal_entry__id", "account__code", "memo")
     readonly_fields = tuple(field.name for field in LedgerPosting._meta.fields)
 
-    def has_add_permission(self, request, obj=None):  # type: ignore[no-untyped-def]
-        return False
-
 
 @admin.register(InvestorBalanceLot)
-class InvestorBalanceLotAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
+class InvestorBalanceLotAdmin(ReadOnlyLedgerAdmin):
     list_display = (
         "investor_user_id",
         "currency",
@@ -82,11 +84,11 @@ class InvestorBalanceLotAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     )
     list_filter = ("status", "currency", "source_type")
     search_fields = ("investor_user_id", "source_id")
-    readonly_fields = ("id", "created_at", "updated_at")
+    readonly_fields = tuple(field.name for field in InvestorBalanceLot._meta.fields)
 
 
 @admin.register(ReconciliationSnapshot)
-class ReconciliationSnapshotAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
+class ReconciliationSnapshotAdmin(ReadOnlyLedgerAdmin):
     list_display = (
         "currency",
         "as_of_date",
@@ -98,6 +100,3 @@ class ReconciliationSnapshotAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     list_filter = ("currency", "as_of_date")
     search_fields = ("created_by_admin_id", "notes")
     readonly_fields = tuple(field.name for field in ReconciliationSnapshot._meta.fields)
-
-    def has_add_permission(self, request, obj=None):  # type: ignore[no-untyped-def]
-        return False

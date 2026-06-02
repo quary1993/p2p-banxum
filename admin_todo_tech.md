@@ -453,6 +453,21 @@ Decision:
 
 ## Non-Blocking
 
+### PostgreSQL Ledger Integrity Test Target
+
+Needed before first production money movement.
+
+What the technical team must add:
+
+- A Docker/PostgreSQL-backed ledger test target, for example `make test-ledger-postgres`.
+- Raw SQL append-only trigger tests for ledger bank operations, journal entries, postings, reconciliation snapshots, platform audit events, domain events, settings versions, KYC provider events, admin task events, borrower events, and loan events against PostgreSQL.
+- A real duplicate-idempotency race test against PostgreSQL for ledger journal posting and lender deposit declaration.
+- CI or release-candidate instructions that run this target before any production deployment that handles real client money.
+
+Why this is non-blocking:
+
+The current local and CI test stack validates the ledger invariants on SQLite and the production migrations install PostgreSQL triggers. Feature implementation can continue, but PostgreSQL has different trigger, locking, and transaction semantics, so production-specific ledger guarantees must be verified before go-live with real funds.
+
 ### Future Managed-Service Migration
 
 Needed when traffic, operational risk, or compliance expectations justify higher infrastructure cost.

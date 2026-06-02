@@ -11,6 +11,7 @@ from django.db.models import Model
 from django.test import Client
 
 from backend.apps.ledger.models import (
+    BalanceLotStatus,
     BankOperation,
     InvestorBalanceLot,
     LedgerAccountType,
@@ -102,7 +103,10 @@ def _deposit_command(
 def _journal_command(
     admin_user: Model,
     *,
+    amount_minor: int = 100_00,
     idempotency_key: str = "journal-1",
+    value_date: date = date(2026, 1, 1),
+    received_at: datetime | None = None,
 ) -> PostJournalEntryCommand:
     currency = Currency.objects.get(code="CHF")
     collection_cash = get_or_create_ledger_account(
@@ -120,18 +124,18 @@ def _journal_command(
         event_type="journal_race_test",
         direction=LedgerDirection.IN,
         currency="CHF",
-        gross_amount_minor=100_00,
-        net_amount_minor=100_00,
-        booking_date=date(2026, 1, 1),
-        value_date=date(2026, 1, 1),
-        effective_at=_received_at(date(2026, 1, 1)),
-        received_at=_received_at(date(2026, 1, 1)),
+        gross_amount_minor=amount_minor,
+        net_amount_minor=amount_minor,
+        booking_date=value_date,
+        value_date=value_date,
+        effective_at=_received_at(value_date),
+        received_at=received_at or _received_at(value_date),
         source_type="test",
         source_id=idempotency_key,
         idempotency_key=idempotency_key,
         postings=[
-            PostingCommand(collection_cash, LedgerPostingSide.DEBIT, 100_00),
-            PostingCommand(investor_liability, LedgerPostingSide.CREDIT, 100_00),
+            PostingCommand(collection_cash, LedgerPostingSide.DEBIT, amount_minor),
+            PostingCommand(investor_liability, LedgerPostingSide.CREDIT, amount_minor),
         ],
     )
 
@@ -175,6 +179,53 @@ def test_post_journal_entry_requires_balanced_postings(admin_user: Model) -> Non
 
 
 @pytest.mark.django_db
+def test_post_journal_entry_rejects_same_account_on_both_sides(admin_user: Model) -> None:
+    currency = Currency.objects.get(code="CHF")
+    collection_cash = get_or_create_ledger_account(
+        account_type=LedgerAccountType.COLLECTION_CASH,
+        currency=currency,
+    )
+
+    with pytest.raises(LedgerValidationError, match="both sides"):
+        post_journal_entry(
+            PostJournalEntryCommand(
+                actor=admin_user,
+                event_type="test_same_account",
+                direction=LedgerDirection.INTERNAL,
+                currency="CHF",
+                gross_amount_minor=100_00,
+                net_amount_minor=100_00,
+                booking_date=date(2026, 1, 1),
+                value_date=date(2026, 1, 1),
+                effective_at=_received_at(date(2026, 1, 1)),
+                received_at=_received_at(date(2026, 1, 1)),
+                source_type="test",
+                source_id="same-account",
+                idempotency_key="journal-same-account",
+                postings=[
+                    PostingCommand(collection_cash, LedgerPostingSide.DEBIT, 100_00),
+                    PostingCommand(collection_cash, LedgerPostingSide.CREDIT, 100_00),
+                ],
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_post_journal_entry_rejects_received_at_that_contradicts_value_date(
+    admin_user: Model,
+) -> None:
+    with pytest.raises(LedgerValidationError, match="Received timestamp"):
+        post_journal_entry(
+            _journal_command(
+                admin_user,
+                idempotency_key="journal-bad-received-at",
+                value_date=date(2026, 1, 2),
+                received_at=_received_at(date(2026, 1, 1)),
+            )
+        )
+
+
+@pytest.mark.django_db
 def test_lender_deposit_posts_double_entry_and_creates_balance_lot(
     admin_user: Model,
     investor: Model,
@@ -212,6 +263,79 @@ def test_lender_deposit_is_idempotent(admin_user: Model, investor: Model) -> Non
     assert BankOperation.objects.count() == 1
     assert LedgerJournalEntry.objects.count() == 1
     assert InvestorBalanceLot.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_lender_deposit_idempotency_key_rejects_different_payload(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    declare_lender_deposit(
+        _deposit_command(admin_user, investor, idempotency_key="deposit-mismatch")
+    )
+
+    with pytest.raises(LedgerValidationError, match="different request"):
+        declare_lender_deposit(
+            _deposit_command(
+                admin_user,
+                investor,
+                amount_minor=101_00,
+                idempotency_key="deposit-mismatch",
+            )
+        )
+
+    assert BankOperation.objects.filter(idempotency_key="deposit-mismatch").count() == 1
+    assert InvestorBalanceLot.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_post_journal_entry_idempotency_key_rejects_different_payload(
+    admin_user: Model,
+) -> None:
+    post_journal_entry(_journal_command(admin_user, idempotency_key="journal-mismatch"))
+
+    with pytest.raises(LedgerValidationError, match="different request"):
+        post_journal_entry(
+            _journal_command(
+                admin_user,
+                amount_minor=101_00,
+                idempotency_key="journal-mismatch",
+            )
+        )
+
+    assert LedgerJournalEntry.objects.filter(idempotency_key="journal-mismatch").count() == 1
+
+
+@pytest.mark.django_db
+def test_lender_deposit_rejects_non_integer_money(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    with pytest.raises(LedgerValidationError, match="integer"):
+        declare_lender_deposit(
+            _deposit_command(
+                admin_user,
+                investor,
+                amount_minor=cast(Any, 100.5),
+                idempotency_key="deposit-float",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_lender_deposit_uses_bounded_derived_journal_idempotency_key(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    source_key = "x" * 160
+
+    result = declare_lender_deposit(
+        _deposit_command(admin_user, investor, idempotency_key=source_key)
+    )
+
+    assert result.bank_operation.idempotency_key == source_key
+    assert result.journal_entry.idempotency_key.startswith("ledger:")
+    assert len(result.journal_entry.idempotency_key) <= 160
 
 
 @pytest.mark.django_db
@@ -299,6 +423,54 @@ def test_balance_summary_classifies_30_and_60_day_ageing(
 
 
 @pytest.mark.django_db
+def test_balance_summary_excludes_consumed_lots(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    result = declare_lender_deposit(_deposit_command(admin_user, investor))
+    InvestorBalanceLot.objects.filter(id=result.balance_lot.id).update(
+        status=BalanceLotStatus.CONSUMED,
+        available_amount_minor=0,
+        invested_amount_minor=100_00,
+    )
+
+    summary = summarize_investor_balance(
+        investor_user_id=str(investor.pk),
+        currency="CHF",
+        as_of=_received_at(date(2026, 1, 11)),
+    )
+
+    assert summary.total_available_minor == 0
+    assert summary.investable_minor == 0
+
+
+@pytest.mark.django_db
+def test_balance_lot_amount_conservation_is_db_enforced(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    result = declare_lender_deposit(_deposit_command(admin_user, investor))
+
+    with pytest.raises(DatabaseError), transaction.atomic():
+        InvestorBalanceLot.objects.filter(id=result.balance_lot.id).update(
+            available_amount_minor=99_00,
+        )
+
+
+@pytest.mark.django_db
+def test_terminal_balance_lot_status_requires_zero_available_amount(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    result = declare_lender_deposit(_deposit_command(admin_user, investor))
+
+    with pytest.raises(DatabaseError), transaction.atomic():
+        InvestorBalanceLot.objects.filter(id=result.balance_lot.id).update(
+            status=BalanceLotStatus.CONSUMED,
+        )
+
+
+@pytest.mark.django_db
 def test_investment_consumption_plan_uses_fifo_and_funding_deadline(
     admin_user: Model,
     investor: Model,
@@ -370,10 +542,60 @@ def test_reconciliation_snapshot_compares_bank_to_investor_liability(
 
     assert balanced.investor_balance_liability_minor == 100_00
     assert balanced.reconciliation_difference_minor == 0
+    assert balanced.metadata["bank_to_collection_cash_difference_minor"] == 0
+    assert balanced.metadata["investor_balance_integrity_breaks"] == []
     assert broken.reconciliation_difference_minor == -10_00
+    assert broken.metadata["bank_to_collection_cash_difference_minor"] == -10_00
     assert DomainEvent.objects.filter(
         event_type="LedgerReconciliationBreakDetected",
         aggregate_id=str(broken.id),
+    ).exists()
+    assert DomainEvent.objects.filter(
+        event_type="LedgerCashLedgerMismatchDetected",
+        aggregate_id=str(broken.id),
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_reconciliation_snapshot_flags_investor_lot_posting_drift(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    user_model: Any = get_user_model()
+    other_investor = cast(
+        Model,
+        user_model.objects.create_user(
+            email="ledger-investor-two@example.test",
+            full_name="Ledger Investor Two",
+            account_type="natural_person_lender",
+            status="active",
+            is_staff=False,
+        ),
+    )
+    result = declare_lender_deposit(_deposit_command(admin_user, investor))
+    InvestorBalanceLot.objects.filter(id=result.balance_lot.id).update(
+        investor_user_id=other_investor.pk,
+    )
+
+    snapshot = create_reconciliation_snapshot(
+        CreateReconciliationSnapshotCommand(
+            actor=admin_user,
+            currency="CHF",
+            as_of_date=date(2026, 1, 1),
+            bank_stated_balance_minor=100_00,
+        )
+    )
+
+    assert snapshot.reconciliation_difference_minor == 0
+    assert snapshot.metadata["bank_to_collection_cash_difference_minor"] == 0
+    breaks = snapshot.metadata["investor_balance_integrity_breaks"]
+    assert {item["investor_user_id"] for item in breaks} == {
+        str(investor.pk),
+        str(other_investor.pk),
+    }
+    assert DomainEvent.objects.filter(
+        event_type="LedgerInvestorBalanceIntegrityBreakDetected",
+        aggregate_id=str(snapshot.id),
     ).exists()
 
 
@@ -455,6 +677,7 @@ def test_ledger_append_only_records_have_app_and_db_guards(
     for record, model, table in guarded_records:
         assert record is not None
         record_id = record.pk
+        db_record_id = record_id.hex
         with pytest.raises(AppendOnlyViolation):
             record.save()
         with pytest.raises(AppendOnlyViolation):
@@ -462,10 +685,15 @@ def test_ledger_append_only_records_have_app_and_db_guards(
         with pytest.raises(AppendOnlyViolation):
             model.objects.filter(pk=record_id).delete()
 
-        with pytest.raises(DatabaseError), transaction.atomic():
+        with pytest.raises(DatabaseError) as update_error, transaction.atomic():
             with connection.cursor() as cursor:
-                cursor.execute(f"UPDATE {table} SET id = %s WHERE id = %s", [record_id, record_id])
+                cursor.execute(
+                    f"UPDATE {table} SET id = %s WHERE id = %s",
+                    [db_record_id, db_record_id],
+                )
+        assert "append-only" in str(update_error.value)
 
-        with pytest.raises(DatabaseError), transaction.atomic():
+        with pytest.raises(DatabaseError) as delete_error, transaction.atomic():
             with connection.cursor() as cursor:
-                cursor.execute(f"DELETE FROM {table} WHERE id = %s", [record_id])
+                cursor.execute(f"DELETE FROM {table} WHERE id = %s", [db_record_id])
+        assert "append-only" in str(delete_error.value)

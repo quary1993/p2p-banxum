@@ -7,7 +7,7 @@ COMPOSE ?= docker compose
 TEST ?=
 MIGRATION_CHECK_DATABASE_URL ?= sqlite:///:memory:
 
-.PHONY: setup up down test test-backend test-frontend lint lint-backend lint-frontend lint-imports typecheck typecheck-backend typecheck-frontend migrate migration-check seed bootstrap-superadmin api-schema api-client check-generated agent-check backend-run frontend-run docker-build frontend-build
+.PHONY: setup up down test test-backend test-ledger test-frontend lint lint-backend lint-frontend lint-imports typecheck typecheck-backend typecheck-frontend migrate migration-check seed bootstrap-superadmin api-schema api-client check-generated agent-check backend-run frontend-run docker-build frontend-build
 
 setup:
 	$(UV) sync --python $(PYTHON_VERSION) --group dev
@@ -29,6 +29,9 @@ test: test-backend test-frontend
 
 test-backend:
 	$(UV) run pytest $(if $(TEST),$(TEST),backend)
+
+test-ledger:
+	$(UV) run pytest backend/apps/ledger/tests
 
 test-frontend:
 	cd frontend && $(NPM) run test -- --run

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Any, cast
@@ -28,7 +30,7 @@ from backend.apps.platform_core.domain.access import (
     is_admin_actor,
     is_lender_actor,
 )
-from backend.apps.platform_core.domain.money import Money, normalize_currency
+from backend.apps.platform_core.domain.money import Money, MoneyError, normalize_currency
 from backend.apps.platform_core.domain.time import business_timezone, now_utc, to_business_time
 from backend.apps.platform_core.models import Currency
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
@@ -49,6 +51,8 @@ class LedgerValidationError(LedgerError):
 
 INVESTMENT_DEADLINE_DAYS = 30
 WITHDRAWAL_DEADLINE_DAYS = 60
+MAX_IDEMPOTENCY_KEY_LENGTH = 160
+REQUEST_FINGERPRINT_METADATA_KEY = "request_fingerprint"
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,6 +136,15 @@ class BalanceConsumptionPlanLine:
 
 
 @dataclass(frozen=True, slots=True)
+class InvestorBalanceIntegrityBreak:
+    investor_user_id: str
+    currency: str
+    lot_available_minor: int
+    liability_posting_minor: int
+    difference_minor: int
+
+
+@dataclass(frozen=True, slots=True)
 class CreateReconciliationSnapshotCommand:
     actor: Model
     currency: str
@@ -154,8 +167,28 @@ def _clean_required(value: str, label: str) -> str:
     return cleaned
 
 
+def _clean_idempotency_key(value: str) -> str:
+    key = _clean_required(value, "Idempotency key")
+    if len(key) > MAX_IDEMPOTENCY_KEY_LENGTH:
+        raise LedgerValidationError(
+            f"Idempotency key cannot exceed {MAX_IDEMPOTENCY_KEY_LENGTH} characters."
+        )
+    return key
+
+
+def _derived_idempotency_key(namespace: str, source_key: str) -> str:
+    key = f"{namespace}:{source_key}"
+    if len(key) <= MAX_IDEMPOTENCY_KEY_LENGTH:
+        return key
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    return f"{namespace}:{digest}"
+
+
 def _enabled_currency(currency_code: str) -> Currency:
-    code = normalize_currency(currency_code)
+    try:
+        code = normalize_currency(currency_code)
+    except MoneyError as exc:
+        raise LedgerValidationError(str(exc)) from exc
     currency = Currency.objects.filter(code=code, is_enabled=True).first()
     if currency is None:
         raise LedgerValidationError(f"Currency is not enabled: {code}")
@@ -163,17 +196,48 @@ def _enabled_currency(currency_code: str) -> Currency:
 
 
 def _validate_money(amount_minor: int, currency_code: str, label: str) -> int:
-    Money(amount_minor, currency_code)
+    try:
+        Money(amount_minor, currency_code)
+    except MoneyError as exc:
+        raise LedgerValidationError(str(exc)) from exc
     if amount_minor <= 0:
         raise LedgerValidationError(f"{label} must be positive.")
     return amount_minor
 
 
 def _validate_nonnegative_money(amount_minor: int, currency_code: str, label: str) -> int:
-    Money(amount_minor, currency_code)
+    try:
+        Money(amount_minor, currency_code)
+    except MoneyError as exc:
+        raise LedgerValidationError(str(exc)) from exc
     if amount_minor < 0:
         raise LedgerValidationError(f"{label} cannot be negative.")
     return amount_minor
+
+
+def _stable_json_fingerprint(payload: dict[str, Any]) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _metadata_without_reserved(metadata: dict[str, Any] | None) -> dict[str, Any]:
+    cleaned = dict(metadata or {})
+    cleaned.pop(REQUEST_FINGERPRINT_METADATA_KEY, None)
+    return cleaned
+
+
+def _assert_fingerprint_matches(
+    *,
+    stored_metadata: dict[str, Any],
+    expected_fingerprint: str | None,
+) -> None:
+    if expected_fingerprint is None:
+        return
+    stored_fingerprint = stored_metadata.get(REQUEST_FINGERPRINT_METADATA_KEY)
+    if stored_fingerprint is None:
+        return
+    if stored_fingerprint != expected_fingerprint:
+        raise LedgerValidationError("Idempotency key was already used for a different request.")
 
 
 def _ledger_direction(value: str) -> LedgerDirection:
@@ -260,6 +324,45 @@ def _lot_deadlines(received_at: datetime) -> tuple[datetime, datetime]:
     return investment_deadline_at, withdrawal_deadline_at
 
 
+def _validate_lot_conservation_values(
+    *,
+    original_amount_minor: int,
+    available_amount_minor: int,
+    invested_amount_minor: int = 0,
+    withdrawn_amount_minor: int = 0,
+    penalized_amount_minor: int = 0,
+    currency_code: str,
+) -> None:
+    amounts = {
+        "Original amount": original_amount_minor,
+        "Available amount": available_amount_minor,
+        "Invested amount": invested_amount_minor,
+        "Withdrawn amount": withdrawn_amount_minor,
+        "Penalized amount": penalized_amount_minor,
+    }
+    for label, amount in amounts.items():
+        _validate_nonnegative_money(amount, currency_code, label)
+    consumed_total = (
+        available_amount_minor
+        + invested_amount_minor
+        + withdrawn_amount_minor
+        + penalized_amount_minor
+    )
+    if consumed_total != original_amount_minor:
+        raise LedgerValidationError("Balance-lot amounts must conserve the original amount.")
+
+
+def _validate_lot_conservation(lot: InvestorBalanceLot) -> None:
+    _validate_lot_conservation_values(
+        original_amount_minor=lot.original_amount_minor,
+        available_amount_minor=lot.available_amount_minor,
+        invested_amount_minor=lot.invested_amount_minor,
+        withdrawn_amount_minor=lot.withdrawn_amount_minor,
+        penalized_amount_minor=lot.penalized_amount_minor,
+        currency_code=lot.currency_id,
+    )
+
+
 def _validate_postings(
     *,
     postings: list[PostingCommand],
@@ -269,11 +372,18 @@ def _validate_postings(
         raise LedgerValidationError("A journal entry requires at least two postings.")
     debit_total = 0
     credit_total = 0
+    sides_by_account: dict[str, set[LedgerPostingSide]] = {}
     for posting in postings:
         if posting.account.currency_id != currency.code:
             raise LedgerValidationError("Posting account currency must match journal currency.")
         amount = _validate_money(posting.amount_minor, currency.code, "Posting amount")
         side = _posting_side(posting.side)
+        account_sides = sides_by_account.setdefault(str(posting.account.pk), set())
+        account_sides.add(side)
+        if len(account_sides) > 1:
+            raise LedgerValidationError(
+                "A ledger account cannot appear on both sides of one journal entry."
+            )
         if side == LedgerPostingSide.DEBIT:
             debit_total += amount
         else:
@@ -283,18 +393,111 @@ def _validate_postings(
     return debit_total, credit_total
 
 
-def _existing_journal_entry_for_idempotency(idempotency_key: str) -> LedgerJournalEntry | None:
+def _validate_received_at_matches_value_date(*, received_at: datetime, value_date: date) -> None:
+    if to_business_time(received_at).date() != value_date:
+        raise LedgerValidationError("Received timestamp must match the journal value date.")
+
+
+def _journal_request_fingerprint(
+    command: PostJournalEntryCommand,
+    *,
+    currency_code: str,
+    idempotency_key: str,
+) -> str:
+    actor_ref = actor_ref_for_user(command.actor)
+    metadata = _metadata_without_reserved(command.metadata)
+    return _stable_json_fingerprint(
+        {
+            "actor_type": actor_ref.actor_type,
+            "actor_id": actor_ref.actor_id,
+            "event_type": command.event_type.strip(),
+            "direction": command.direction,
+            "currency": currency_code,
+            "gross_amount_minor": command.gross_amount_minor,
+            "net_amount_minor": command.net_amount_minor,
+            "booking_date": command.booking_date.isoformat(),
+            "value_date": command.value_date.isoformat(),
+            "effective_at": command.effective_at.isoformat(),
+            "received_at": command.received_at.isoformat(),
+            "source_type": command.source_type.strip(),
+            "source_id": command.source_id.strip(),
+            "lender_user_id": str(command.lender_user_id or ""),
+            "borrower_id": str(command.borrower_id or ""),
+            "loan_id": str(command.loan_id or ""),
+            "bank_operation_id": str(command.bank_operation.pk if command.bank_operation else ""),
+            "bank_reference": command.bank_reference.strip(),
+            "evidence_reference": command.evidence_reference.strip(),
+            "tax_metadata": command.tax_metadata or {},
+            "metadata": metadata,
+            "reversal_of_id": str(command.reversal_of.pk if command.reversal_of else ""),
+            "idempotency_key": idempotency_key,
+            "postings": [
+                {
+                    "account_id": str(posting.account.pk),
+                    "side": posting.side,
+                    "amount_minor": posting.amount_minor,
+                    "memo": posting.memo.strip(),
+                }
+                for posting in command.postings
+            ],
+        }
+    )
+
+
+def _deposit_request_fingerprint(
+    command: DeclareLenderDepositCommand,
+    *,
+    currency_code: str,
+    amount_minor: int,
+    idempotency_key: str,
+) -> str:
+    return _stable_json_fingerprint(
+        {
+            "investor_user_id": str(command.investor_user_id),
+            "amount_minor": amount_minor,
+            "currency": currency_code,
+            "booking_date": command.booking_date.isoformat(),
+            "value_date": command.value_date.isoformat(),
+            "collection_account_identifier": command.collection_account_identifier.strip(),
+            "payer_name": command.payer_name.strip(),
+            "payer_account_identifier": command.payer_account_identifier.strip(),
+            "bank_reference": command.bank_reference.strip(),
+            "payment_reference": command.payment_reference.strip(),
+            "evidence_reference": command.evidence_reference.strip(),
+            "notes": command.notes.strip(),
+            "idempotency_key": idempotency_key,
+        }
+    )
+
+
+def _existing_journal_entry_for_idempotency(
+    idempotency_key: str,
+    *,
+    expected_fingerprint: str | None = None,
+) -> LedgerJournalEntry | None:
     existing = LedgerJournalEntry.objects.filter(idempotency_key=idempotency_key).first()
     if existing is None:
         return None
+    _assert_fingerprint_matches(
+        stored_metadata=cast(dict[str, Any], existing.metadata),
+        expected_fingerprint=expected_fingerprint,
+    )
     return cast(LedgerJournalEntry, existing)
 
 
 @transaction.atomic
 def post_journal_entry(command: PostJournalEntryCommand) -> LedgerJournalEntry:
     currency = _enabled_currency(command.currency)
-    idempotency_key = _clean_required(command.idempotency_key, "Idempotency key")
-    existing = _existing_journal_entry_for_idempotency(idempotency_key)
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    request_fingerprint = _journal_request_fingerprint(
+        command,
+        currency_code=currency.code,
+        idempotency_key=idempotency_key,
+    )
+    existing = _existing_journal_entry_for_idempotency(
+        idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
     if existing is not None:
         return existing
     _clean_required(command.event_type, "Event type")
@@ -305,8 +508,14 @@ def post_journal_entry(command: PostJournalEntryCommand) -> LedgerJournalEntry:
     _validate_nonnegative_money(command.net_amount_minor, currency.code, "Net amount")
     if command.net_amount_minor > command.gross_amount_minor:
         raise LedgerValidationError("Net amount cannot exceed gross amount.")
+    _validate_received_at_matches_value_date(
+        received_at=command.received_at,
+        value_date=command.value_date,
+    )
     _validate_postings(postings=command.postings, currency=currency)
     actor_ref = actor_ref_for_user(command.actor)
+    metadata = _metadata_without_reserved(command.metadata)
+    metadata[REQUEST_FINGERPRINT_METADATA_KEY] = request_fingerprint
     try:
         with transaction.atomic():
             journal_entry = cast(
@@ -332,13 +541,16 @@ def post_journal_entry(command: PostJournalEntryCommand) -> LedgerJournalEntry:
                     actor_type=actor_ref.actor_type,
                     actor_id=actor_ref.actor_id,
                     tax_metadata=command.tax_metadata or {},
-                    metadata=command.metadata or {},
+                    metadata=metadata,
                     reversal_of=command.reversal_of,
                     idempotency_key=idempotency_key,
                 ),
             )
     except IntegrityError:
-        existing_after_race = _existing_journal_entry_for_idempotency(idempotency_key)
+        existing_after_race = _existing_journal_entry_for_idempotency(
+            idempotency_key,
+            expected_fingerprint=request_fingerprint,
+        )
         if existing_after_race is None:
             raise
         return existing_after_race
@@ -388,10 +600,18 @@ def post_journal_entry(command: PostJournalEntryCommand) -> LedgerJournalEntry:
     return journal_entry
 
 
-def _existing_lender_deposit_result(idempotency_key: str) -> LenderDepositResult | None:
+def _existing_lender_deposit_result(
+    idempotency_key: str,
+    *,
+    expected_fingerprint: str | None = None,
+) -> LenderDepositResult | None:
     existing_operation = BankOperation.objects.filter(idempotency_key=idempotency_key).first()
     if existing_operation is None:
         return None
+    _assert_fingerprint_matches(
+        stored_metadata=cast(dict[str, Any], existing_operation.metadata),
+        expected_fingerprint=expected_fingerprint,
+    )
     existing_journal = existing_operation.journal_entries.first()
     if existing_journal is None:
         raise LedgerValidationError("Existing bank operation has no journal entry.")
@@ -408,20 +628,33 @@ def _existing_lender_deposit_result(idempotency_key: str) -> LenderDepositResult
 @transaction.atomic
 def declare_lender_deposit(command: DeclareLenderDepositCommand) -> LenderDepositResult:
     _require_admin_actor(command.actor)
-    idempotency_key = _clean_required(command.idempotency_key, "Idempotency key")
-    existing_result = _existing_lender_deposit_result(idempotency_key)
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    currency = _enabled_currency(command.currency)
+    amount_minor = _validate_money(command.amount_minor, currency.code, "Deposit amount")
+    request_fingerprint = _deposit_request_fingerprint(
+        command,
+        currency_code=currency.code,
+        amount_minor=amount_minor,
+        idempotency_key=idempotency_key,
+    )
+    existing_result = _existing_lender_deposit_result(
+        idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
     if existing_result is not None:
         return existing_result
 
     investor = _investor_for_id(command.investor_user_id)
-    currency = _enabled_currency(command.currency)
-    amount_minor = _validate_money(command.amount_minor, currency.code, "Deposit amount")
     collection_account_identifier = _clean_required(
         command.collection_account_identifier,
         "Collection account identifier",
     )
     received_at = _received_at_from_value_date(command.value_date)
     confirmed_at = now_utc()
+    bank_operation_metadata = {
+        "matched_investor_email": str(getattr(investor, "email", "")),
+        REQUEST_FINGERPRINT_METADATA_KEY: request_fingerprint,
+    }
     try:
         with transaction.atomic():
             bank_operation = BankOperation.objects.create(
@@ -444,11 +677,14 @@ def declare_lender_deposit(command: DeclareLenderDepositCommand) -> LenderDeposi
                 confirmed_by_admin_id=command.actor.pk,
                 confirmed_at=confirmed_at,
                 notes=command.notes.strip(),
-                metadata={"matched_investor_email": str(getattr(investor, "email", ""))},
+                metadata=bank_operation_metadata,
                 idempotency_key=idempotency_key,
             )
     except IntegrityError:
-        existing_after_race = _existing_lender_deposit_result(idempotency_key)
+        existing_after_race = _existing_lender_deposit_result(
+            idempotency_key,
+            expected_fingerprint=request_fingerprint,
+        )
         if existing_after_race is None:
             raise
         return existing_after_race
@@ -482,7 +718,7 @@ def declare_lender_deposit(command: DeclareLenderDepositCommand) -> LenderDeposi
             bank_operation=bank_operation,
             bank_reference=command.bank_reference,
             evidence_reference=command.evidence_reference,
-            idempotency_key=f"ledger:{idempotency_key}",
+            idempotency_key=_derived_idempotency_key("ledger", idempotency_key),
             postings=[
                 PostingCommand(
                     account=collection_cash_account,
@@ -504,6 +740,11 @@ def declare_lender_deposit(command: DeclareLenderDepositCommand) -> LenderDeposi
         )
     )
     investment_deadline_at, withdrawal_deadline_at = _lot_deadlines(received_at)
+    _validate_lot_conservation_values(
+        original_amount_minor=amount_minor,
+        available_amount_minor=amount_minor,
+        currency_code=currency.code,
+    )
     balance_lot = InvestorBalanceLot.objects.create(
         investor_user_id=investor.pk,
         currency=currency,
@@ -569,22 +810,24 @@ def summarize_investor_balance(
     frozen = 0
     penalty_mode = 0
     for lot in lots:
+        _validate_lot_conservation(lot)
         amount = lot.available_amount_minor
         if amount <= 0:
             continue
-        total_available += amount
         if lot.status == BalanceLotStatus.FROZEN:
+            total_available += amount
             frozen += amount
         elif lot.status == BalanceLotStatus.PENALTY_MODE:
+            total_available += amount
             penalty_mode += amount
-        elif lot.status != BalanceLotStatus.AVAILABLE:
-            continue
-        elif now_value > lot.withdrawal_deadline_at:
-            overdue += amount
-        elif now_value > lot.investment_deadline_at:
-            withdraw_only += amount
-        else:
-            investable += amount
+        elif lot.status == BalanceLotStatus.AVAILABLE:
+            total_available += amount
+            if now_value > lot.withdrawal_deadline_at:
+                overdue += amount
+            elif now_value > lot.investment_deadline_at:
+                withdraw_only += amount
+            else:
+                investable += amount
     return BalanceSummary(
         investor_user_id=investor_user_id,
         currency=currency_model.code,
@@ -620,6 +863,7 @@ def plan_investment_balance_consumption(
         .order_by("received_at", "created_at", "id")
     )
     for lot in lots:
+        _validate_lot_conservation(lot)
         if now_value > lot.investment_deadline_at:
             continue
         investment_deadline_date = to_business_time(lot.investment_deadline_at).date()
@@ -645,6 +889,70 @@ def investor_balance_liability_minor(*, currency: Currency) -> int:
         total=Sum("available_amount_minor")
     )
     return int(aggregate["total"] or 0)
+
+
+def investor_balance_liability_posting_minor(*, currency: Currency) -> int:
+    account_ids = LedgerAccount.objects.filter(
+        currency=currency,
+        account_type=LedgerAccountType.INVESTOR_BALANCE_LIABILITY,
+    ).values_list("id", flat=True)
+    debit_total = (
+        LedgerPosting.objects.filter(
+            account_id__in=account_ids,
+            side=LedgerPostingSide.DEBIT,
+        ).aggregate(total=Sum("amount_minor"))["total"]
+        or 0
+    )
+    credit_total = (
+        LedgerPosting.objects.filter(
+            account_id__in=account_ids,
+            side=LedgerPostingSide.CREDIT,
+        ).aggregate(total=Sum("amount_minor"))["total"]
+        or 0
+    )
+    return int(credit_total) - int(debit_total)
+
+
+def investor_balance_integrity_breaks(
+    *,
+    currency: Currency,
+) -> list[InvestorBalanceIntegrityBreak]:
+    lot_totals: dict[str, int] = {}
+    for lot in InvestorBalanceLot.objects.filter(currency=currency):
+        _validate_lot_conservation(lot)
+        investor_id = str(lot.investor_user_id)
+        lot_totals[investor_id] = lot_totals.get(investor_id, 0) + lot.available_amount_minor
+
+    posting_totals: dict[str, int] = {}
+    postings = LedgerPosting.objects.filter(
+        currency=currency,
+        account__account_type=LedgerAccountType.INVESTOR_BALANCE_LIABILITY,
+        account__owner_type="investor",
+    ).select_related("account")
+    for posting in postings:
+        investor_id = posting.account.owner_id
+        if not investor_id:
+            continue
+        signed_amount = posting.amount_minor
+        if posting.side == LedgerPostingSide.DEBIT:
+            signed_amount = -signed_amount
+        posting_totals[investor_id] = posting_totals.get(investor_id, 0) + signed_amount
+
+    breaks: list[InvestorBalanceIntegrityBreak] = []
+    for investor_id in sorted(set(lot_totals) | set(posting_totals)):
+        lot_total = lot_totals.get(investor_id, 0)
+        posting_total = posting_totals.get(investor_id, 0)
+        if lot_total != posting_total:
+            breaks.append(
+                InvestorBalanceIntegrityBreak(
+                    investor_user_id=investor_id,
+                    currency=currency.code,
+                    lot_available_minor=lot_total,
+                    liability_posting_minor=posting_total,
+                    difference_minor=lot_total - posting_total,
+                )
+            )
+    return breaks
 
 
 def _account_group_balance_minor(
@@ -690,6 +998,8 @@ def create_reconciliation_snapshot(
         "Pending exception balance",
     )
     investor_balance = investor_balance_liability_minor(currency=currency)
+    investor_posting_balance = investor_balance_liability_posting_minor(currency=currency)
+    integrity_breaks = investor_balance_integrity_breaks(currency=currency)
     garanta_accrued = abs(
         _account_group_balance_minor(
             currency=currency,
@@ -702,8 +1012,35 @@ def create_reconciliation_snapshot(
             account_type=LedgerAccountType.SUSPENSE_UNMATCHED_CASH,
         )
     )
+    collection_cash_balance = _account_group_balance_minor(
+        currency=currency,
+        account_type=LedgerAccountType.COLLECTION_CASH,
+    )
     expected = investor_balance + garanta_accrued + suspense + pending_exception_balance
     difference = bank_stated_balance - expected
+    bank_to_collection_cash_difference = bank_stated_balance - collection_cash_balance
+    metadata = dict(command.metadata or {})
+    metadata.update(
+        {
+            "snapshot_semantics": (
+                "current ledger state as of snapshot creation time; "
+                "as_of_date is an admin-selected reconciliation label"
+            ),
+            "investor_balance_liability_posting_minor": investor_posting_balance,
+            "collection_cash_ledger_balance_minor": collection_cash_balance,
+            "bank_to_collection_cash_difference_minor": bank_to_collection_cash_difference,
+            "investor_balance_integrity_breaks": [
+                {
+                    "investor_user_id": item.investor_user_id,
+                    "currency": item.currency,
+                    "lot_available_minor": item.lot_available_minor,
+                    "liability_posting_minor": item.liability_posting_minor,
+                    "difference_minor": item.difference_minor,
+                }
+                for item in integrity_breaks
+            ],
+        }
+    )
     snapshot = cast(
         ReconciliationSnapshot,
         ReconciliationSnapshot.objects.create(
@@ -717,7 +1054,7 @@ def create_reconciliation_snapshot(
             reconciliation_difference_minor=difference,
             created_by_admin_id=command.actor.pk,
             notes=command.notes.strip(),
-            metadata=command.metadata or {},
+            metadata=metadata,
         ),
     )
     actor_ref = actor_ref_for_user(command.actor)
@@ -746,6 +1083,34 @@ def create_reconciliation_snapshot(
                     "difference_minor": difference,
                 },
                 idempotency_key=f"reconciliation:{snapshot.id}:break",
+            )
+        )
+    if bank_to_collection_cash_difference != 0:
+        record_domain_event(
+            DomainEventCommand(
+                event_type="LedgerCashLedgerMismatchDetected",
+                aggregate_type="ReconciliationSnapshot",
+                aggregate_id=str(snapshot.id),
+                payload={
+                    "currency": currency.code,
+                    "as_of_date": command.as_of_date.isoformat(),
+                    "difference_minor": bank_to_collection_cash_difference,
+                },
+                idempotency_key=f"reconciliation:{snapshot.id}:cash-ledger-mismatch",
+            )
+        )
+    if integrity_breaks:
+        record_domain_event(
+            DomainEventCommand(
+                event_type="LedgerInvestorBalanceIntegrityBreakDetected",
+                aggregate_type="ReconciliationSnapshot",
+                aggregate_id=str(snapshot.id),
+                payload={
+                    "currency": currency.code,
+                    "as_of_date": command.as_of_date.isoformat(),
+                    "breaks": metadata["investor_balance_integrity_breaks"],
+                },
+                idempotency_key=f"reconciliation:{snapshot.id}:investor-balance-integrity-break",
             )
         )
     return snapshot

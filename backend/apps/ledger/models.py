@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from django.db import models
+from django.db.models import F, Q
 
 from backend.apps.platform_core.models.base import AppendOnlyModel, TimestampedModel
 
@@ -260,6 +261,32 @@ class InvestorBalanceLot(TimestampedModel):
 
     class Meta:
         ordering = ["received_at", "created_at", "id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(original_amount_minor__gte=0)
+                & Q(available_amount_minor__gte=0)
+                & Q(invested_amount_minor__gte=0)
+                & Q(withdrawn_amount_minor__gte=0)
+                & Q(penalized_amount_minor__gte=0),
+                name="ledger_balance_lot_amounts_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    original_amount_minor=F("available_amount_minor")
+                    + F("invested_amount_minor")
+                    + F("withdrawn_amount_minor")
+                    + F("penalized_amount_minor")
+                ),
+                name="ledger_balance_lot_amounts_conserved",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    ~Q(status__in=[BalanceLotStatus.CONSUMED, BalanceLotStatus.PENALTY_EXHAUSTED])
+                    | Q(available_amount_minor=0)
+                ),
+                name="ledger_balance_lot_terminal_zero_available",
+            ),
+        ]
         indexes = [
             models.Index(fields=["investor_user_id", "currency", "status"]),
             models.Index(fields=["currency", "investment_deadline_at"]),
