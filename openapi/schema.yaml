@@ -1754,6 +1754,32 @@ paths:
               schema:
                 $ref: '#/components/schemas/PrimaryInvestmentOrder'
           description: ''
+  /api/v1/servicing/admin/borrower-repayments/:
+    post:
+      operationId: v1_servicing_admin_borrower_repayments_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BorrowerRepaymentRecordRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BorrowerRepaymentRecordRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BorrowerRepaymentRecordRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BorrowerRepaymentRecordResponse'
+          description: ''
 components:
   schemas:
     AccountAccessChangeRequest:
@@ -2717,6 +2743,156 @@ components:
         * `manual_review` - Manual review
         * `expired` - Expired
         * `reverification_required` - Re-verification required
+    BorrowerRepaymentEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        loan_id:
+          type: string
+          format: uuid
+        installment_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+        amount_minor:
+          type: integer
+        currency:
+          type: string
+        booking_date:
+          type: string
+          format: date
+        value_date:
+          type: string
+          format: date
+        received_at:
+          type: string
+          format: date-time
+        expected_due_minor:
+          type: integer
+        interest_applied_minor:
+          type: integer
+        principal_applied_minor:
+          type: integer
+        fees_applied_minor:
+          type: integer
+        penalties_applied_minor:
+          type: integer
+        remaining_installment_interest_minor:
+          type: integer
+        remaining_installment_principal_minor:
+          type: integer
+        warning_acknowledged:
+          type: boolean
+        bank_operation_id:
+          type: string
+          format: uuid
+        journal_entry_id:
+          type: string
+          format: uuid
+        created_by_admin_id:
+          type: string
+          format: uuid
+        notes:
+          type: string
+        metadata: {}
+        idempotency_key:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - amount_minor
+      - bank_operation_id
+      - booking_date
+      - created_at
+      - created_by_admin_id
+      - currency
+      - event_type
+      - expected_due_minor
+      - fees_applied_minor
+      - id
+      - idempotency_key
+      - installment_id
+      - interest_applied_minor
+      - journal_entry_id
+      - loan_id
+      - metadata
+      - notes
+      - penalties_applied_minor
+      - principal_applied_minor
+      - received_at
+      - remaining_installment_interest_minor
+      - remaining_installment_principal_minor
+      - updated_at
+      - value_date
+      - warning_acknowledged
+    BorrowerRepaymentRecordRequest:
+      type: object
+      properties:
+        loan_id:
+          type: string
+          format: uuid
+        amount_minor:
+          type: integer
+          minimum: 1
+        booking_date:
+          type: string
+          format: date
+        value_date:
+          type: string
+          format: date
+        collection_account_identifier:
+          type: string
+          maxLength: 128
+        payer_name:
+          type: string
+          maxLength: 255
+        payer_account_identifier:
+          type: string
+          maxLength: 128
+        bank_reference:
+          type: string
+          maxLength: 160
+        payment_reference:
+          type: string
+          maxLength: 160
+        evidence_reference:
+          type: string
+          maxLength: 255
+        admin_notes:
+          type: string
+        warning_acknowledged:
+          type: boolean
+          default: false
+        idempotency_key:
+          type: string
+          maxLength: 160
+      required:
+      - amount_minor
+      - booking_date
+      - collection_account_identifier
+      - idempotency_key
+      - loan_id
+      - payer_name
+      - value_date
+    BorrowerRepaymentRecordResponse:
+      type: object
+      properties:
+        repayment_event:
+          $ref: '#/components/schemas/BorrowerRepaymentEvent'
+        distribution_lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvestorRepaymentDistributionLine'
+      required:
+      - distribution_lines
+      - repayment_event
     CategoryEnum:
       enum:
       - registration
@@ -3236,6 +3412,57 @@ components:
           $ref: '#/components/schemas/InvestorPayoutInstruction'
       required:
       - payout_instruction
+    InvestorRepaymentDistributionLine:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        repayment_event_id:
+          type: string
+          format: uuid
+        holding_id:
+          type: string
+          format: uuid
+        investor_user_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+        balance_lot_id:
+          type: string
+          format: uuid
+        amount_minor:
+          type: integer
+        principal_minor:
+          type: integer
+        interest_minor:
+          type: integer
+        fee_minor:
+          type: integer
+        current_principal_before_minor:
+          type: integer
+        current_principal_after_minor:
+          type: integer
+        metadata: {}
+        occurred_at:
+          type: string
+          format: date-time
+      required:
+      - amount_minor
+      - balance_lot_id
+      - currency
+      - current_principal_after_minor
+      - current_principal_before_minor
+      - fee_minor
+      - holding_id
+      - id
+      - interest_minor
+      - investor_user_id
+      - metadata
+      - occurred_at
+      - principal_minor
+      - repayment_event_id
     InvestorWithdrawalCancelRequest:
       type: object
       properties:

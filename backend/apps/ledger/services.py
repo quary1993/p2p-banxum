@@ -192,6 +192,40 @@ class FinalizeBorrowerDisbursementCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class InvestorBalanceCreditLineCommand:
+    investor_user_id: str
+    amount_minor: int
+    principal_minor: int = 0
+    interest_minor: int = 0
+    fee_minor: int = 0
+    holding_id: str = ""
+    installment_id: str = ""
+    metadata: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DeclareBorrowerRepaymentDistributionCommand:
+    actor: Model
+    loan_id: str
+    borrower_id: str
+    amount_minor: int
+    currency: str
+    booking_date: date
+    value_date: date
+    collection_account_identifier: str
+    payer_name: str
+    source_type: str
+    source_id: str
+    distribution_lines: list[InvestorBalanceCreditLineCommand]
+    payer_account_identifier: str = ""
+    bank_reference: str = ""
+    payment_reference: str = ""
+    evidence_reference: str = ""
+    admin_notes: str = ""
+    idempotency_key: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class CancelInvestorWithdrawalCommand:
     actor: Model
     withdrawal_request_id: str
@@ -210,6 +244,21 @@ class InvestorWithdrawalFinalizeResult:
 class BorrowerDisbursementFinalizeResult:
     bank_operation: BankOperation
     journal_entry: LedgerJournalEntry
+
+
+@dataclass(frozen=True, slots=True)
+class InvestorBalanceCreditResult:
+    line_index: int
+    investor_user_id: str
+    amount_minor: int
+    balance_lot: InvestorBalanceLot
+
+
+@dataclass(frozen=True, slots=True)
+class BorrowerRepaymentDistributionResult:
+    bank_operation: BankOperation
+    journal_entry: LedgerJournalEntry
+    balance_credits: list[InvestorBalanceCreditResult]
 
 
 @dataclass(frozen=True, slots=True)
@@ -807,6 +856,48 @@ def _borrower_disbursement_finalization_fingerprint(
     )
 
 
+def _borrower_repayment_distribution_fingerprint(
+    command: DeclareBorrowerRepaymentDistributionCommand,
+    *,
+    currency_code: str,
+    amount_minor: int,
+    idempotency_key: str,
+) -> str:
+    return _stable_json_fingerprint(
+        {
+            "loan_id": str(command.loan_id),
+            "borrower_id": str(command.borrower_id),
+            "amount_minor": amount_minor,
+            "currency": currency_code,
+            "booking_date": command.booking_date.isoformat(),
+            "value_date": command.value_date.isoformat(),
+            "collection_account_identifier": command.collection_account_identifier.strip(),
+            "payer_name": command.payer_name.strip(),
+            "payer_account_identifier": command.payer_account_identifier.strip(),
+            "bank_reference": command.bank_reference.strip(),
+            "payment_reference": command.payment_reference.strip(),
+            "evidence_reference": command.evidence_reference.strip(),
+            "admin_notes": command.admin_notes.strip(),
+            "source_type": command.source_type.strip(),
+            "source_id": command.source_id.strip(),
+            "idempotency_key": idempotency_key,
+            "distribution_lines": [
+                {
+                    "investor_user_id": str(line.investor_user_id),
+                    "amount_minor": line.amount_minor,
+                    "principal_minor": line.principal_minor,
+                    "interest_minor": line.interest_minor,
+                    "fee_minor": line.fee_minor,
+                    "holding_id": str(line.holding_id),
+                    "installment_id": str(line.installment_id),
+                    "metadata": line.metadata or {},
+                }
+                for line in command.distribution_lines
+            ],
+        }
+    )
+
+
 def _withdrawal_cancellation_fingerprint(
     command: CancelInvestorWithdrawalCommand,
     *,
@@ -1263,6 +1354,40 @@ def _existing_borrower_disbursement_finalization_for_idempotency(
     return BorrowerDisbursementFinalizeResult(
         cast(BankOperation, bank_operation),
         cast(LedgerJournalEntry, journal_entry),
+    )
+
+
+def _existing_borrower_repayment_distribution_for_idempotency(
+    idempotency_key: str,
+    *,
+    expected_fingerprint: str | None = None,
+) -> BorrowerRepaymentDistributionResult | None:
+    bank_operation = BankOperation.objects.filter(idempotency_key=idempotency_key).first()
+    if bank_operation is None:
+        return None
+    _assert_fingerprint_matches(
+        stored_metadata=cast(dict[str, Any], bank_operation.metadata),
+        expected_fingerprint=expected_fingerprint,
+    )
+    journal_entry = bank_operation.journal_entries.first()
+    if journal_entry is None:
+        raise LedgerValidationError(
+            "Existing borrower repayment bank operation has no journal entry."
+        )
+    credits: list[InvestorBalanceCreditResult] = []
+    for index, lot in enumerate(journal_entry.balance_lots.order_by("created_at", "id")):
+        credits.append(
+            InvestorBalanceCreditResult(
+                line_index=index,
+                investor_user_id=str(lot.investor_user_id),
+                amount_minor=lot.original_amount_minor,
+                balance_lot=cast(InvestorBalanceLot, lot),
+            )
+        )
+    return BorrowerRepaymentDistributionResult(
+        cast(BankOperation, bank_operation),
+        cast(LedgerJournalEntry, journal_entry),
+        credits,
     )
 
 
@@ -1919,6 +2044,297 @@ def finalize_borrower_disbursement(
         )
     )
     return BorrowerDisbursementFinalizeResult(bank_operation, journal_entry)
+
+
+def _validated_balance_credit_lines(
+    lines: list[InvestorBalanceCreditLineCommand],
+    *,
+    currency_code: str,
+) -> list[InvestorBalanceCreditLineCommand]:
+    if not lines:
+        raise LedgerValidationError("At least one investor balance credit line is required.")
+    validated: list[InvestorBalanceCreditLineCommand] = []
+    for line in lines:
+        _lender_account_for_id(line.investor_user_id)
+        amount_minor = _validate_money(
+            line.amount_minor,
+            currency_code,
+            "Distribution line amount",
+        )
+        principal_minor = _validate_nonnegative_money(
+            line.principal_minor,
+            currency_code,
+            "Distribution line principal",
+        )
+        interest_minor = _validate_nonnegative_money(
+            line.interest_minor,
+            currency_code,
+            "Distribution line interest",
+        )
+        fee_minor = _validate_nonnegative_money(
+            line.fee_minor,
+            currency_code,
+            "Distribution line fee",
+        )
+        if principal_minor + interest_minor - fee_minor != amount_minor:
+            raise LedgerValidationError(
+                "Distribution line amount must equal principal plus interest minus fee."
+            )
+        validated.append(
+            InvestorBalanceCreditLineCommand(
+                investor_user_id=str(line.investor_user_id),
+                amount_minor=amount_minor,
+                principal_minor=principal_minor,
+                interest_minor=interest_minor,
+                fee_minor=fee_minor,
+                holding_id=str(line.holding_id),
+                installment_id=str(line.installment_id),
+                metadata=line.metadata or {},
+            )
+        )
+    return validated
+
+
+@transaction.atomic
+def declare_borrower_repayment_distribution(
+    command: DeclareBorrowerRepaymentDistributionCommand,
+) -> BorrowerRepaymentDistributionResult:
+    _require_admin_actor(command.actor)
+    currency = _enabled_currency(command.currency)
+    amount_minor = _validate_money(command.amount_minor, currency.code, "Repayment amount")
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    source_type = _clean_required(command.source_type, "Source type")
+    source_id = _clean_required(command.source_id, "Source id")
+    collection_account_identifier = _clean_required(
+        command.collection_account_identifier,
+        "Collection account identifier",
+    )
+    payer_name = _clean_required(command.payer_name, "Payer name")
+    distribution_lines = _validated_balance_credit_lines(
+        command.distribution_lines,
+        currency_code=currency.code,
+    )
+    if sum(line.amount_minor for line in distribution_lines) != amount_minor:
+        raise LedgerValidationError(
+            "Distribution line amounts must sum to the borrower repayment amount."
+        )
+    request_fingerprint = _borrower_repayment_distribution_fingerprint(
+        DeclareBorrowerRepaymentDistributionCommand(
+            actor=command.actor,
+            loan_id=str(command.loan_id),
+            borrower_id=str(command.borrower_id),
+            amount_minor=amount_minor,
+            currency=currency.code,
+            booking_date=command.booking_date,
+            value_date=command.value_date,
+            collection_account_identifier=collection_account_identifier,
+            payer_name=payer_name,
+            source_type=source_type,
+            source_id=source_id,
+            distribution_lines=distribution_lines,
+            payer_account_identifier=command.payer_account_identifier,
+            bank_reference=command.bank_reference,
+            payment_reference=command.payment_reference,
+            evidence_reference=command.evidence_reference,
+            admin_notes=command.admin_notes,
+            idempotency_key=idempotency_key,
+        ),
+        currency_code=currency.code,
+        amount_minor=amount_minor,
+        idempotency_key=idempotency_key,
+    )
+    existing = _existing_borrower_repayment_distribution_for_idempotency(
+        idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing is not None:
+        return existing
+
+    confirmed_at = now_utc()
+    bank_operation_metadata = {
+        REQUEST_FINGERPRINT_METADATA_KEY: request_fingerprint,
+        "loan_id": str(command.loan_id),
+        "borrower_id": str(command.borrower_id),
+        "distribution_line_count": len(distribution_lines),
+    }
+    try:
+        with transaction.atomic():
+            bank_operation = BankOperation.objects.create(
+                operation_type=_bank_operation_type(BankOperationType.BORROWER_REPAYMENT),
+                status=BankOperationStatus.RECONCILED,
+                amount_minor=amount_minor,
+                currency=currency,
+                booking_date=command.booking_date,
+                value_date=command.value_date,
+                collection_account_identifier=collection_account_identifier,
+                payer_name=payer_name,
+                payer_account_identifier=command.payer_account_identifier.strip(),
+                payee_name="Garanta Finanzgruppe AG",
+                payee_account_identifier=collection_account_identifier,
+                bank_reference=command.bank_reference.strip(),
+                payment_reference=command.payment_reference.strip(),
+                linked_object_type="loan",
+                linked_object_id=str(command.loan_id),
+                evidence_reference=command.evidence_reference.strip(),
+                confirmed_by_admin_id=command.actor.pk,
+                confirmed_at=confirmed_at,
+                notes=command.admin_notes.strip(),
+                metadata=bank_operation_metadata,
+                idempotency_key=idempotency_key,
+            )
+    except IntegrityError:
+        existing_after_race = _existing_borrower_repayment_distribution_for_idempotency(
+            idempotency_key,
+            expected_fingerprint=request_fingerprint,
+        )
+        if existing_after_race is None:
+            raise
+        return existing_after_race
+
+    collection_cash_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.COLLECTION_CASH,
+        currency=currency,
+        name=f"{currency.code} collection cash",
+    )
+    postings = [
+        PostingCommand(
+            account=collection_cash_account,
+            side=LedgerPostingSide.DEBIT,
+            amount_minor=amount_minor,
+            memo="Borrower repayment received into collection account",
+        )
+    ]
+    for line in distribution_lines:
+        investor_liability_account = get_or_create_ledger_account(
+            account_type=LedgerAccountType.INVESTOR_BALANCE_LIABILITY,
+            currency=currency,
+            owner_type="investor",
+            owner_id=str(line.investor_user_id),
+            name=f"{currency.code} investor balance liability {line.investor_user_id}",
+        )
+        postings.append(
+            PostingCommand(
+                account=investor_liability_account,
+                side=LedgerPostingSide.CREDIT,
+                amount_minor=line.amount_minor,
+                memo="Borrower repayment distribution credited to investor balance",
+            )
+        )
+    received_at = _received_at_from_value_date(command.value_date)
+    journal_entry = post_journal_entry(
+        PostJournalEntryCommand(
+            actor=command.actor,
+            event_type="borrower_repayment_distributed",
+            direction=LedgerDirection.IN,
+            currency=currency.code,
+            gross_amount_minor=amount_minor,
+            net_amount_minor=amount_minor,
+            booking_date=command.booking_date,
+            value_date=command.value_date,
+            effective_at=confirmed_at,
+            received_at=received_at,
+            source_type=source_type,
+            source_id=source_id,
+            borrower_id=str(command.borrower_id),
+            loan_id=str(command.loan_id),
+            bank_operation=bank_operation,
+            bank_reference=command.bank_reference,
+            evidence_reference=command.evidence_reference,
+            idempotency_key=_derived_idempotency_key("ledger", idempotency_key),
+            postings=postings,
+            tax_metadata={
+                "client_money_flow_minor": amount_minor,
+                "principal_minor": sum(line.principal_minor for line in distribution_lines),
+                "interest_minor": sum(line.interest_minor for line in distribution_lines),
+            },
+            metadata={
+                "bank_operation_type": BankOperationType.BORROWER_REPAYMENT,
+                "loan_id": str(command.loan_id),
+                "borrower_id": str(command.borrower_id),
+                "distribution_line_count": len(distribution_lines),
+            },
+        )
+    )
+    investment_deadline_at, withdrawal_deadline_at = _lot_deadlines(received_at)
+    balance_credits: list[InvestorBalanceCreditResult] = []
+    for index, line in enumerate(distribution_lines):
+        _validate_lot_conservation_values(
+            original_amount_minor=line.amount_minor,
+            available_amount_minor=line.amount_minor,
+            currency_code=currency.code,
+        )
+        balance_lot = InvestorBalanceLot.objects.create(
+            investor_user_id=line.investor_user_id,
+            currency=currency,
+            source_journal_entry=journal_entry,
+            source_type=BalanceLotSourceType.INSTALLMENT,
+            source_id=f"{source_id}:{index}",
+            received_at=received_at,
+            investment_deadline_at=investment_deadline_at,
+            withdrawal_deadline_at=withdrawal_deadline_at,
+            original_amount_minor=line.amount_minor,
+            available_amount_minor=line.amount_minor,
+            lineage=[
+                {
+                    "source_type": source_type,
+                    "source_id": source_id,
+                    "line_index": index,
+                    "loan_id": str(command.loan_id),
+                    "holding_id": line.holding_id,
+                    "installment_id": line.installment_id,
+                    "principal_minor": line.principal_minor,
+                    "interest_minor": line.interest_minor,
+                    "fee_minor": line.fee_minor,
+                    "metadata": line.metadata or {},
+                }
+            ],
+        )
+        balance_credits.append(
+            InvestorBalanceCreditResult(
+                line_index=index,
+                investor_user_id=str(line.investor_user_id),
+                amount_minor=line.amount_minor,
+                balance_lot=balance_lot,
+            )
+        )
+    actor_ref = actor_ref_for_user(command.actor)
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref,
+            action="ledger.borrower_repayment_distributed",
+            target_type="BankOperation",
+            target_id=str(bank_operation.id),
+            metadata={
+                "loan_id": str(command.loan_id),
+                "borrower_id": str(command.borrower_id),
+                "currency": currency.code,
+                "amount_minor": amount_minor,
+                "journal_entry_id": str(journal_entry.id),
+                "balance_lot_ids": [str(credit.balance_lot.id) for credit in balance_credits],
+            },
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="BorrowerRepaymentDistributed",
+            aggregate_type="BankOperation",
+            aggregate_id=str(bank_operation.id),
+            payload={
+                "loan_id": str(command.loan_id),
+                "borrower_id": str(command.borrower_id),
+                "currency": currency.code,
+                "amount_minor": amount_minor,
+                "journal_entry_id": str(journal_entry.id),
+                "balance_lot_ids": [str(credit.balance_lot.id) for credit in balance_credits],
+            },
+            idempotency_key=f"bank-operation:{bank_operation.id}:borrower-repayment-distributed",
+        )
+    )
+    return BorrowerRepaymentDistributionResult(
+        bank_operation=bank_operation,
+        journal_entry=journal_entry,
+        balance_credits=balance_credits,
+    )
 
 
 @transaction.atomic
