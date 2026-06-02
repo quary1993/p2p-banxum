@@ -609,7 +609,7 @@ def _remaining_schedule_rows_after_early_repayment(
             principal_minor=row.principal_minor,
             interest_minor=row.interest_minor,
             total_minor=row.total_minor,
-            admin_overridden=True,
+            admin_overridden=False,
         )
         for index, row in enumerate(rows, start=1)
     ]
@@ -644,7 +644,7 @@ def _recalculate_schedule_after_early_repayment(
         principal_minor=int(installment_ref.principal_minor),
         interest_minor=int(installment_ref.interest_minor),
         total_minor=int(installment_ref.total_minor),
-        admin_overridden=True,
+        admin_overridden=bool(getattr(installment_ref, "admin_overridden", False)),
     )
     schedule_rows = [current_row, *future_rows]
     installment_model = apps.get_model("loans", "LoanInstallment")
@@ -658,7 +658,7 @@ def _recalculate_schedule_after_early_repayment(
                 principal_minor=row.principal_minor,
                 interest_minor=row.interest_minor,
                 total_minor=row.total_minor,
-                admin_overridden=True,
+                admin_overridden=row.admin_overridden,
                 metadata={
                     "previous_schedule_version": previous_schedule_version,
                     "reason": "early_repayment",
@@ -669,6 +669,8 @@ def _recalculate_schedule_after_early_repayment(
         ]
     )
     loan_ref.schedule_version = next_schedule_version
+    # These totals describe the active schedule version. They are not lifetime
+    # principal and are not a substitute for holding balances as outstanding principal.
     loan_ref.total_scheduled_principal_minor = sum(row.principal_minor for row in schedule_rows)
     loan_ref.total_scheduled_interest_minor = sum(row.interest_minor for row in schedule_rows)
     loan_ref.updated_by_admin_id = actor.pk
