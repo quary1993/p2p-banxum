@@ -11,6 +11,7 @@ from django.contrib.auth import get_user_model
 from django.db import DatabaseError, connection, transaction
 from django.db.models import Model
 from django.test import Client
+from django.test.utils import override_settings
 from django.utils import timezone
 
 from backend.apps.fx.models import FxEvent, FxEventType, FxExchange, FxQuote
@@ -20,6 +21,7 @@ from backend.apps.fx.services import (
     FxValidationError,
     IssueFxQuoteCommand,
     ProviderRate,
+    configured_mock_provider_rate,
     create_fx_delta_report,
     execute_fx_quote,
     issue_fx_quote,
@@ -141,6 +143,24 @@ def _deposit(
     return cast(Model, result.balance_lot)
 
 
+def _reconciliation_snapshot(
+    admin_user: Model,
+    *,
+    currency: str,
+    bank_stated_balance_minor: int,
+    as_of_date: date = date(2026, 1, 10),
+) -> Any:
+    ledger = import_module("backend.apps.ledger.services")
+    return ledger.create_reconciliation_snapshot(
+        ledger.CreateReconciliationSnapshotCommand(
+            actor=admin_user,
+            currency=currency,
+            as_of_date=as_of_date,
+            bank_stated_balance_minor=bank_stated_balance_minor,
+        )
+    )
+
+
 def _quote_command(
     investor: Model,
     *,
@@ -240,7 +260,7 @@ def test_issue_fx_quote_rejects_stale_out_of_bounds_and_deviating_provider_rates
 
 
 @pytest.mark.django_db
-def test_execute_fx_quote_consumes_source_lots_and_inherits_latest_deadlines(
+def test_execute_fx_quote_consumes_source_lots_and_inherits_earliest_deadlines(
     admin_user: Model,
     investor: Model,
 ) -> None:
@@ -306,10 +326,10 @@ def test_execute_fx_quote_consumes_source_lots_and_inherits_latest_deadlines(
     assert target_lot.original_amount_minor == 13_002_00
     assert target_lot.available_amount_minor == 13_002_00
     assert target_lot.received_at == as_of
-    assert target_lot.investment_deadline_at == _received_at(date(2026, 1, 5)) + timedelta(
+    assert target_lot.investment_deadline_at == _received_at(date(2026, 1, 1)) + timedelta(
         days=30
     )
-    assert target_lot.withdrawal_deadline_at == _received_at(date(2026, 1, 5)) + timedelta(
+    assert target_lot.withdrawal_deadline_at == _received_at(date(2026, 1, 1)) + timedelta(
         days=60
     )
     assert [allocation["amount_minor"] for allocation in exchange.source_lot_allocations] == [
@@ -342,6 +362,61 @@ def test_execute_fx_quote_consumes_source_lots_and_inherits_latest_deadlines(
         event_type="CurrencyExchangeCompleted",
         aggregate_id=str(exchange.id),
     ).exists()
+
+
+@pytest.mark.django_db
+def test_reconciliation_identity_includes_fx_clearing_and_fee_revenue(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    _deposit(
+        admin_user,
+        investor,
+        amount_minor=12_000_00,
+        idempotency_key="fx-reconciliation-deposit",
+    )
+    as_of = _as_of()
+    quote = issue_fx_quote(
+        _quote_command(
+            investor,
+            amount_minor=12_000_00,
+            idempotency_key="fx-reconciliation-quote",
+            as_of=as_of,
+        )
+    )
+    execute_fx_quote(
+        ExecuteFxQuoteCommand(
+            actor=investor,
+            quote_id=str(quote.id),
+            idempotency_key="fx-reconciliation-execute",
+            as_of=as_of,
+        )
+    )
+
+    chf_snapshot = _reconciliation_snapshot(
+        admin_user,
+        currency="CHF",
+        bank_stated_balance_minor=12_000_00,
+        as_of_date=as_of.date(),
+    )
+    eur_snapshot = _reconciliation_snapshot(
+        admin_user,
+        currency="EUR",
+        bank_stated_balance_minor=0,
+        as_of_date=as_of.date(),
+    )
+
+    assert chf_snapshot.reconciliation_difference_minor == 0
+    assert chf_snapshot.investor_balance_liability_minor == 0
+    assert chf_snapshot.metadata["fx_clearing_signed_balance_minor"] == 12_000_00
+    assert chf_snapshot.metadata["fx_fee_revenue_minor"] == 0
+    assert eur_snapshot.reconciliation_difference_minor == 0
+    assert eur_snapshot.investor_balance_liability_minor == 13_002_00
+    assert eur_snapshot.garanta_accrued_revenue_minor == 198_00
+    assert eur_snapshot.metadata["fx_clearing_signed_balance_minor"] == -13_200_00
+    assert eur_snapshot.metadata["fx_fee_revenue_minor"] == 198_00
+    assert eur_snapshot.metadata["account_sign_anomalies"] == []
 
 
 @pytest.mark.django_db
@@ -585,3 +660,10 @@ def test_fx_append_only_records_have_app_and_db_guards(
             with connection.cursor() as cursor:
                 cursor.execute(f"DELETE FROM {table} WHERE id = %s", [db_record_id])
         assert "append-only" in str(delete_error.value)
+
+
+@pytest.mark.django_db
+@override_settings(IS_PRODUCTION=True)
+def test_mock_fx_provider_is_blocked_in_production() -> None:
+    with pytest.raises(FxValidationError, match="Mock FX provider"):
+        configured_mock_provider_rate(source_currency="CHF", target_currency="EUR")

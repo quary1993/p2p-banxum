@@ -3760,11 +3760,11 @@ def execute_investor_fx_exchange_ledger(
         currency_code=source_currency.code,
         as_of=as_of,
     )
-    inherited_investment_deadline_at = max(
+    inherited_investment_deadline_at = min(
         datetime.fromisoformat(str(allocation["investment_deadline_at"]))
         for allocation in source_allocations
     )
-    inherited_withdrawal_deadline_at = max(
+    inherited_withdrawal_deadline_at = min(
         datetime.fromisoformat(str(allocation["withdrawal_deadline_at"]))
         for allocation in source_allocations
     )
@@ -4214,9 +4214,18 @@ def create_reconciliation_snapshot(
     investor_balance = investor_balance_liability_minor(currency=currency)
     investor_posting_balance = investor_balance_liability_posting_minor(currency=currency)
     integrity_breaks = investor_balance_integrity_breaks(currency=currency)
-    garanta_accrued = _credit_balance_minor(
+    platform_accrued_revenue = _credit_balance_minor(
         currency=currency,
         account_type=LedgerAccountType.GARANTA_ACCRUED_REVENUE,
+    )
+    fx_fee_revenue = _credit_balance_minor(
+        currency=currency,
+        account_type=LedgerAccountType.FX_FEE_REVENUE,
+    )
+    garanta_accrued = platform_accrued_revenue + fx_fee_revenue
+    fx_clearing = _credit_balance_minor(
+        currency=currency,
+        account_type=LedgerAccountType.FX_CLEARING,
     )
     suspense = _credit_balance_minor(
         currency=currency,
@@ -4237,7 +4246,8 @@ def create_reconciliation_snapshot(
     account_sign_anomalies = [
         {"account_type": account_type, "credit_balance_minor": amount}
         for account_type, amount in [
-            (LedgerAccountType.GARANTA_ACCRUED_REVENUE, garanta_accrued),
+            (LedgerAccountType.GARANTA_ACCRUED_REVENUE, platform_accrued_revenue),
+            (LedgerAccountType.FX_FEE_REVENUE, fx_fee_revenue),
             (LedgerAccountType.SUSPENSE_UNMATCHED_CASH, suspense),
             (LedgerAccountType.WITHDRAWAL_PAYABLE, withdrawal_payable),
             (
@@ -4252,6 +4262,7 @@ def create_reconciliation_snapshot(
         + withdrawal_payable
         + borrower_disbursement_payable
         + garanta_accrued
+        + fx_clearing
         + suspense
         + pending_exception_balance
     )
@@ -4265,6 +4276,13 @@ def create_reconciliation_snapshot(
                 "as_of_date is an admin-selected reconciliation label"
             ),
             "investor_balance_liability_posting_minor": investor_posting_balance,
+            "platform_accrued_revenue_minor": platform_accrued_revenue,
+            "fx_fee_revenue_minor": fx_fee_revenue,
+            "fx_clearing_signed_balance_minor": fx_clearing,
+            "fx_clearing_sign_policy": (
+                "signed credit balance; positive means source currency sold by investors, "
+                "negative means target currency receivable credited to investors"
+            ),
             "withdrawal_payable_minor": withdrawal_payable,
             "borrower_disbursement_payable_minor": borrower_disbursement_payable,
             "collection_cash_ledger_balance_minor": collection_cash_balance,

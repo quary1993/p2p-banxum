@@ -8,6 +8,7 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from importlib import import_module
 from typing import Any, cast
 
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Model, Sum
 
@@ -289,6 +290,7 @@ def _chf_equivalent_minor(
         return source_amount_minor
     if target_currency_code == "CHF":
         return gross_target_amount_minor
+    # Launch FX pairs are CHF-based. Cross pairs need a CHF bridge before enablement.
     raise FxValidationError("Daily FX limit currently requires one side of the pair to be CHF.")
 
 
@@ -749,6 +751,8 @@ def configured_mock_provider_rate(
     target_currency: str,
     as_of: datetime | None = None,
 ) -> ProviderRate:
+    if settings.IS_PRODUCTION:
+        raise FxValidationError("Mock FX provider cannot be used in production.")
     source = normalize_currency(source_currency)
     target = normalize_currency(target_currency)
     pair = _pair_key(source, target)

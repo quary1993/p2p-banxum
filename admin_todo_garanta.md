@@ -315,7 +315,7 @@ Resolved legal input:
 
 - FX conversion does not reset the 30/60-day balance-ageing timers.
 - FX target-currency balance entries inherit ageing deadlines from the source balance entries consumed by the exchange.
-- If one FX conversion consumes multiple source balance entries with different deadlines, v1 may use the newest/latest expiry timestamp among the consumed entries for the resulting target-currency balance entry, while retaining full lineage to every consumed source entry.
+- If one FX conversion consumes multiple source balance entries with different deadlines, v1 uses the earliest consumed investment and withdrawal deadlines for the resulting target-currency balance entry, while retaining full lineage to every consumed source entry.
 - Day-60 balance penalties are env/deployment-configurable. Launch default is 1% simple daily penalty on the overdue source balance, applied by Europe/Zurich calendar day, capped at the remaining overdue source balance, never creating a negative balance, with a terminal `penalty_exhausted` source status if fully consumed.
 
 Why this is non-blocking:

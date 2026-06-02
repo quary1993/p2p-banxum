@@ -90,7 +90,7 @@ Balance funds are non-interest-bearing. Registration-time terms must explain tha
 4. Accept FX terms by checkbox/clickwrap before the executable quote expires, or refresh the quote after expiry.
 5. Submit exchange.
 6. Receive the target-currency balance instantly in the platform.
-7. The target-currency source inherits the 30/60-day ageing deadlines from the consumed source balance. If multiple source entries are consumed, the target entry uses the newest/latest consumed expiry timestamp.
+7. The target-currency source inherits the 30/60-day ageing deadlines from the consumed source balance. If multiple source entries are consumed, the target entry uses the earliest consumed investment and withdrawal deadlines.
 8. See exchange status and ledger entries.
 
 FX is an auxiliary settlement function, not a trading or speculative feature. Launch FX fee is 1.5%, configurable by superadmin. Enabled currencies start with CHF and EUR and are configurable by superadmin. Launch FX pairs are CHF/EUR and EUR/CHF only, with more pairs configurable later.

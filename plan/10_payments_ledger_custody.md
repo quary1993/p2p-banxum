@@ -375,7 +375,7 @@ Launch interpretation:
 - If penalty charges fully consume the remaining overdue source balance, the source entry moves to a terminal `penalty_exhausted` status with zero remaining amount. The event remains fully ledgered and reportable.
 - Penalty policy is configured through environment/deployment settings at launch. Reminder schedule and reminder templates remain superadmin-configurable.
 - Currency exchange does not reset the 30/60-day ageing clocks. The target-currency balance source entry inherits ageing deadlines from the source balance entries consumed by the FX transaction.
-- If one FX conversion consumes multiple source balance entries with different expiry timestamps, v1 may use the newest/latest consumed expiry timestamp for the resulting target-currency balance entry. The ledger must retain full lineage to every consumed source entry.
+- If one FX conversion consumes multiple source balance entries with different expiry timestamps, v1 uses the earliest consumed investment and withdrawal deadlines for the resulting target-currency balance entry. The ledger must retain full lineage to every consumed source entry.
 
 Reminder schedule:
 
@@ -503,13 +503,13 @@ The investor portal must show explicit errors when an investor tries to invest w
 - Amount that can be exchanged into another currency if FX is allowed and the source entry is still eligible under ageing rules.
 - Amount in penalty/frozen status.
 
-If an investor exchanges a source entry into another currency, the target-currency entry does not receive fresh 30/60-day ageing deadlines. The target-currency entry inherits the investment/reinvestment deadline and withdrawal deadline from the consumed source entry. If one FX conversion consumes multiple source entries with different deadlines, v1 may set the resulting target-currency entry deadlines from the newest/latest expiry timestamp among the consumed entries. The ledger must retain source lineage to the original funds for audit and regulatory review.
+If an investor exchanges a source entry into another currency, the target-currency entry does not receive fresh 30/60-day ageing deadlines. The target-currency entry inherits the investment/reinvestment deadline and withdrawal deadline from the consumed source entry. If one FX conversion consumes multiple source entries with different deadlines, v1 sets the resulting target-currency entry deadlines from the earliest consumed investment and withdrawal deadlines. The ledger must retain source lineage to the original funds for audit and regulatory review.
 
 Rationale:
 The platform must prevent funds that are already too old from entering another funding period while still giving investors clear usable-balance visibility.
 
 Follow-ups:
-Monitor whether legal/compliance later requires stricter per-source splitting for FX target entries instead of the v1 newest/latest-expiry inheritance rule.
+Monitor whether legal/compliance later requires stricter per-source splitting for FX target entries instead of the v1 earliest-deadline inheritance rule.
 
 ### PAY-DEC-022: Forced Withdrawal, Missing IBAN Freeze, and Penalty Mode
 
@@ -797,7 +797,7 @@ Examples:
 5. Investor reviews the quote. Normal balances and amounts display 2 decimals, while the FX confirmation view may show exchange details with 4 decimals.
 6. Investor accepts the fixed quote and required FX terms before expiry, or refreshes the quote after expiry.
 7. Ledger debits source currency balance and instantly credits target currency balance according to the accepted quote, using FIFO consumption on the source currency. FX rates and intermediate values are stored with at least 6 decimal places and half-up rounding is applied.
-8. The target-currency source entry inherits 30/60-day ageing deadlines from the consumed source balance entries. If multiple source entries are consumed, v1 uses the newest/latest consumed expiry timestamp while retaining source-entry lineage.
+8. The target-currency source entry inherits 30/60-day ageing deadlines from the consumed source balance entries. If multiple source entries are consumed, v1 uses the earliest consumed investment and withdrawal deadlines while retaining source-entry lineage.
 9. Background display-only FX rates are polled separately and may be skipped if sanity checks fail.
 10. Admin queries net FX deltas by day/period.
 11. Admin executes the required external currency exchange at end of day or beginning of next day.
@@ -829,7 +829,7 @@ Examples:
 - Balance source entries must track received timestamp, source type, reinvestment deadline, withdrawal deadline, and remaining amount.
 - FX-generated balance source entries do not reset the 30/60-day ageing clocks.
 - FX-generated balance source entries inherit deadlines from the source currency entries consumed and must retain lineage to those source entries.
-- If one FX conversion consumes multiple source entries with different deadlines, v1 may use the newest/latest consumed expiry timestamp for the target entry.
+- If one FX conversion consumes multiple source entries with different deadlines, v1 uses the earliest consumed investment and withdrawal deadlines for the target entry.
 - Balance consumption is FIFO within each currency.
 - Balance entries older than 30 days cannot be used for primary-market investment, secondary-market purchase, or reinvestment.
 - Primary-market balance-funded orders must be blocked if the loan funding deadline is later than the selected source entries' 30-day investment/reinvestment deadlines.
@@ -914,7 +914,7 @@ Examples:
 18. Answered by PAY-DEC-018: currency exchange is an auxiliary settlement function, not trading/speculation; launch pairs are CHF/EUR and EUR/CHF, with no minimum amount, CHF 100,000 per-investor daily maximum or equivalent configurable by admin, Yahoo Finance source rates, configurable 1.5% launch platform fee, live executable quotes fixed for 1 minute, background display polling, same-provider sanity checks, at-least-6-decimal stored precision, 2-decimal normal display, 4-decimal FX confirmation display, and half-up rounding.
 19. Answered by PAY-DEC-019: all money movements are ledgered with `in`/`out` direction and source-level received timestamps.
 20. Answered by PAY-DEC-020: admin can query FX deltas by day/period and record external FX execution.
-21. Answered by PAY-DEC-021: balance source entries are consumed FIFO; entries older than 30 days cannot be invested/reinvested and are withdraw-only. Balance-funded primary-market orders are blocked if the loan funding deadline exceeds the consumed source entries' remaining 30-day investment window. FX conversion does not reset ageing or restore investment eligibility; target-currency entries inherit deadlines from consumed source entries, using the newest/latest consumed expiry timestamp when multiple source entries are consumed in one exchange.
+21. Answered by PAY-DEC-021: balance source entries are consumed FIFO; entries older than 30 days cannot be invested/reinvested and are withdraw-only. Balance-funded primary-market orders are blocked if the loan funding deadline exceeds the consumed source entries' remaining 30-day investment window. FX conversion does not reset ageing or restore investment eligibility; target-currency entries inherit deadlines from consumed source entries, using the earliest consumed investment and withdrawal deadlines when multiple source entries are consumed in one exchange.
 22. Answered by PAY-DEC-022: day-60 funds trigger forced withdrawal if usable IBAN is known; otherwise penalty mode freezes financial actions until usable IBAN is declared while preserving read-only access. Withdrawals are final in-platform once admin records execution; later bank failures/returns are handled offline.
 23. Answered by PAY-DEC-023: deposits and installment payments use bank value date; secondary-market and FX events use internal transaction timestamp.
 24. Answered by PAY-DEC-024/PAY-DEC-027: investor FX settles instantly in platform balances; admin settles external FX at end of day or next morning using delta reports and records final realized sold/bought amounts from which the platform infers actual execution rate including fees/costs.
