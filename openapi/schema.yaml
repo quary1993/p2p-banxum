@@ -4464,9 +4464,6 @@ components:
           type: string
         admin_notes:
           type: string
-        metadata: {}
-        idempotency_key:
-          type: string
         created_at:
           type: string
           format: date-time
@@ -4484,11 +4481,9 @@ components:
       - currency
       - document_acceptance_id
       - id
-      - idempotency_key
       - investor_user_id
       - loan_id
       - lot_allocations
-      - metadata
       - notes
       - release_journal_entry_id
       - released_at

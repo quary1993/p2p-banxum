@@ -334,7 +334,9 @@ def _validate_primary_document_acceptance(
     acceptance_model = _model("documents", "DocumentAcceptanceEvidence")
     acceptance = cast(
         Model | None,
-        acceptance_model.objects.filter(id=acceptance_id, user_id=actor.pk).first(),
+        acceptance_model.objects.select_related("template", "template_version")
+        .filter(id=acceptance_id, user_id=actor.pk)
+        .first(),
     )
     if acceptance is None:
         raise MarketplacePrimaryValidationError("Document acceptance does not exist.")
@@ -345,6 +347,10 @@ def _validate_primary_document_acceptance(
         raise MarketplacePrimaryValidationError("Document acceptance context is not valid.")
     if str(acceptance_ref.context_id) != str(order.id):
         raise MarketplacePrimaryValidationError("Document acceptance does not match this order.")
+    if str(acceptance_ref.template.current_published_version_id) != str(
+        acceptance_ref.template_version_id
+    ):
+        raise MarketplacePrimaryValidationError("Document acceptance is no longer current.")
     return acceptance
 
 
@@ -640,6 +646,9 @@ def release_primary_order_balance(
     if order.reservation_journal_entry is None:
         raise MarketplacePrimaryValidationError("Order has no reservation journal to release.")
     loan = _loan_for_update(str(order.loan_id))
+    loan_ref = cast(Any, loan)
+    if int(loan_ref.committed_principal_minor) < order.allocated_amount_minor:
+        raise MarketplacePrimaryValidationError("Loan committed principal would underflow.")
     ledger = _ledger_services()
     try:
         release_result = ledger.release_investor_balance_investment_reservation(
@@ -681,9 +690,8 @@ def release_primary_order_balance(
             "updated_at",
         ]
     )
-    loan_ref = cast(Any, loan)
     committed = int(loan_ref.committed_principal_minor) - order.allocated_amount_minor
-    loan_ref.committed_principal_minor = max(0, committed)
+    loan_ref.committed_principal_minor = committed
     loan.save(update_fields=["committed_principal_minor", "updated_at"])
     event_metadata = {
         "investor_user_id": str(order.investor_user_id),

@@ -55,8 +55,6 @@ class PrimaryInvestmentOrderSerializer(serializers.Serializer[Any]):
     closed_by_admin_id = serializers.UUIDField(allow_null=True)
     notes = serializers.CharField()
     admin_notes = serializers.CharField()
-    metadata = serializers.JSONField()
-    idempotency_key = serializers.CharField()
     created_at = serializers.DateTimeField()
     updated_at = serializers.DateTimeField()
 

@@ -138,6 +138,15 @@ class Loan(TimestampedModel):
 
     class Meta:
         ordering = ["-created_at", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(committed_principal_minor__gte=0)
+                    & models.Q(committed_principal_minor__lte=models.F("principal_minor"))
+                ),
+                name="loan_committed_principal_within_principal",
+            ),
+        ]
         indexes = [
             models.Index(fields=["status", "funding_deadline"]),
             models.Index(fields=["borrower", "status"]),

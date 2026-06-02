@@ -164,13 +164,16 @@ def _create_primary_acceptance(
     *,
     order_id: str,
     idempotency_key: str = "market-accept-1",
+    category: str = "primary_market_investment",
+    context_type: str = "primary_order",
+    context_id: str | None = None,
 ) -> Model:
     template_model = apps.get_model("documents", "DocumentTemplate")
     version_model = apps.get_model("documents", "DocumentTemplateVersion")
     acceptance_model = apps.get_model("documents", "DocumentAcceptanceEvidence")
     template = template_model.objects.create(
-        category="primary_market_investment",
-        template_key="default",
+        category=category,
+        template_key=idempotency_key[:128],
         language="en",
         name="Primary terms",
         created_by_superadmin_id=investor.pk,
@@ -193,18 +196,38 @@ def _create_primary_acceptance(
         Model,
         acceptance_model.objects.create(
             user_id=investor.pk,
-            category="primary_market_investment",
+            category=category,
             template=template,
             template_version=version,
             template_version_number=1,
             template_hash=version.content_hash,
-            context_type="primary_order",
-            context_id=order_id,
+            context_type=context_type,
+            context_id=context_id or order_id,
             accepted_checkbox_labels=["I accept the primary-market terms."],
             data_snapshot={},
             idempotency_key=idempotency_key,
         ),
     )
+
+
+def _republish_acceptance_template(acceptance: Model) -> None:
+    version_model = apps.get_model("documents", "DocumentTemplateVersion")
+    acceptance_ref = cast(Any, acceptance)
+    template = acceptance_ref.template
+    new_version = version_model.objects.create(
+        template=template,
+        version_number=2,
+        status="published",
+        title="Primary terms v2",
+        body="Updated terms",
+        checkbox_labels=["I accept the updated primary-market terms."],
+        variable_schema={},
+        content_hash="b" * 64,
+        created_by_superadmin_id=acceptance_ref.user_id,
+        published_at=timezone.now(),
+    )
+    template.current_published_version = new_version
+    template.save(update_fields=["current_published_version"])
 
 
 @pytest.mark.django_db
@@ -218,6 +241,35 @@ def test_primary_order_requires_financial_access(admin_user: Model, investor: Mo
                 loan_id=str(loan.pk),
                 amount_minor=10_000_00,
                 idempotency_key="market-order-no-kyc",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_primary_order_create_enforces_minimum_and_capacity(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user, principal_minor=10_000_00)
+
+    with pytest.raises(MarketplacePrimaryValidationError, match="below the launch minimum"):
+        create_primary_investment_order(
+            CreatePrimaryInvestmentOrderCommand(
+                actor=investor,
+                loan_id=str(loan.pk),
+                amount_minor=999_00,
+                idempotency_key="market-order-below-min",
+            )
+        )
+
+    with pytest.raises(MarketplacePrimaryValidationError, match="remaining loan capacity"):
+        create_primary_investment_order(
+            CreatePrimaryInvestmentOrderCommand(
+                actor=investor,
+                loan_id=str(loan.pk),
+                amount_minor=11_000_00,
+                idempotency_key="market-order-over-capacity",
             )
         )
 
@@ -263,6 +315,58 @@ def test_balance_allocation_reserves_lots_and_updates_loan_commitment(
 
 
 @pytest.mark.django_db
+def test_balance_allocation_is_idempotent_and_rejects_conflicting_replay(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user)
+    _declare_deposit(admin_user, investor)
+    order = create_primary_investment_order(
+        CreatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            loan_id=str(loan.pk),
+            amount_minor=20_000_00,
+            idempotency_key="market-order-idempotent-allocate",
+        )
+    )
+    acceptance = _create_primary_acceptance(
+        investor,
+        order_id=str(order.id),
+        idempotency_key="market-accept-idempotent-allocate",
+    )
+
+    first = allocate_primary_order_from_balance(
+        AllocatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            order_id=str(order.id),
+            document_acceptance_id=str(acceptance.pk),
+            idempotency_key="market-allocate-idempotent",
+        )
+    )
+    second = allocate_primary_order_from_balance(
+        AllocatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            order_id=str(order.id),
+            document_acceptance_id=str(acceptance.pk),
+            idempotency_key="market-allocate-idempotent",
+        )
+    )
+
+    assert second.id == first.id
+    assert second.reservation_journal_entry_id == first.reservation_journal_entry_id
+    with pytest.raises(MarketplacePrimaryValidationError, match="already allocated"):
+        allocate_primary_order_from_balance(
+            AllocatePrimaryInvestmentOrderCommand(
+                actor=investor,
+                order_id=str(order.id),
+                document_acceptance_id=str(acceptance.pk),
+                idempotency_key="market-allocate-conflict",
+            )
+        )
+
+
+@pytest.mark.django_db
 def test_balance_allocation_blocks_lots_that_expire_before_funding_deadline(
     admin_user: Model,
     investor: Model,
@@ -299,6 +403,43 @@ def test_balance_allocation_blocks_lots_that_expire_before_funding_deadline(
                 idempotency_key="market-allocate-expiring",
             )
         )
+
+
+@pytest.mark.django_db
+def test_allocation_accepts_subminimum_final_capacity_fill(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user, principal_minor=10_500_00)
+    _declare_deposit(admin_user, investor, amount_minor=2_000_00)
+    order = create_primary_investment_order(
+        CreatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            loan_id=str(loan.pk),
+            amount_minor=1_000_00,
+            idempotency_key="market-order-final-fill",
+        )
+    )
+    cast(Any, loan).committed_principal_minor = 10_000_00
+    loan.save(update_fields=["committed_principal_minor"])
+    acceptance = _create_primary_acceptance(
+        investor,
+        order_id=str(order.id),
+        idempotency_key="market-accept-final-fill",
+    )
+
+    allocated = allocate_primary_order_from_balance(
+        AllocatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            order_id=str(order.id),
+            document_acceptance_id=str(acceptance.pk),
+            idempotency_key="market-allocate-final-fill",
+        )
+    )
+
+    assert allocated.status == PrimaryInvestmentOrderStatus.PARTIALLY_ALLOCATED
+    assert allocated.allocated_amount_minor == 500_00
 
 
 @pytest.mark.django_db
@@ -340,6 +481,177 @@ def test_allocation_uses_remaining_capacity_and_leaves_excess_balance_available(
     assert allocated.allocated_amount_minor == 10_000_00
     assert deposit.balance_lot.available_amount_minor == 20_000_00
     assert cast(Any, loan).committed_principal_minor == 30_000_00
+
+
+@pytest.mark.django_db
+def test_allocation_requires_bound_current_acceptance_and_owner(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    user_model: Any = get_user_model()
+    other_investor = cast(
+        Model,
+        user_model.objects.create_user(
+            email="other-market-investor@example.test",
+            full_name="Other Market Investor",
+            account_type="natural_person_lender",
+            status="active",
+        ),
+    )
+    _approve_financial_access(investor)
+    _approve_financial_access(other_investor)
+    loan = _create_published_loan(admin_user)
+    _declare_deposit(admin_user, investor, amount_minor=20_000_00)
+    order = create_primary_investment_order(
+        CreatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            loan_id=str(loan.pk),
+            amount_minor=10_000_00,
+            idempotency_key="market-order-acceptance-negative",
+        )
+    )
+
+    wrong_category = _create_primary_acceptance(
+        investor,
+        order_id=str(order.id),
+        idempotency_key="market-accept-wrong-category",
+        category="registration",
+    )
+    with pytest.raises(MarketplacePrimaryValidationError, match="category"):
+        allocate_primary_order_from_balance(
+            AllocatePrimaryInvestmentOrderCommand(
+                actor=investor,
+                order_id=str(order.id),
+                document_acceptance_id=str(wrong_category.pk),
+                idempotency_key="market-allocate-wrong-category",
+            )
+        )
+
+    wrong_context = _create_primary_acceptance(
+        investor,
+        order_id=str(order.id),
+        idempotency_key="market-accept-wrong-context",
+        context_id="other-order",
+    )
+    with pytest.raises(MarketplacePrimaryValidationError, match="does not match"):
+        allocate_primary_order_from_balance(
+            AllocatePrimaryInvestmentOrderCommand(
+                actor=investor,
+                order_id=str(order.id),
+                document_acceptance_id=str(wrong_context.pk),
+                idempotency_key="market-allocate-wrong-context",
+            )
+        )
+
+    other_acceptance = _create_primary_acceptance(
+        other_investor,
+        order_id=str(order.id),
+        idempotency_key="market-accept-other-user",
+    )
+    with pytest.raises(MarketplacePrimaryValidationError, match="does not exist"):
+        allocate_primary_order_from_balance(
+            AllocatePrimaryInvestmentOrderCommand(
+                actor=investor,
+                order_id=str(order.id),
+                document_acceptance_id=str(other_acceptance.pk),
+                idempotency_key="market-allocate-other-user-acceptance",
+            )
+        )
+
+    stale_acceptance = _create_primary_acceptance(
+        investor,
+        order_id=str(order.id),
+        idempotency_key="market-accept-stale",
+    )
+    _republish_acceptance_template(stale_acceptance)
+    with pytest.raises(MarketplacePrimaryValidationError, match="no longer current"):
+        allocate_primary_order_from_balance(
+            AllocatePrimaryInvestmentOrderCommand(
+                actor=investor,
+                order_id=str(order.id),
+                document_acceptance_id=str(stale_acceptance.pk),
+                idempotency_key="market-allocate-stale-acceptance",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_allocation_blocks_other_investor_order_access(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    user_model: Any = get_user_model()
+    other_investor = cast(
+        Model,
+        user_model.objects.create_user(
+            email="allocating-other-investor@example.test",
+            full_name="Allocating Other Investor",
+            account_type="natural_person_lender",
+            status="active",
+        ),
+    )
+    _approve_financial_access(investor)
+    _approve_financial_access(other_investor)
+    loan = _create_published_loan(admin_user)
+    order = create_primary_investment_order(
+        CreatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            loan_id=str(loan.pk),
+            amount_minor=10_000_00,
+            idempotency_key="market-order-idor",
+        )
+    )
+    other_acceptance = _create_primary_acceptance(
+        other_investor,
+        order_id=str(order.id),
+        idempotency_key="market-accept-idor",
+    )
+
+    with pytest.raises(MarketplacePrimaryValidationError, match="does not exist"):
+        allocate_primary_order_from_balance(
+            AllocatePrimaryInvestmentOrderCommand(
+                actor=other_investor,
+                order_id=str(order.id),
+                document_acceptance_id=str(other_acceptance.pk),
+                idempotency_key="market-allocate-idor",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_allocation_closes_not_invested_when_no_capacity_remains(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user, principal_minor=10_000_00)
+    order = create_primary_investment_order(
+        CreatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            loan_id=str(loan.pk),
+            amount_minor=1_000_00,
+            idempotency_key="market-order-no-capacity-at-allocation",
+        )
+    )
+    cast(Any, loan).committed_principal_minor = 10_000_00
+    loan.save(update_fields=["committed_principal_minor"])
+    acceptance = _create_primary_acceptance(
+        investor,
+        order_id=str(order.id),
+        idempotency_key="market-accept-no-capacity",
+    )
+
+    allocated = allocate_primary_order_from_balance(
+        AllocatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            order_id=str(order.id),
+            document_acceptance_id=str(acceptance.pk),
+            idempotency_key="market-allocate-no-capacity",
+        )
+    )
+
+    assert allocated.status == PrimaryInvestmentOrderStatus.CLOSED_NOT_INVESTED
+    assert allocated.allocated_amount_minor == 0
 
 
 @pytest.mark.django_db
@@ -389,6 +701,173 @@ def test_admin_release_restores_lots_and_loan_commitment(
     assert deposit.balance_lot.invested_amount_minor == 0
     assert cast(Any, loan).committed_principal_minor == 0
     assert AuditEvent.objects.filter(action="marketplace_primary.order_balance_released").exists()
+
+
+@pytest.mark.django_db
+def test_admin_release_is_idempotent_and_rejects_double_release(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user)
+    _declare_deposit(admin_user, investor, amount_minor=40_000_00)
+    order = create_primary_investment_order(
+        CreatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            loan_id=str(loan.pk),
+            amount_minor=20_000_00,
+            idempotency_key="market-order-double-release",
+        )
+    )
+    acceptance = _create_primary_acceptance(
+        investor,
+        order_id=str(order.id),
+        idempotency_key="market-accept-double-release",
+    )
+    allocated = allocate_primary_order_from_balance(
+        AllocatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            order_id=str(order.id),
+            document_acceptance_id=str(acceptance.pk),
+            idempotency_key="market-allocate-double-release",
+        )
+    )
+
+    first = release_primary_order_balance(
+        ReleasePrimaryInvestmentOrderCommand(
+            actor=admin_user,
+            order_id=str(allocated.id),
+            reason="Campaign cancelled.",
+            idempotency_key="market-release-double",
+        )
+    )
+    second = release_primary_order_balance(
+        ReleasePrimaryInvestmentOrderCommand(
+            actor=admin_user,
+            order_id=str(allocated.id),
+            reason="Campaign cancelled.",
+            idempotency_key="market-release-double",
+        )
+    )
+
+    assert second.id == first.id
+    assert second.release_journal_entry_id == first.release_journal_entry_id
+    with pytest.raises(MarketplacePrimaryValidationError, match="already released"):
+        release_primary_order_balance(
+            ReleasePrimaryInvestmentOrderCommand(
+                actor=admin_user,
+                order_id=str(allocated.id),
+                reason="Campaign cancelled.",
+                idempotency_key="market-release-conflict",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_release_fails_loud_on_committed_principal_underflow(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user)
+    _declare_deposit(admin_user, investor, amount_minor=40_000_00)
+    order = create_primary_investment_order(
+        CreatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            loan_id=str(loan.pk),
+            amount_minor=20_000_00,
+            idempotency_key="market-order-underflow",
+        )
+    )
+    acceptance = _create_primary_acceptance(
+        investor,
+        order_id=str(order.id),
+        idempotency_key="market-accept-underflow",
+    )
+    allocated = allocate_primary_order_from_balance(
+        AllocatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            order_id=str(order.id),
+            document_acceptance_id=str(acceptance.pk),
+            idempotency_key="market-allocate-underflow",
+        )
+    )
+    cast(Any, loan).committed_principal_minor = 1_00
+    loan.save(update_fields=["committed_principal_minor"])
+
+    with pytest.raises(MarketplacePrimaryValidationError, match="underflow"):
+        release_primary_order_balance(
+            ReleasePrimaryInvestmentOrderCommand(
+                actor=admin_user,
+                order_id=str(allocated.id),
+                reason="Underflow test.",
+                idempotency_key="market-release-underflow",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_admin_release_of_pending_order_closes_not_invested(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user)
+    order = create_primary_investment_order(
+        CreatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            loan_id=str(loan.pk),
+            amount_minor=10_000_00,
+            idempotency_key="market-order-release-pending",
+        )
+    )
+
+    released = release_primary_order_balance(
+        ReleasePrimaryInvestmentOrderCommand(
+            actor=admin_user,
+            order_id=str(order.id),
+            reason="Campaign closed before funding.",
+            idempotency_key="market-release-pending",
+        )
+    )
+
+    assert released.status == PrimaryInvestmentOrderStatus.CLOSED_NOT_INVESTED
+    assert released.allocated_amount_minor == 0
+
+
+@pytest.mark.django_db
+def test_release_requires_admin(admin_user: Model, investor: Model) -> None:
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user)
+    order = create_primary_investment_order(
+        CreatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            loan_id=str(loan.pk),
+            amount_minor=10_000_00,
+            idempotency_key="market-order-release-non-admin",
+        )
+    )
+
+    with pytest.raises(MarketplacePrimaryAuthorizationError):
+        release_primary_order_balance(
+            ReleasePrimaryInvestmentOrderCommand(
+                actor=investor,
+                order_id=str(order.id),
+                reason="Investor cannot release.",
+                idempotency_key="market-release-non-admin",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_loan_committed_principal_constraint_is_db_enforced(
+    admin_user: Model,
+) -> None:
+    loan = _create_published_loan(admin_user, principal_minor=10_000_00)
+    loan_model = apps.get_model("loans", "Loan")
+
+    with pytest.raises(DatabaseError), transaction.atomic():
+        loan_model.objects.filter(id=loan.pk).update(committed_principal_minor=10_000_01)
 
 
 @pytest.mark.django_db
@@ -465,5 +944,7 @@ def test_primary_marketplace_api_flow(
     assert detail_response.json()["investor_summary"]
     assert order_response.status_code == 201
     assert allocation_response.status_code == 200
+    assert "idempotency_key" not in allocation_response.json()
+    assert "metadata" not in allocation_response.json()
     assert allocation_response.json()["status"] == PrimaryInvestmentOrderStatus.BALANCE_ALLOCATED
     assert PrimaryInvestmentOrder.objects.count() == 1
