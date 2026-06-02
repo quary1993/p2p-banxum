@@ -21,6 +21,7 @@ from backend.apps.kyc_compliance.services import (
     ManualReviewDecisionCommand,
     ProviderKycEventCommand,
     create_kyc_session,
+    get_or_create_user_kyc_case,
     process_didit_event,
     record_manual_review_decision,
     user_can_access_financial_features,
@@ -188,6 +189,56 @@ def test_manual_review_cannot_approve_sanctions_hit() -> None:
     event_result.case.refresh_from_db()
     assert event_result.case.status == KycStatus.SANCTIONS_HIT
     assert event_result.case.manual_review_required is True
+
+
+@pytest.mark.django_db
+def test_manual_review_cannot_approve_not_started_case() -> None:
+    user = create_lender()
+    admin = create_admin()
+    case = get_or_create_user_kyc_case(user)
+
+    with pytest.raises(KycManualReviewError):
+        record_manual_review_decision(
+            ManualReviewDecisionCommand(
+                actor=admin,
+                case_id=str(case.id),
+                decision=KycManualReviewDecisionType.APPROVE,
+                reason_code=KycManualReviewReason.OFF_PLATFORM_REVIEW,
+                note="Should not be allowed without provider review.",
+            )
+        )
+
+    case.refresh_from_db()
+    user.refresh_from_db()
+    assert case.status == KycStatus.NOT_STARTED
+    assert cast(Any, user).status == "pending_kyc"
+    assert KycManualReviewDecision.objects.filter(case=case).count() == 0
+
+
+@pytest.mark.django_db
+def test_manual_review_cannot_approve_pending_case() -> None:
+    user = create_lender()
+    admin = create_admin()
+    session_result = create_kyc_session(CreateKycSessionCommand(user=user))
+    assert session_result.session is not None
+    case = session_result.case
+
+    with pytest.raises(KycManualReviewError):
+        record_manual_review_decision(
+            ManualReviewDecisionCommand(
+                actor=admin,
+                case_id=str(case.id),
+                decision=KycManualReviewDecisionType.APPROVE,
+                reason_code=KycManualReviewReason.OFF_PLATFORM_REVIEW,
+                note="Should not be allowed while the provider case is pending.",
+            )
+        )
+
+    case.refresh_from_db()
+    user.refresh_from_db()
+    assert case.status == KycStatus.PENDING
+    assert cast(Any, user).status == "pending_kyc"
+    assert KycManualReviewDecision.objects.filter(case=case).count() == 0
 
 
 @pytest.mark.django_db

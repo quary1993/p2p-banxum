@@ -491,11 +491,11 @@ def record_manual_review_decision(
         raise KycManualReviewError("KYC case does not exist.")
 
     previous_status = KycStatus(case.status)
-    if (
-        command.decision == KycManualReviewDecisionType.APPROVE
-        and previous_status in NON_OVERRIDABLE_APPROVAL_STATUSES
-    ):
-        raise KycManualReviewError("This KYC status cannot be manually approved.")
+    if command.decision == KycManualReviewDecisionType.APPROVE:
+        if previous_status in NON_OVERRIDABLE_APPROVAL_STATUSES:
+            raise KycManualReviewError("This KYC status cannot be manually approved.")
+        if previous_status not in MANUAL_REVIEW_STATUSES:
+            raise KycManualReviewError("Only review-routed KYC statuses can be manually approved.")
 
     new_status = _manual_review_target_status(command.decision)
     now = timezone.now()

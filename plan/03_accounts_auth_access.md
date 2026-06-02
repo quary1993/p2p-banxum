@@ -173,6 +173,9 @@ Users request account closure by emailing support/admin. There is no self-servic
 
 Account closure is allowed only when the user has a clean/empty account, meaning no active investments, non-zero balances, pending orders, unresolved payments, unresolved KYC/compliance issues, or other open operational obligations.
 
+Implementation note:
+Until the ledger, balance, holdings, order, payment, and servicing modules exist, the backend records this as an admin clean-account attestation. Once those modules are implemented, account closure must be blocked unless the system verifies the clean-account prerequisites directly. Admin attestation alone is not sufficient after the relevant data exists.
+
 When an account is closed, login is restricted. Garanta retains documents and data according to legal, regulatory, audit, tax, and business retention requirements.
 
 At closure time, admin may select a checkbox to run the privacy anonymization workflow. In v1 this means reversible pseudonymization/encryption of direct identifiers, not irreversible deletion. Direct identifiers include name, email, and structured KYC/KYB/AML fields that would allow a third party to directly identify the user.
@@ -180,6 +183,8 @@ At closure time, admin may select a checkbox to run the privacy anonymization wo
 The workflow preserves financial records, documents, KYC/KYB/AML evidence, ledger/accounting references, tax records, contractual records, and audit trail intact. The security/privacy module defines the public-key encryption and offline private-key recovery model.
 
 Inactive accounts are not automatically locked at launch. They remain accessible unless admin manually restricts access under policy.
+
+Restricted and locked account statuses are intentionally equivalent in the current backend access gate: both block login and financial actions. If Garanta later wants "restricted" to mean read-only portal access while "locked" means no portal access, that distinction should be implemented in the account lifecycle UI and access-control policy.
 
 Rationale:
 Closure must not interfere with open financial, regulatory, tax, or audit obligations.
