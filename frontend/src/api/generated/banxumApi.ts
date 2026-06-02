@@ -249,6 +249,33 @@ export interface AuthenticatedUserResponse {
   user: UserSummary;
 }
 
+export interface BankOperation {
+  id: string;
+  operation_type: string;
+  status: string;
+  amount_minor: number;
+  currency: string;
+  booking_date: string;
+  value_date: string;
+  collection_account_identifier: string;
+  payer_name: string;
+  payer_account_identifier: string;
+  payee_name: string;
+  payee_account_identifier: string;
+  bank_reference: string;
+  payment_reference: string;
+  linked_object_type: string;
+  linked_object_id: string;
+  evidence_reference: string;
+  confirmed_by_admin_id: string;
+  confirmed_at: string;
+  notes: string;
+  metadata: unknown;
+  idempotency_key: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface BorrowerDocument {
   id: string;
   borrower_id: string;
@@ -504,6 +531,38 @@ export interface HealthResponse {
   environment: string;
 }
 
+export interface InvestorBalanceLot {
+  id: string;
+  investor_user_id: string;
+  currency: string;
+  source_journal_entry_id: string;
+  source_type: string;
+  source_id: string;
+  status: string;
+  received_at: string;
+  investment_deadline_at: string;
+  withdrawal_deadline_at: string;
+  original_amount_minor: number;
+  available_amount_minor: number;
+  invested_amount_minor: number;
+  withdrawn_amount_minor: number;
+  penalized_amount_minor: number;
+  lineage: unknown;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InvestorBalanceSummary {
+  investor_user_id: string;
+  currency: string;
+  total_available_minor: number;
+  investable_minor: number;
+  withdraw_only_minor: number;
+  overdue_minor: number;
+  frozen_minor: number;
+  penalty_mode_minor: number;
+}
+
 export interface KycAdminCase {
   id: string;
   subject_type: string;
@@ -637,6 +696,71 @@ export interface KycStatusResponse {
   manual_review_required: boolean;
   detected_flags: string[];
   risk_classification: string;
+}
+
+export interface LedgerJournalEntry {
+  id: string;
+  event_type: string;
+  direction: string;
+  booking_date: string;
+  value_date: string;
+  effective_at: string;
+  received_at: string;
+  currency: string;
+  gross_amount_minor: number;
+  net_amount_minor: number;
+  source_type: string;
+  source_id: string;
+  /** @nullable */
+  lender_user_id: string | null;
+  /** @nullable */
+  borrower_id: string | null;
+  /** @nullable */
+  loan_id: string | null;
+  /** @nullable */
+  bank_operation_id: string | null;
+  bank_reference: string;
+  evidence_reference: string;
+  actor_type: string;
+  actor_id: string;
+  tax_metadata: unknown;
+  metadata: unknown;
+  /** @nullable */
+  reversal_of_id: string | null;
+  idempotency_key: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LenderDepositDeclareRequest {
+  investor_user_id: string;
+  /** @minimum 1 */
+  amount_minor: number;
+  /** @maxLength 3 */
+  currency: string;
+  booking_date: string;
+  value_date: string;
+  /** @maxLength 128 */
+  collection_account_identifier: string;
+  /** @maxLength 255 */
+  payer_name?: string;
+  /** @maxLength 128 */
+  payer_account_identifier?: string;
+  /** @maxLength 160 */
+  bank_reference?: string;
+  /** @maxLength 160 */
+  payment_reference?: string;
+  /** @maxLength 255 */
+  evidence_reference?: string;
+  notes?: string;
+  /** @maxLength 160 */
+  idempotency_key: string;
+}
+
+export interface LenderDepositDeclareResponse {
+  bank_operation: BankOperation;
+  journal_entry: LedgerJournalEntry;
+  balance_lot: InvestorBalanceLot;
 }
 
 export interface Loan {
@@ -931,6 +1055,35 @@ export const PurposeEnum = {
   other: 'other',
 } as const;
 
+export interface ReconciliationSnapshot {
+  id: string;
+  currency: string;
+  as_of_date: string;
+  bank_stated_balance_minor: number;
+  investor_balance_liability_minor: number;
+  garanta_accrued_revenue_minor: number;
+  suspense_unmatched_cash_minor: number;
+  pending_exception_balance_minor: number;
+  reconciliation_difference_minor: number;
+  created_by_admin_id: string;
+  notes: string;
+  metadata: unknown;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReconciliationSnapshotCreateRequest {
+  /** @maxLength 3 */
+  currency: string;
+  as_of_date: string;
+  /** @minimum 0 */
+  bank_stated_balance_minor: number;
+  /** @minimum 0 */
+  pending_exception_balance_minor?: number;
+  notes?: string;
+  metadata?: unknown;
+}
+
 /**
  * * `equal_installments` - Equal installments
 * `bullet_periodic_interest` - Bullet principal with periodic interest
@@ -1195,6 +1348,15 @@ export const V1EntitiesAdminBorrowersListKybStatus = {
   expired: 'expired',
   reverification_required: 'reverification_required',
 } as const;
+
+export type V1LedgerAdminInvestorBalanceSummaryRetrieveParams = {
+/**
+ * @minLength 1
+ * @maxLength 3
+ */
+currency: string;
+investor_user_id: string;
+};
 
 export type V1LoansAdminLoansListParams = {
 borrower_id?: string;
@@ -3473,6 +3635,212 @@ const {mutation: mutationOptions} = options ?
       return useMutation(mutationOptions, queryClient);
     }
 
+export const v1LedgerAdminInvestorBalanceSummaryRetrieve = (
+    params: V1LedgerAdminInvestorBalanceSummaryRetrieveParams,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<InvestorBalanceSummary>(
+      {url: `/api/v1/ledger/admin/investor-balance-summary/`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+
+
+
+
+export const getV1LedgerAdminInvestorBalanceSummaryRetrieveQueryKey = (params?: V1LedgerAdminInvestorBalanceSummaryRetrieveParams,) => {
+    return [
+    `/api/v1/ledger/admin/investor-balance-summary/`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+
+export const getV1LedgerAdminInvestorBalanceSummaryRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1LedgerAdminInvestorBalanceSummaryRetrieve>>, TError = unknown>(params: V1LedgerAdminInvestorBalanceSummaryRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LedgerAdminInvestorBalanceSummaryRetrieve>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1LedgerAdminInvestorBalanceSummaryRetrieveQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1LedgerAdminInvestorBalanceSummaryRetrieve>>> = ({ signal }) => v1LedgerAdminInvestorBalanceSummaryRetrieve(params, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1LedgerAdminInvestorBalanceSummaryRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1LedgerAdminInvestorBalanceSummaryRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1LedgerAdminInvestorBalanceSummaryRetrieve>>>
+export type V1LedgerAdminInvestorBalanceSummaryRetrieveQueryError = unknown
+
+
+export function useV1LedgerAdminInvestorBalanceSummaryRetrieve<TData = Awaited<ReturnType<typeof v1LedgerAdminInvestorBalanceSummaryRetrieve>>, TError = unknown>(
+ params: V1LedgerAdminInvestorBalanceSummaryRetrieveParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LedgerAdminInvestorBalanceSummaryRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1LedgerAdminInvestorBalanceSummaryRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1LedgerAdminInvestorBalanceSummaryRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1LedgerAdminInvestorBalanceSummaryRetrieve<TData = Awaited<ReturnType<typeof v1LedgerAdminInvestorBalanceSummaryRetrieve>>, TError = unknown>(
+ params: V1LedgerAdminInvestorBalanceSummaryRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LedgerAdminInvestorBalanceSummaryRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1LedgerAdminInvestorBalanceSummaryRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1LedgerAdminInvestorBalanceSummaryRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1LedgerAdminInvestorBalanceSummaryRetrieve<TData = Awaited<ReturnType<typeof v1LedgerAdminInvestorBalanceSummaryRetrieve>>, TError = unknown>(
+ params: V1LedgerAdminInvestorBalanceSummaryRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LedgerAdminInvestorBalanceSummaryRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1LedgerAdminInvestorBalanceSummaryRetrieve<TData = Awaited<ReturnType<typeof v1LedgerAdminInvestorBalanceSummaryRetrieve>>, TError = unknown>(
+ params: V1LedgerAdminInvestorBalanceSummaryRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1LedgerAdminInvestorBalanceSummaryRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1LedgerAdminInvestorBalanceSummaryRetrieveQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1LedgerAdminLenderDepositsCreate = (
+    lenderDepositDeclareRequest: LenderDepositDeclareRequest,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<LenderDepositDeclareResponse>(
+      {url: `/api/v1/ledger/admin/lender-deposits/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: lenderDepositDeclareRequest, signal
+    },
+      );
+    }
+
+
+
+export const getV1LedgerAdminLenderDepositsCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1LedgerAdminLenderDepositsCreate>>, TError,{data: LenderDepositDeclareRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1LedgerAdminLenderDepositsCreate>>, TError,{data: LenderDepositDeclareRequest}, TContext> => {
+
+const mutationKey = ['v1LedgerAdminLenderDepositsCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1LedgerAdminLenderDepositsCreate>>, {data: LenderDepositDeclareRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1LedgerAdminLenderDepositsCreate(data,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1LedgerAdminLenderDepositsCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1LedgerAdminLenderDepositsCreate>>>
+    export type V1LedgerAdminLenderDepositsCreateMutationBody = LenderDepositDeclareRequest
+    export type V1LedgerAdminLenderDepositsCreateMutationError = unknown
+
+    export const useV1LedgerAdminLenderDepositsCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1LedgerAdminLenderDepositsCreate>>, TError,{data: LenderDepositDeclareRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1LedgerAdminLenderDepositsCreate>>,
+        TError,
+        {data: LenderDepositDeclareRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1LedgerAdminLenderDepositsCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+
+export const v1LedgerAdminReconciliationSnapshotsCreate = (
+    reconciliationSnapshotCreateRequest: ReconciliationSnapshotCreateRequest,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<ReconciliationSnapshot>(
+      {url: `/api/v1/ledger/admin/reconciliation-snapshots/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: reconciliationSnapshotCreateRequest, signal
+    },
+      );
+    }
+
+
+
+export const getV1LedgerAdminReconciliationSnapshotsCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1LedgerAdminReconciliationSnapshotsCreate>>, TError,{data: ReconciliationSnapshotCreateRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1LedgerAdminReconciliationSnapshotsCreate>>, TError,{data: ReconciliationSnapshotCreateRequest}, TContext> => {
+
+const mutationKey = ['v1LedgerAdminReconciliationSnapshotsCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1LedgerAdminReconciliationSnapshotsCreate>>, {data: ReconciliationSnapshotCreateRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1LedgerAdminReconciliationSnapshotsCreate(data,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1LedgerAdminReconciliationSnapshotsCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1LedgerAdminReconciliationSnapshotsCreate>>>
+    export type V1LedgerAdminReconciliationSnapshotsCreateMutationBody = ReconciliationSnapshotCreateRequest
+    export type V1LedgerAdminReconciliationSnapshotsCreateMutationError = unknown
+
+    export const useV1LedgerAdminReconciliationSnapshotsCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1LedgerAdminReconciliationSnapshotsCreate>>, TError,{data: ReconciliationSnapshotCreateRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1LedgerAdminReconciliationSnapshotsCreate>>,
+        TError,
+        {data: ReconciliationSnapshotCreateRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1LedgerAdminReconciliationSnapshotsCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+
 export const v1LoansAdminLoansList = (
     params?: V1LoansAdminLoansListParams,
  signal?: AbortSignal
@@ -4057,6 +4425,12 @@ export const getV1KycStatusRetrieveResponseMock = (overrideResponse: Partial< Ky
 
 export const getV1KycWebhooksDiditCreateResponseMock = (overrideResponse: Partial< DiditWebhookResponse > = {}): DiditWebhookResponse => ({status: faker.helpers.arrayElement(Object.values(KycStatusEnum)), idempotent: faker.datatype.boolean(), ...overrideResponse})
 
+export const getV1LedgerAdminInvestorBalanceSummaryRetrieveResponseMock = (overrideResponse: Partial< InvestorBalanceSummary > = {}): InvestorBalanceSummary => ({investor_user_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), total_available_minor: faker.number.int({min: undefined, max: undefined}), investable_minor: faker.number.int({min: undefined, max: undefined}), withdraw_only_minor: faker.number.int({min: undefined, max: undefined}), overdue_minor: faker.number.int({min: undefined, max: undefined}), frozen_minor: faker.number.int({min: undefined, max: undefined}), penalty_mode_minor: faker.number.int({min: undefined, max: undefined}), ...overrideResponse})
+
+export const getV1LedgerAdminLenderDepositsCreateResponseMock = (overrideResponse: Partial< LenderDepositDeclareResponse > = {}): LenderDepositDeclareResponse => ({bank_operation: {id: faker.string.uuid(), operation_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), booking_date: faker.date.past().toISOString().split('T')[0], value_date: faker.date.past().toISOString().split('T')[0], collection_account_identifier: faker.string.alpha({length: {min: 10, max: 20}}), payer_name: faker.string.alpha({length: {min: 10, max: 20}}), payer_account_identifier: faker.string.alpha({length: {min: 10, max: 20}}), payee_name: faker.string.alpha({length: {min: 10, max: 20}}), payee_account_identifier: faker.string.alpha({length: {min: 10, max: 20}}), bank_reference: faker.string.alpha({length: {min: 10, max: 20}}), payment_reference: faker.string.alpha({length: {min: 10, max: 20}}), linked_object_type: faker.string.alpha({length: {min: 10, max: 20}}), linked_object_id: faker.string.alpha({length: {min: 10, max: 20}}), evidence_reference: faker.string.alpha({length: {min: 10, max: 20}}), confirmed_by_admin_id: faker.string.uuid(), confirmed_at: `${faker.date.past().toISOString().split('.')[0]}Z`, notes: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, idempotency_key: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, journal_entry: {id: faker.string.uuid(), event_type: faker.string.alpha({length: {min: 10, max: 20}}), direction: faker.string.alpha({length: {min: 10, max: 20}}), booking_date: faker.date.past().toISOString().split('T')[0], value_date: faker.date.past().toISOString().split('T')[0], effective_at: `${faker.date.past().toISOString().split('.')[0]}Z`, received_at: `${faker.date.past().toISOString().split('.')[0]}Z`, currency: faker.string.alpha({length: {min: 10, max: 20}}), gross_amount_minor: faker.number.int({min: undefined, max: undefined}), net_amount_minor: faker.number.int({min: undefined, max: undefined}), source_type: faker.string.alpha({length: {min: 10, max: 20}}), source_id: faker.string.alpha({length: {min: 10, max: 20}}), lender_user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), borrower_id: faker.helpers.arrayElement([faker.string.uuid(), null]), loan_id: faker.helpers.arrayElement([faker.string.uuid(), null]), bank_operation_id: faker.helpers.arrayElement([faker.string.uuid(), null]), bank_reference: faker.string.alpha({length: {min: 10, max: 20}}), evidence_reference: faker.string.alpha({length: {min: 10, max: 20}}), actor_type: faker.string.alpha({length: {min: 10, max: 20}}), actor_id: faker.string.alpha({length: {min: 10, max: 20}}), tax_metadata: {}, metadata: {}, reversal_of_id: faker.helpers.arrayElement([faker.string.uuid(), null]), idempotency_key: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, balance_lot: {id: faker.string.uuid(), investor_user_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), source_journal_entry_id: faker.string.uuid(), source_type: faker.string.alpha({length: {min: 10, max: 20}}), source_id: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), received_at: `${faker.date.past().toISOString().split('.')[0]}Z`, investment_deadline_at: `${faker.date.past().toISOString().split('.')[0]}Z`, withdrawal_deadline_at: `${faker.date.past().toISOString().split('.')[0]}Z`, original_amount_minor: faker.number.int({min: undefined, max: undefined}), available_amount_minor: faker.number.int({min: undefined, max: undefined}), invested_amount_minor: faker.number.int({min: undefined, max: undefined}), withdrawn_amount_minor: faker.number.int({min: undefined, max: undefined}), penalized_amount_minor: faker.number.int({min: undefined, max: undefined}), lineage: {}, created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, ...overrideResponse})
+
+export const getV1LedgerAdminReconciliationSnapshotsCreateResponseMock = (overrideResponse: Partial< ReconciliationSnapshot > = {}): ReconciliationSnapshot => ({id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), as_of_date: faker.date.past().toISOString().split('T')[0], bank_stated_balance_minor: faker.number.int({min: undefined, max: undefined}), investor_balance_liability_minor: faker.number.int({min: undefined, max: undefined}), garanta_accrued_revenue_minor: faker.number.int({min: undefined, max: undefined}), suspense_unmatched_cash_minor: faker.number.int({min: undefined, max: undefined}), pending_exception_balance_minor: faker.number.int({min: undefined, max: undefined}), reconciliation_difference_minor: faker.number.int({min: undefined, max: undefined}), created_by_admin_id: faker.string.uuid(), notes: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+
 export const getV1LoansAdminLoansListResponseMock = (): Loan[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), borrower_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int({min: undefined, max: undefined}), term_months: faker.number.int({min: undefined, max: undefined}), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_only_months: faker.number.int({min: undefined, max: undefined}), funding_deadline: faker.date.past().toISOString().split('T')[0], first_payment_date: faker.date.past().toISOString().split('T')[0], collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_value_minor: faker.number.int({min: undefined, max: undefined}), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), borrower_success_fee_bps: faker.number.int({min: undefined, max: undefined}), lender_payment_fee_minor: faker.number.int({min: undefined, max: undefined}), default_penalty_interest_bps: faker.number.int({min: undefined, max: undefined}), recovery_fee_bps: faker.number.int({min: undefined, max: undefined}), recovery_waterfall_version: faker.string.alpha({length: {min: 10, max: 20}}), schedule_version: faker.number.int({min: undefined, max: undefined}), total_scheduled_principal_minor: faker.number.int({min: undefined, max: undefined}), total_scheduled_interest_minor: faker.number.int({min: undefined, max: undefined}), committed_principal_minor: faker.number.int({min: undefined, max: undefined}), ltv_bps: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), ltv_warnings: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), published_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`})))
 
 export const getV1LoansAdminLoansCreateResponseMock = (overrideResponse: Partial< Loan > = {}): Loan => ({id: faker.string.uuid(), borrower_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int({min: undefined, max: undefined}), term_months: faker.number.int({min: undefined, max: undefined}), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_only_months: faker.number.int({min: undefined, max: undefined}), funding_deadline: faker.date.past().toISOString().split('T')[0], first_payment_date: faker.date.past().toISOString().split('T')[0], collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_value_minor: faker.number.int({min: undefined, max: undefined}), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), borrower_success_fee_bps: faker.number.int({min: undefined, max: undefined}), lender_payment_fee_minor: faker.number.int({min: undefined, max: undefined}), default_penalty_interest_bps: faker.number.int({min: undefined, max: undefined}), recovery_fee_bps: faker.number.int({min: undefined, max: undefined}), recovery_waterfall_version: faker.string.alpha({length: {min: 10, max: 20}}), schedule_version: faker.number.int({min: undefined, max: undefined}), total_scheduled_principal_minor: faker.number.int({min: undefined, max: undefined}), total_scheduled_interest_minor: faker.number.int({min: undefined, max: undefined}), committed_principal_minor: faker.number.int({min: undefined, max: undefined}), ltv_bps: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), ltv_warnings: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), published_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
@@ -4430,6 +4804,42 @@ export const getV1KycWebhooksDiditCreateMockHandler = (overrideResponse?: DiditW
   }, options)
 }
 
+export const getV1LedgerAdminInvestorBalanceSummaryRetrieveMockHandler = (overrideResponse?: InvestorBalanceSummary | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<InvestorBalanceSummary> | InvestorBalanceSummary), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/ledger/admin/investor-balance-summary/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1LedgerAdminInvestorBalanceSummaryRetrieveResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1LedgerAdminLenderDepositsCreateMockHandler = (overrideResponse?: LenderDepositDeclareResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<LenderDepositDeclareResponse> | LenderDepositDeclareResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/ledger/admin/lender-deposits/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1LedgerAdminLenderDepositsCreateResponseMock()),
+      { status: 201,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1LedgerAdminReconciliationSnapshotsCreateMockHandler = (overrideResponse?: ReconciliationSnapshot | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<ReconciliationSnapshot> | ReconciliationSnapshot), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/ledger/admin/reconciliation-snapshots/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1LedgerAdminReconciliationSnapshotsCreateResponseMock()),
+      { status: 201,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
 export const getV1LoansAdminLoansListMockHandler = (overrideResponse?: Loan[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<Loan[]> | Loan[]), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/loans/admin/loans/', async (info) => {await delay(1000);
 
@@ -4544,6 +4954,9 @@ export const getBanxumApiMock = () => [
   getV1KycSessionCreateMockHandler(),
   getV1KycStatusRetrieveMockHandler(),
   getV1KycWebhooksDiditCreateMockHandler(),
+  getV1LedgerAdminInvestorBalanceSummaryRetrieveMockHandler(),
+  getV1LedgerAdminLenderDepositsCreateMockHandler(),
+  getV1LedgerAdminReconciliationSnapshotsCreateMockHandler(),
   getV1LoansAdminLoansListMockHandler(),
   getV1LoansAdminLoansCreateMockHandler(),
   getV1LoansAdminLoansRetrieveMockHandler(),

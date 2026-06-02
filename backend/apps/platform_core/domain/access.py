@@ -6,6 +6,9 @@ from backend.apps.platform_core.domain.actors import ActorRef
 
 ADMIN_ACCOUNT_TYPES = frozenset({"admin", "superadmin"})
 SUPERADMIN_ACCOUNT_TYPES = frozenset({"superadmin"})
+LENDER_ACCOUNT_TYPES = frozenset(
+    {"natural_person_lender", "legal_entity_lender_representative"}
+)
 BLOCKING_ACCOUNT_STATUSES = frozenset({"restricted", "locked", "closed"})
 
 
@@ -29,6 +32,10 @@ def has_superadmin_role(user: Any) -> bool:
     )
 
 
+def has_lender_role(user: Any) -> bool:
+    return account_type_of(user) in LENDER_ACCOUNT_TYPES
+
+
 def is_blocking_account_status(status: Any) -> bool:
     return str(status) in BLOCKING_ACCOUNT_STATUSES
 
@@ -45,6 +52,14 @@ def is_superadmin_actor(user: Any) -> bool:
     return (
         bool(getattr(user, "is_active", False))
         and has_superadmin_role(user)
+        and not is_blocking_account_status(account_status_of(user))
+    )
+
+
+def is_lender_actor(user: Any) -> bool:
+    return (
+        bool(getattr(user, "is_active", False))
+        and has_lender_role(user)
         and not is_blocking_account_status(account_status_of(user))
     )
 

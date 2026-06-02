@@ -855,6 +855,86 @@ paths:
               schema:
                 $ref: '#/components/schemas/DiditWebhookResponse'
           description: ''
+  /api/v1/ledger/admin/investor-balance-summary/:
+    get:
+      operationId: v1_ledger_admin_investor_balance_summary_retrieve
+      parameters:
+      - in: query
+        name: currency
+        schema:
+          type: string
+          maxLength: 3
+          minLength: 1
+        required: true
+      - in: query
+        name: investor_user_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorBalanceSummary'
+          description: ''
+  /api/v1/ledger/admin/lender-deposits/:
+    post:
+      operationId: v1_ledger_admin_lender_deposits_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LenderDepositDeclareRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LenderDepositDeclareRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LenderDepositDeclareRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LenderDepositDeclareResponse'
+          description: ''
+  /api/v1/ledger/admin/reconciliation-snapshots/:
+    post:
+      operationId: v1_ledger_admin_reconciliation_snapshots_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReconciliationSnapshotCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ReconciliationSnapshotCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ReconciliationSnapshotCreateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconciliationSnapshot'
+          description: ''
   /api/v1/loans/admin/loans/:
     get:
       operationId: v1_loans_admin_loans_list
@@ -1530,6 +1610,88 @@ components:
           $ref: '#/components/schemas/UserSummary'
       required:
       - user
+    BankOperation:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        operation_type:
+          type: string
+        status:
+          type: string
+        amount_minor:
+          type: integer
+        currency:
+          type: string
+        booking_date:
+          type: string
+          format: date
+        value_date:
+          type: string
+          format: date
+        collection_account_identifier:
+          type: string
+        payer_name:
+          type: string
+        payer_account_identifier:
+          type: string
+        payee_name:
+          type: string
+        payee_account_identifier:
+          type: string
+        bank_reference:
+          type: string
+        payment_reference:
+          type: string
+        linked_object_type:
+          type: string
+        linked_object_id:
+          type: string
+        evidence_reference:
+          type: string
+        confirmed_by_admin_id:
+          type: string
+          format: uuid
+        confirmed_at:
+          type: string
+          format: date-time
+        notes:
+          type: string
+        metadata: {}
+        idempotency_key:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - amount_minor
+      - bank_reference
+      - booking_date
+      - collection_account_identifier
+      - confirmed_at
+      - confirmed_by_admin_id
+      - created_at
+      - currency
+      - evidence_reference
+      - id
+      - idempotency_key
+      - linked_object_id
+      - linked_object_type
+      - metadata
+      - notes
+      - operation_type
+      - payee_account_identifier
+      - payee_name
+      - payer_account_identifier
+      - payer_name
+      - payment_reference
+      - status
+      - updated_at
+      - value_date
     BorrowerDocument:
       type: object
       properties:
@@ -1940,6 +2102,100 @@ components:
       - platform
       - status
       - timezone
+    InvestorBalanceLot:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        investor_user_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+        source_journal_entry_id:
+          type: string
+          format: uuid
+        source_type:
+          type: string
+        source_id:
+          type: string
+        status:
+          type: string
+        received_at:
+          type: string
+          format: date-time
+        investment_deadline_at:
+          type: string
+          format: date-time
+        withdrawal_deadline_at:
+          type: string
+          format: date-time
+        original_amount_minor:
+          type: integer
+        available_amount_minor:
+          type: integer
+        invested_amount_minor:
+          type: integer
+        withdrawn_amount_minor:
+          type: integer
+        penalized_amount_minor:
+          type: integer
+        lineage: {}
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - available_amount_minor
+      - created_at
+      - currency
+      - id
+      - invested_amount_minor
+      - investment_deadline_at
+      - investor_user_id
+      - lineage
+      - original_amount_minor
+      - penalized_amount_minor
+      - received_at
+      - source_id
+      - source_journal_entry_id
+      - source_type
+      - status
+      - updated_at
+      - withdrawal_deadline_at
+      - withdrawn_amount_minor
+    InvestorBalanceSummary:
+      type: object
+      properties:
+        investor_user_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+        total_available_minor:
+          type: integer
+        investable_minor:
+          type: integer
+        withdraw_only_minor:
+          type: integer
+        overdue_minor:
+          type: integer
+        frozen_minor:
+          type: integer
+        penalty_mode_minor:
+          type: integer
+      required:
+      - currency
+      - frozen_minor
+      - investable_minor
+      - investor_user_id
+      - overdue_minor
+      - penalty_mode_minor
+      - total_available_minor
+      - withdraw_only_minor
     KycAdminCase:
       type: object
       properties:
@@ -2184,6 +2440,165 @@ components:
       - risk_classification
       - status
       - verification_url
+    LedgerJournalEntry:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+        direction:
+          type: string
+        booking_date:
+          type: string
+          format: date
+        value_date:
+          type: string
+          format: date
+        effective_at:
+          type: string
+          format: date-time
+        received_at:
+          type: string
+          format: date-time
+        currency:
+          type: string
+        gross_amount_minor:
+          type: integer
+        net_amount_minor:
+          type: integer
+        source_type:
+          type: string
+        source_id:
+          type: string
+        lender_user_id:
+          type: string
+          format: uuid
+          nullable: true
+        borrower_id:
+          type: string
+          format: uuid
+          nullable: true
+        loan_id:
+          type: string
+          format: uuid
+          nullable: true
+        bank_operation_id:
+          type: string
+          format: uuid
+          nullable: true
+        bank_reference:
+          type: string
+        evidence_reference:
+          type: string
+        actor_type:
+          type: string
+        actor_id:
+          type: string
+        tax_metadata: {}
+        metadata: {}
+        reversal_of_id:
+          type: string
+          format: uuid
+          nullable: true
+        idempotency_key:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - actor_id
+      - actor_type
+      - bank_operation_id
+      - bank_reference
+      - booking_date
+      - borrower_id
+      - created_at
+      - currency
+      - direction
+      - effective_at
+      - event_type
+      - evidence_reference
+      - gross_amount_minor
+      - id
+      - idempotency_key
+      - lender_user_id
+      - loan_id
+      - metadata
+      - net_amount_minor
+      - received_at
+      - reversal_of_id
+      - source_id
+      - source_type
+      - tax_metadata
+      - updated_at
+      - value_date
+    LenderDepositDeclareRequest:
+      type: object
+      properties:
+        investor_user_id:
+          type: string
+          format: uuid
+        amount_minor:
+          type: integer
+          minimum: 1
+        currency:
+          type: string
+          maxLength: 3
+        booking_date:
+          type: string
+          format: date
+        value_date:
+          type: string
+          format: date
+        collection_account_identifier:
+          type: string
+          maxLength: 128
+        payer_name:
+          type: string
+          maxLength: 255
+        payer_account_identifier:
+          type: string
+          maxLength: 128
+        bank_reference:
+          type: string
+          maxLength: 160
+        payment_reference:
+          type: string
+          maxLength: 160
+        evidence_reference:
+          type: string
+          maxLength: 255
+        notes:
+          type: string
+        idempotency_key:
+          type: string
+          maxLength: 160
+      required:
+      - amount_minor
+      - booking_date
+      - collection_account_identifier
+      - currency
+      - idempotency_key
+      - investor_user_id
+      - value_date
+    LenderDepositDeclareResponse:
+      type: object
+      properties:
+        bank_operation:
+          $ref: '#/components/schemas/BankOperation'
+        journal_entry:
+          $ref: '#/components/schemas/LedgerJournalEntry'
+        balance_lot:
+          $ref: '#/components/schemas/InvestorBalanceLot'
+      required:
+      - balance_lot
+      - bank_operation
+      - journal_entry
     Loan:
       type: object
       properties:
@@ -2777,6 +3192,79 @@ components:
         * `development` - Development
         * `inventory_trade_finance` - Inventory or trade finance
         * `other` - Other
+    ReconciliationSnapshot:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+        as_of_date:
+          type: string
+          format: date
+        bank_stated_balance_minor:
+          type: integer
+        investor_balance_liability_minor:
+          type: integer
+        garanta_accrued_revenue_minor:
+          type: integer
+        suspense_unmatched_cash_minor:
+          type: integer
+        pending_exception_balance_minor:
+          type: integer
+        reconciliation_difference_minor:
+          type: integer
+        created_by_admin_id:
+          type: string
+          format: uuid
+        notes:
+          type: string
+        metadata: {}
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - as_of_date
+      - bank_stated_balance_minor
+      - created_at
+      - created_by_admin_id
+      - currency
+      - garanta_accrued_revenue_minor
+      - id
+      - investor_balance_liability_minor
+      - metadata
+      - notes
+      - pending_exception_balance_minor
+      - reconciliation_difference_minor
+      - suspense_unmatched_cash_minor
+      - updated_at
+    ReconciliationSnapshotCreateRequest:
+      type: object
+      properties:
+        currency:
+          type: string
+          maxLength: 3
+        as_of_date:
+          type: string
+          format: date
+        bank_stated_balance_minor:
+          type: integer
+          minimum: 0
+        pending_exception_balance_minor:
+          type: integer
+          minimum: 0
+          default: 0
+        notes:
+          type: string
+        metadata: {}
+      required:
+      - as_of_date
+      - bank_stated_balance_minor
+      - currency
     RepaymentTypeEnum:
       enum:
       - equal_installments
