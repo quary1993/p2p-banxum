@@ -563,6 +563,80 @@ export interface InvestorBalanceSummary {
   penalty_mode_minor: number;
 }
 
+export interface InvestorWithdrawalFinalizeRequest {
+  booking_date: string;
+  value_date: string;
+  /** @maxLength 128 */
+  collection_account_identifier: string;
+  /** @maxLength 160 */
+  bank_reference?: string;
+  /** @maxLength 160 */
+  payment_reference?: string;
+  /** @maxLength 255 */
+  evidence_reference?: string;
+  admin_notes?: string;
+  /** @maxLength 160 */
+  idempotency_key: string;
+}
+
+export interface InvestorWithdrawalFinalizeResponse {
+  withdrawal_request: InvestorWithdrawalRequest;
+  bank_operation: BankOperation;
+  journal_entry: LedgerJournalEntry;
+}
+
+export interface InvestorWithdrawalRequest {
+  id: string;
+  investor_user_id: string;
+  status: string;
+  amount_minor: number;
+  currency: string;
+  destination_iban: string;
+  destination_account_name: string;
+  requested_by_user_id: string;
+  requested_at: string;
+  /** @nullable */
+  request_journal_entry_id: string | null;
+  is_forced: boolean;
+  lot_allocations: unknown;
+  /** @nullable */
+  bank_operation_id: string | null;
+  /** @nullable */
+  finalization_journal_entry_id: string | null;
+  /** @nullable */
+  finalized_by_admin_id: string | null;
+  /** @nullable */
+  finalized_at: string | null;
+  bank_reference: string;
+  payment_reference: string;
+  evidence_reference: string;
+  notes: string;
+  admin_notes: string;
+  metadata: unknown;
+  idempotency_key: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InvestorWithdrawalRequestCreateRequest {
+  /** @minimum 1 */
+  amount_minor: number;
+  /** @maxLength 3 */
+  currency: string;
+  /** @maxLength 128 */
+  destination_iban: string;
+  /** @maxLength 255 */
+  destination_account_name?: string;
+  notes?: string;
+  /** @maxLength 160 */
+  idempotency_key: string;
+}
+
+export interface InvestorWithdrawalRequestCreateResponse {
+  withdrawal_request: InvestorWithdrawalRequest;
+  balance_summary: InvestorBalanceSummary;
+}
+
 export interface KycAdminCase {
   id: string;
   subject_type: string;
@@ -3841,6 +3915,125 @@ const {mutation: mutationOptions} = options ?
       return useMutation(mutationOptions, queryClient);
     }
 
+export const v1LedgerAdminWithdrawalRequestsFinalizeCreate = (
+    withdrawalRequestId: string,
+    investorWithdrawalFinalizeRequest: InvestorWithdrawalFinalizeRequest,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<InvestorWithdrawalFinalizeResponse>(
+      {url: `/api/v1/ledger/admin/withdrawal-requests/${withdrawalRequestId}/finalize/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: investorWithdrawalFinalizeRequest, signal
+    },
+      );
+    }
+
+
+
+export const getV1LedgerAdminWithdrawalRequestsFinalizeCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1LedgerAdminWithdrawalRequestsFinalizeCreate>>, TError,{withdrawalRequestId: string;data: InvestorWithdrawalFinalizeRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1LedgerAdminWithdrawalRequestsFinalizeCreate>>, TError,{withdrawalRequestId: string;data: InvestorWithdrawalFinalizeRequest}, TContext> => {
+
+const mutationKey = ['v1LedgerAdminWithdrawalRequestsFinalizeCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1LedgerAdminWithdrawalRequestsFinalizeCreate>>, {withdrawalRequestId: string;data: InvestorWithdrawalFinalizeRequest}> = (props) => {
+          const {withdrawalRequestId,data} = props ?? {};
+
+          return  v1LedgerAdminWithdrawalRequestsFinalizeCreate(withdrawalRequestId,data,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1LedgerAdminWithdrawalRequestsFinalizeCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1LedgerAdminWithdrawalRequestsFinalizeCreate>>>
+    export type V1LedgerAdminWithdrawalRequestsFinalizeCreateMutationBody = InvestorWithdrawalFinalizeRequest
+    export type V1LedgerAdminWithdrawalRequestsFinalizeCreateMutationError = unknown
+
+    export const useV1LedgerAdminWithdrawalRequestsFinalizeCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1LedgerAdminWithdrawalRequestsFinalizeCreate>>, TError,{withdrawalRequestId: string;data: InvestorWithdrawalFinalizeRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1LedgerAdminWithdrawalRequestsFinalizeCreate>>,
+        TError,
+        {withdrawalRequestId: string;data: InvestorWithdrawalFinalizeRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1LedgerAdminWithdrawalRequestsFinalizeCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+
+export const v1LedgerWithdrawalRequestsCreate = (
+    investorWithdrawalRequestCreateRequest: InvestorWithdrawalRequestCreateRequest,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<InvestorWithdrawalRequestCreateResponse>(
+      {url: `/api/v1/ledger/withdrawal-requests/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: investorWithdrawalRequestCreateRequest, signal
+    },
+      );
+    }
+
+
+
+export const getV1LedgerWithdrawalRequestsCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1LedgerWithdrawalRequestsCreate>>, TError,{data: InvestorWithdrawalRequestCreateRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1LedgerWithdrawalRequestsCreate>>, TError,{data: InvestorWithdrawalRequestCreateRequest}, TContext> => {
+
+const mutationKey = ['v1LedgerWithdrawalRequestsCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1LedgerWithdrawalRequestsCreate>>, {data: InvestorWithdrawalRequestCreateRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1LedgerWithdrawalRequestsCreate(data,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1LedgerWithdrawalRequestsCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1LedgerWithdrawalRequestsCreate>>>
+    export type V1LedgerWithdrawalRequestsCreateMutationBody = InvestorWithdrawalRequestCreateRequest
+    export type V1LedgerWithdrawalRequestsCreateMutationError = unknown
+
+    export const useV1LedgerWithdrawalRequestsCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1LedgerWithdrawalRequestsCreate>>, TError,{data: InvestorWithdrawalRequestCreateRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1LedgerWithdrawalRequestsCreate>>,
+        TError,
+        {data: InvestorWithdrawalRequestCreateRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1LedgerWithdrawalRequestsCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+
 export const v1LoansAdminLoansList = (
     params?: V1LoansAdminLoansListParams,
  signal?: AbortSignal
@@ -4431,6 +4624,10 @@ export const getV1LedgerAdminLenderDepositsCreateResponseMock = (overrideRespons
 
 export const getV1LedgerAdminReconciliationSnapshotsCreateResponseMock = (overrideResponse: Partial< ReconciliationSnapshot > = {}): ReconciliationSnapshot => ({id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), as_of_date: faker.date.past().toISOString().split('T')[0], bank_stated_balance_minor: faker.number.int({min: undefined, max: undefined}), investor_balance_liability_minor: faker.number.int({min: undefined, max: undefined}), garanta_accrued_revenue_minor: faker.number.int({min: undefined, max: undefined}), suspense_unmatched_cash_minor: faker.number.int({min: undefined, max: undefined}), pending_exception_balance_minor: faker.number.int({min: undefined, max: undefined}), reconciliation_difference_minor: faker.number.int({min: undefined, max: undefined}), created_by_admin_id: faker.string.uuid(), notes: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
 
+export const getV1LedgerAdminWithdrawalRequestsFinalizeCreateResponseMock = (overrideResponse: Partial< InvestorWithdrawalFinalizeResponse > = {}): InvestorWithdrawalFinalizeResponse => ({withdrawal_request: {id: faker.string.uuid(), investor_user_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), destination_iban: faker.string.alpha({length: {min: 10, max: 20}}), destination_account_name: faker.string.alpha({length: {min: 10, max: 20}}), requested_by_user_id: faker.string.uuid(), requested_at: `${faker.date.past().toISOString().split('.')[0]}Z`, request_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), is_forced: faker.datatype.boolean(), lot_allocations: {}, bank_operation_id: faker.helpers.arrayElement([faker.string.uuid(), null]), finalization_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), finalized_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), finalized_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), bank_reference: faker.string.alpha({length: {min: 10, max: 20}}), payment_reference: faker.string.alpha({length: {min: 10, max: 20}}), evidence_reference: faker.string.alpha({length: {min: 10, max: 20}}), notes: faker.string.alpha({length: {min: 10, max: 20}}), admin_notes: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, idempotency_key: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, bank_operation: {id: faker.string.uuid(), operation_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), booking_date: faker.date.past().toISOString().split('T')[0], value_date: faker.date.past().toISOString().split('T')[0], collection_account_identifier: faker.string.alpha({length: {min: 10, max: 20}}), payer_name: faker.string.alpha({length: {min: 10, max: 20}}), payer_account_identifier: faker.string.alpha({length: {min: 10, max: 20}}), payee_name: faker.string.alpha({length: {min: 10, max: 20}}), payee_account_identifier: faker.string.alpha({length: {min: 10, max: 20}}), bank_reference: faker.string.alpha({length: {min: 10, max: 20}}), payment_reference: faker.string.alpha({length: {min: 10, max: 20}}), linked_object_type: faker.string.alpha({length: {min: 10, max: 20}}), linked_object_id: faker.string.alpha({length: {min: 10, max: 20}}), evidence_reference: faker.string.alpha({length: {min: 10, max: 20}}), confirmed_by_admin_id: faker.string.uuid(), confirmed_at: `${faker.date.past().toISOString().split('.')[0]}Z`, notes: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, idempotency_key: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, journal_entry: {id: faker.string.uuid(), event_type: faker.string.alpha({length: {min: 10, max: 20}}), direction: faker.string.alpha({length: {min: 10, max: 20}}), booking_date: faker.date.past().toISOString().split('T')[0], value_date: faker.date.past().toISOString().split('T')[0], effective_at: `${faker.date.past().toISOString().split('.')[0]}Z`, received_at: `${faker.date.past().toISOString().split('.')[0]}Z`, currency: faker.string.alpha({length: {min: 10, max: 20}}), gross_amount_minor: faker.number.int({min: undefined, max: undefined}), net_amount_minor: faker.number.int({min: undefined, max: undefined}), source_type: faker.string.alpha({length: {min: 10, max: 20}}), source_id: faker.string.alpha({length: {min: 10, max: 20}}), lender_user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), borrower_id: faker.helpers.arrayElement([faker.string.uuid(), null]), loan_id: faker.helpers.arrayElement([faker.string.uuid(), null]), bank_operation_id: faker.helpers.arrayElement([faker.string.uuid(), null]), bank_reference: faker.string.alpha({length: {min: 10, max: 20}}), evidence_reference: faker.string.alpha({length: {min: 10, max: 20}}), actor_type: faker.string.alpha({length: {min: 10, max: 20}}), actor_id: faker.string.alpha({length: {min: 10, max: 20}}), tax_metadata: {}, metadata: {}, reversal_of_id: faker.helpers.arrayElement([faker.string.uuid(), null]), idempotency_key: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, ...overrideResponse})
+
+export const getV1LedgerWithdrawalRequestsCreateResponseMock = (overrideResponse: Partial< InvestorWithdrawalRequestCreateResponse > = {}): InvestorWithdrawalRequestCreateResponse => ({withdrawal_request: {id: faker.string.uuid(), investor_user_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), destination_iban: faker.string.alpha({length: {min: 10, max: 20}}), destination_account_name: faker.string.alpha({length: {min: 10, max: 20}}), requested_by_user_id: faker.string.uuid(), requested_at: `${faker.date.past().toISOString().split('.')[0]}Z`, request_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), is_forced: faker.datatype.boolean(), lot_allocations: {}, bank_operation_id: faker.helpers.arrayElement([faker.string.uuid(), null]), finalization_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), finalized_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), finalized_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), bank_reference: faker.string.alpha({length: {min: 10, max: 20}}), payment_reference: faker.string.alpha({length: {min: 10, max: 20}}), evidence_reference: faker.string.alpha({length: {min: 10, max: 20}}), notes: faker.string.alpha({length: {min: 10, max: 20}}), admin_notes: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, idempotency_key: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, balance_summary: {investor_user_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), total_available_minor: faker.number.int({min: undefined, max: undefined}), investable_minor: faker.number.int({min: undefined, max: undefined}), withdraw_only_minor: faker.number.int({min: undefined, max: undefined}), overdue_minor: faker.number.int({min: undefined, max: undefined}), frozen_minor: faker.number.int({min: undefined, max: undefined}), penalty_mode_minor: faker.number.int({min: undefined, max: undefined})}, ...overrideResponse})
+
 export const getV1LoansAdminLoansListResponseMock = (): Loan[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), borrower_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int({min: undefined, max: undefined}), term_months: faker.number.int({min: undefined, max: undefined}), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_only_months: faker.number.int({min: undefined, max: undefined}), funding_deadline: faker.date.past().toISOString().split('T')[0], first_payment_date: faker.date.past().toISOString().split('T')[0], collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_value_minor: faker.number.int({min: undefined, max: undefined}), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), borrower_success_fee_bps: faker.number.int({min: undefined, max: undefined}), lender_payment_fee_minor: faker.number.int({min: undefined, max: undefined}), default_penalty_interest_bps: faker.number.int({min: undefined, max: undefined}), recovery_fee_bps: faker.number.int({min: undefined, max: undefined}), recovery_waterfall_version: faker.string.alpha({length: {min: 10, max: 20}}), schedule_version: faker.number.int({min: undefined, max: undefined}), total_scheduled_principal_minor: faker.number.int({min: undefined, max: undefined}), total_scheduled_interest_minor: faker.number.int({min: undefined, max: undefined}), committed_principal_minor: faker.number.int({min: undefined, max: undefined}), ltv_bps: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), ltv_warnings: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), published_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`})))
 
 export const getV1LoansAdminLoansCreateResponseMock = (overrideResponse: Partial< Loan > = {}): Loan => ({id: faker.string.uuid(), borrower_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int({min: undefined, max: undefined}), term_months: faker.number.int({min: undefined, max: undefined}), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_only_months: faker.number.int({min: undefined, max: undefined}), funding_deadline: faker.date.past().toISOString().split('T')[0], first_payment_date: faker.date.past().toISOString().split('T')[0], collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), collateral_value_minor: faker.number.int({min: undefined, max: undefined}), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), borrower_success_fee_bps: faker.number.int({min: undefined, max: undefined}), lender_payment_fee_minor: faker.number.int({min: undefined, max: undefined}), default_penalty_interest_bps: faker.number.int({min: undefined, max: undefined}), recovery_fee_bps: faker.number.int({min: undefined, max: undefined}), recovery_waterfall_version: faker.string.alpha({length: {min: 10, max: 20}}), schedule_version: faker.number.int({min: undefined, max: undefined}), total_scheduled_principal_minor: faker.number.int({min: undefined, max: undefined}), total_scheduled_interest_minor: faker.number.int({min: undefined, max: undefined}), committed_principal_minor: faker.number.int({min: undefined, max: undefined}), ltv_bps: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), ltv_warnings: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), published_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
@@ -4840,6 +5037,30 @@ export const getV1LedgerAdminReconciliationSnapshotsCreateMockHandler = (overrid
   }, options)
 }
 
+export const getV1LedgerAdminWithdrawalRequestsFinalizeCreateMockHandler = (overrideResponse?: InvestorWithdrawalFinalizeResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<InvestorWithdrawalFinalizeResponse> | InvestorWithdrawalFinalizeResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/ledger/admin/withdrawal-requests/:withdrawalRequestId/finalize/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1LedgerAdminWithdrawalRequestsFinalizeCreateResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1LedgerWithdrawalRequestsCreateMockHandler = (overrideResponse?: InvestorWithdrawalRequestCreateResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<InvestorWithdrawalRequestCreateResponse> | InvestorWithdrawalRequestCreateResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/ledger/withdrawal-requests/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1LedgerWithdrawalRequestsCreateResponseMock()),
+      { status: 201,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
 export const getV1LoansAdminLoansListMockHandler = (overrideResponse?: Loan[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<Loan[]> | Loan[]), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/loans/admin/loans/', async (info) => {await delay(1000);
 
@@ -4957,6 +5178,8 @@ export const getBanxumApiMock = () => [
   getV1LedgerAdminInvestorBalanceSummaryRetrieveMockHandler(),
   getV1LedgerAdminLenderDepositsCreateMockHandler(),
   getV1LedgerAdminReconciliationSnapshotsCreateMockHandler(),
+  getV1LedgerAdminWithdrawalRequestsFinalizeCreateMockHandler(),
+  getV1LedgerWithdrawalRequestsCreateMockHandler(),
   getV1LoansAdminLoansListMockHandler(),
   getV1LoansAdminLoansCreateMockHandler(),
   getV1LoansAdminLoansRetrieveMockHandler(),

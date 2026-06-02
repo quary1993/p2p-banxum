@@ -82,6 +82,12 @@ class BalanceLotStatus(models.TextChoices):
     PENALTY_EXHAUSTED = "penalty_exhausted", "Penalty exhausted"
 
 
+class InvestorWithdrawalRequestStatus(models.TextChoices):
+    REQUESTED = "requested", "Requested"
+    FINALIZED = "finalized", "Finalized"
+    CANCELLED = "cancelled", "Cancelled"
+
+
 class LedgerAccount(TimestampedModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     code = models.CharField(max_length=160, unique=True)
@@ -292,6 +298,73 @@ class InvestorBalanceLot(TimestampedModel):
             models.Index(fields=["currency", "investment_deadline_at"]),
             models.Index(fields=["currency", "withdrawal_deadline_at"]),
             models.Index(fields=["source_type", "source_id"]),
+        ]
+
+
+class InvestorWithdrawalRequest(TimestampedModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    investor_user_id = models.UUIDField()
+    status = models.CharField(
+        max_length=32,
+        choices=InvestorWithdrawalRequestStatus.choices,
+        default=InvestorWithdrawalRequestStatus.REQUESTED,
+    )
+    amount_minor = models.BigIntegerField()
+    currency = models.ForeignKey(
+        "platform_core.Currency",
+        on_delete=models.PROTECT,
+        related_name="investor_withdrawal_requests",
+    )
+    destination_iban = models.CharField(max_length=128)
+    destination_account_name = models.CharField(max_length=255, blank=True)
+    requested_by_user_id = models.UUIDField()
+    requested_at = models.DateTimeField()
+    request_journal_entry = models.ForeignKey(
+        LedgerJournalEntry,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="withdrawal_requests_opened",
+    )
+    is_forced = models.BooleanField(default=False)
+    lot_allocations = models.JSONField(default=list, blank=True)
+    bank_operation = models.ForeignKey(
+        BankOperation,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="withdrawal_requests",
+    )
+    finalization_journal_entry = models.ForeignKey(
+        LedgerJournalEntry,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="withdrawal_requests_finalized",
+    )
+    finalized_by_admin_id = models.UUIDField(null=True, blank=True)
+    finalized_at = models.DateTimeField(null=True, blank=True)
+    bank_reference = models.CharField(max_length=160, blank=True)
+    payment_reference = models.CharField(max_length=160, blank=True)
+    evidence_reference = models.CharField(max_length=255, blank=True)
+    notes = models.TextField(blank=True)
+    admin_notes = models.TextField(blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    idempotency_key = models.CharField(max_length=160, unique=True)
+
+    class Meta:
+        ordering = ["-requested_at", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(amount_minor__gt=0),
+                name="ledger_withdrawal_request_amount_positive",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["investor_user_id", "currency", "status"]),
+            models.Index(fields=["status", "requested_at"]),
+            models.Index(fields=["finalized_at"]),
+            models.Index(fields=["bank_reference"]),
         ]
 
 

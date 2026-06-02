@@ -935,6 +935,65 @@ paths:
               schema:
                 $ref: '#/components/schemas/ReconciliationSnapshot'
           description: ''
+  /api/v1/ledger/admin/withdrawal-requests/{withdrawal_request_id}/finalize/:
+    post:
+      operationId: v1_ledger_admin_withdrawal_requests_finalize_create
+      parameters:
+      - in: path
+        name: withdrawal_request_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvestorWithdrawalFinalizeRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/InvestorWithdrawalFinalizeRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/InvestorWithdrawalFinalizeRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorWithdrawalFinalizeResponse'
+          description: ''
+  /api/v1/ledger/withdrawal-requests/:
+    post:
+      operationId: v1_ledger_withdrawal_requests_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvestorWithdrawalRequestCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/InvestorWithdrawalRequestCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/InvestorWithdrawalRequestCreateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorWithdrawalRequestCreateResponse'
+          description: ''
   /api/v1/loans/admin/loans/:
     get:
       operationId: v1_loans_admin_loans_list
@@ -2196,6 +2255,178 @@ components:
       - penalty_mode_minor
       - total_available_minor
       - withdraw_only_minor
+    InvestorWithdrawalFinalizeRequest:
+      type: object
+      properties:
+        booking_date:
+          type: string
+          format: date
+        value_date:
+          type: string
+          format: date
+        collection_account_identifier:
+          type: string
+          maxLength: 128
+        bank_reference:
+          type: string
+          maxLength: 160
+        payment_reference:
+          type: string
+          maxLength: 160
+        evidence_reference:
+          type: string
+          maxLength: 255
+        admin_notes:
+          type: string
+        idempotency_key:
+          type: string
+          maxLength: 160
+      required:
+      - booking_date
+      - collection_account_identifier
+      - idempotency_key
+      - value_date
+    InvestorWithdrawalFinalizeResponse:
+      type: object
+      properties:
+        withdrawal_request:
+          $ref: '#/components/schemas/InvestorWithdrawalRequest'
+        bank_operation:
+          $ref: '#/components/schemas/BankOperation'
+        journal_entry:
+          $ref: '#/components/schemas/LedgerJournalEntry'
+      required:
+      - bank_operation
+      - journal_entry
+      - withdrawal_request
+    InvestorWithdrawalRequest:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        investor_user_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+        amount_minor:
+          type: integer
+        currency:
+          type: string
+        destination_iban:
+          type: string
+        destination_account_name:
+          type: string
+        requested_by_user_id:
+          type: string
+          format: uuid
+        requested_at:
+          type: string
+          format: date-time
+        request_journal_entry_id:
+          type: string
+          format: uuid
+          nullable: true
+        is_forced:
+          type: boolean
+        lot_allocations: {}
+        bank_operation_id:
+          type: string
+          format: uuid
+          nullable: true
+        finalization_journal_entry_id:
+          type: string
+          format: uuid
+          nullable: true
+        finalized_by_admin_id:
+          type: string
+          format: uuid
+          nullable: true
+        finalized_at:
+          type: string
+          format: date-time
+          nullable: true
+        bank_reference:
+          type: string
+        payment_reference:
+          type: string
+        evidence_reference:
+          type: string
+        notes:
+          type: string
+        admin_notes:
+          type: string
+        metadata: {}
+        idempotency_key:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - admin_notes
+      - amount_minor
+      - bank_operation_id
+      - bank_reference
+      - created_at
+      - currency
+      - destination_account_name
+      - destination_iban
+      - evidence_reference
+      - finalization_journal_entry_id
+      - finalized_at
+      - finalized_by_admin_id
+      - id
+      - idempotency_key
+      - investor_user_id
+      - is_forced
+      - lot_allocations
+      - metadata
+      - notes
+      - payment_reference
+      - request_journal_entry_id
+      - requested_at
+      - requested_by_user_id
+      - status
+      - updated_at
+    InvestorWithdrawalRequestCreateRequest:
+      type: object
+      properties:
+        amount_minor:
+          type: integer
+          minimum: 1
+        currency:
+          type: string
+          maxLength: 3
+        destination_iban:
+          type: string
+          maxLength: 128
+        destination_account_name:
+          type: string
+          maxLength: 255
+        notes:
+          type: string
+        idempotency_key:
+          type: string
+          maxLength: 160
+      required:
+      - amount_minor
+      - currency
+      - destination_iban
+      - idempotency_key
+    InvestorWithdrawalRequestCreateResponse:
+      type: object
+      properties:
+        withdrawal_request:
+          $ref: '#/components/schemas/InvestorWithdrawalRequest'
+        balance_summary:
+          $ref: '#/components/schemas/InvestorBalanceSummary'
+      required:
+      - balance_summary
+      - withdrawal_request
     KycAdminCase:
       type: object
       properties:

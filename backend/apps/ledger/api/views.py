@@ -13,6 +13,10 @@ from rest_framework.views import APIView
 from backend.apps.ledger.api.serializers import (
     InvestorBalanceSummaryQuerySerializer,
     InvestorBalanceSummarySerializer,
+    InvestorWithdrawalFinalizeRequestSerializer,
+    InvestorWithdrawalFinalizeResponseSerializer,
+    InvestorWithdrawalRequestCreateRequestSerializer,
+    InvestorWithdrawalRequestCreateResponseSerializer,
     LenderDepositDeclareRequestSerializer,
     LenderDepositDeclareResponseSerializer,
     ReconciliationSnapshotCreateRequestSerializer,
@@ -22,14 +26,19 @@ from backend.apps.ledger.api.serializers import (
     serialize_bank_operation,
     serialize_journal_entry,
     serialize_reconciliation_snapshot,
+    serialize_withdrawal_request,
 )
 from backend.apps.ledger.services import (
     CreateReconciliationSnapshotCommand,
     DeclareLenderDepositCommand,
+    FinalizeInvestorWithdrawalCommand,
     LedgerAuthorizationError,
     LedgerValidationError,
+    RequestInvestorWithdrawalCommand,
     create_reconciliation_snapshot,
     declare_lender_deposit,
+    finalize_investor_withdrawal,
+    request_investor_withdrawal,
     summarize_investor_balance,
 )
 from backend.apps.platform_core.domain.access import is_admin_actor
@@ -109,6 +118,88 @@ class InvestorBalanceSummaryView(APIView):
         except LedgerValidationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(serialize_balance_summary(summary), status=status.HTTP_200_OK)
+
+
+class InvestorWithdrawalRequestCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=InvestorWithdrawalRequestCreateRequestSerializer,
+        responses={201: InvestorWithdrawalRequestCreateResponseSerializer},
+    )
+    def post(self, request: Request) -> Response:
+        serializer = InvestorWithdrawalRequestCreateRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            withdrawal_request = request_investor_withdrawal(
+                RequestInvestorWithdrawalCommand(
+                    actor=cast(Model, request.user),
+                    amount_minor=data["amount_minor"],
+                    currency=data["currency"],
+                    destination_iban=data["destination_iban"],
+                    destination_account_name=data.get("destination_account_name", ""),
+                    notes=data.get("notes", ""),
+                    idempotency_key=data["idempotency_key"],
+                )
+            )
+            summary = summarize_investor_balance(
+                investor_user_id=str(request.user.pk),
+                currency=data["currency"],
+            )
+        except LedgerAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except LedgerValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {
+                "withdrawal_request": serialize_withdrawal_request(withdrawal_request),
+                "balance_summary": serialize_balance_summary(summary),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class InvestorWithdrawalFinalizeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=InvestorWithdrawalFinalizeRequestSerializer,
+        responses={200: InvestorWithdrawalFinalizeResponseSerializer},
+    )
+    def post(self, request: Request, withdrawal_request_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = InvestorWithdrawalFinalizeRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            result = finalize_investor_withdrawal(
+                FinalizeInvestorWithdrawalCommand(
+                    actor=cast(Model, request.user),
+                    withdrawal_request_id=withdrawal_request_id,
+                    booking_date=data["booking_date"],
+                    value_date=data["value_date"],
+                    collection_account_identifier=data["collection_account_identifier"],
+                    bank_reference=data.get("bank_reference", ""),
+                    payment_reference=data.get("payment_reference", ""),
+                    evidence_reference=data.get("evidence_reference", ""),
+                    admin_notes=data.get("admin_notes", ""),
+                    idempotency_key=data["idempotency_key"],
+                )
+            )
+        except LedgerAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except LedgerValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {
+                "withdrawal_request": serialize_withdrawal_request(result.withdrawal_request),
+                "bank_operation": serialize_bank_operation(result.bank_operation),
+                "journal_entry": serialize_journal_entry(result.journal_entry),
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class ReconciliationSnapshotCreateView(APIView):

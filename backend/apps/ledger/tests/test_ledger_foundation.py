@@ -5,15 +5,19 @@ from typing import Any, cast
 from unittest import mock
 
 import pytest
+from django.apps import apps
 from django.contrib.auth import get_user_model
 from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.db.models import Model
 from django.test import Client
+from django.utils import timezone
 
 from backend.apps.ledger.models import (
     BalanceLotStatus,
     BankOperation,
     InvestorBalanceLot,
+    InvestorWithdrawalRequest,
+    InvestorWithdrawalRequestStatus,
     LedgerAccountType,
     LedgerDirection,
     LedgerJournalEntry,
@@ -24,14 +28,18 @@ from backend.apps.ledger.models import (
 from backend.apps.ledger.services import (
     CreateReconciliationSnapshotCommand,
     DeclareLenderDepositCommand,
+    FinalizeInvestorWithdrawalCommand,
     LedgerValidationError,
     PostingCommand,
     PostJournalEntryCommand,
+    RequestInvestorWithdrawalCommand,
     create_reconciliation_snapshot,
     declare_lender_deposit,
+    finalize_investor_withdrawal,
     get_or_create_ledger_account,
     plan_investment_balance_consumption,
     post_journal_entry,
+    request_investor_withdrawal,
     summarize_investor_balance,
 )
 from backend.apps.platform_core.domain.time import business_timezone
@@ -72,6 +80,24 @@ def investor() -> Model:
 
 def _received_at(value_date: date) -> datetime:
     return datetime.combine(value_date, time.min, tzinfo=business_timezone())
+
+
+def _approve_financial_access(investor: Model) -> None:
+    now = timezone.now()
+    cast(Any, investor).phone_verified_at = now
+    investor.save(update_fields=["phone_verified_at"])
+    kyc_case_model = apps.get_model("kyc_compliance", "KycVerificationCase")
+    kyc_case_model.objects.update_or_create(
+        user_id=investor.pk,
+        defaults={
+            "subject_reference": f"user:{investor.pk}",
+            "provider_environment": "test",
+            "workflow_id": "test-workflow",
+            "vendor_data": f"user:{investor.pk}",
+            "status": "approved",
+            "decision_at": now,
+        },
+    )
 
 
 def _deposit_command(
@@ -514,6 +540,253 @@ def test_investment_consumption_plan_uses_fifo_and_funding_deadline(
             loan_funding_deadline=date(2026, 2, 5),
             as_of=_received_at(date(2026, 1, 15)),
         )
+
+
+@pytest.mark.django_db
+def test_withdrawal_request_requires_financial_access(
+    client: Client,
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    declare_lender_deposit(_deposit_command(admin_user, investor))
+    client.force_login(cast(Any, investor))
+
+    response = client.post(
+        "/api/v1/ledger/withdrawal-requests/",
+        data={
+            "amount_minor": 50_00,
+            "currency": "CHF",
+            "destination_iban": "CH9300762011623852957",
+            "destination_account_name": "Ledger Investor",
+            "idempotency_key": "withdrawal-no-kyc",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+    assert InvestorWithdrawalRequest.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_withdrawal_request_moves_balance_to_withdrawal_payable(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    declare_lender_deposit(_deposit_command(admin_user, investor))
+
+    withdrawal_request = request_investor_withdrawal(
+        RequestInvestorWithdrawalCommand(
+            actor=investor,
+            amount_minor=60_00,
+            currency="CHF",
+            destination_iban="CH9300762011623852957",
+            destination_account_name="Ledger Investor",
+            notes="User requested withdrawal.",
+            idempotency_key="withdrawal-request-1",
+        )
+    )
+    lot = InvestorBalanceLot.objects.get(investor_user_id=investor.pk)
+    assert withdrawal_request.request_journal_entry is not None
+    postings = list(
+        withdrawal_request.request_journal_entry.postings.select_related("account").order_by(
+            "side"
+        )
+    )
+    summary = summarize_investor_balance(
+        investor_user_id=str(investor.pk),
+        currency="CHF",
+        as_of=_received_at(date(2026, 1, 11)),
+    )
+    snapshot = create_reconciliation_snapshot(
+        CreateReconciliationSnapshotCommand(
+            actor=admin_user,
+            currency="CHF",
+            as_of_date=date(2026, 1, 1),
+            bank_stated_balance_minor=100_00,
+        )
+    )
+
+    assert withdrawal_request.status == InvestorWithdrawalRequestStatus.REQUESTED
+    assert withdrawal_request.amount_minor == 60_00
+    assert withdrawal_request.destination_iban == "CH9300762011623852957"
+    assert withdrawal_request.lot_allocations[0]["amount_minor"] == 60_00
+    assert lot.available_amount_minor == 40_00
+    assert lot.withdrawn_amount_minor == 60_00
+    assert lot.status == BalanceLotStatus.AVAILABLE
+    assert [(posting.side, posting.amount_minor) for posting in postings] == [
+        ("credit", 60_00),
+        ("debit", 60_00),
+    ]
+    assert {posting.account.account_type for posting in postings} == {
+        LedgerAccountType.INVESTOR_BALANCE_LIABILITY,
+        LedgerAccountType.WITHDRAWAL_PAYABLE,
+    }
+    assert summary.total_available_minor == 40_00
+    assert snapshot.reconciliation_difference_minor == 0
+    assert snapshot.metadata["withdrawal_payable_minor"] == 60_00
+    assert snapshot.metadata["collection_cash_ledger_balance_minor"] == 100_00
+    assert DomainEvent.objects.filter(
+        event_type="InvestorWithdrawalRequested",
+        aggregate_id=str(withdrawal_request.id),
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_withdrawal_request_idempotency_rejects_different_payload(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    declare_lender_deposit(_deposit_command(admin_user, investor))
+    request_investor_withdrawal(
+        RequestInvestorWithdrawalCommand(
+            actor=investor,
+            amount_minor=60_00,
+            currency="CHF",
+            destination_iban="CH9300762011623852957",
+            idempotency_key="withdrawal-mismatch",
+        )
+    )
+
+    with pytest.raises(LedgerValidationError, match="different request"):
+        request_investor_withdrawal(
+            RequestInvestorWithdrawalCommand(
+                actor=investor,
+                amount_minor=61_00,
+                currency="CHF",
+                destination_iban="CH9300762011623852957",
+                idempotency_key="withdrawal-mismatch",
+            )
+        )
+
+    assert InvestorWithdrawalRequest.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_admin_finalizes_withdrawal_and_reconciliation_reflects_cash_out(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    declare_lender_deposit(_deposit_command(admin_user, investor))
+    withdrawal_request = request_investor_withdrawal(
+        RequestInvestorWithdrawalCommand(
+            actor=investor,
+            amount_minor=60_00,
+            currency="CHF",
+            destination_iban="CH9300762011623852957",
+            destination_account_name="Ledger Investor",
+            idempotency_key="withdrawal-finalize",
+        )
+    )
+
+    result = finalize_investor_withdrawal(
+        FinalizeInvestorWithdrawalCommand(
+            actor=admin_user,
+            withdrawal_request_id=str(withdrawal_request.id),
+            booking_date=date(2026, 1, 2),
+            value_date=date(2026, 1, 2),
+            collection_account_identifier="CH00GARANTALEDGER",
+            bank_reference="BANK-WITHDRAWAL-1",
+            payment_reference="WD-1",
+            evidence_reference="statement:withdrawal-1",
+            admin_notes="Paid manually.",
+            idempotency_key="bank-withdrawal-1",
+        )
+    )
+    refreshed = InvestorWithdrawalRequest.objects.get(id=withdrawal_request.id)
+    postings = list(result.journal_entry.postings.select_related("account").order_by("side"))
+    snapshot = create_reconciliation_snapshot(
+        CreateReconciliationSnapshotCommand(
+            actor=admin_user,
+            currency="CHF",
+            as_of_date=date(2026, 1, 2),
+            bank_stated_balance_minor=40_00,
+        )
+    )
+    idempotent = finalize_investor_withdrawal(
+        FinalizeInvestorWithdrawalCommand(
+            actor=admin_user,
+            withdrawal_request_id=str(withdrawal_request.id),
+            booking_date=date(2026, 1, 2),
+            value_date=date(2026, 1, 2),
+            collection_account_identifier="CH00GARANTALEDGER",
+            bank_reference="BANK-WITHDRAWAL-1",
+            payment_reference="WD-1",
+            evidence_reference="statement:withdrawal-1",
+            admin_notes="Paid manually.",
+            idempotency_key="bank-withdrawal-1",
+        )
+    )
+
+    assert refreshed.status == InvestorWithdrawalRequestStatus.FINALIZED
+    assert refreshed.bank_operation_id == result.bank_operation.id
+    assert refreshed.finalization_journal_entry_id == result.journal_entry.id
+    assert result.bank_operation.operation_type == "lender_withdrawal"
+    assert result.bank_operation.status == "reconciled"
+    assert [(posting.side, posting.amount_minor) for posting in postings] == [
+        ("credit", 60_00),
+        ("debit", 60_00),
+    ]
+    assert {posting.account.account_type for posting in postings} == {
+        LedgerAccountType.COLLECTION_CASH,
+        LedgerAccountType.WITHDRAWAL_PAYABLE,
+    }
+    assert snapshot.reconciliation_difference_minor == 0
+    assert snapshot.metadata["withdrawal_payable_minor"] == 0
+    assert snapshot.metadata["collection_cash_ledger_balance_minor"] == 40_00
+    assert idempotent.bank_operation.id == result.bank_operation.id
+    assert BankOperation.objects.filter(operation_type="lender_withdrawal").count() == 1
+    assert DomainEvent.objects.filter(
+        event_type="InvestorWithdrawalFinalized",
+        aggregate_id=str(withdrawal_request.id),
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_withdrawal_request_and_finalization_api(
+    client: Client,
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    declare_lender_deposit(_deposit_command(admin_user, investor))
+    client.force_login(cast(Any, investor))
+
+    request_response = client.post(
+        "/api/v1/ledger/withdrawal-requests/",
+        data={
+            "amount_minor": 70_00,
+            "currency": "CHF",
+            "destination_iban": "CH9300762011623852957",
+            "destination_account_name": "Ledger Investor",
+            "idempotency_key": "withdrawal-api",
+        },
+        content_type="application/json",
+    )
+    withdrawal_request_id = request_response.json()["withdrawal_request"]["id"]
+
+    client.force_login(cast(Any, admin_user))
+    finalize_response = client.post(
+        f"/api/v1/ledger/admin/withdrawal-requests/{withdrawal_request_id}/finalize/",
+        data={
+            "booking_date": "2026-01-02",
+            "value_date": "2026-01-02",
+            "collection_account_identifier": "CH00GARANTALEDGER",
+            "bank_reference": "BANK-WITHDRAWAL-API",
+            "payment_reference": "WD-API",
+            "evidence_reference": "statement:withdrawal-api",
+            "idempotency_key": "bank-withdrawal-api",
+        },
+        content_type="application/json",
+    )
+
+    assert request_response.status_code == 201
+    assert request_response.json()["balance_summary"]["total_available_minor"] == 30_00
+    assert finalize_response.status_code == 200
+    assert finalize_response.json()["withdrawal_request"]["status"] == "finalized"
+    assert finalize_response.json()["bank_operation"]["operation_type"] == "lender_withdrawal"
 
 
 @pytest.mark.django_db

@@ -9,6 +9,7 @@ from backend.apps.ledger.models import (
     BankOperationStatus,
     BankOperationType,
     InvestorBalanceLot,
+    InvestorWithdrawalRequest,
     LedgerJournalEntry,
     ReconciliationSnapshot,
 )
@@ -92,6 +93,34 @@ class InvestorBalanceLotSerializer(serializers.Serializer[Any]):
     updated_at = serializers.DateTimeField()
 
 
+class InvestorWithdrawalRequestSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    investor_user_id = serializers.UUIDField()
+    status = serializers.CharField()
+    amount_minor = serializers.IntegerField()
+    currency = serializers.CharField(source="currency.code")
+    destination_iban = serializers.CharField()
+    destination_account_name = serializers.CharField()
+    requested_by_user_id = serializers.UUIDField()
+    requested_at = serializers.DateTimeField()
+    request_journal_entry_id = serializers.UUIDField(allow_null=True)
+    is_forced = serializers.BooleanField()
+    lot_allocations = serializers.JSONField()
+    bank_operation_id = serializers.UUIDField(allow_null=True)
+    finalization_journal_entry_id = serializers.UUIDField(allow_null=True)
+    finalized_by_admin_id = serializers.UUIDField(allow_null=True)
+    finalized_at = serializers.DateTimeField(allow_null=True)
+    bank_reference = serializers.CharField()
+    payment_reference = serializers.CharField()
+    evidence_reference = serializers.CharField()
+    notes = serializers.CharField()
+    admin_notes = serializers.CharField()
+    metadata = serializers.JSONField()
+    idempotency_key = serializers.CharField()
+    created_at = serializers.DateTimeField()
+    updated_at = serializers.DateTimeField()
+
+
 class LenderDepositDeclareRequestSerializer(serializers.Serializer[Any]):
     investor_user_id = serializers.UUIDField()
     amount_minor = serializers.IntegerField(min_value=1)
@@ -134,6 +163,41 @@ class InvestorBalanceSummarySerializer(serializers.Serializer[Any]):
     penalty_mode_minor = serializers.IntegerField()
 
 
+class InvestorWithdrawalRequestCreateRequestSerializer(serializers.Serializer[Any]):
+    amount_minor = serializers.IntegerField(min_value=1)
+    currency = serializers.CharField(max_length=3)
+    destination_iban = serializers.CharField(max_length=128)
+    destination_account_name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=255,
+    )
+    notes = serializers.CharField(required=False, allow_blank=True)
+    idempotency_key = serializers.CharField(max_length=160)
+
+
+class InvestorWithdrawalRequestCreateResponseSerializer(serializers.Serializer[Any]):
+    withdrawal_request = InvestorWithdrawalRequestSerializer()
+    balance_summary = InvestorBalanceSummarySerializer()
+
+
+class InvestorWithdrawalFinalizeRequestSerializer(serializers.Serializer[Any]):
+    booking_date = serializers.DateField()
+    value_date = serializers.DateField()
+    collection_account_identifier = serializers.CharField(max_length=128)
+    bank_reference = serializers.CharField(required=False, allow_blank=True, max_length=160)
+    payment_reference = serializers.CharField(required=False, allow_blank=True, max_length=160)
+    evidence_reference = serializers.CharField(required=False, allow_blank=True, max_length=255)
+    admin_notes = serializers.CharField(required=False, allow_blank=True)
+    idempotency_key = serializers.CharField(max_length=160)
+
+
+class InvestorWithdrawalFinalizeResponseSerializer(serializers.Serializer[Any]):
+    withdrawal_request = InvestorWithdrawalRequestSerializer()
+    bank_operation = BankOperationSerializer()
+    journal_entry = LedgerJournalEntrySerializer()
+
+
 class ReconciliationSnapshotCreateRequestSerializer(serializers.Serializer[Any]):
     currency = serializers.CharField(max_length=3)
     as_of_date = serializers.DateField()
@@ -174,6 +238,12 @@ def serialize_journal_entry(journal_entry: LedgerJournalEntry) -> dict[str, Any]
 
 def serialize_balance_lot(balance_lot: InvestorBalanceLot) -> dict[str, Any]:
     return dict(InvestorBalanceLotSerializer(balance_lot).data)
+
+
+def serialize_withdrawal_request(
+    withdrawal_request: InvestorWithdrawalRequest,
+) -> dict[str, Any]:
+    return dict(InvestorWithdrawalRequestSerializer(withdrawal_request).data)
 
 
 def serialize_balance_summary(summary: BalanceSummary) -> dict[str, Any]:

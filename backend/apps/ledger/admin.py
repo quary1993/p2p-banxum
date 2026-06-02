@@ -5,6 +5,7 @@ from django.contrib import admin
 from backend.apps.ledger.models import (
     BankOperation,
     InvestorBalanceLot,
+    InvestorWithdrawalRequest,
     LedgerAccount,
     LedgerJournalEntry,
     LedgerPosting,
@@ -85,6 +86,22 @@ class InvestorBalanceLotAdmin(ReadOnlyLedgerAdmin):
     list_filter = ("status", "currency", "source_type")
     search_fields = ("investor_user_id", "source_id")
     readonly_fields = tuple(field.name for field in InvestorBalanceLot._meta.fields)
+
+
+@admin.register(InvestorWithdrawalRequest)
+class InvestorWithdrawalRequestAdmin(ReadOnlyLedgerAdmin):
+    list_display = (
+        "investor_user_id",
+        "status",
+        "amount_minor",
+        "currency",
+        "destination_iban",
+        "requested_at",
+        "finalized_at",
+    )
+    list_filter = ("status", "currency", "is_forced")
+    search_fields = ("investor_user_id", "destination_iban", "bank_reference", "idempotency_key")
+    readonly_fields = tuple(field.name for field in InvestorWithdrawalRequest._meta.fields)
 
 
 @admin.register(ReconciliationSnapshot)

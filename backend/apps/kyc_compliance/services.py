@@ -23,9 +23,11 @@ from backend.apps.kyc_compliance.models import (
     KycVerificationCase,
 )
 from backend.apps.platform_core.domain.access import (
-    BLOCKING_ACCOUNT_STATUSES,
     actor_ref_for_user,
     is_admin_actor,
+)
+from backend.apps.platform_core.domain.access import (
+    user_can_access_financial_features as platform_user_can_access_financial_features,
 )
 from backend.apps.platform_core.domain.actors import ActorRef
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
@@ -565,13 +567,7 @@ def user_kyc_status(user: Model) -> KycStatus:
 
 
 def user_can_access_financial_features(user: Model) -> bool:
-    if not bool(getattr(user, "is_active", False)):
-        return False
-    if str(getattr(user, "status", "")) in BLOCKING_ACCOUNT_STATUSES:
-        return False
-    if getattr(user, "phone_verified_at", None) is None:
-        return False
-    return user_kyc_status(user) == KycStatus.APPROVED
+    return platform_user_can_access_financial_features(user)
 
 
 def verify_didit_webhook_signature(*, raw_body: bytes, signature: str) -> bool:
