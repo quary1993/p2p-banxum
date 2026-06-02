@@ -350,6 +350,13 @@ def record_borrower_repayment(
         return existing
 
     loan = _locked_funded_loan(command.loan_id)
+    existing_after_lock = _existing_repayment_for_idempotency(
+        idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing_after_lock is not None:
+        return existing_after_lock
+
     loan_ref = cast(Any, loan)
     currency = _enabled_currency(str(loan_ref.currency_id))
     amount_minor = _validate_money(command.amount_minor, currency.code, "Repayment amount")
@@ -435,29 +442,30 @@ def record_borrower_repayment(
         "bank_operation_id": str(ledger_result.bank_operation.id),
     }
     try:
-        repayment_event = BorrowerRepaymentEvent.objects.create(
-            id=event_id,
-            loan=loan,
-            installment=installment,
-            event_type=event_type,
-            amount_minor=amount_minor,
-            currency=currency,
-            booking_date=command.booking_date,
-            value_date=command.value_date,
-            received_at=received_at,
-            expected_due_minor=expected_due,
-            interest_applied_minor=interest_applied,
-            principal_applied_minor=principal_applied,
-            remaining_installment_interest_minor=remaining_interest - interest_applied,
-            remaining_installment_principal_minor=remaining_principal - principal_applied,
-            warning_acknowledged=command.warning_acknowledged,
-            bank_operation=ledger_result.bank_operation,
-            journal_entry=ledger_result.journal_entry,
-            created_by_admin_id=command.actor.pk,
-            notes=command.admin_notes.strip(),
-            metadata=metadata,
-            idempotency_key=idempotency_key,
-        )
+        with transaction.atomic():
+            repayment_event = BorrowerRepaymentEvent.objects.create(
+                id=event_id,
+                loan=loan,
+                installment=installment,
+                event_type=event_type,
+                amount_minor=amount_minor,
+                currency=currency,
+                booking_date=command.booking_date,
+                value_date=command.value_date,
+                received_at=received_at,
+                expected_due_minor=expected_due,
+                interest_applied_minor=interest_applied,
+                principal_applied_minor=principal_applied,
+                remaining_installment_interest_minor=remaining_interest - interest_applied,
+                remaining_installment_principal_minor=remaining_principal - principal_applied,
+                warning_acknowledged=command.warning_acknowledged,
+                bank_operation=ledger_result.bank_operation,
+                journal_entry=ledger_result.journal_entry,
+                created_by_admin_id=command.actor.pk,
+                notes=command.admin_notes.strip(),
+                metadata=metadata,
+                idempotency_key=idempotency_key,
+            )
     except IntegrityError:
         existing_after_race = _existing_repayment_for_idempotency(
             idempotency_key,

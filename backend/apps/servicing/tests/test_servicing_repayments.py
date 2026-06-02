@@ -338,6 +338,45 @@ def test_repayment_idempotency_rejects_different_payload(
 
 
 @pytest.mark.django_db
+def test_second_repayment_advances_to_next_unpaid_installment(
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+
+    first = record_borrower_repayment(_repayment_command(admin_user, loan))
+    second = record_borrower_repayment(
+        _repayment_command(
+            admin_user,
+            loan,
+            amount_minor=27_200_00,
+            idempotency_key="servicing-second-installment",
+        )
+    )
+    lines = list(
+        InvestorRepaymentDistributionLine.objects.filter(
+            repayment_event=second.repayment_event
+        ).order_by("amount_minor")
+    )
+    holdings = list(
+        apps.get_model("holdings", "InvestorLoanHolding").objects.filter(loan=loan)
+    )
+
+    assert first.repayment_event.installment.installment_number == 1
+    assert second.repayment_event.installment.installment_number == 2
+    assert second.repayment_event.interest_applied_minor == 200_00
+    assert second.repayment_event.principal_applied_minor == 27_000_00
+    assert second.repayment_event.remaining_installment_principal_minor == 0
+    assert [(line.principal_minor, line.interest_minor, line.amount_minor) for line in lines] == [
+        (9_000_00, 66_67, 9_066_67),
+        (18_000_00, 133_33, 18_133_33),
+    ]
+    assert {holding.current_principal_minor for holding in holdings} == {0}
+    assert {holding.status for holding in holdings} == {"closed"}
+
+
+@pytest.mark.django_db
 def test_repayment_admin_api(
     client: Client,
     admin_user: Model,
