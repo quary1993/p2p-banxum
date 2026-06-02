@@ -1003,6 +1003,64 @@ def test_close_full_funding_creates_holdings_and_moves_escrow(
 
 
 @pytest.mark.django_db
+def test_close_reconciles_holding_share_ppm_with_largest_remainder(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    user_model: Any = get_user_model()
+    second_investor = cast(
+        Model,
+        user_model.objects.create_user(
+            email="market-share-second@example.test",
+            full_name="Market Share Second",
+            account_type="natural_person_lender",
+            status="active",
+        ),
+    )
+    third_investor = cast(
+        Model,
+        user_model.objects.create_user(
+            email="market-share-third@example.test",
+            full_name="Market Share Third",
+            account_type="natural_person_lender",
+            status="active",
+        ),
+    )
+    for user in (investor, second_investor, third_investor):
+        _approve_financial_access(user)
+    loan = _create_published_loan(admin_user, principal_minor=30_000_00)
+    for index, user in enumerate((investor, second_investor, third_investor), start=1):
+        _declare_deposit(
+            admin_user,
+            user,
+            amount_minor=10_000_00,
+            idempotency_key=f"market-share-deposit-{index}",
+        )
+        _create_and_allocate_order(
+            investor=user,
+            loan=loan,
+            amount_minor=10_000_00,
+            idempotency_prefix=f"market-share-{index}",
+        )
+
+    close = close_primary_loan_funding(
+        ClosePrimaryLoanFundingCommand(
+            actor=admin_user,
+            loan_id=str(loan.pk),
+            reason="Funding target reached.",
+            investor_message="Funding target reached.",
+            idempotency_key="market-share-close",
+        )
+    )
+    holding_model = apps.get_model("holdings", "InvestorLoanHolding")
+    holdings = list(holding_model.objects.filter(loan_id=loan.pk))
+
+    assert close.metadata["holding_share_ppm_total"] == 1_000_000
+    assert sum(holding.loan_share_ppm for holding in holdings) == 1_000_000
+    assert sorted(holding.loan_share_ppm for holding in holdings) == [333_333, 333_333, 333_334]
+
+
+@pytest.mark.django_db
 def test_close_partial_funding_regenerates_schedule_and_requires_message(
     admin_user: Model,
     investor: Model,
@@ -1053,6 +1111,35 @@ def test_close_partial_funding_regenerates_schedule_and_requires_message(
     assert cast(Any, loan).principal_minor == 40_000_00
     assert cast(Any, loan).schedule_version == 2
     assert principal_sum == 40_000_00
+
+
+@pytest.mark.django_db
+def test_close_rejects_allocated_order_and_committed_principal_drift(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user, principal_minor=10_000_00)
+    _declare_deposit(admin_user, investor, amount_minor=10_000_00, idempotency_key="drift-dep")
+    _create_and_allocate_order(
+        investor=investor,
+        loan=loan,
+        amount_minor=10_000_00,
+        idempotency_prefix="market-close-drift",
+    )
+    cast(Any, loan).committed_principal_minor = 9_000_00
+    loan.save(update_fields=["committed_principal_minor"])
+
+    with pytest.raises(MarketplacePrimaryValidationError, match="committed principal"):
+        close_primary_loan_funding(
+            ClosePrimaryLoanFundingCommand(
+                actor=admin_user,
+                loan_id=str(loan.pk),
+                reason="Drift should block close.",
+                investor_message="Drift should block close.",
+                idempotency_key="market-close-drift",
+            )
+        )
 
 
 @pytest.mark.django_db

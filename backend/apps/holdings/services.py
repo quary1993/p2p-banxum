@@ -52,6 +52,7 @@ class CreatePrimaryMarketHoldingCommand:
     currency: str
     assignment_effective_at: datetime
     idempotency_key: str
+    loan_share_ppm: int | None = None
     metadata: dict[str, Any] | None = None
 
 
@@ -113,12 +114,23 @@ def _loan_share_ppm(*, principal_minor: int, accepted_loan_principal_minor: int)
     return int(share.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
+def _validated_loan_share_ppm(value: int | None) -> int | None:
+    if value is None:
+        return None
+    if type(value) is not int:
+        raise HoldingsValidationError("Loan share ppm must be an integer.")
+    if value < 0 or value > ONE_HUNDRED_PERCENT_PPM:
+        raise HoldingsValidationError("Loan share ppm must be between 0 and 1,000,000.")
+    return value
+
+
 def _request_fingerprint(
     command: CreatePrimaryMarketHoldingCommand,
     *,
     currency_code: str,
     principal_minor: int,
     accepted_loan_principal_minor: int,
+    loan_share_ppm: int,
     idempotency_key: str,
 ) -> str:
     return _stable_json_fingerprint(
@@ -128,6 +140,7 @@ def _request_fingerprint(
             "primary_order_id": str(command.primary_order_id),
             "principal_minor": principal_minor,
             "accepted_loan_principal_minor": accepted_loan_principal_minor,
+            "loan_share_ppm": loan_share_ppm,
             "currency": currency_code,
             "assignment_effective_at": command.assignment_effective_at,
             "idempotency_key": idempotency_key,
@@ -195,11 +208,18 @@ def create_primary_market_holding(
     )
     if principal_minor > accepted_principal_minor:
         raise HoldingsValidationError("Holding principal cannot exceed accepted loan principal.")
+    loan_share_ppm = _validated_loan_share_ppm(command.loan_share_ppm)
+    if loan_share_ppm is None:
+        loan_share_ppm = _loan_share_ppm(
+            principal_minor=principal_minor,
+            accepted_loan_principal_minor=accepted_principal_minor,
+        )
     request_fingerprint = _request_fingerprint(
         command,
         currency_code=currency.code,
         principal_minor=principal_minor,
         accepted_loan_principal_minor=accepted_principal_minor,
+        loan_share_ppm=loan_share_ppm,
         idempotency_key=idempotency_key,
     )
     existing = _existing_holding_for_idempotency(
@@ -224,10 +244,7 @@ def create_primary_market_holding(
             original_principal_minor=principal_minor,
             current_principal_minor=principal_minor,
             currency=currency,
-            loan_share_ppm=_loan_share_ppm(
-                principal_minor=principal_minor,
-                accepted_loan_principal_minor=accepted_principal_minor,
-            ),
+            loan_share_ppm=loan_share_ppm,
             assignment_effective_at=command.assignment_effective_at,
             created_by_admin_id=command.actor.pk,
             metadata=metadata,

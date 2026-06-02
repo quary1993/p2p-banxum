@@ -51,6 +51,7 @@ ALLOCATION_IDEMPOTENCY_METADATA_KEY = "allocation_idempotency_key"
 RELEASE_FINGERPRINT_METADATA_KEY = "release_request_fingerprint"
 RELEASE_IDEMPOTENCY_METADATA_KEY = "release_idempotency_key"
 CLOSE_FINGERPRINT_METADATA_KEY = "close_request_fingerprint"
+ONE_HUNDRED_PERCENT_PPM = 1_000_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -799,6 +800,29 @@ def _pending_orders_for_close(loan_id: str) -> list[PrimaryInvestmentOrder]:
     )
 
 
+def _holding_share_ppm_by_order(
+    *,
+    allocated_orders: list[PrimaryInvestmentOrder],
+    accepted_principal_minor: int,
+) -> dict[str, int]:
+    if accepted_principal_minor <= 0:
+        raise MarketplacePrimaryValidationError("Accepted funded principal must be positive.")
+    base_shares: dict[str, int] = {}
+    ranked_remainders: list[tuple[int, int, str]] = []
+    for index, order in enumerate(allocated_orders):
+        product = order.allocated_amount_minor * ONE_HUNDRED_PERCENT_PPM
+        base_shares[str(order.id)] = product // accepted_principal_minor
+        ranked_remainders.append((product % accepted_principal_minor, index, str(order.id)))
+
+    residue = ONE_HUNDRED_PERCENT_PPM - sum(base_shares.values())
+    for _remainder, _index, order_id in sorted(
+        ranked_remainders,
+        key=lambda item: (-item[0], item[1]),
+    )[:residue]:
+        base_shares[order_id] += 1
+    return base_shares
+
+
 def _record_loan_funding_closed_event(
     *,
     loan: Model,
@@ -923,6 +947,10 @@ def close_primary_loan_funding(
         raise MarketplacePrimaryValidationError(str(exc)) from exc
 
     pending_orders = _pending_orders_for_close(str(loan_ref.id))
+    holding_share_ppm_by_order = _holding_share_ppm_by_order(
+        allocated_orders=allocated_orders,
+        accepted_principal_minor=accepted_principal,
+    )
     close_metadata = {
         CLOSE_FINGERPRINT_METADATA_KEY: close_fingerprint,
         "loan_id": str(loan_ref.id),
@@ -932,6 +960,7 @@ def close_primary_loan_funding(
         "allocated_order_ids": [str(order.id) for order in allocated_orders],
         "pending_order_ids_closed_not_invested": [str(order.id) for order in pending_orders],
         "funding_close_journal_entry_id": str(ledger_result.journal_entry.id),
+        "holding_share_ppm_total": sum(holding_share_ppm_by_order.values()),
     }
     try:
         close = cast(
@@ -980,6 +1009,7 @@ def close_primary_loan_funding(
                 currency=str(order.currency_id),
                 assignment_effective_at=closed_at,
                 idempotency_key=f"primary-close-holding:{order.id}",
+                loan_share_ppm=holding_share_ppm_by_order[str(order.id)],
                 metadata={
                     "primary_close_id": str(close.id),
                     "document_acceptance_id": str(order.document_acceptance_id or ""),
