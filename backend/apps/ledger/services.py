@@ -56,6 +56,8 @@ INVESTMENT_DEADLINE_DAYS = 30
 WITHDRAWAL_DEADLINE_DAYS = 60
 MAX_IDEMPOTENCY_KEY_LENGTH = 160
 REQUEST_FINGERPRINT_METADATA_KEY = "request_fingerprint"
+CANCELLATION_FINGERPRINT_METADATA_KEY = "cancellation_request_fingerprint"
+CANCELLATION_IDEMPOTENCY_METADATA_KEY = "cancellation_idempotency_key"
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,9 +146,23 @@ class FinalizeInvestorWithdrawalCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class CancelInvestorWithdrawalCommand:
+    actor: Model
+    withdrawal_request_id: str
+    reason: str
+    idempotency_key: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class InvestorWithdrawalFinalizeResult:
     withdrawal_request: InvestorWithdrawalRequest
     bank_operation: BankOperation
+    journal_entry: LedgerJournalEntry
+
+
+@dataclass(frozen=True, slots=True)
+class InvestorWithdrawalCancelResult:
+    withdrawal_request: InvestorWithdrawalRequest
     journal_entry: LedgerJournalEntry
 
 
@@ -561,6 +577,25 @@ def _withdrawal_finalization_fingerprint(
     )
 
 
+def _withdrawal_cancellation_fingerprint(
+    command: CancelInvestorWithdrawalCommand,
+    *,
+    withdrawal_request: InvestorWithdrawalRequest,
+    currency_code: str,
+    amount_minor: int,
+    idempotency_key: str,
+) -> str:
+    return _stable_json_fingerprint(
+        {
+            "withdrawal_request_id": str(withdrawal_request.id),
+            "amount_minor": amount_minor,
+            "currency": currency_code,
+            "reason": command.reason.strip(),
+            "idempotency_key": idempotency_key,
+        }
+    )
+
+
 def _existing_journal_entry_for_idempotency(
     idempotency_key: str,
     *,
@@ -954,6 +989,9 @@ def _consume_lots_for_withdrawal(
         amount = min(remaining, lot.available_amount_minor)
         if amount <= 0:
             continue
+        status_before_withdrawal = str(lot.status)
+        available_before_withdrawal = lot.available_amount_minor
+        withdrawn_before_withdrawal = lot.withdrawn_amount_minor
         new_available = lot.available_amount_minor - amount
         new_withdrawn = lot.withdrawn_amount_minor + amount
         new_status = BalanceLotStatus.CONSUMED if new_available == 0 else lot.status
@@ -973,6 +1011,9 @@ def _consume_lots_for_withdrawal(
             {
                 "lot_id": str(lot.id),
                 "amount_minor": amount,
+                "status_before_withdrawal": status_before_withdrawal,
+                "available_before_withdrawal_minor": available_before_withdrawal,
+                "withdrawn_before_withdrawal_minor": withdrawn_before_withdrawal,
                 "received_at": lot.received_at.isoformat(),
                 "investment_deadline_at": lot.investment_deadline_at.isoformat(),
                 "withdrawal_deadline_at": lot.withdrawal_deadline_at.isoformat(),
@@ -985,6 +1026,70 @@ def _consume_lots_for_withdrawal(
     if remaining > 0:
         raise LedgerValidationError("Insufficient withdrawable balance for the requested amount.")
     return allocations
+
+
+def _restore_lots_from_withdrawal_allocations(
+    *,
+    withdrawal_request: InvestorWithdrawalRequest,
+    currency: Currency,
+) -> None:
+    allocations = cast(list[dict[str, Any]], withdrawal_request.lot_allocations)
+    if not allocations:
+        raise LedgerValidationError("Withdrawal request has no lot allocations to restore.")
+    lot_ids: list[str] = []
+    for allocation in allocations:
+        lot_id = str(allocation.get("lot_id", ""))
+        if not lot_id:
+            raise LedgerValidationError("Withdrawal allocation is missing a lot id.")
+        lot_ids.append(lot_id)
+
+    lots = {
+        str(lot.id): lot
+        for lot in InvestorBalanceLot.objects.select_for_update().filter(
+            id__in=lot_ids,
+            investor_user_id=withdrawal_request.investor_user_id,
+            currency=currency,
+        )
+    }
+    total_restored = 0
+    for allocation in allocations:
+        lot_id = str(allocation["lot_id"])
+        lot = lots.get(lot_id)
+        if lot is None:
+            raise LedgerValidationError("Withdrawal allocation references an unavailable lot.")
+        amount_value = allocation.get("amount_minor")
+        if type(amount_value) is not int:
+            raise LedgerValidationError("Withdrawal allocation amount must be integer minor units.")
+        amount = _validate_money(amount_value, currency.code, "Withdrawal allocation amount")
+        previous_status = str(
+            allocation.get("status_before_withdrawal") or BalanceLotStatus.AVAILABLE
+        )
+        if previous_status not in {
+            BalanceLotStatus.AVAILABLE.value,
+            BalanceLotStatus.PENALTY_MODE.value,
+        }:
+            raise LedgerValidationError("Withdrawal allocation has an invalid previous lot status.")
+        _validate_lot_conservation(lot)
+        new_available = lot.available_amount_minor + amount
+        new_withdrawn = lot.withdrawn_amount_minor - amount
+        if new_withdrawn < 0:
+            raise LedgerValidationError("Withdrawal allocation would over-restore a balance lot.")
+        _validate_lot_conservation_values(
+            original_amount_minor=lot.original_amount_minor,
+            available_amount_minor=new_available,
+            invested_amount_minor=lot.invested_amount_minor,
+            withdrawn_amount_minor=new_withdrawn,
+            penalized_amount_minor=lot.penalized_amount_minor,
+            currency_code=currency.code,
+        )
+        lot.available_amount_minor = new_available
+        lot.withdrawn_amount_minor = new_withdrawn
+        lot.status = previous_status
+        lot.save(update_fields=["available_amount_minor", "withdrawn_amount_minor", "status"])
+        total_restored += amount
+
+    if total_restored != withdrawal_request.amount_minor:
+        raise LedgerValidationError("Withdrawal allocations do not match the request amount.")
 
 
 @transaction.atomic
@@ -1322,6 +1427,168 @@ def finalize_investor_withdrawal(
     return InvestorWithdrawalFinalizeResult(withdrawal_request, bank_operation, journal_entry)
 
 
+@transaction.atomic
+def cancel_investor_withdrawal(
+    command: CancelInvestorWithdrawalCommand,
+) -> InvestorWithdrawalCancelResult:
+    _require_admin_actor(command.actor)
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    withdrawal_request = (
+        InvestorWithdrawalRequest.objects.select_for_update()
+        .filter(id=command.withdrawal_request_id)
+        .first()
+    )
+    if withdrawal_request is None:
+        raise LedgerValidationError("Withdrawal request does not exist.")
+    amount_minor = _validate_money(
+        withdrawal_request.amount_minor,
+        withdrawal_request.currency_id,
+        "Withdrawal amount",
+    )
+    cancellation_fingerprint = _withdrawal_cancellation_fingerprint(
+        command,
+        withdrawal_request=withdrawal_request,
+        currency_code=withdrawal_request.currency_id,
+        amount_minor=amount_minor,
+        idempotency_key=idempotency_key,
+    )
+    existing_cancellation_key = cast(dict[str, Any], withdrawal_request.metadata).get(
+        CANCELLATION_IDEMPOTENCY_METADATA_KEY
+    )
+    if withdrawal_request.status == InvestorWithdrawalRequestStatus.CANCELLED:
+        if (
+            withdrawal_request.cancellation_journal_entry is not None
+            and existing_cancellation_key == idempotency_key
+        ):
+            stored_fingerprint = cast(dict[str, Any], withdrawal_request.metadata).get(
+                CANCELLATION_FINGERPRINT_METADATA_KEY
+            )
+            if stored_fingerprint and stored_fingerprint != cancellation_fingerprint:
+                raise LedgerValidationError(
+                    "Idempotency key was already used for a different request."
+                )
+            return InvestorWithdrawalCancelResult(
+                withdrawal_request,
+                withdrawal_request.cancellation_journal_entry,
+            )
+        raise LedgerValidationError("Withdrawal request is not pending cancellation.")
+    if withdrawal_request.status != InvestorWithdrawalRequestStatus.REQUESTED:
+        raise LedgerValidationError("Only requested withdrawals can be cancelled.")
+    if withdrawal_request.request_journal_entry is None:
+        raise LedgerValidationError("Withdrawal request has no reservation journal entry.")
+
+    currency = withdrawal_request.currency
+    cancelled_at = now_utc()
+    value_date = to_business_time(cancelled_at).date()
+    _restore_lots_from_withdrawal_allocations(
+        withdrawal_request=withdrawal_request,
+        currency=currency,
+    )
+    investor_liability_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.INVESTOR_BALANCE_LIABILITY,
+        currency=currency,
+        owner_type="investor",
+        owner_id=str(withdrawal_request.investor_user_id),
+        name=f"{currency.code} investor balance liability {withdrawal_request.investor_user_id}",
+    )
+    withdrawal_payable_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.WITHDRAWAL_PAYABLE,
+        currency=currency,
+        owner_type="investor",
+        owner_id=str(withdrawal_request.investor_user_id),
+        name=f"{currency.code} withdrawal payable {withdrawal_request.investor_user_id}",
+    )
+    journal_entry = post_journal_entry(
+        PostJournalEntryCommand(
+            actor=command.actor,
+            event_type="investor_withdrawal_cancelled",
+            direction=LedgerDirection.IN,
+            currency=currency.code,
+            gross_amount_minor=amount_minor,
+            net_amount_minor=amount_minor,
+            booking_date=value_date,
+            value_date=value_date,
+            effective_at=cancelled_at,
+            received_at=cancelled_at,
+            source_type="withdrawal_request",
+            source_id=str(withdrawal_request.id),
+            lender_user_id=str(withdrawal_request.investor_user_id),
+            idempotency_key=_derived_idempotency_key("ledger-withdrawal-cancel", idempotency_key),
+            reversal_of=withdrawal_request.request_journal_entry,
+            postings=[
+                PostingCommand(
+                    account=withdrawal_payable_account,
+                    side=LedgerPostingSide.DEBIT,
+                    amount_minor=amount_minor,
+                    memo="Withdrawal payable released",
+                ),
+                PostingCommand(
+                    account=investor_liability_account,
+                    side=LedgerPostingSide.CREDIT,
+                    amount_minor=amount_minor,
+                    memo="Investor balance restored after withdrawal cancellation",
+                ),
+            ],
+            metadata={
+                "withdrawal_request_id": str(withdrawal_request.id),
+                "cancellation_reason": command.reason.strip(),
+            },
+        )
+    )
+    metadata = dict(withdrawal_request.metadata)
+    metadata[CANCELLATION_FINGERPRINT_METADATA_KEY] = cancellation_fingerprint
+    metadata[CANCELLATION_IDEMPOTENCY_METADATA_KEY] = idempotency_key
+    withdrawal_request.status = InvestorWithdrawalRequestStatus.CANCELLED
+    withdrawal_request.cancellation_journal_entry = journal_entry
+    withdrawal_request.cancelled_by_admin_id = command.actor.pk
+    withdrawal_request.cancelled_at = cancelled_at
+    withdrawal_request.cancellation_reason = command.reason.strip()
+    withdrawal_request.metadata = metadata
+    withdrawal_request.save(
+        update_fields=[
+            "status",
+            "cancellation_journal_entry",
+            "cancelled_by_admin_id",
+            "cancelled_at",
+            "cancellation_reason",
+            "metadata",
+            "updated_at",
+        ]
+    )
+    actor_ref = actor_ref_for_user(command.actor)
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref,
+            action="ledger.investor_withdrawal_cancelled",
+            target_type="InvestorWithdrawalRequest",
+            target_id=str(withdrawal_request.id),
+            metadata={
+                "investor_user_id": str(withdrawal_request.investor_user_id),
+                "currency": currency.code,
+                "amount_minor": amount_minor,
+                "journal_entry_id": str(journal_entry.id),
+                "reason": command.reason.strip(),
+            },
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="InvestorWithdrawalCancelled",
+            aggregate_type="InvestorWithdrawalRequest",
+            aggregate_id=str(withdrawal_request.id),
+            payload={
+                "investor_user_id": str(withdrawal_request.investor_user_id),
+                "currency": currency.code,
+                "amount_minor": amount_minor,
+                "journal_entry_id": str(journal_entry.id),
+                "reason": command.reason.strip(),
+            },
+            idempotency_key=f"withdrawal-request:{withdrawal_request.id}:cancelled",
+        )
+    )
+    return InvestorWithdrawalCancelResult(withdrawal_request, journal_entry)
+
+
 def summarize_investor_balance(
     *,
     investor_user_id: str,
@@ -1384,15 +1651,12 @@ def plan_investment_balance_consumption(
     now_value = as_of or now_utc()
     remaining = amount_minor
     plan: list[BalanceConsumptionPlanLine] = []
-    lots = (
-        InvestorBalanceLot.objects.filter(
-            investor_user_id=investor_user_id,
-            currency=currency_model,
-            status=BalanceLotStatus.AVAILABLE,
-            available_amount_minor__gt=0,
-        )
-        .order_by("received_at", "created_at", "id")
-    )
+    lots = InvestorBalanceLot.objects.filter(
+        investor_user_id=investor_user_id,
+        currency=currency_model,
+        status=BalanceLotStatus.AVAILABLE,
+        available_amount_minor__gt=0,
+    ).order_by("received_at", "created_at", "id")
     for lot in lots:
         _validate_lot_conservation(lot)
         if now_value > lot.investment_deadline_at:
@@ -1512,6 +1776,14 @@ def _account_group_balance_minor(
     return int(debit_total) - int(credit_total)
 
 
+def _credit_balance_minor(
+    *,
+    currency: Currency,
+    account_type: str,
+) -> int:
+    return -_account_group_balance_minor(currency=currency, account_type=account_type)
+
+
 @transaction.atomic
 def create_reconciliation_snapshot(
     command: CreateReconciliationSnapshotCommand,
@@ -1531,28 +1803,31 @@ def create_reconciliation_snapshot(
     investor_balance = investor_balance_liability_minor(currency=currency)
     investor_posting_balance = investor_balance_liability_posting_minor(currency=currency)
     integrity_breaks = investor_balance_integrity_breaks(currency=currency)
-    garanta_accrued = abs(
-        _account_group_balance_minor(
-            currency=currency,
-            account_type=LedgerAccountType.GARANTA_ACCRUED_REVENUE,
-        )
+    garanta_accrued = _credit_balance_minor(
+        currency=currency,
+        account_type=LedgerAccountType.GARANTA_ACCRUED_REVENUE,
     )
-    suspense = abs(
-        _account_group_balance_minor(
-            currency=currency,
-            account_type=LedgerAccountType.SUSPENSE_UNMATCHED_CASH,
-        )
+    suspense = _credit_balance_minor(
+        currency=currency,
+        account_type=LedgerAccountType.SUSPENSE_UNMATCHED_CASH,
     )
-    withdrawal_payable = abs(
-        _account_group_balance_minor(
-            currency=currency,
-            account_type=LedgerAccountType.WITHDRAWAL_PAYABLE,
-        )
+    withdrawal_payable = _credit_balance_minor(
+        currency=currency,
+        account_type=LedgerAccountType.WITHDRAWAL_PAYABLE,
     )
     collection_cash_balance = _account_group_balance_minor(
         currency=currency,
         account_type=LedgerAccountType.COLLECTION_CASH,
     )
+    account_sign_anomalies = [
+        {"account_type": account_type, "credit_balance_minor": amount}
+        for account_type, amount in [
+            (LedgerAccountType.GARANTA_ACCRUED_REVENUE, garanta_accrued),
+            (LedgerAccountType.SUSPENSE_UNMATCHED_CASH, suspense),
+            (LedgerAccountType.WITHDRAWAL_PAYABLE, withdrawal_payable),
+        ]
+        if amount < 0
+    ]
     expected = (
         investor_balance
         + withdrawal_payable
@@ -1573,6 +1848,7 @@ def create_reconciliation_snapshot(
             "withdrawal_payable_minor": withdrawal_payable,
             "collection_cash_ledger_balance_minor": collection_cash_balance,
             "bank_to_collection_cash_difference_minor": bank_to_collection_cash_difference,
+            "account_sign_anomalies": account_sign_anomalies,
             "investor_balance_integrity_breaks": [
                 {
                     "investor_user_id": item.investor_user_id,

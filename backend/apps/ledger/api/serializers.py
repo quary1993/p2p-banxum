@@ -108,13 +108,17 @@ class InvestorWithdrawalRequestSerializer(serializers.Serializer[Any]):
     lot_allocations = serializers.JSONField()
     bank_operation_id = serializers.UUIDField(allow_null=True)
     finalization_journal_entry_id = serializers.UUIDField(allow_null=True)
+    cancellation_journal_entry_id = serializers.UUIDField(allow_null=True)
     finalized_by_admin_id = serializers.UUIDField(allow_null=True)
     finalized_at = serializers.DateTimeField(allow_null=True)
+    cancelled_by_admin_id = serializers.UUIDField(allow_null=True)
+    cancelled_at = serializers.DateTimeField(allow_null=True)
     bank_reference = serializers.CharField()
     payment_reference = serializers.CharField()
     evidence_reference = serializers.CharField()
     notes = serializers.CharField()
     admin_notes = serializers.CharField()
+    cancellation_reason = serializers.CharField()
     metadata = serializers.JSONField()
     idempotency_key = serializers.CharField()
     created_at = serializers.DateTimeField()
@@ -195,6 +199,16 @@ class InvestorWithdrawalFinalizeRequestSerializer(serializers.Serializer[Any]):
 class InvestorWithdrawalFinalizeResponseSerializer(serializers.Serializer[Any]):
     withdrawal_request = InvestorWithdrawalRequestSerializer()
     bank_operation = BankOperationSerializer()
+    journal_entry = LedgerJournalEntrySerializer()
+
+
+class InvestorWithdrawalCancelRequestSerializer(serializers.Serializer[Any]):
+    reason = serializers.CharField(required=False, allow_blank=True)
+    idempotency_key = serializers.CharField(max_length=160)
+
+
+class InvestorWithdrawalCancelResponseSerializer(serializers.Serializer[Any]):
+    withdrawal_request = InvestorWithdrawalRequestSerializer()
     journal_entry = LedgerJournalEntrySerializer()
 
 

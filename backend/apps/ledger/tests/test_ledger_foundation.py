@@ -26,6 +26,7 @@ from backend.apps.ledger.models import (
     ReconciliationSnapshot,
 )
 from backend.apps.ledger.services import (
+    CancelInvestorWithdrawalCommand,
     CreateReconciliationSnapshotCommand,
     DeclareLenderDepositCommand,
     FinalizeInvestorWithdrawalCommand,
@@ -33,6 +34,7 @@ from backend.apps.ledger.services import (
     PostingCommand,
     PostJournalEntryCommand,
     RequestInvestorWithdrawalCommand,
+    cancel_investor_withdrawal,
     create_reconciliation_snapshot,
     declare_lender_deposit,
     finalize_investor_withdrawal,
@@ -589,9 +591,7 @@ def test_withdrawal_request_moves_balance_to_withdrawal_payable(
     lot = InvestorBalanceLot.objects.get(investor_user_id=investor.pk)
     assert withdrawal_request.request_journal_entry is not None
     postings = list(
-        withdrawal_request.request_journal_entry.postings.select_related("account").order_by(
-            "side"
-        )
+        withdrawal_request.request_journal_entry.postings.select_related("account").order_by("side")
     )
     summary = summarize_investor_balance(
         investor_user_id=str(investor.pk),
@@ -745,6 +745,156 @@ def test_admin_finalizes_withdrawal_and_reconciliation_reflects_cash_out(
 
 
 @pytest.mark.django_db
+def test_admin_cancels_requested_withdrawal_and_restores_balance(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    declare_lender_deposit(_deposit_command(admin_user, investor))
+    withdrawal_request = request_investor_withdrawal(
+        RequestInvestorWithdrawalCommand(
+            actor=investor,
+            amount_minor=60_00,
+            currency="CHF",
+            destination_iban="CH9300762011623852957",
+            destination_account_name="Ledger Investor",
+            idempotency_key="withdrawal-cancel",
+        )
+    )
+
+    result = cancel_investor_withdrawal(
+        CancelInvestorWithdrawalCommand(
+            actor=admin_user,
+            withdrawal_request_id=str(withdrawal_request.id),
+            reason="Incorrect destination IBAN before bank payout.",
+            idempotency_key="cancel-withdrawal-1",
+        )
+    )
+    refreshed = InvestorWithdrawalRequest.objects.get(id=withdrawal_request.id)
+    lot = InvestorBalanceLot.objects.get(investor_user_id=investor.pk)
+    postings = list(result.journal_entry.postings.select_related("account").order_by("side"))
+    summary = summarize_investor_balance(
+        investor_user_id=str(investor.pk),
+        currency="CHF",
+        as_of=_received_at(date(2026, 1, 11)),
+    )
+    snapshot = create_reconciliation_snapshot(
+        CreateReconciliationSnapshotCommand(
+            actor=admin_user,
+            currency="CHF",
+            as_of_date=date(2026, 1, 2),
+            bank_stated_balance_minor=100_00,
+        )
+    )
+    idempotent = cancel_investor_withdrawal(
+        CancelInvestorWithdrawalCommand(
+            actor=admin_user,
+            withdrawal_request_id=str(withdrawal_request.id),
+            reason="Incorrect destination IBAN before bank payout.",
+            idempotency_key="cancel-withdrawal-1",
+        )
+    )
+
+    assert refreshed.status == InvestorWithdrawalRequestStatus.CANCELLED
+    assert refreshed.cancellation_journal_entry_id == result.journal_entry.id
+    assert refreshed.cancelled_by_admin_id == admin_user.pk
+    assert refreshed.cancellation_reason == "Incorrect destination IBAN before bank payout."
+    assert lot.available_amount_minor == 100_00
+    assert lot.withdrawn_amount_minor == 0
+    assert lot.status == BalanceLotStatus.AVAILABLE
+    assert [(posting.side, posting.amount_minor) for posting in postings] == [
+        ("credit", 60_00),
+        ("debit", 60_00),
+    ]
+    assert {posting.account.account_type for posting in postings} == {
+        LedgerAccountType.INVESTOR_BALANCE_LIABILITY,
+        LedgerAccountType.WITHDRAWAL_PAYABLE,
+    }
+    assert result.journal_entry.reversal_of_id == withdrawal_request.request_journal_entry_id
+    assert summary.total_available_minor == 100_00
+    assert snapshot.reconciliation_difference_minor == 0
+    assert snapshot.metadata["withdrawal_payable_minor"] == 0
+    assert idempotent.journal_entry.id == result.journal_entry.id
+    assert (
+        LedgerJournalEntry.objects.filter(event_type="investor_withdrawal_cancelled").count() == 1
+    )
+    assert DomainEvent.objects.filter(
+        event_type="InvestorWithdrawalCancelled",
+        aggregate_id=str(withdrawal_request.id),
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_withdrawal_cancellation_restores_penalty_mode_lot_status(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    deposit = declare_lender_deposit(_deposit_command(admin_user, investor))
+    InvestorBalanceLot.objects.filter(id=deposit.balance_lot.id).update(
+        status=BalanceLotStatus.PENALTY_MODE.value,
+    )
+    withdrawal_request = request_investor_withdrawal(
+        RequestInvestorWithdrawalCommand(
+            actor=investor,
+            amount_minor=100_00,
+            currency="CHF",
+            destination_iban="CH9300762011623852957",
+            idempotency_key="withdrawal-cancel-penalty-mode",
+        )
+    )
+
+    cancel_investor_withdrawal(
+        CancelInvestorWithdrawalCommand(
+            actor=admin_user,
+            withdrawal_request_id=str(withdrawal_request.id),
+            reason="Bank payout not yet executed.",
+            idempotency_key="cancel-withdrawal-penalty-mode",
+        )
+    )
+
+    lot = InvestorBalanceLot.objects.get(id=deposit.balance_lot.id)
+    assert lot.status == BalanceLotStatus.PENALTY_MODE
+    assert lot.available_amount_minor == 100_00
+    assert lot.withdrawn_amount_minor == 0
+
+
+@pytest.mark.django_db
+def test_finalized_withdrawal_cannot_be_cancelled(admin_user: Model, investor: Model) -> None:
+    _approve_financial_access(investor)
+    declare_lender_deposit(_deposit_command(admin_user, investor))
+    withdrawal_request = request_investor_withdrawal(
+        RequestInvestorWithdrawalCommand(
+            actor=investor,
+            amount_minor=60_00,
+            currency="CHF",
+            destination_iban="CH9300762011623852957",
+            idempotency_key="withdrawal-finalized-no-cancel",
+        )
+    )
+    finalize_investor_withdrawal(
+        FinalizeInvestorWithdrawalCommand(
+            actor=admin_user,
+            withdrawal_request_id=str(withdrawal_request.id),
+            booking_date=date(2026, 1, 2),
+            value_date=date(2026, 1, 2),
+            collection_account_identifier="CH00GARANTALEDGER",
+            idempotency_key="bank-withdrawal-no-cancel",
+        )
+    )
+
+    with pytest.raises(LedgerValidationError, match="Only requested withdrawals"):
+        cancel_investor_withdrawal(
+            CancelInvestorWithdrawalCommand(
+                actor=admin_user,
+                withdrawal_request_id=str(withdrawal_request.id),
+                reason="Too late.",
+                idempotency_key="cancel-finalized-withdrawal",
+            )
+        )
+
+
+@pytest.mark.django_db
 def test_withdrawal_request_and_finalization_api(
     client: Client,
     admin_user: Model,
@@ -790,6 +940,47 @@ def test_withdrawal_request_and_finalization_api(
 
 
 @pytest.mark.django_db
+def test_withdrawal_cancellation_api(
+    client: Client,
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    declare_lender_deposit(_deposit_command(admin_user, investor))
+    client.force_login(cast(Any, investor))
+    request_response = client.post(
+        "/api/v1/ledger/withdrawal-requests/",
+        data={
+            "amount_minor": 70_00,
+            "currency": "CHF",
+            "destination_iban": "CH9300762011623852957",
+            "destination_account_name": "Ledger Investor",
+            "idempotency_key": "withdrawal-cancel-api",
+        },
+        content_type="application/json",
+    )
+    withdrawal_request_id = request_response.json()["withdrawal_request"]["id"]
+
+    client.force_login(cast(Any, admin_user))
+    cancel_response = client.post(
+        f"/api/v1/ledger/admin/withdrawal-requests/{withdrawal_request_id}/cancel/",
+        data={
+            "reason": "Cancelled before bank payout.",
+            "idempotency_key": "cancel-withdrawal-api",
+        },
+        content_type="application/json",
+    )
+
+    assert request_response.status_code == 201
+    assert cancel_response.status_code == 200
+    assert cancel_response.json()["withdrawal_request"]["status"] == "cancelled"
+    assert cancel_response.json()["withdrawal_request"]["cancellation_reason"] == (
+        "Cancelled before bank payout."
+    )
+    assert cancel_response.json()["journal_entry"]["event_type"] == "investor_withdrawal_cancelled"
+
+
+@pytest.mark.django_db
 def test_reconciliation_snapshot_compares_bank_to_investor_liability(
     admin_user: Model,
     investor: Model,
@@ -827,6 +1018,61 @@ def test_reconciliation_snapshot_compares_bank_to_investor_liability(
         event_type="LedgerCashLedgerMismatchDetected",
         aggregate_id=str(broken.id),
     ).exists()
+
+
+@pytest.mark.django_db
+def test_reconciliation_snapshot_flags_wrong_direction_payable_balance(
+    admin_user: Model,
+) -> None:
+    currency = Currency.objects.get(code="CHF")
+    withdrawal_payable = get_or_create_ledger_account(
+        account_type=LedgerAccountType.WITHDRAWAL_PAYABLE,
+        currency=currency,
+        owner_type="investor",
+        owner_id="investor-sign-test",
+    )
+    collection_cash = get_or_create_ledger_account(
+        account_type=LedgerAccountType.COLLECTION_CASH,
+        currency=currency,
+    )
+    post_journal_entry(
+        PostJournalEntryCommand(
+            actor=admin_user,
+            event_type="test_wrong_direction_payable",
+            direction=LedgerDirection.OUT,
+            currency="CHF",
+            gross_amount_minor=10_00,
+            net_amount_minor=10_00,
+            booking_date=date(2026, 1, 1),
+            value_date=date(2026, 1, 1),
+            effective_at=_received_at(date(2026, 1, 1)),
+            received_at=_received_at(date(2026, 1, 1)),
+            source_type="test",
+            source_id="wrong-direction-payable",
+            idempotency_key="journal-wrong-direction-payable",
+            postings=[
+                PostingCommand(withdrawal_payable, LedgerPostingSide.DEBIT, 10_00),
+                PostingCommand(collection_cash, LedgerPostingSide.CREDIT, 10_00),
+            ],
+        )
+    )
+
+    snapshot = create_reconciliation_snapshot(
+        CreateReconciliationSnapshotCommand(
+            actor=admin_user,
+            currency="CHF",
+            as_of_date=date(2026, 1, 1),
+            bank_stated_balance_minor=0,
+        )
+    )
+
+    assert snapshot.metadata["withdrawal_payable_minor"] == -10_00
+    assert snapshot.metadata["account_sign_anomalies"] == [
+        {
+            "account_type": LedgerAccountType.WITHDRAWAL_PAYABLE,
+            "credit_balance_minor": -10_00,
+        }
+    ]
 
 
 @pytest.mark.django_db

@@ -98,6 +98,7 @@ class InvestorWithdrawalRequestAdmin(ReadOnlyLedgerAdmin):
         "destination_iban",
         "requested_at",
         "finalized_at",
+        "cancelled_at",
     )
     list_filter = ("status", "currency", "is_forced")
     search_fields = ("investor_user_id", "destination_iban", "bank_reference", "idempotency_key")

@@ -935,6 +935,39 @@ paths:
               schema:
                 $ref: '#/components/schemas/ReconciliationSnapshot'
           description: ''
+  /api/v1/ledger/admin/withdrawal-requests/{withdrawal_request_id}/cancel/:
+    post:
+      operationId: v1_ledger_admin_withdrawal_requests_cancel_create
+      parameters:
+      - in: path
+        name: withdrawal_request_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvestorWithdrawalCancelRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/InvestorWithdrawalCancelRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/InvestorWithdrawalCancelRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorWithdrawalCancelResponse'
+          description: ''
   /api/v1/ledger/admin/withdrawal-requests/{withdrawal_request_id}/finalize/:
     post:
       operationId: v1_ledger_admin_withdrawal_requests_finalize_create
@@ -2255,6 +2288,26 @@ components:
       - penalty_mode_minor
       - total_available_minor
       - withdraw_only_minor
+    InvestorWithdrawalCancelRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+        idempotency_key:
+          type: string
+          maxLength: 160
+      required:
+      - idempotency_key
+    InvestorWithdrawalCancelResponse:
+      type: object
+      properties:
+        withdrawal_request:
+          $ref: '#/components/schemas/InvestorWithdrawalRequest'
+        journal_entry:
+          $ref: '#/components/schemas/LedgerJournalEntry'
+      required:
+      - journal_entry
+      - withdrawal_request
     InvestorWithdrawalFinalizeRequest:
       type: object
       properties:
@@ -2339,11 +2392,23 @@ components:
           type: string
           format: uuid
           nullable: true
+        cancellation_journal_entry_id:
+          type: string
+          format: uuid
+          nullable: true
         finalized_by_admin_id:
           type: string
           format: uuid
           nullable: true
         finalized_at:
+          type: string
+          format: date-time
+          nullable: true
+        cancelled_by_admin_id:
+          type: string
+          format: uuid
+          nullable: true
+        cancelled_at:
           type: string
           format: date-time
           nullable: true
@@ -2356,6 +2421,8 @@ components:
         notes:
           type: string
         admin_notes:
+          type: string
+        cancellation_reason:
           type: string
         metadata: {}
         idempotency_key:
@@ -2371,6 +2438,10 @@ components:
       - amount_minor
       - bank_operation_id
       - bank_reference
+      - cancellation_journal_entry_id
+      - cancellation_reason
+      - cancelled_at
+      - cancelled_by_admin_id
       - created_at
       - currency
       - destination_account_name

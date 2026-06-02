@@ -4,6 +4,7 @@ from django.urls import path
 
 from backend.apps.ledger.api.views import (
     InvestorBalanceSummaryView,
+    InvestorWithdrawalCancelView,
     InvestorWithdrawalFinalizeView,
     InvestorWithdrawalRequestCreateView,
     LenderDepositDeclareView,
@@ -30,6 +31,11 @@ urlpatterns = [
         "admin/withdrawal-requests/<uuid:withdrawal_request_id>/finalize/",
         InvestorWithdrawalFinalizeView.as_view(),
         name="ledger-investor-withdrawal-finalize",
+    ),
+    path(
+        "admin/withdrawal-requests/<uuid:withdrawal_request_id>/cancel/",
+        InvestorWithdrawalCancelView.as_view(),
+        name="ledger-investor-withdrawal-cancel",
     ),
     path(
         "admin/reconciliation-snapshots/",

@@ -342,13 +342,23 @@ class InvestorWithdrawalRequest(TimestampedModel):
         blank=True,
         related_name="withdrawal_requests_finalized",
     )
+    cancellation_journal_entry = models.ForeignKey(
+        LedgerJournalEntry,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="withdrawal_requests_cancelled",
+    )
     finalized_by_admin_id = models.UUIDField(null=True, blank=True)
     finalized_at = models.DateTimeField(null=True, blank=True)
+    cancelled_by_admin_id = models.UUIDField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
     bank_reference = models.CharField(max_length=160, blank=True)
     payment_reference = models.CharField(max_length=160, blank=True)
     evidence_reference = models.CharField(max_length=255, blank=True)
     notes = models.TextField(blank=True)
     admin_notes = models.TextField(blank=True)
+    cancellation_reason = models.TextField(blank=True)
     metadata = models.JSONField(default=dict, blank=True)
     idempotency_key = models.CharField(max_length=160, unique=True)
 
@@ -364,6 +374,7 @@ class InvestorWithdrawalRequest(TimestampedModel):
             models.Index(fields=["investor_user_id", "currency", "status"]),
             models.Index(fields=["status", "requested_at"]),
             models.Index(fields=["finalized_at"]),
+            models.Index(fields=["cancelled_at"]),
             models.Index(fields=["bank_reference"]),
         ]
 
