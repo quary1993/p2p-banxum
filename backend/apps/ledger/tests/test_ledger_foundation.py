@@ -185,7 +185,6 @@ def _closed_primary_loan_funding(
     borrower_success_fee_bps: int = 200,
     seed_key: str = "borrower-disbursement-seed",
 ) -> tuple[uuid.UUID, uuid.UUID]:
-    loan_id = uuid.uuid4()
     borrower_model = apps.get_model("entities", "BorrowerEntity")
     borrower = cast(
         Model,
@@ -200,6 +199,32 @@ def _closed_primary_loan_funding(
     )
     borrower_id = cast(uuid.UUID, borrower.pk)
     currency = Currency.objects.get(code="CHF")
+    loan_model = apps.get_model("loans", "Loan")
+    loan = cast(
+        Model,
+        loan_model.objects.create(
+            borrower=borrower,
+            status="funded",
+            title="Ledger borrower disbursement loan",
+            investor_summary="Ledger test loan.",
+            purpose="working_capital",
+            principal_minor=principal_minor,
+            currency=currency,
+            interest_rate_bps=1_000,
+            term_months=12,
+            repayment_type="equal_installments",
+            funding_deadline=date(2026, 1, 31),
+            first_payment_date=date(2026, 2, 28),
+            collateral_type="real_estate",
+            collateral_value_minor=principal_minor * 2,
+            risk_rating="BBB",
+            borrower_success_fee_bps=borrower_success_fee_bps,
+            committed_principal_minor=principal_minor,
+            total_scheduled_principal_minor=principal_minor,
+            created_by_admin_id=admin_user.pk,
+        ),
+    )
+    loan_id = cast(uuid.UUID, loan.pk)
     collection_cash = get_or_create_ledger_account(
         account_type=LedgerAccountType.COLLECTION_CASH,
         currency=currency,
@@ -1197,6 +1222,26 @@ def test_borrower_disbursement_finalization_is_idempotent_and_rejects_mismatch(
         operation_type="borrower_loan_disbursement"
     ).count() == 1
 
+    with pytest.raises(LedgerValidationError, match="no borrower disbursement payable"):
+        finalize_borrower_disbursement(
+            FinalizeBorrowerDisbursementCommand(
+                actor=admin_user,
+                loan_id=str(loan_id),
+                borrower_id=str(borrower_id),
+                amount_minor=98_000_00,
+                currency="CHF",
+                booking_date=date(2026, 1, 2),
+                value_date=date(2026, 1, 2),
+                collection_account_identifier="CH00GARANTALEDGER",
+                payee_name="Borrower AG",
+                payee_account_identifier="CH22BORROWER",
+                idempotency_key="borrower-disbursement-2-different-key",
+            )
+        )
+    assert BankOperation.objects.filter(
+        operation_type="borrower_loan_disbursement"
+    ).count() == 1
+
 
 @pytest.mark.django_db
 def test_borrower_disbursement_rejects_amount_that_differs_from_payable(
@@ -1218,6 +1263,68 @@ def test_borrower_disbursement_rejects_amount_that_differs_from_payable(
                 payee_name="Borrower AG",
                 payee_account_identifier="CH22BORROWER",
                 idempotency_key="borrower-disbursement-wrong-amount",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_borrower_disbursement_rejects_borrower_that_does_not_match_loan(
+    admin_user: Model,
+) -> None:
+    loan_id, _borrower_id = _closed_primary_loan_funding(admin_user)
+    borrower_model = apps.get_model("entities", "BorrowerEntity")
+    other_borrower = cast(
+        Model,
+        borrower_model.objects.create(
+            legal_name="Wrong Borrower AG",
+            year_founded=2020,
+            kyb_status="approved",
+            compliance_hold=False,
+            country="Switzerland",
+            created_by_admin_id=admin_user.pk,
+        ),
+    )
+
+    with pytest.raises(LedgerValidationError, match="Borrower does not match loan"):
+        finalize_borrower_disbursement(
+            FinalizeBorrowerDisbursementCommand(
+                actor=admin_user,
+                loan_id=str(loan_id),
+                borrower_id=str(other_borrower.pk),
+                amount_minor=98_000_00,
+                currency="CHF",
+                booking_date=date(2026, 1, 2),
+                value_date=date(2026, 1, 2),
+                collection_account_identifier="CH00GARANTALEDGER",
+                payee_name="Wrong Borrower AG",
+                payee_account_identifier="CH22BORROWER",
+                idempotency_key="borrower-disbursement-wrong-borrower",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_borrower_disbursement_requires_funded_loan_status(
+    admin_user: Model,
+) -> None:
+    loan_id, borrower_id = _closed_primary_loan_funding(admin_user)
+    loan_model = apps.get_model("loans", "Loan")
+    loan_model.objects.filter(id=loan_id).update(status="published")
+
+    with pytest.raises(LedgerValidationError, match="Loan must be funded"):
+        finalize_borrower_disbursement(
+            FinalizeBorrowerDisbursementCommand(
+                actor=admin_user,
+                loan_id=str(loan_id),
+                borrower_id=str(borrower_id),
+                amount_minor=98_000_00,
+                currency="CHF",
+                booking_date=date(2026, 1, 2),
+                value_date=date(2026, 1, 2),
+                collection_account_identifier="CH00GARANTALEDGER",
+                payee_name="Borrower AG",
+                payee_account_identifier="CH22BORROWER",
+                idempotency_key="borrower-disbursement-not-funded",
             )
         )
 

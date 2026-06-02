@@ -371,15 +371,36 @@ def _require_admin_actor(actor: Model) -> None:
         raise LedgerAuthorizationError("Only an active admin can manage ledger operations.")
 
 
-def _require_borrower_can_transact(borrower_id: str) -> None:
-    borrower_model = apps.get_model("entities", "BorrowerEntity")
-    borrower = cast(Model | None, borrower_model.objects.filter(id=borrower_id).first())
-    if borrower is None:
-        raise LedgerValidationError("Borrower does not exist.")
+def _locked_funded_loan_for_disbursement(
+    *,
+    loan_id: str,
+    borrower_id: str,
+    currency_code: str,
+) -> Model:
+    loan_model = apps.get_model("loans", "Loan")
+    loan = cast(
+        Model | None,
+        loan_model.objects.select_for_update()
+        .select_related("borrower")
+        .filter(id=loan_id)
+        .first(),
+    )
+    if loan is None:
+        raise LedgerValidationError("Loan does not exist.")
+    if str(getattr(loan, "status", "")) != "funded":
+        raise LedgerValidationError("Loan must be funded before borrower disbursement.")
+    if str(getattr(loan, "currency_id", "")) != currency_code:
+        raise LedgerValidationError("Loan currency must match borrower disbursement currency.")
+    loan_borrower_id = str(getattr(loan, "borrower_id", ""))
+    if str(borrower_id) != loan_borrower_id:
+        raise LedgerValidationError("Borrower does not match loan.")
+    loan_ref = cast(Any, loan)
+    borrower = cast(Model, loan_ref.borrower)
     if not bool(getattr(borrower, "can_transact", False)):
         raise LedgerValidationError(
             "Borrower KYB must be approved and free of compliance hold."
         )
+    return loan
 
 
 def _clean_required(value: str, label: str) -> str:
@@ -1745,7 +1766,11 @@ def finalize_borrower_disbursement(
     if existing is not None:
         return existing
 
-    _require_borrower_can_transact(str(command.borrower_id))
+    _locked_funded_loan_for_disbursement(
+        loan_id=str(command.loan_id),
+        borrower_id=str(command.borrower_id),
+        currency_code=currency.code,
+    )
     borrower_disbursement_account = get_or_create_ledger_account(
         account_type=LedgerAccountType.BORROWER_DISBURSEMENT_PAYABLE,
         currency=currency,
