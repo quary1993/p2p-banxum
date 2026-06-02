@@ -44,7 +44,7 @@ from backend.apps.platform_core.domain.time import (
     now_utc,
     to_business_time,
 )
-from backend.apps.platform_core.models import Currency
+from backend.apps.platform_core.models import Currency, DomainEvent
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import DomainEventCommand, record_domain_event
 
@@ -1747,7 +1747,10 @@ def _record_balance_ageing_reminder_due(
     lot: InvestorBalanceLot,
     day: int,
     as_of: datetime,
-) -> None:
+) -> bool:
+    idempotency_key = _balance_ageing_reminder_idempotency_key(lot=lot, day=day)
+    if _balance_ageing_reminder_already_recorded(lot=lot, day=day):
+        return False
     payload = {
         "investor_user_id": str(lot.investor_user_id),
         "currency": lot.currency_id,
@@ -1763,7 +1766,7 @@ def _record_balance_ageing_reminder_due(
             aggregate_type="InvestorBalanceLot",
             aggregate_id=str(lot.id),
             payload=payload,
-            idempotency_key=f"balance-lot:{lot.id}:ageing-reminder-day:{day}",
+            idempotency_key=idempotency_key,
         )
     )
     record_audit_event(
@@ -1775,6 +1778,38 @@ def _record_balance_ageing_reminder_due(
             metadata=payload,
         )
     )
+    return True
+
+
+def _balance_ageing_reminder_idempotency_key(
+    *,
+    lot: InvestorBalanceLot,
+    day: int,
+) -> str:
+    return f"balance-lot:{lot.id}:ageing-reminder-day:{day}"
+
+
+def _balance_ageing_reminder_already_recorded(
+    *,
+    lot: InvestorBalanceLot,
+    day: int,
+) -> bool:
+    return DomainEvent.objects.filter(
+        idempotency_key=_balance_ageing_reminder_idempotency_key(lot=lot, day=day)
+    ).exists()
+
+
+def _unrecorded_balance_ageing_reminder_days(
+    *,
+    lot: InvestorBalanceLot,
+    days_held: int,
+) -> list[int]:
+    return [
+        threshold
+        for threshold in BALANCE_AGEING_REMINDER_DAYS
+        if threshold <= days_held
+        and not _balance_ageing_reminder_already_recorded(lot=lot, day=threshold)
+    ]
 
 
 def _forced_withdrawal_request_fingerprint(
@@ -1989,23 +2024,27 @@ def run_balance_ageing_scan(command: RunBalanceAgeingScanCommand) -> BalanceAgei
     for lot in lots:
         _validate_lot_conservation(lot)
         days_held = calendar_day_difference(lot.received_at, as_of)
-        if lot.status == BalanceLotStatus.AVAILABLE and days_held in BALANCE_AGEING_REMINDER_DAYS:
-            reminder = BalanceAgeingReminderDue(
-                lot_id=str(lot.id),
-                investor_user_id=str(lot.investor_user_id),
-                currency=lot.currency_id,
-                amount_minor=lot.available_amount_minor,
-                day=days_held,
-                withdrawal_deadline_at=lot.withdrawal_deadline_at,
-            )
-            reminders_due.append(reminder)
-            if not command.dry_run:
-                _record_balance_ageing_reminder_due(
-                    actor=command.actor,
-                    lot=lot,
-                    day=days_held,
-                    as_of=as_of,
+        if lot.status == BalanceLotStatus.AVAILABLE:
+            for reminder_day in _unrecorded_balance_ageing_reminder_days(
+                lot=lot,
+                days_held=days_held,
+            ):
+                reminder = BalanceAgeingReminderDue(
+                    lot_id=str(lot.id),
+                    investor_user_id=str(lot.investor_user_id),
+                    currency=lot.currency_id,
+                    amount_minor=lot.available_amount_minor,
+                    day=reminder_day,
+                    withdrawal_deadline_at=lot.withdrawal_deadline_at,
                 )
+                reminders_due.append(reminder)
+                if not command.dry_run:
+                    _record_balance_ageing_reminder_due(
+                        actor=command.actor,
+                        lot=lot,
+                        day=reminder_day,
+                        as_of=as_of,
+                    )
         if business_date(as_of) >= business_date(lot.withdrawal_deadline_at):
             key = (str(lot.investor_user_id), lot.currency_id)
             overdue_by_investor_currency.setdefault(key, []).append(lot)

@@ -615,7 +615,7 @@ def test_balance_ageing_scan_records_reminder_due(
 
     assert result.reminders_due[0].lot_id == str(deposit.balance_lot.id)
     assert result.reminders_due[0].day == 25
-    assert rerun.reminders_due[0].day == 25
+    assert rerun.reminders_due == []
     assert (
         DomainEvent.objects.filter(
             event_type="BalanceAgeingReminderDue",
@@ -628,7 +628,45 @@ def test_balance_ageing_scan_records_reminder_due(
             action="ledger.balance_ageing_reminder_due",
             target_id=str(deposit.balance_lot.id),
         ).count()
-        == 2
+        == 1
+    )
+
+
+@pytest.mark.django_db
+def test_balance_ageing_scan_catches_up_missed_reminder_days(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    deposit = declare_lender_deposit(_deposit_command(admin_user, investor))
+
+    result = run_balance_ageing_scan(
+        RunBalanceAgeingScanCommand(
+            actor=admin_user,
+            as_of=_received_at(date(2026, 2, 24)),
+        )
+    )
+    rerun = run_balance_ageing_scan(
+        RunBalanceAgeingScanCommand(
+            actor=admin_user,
+            as_of=_received_at(date(2026, 2, 24)),
+        )
+    )
+
+    assert [reminder.day for reminder in result.reminders_due] == [25, 46, 53]
+    assert rerun.reminders_due == []
+    assert (
+        DomainEvent.objects.filter(
+            event_type="BalanceAgeingReminderDue",
+            aggregate_id=str(deposit.balance_lot.id),
+        ).count()
+        == 3
+    )
+    assert (
+        AuditEvent.objects.filter(
+            action="ledger.balance_ageing_reminder_due",
+            target_id=str(deposit.balance_lot.id),
+        ).count()
+        == 3
     )
 
 
