@@ -17,6 +17,7 @@ urlpatterns = [
     path("api/v1/marketplace/primary/", include("backend.apps.marketplace_primary.api.urls")),
     path("api/v1/ledger/", include("backend.apps.ledger.api.urls")),
     path("api/v1/servicing/", include("backend.apps.servicing.api.urls")),
+    path("api/v1/fx/", include("backend.apps.fx.api.urls")),
     path("api/v1/documents/", include("backend.apps.documents.api.urls")),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),

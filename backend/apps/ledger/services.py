@@ -73,6 +73,7 @@ CANCELLATION_IDEMPOTENCY_METADATA_KEY = "cancellation_idempotency_key"
 INVESTMENT_RESERVATION_FINGERPRINT_METADATA_KEY = "investment_reservation_fingerprint"
 INVESTMENT_RELEASE_FINGERPRINT_METADATA_KEY = "investment_release_fingerprint"
 PRIMARY_LOAN_CLOSE_FINGERPRINT_METADATA_KEY = "primary_loan_close_fingerprint"
+FX_EXCHANGE_FINGERPRINT_METADATA_KEY = "fx_exchange_fingerprint"
 
 
 @dataclass(frozen=True, slots=True)
@@ -389,10 +390,35 @@ class ClosePrimaryLoanFundingCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class ExecuteInvestorFxExchangeLedgerCommand:
+    actor: Model
+    investor_user_id: str
+    source_currency: str
+    target_currency: str
+    source_amount_minor: int
+    gross_target_amount_minor: int
+    target_amount_minor: int
+    fee_minor: int
+    source_type: str
+    source_id: str
+    idempotency_key: str
+    as_of: datetime | None = None
+    metadata: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ClosePrimaryLoanFundingResult:
     journal_entry: LedgerJournalEntry
     borrower_success_fee_minor: int
     borrower_disbursement_payable_minor: int
+
+
+@dataclass(frozen=True, slots=True)
+class InvestorFxExchangeLedgerResult:
+    source_journal_entry: LedgerJournalEntry
+    target_journal_entry: LedgerJournalEntry
+    target_balance_lot: InvestorBalanceLot
+    source_lot_allocations: list[dict[str, Any]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -641,6 +667,7 @@ def _validate_lot_conservation_values(
     original_amount_minor: int,
     available_amount_minor: int,
     invested_amount_minor: int = 0,
+    converted_amount_minor: int = 0,
     withdrawn_amount_minor: int = 0,
     penalized_amount_minor: int = 0,
     currency_code: str,
@@ -649,6 +676,7 @@ def _validate_lot_conservation_values(
         "Original amount": original_amount_minor,
         "Available amount": available_amount_minor,
         "Invested amount": invested_amount_minor,
+        "Converted amount": converted_amount_minor,
         "Withdrawn amount": withdrawn_amount_minor,
         "Penalized amount": penalized_amount_minor,
     }
@@ -657,6 +685,7 @@ def _validate_lot_conservation_values(
     consumed_total = (
         available_amount_minor
         + invested_amount_minor
+        + converted_amount_minor
         + withdrawn_amount_minor
         + penalized_amount_minor
     )
@@ -669,6 +698,7 @@ def _validate_lot_conservation(lot: InvestorBalanceLot) -> None:
         original_amount_minor=lot.original_amount_minor,
         available_amount_minor=lot.available_amount_minor,
         invested_amount_minor=lot.invested_amount_minor,
+        converted_amount_minor=lot.converted_amount_minor,
         withdrawn_amount_minor=lot.withdrawn_amount_minor,
         penalized_amount_minor=lot.penalized_amount_minor,
         currency_code=lot.currency_id,
@@ -1433,6 +1463,7 @@ def _consume_lots_for_withdrawal(
             original_amount_minor=lot.original_amount_minor,
             available_amount_minor=new_available,
             invested_amount_minor=lot.invested_amount_minor,
+            converted_amount_minor=lot.converted_amount_minor,
             withdrawn_amount_minor=new_withdrawn,
             penalized_amount_minor=lot.penalized_amount_minor,
             currency_code=currency_code,
@@ -1512,6 +1543,7 @@ def _restore_lots_from_withdrawal_allocations(
             original_amount_minor=lot.original_amount_minor,
             available_amount_minor=new_available,
             invested_amount_minor=lot.invested_amount_minor,
+            converted_amount_minor=lot.converted_amount_minor,
             withdrawn_amount_minor=new_withdrawn,
             penalized_amount_minor=lot.penalized_amount_minor,
             currency_code=currency.code,
@@ -3100,6 +3132,38 @@ def _primary_loan_close_request_fingerprint(
     )
 
 
+def _fx_exchange_request_fingerprint(
+    command: ExecuteInvestorFxExchangeLedgerCommand,
+    *,
+    investor_user_id: str,
+    source_currency_code: str,
+    target_currency_code: str,
+    source_amount_minor: int,
+    gross_target_amount_minor: int,
+    target_amount_minor: int,
+    fee_minor: int,
+    idempotency_key: str,
+) -> str:
+    actor_ref = actor_ref_for_user(command.actor)
+    return _stable_json_fingerprint(
+        {
+            "actor_type": actor_ref.actor_type,
+            "actor_id": actor_ref.actor_id,
+            "investor_user_id": investor_user_id,
+            "source_currency": source_currency_code,
+            "target_currency": target_currency_code,
+            "source_amount_minor": source_amount_minor,
+            "gross_target_amount_minor": gross_target_amount_minor,
+            "target_amount_minor": target_amount_minor,
+            "fee_minor": fee_minor,
+            "source_type": command.source_type.strip(),
+            "source_id": command.source_id.strip(),
+            "idempotency_key": idempotency_key,
+            "metadata": command.metadata or {},
+        }
+    )
+
+
 def _existing_investment_reservation(
     journal_idempotency_key: str,
     *,
@@ -3151,6 +3215,37 @@ def _existing_primary_loan_close(
     )
 
 
+def _existing_fx_exchange_ledger_result(
+    source_journal_idempotency_key: str,
+    *,
+    expected_fingerprint: str,
+) -> InvestorFxExchangeLedgerResult | None:
+    source_journal = LedgerJournalEntry.objects.filter(
+        idempotency_key=source_journal_idempotency_key
+    ).first()
+    if source_journal is None:
+        return None
+    metadata = cast(dict[str, Any], source_journal.metadata)
+    if metadata.get(FX_EXCHANGE_FINGERPRINT_METADATA_KEY) != expected_fingerprint:
+        raise LedgerValidationError("Idempotency key was already used for a different request.")
+    target_journal_id = str(metadata.get("target_journal_entry_id", ""))
+    target_lot_id = str(metadata.get("target_balance_lot_id", ""))
+    if not target_journal_id or not target_lot_id:
+        raise LedgerValidationError("Existing FX source journal is missing target evidence.")
+    target_journal = LedgerJournalEntry.objects.filter(id=target_journal_id).first()
+    target_lot = InvestorBalanceLot.objects.filter(id=target_lot_id).first()
+    if target_journal is None or target_lot is None:
+        raise LedgerValidationError("Existing FX ledger evidence is incomplete.")
+    return InvestorFxExchangeLedgerResult(
+        source_journal_entry=cast(LedgerJournalEntry, source_journal),
+        target_journal_entry=cast(LedgerJournalEntry, target_journal),
+        target_balance_lot=target_lot,
+        source_lot_allocations=list(
+            cast(list[dict[str, Any]], metadata.get("source_lot_allocations", []))
+        ),
+    )
+
+
 def _credit_balance_for_account(account: LedgerAccount) -> int:
     debit_total = (
         LedgerPosting.objects.filter(
@@ -3186,6 +3281,80 @@ def _investment_lots_for_update(
     )
 
 
+def _fx_source_lots_for_update(
+    *,
+    investor_user_id: str,
+    currency: Currency,
+) -> list[InvestorBalanceLot]:
+    return list(
+        InvestorBalanceLot.objects.select_for_update()
+        .filter(
+            investor_user_id=investor_user_id,
+            currency=currency,
+            status=BalanceLotStatus.AVAILABLE,
+            available_amount_minor__gt=0,
+        )
+        .order_by("received_at", "created_at", "id")
+    )
+
+
+def _consume_lots_for_fx(
+    *,
+    lots: list[InvestorBalanceLot],
+    amount_minor: int,
+    currency_code: str,
+    as_of: datetime,
+) -> list[dict[str, Any]]:
+    remaining = amount_minor
+    allocations: list[dict[str, Any]] = []
+    for lot in lots:
+        _validate_lot_conservation(lot)
+        if remaining <= 0:
+            break
+        if as_of > lot.withdrawal_deadline_at:
+            continue
+        amount = min(remaining, lot.available_amount_minor)
+        if amount <= 0:
+            continue
+        status_before_conversion = str(lot.status)
+        available_before_conversion = lot.available_amount_minor
+        converted_before_conversion = lot.converted_amount_minor
+        new_available = lot.available_amount_minor - amount
+        new_converted = lot.converted_amount_minor + amount
+        new_status = BalanceLotStatus.CONSUMED if new_available == 0 else lot.status
+        _validate_lot_conservation_values(
+            original_amount_minor=lot.original_amount_minor,
+            available_amount_minor=new_available,
+            invested_amount_minor=lot.invested_amount_minor,
+            converted_amount_minor=new_converted,
+            withdrawn_amount_minor=lot.withdrawn_amount_minor,
+            penalized_amount_minor=lot.penalized_amount_minor,
+            currency_code=currency_code,
+        )
+        lot.available_amount_minor = new_available
+        lot.converted_amount_minor = new_converted
+        lot.status = new_status
+        lot.save(update_fields=["available_amount_minor", "converted_amount_minor", "status"])
+        allocations.append(
+            {
+                "lot_id": str(lot.id),
+                "amount_minor": amount,
+                "status_before_conversion": status_before_conversion,
+                "available_before_conversion_minor": available_before_conversion,
+                "converted_before_conversion_minor": converted_before_conversion,
+                "received_at": lot.received_at.isoformat(),
+                "investment_deadline_at": lot.investment_deadline_at.isoformat(),
+                "withdrawal_deadline_at": lot.withdrawal_deadline_at.isoformat(),
+                "source_type": lot.source_type,
+                "source_id": lot.source_id,
+            }
+        )
+        remaining -= amount
+    if remaining > 0:
+        raise LedgerValidationError("Insufficient eligible balance for the requested FX exchange.")
+    return allocations
+
+
 def _consume_lots_for_investment(
     *,
     lots: list[InvestorBalanceLot],
@@ -3218,6 +3387,7 @@ def _consume_lots_for_investment(
             original_amount_minor=lot.original_amount_minor,
             available_amount_minor=new_available,
             invested_amount_minor=new_invested,
+            converted_amount_minor=lot.converted_amount_minor,
             withdrawn_amount_minor=lot.withdrawn_amount_minor,
             penalized_amount_minor=lot.penalized_amount_minor,
             currency_code=currency_code,
@@ -3292,6 +3462,7 @@ def _restore_lots_from_investment_allocations(
             original_amount_minor=lot.original_amount_minor,
             available_amount_minor=new_available,
             invested_amount_minor=new_invested,
+            converted_amount_minor=lot.converted_amount_minor,
             withdrawn_amount_minor=lot.withdrawn_amount_minor,
             penalized_amount_minor=lot.penalized_amount_minor,
             currency_code=currency.code,
@@ -3509,6 +3680,268 @@ def release_investor_balance_investment_reservation(
         )
     )
     return InvestmentBalanceReleaseResult(journal_entry=journal_entry)
+
+
+@transaction.atomic
+def execute_investor_fx_exchange_ledger(
+    command: ExecuteInvestorFxExchangeLedgerCommand,
+) -> InvestorFxExchangeLedgerResult:
+    source_currency = _enabled_currency(command.source_currency)
+    target_currency = _enabled_currency(command.target_currency)
+    if source_currency.code == target_currency.code:
+        raise LedgerValidationError("FX source and target currencies must differ.")
+    source_amount_minor = _validate_money(
+        command.source_amount_minor,
+        source_currency.code,
+        "FX source amount",
+    )
+    gross_target_amount_minor = _validate_money(
+        command.gross_target_amount_minor,
+        target_currency.code,
+        "FX gross target amount",
+    )
+    target_amount_minor = _validate_money(
+        command.target_amount_minor,
+        target_currency.code,
+        "FX target amount",
+    )
+    fee_minor = _validate_nonnegative_money(
+        command.fee_minor,
+        target_currency.code,
+        "FX fee",
+    )
+    if target_amount_minor + fee_minor != gross_target_amount_minor:
+        raise LedgerValidationError("FX gross target amount must equal target amount plus fee.")
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    source_type = _clean_required(command.source_type, "Source type")
+    source_id = _clean_required(command.source_id, "Source id")
+    investor = _investment_actor_for_id(command.actor, command.investor_user_id)
+    investor_id = str(investor.pk)
+    as_of = command.as_of or now_utc()
+    value_date = business_date(as_of)
+    source_journal_key = _derived_idempotency_key("ledger-fx-source", idempotency_key)
+    target_journal_key = _derived_idempotency_key("ledger-fx-target", idempotency_key)
+    request_fingerprint = _fx_exchange_request_fingerprint(
+        command,
+        investor_user_id=investor_id,
+        source_currency_code=source_currency.code,
+        target_currency_code=target_currency.code,
+        source_amount_minor=source_amount_minor,
+        gross_target_amount_minor=gross_target_amount_minor,
+        target_amount_minor=target_amount_minor,
+        fee_minor=fee_minor,
+        idempotency_key=idempotency_key,
+    )
+    existing = _existing_fx_exchange_ledger_result(
+        source_journal_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing is not None:
+        return existing
+    if InvestorBalanceLot.objects.filter(
+        investor_user_id=investor_id,
+        status=BalanceLotStatus.PENALTY_MODE,
+        available_amount_minor__gt=0,
+    ).exists():
+        raise LedgerValidationError(
+            "Investor has overdue balance in penalty mode and cannot exchange currencies."
+        )
+
+    lots = _fx_source_lots_for_update(investor_user_id=investor_id, currency=source_currency)
+    existing_after_locks = _existing_fx_exchange_ledger_result(
+        source_journal_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing_after_locks is not None:
+        return existing_after_locks
+    source_allocations = _consume_lots_for_fx(
+        lots=lots,
+        amount_minor=source_amount_minor,
+        currency_code=source_currency.code,
+        as_of=as_of,
+    )
+    inherited_investment_deadline_at = max(
+        datetime.fromisoformat(str(allocation["investment_deadline_at"]))
+        for allocation in source_allocations
+    )
+    inherited_withdrawal_deadline_at = max(
+        datetime.fromisoformat(str(allocation["withdrawal_deadline_at"]))
+        for allocation in source_allocations
+    )
+
+    target_fx_clearing_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.FX_CLEARING,
+        currency=target_currency,
+        owner_type="fx",
+        owner_id="platform",
+        name=f"{target_currency.code} FX clearing",
+    )
+    target_investor_liability_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.INVESTOR_BALANCE_LIABILITY,
+        currency=target_currency,
+        owner_type="investor",
+        owner_id=investor_id,
+        name=f"{target_currency.code} investor balance liability {investor_id}",
+    )
+    target_postings = [
+        PostingCommand(
+            account=target_fx_clearing_account,
+            side=LedgerPostingSide.DEBIT,
+            amount_minor=gross_target_amount_minor,
+            memo="FX target currency receivable created",
+        ),
+        PostingCommand(
+            account=target_investor_liability_account,
+            side=LedgerPostingSide.CREDIT,
+            amount_minor=target_amount_minor,
+            memo="FX target balance credited to investor",
+        ),
+    ]
+    if fee_minor > 0:
+        target_fee_revenue_account = get_or_create_ledger_account(
+            account_type=LedgerAccountType.FX_FEE_REVENUE,
+            currency=target_currency,
+            owner_type="garanta",
+            owner_id="platform",
+            name=f"{target_currency.code} FX fee revenue",
+        )
+        target_postings.append(
+            PostingCommand(
+                account=target_fee_revenue_account,
+                side=LedgerPostingSide.CREDIT,
+                amount_minor=fee_minor,
+                memo="FX platform fee revenue",
+            )
+        )
+    target_journal = post_journal_entry(
+        PostJournalEntryCommand(
+            actor=command.actor,
+            event_type="investor_fx_target_balance_credited",
+            direction=LedgerDirection.INTERNAL,
+            currency=target_currency.code,
+            gross_amount_minor=gross_target_amount_minor,
+            net_amount_minor=target_amount_minor,
+            booking_date=value_date,
+            value_date=value_date,
+            effective_at=as_of,
+            received_at=as_of,
+            source_type=source_type,
+            source_id=source_id,
+            lender_user_id=investor_id,
+            idempotency_key=target_journal_key,
+            postings=target_postings,
+            tax_metadata={
+                "client_money_flow_minor": target_amount_minor,
+                "fx_fee_revenue_minor": fee_minor,
+            },
+            metadata={
+                FX_EXCHANGE_FINGERPRINT_METADATA_KEY: request_fingerprint,
+                "source_currency": source_currency.code,
+                "source_amount_minor": source_amount_minor,
+                "gross_target_amount_minor": gross_target_amount_minor,
+                "target_amount_minor": target_amount_minor,
+                "fee_minor": fee_minor,
+            },
+        )
+    )
+    _validate_lot_conservation_values(
+        original_amount_minor=target_amount_minor,
+        available_amount_minor=target_amount_minor,
+        currency_code=target_currency.code,
+    )
+    target_lot = InvestorBalanceLot.objects.create(
+        investor_user_id=investor_id,
+        currency=target_currency,
+        source_journal_entry=target_journal,
+        source_type=BalanceLotSourceType.FX_PROCEEDS,
+        source_id=source_id,
+        received_at=as_of,
+        investment_deadline_at=inherited_investment_deadline_at,
+        withdrawal_deadline_at=inherited_withdrawal_deadline_at,
+        original_amount_minor=target_amount_minor,
+        available_amount_minor=target_amount_minor,
+        lineage=[
+            {
+                "source_type": source_type,
+                "source_id": source_id,
+                "source_currency": source_currency.code,
+                "target_currency": target_currency.code,
+                "source_lot_allocations": source_allocations,
+                "gross_target_amount_minor": gross_target_amount_minor,
+                "target_amount_minor": target_amount_minor,
+                "fee_minor": fee_minor,
+                "inherited_investment_deadline_at": inherited_investment_deadline_at.isoformat(),
+                "inherited_withdrawal_deadline_at": inherited_withdrawal_deadline_at.isoformat(),
+                "metadata": command.metadata or {},
+            }
+        ],
+    )
+
+    source_investor_liability_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.INVESTOR_BALANCE_LIABILITY,
+        currency=source_currency,
+        owner_type="investor",
+        owner_id=investor_id,
+        name=f"{source_currency.code} investor balance liability {investor_id}",
+    )
+    source_fx_clearing_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.FX_CLEARING,
+        currency=source_currency,
+        owner_type="fx",
+        owner_id="platform",
+        name=f"{source_currency.code} FX clearing",
+    )
+    source_journal = post_journal_entry(
+        PostJournalEntryCommand(
+            actor=command.actor,
+            event_type="investor_fx_source_balance_converted",
+            direction=LedgerDirection.INTERNAL,
+            currency=source_currency.code,
+            gross_amount_minor=source_amount_minor,
+            net_amount_minor=source_amount_minor,
+            booking_date=value_date,
+            value_date=value_date,
+            effective_at=as_of,
+            received_at=as_of,
+            source_type=source_type,
+            source_id=source_id,
+            lender_user_id=investor_id,
+            idempotency_key=source_journal_key,
+            postings=[
+                PostingCommand(
+                    account=source_investor_liability_account,
+                    side=LedgerPostingSide.DEBIT,
+                    amount_minor=source_amount_minor,
+                    memo="FX source balance debited from investor",
+                ),
+                PostingCommand(
+                    account=source_fx_clearing_account,
+                    side=LedgerPostingSide.CREDIT,
+                    amount_minor=source_amount_minor,
+                    memo="FX source currency clearing credited",
+                ),
+            ],
+            tax_metadata={
+                "client_money_flow_minor": source_amount_minor,
+            },
+            metadata={
+                FX_EXCHANGE_FINGERPRINT_METADATA_KEY: request_fingerprint,
+                "target_journal_entry_id": str(target_journal.id),
+                "target_balance_lot_id": str(target_lot.id),
+                "source_lot_allocations": source_allocations,
+                "target_currency": target_currency.code,
+                "gross_target_amount_minor": gross_target_amount_minor,
+                "target_amount_minor": target_amount_minor,
+                "fee_minor": fee_minor,
+            },
+        )
+    )
+    return InvestorFxExchangeLedgerResult(
+        source_journal_entry=source_journal,
+        target_journal_entry=target_journal,
+        target_balance_lot=target_lot,
+        source_lot_allocations=source_allocations,
+    )
 
 
 @transaction.atomic

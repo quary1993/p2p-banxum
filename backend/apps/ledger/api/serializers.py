@@ -95,6 +95,7 @@ class InvestorBalanceLotSerializer(serializers.Serializer[Any]):
     original_amount_minor = serializers.IntegerField()
     available_amount_minor = serializers.IntegerField()
     invested_amount_minor = serializers.IntegerField()
+    converted_amount_minor = serializers.IntegerField()
     withdrawn_amount_minor = serializers.IntegerField()
     penalized_amount_minor = serializers.IntegerField()
     lineage = serializers.JSONField()

@@ -36,6 +36,39 @@ DEFAULT_PLATFORM_SETTINGS = (
     ),
     SettingDefinition("fx.platform_fee_bps", 150, "integer", "FX platform fee in basis points."),
     SettingDefinition(
+        "fx.enabled_pairs",
+        ["CHF/EUR", "EUR/CHF"],
+        "json",
+        "Enabled FX currency pairs.",
+    ),
+    SettingDefinition(
+        "fx.daily_limit_chf_minor",
+        10000000,
+        "integer",
+        "Per-investor daily FX limit in CHF minor units.",
+    ),
+    SettingDefinition(
+        "fx.pair_rate_bounds",
+        {
+            "CHF/EUR": {"min": "0.500000", "max": "2.000000"},
+            "EUR/CHF": {"min": "0.500000", "max": "2.000000"},
+        },
+        "json",
+        "Sanity-check min/max executable FX rates by pair.",
+    ),
+    SettingDefinition(
+        "fx.provider_rate_freshness_seconds",
+        300,
+        "integer",
+        "Maximum accepted provider-rate age for executable FX quotes.",
+    ),
+    SettingDefinition(
+        "fx.mock_rates",
+        {"CHF/EUR": "1.050000", "EUR/CHF": "0.952381"},
+        "json",
+        "Local/mock FX provider rates used until the production provider is configured.",
+    ),
+    SettingDefinition(
         "balance.reminder_days",
         [25, 46, 53, 58, 59, 60],
         "json",

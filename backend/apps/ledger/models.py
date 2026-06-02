@@ -266,6 +266,7 @@ class InvestorBalanceLot(TimestampedModel):
     original_amount_minor = models.BigIntegerField()
     available_amount_minor = models.BigIntegerField()
     invested_amount_minor = models.BigIntegerField(default=0)
+    converted_amount_minor = models.BigIntegerField(default=0)
     withdrawn_amount_minor = models.BigIntegerField(default=0)
     penalized_amount_minor = models.BigIntegerField(default=0)
     lineage = models.JSONField(default=list, blank=True)
@@ -277,6 +278,7 @@ class InvestorBalanceLot(TimestampedModel):
                 condition=Q(original_amount_minor__gte=0)
                 & Q(available_amount_minor__gte=0)
                 & Q(invested_amount_minor__gte=0)
+                & Q(converted_amount_minor__gte=0)
                 & Q(withdrawn_amount_minor__gte=0)
                 & Q(penalized_amount_minor__gte=0),
                 name="ledger_balance_lot_amounts_nonnegative",
@@ -285,6 +287,7 @@ class InvestorBalanceLot(TimestampedModel):
                 condition=Q(
                     original_amount_minor=F("available_amount_minor")
                     + F("invested_amount_minor")
+                    + F("converted_amount_minor")
                     + F("withdrawn_amount_minor")
                     + F("penalized_amount_minor")
                 ),

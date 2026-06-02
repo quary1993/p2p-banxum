@@ -927,6 +927,92 @@ paths:
               schema:
                 $ref: '#/components/schemas/BorrowerInvestorDisclosure'
           description: ''
+  /api/v1/fx/admin/delta-report/:
+    get:
+      operationId: v1_fx_admin_delta_report_retrieve
+      parameters:
+      - in: query
+        name: end_date
+        schema:
+          type: string
+          format: date
+        required: true
+      - in: query
+        name: start_date
+        schema:
+          type: string
+          format: date
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FxDeltaReport'
+          description: ''
+  /api/v1/fx/quotes/:
+    post:
+      operationId: v1_fx_quotes_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FxQuoteIssueRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FxQuoteIssueRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FxQuoteIssueRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FxQuote'
+          description: ''
+  /api/v1/fx/quotes/{quote_id}/execute/:
+    post:
+      operationId: v1_fx_quotes_execute_create
+      parameters:
+      - in: path
+        name: quote_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FxQuoteExecuteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FxQuoteExecuteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FxQuoteExecuteRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FxExchange'
+          description: ''
   /api/v1/health/:
     get:
       operationId: v1_health_retrieve
@@ -3247,6 +3333,215 @@ components:
         metadata: {}
         note:
           type: string
+    FxDeltaReport:
+      type: object
+      properties:
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        exchange_count:
+          type: integer
+        source_sold_by_currency_minor: {}
+        gross_target_bought_by_currency_minor: {}
+        target_credited_by_currency_minor: {}
+        fees_by_currency_minor: {}
+        net_external_settlement_by_currency_minor: {}
+      required:
+      - end_date
+      - exchange_count
+      - fees_by_currency_minor
+      - gross_target_bought_by_currency_minor
+      - net_external_settlement_by_currency_minor
+      - source_sold_by_currency_minor
+      - start_date
+      - target_credited_by_currency_minor
+    FxExchange:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        quote_id:
+          type: string
+          format: uuid
+        investor_user_id:
+          type: string
+          format: uuid
+        source_currency:
+          type: string
+        target_currency:
+          type: string
+        source_amount_minor:
+          type: integer
+        rate:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,12})?$
+        platform_fee_bps:
+          type: integer
+        gross_target_amount_minor:
+          type: integer
+        fee_minor:
+          type: integer
+        target_amount_minor:
+          type: integer
+        limit_chf_equivalent_minor:
+          type: integer
+        status:
+          type: string
+        source_journal_entry_id:
+          type: string
+          format: uuid
+        target_journal_entry_id:
+          type: string
+          format: uuid
+        target_balance_lot_id:
+          type: string
+          format: uuid
+        source_lot_allocations: {}
+        executed_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - created_at
+      - executed_at
+      - fee_minor
+      - gross_target_amount_minor
+      - id
+      - investor_user_id
+      - limit_chf_equivalent_minor
+      - platform_fee_bps
+      - quote_id
+      - rate
+      - source_amount_minor
+      - source_currency
+      - source_journal_entry_id
+      - source_lot_allocations
+      - status
+      - target_amount_minor
+      - target_balance_lot_id
+      - target_currency
+      - target_journal_entry_id
+      - updated_at
+    FxQuote:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        investor_user_id:
+          type: string
+          format: uuid
+        source_currency:
+          type: string
+        target_currency:
+          type: string
+        source_amount_minor:
+          type: integer
+        provider:
+          type: string
+        provider_quote_id:
+          type: string
+        rate:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,12})?$
+        previous_day_average_rate:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,12})?$
+          nullable: true
+        platform_fee_bps:
+          type: integer
+        gross_target_amount_minor:
+          type: integer
+        fee_minor:
+          type: integer
+        target_amount_minor:
+          type: integer
+        limit_chf_equivalent_minor:
+          type: integer
+        issued_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        provider_rate_timestamp:
+          type: string
+          format: date-time
+        sanity_check_passed:
+          type: boolean
+        sanity_metadata: {}
+        status:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - created_at
+      - expires_at
+      - fee_minor
+      - gross_target_amount_minor
+      - id
+      - investor_user_id
+      - issued_at
+      - limit_chf_equivalent_minor
+      - platform_fee_bps
+      - previous_day_average_rate
+      - provider
+      - provider_quote_id
+      - provider_rate_timestamp
+      - rate
+      - sanity_check_passed
+      - sanity_metadata
+      - source_amount_minor
+      - source_currency
+      - status
+      - target_amount_minor
+      - target_currency
+      - updated_at
+    FxQuoteExecuteRequest:
+      type: object
+      properties:
+        idempotency_key:
+          type: string
+          maxLength: 160
+      required:
+      - idempotency_key
+    FxQuoteIssueRequest:
+      type: object
+      properties:
+        source_currency:
+          type: string
+          maxLength: 3
+        target_currency:
+          type: string
+          maxLength: 3
+        source_amount_minor:
+          type: integer
+          minimum: 1
+        idempotency_key:
+          type: string
+          maxLength: 160
+      required:
+      - idempotency_key
+      - source_amount_minor
+      - source_currency
+      - target_currency
     HealthResponse:
       type: object
       properties:
@@ -3301,6 +3596,8 @@ components:
           type: integer
         invested_amount_minor:
           type: integer
+        converted_amount_minor:
+          type: integer
         withdrawn_amount_minor:
           type: integer
         penalized_amount_minor:
@@ -3314,6 +3611,7 @@ components:
           format: date-time
       required:
       - available_amount_minor
+      - converted_amount_minor
       - created_at
       - currency
       - id
