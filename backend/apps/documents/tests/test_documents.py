@@ -178,6 +178,35 @@ def test_publish_draft_creates_immutable_published_copy(superadmin_user: Model) 
 
 
 @pytest.mark.django_db
+def test_publish_draft_twice_returns_existing_current_clone(superadmin_user: Model) -> None:
+    draft = create_document_template_version(
+        _template_command(superadmin_user, publish_now=False)
+    )
+    first_publish = publish_document_template_version(
+        PublishDocumentTemplateVersionCommand(
+            actor=superadmin_user,
+            template_version_id=str(draft.id),
+        )
+    )
+    second_publish = publish_document_template_version(
+        PublishDocumentTemplateVersionCommand(
+            actor=superadmin_user,
+            template_version_id=str(draft.id),
+        )
+    )
+
+    assert second_publish.id == first_publish.id
+    assert (
+        DocumentTemplateVersion.objects.filter(
+            template=draft.template,
+            source_version_id=draft.id,
+            status=DocumentTemplateVersionStatus.PUBLISHED,
+        ).count()
+        == 1
+    )
+
+
+@pytest.mark.django_db
 def test_acceptance_uses_server_owned_current_hash(
     superadmin_user: Model,
     investor: Model,
@@ -252,6 +281,29 @@ def test_acceptance_rejects_stale_template_version(
 
 
 @pytest.mark.django_db
+def test_acceptance_rejects_missing_required_checkbox(
+    superadmin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    version = create_document_template_version(_template_command(superadmin_user))
+    labels = list(cast(list[str], version.checkbox_labels))
+
+    with pytest.raises(DocumentValidationError, match="All required checkbox"):
+        accept_document_terms(
+            AcceptDocumentTermsCommand(
+                actor=investor,
+                category=DocumentCategory.PRIMARY_MARKET_INVESTMENT,
+                expected_template_version_id=str(version.id),
+                accepted_checkbox_labels=labels[:1],
+                context_type="primary_order",
+                context_id="order-missing-label",
+                idempotency_key="accept-missing-label",
+            )
+        )
+
+
+@pytest.mark.django_db
 def test_acceptance_idempotency_mismatch_is_rejected(
     superadmin_user: Model,
     investor: Model,
@@ -284,6 +336,28 @@ def test_acceptance_idempotency_mismatch_is_rejected(
 
 
 @pytest.mark.django_db
+def test_acceptance_rejects_oversized_payload(
+    superadmin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    version = create_document_template_version(_template_command(superadmin_user))
+
+    with pytest.raises(DocumentValidationError, match="Data snapshot"):
+        accept_document_terms(
+            AcceptDocumentTermsCommand(
+                actor=investor,
+                category=DocumentCategory.PRIMARY_MARKET_INVESTMENT,
+                accepted_checkbox_labels=list(cast(list[str], version.checkbox_labels)),
+                context_type="primary_order",
+                context_id="order-large-snapshot",
+                data_snapshot={"oversized": "x" * 70_000},
+                idempotency_key="accept-large-snapshot",
+            )
+        )
+
+
+@pytest.mark.django_db
 def test_primary_acceptance_requires_financial_access(
     superadmin_user: Model,
     investor: Model,
@@ -301,6 +375,47 @@ def test_primary_acceptance_requires_financial_access(
                 idempotency_key="accept-no-kyc",
             )
         )
+
+
+@pytest.mark.django_db
+def test_registration_acceptance_requires_lender_actor(
+    superadmin_user: Model,
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    version = create_document_template_version(
+        _template_command(
+            superadmin_user,
+            category=DocumentCategory.REGISTRATION,
+            title="Registration Terms",
+            body="Hello {{user.full_name}}, welcome to {{platform.name}}.",
+        )
+    )
+
+    with pytest.raises(DocumentAuthorizationError):
+        accept_document_terms(
+            AcceptDocumentTermsCommand(
+                actor=admin_user,
+                category=DocumentCategory.REGISTRATION,
+                accepted_checkbox_labels=list(cast(list[str], version.checkbox_labels)),
+                context_type="registration",
+                context_id=str(admin_user.pk),
+                idempotency_key="registration-admin-denied",
+            )
+        )
+
+    acceptance = accept_document_terms(
+        AcceptDocumentTermsCommand(
+            actor=investor,
+            category=DocumentCategory.REGISTRATION,
+            accepted_checkbox_labels=list(cast(list[str], version.checkbox_labels)),
+            context_type="registration",
+            context_id=str(investor.pk),
+            idempotency_key="registration-investor-ok",
+        )
+    )
+
+    assert acceptance.category == DocumentCategory.REGISTRATION
 
 
 @pytest.mark.django_db
@@ -351,8 +466,42 @@ def test_document_template_and_acceptance_api(
     assert create_response.status_code == 201
     assert current_response.status_code == 200
     assert current_payload["content_hash"] == create_response.json()["content_hash"]
+    assert current_payload["category"] == DocumentCategory.PRIMARY_MARKET_INVESTMENT
+    assert current_payload["template_key"] == "default"
+    assert current_payload["language"] == "en"
+    assert "created_by_superadmin_id" not in current_payload
+    assert "legal_review_reference" not in current_payload
+    assert "metadata" not in current_payload
     assert acceptance_response.status_code == 201
     assert acceptance_response.json()["template_hash"] == current_payload["content_hash"]
+
+
+@pytest.mark.django_db
+def test_document_acceptance_api_rejects_missing_required_checkbox(
+    client: Client,
+    superadmin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    version = create_document_template_version(_template_command(superadmin_user))
+    labels = list(cast(list[str], version.checkbox_labels))
+    client.force_login(cast(Any, investor))
+
+    response = client.post(
+        "/api/v1/documents/acceptances/",
+        data={
+            "category": DocumentCategory.PRIMARY_MARKET_INVESTMENT,
+            "expected_template_version_id": str(version.id),
+            "accepted_checkbox_labels": labels[:1],
+            "context_type": "primary_order",
+            "context_id": "api-order-missing-label",
+            "idempotency_key": "api-accept-missing-label",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert DocumentAcceptanceEvidence.objects.count() == 0
 
 
 @pytest.mark.django_db

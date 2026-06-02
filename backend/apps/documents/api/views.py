@@ -17,7 +17,9 @@ from backend.apps.documents.api.serializers import (
     DocumentTemplateVersionCreateRequestSerializer,
     DocumentTemplateVersionPublishRequestSerializer,
     DocumentTemplateVersionSerializer,
+    PublicDocumentTemplateVersionSerializer,
     serialize_acceptance,
+    serialize_public_template_version,
     serialize_template_version,
 )
 from backend.apps.documents.models import DocumentTemplateVersion
@@ -49,7 +51,7 @@ class CurrentDocumentTemplateView(APIView):
 
     @extend_schema(
         parameters=[DocumentCurrentTemplateQuerySerializer],
-        responses={200: DocumentTemplateVersionSerializer},
+        responses={200: PublicDocumentTemplateVersionSerializer},
     )
     def get(self, request: Request) -> Response:
         serializer = DocumentCurrentTemplateQuerySerializer(data=request.query_params)
@@ -63,7 +65,7 @@ class CurrentDocumentTemplateView(APIView):
             )
         except DocumentValidationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND)
-        return Response(serialize_template_version(version), status=status.HTTP_200_OK)
+        return Response(serialize_public_template_version(version), status=status.HTTP_200_OK)
 
 
 class AdminDocumentTemplateVersionListCreateView(APIView):

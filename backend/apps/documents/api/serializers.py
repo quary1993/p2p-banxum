@@ -45,6 +45,19 @@ class DocumentTemplateVersionSerializer(serializers.Serializer[Any]):
     updated_at = serializers.DateTimeField()
 
 
+class PublicDocumentTemplateVersionSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    category = serializers.CharField(source="template.category")
+    template_key = serializers.CharField(source="template.template_key")
+    language = serializers.CharField(source="template.language")
+    version_number = serializers.IntegerField()
+    title = serializers.CharField()
+    body = serializers.CharField()
+    checkbox_labels = serializers.JSONField()
+    content_hash = serializers.CharField()
+    published_at = serializers.DateTimeField(allow_null=True)
+
+
 class DocumentAcceptanceEvidenceSerializer(serializers.Serializer[Any]):
     id = serializers.UUIDField()
     user_id = serializers.UUIDField()
@@ -116,6 +129,10 @@ def serialize_template(template: DocumentTemplate) -> dict[str, Any]:
 
 def serialize_template_version(version: DocumentTemplateVersion) -> dict[str, Any]:
     return dict(DocumentTemplateVersionSerializer(version).data)
+
+
+def serialize_public_template_version(version: DocumentTemplateVersion) -> dict[str, Any]:
+    return dict(PublicDocumentTemplateVersionSerializer(version).data)
 
 
 def serialize_acceptance(acceptance: DocumentAcceptanceEvidence) -> dict[str, Any]:

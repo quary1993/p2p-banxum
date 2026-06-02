@@ -44,6 +44,9 @@ class DocumentValidationError(DocumentsError):
 DEFAULT_TEMPLATE_KEY = "default"
 SUPPORTED_LANGUAGES = frozenset({"en"})
 MAX_IDEMPOTENCY_KEY_LENGTH = 160
+MAX_CHECKBOX_LABELS = 20
+MAX_CHECKBOX_LABEL_LENGTH = 500
+MAX_ACCEPTANCE_JSON_BYTES = 65_536
 ACCEPTANCE_FINGERPRINT_METADATA_KEY = "request_fingerprint"
 PLACEHOLDER_PATTERN = re.compile(r"{{\s*([a-zA-Z_][\w]*(?:\.[a-zA-Z_][\w]*)*)\s*}}")
 TEMPLATE_KEY_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.:-]{0,127}$")
@@ -201,17 +204,33 @@ def _clean_context(value: str, label: str) -> str:
 def _clean_checkbox_labels(labels: list[str]) -> list[str]:
     if not isinstance(labels, list) or not labels:
         raise DocumentValidationError("At least one checkbox label is required.")
+    if len(labels) > MAX_CHECKBOX_LABELS:
+        raise DocumentValidationError(f"At most {MAX_CHECKBOX_LABELS} checkbox labels are allowed.")
     cleaned: list[str] = []
     seen: set[str] = set()
     for label in labels:
         if not isinstance(label, str):
             raise DocumentValidationError("Checkbox labels must be strings.")
         cleaned_label = _clean_required(label, "Checkbox label")
+        if len(cleaned_label) > MAX_CHECKBOX_LABEL_LENGTH:
+            raise DocumentValidationError(
+                f"Checkbox labels must be at most {MAX_CHECKBOX_LABEL_LENGTH} characters."
+            )
         if cleaned_label in seen:
             raise DocumentValidationError("Checkbox labels must be unique.")
         seen.add(cleaned_label)
         cleaned.append(cleaned_label)
     return cleaned
+
+
+def _assert_json_payload_size(value: dict[str, Any], label: str) -> None:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode(
+        "utf-8"
+    )
+    if len(encoded) > MAX_ACCEPTANCE_JSON_BYTES:
+        raise DocumentValidationError(
+            f"{label} must not exceed {MAX_ACCEPTANCE_JSON_BYTES} bytes when serialized."
+        )
 
 
 def default_variable_schema(category: str) -> dict[str, Any]:
@@ -469,7 +488,11 @@ def publish_document_template_version(
     if source_version is None:
         raise DocumentValidationError("Template version does not exist.")
     template = source_version.template
-    template = DocumentTemplate.objects.select_for_update().get(id=template.id)
+    template = (
+        DocumentTemplate.objects.select_for_update()
+        .select_related("current_published_version")
+        .get(id=template.id)
+    )
 
     if (
         source_version.status == DocumentTemplateVersionStatus.PUBLISHED
@@ -480,6 +503,13 @@ def publish_document_template_version(
     if source_version.status == DocumentTemplateVersionStatus.PUBLISHED:
         published_version = source_version
     else:
+        current_version = template.current_published_version
+        if (
+            current_version is not None
+            and current_version.status == DocumentTemplateVersionStatus.PUBLISHED
+            and current_version.source_version_id == source_version.id
+        ):
+            return current_version
         published_version = cast(
             DocumentTemplateVersion,
             DocumentTemplateVersion.objects.create(
@@ -638,6 +668,10 @@ def accept_document_terms(command: AcceptDocumentTermsCommand) -> DocumentAccept
     data_snapshot = command.data_snapshot or {}
     if not isinstance(data_snapshot, dict):
         raise DocumentValidationError("Data snapshot must be an object.")
+    _assert_json_payload_size(data_snapshot, "Data snapshot")
+    if command.metadata is not None and not isinstance(command.metadata, dict):
+        raise DocumentValidationError("Metadata must be an object.")
+    _assert_json_payload_size(command.metadata or {}, "Metadata")
     idempotency_key = (command.idempotency_key or "").strip()
     if not idempotency_key:
         raise DocumentValidationError("Idempotency key is required.")

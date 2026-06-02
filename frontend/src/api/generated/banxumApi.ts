@@ -1308,6 +1308,20 @@ export interface PhoneVerificationRequestResponse {
   phone_verified: boolean;
 }
 
+export interface PublicDocumentTemplateVersion {
+  id: string;
+  category: string;
+  template_key: string;
+  language: string;
+  version_number: number;
+  title: string;
+  body: string;
+  checkbox_labels: unknown;
+  content_hash: string;
+  /** @nullable */
+  published_at: string | null;
+}
+
 export interface PublishLoanRequest {
   note?: string;
 }
@@ -3212,7 +3226,7 @@ export const v1DocumentsTemplatesCurrentRetrieve = (
 ) => {
 
 
-      return httpClient<DocumentTemplateVersion>(
+      return httpClient<PublicDocumentTemplateVersion>(
       {url: `/api/v1/documents/templates/current/`, method: 'GET',
         params, signal
     },
@@ -5408,7 +5422,7 @@ export const getV1DocumentsAdminTemplatesVersionsCreateResponseMock = (overrideR
 
 export const getV1DocumentsAdminTemplatesVersionsPublishCreateResponseMock = (overrideResponse: Partial< DocumentTemplateVersion > = {}): DocumentTemplateVersion => ({id: faker.string.uuid(), template: {id: faker.string.uuid(), category: faker.string.alpha({length: {min: 10, max: 20}}), template_key: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.string.alpha({length: {min: 10, max: 20}}), current_published_version_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_by_superadmin_id: faker.string.uuid(), updated_by_superadmin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, version_number: faker.number.int({min: undefined, max: undefined}), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), body: faker.string.alpha({length: {min: 10, max: 20}}), checkbox_labels: {}, variable_schema: {}, content_hash: faker.string.alpha({length: {min: 10, max: 20}}), created_by_superadmin_id: faker.string.uuid(), source_version_id: faker.helpers.arrayElement([faker.string.uuid(), null]), published_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), legal_review_reference: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
 
-export const getV1DocumentsTemplatesCurrentRetrieveResponseMock = (overrideResponse: Partial< DocumentTemplateVersion > = {}): DocumentTemplateVersion => ({id: faker.string.uuid(), template: {id: faker.string.uuid(), category: faker.string.alpha({length: {min: 10, max: 20}}), template_key: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.string.alpha({length: {min: 10, max: 20}}), current_published_version_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_by_superadmin_id: faker.string.uuid(), updated_by_superadmin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, version_number: faker.number.int({min: undefined, max: undefined}), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), body: faker.string.alpha({length: {min: 10, max: 20}}), checkbox_labels: {}, variable_schema: {}, content_hash: faker.string.alpha({length: {min: 10, max: 20}}), created_by_superadmin_id: faker.string.uuid(), source_version_id: faker.helpers.arrayElement([faker.string.uuid(), null]), published_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), legal_review_reference: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+export const getV1DocumentsTemplatesCurrentRetrieveResponseMock = (overrideResponse: Partial< PublicDocumentTemplateVersion > = {}): PublicDocumentTemplateVersion => ({id: faker.string.uuid(), category: faker.string.alpha({length: {min: 10, max: 20}}), template_key: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), version_number: faker.number.int({min: undefined, max: undefined}), title: faker.string.alpha({length: {min: 10, max: 20}}), body: faker.string.alpha({length: {min: 10, max: 20}}), checkbox_labels: {}, content_hash: faker.string.alpha({length: {min: 10, max: 20}}), published_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), ...overrideResponse})
 
 export const getV1EntitiesAdminBorrowersListResponseMock = (): BorrowerEntity[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), legal_name: faker.string.alpha({length: {min: 10, max: 20}}), year_founded: faker.number.int({min: undefined, max: undefined}), entity_type: faker.string.alpha({length: {min: 10, max: 20}}), kyb_status: faker.string.alpha({length: {min: 10, max: 20}}), compliance_hold: faker.datatype.boolean(), can_transact: faker.datatype.boolean(), country: faker.string.alpha({length: {min: 10, max: 20}}), registration_number: faker.string.alpha({length: {min: 10, max: 20}}), registered_address: faker.string.alpha({length: {min: 10, max: 20}}), operating_address: faker.string.alpha({length: {min: 10, max: 20}}), industry_activity: faker.string.alpha({length: {min: 10, max: 20}}), ownership_structure: faker.string.alpha({length: {min: 10, max: 20}}), beneficial_owners: {}, directors_officers: {}, authorized_signatories: {}, bank_account_details: {}, financials_currency: faker.string.alpha({length: {min: 10, max: 20}}), assets_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), liabilities_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), revenue_last_year_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), profit_last_year_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`})))
 
@@ -5709,7 +5723,7 @@ export const getV1DocumentsAdminTemplatesVersionsPublishCreateMockHandler = (ove
   }, options)
 }
 
-export const getV1DocumentsTemplatesCurrentRetrieveMockHandler = (overrideResponse?: DocumentTemplateVersion | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<DocumentTemplateVersion> | DocumentTemplateVersion), options?: RequestHandlerOptions) => {
+export const getV1DocumentsTemplatesCurrentRetrieveMockHandler = (overrideResponse?: PublicDocumentTemplateVersion | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<PublicDocumentTemplateVersion> | PublicDocumentTemplateVersion), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/documents/templates/current/', async (info) => {await delay(1000);
 
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined

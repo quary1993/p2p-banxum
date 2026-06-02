@@ -673,7 +673,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DocumentTemplateVersion'
+                $ref: '#/components/schemas/PublicDocumentTemplateVersion'
           description: ''
   /api/v1/entities/admin/borrowers/:
     get:
@@ -4145,6 +4145,42 @@ components:
       - expires_at
       - phone_verified
       - status
+    PublicDocumentTemplateVersion:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        category:
+          type: string
+        template_key:
+          type: string
+        language:
+          type: string
+        version_number:
+          type: integer
+        title:
+          type: string
+        body:
+          type: string
+        checkbox_labels: {}
+        content_hash:
+          type: string
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - body
+      - category
+      - checkbox_labels
+      - content_hash
+      - id
+      - language
+      - published_at
+      - template_key
+      - title
+      - version_number
     PublishLoanRequest:
       type: object
       properties:
