@@ -44,6 +44,27 @@ BLOCKING_KYC_STATUSES = frozenset(
 )
 
 
+class KycManualReviewDecisionType(models.TextChoices):
+    APPROVE = "approve", "Approve"
+    DECLINE = "decline", "Decline"
+    REQUEST_REVERIFICATION = "request_reverification", "Request re-verification"
+    REOPEN = "reopen", "Reopen manual review"
+
+
+class KycManualReviewReason(models.TextChoices):
+    PEP_REVIEW = "pep_review", "PEP review"
+    HIGH_RISK_REVIEW = "high_risk_review", "High-risk review"
+    ADVERSE_MEDIA_REVIEW = "adverse_media_review", "Adverse-media review"
+    SANCTIONS_REVIEW = "sanctions_review", "Sanctions review"
+    PROVIDER_DECLINE_REVIEW = "provider_decline_review", "Provider decline review"
+    INCONCLUSIVE_PROVIDER_RESULT = "inconclusive_provider_result", "Inconclusive provider result"
+    DOCUMENT_OR_IDENTITY_ISSUE = "document_or_identity_issue", "Document or identity issue"
+    REVERIFICATION_REQUIRED = "reverification_required", "Re-verification required"
+    OFF_PLATFORM_REVIEW = "off_platform_review", "Off-platform review"
+    ADMIN_CORRECTION = "admin_correction", "Admin correction"
+    OTHER = "other", "Other"
+
+
 class KycVerificationCase(TimestampedModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     subject_type = models.CharField(
@@ -151,4 +172,34 @@ class KycProviderEvent(AppendOnlyModel, TimestampedModel):
             models.Index(fields=["case", "processed_at"]),
             models.Index(fields=["provider_session_id"]),
             models.Index(fields=["normalized_status"]),
+        ]
+
+
+class KycManualReviewDecision(AppendOnlyModel, TimestampedModel):
+    case = models.ForeignKey(
+        KycVerificationCase,
+        on_delete=models.PROTECT,
+        related_name="manual_review_decisions",
+    )
+    actor_user_id = models.UUIDField()
+    actor_account_type = models.CharField(max_length=64)
+    decision = models.CharField(max_length=64, choices=KycManualReviewDecisionType.choices)
+    reason_code = models.CharField(
+        max_length=64,
+        choices=KycManualReviewReason.choices,
+        default=KycManualReviewReason.OTHER,
+    )
+    previous_status = models.CharField(max_length=64, choices=KycStatus.choices)
+    new_status = models.CharField(max_length=64, choices=KycStatus.choices)
+    note = models.TextField(blank=True)
+    evidence_summary = models.TextField(blank=True)
+    decided_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ["-decided_at", "-id"]
+        indexes = [
+            models.Index(fields=["case", "decided_at"]),
+            models.Index(fields=["actor_user_id", "decided_at"]),
+            models.Index(fields=["decision"]),
+            models.Index(fields=["new_status"]),
         ]

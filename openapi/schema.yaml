@@ -78,6 +78,39 @@ paths:
               schema:
                 $ref: '#/components/schemas/AuthenticatedUserResponse'
           description: ''
+  /api/v1/auth/admin/users/{user_id}/access/:
+    post:
+      operationId: v1_auth_admin_users_access_create
+      parameters:
+      - in: path
+        name: user_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountAccessChangeRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AccountAccessChangeRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AccountAccessChangeRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountAccessChangeResponse'
+          description: ''
   /api/v1/auth/magic-link/consume/:
     post:
       operationId: v1_auth_magic_link_consume_create
@@ -212,6 +245,55 @@ paths:
               schema:
                 $ref: '#/components/schemas/HealthResponse'
           description: ''
+  /api/v1/kyc/admin/cases/{case_id}/manual-review/:
+    post:
+      operationId: v1_kyc_admin_cases_manual_review_create
+      parameters:
+      - in: path
+        name: case_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KycManualReviewDecisionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/KycManualReviewDecisionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/KycManualReviewDecisionRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycManualReviewDecisionResponse'
+          description: ''
+  /api/v1/kyc/admin/manual-reviews/:
+    get:
+      operationId: v1_kyc_admin_manual_reviews_list
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/KycAdminCase'
+          description: ''
   /api/v1/kyc/session/:
     post:
       operationId: v1_kyc_session_create
@@ -254,6 +336,98 @@ paths:
           description: ''
 components:
   schemas:
+    AccountAccessChangeRequest:
+      type: object
+      properties:
+        new_status:
+          $ref: '#/components/schemas/NewStatusEnum'
+        reason_code:
+          $ref: '#/components/schemas/AccountAccessChangeRequestReasonCodeEnum'
+        note:
+          type: string
+        evidence_summary:
+          type: string
+        clean_account_confirmed:
+          type: boolean
+          default: false
+      required:
+      - new_status
+      - reason_code
+    AccountAccessChangeRequestReasonCodeEnum:
+      enum:
+      - kyc_aml_review
+      - compliance_hold
+      - email_recovery
+      - support_request
+      - account_closure
+      - admin_correction
+      - other
+      type: string
+      description: |-
+        * `kyc_aml_review` - KYC/AML review
+        * `compliance_hold` - Compliance hold
+        * `email_recovery` - Email recovery
+        * `support_request` - Support request
+        * `account_closure` - Account closure
+        * `admin_correction` - Admin correction
+        * `other` - Other
+    AccountAccessChangeResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/UserSummary'
+        event:
+          $ref: '#/components/schemas/AccountAccessEvent'
+      required:
+      - event
+      - user
+    AccountAccessEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        actor_user_id:
+          type: string
+          format: uuid
+        actor_account_type:
+          type: string
+        previous_status:
+          type: string
+        new_status:
+          type: string
+        previous_is_active:
+          type: boolean
+        new_is_active:
+          type: boolean
+        reason_code:
+          type: string
+        note:
+          type: string
+        evidence_summary:
+          type: string
+        clean_account_confirmed:
+          type: boolean
+        changed_at:
+          type: string
+          format: date-time
+      required:
+      - actor_account_type
+      - actor_user_id
+      - changed_at
+      - clean_account_confirmed
+      - evidence_summary
+      - id
+      - new_is_active
+      - new_status
+      - note
+      - previous_is_active
+      - previous_status
+      - reason_code
+      - user_id
     AdminLoginConfirmRequest:
       type: object
       properties:
@@ -317,6 +491,18 @@ components:
           $ref: '#/components/schemas/UserSummary'
       required:
       - user
+    DecisionEnum:
+      enum:
+      - approve
+      - decline
+      - request_reverification
+      - reopen
+      type: string
+      description: |-
+        * `approve` - Approve
+        * `decline` - Decline
+        * `request_reverification` - Request re-verification
+        * `reopen` - Reopen manual review
     DiditWebhookResponse:
       type: object
       properties:
@@ -346,6 +532,170 @@ components:
       - platform
       - status
       - timezone
+    KycAdminCase:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        subject_type:
+          type: string
+        subject_reference:
+          type: string
+        user_id:
+          type: string
+          format: uuid
+          nullable: true
+        provider:
+          type: string
+        provider_environment:
+          type: string
+        workflow_id:
+          type: string
+        status:
+          type: string
+        manual_review_required:
+          type: boolean
+        blocking_reason:
+          type: string
+        risk_classification:
+          type: string
+        detected_flags:
+          type: array
+          items:
+            type: string
+        provider_session_id:
+          type: string
+        provider_verification_id:
+          type: string
+        provider_report_id:
+          type: string
+        aml_screening_id:
+          type: string
+        provider_subject_id:
+          type: string
+        decision_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - aml_screening_id
+      - blocking_reason
+      - created_at
+      - decision_at
+      - detected_flags
+      - id
+      - manual_review_required
+      - provider
+      - provider_environment
+      - provider_report_id
+      - provider_session_id
+      - provider_subject_id
+      - provider_verification_id
+      - risk_classification
+      - status
+      - subject_reference
+      - subject_type
+      - updated_at
+      - user_id
+      - workflow_id
+    KycManualReviewDecision:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        case_id:
+          type: string
+          format: uuid
+        actor_user_id:
+          type: string
+          format: uuid
+        actor_account_type:
+          type: string
+        decision:
+          type: string
+        reason_code:
+          type: string
+        previous_status:
+          type: string
+        new_status:
+          type: string
+        note:
+          type: string
+        evidence_summary:
+          type: string
+        decided_at:
+          type: string
+          format: date-time
+      required:
+      - actor_account_type
+      - actor_user_id
+      - case_id
+      - decided_at
+      - decision
+      - evidence_summary
+      - id
+      - new_status
+      - note
+      - previous_status
+      - reason_code
+    KycManualReviewDecisionRequest:
+      type: object
+      properties:
+        decision:
+          $ref: '#/components/schemas/DecisionEnum'
+        reason_code:
+          $ref: '#/components/schemas/KycManualReviewDecisionRequestReasonCodeEnum'
+        note:
+          type: string
+        evidence_summary:
+          type: string
+      required:
+      - decision
+      - reason_code
+    KycManualReviewDecisionRequestReasonCodeEnum:
+      enum:
+      - pep_review
+      - high_risk_review
+      - adverse_media_review
+      - sanctions_review
+      - provider_decline_review
+      - inconclusive_provider_result
+      - document_or_identity_issue
+      - reverification_required
+      - off_platform_review
+      - admin_correction
+      - other
+      type: string
+      description: |-
+        * `pep_review` - PEP review
+        * `high_risk_review` - High-risk review
+        * `adverse_media_review` - Adverse-media review
+        * `sanctions_review` - Sanctions review
+        * `provider_decline_review` - Provider decline review
+        * `inconclusive_provider_result` - Inconclusive provider result
+        * `document_or_identity_issue` - Document or identity issue
+        * `reverification_required` - Re-verification required
+        * `off_platform_review` - Off-platform review
+        * `admin_correction` - Admin correction
+        * `other` - Other
+    KycManualReviewDecisionResponse:
+      type: object
+      properties:
+        case:
+          $ref: '#/components/schemas/KycAdminCase'
+        decision:
+          $ref: '#/components/schemas/KycManualReviewDecision'
+      required:
+      - case
+      - decision
     KycSessionResponse:
       type: object
       properties:
@@ -449,6 +799,18 @@ components:
           $ref: '#/components/schemas/UserSummary'
       required:
       - user
+    NewStatusEnum:
+      enum:
+      - active
+      - restricted
+      - locked
+      - closed
+      type: string
+      description: |-
+        * `active` - active
+        * `restricted` - restricted
+        * `locked` - locked
+        * `closed` - closed
     PhoneVerificationConfirmRequest:
       type: object
       properties:

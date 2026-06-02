@@ -4,7 +4,12 @@ from typing import Any
 
 from rest_framework import serializers
 
-from backend.apps.accounts_auth.models import User
+from backend.apps.accounts_auth.models import (
+    AccountAccessEvent,
+    AccountAccessReason,
+    AccountStatus,
+    User,
+)
 
 
 class UserSummarySerializer(serializers.Serializer[Any]):
@@ -64,6 +69,42 @@ class AdminUserCreateRequestSerializer(serializers.Serializer[Any]):
     full_name = serializers.CharField(max_length=255)
 
 
+class AccountAccessChangeRequestSerializer(serializers.Serializer[Any]):
+    new_status = serializers.ChoiceField(
+        choices=[
+            AccountStatus.ACTIVE,
+            AccountStatus.RESTRICTED,
+            AccountStatus.LOCKED,
+            AccountStatus.CLOSED,
+        ]
+    )
+    reason_code = serializers.ChoiceField(choices=AccountAccessReason.choices)
+    note = serializers.CharField(required=False, allow_blank=True)
+    evidence_summary = serializers.CharField(required=False, allow_blank=True)
+    clean_account_confirmed = serializers.BooleanField(default=False)
+
+
+class AccountAccessEventSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    user_id = serializers.UUIDField(source="user.id")
+    actor_user_id = serializers.UUIDField()
+    actor_account_type = serializers.CharField()
+    previous_status = serializers.CharField()
+    new_status = serializers.CharField()
+    previous_is_active = serializers.BooleanField()
+    new_is_active = serializers.BooleanField()
+    reason_code = serializers.CharField()
+    note = serializers.CharField()
+    evidence_summary = serializers.CharField()
+    clean_account_confirmed = serializers.BooleanField()
+    changed_at = serializers.DateTimeField()
+
+
+class AccountAccessChangeResponseSerializer(serializers.Serializer[Any]):
+    user = UserSummarySerializer()
+    event = AccountAccessEventSerializer()
+
+
 class PhoneVerificationRequestResponseSerializer(serializers.Serializer[Any]):
     challenge_id = serializers.UUIDField(allow_null=True)
     status = serializers.CharField()
@@ -82,3 +123,7 @@ class PhoneVerificationConfirmResponseSerializer(serializers.Serializer[Any]):
 
 def serialize_user(user: User) -> dict[str, Any]:
     return dict(UserSummarySerializer(user).data)
+
+
+def serialize_account_access_event(event: AccountAccessEvent) -> dict[str, Any]:
+    return dict(AccountAccessEventSerializer(event).data)

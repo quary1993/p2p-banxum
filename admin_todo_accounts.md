@@ -32,6 +32,28 @@ Why this is needed:
 
 The software can implement a mock Didit adapter without these credentials, but it cannot complete real sandbox session creation, webhook verification, or status mapping against Didit until sandbox access and workflow details exist. Production credentials are listed below as non-blocking because they are needed for launch, not for module implementation.
 
+Current implementation boundary:
+
+- Implemented without Didit account access:
+  - internal KYC case/session/event storage.
+  - mock Didit session URLs.
+  - signed generic webhook ingestion boundary.
+  - internal status normalization for known/common provider words and AML flags.
+  - manual-review queue and append-only admin decisions.
+  - account activation after approved KYC.
+  - account restrict/lock/close/reactivate controls for Garanta admins.
+  - append-only audit/evidence records and DB-level append-only guards.
+- Still blocked by missing Didit sandbox/account details:
+  - real Didit session creation API calls.
+  - exact Didit workflow ID and workflow routing.
+  - exact redirect/iframe/SDK behavior and callback URLs.
+  - exact webhook signature headers, freshness/timestamp behavior, event names, payload fields, retry behavior, and status vocabulary for Garanta's configured workflow.
+  - provider report download/export API integration.
+  - provider report metadata, file checksum, local object-storage persistence, and report inclusion in evidence exports.
+  - sandbox test users, test documents, and negative test scenarios.
+  - end-to-end tests against Didit sandbox or production.
+  - Didit ongoing-monitoring alert ingestion, if Garanta later wants platform-side ingestion rather than off-platform review and manual account controls.
+
 ### SendGrid Transactional Email Account
 
 Blocks: real sandbox/staging email delivery for magic-link login, admin email-code login, investor sensitive-action email codes, and transactional notices.

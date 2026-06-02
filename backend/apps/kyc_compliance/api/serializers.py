@@ -4,7 +4,14 @@ from typing import Any
 
 from rest_framework import serializers
 
-from backend.apps.kyc_compliance.models import KycProviderSession, KycStatus, KycVerificationCase
+from backend.apps.kyc_compliance.models import (
+    KycManualReviewDecision,
+    KycManualReviewDecisionType,
+    KycManualReviewReason,
+    KycProviderSession,
+    KycStatus,
+    KycVerificationCase,
+)
 from backend.apps.kyc_compliance.services import user_can_access_financial_features
 
 
@@ -30,6 +37,63 @@ class KycSessionResponseSerializer(serializers.Serializer[Any]):
 class DiditWebhookResponseSerializer(serializers.Serializer[Any]):
     status = serializers.ChoiceField(choices=KycStatus.choices)
     idempotent = serializers.BooleanField()
+
+
+class KycAdminCaseSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    subject_type = serializers.CharField()
+    subject_reference = serializers.CharField()
+    user_id = serializers.UUIDField(allow_null=True)
+    provider = serializers.CharField()
+    provider_environment = serializers.CharField()
+    workflow_id = serializers.CharField()
+    status = serializers.CharField()
+    manual_review_required = serializers.BooleanField()
+    blocking_reason = serializers.CharField()
+    risk_classification = serializers.CharField()
+    detected_flags = serializers.ListField(child=serializers.CharField())
+    provider_session_id = serializers.CharField()
+    provider_verification_id = serializers.CharField()
+    provider_report_id = serializers.CharField()
+    aml_screening_id = serializers.CharField()
+    provider_subject_id = serializers.CharField()
+    decision_at = serializers.DateTimeField(allow_null=True)
+    created_at = serializers.DateTimeField()
+    updated_at = serializers.DateTimeField()
+
+
+class KycManualReviewDecisionRequestSerializer(serializers.Serializer[Any]):
+    decision = serializers.ChoiceField(choices=KycManualReviewDecisionType.choices)
+    reason_code = serializers.ChoiceField(choices=KycManualReviewReason.choices)
+    note = serializers.CharField(required=False, allow_blank=True)
+    evidence_summary = serializers.CharField(required=False, allow_blank=True)
+
+
+class KycManualReviewDecisionSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    case_id = serializers.UUIDField(source="case.id")
+    actor_user_id = serializers.UUIDField()
+    actor_account_type = serializers.CharField()
+    decision = serializers.CharField()
+    reason_code = serializers.CharField()
+    previous_status = serializers.CharField()
+    new_status = serializers.CharField()
+    note = serializers.CharField()
+    evidence_summary = serializers.CharField()
+    decided_at = serializers.DateTimeField()
+
+
+class KycManualReviewDecisionResponseSerializer(serializers.Serializer[Any]):
+    case = KycAdminCaseSerializer()
+    decision = KycManualReviewDecisionSerializer()
+
+
+def serialize_kyc_admin_case(case: KycVerificationCase) -> dict[str, Any]:
+    return dict(KycAdminCaseSerializer(case).data)
+
+
+def serialize_manual_review_decision(decision: KycManualReviewDecision) -> dict[str, Any]:
+    return dict(KycManualReviewDecisionSerializer(decision).data)
 
 
 def serialize_kyc_status(

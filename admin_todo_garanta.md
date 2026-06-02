@@ -113,7 +113,8 @@ What Garanta/legal/compliance may still refine:
 
 - Final legal confirmation of exact retention period and whether any KYC/KYB/AML evidence must be retained beyond 10 years.
 - Final Didit workflow names, event names, and provider-specific status mapping once the production Didit workflow is configured.
-- Final AML officer role titles, review reason codes, and manual review checklist wording.
+- Final AML officer role titles and manual review checklist wording.
+- Whether the launch manual-review reason-code list needs any Garanta-specific additions or renaming before production operations. The current generic list covers PEP, high-risk, adverse-media, sanctions, provider-decline, inconclusive provider result, document/identity issue, re-verification, off-platform review, admin correction, and other.
 - Final export package manifest layout and recipient-specific redaction rules.
 
 Why this is non-blocking:

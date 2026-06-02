@@ -12,18 +12,31 @@ from rest_framework.views import APIView
 
 from backend.apps.kyc_compliance.api.serializers import (
     DiditWebhookResponseSerializer,
+    KycAdminCaseSerializer,
+    KycManualReviewDecisionRequestSerializer,
+    KycManualReviewDecisionResponseSerializer,
     KycSessionResponseSerializer,
     KycStatusResponseSerializer,
+    serialize_kyc_admin_case,
     serialize_kyc_status,
+    serialize_manual_review_decision,
 )
-from backend.apps.kyc_compliance.models import KycProviderSession, KycVerificationCase
+from backend.apps.kyc_compliance.models import (
+    KycManualReviewDecisionType,
+    KycManualReviewReason,
+    KycProviderSession,
+    KycVerificationCase,
+)
 from backend.apps.kyc_compliance.services import (
     CreateKycSessionCommand,
+    KycManualReviewError,
     KycWebhookMatchError,
     KycWebhookSignatureError,
+    ManualReviewDecisionCommand,
     ProviderKycEventCommand,
     create_kyc_session,
     process_didit_event,
+    record_manual_review_decision,
     verify_didit_webhook_signature,
 )
 
@@ -62,6 +75,73 @@ class KycSessionCreateView(APIView):
                 "already_approved": result.already_approved,
             },
             status=status.HTTP_200_OK if result.already_approved else status.HTTP_202_ACCEPTED,
+        )
+
+
+def _is_admin_request_user(user: Any) -> bool:
+    return (
+        bool(getattr(user, "is_active", False))
+        and bool(getattr(user, "is_staff", False))
+        and str(getattr(user, "account_type", "")) in {"admin", "superadmin"}
+        and str(getattr(user, "status", "")) not in {"restricted", "locked", "closed"}
+    )
+
+
+class KycAdminManualReviewListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: KycAdminCaseSerializer(many=True)})
+    def get(self, request: Request) -> Response:
+        if not _is_admin_request_user(request.user):
+            return Response(
+                {"detail": "Only an active admin can view KYC manual reviews."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        cases = KycVerificationCase.objects.filter(
+            manual_review_required=True,
+        ).order_by("-updated_at", "-created_at")
+        return Response(
+            [serialize_kyc_admin_case(case) for case in cases],
+            status=status.HTTP_200_OK,
+        )
+
+
+class KycAdminManualReviewDecisionView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=KycManualReviewDecisionRequestSerializer,
+        responses={200: KycManualReviewDecisionResponseSerializer},
+    )
+    def post(self, request: Request, case_id: str) -> Response:
+        if not _is_admin_request_user(request.user):
+            return Response(
+                {"detail": "Only an active admin can record KYC manual review decisions."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        serializer = KycManualReviewDecisionRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            decision = record_manual_review_decision(
+                ManualReviewDecisionCommand(
+                    actor=cast(Model, request.user),
+                    case_id=case_id,
+                    decision=KycManualReviewDecisionType(data["decision"]),
+                    reason_code=KycManualReviewReason(data["reason_code"]),
+                    note=data.get("note", ""),
+                    evidence_summary=data.get("evidence_summary", ""),
+                )
+            )
+        except KycManualReviewError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        decision.case.refresh_from_db()
+        return Response(
+            {
+                "case": serialize_kyc_admin_case(decision.case),
+                "decision": serialize_manual_review_decision(decision),
+            },
+            status=status.HTTP_200_OK,
         )
 
 

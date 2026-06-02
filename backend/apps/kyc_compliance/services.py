@@ -5,7 +5,7 @@ import hmac
 import uuid
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -14,6 +14,9 @@ from django.db.models import Model
 from django.utils import timezone
 
 from backend.apps.kyc_compliance.models import (
+    KycManualReviewDecision,
+    KycManualReviewDecisionType,
+    KycManualReviewReason,
     KycProviderEvent,
     KycProviderSession,
     KycStatus,
@@ -49,6 +52,25 @@ MANUAL_REVIEW_STATUSES = frozenset(
     }
 )
 
+ADMIN_REVIEW_REQUIRED_STATUSES = frozenset(
+    {
+        KycStatus.DECLINED,
+        KycStatus.MANUAL_REVIEW,
+        KycStatus.HIGH_RISK,
+        KycStatus.SANCTIONS_HIT,
+        KycStatus.PEP_HIT,
+        KycStatus.ADVERSE_MEDIA_HIT,
+        KycStatus.REVERIFICATION_REQUIRED,
+    }
+)
+
+NON_OVERRIDABLE_APPROVAL_STATUSES = frozenset(
+    {
+        KycStatus.SANCTIONS_HIT,
+        KycStatus.DECLINED,
+    }
+)
+
 BLOCKING_ACCOUNT_STATUSES = frozenset({"restricted", "locked", "closed"})
 
 
@@ -61,6 +83,10 @@ class KycWebhookSignatureError(KycComplianceError):
 
 
 class KycWebhookMatchError(KycComplianceError):
+    pass
+
+
+class KycManualReviewError(KycComplianceError):
     pass
 
 
@@ -102,6 +128,16 @@ class ProviderKycEventResult:
     idempotent: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class ManualReviewDecisionCommand:
+    actor: Model
+    case_id: str
+    decision: KycManualReviewDecisionType
+    reason_code: KycManualReviewReason
+    note: str = ""
+    evidence_summary: str = ""
+
+
 def user_subject_reference(user: Model) -> str:
     return f"user:{user.pk}"
 
@@ -112,6 +148,24 @@ def vendor_data_for_user(user: Model) -> str:
 
 def _user_actor(user_id: str) -> ActorRef:
     return ActorRef("investor", user_id)
+
+
+def _actor_for_admin(user: Model) -> ActorRef:
+    account_type = str(getattr(user, "account_type", ""))
+    if account_type == "superadmin":
+        return ActorRef("superadmin", str(user.pk))
+    return ActorRef("admin", str(user.pk))
+
+
+def _is_admin_actor(user: Model) -> bool:
+    account_type = str(getattr(user, "account_type", ""))
+    status = str(getattr(user, "status", ""))
+    return (
+        bool(getattr(user, "is_active", False))
+        and bool(getattr(user, "is_staff", False))
+        and account_type in {"admin", "superadmin"}
+        and status not in BLOCKING_ACCOUNT_STATUSES
+    )
 
 
 def _provider_environment() -> str:
@@ -263,14 +317,20 @@ def normalize_didit_status(
     if status in {
         "review_required",
         "manual_review",
+        "in_review",
         "inconclusive",
         "ambiguous",
         "unable_to_verify",
     }:
         return KycStatus.MANUAL_REVIEW
-    if status in {"expired", "session_expired", "document_expired"}:
+    if status in {"expired", "session_expired", "document_expired", "abandoned"}:
         return KycStatus.EXPIRED
-    if status in {"reverification_required", "re_verification_required", "recheck_required"}:
+    if status in {
+        "kyc_expired",
+        "reverification_required",
+        "re_verification_required",
+        "recheck_required",
+    }:
         return KycStatus.REVERIFICATION_REQUIRED
     return KycStatus.MANUAL_REVIEW
 
@@ -303,6 +363,25 @@ def _case_from_event_command(
         raise KycWebhookMatchError("Didit webhook references an unknown platform user.")
     case = get_or_create_user_kyc_case(user)
     return case, None
+
+
+def _activate_user_after_kyc_approval(case: KycVerificationCase, actor: ActorRef) -> None:
+    user = case.user
+    if user is None:
+        return
+    if str(getattr(user, "status", "")) != "pending_kyc":
+        return
+    user.status = "active"
+    user.save(update_fields=["status"])
+    record_audit_event(
+        AuditCommand(
+            actor=actor,
+            action="account.activated_after_kyc",
+            target_type="User",
+            target_id=str(user.pk),
+            metadata={"kyc_case_id": str(case.id)},
+        )
+    )
 
 
 @transaction.atomic
@@ -345,7 +424,7 @@ def process_didit_event(command: ProviderKycEventCommand) -> ProviderKycEventRes
     case.provider_report_id = command.report_id
     case.aml_screening_id = command.aml_screening_id
     case.provider_subject_id = command.provider_subject_id
-    case.manual_review_required = normalized_status in MANUAL_REVIEW_STATUSES
+    case.manual_review_required = normalized_status in ADMIN_REVIEW_REQUIRED_STATUSES
     case.blocking_reason = "" if normalized_status == KycStatus.APPROVED else normalized_status
     if command.provider_session_id:
         case.provider_session_id = command.provider_session_id
@@ -370,6 +449,8 @@ def process_didit_event(command: ProviderKycEventCommand) -> ProviderKycEventRes
     if session is not None:
         session.status = normalized_status
         session.save(update_fields=["status", "updated_at"])
+    if normalized_status == KycStatus.APPROVED:
+        _activate_user_after_kyc_approval(case, ActorRef.system())
 
     record_audit_event(
         AuditCommand(
@@ -394,6 +475,102 @@ def process_didit_event(command: ProviderKycEventCommand) -> ProviderKycEventRes
         )
     )
     return ProviderKycEventResult(event=event, case=case)
+
+
+@transaction.atomic
+def record_manual_review_decision(
+    command: ManualReviewDecisionCommand,
+) -> KycManualReviewDecision:
+    if not _is_admin_actor(command.actor):
+        raise KycManualReviewError("Only an active admin can record KYC manual review decisions.")
+    if not command.note.strip() and not command.evidence_summary.strip():
+        raise KycManualReviewError("A note or evidence summary is required.")
+
+    case = KycVerificationCase.objects.select_for_update().filter(id=command.case_id).first()
+    if case is None:
+        raise KycManualReviewError("KYC case does not exist.")
+
+    previous_status = KycStatus(case.status)
+    if (
+        command.decision == KycManualReviewDecisionType.APPROVE
+        and previous_status in NON_OVERRIDABLE_APPROVAL_STATUSES
+    ):
+        raise KycManualReviewError("This KYC status cannot be manually approved.")
+
+    new_status = _manual_review_target_status(command.decision)
+    now = timezone.now()
+    case.status = new_status
+    case.manual_review_required = new_status == KycStatus.MANUAL_REVIEW
+    case.blocking_reason = "" if new_status == KycStatus.APPROVED else command.reason_code
+    if new_status in TERMINAL_DECISION_STATUSES:
+        case.decision_at = now
+    case.save(
+        update_fields=[
+            "status",
+            "manual_review_required",
+            "blocking_reason",
+            "decision_at",
+            "updated_at",
+        ]
+    )
+    if new_status == KycStatus.APPROVED:
+        _activate_user_after_kyc_approval(case, _actor_for_admin(command.actor))
+
+    decision = KycManualReviewDecision.objects.create(
+        case=case,
+        actor_user_id=command.actor.pk,
+        actor_account_type=str(getattr(command.actor, "account_type", "")),
+        decision=command.decision,
+        reason_code=command.reason_code,
+        previous_status=previous_status,
+        new_status=new_status,
+        note=command.note.strip(),
+        evidence_summary=command.evidence_summary.strip(),
+        decided_at=now,
+    )
+    record_audit_event(
+        AuditCommand(
+            actor=_actor_for_admin(command.actor),
+            action="kyc.manual_review_decision_recorded",
+            target_type="KycVerificationCase",
+            target_id=str(case.id),
+            metadata={
+                "decision_id": str(decision.id),
+                "decision": command.decision,
+                "previous_status": previous_status,
+                "new_status": new_status,
+                "reason_code": command.reason_code,
+            },
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="KycManualReviewDecisionRecorded",
+            aggregate_type="KycVerificationCase",
+            aggregate_id=str(case.id),
+            payload={
+                "decision_id": str(decision.id),
+                "decision": command.decision,
+                "previous_status": previous_status,
+                "new_status": new_status,
+                "reason_code": command.reason_code,
+            },
+            idempotency_key=f"kyc:{case.id}:manual-review:{decision.id}",
+        )
+    )
+    return cast(KycManualReviewDecision, decision)
+
+
+def _manual_review_target_status(decision: KycManualReviewDecisionType) -> KycStatus:
+    if decision == KycManualReviewDecisionType.APPROVE:
+        return KycStatus.APPROVED
+    if decision == KycManualReviewDecisionType.DECLINE:
+        return KycStatus.DECLINED
+    if decision == KycManualReviewDecisionType.REQUEST_REVERIFICATION:
+        return KycStatus.REVERIFICATION_REQUIRED
+    if decision == KycManualReviewDecisionType.REOPEN:
+        return KycStatus.MANUAL_REVIEW
+    raise KycManualReviewError("Unsupported manual review decision.")
 
 
 def user_kyc_status(user: Model) -> KycStatus:

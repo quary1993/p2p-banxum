@@ -112,6 +112,8 @@ def test_approved_didit_event_enables_financial_gate_after_phone_verified() -> N
     assert event_result.case.status == KycStatus.APPROVED
     assert event_result.case.decision_at is not None
     assert event_result.case.manual_review_required is False
+    user.refresh_from_db()
+    assert cast(Any, user).status == "active"
     assert user_can_access_financial_features(user) is True
     assert DomainEvent.objects.filter(
         event_type="KycStatusChanged",

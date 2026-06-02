@@ -32,6 +32,7 @@ Implemented and committed:
 - Phase 2 phone-verification foundation: authenticated phone verification request/confirm API, phone challenge records, encrypted local/mock verification codes, SMS outbox trigger without plaintext code payload, cooldown/attempt controls, audit/domain events, and focused tests.
 - Phase 2 KYC compliance foundation: user KYC case/session/event records, mock Didit hosted-session creation, signed Didit webhook processing, provider-status normalization, KYC financial-access gate, audit/domain events, authenticated status/session API, and focused tests.
 - Phase 2 admin-auth foundation: environment-managed superadmin bootstrap, superadmin-created admin accounts, admin email/password plus email-code login, investor/admin portal login separation, admin-auth throttles, audit/domain events, and focused tests.
+- Phase 2 KYC/manual-control foundation: internal KYC manual-review queue, append-only manual-review decision evidence, admin review decision API, account restrict/lock/close/reactivate controls, append-only account access events, DB-level evidence guards, account activation after approved KYC, and focused tests.
 
 Accepted implementation deferrals from the platform-core audit:
 
@@ -41,7 +42,17 @@ Accepted implementation deferrals from the platform-core audit:
 - Stored-file `infected`/`failed` scan transitions and audit events are deferred to the storage/scanner adapter module.
 - Strict setting `value_type` schema validation is deferred to the superadmin settings UI and settings registry module.
 - Real Twilio dispatch/verification-provider execution is deferred until the communications/provider worker slice because Twilio sandbox credentials, Verify service configuration, and delivery-webhook handling are external inputs. The current accounts slice records the auditable challenge and queues a redacted SMS outbox message.
-- Real Didit session creation, report download, provider artifact storage, and provider-native status mapping are deferred until Didit sandbox credentials, workflow IDs, webhook signing details, and report/export API behavior are available. The current KYC slice provides the internal status/evidence backbone, mock session URLs, and signed webhook ingestion boundary.
+- Real Didit session creation, report download, provider artifact storage, and provider-native status mapping are deferred until Didit sandbox credentials, workflow IDs, webhook signing details, and report/export API behavior are available. The current KYC slices provide the internal status/evidence backbone, mock session URLs, signed webhook ingestion boundary, manual-review workflow, and account-control gates.
+- Didit-specific items that cannot be implemented or fully tested yet:
+  - real hosted-session creation against Garanta's Didit sandbox or production account.
+  - exact Didit workflow ID selection and country/risk/product workflow routing.
+  - exact redirect/iframe/SDK callback behavior.
+  - exact webhook header names, timestamp/freshness rules, event names, event payload shape, and retry behavior beyond the current HMAC-compatible generic mock.
+  - exact provider status mapping against Garanta's configured Didit workflow.
+  - provider-native report download/export API calls, report metadata capture, file checksums, local object-storage persistence, and evidence package inclusion.
+  - Didit sandbox test-user/test-document scenarios.
+  - provider-side ongoing-monitoring alert ingestion; v1 still expects Garanta to review Didit alerts in Didit/off-platform and record account controls manually in BANXUM.
+  - end-to-end provider tests from registration to Didit completion to webhook to downloaded report retention.
 
 Recent audit dispositions:
 
@@ -58,6 +69,7 @@ Recent audit dispositions:
 - Didit webhook `raw_payload` currently stores provider evidence as JSON in PostgreSQL. This is acceptable for the mock/internal foundation under encrypted infrastructure storage, but field-level encryption or restricted evidence-object storage is deferred to the KYC evidence-storage hardening/provider-artifact slice before production KYC data is retained.
 - The KYC financial-access gate is a primitive until financial endpoints exist. Every deposit, withdrawal, primary investment, secondary-market action, FX exchange, document-acceptance-for-transaction, and later money-moving endpoint must call the KYC/phone/account-status gate server-side before mutation.
 - Admin authentication now has an operational backend foundation. The first superadmin is synchronized from environment variables through `bootstrap_superadmin`; regular admin users are created by an authenticated superadmin through the admin-auth API; admin login requires password plus an email code; and admin accounts are blocked from investor magic-link login.
+- KYC manual review and account access controls now have an operational backend foundation. Provider outcomes that need Garanta attention open internal manual review; admins can approve reviewable cases, decline, request re-verification, or reopen; sanctions hits and provider-declined/confirmed-fraud outcomes cannot be manually approved in the current model. Admins can restrict, lock, close, or reactivate accounts with append-only evidence. Account closure currently requires admin clean-account confirmation, while automated validation against balances, investments, orders, payments, and ledger obligations is deferred until those modules exist.
 
 ## 1. Review Outcome
 

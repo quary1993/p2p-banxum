@@ -13,6 +13,8 @@ from rest_framework.views import APIView
 from backend.apps.accounts_auth.api.permissions import IsSuperAdminUser
 from backend.apps.accounts_auth.api.request_meta import client_ip, user_agent
 from backend.apps.accounts_auth.api.serializers import (
+    AccountAccessChangeRequestSerializer,
+    AccountAccessChangeResponseSerializer,
     AdminLoginConfirmRequestSerializer,
     AdminLoginStartRequestSerializer,
     AdminLoginStartResponseSerializer,
@@ -25,6 +27,7 @@ from backend.apps.accounts_auth.api.serializers import (
     PhoneVerificationConfirmRequestSerializer,
     PhoneVerificationConfirmResponseSerializer,
     PhoneVerificationRequestResponseSerializer,
+    serialize_account_access_event,
     serialize_user,
 )
 from backend.apps.accounts_auth.api.throttles import (
@@ -35,12 +38,14 @@ from backend.apps.accounts_auth.api.throttles import (
     PhoneVerificationConfirmThrottle,
     PhoneVerificationRequestThrottle,
 )
-from backend.apps.accounts_auth.models import User
+from backend.apps.accounts_auth.models import AccountAccessReason, AccountStatus, User
 from backend.apps.accounts_auth.services import (
+    AccountAccessControlError,
     AdminAuthorizationError,
     AdminLoginConfirmCommand,
     AdminLoginInvalidCredentialsError,
     AdminLoginStartCommand,
+    ChangeAccountAccessCommand,
     CreateAdminUserCommand,
     DuplicateEmailError,
     InvalidOrExpiredCodeError,
@@ -56,6 +61,7 @@ from backend.apps.accounts_auth.services import (
     RegisterNaturalPersonCommand,
     SensitiveActionCodeThrottleError,
     TooManyCodeAttemptsError,
+    change_account_access,
     confirm_admin_login,
     confirm_phone_verification,
     consume_magic_link,
@@ -254,6 +260,44 @@ class AdminUserCreateView(APIView):
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response({"user": serialize_user(user)}, status=status.HTTP_201_CREATED)
+
+
+class AccountAccessChangeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=AccountAccessChangeRequestSerializer,
+        responses={200: AccountAccessChangeResponseSerializer},
+    )
+    def post(self, request: Request, user_id: str) -> Response:
+        serializer = AccountAccessChangeRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            event = change_account_access(
+                ChangeAccountAccessCommand(
+                    actor=cast(User, request.user),
+                    user_id=user_id,
+                    new_status=AccountStatus(data["new_status"]),
+                    reason_code=AccountAccessReason(data["reason_code"]),
+                    note=data.get("note", ""),
+                    evidence_summary=data.get("evidence_summary", ""),
+                    clean_account_confirmed=data["clean_account_confirmed"],
+                )
+            )
+        except AdminAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except AccountAccessControlError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        event.user.refresh_from_db()
+        return Response(
+            {
+                "user": serialize_user(event.user),
+                "event": serialize_account_access_event(event),
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class CurrentUserView(APIView):

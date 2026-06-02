@@ -7,7 +7,7 @@ from django.contrib.auth.models import PermissionsMixin
 from django.db import models
 from django.utils import timezone
 
-from backend.apps.platform_core.models.base import TimestampedModel
+from backend.apps.platform_core.models.base import AppendOnlyModel, TimestampedModel
 
 
 class AccountType(models.TextChoices):
@@ -26,6 +26,16 @@ class AccountStatus(models.TextChoices):
     RESTRICTED = "restricted", "Restricted"
     LOCKED = "locked", "Locked"
     CLOSED = "closed", "Closed"
+
+
+class AccountAccessReason(models.TextChoices):
+    KYC_AML_REVIEW = "kyc_aml_review", "KYC/AML review"
+    COMPLIANCE_HOLD = "compliance_hold", "Compliance hold"
+    EMAIL_RECOVERY = "email_recovery", "Email recovery"
+    SUPPORT_REQUEST = "support_request", "Support request"
+    ACCOUNT_CLOSURE = "account_closure", "Account closure"
+    ADMIN_CORRECTION = "admin_correction", "Admin correction"
+    OTHER = "other", "Other"
 
 
 class UserManager(BaseUserManager["User"]):
@@ -230,3 +240,35 @@ class SensitiveActionCode(TimestampedModel):
     @property
     def is_consumed(self) -> bool:
         return self.consumed_at is not None
+
+
+class AccountAccessEvent(AppendOnlyModel, TimestampedModel):
+    user = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name="access_events",
+    )
+    actor_user_id = models.UUIDField()
+    actor_account_type = models.CharField(max_length=64)
+    previous_status = models.CharField(max_length=32, choices=AccountStatus.choices)
+    new_status = models.CharField(max_length=32, choices=AccountStatus.choices)
+    previous_is_active = models.BooleanField()
+    new_is_active = models.BooleanField()
+    reason_code = models.CharField(
+        max_length=64,
+        choices=AccountAccessReason.choices,
+        default=AccountAccessReason.OTHER,
+    )
+    note = models.TextField(blank=True)
+    evidence_summary = models.TextField(blank=True)
+    clean_account_confirmed = models.BooleanField(default=False)
+    changed_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ["-changed_at", "-id"]
+        indexes = [
+            models.Index(fields=["user", "changed_at"]),
+            models.Index(fields=["actor_user_id", "changed_at"]),
+            models.Index(fields=["new_status"]),
+            models.Index(fields=["reason_code"]),
+        ]

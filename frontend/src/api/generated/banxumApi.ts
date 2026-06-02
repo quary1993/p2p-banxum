@@ -38,6 +38,58 @@ import type {
 } from 'msw';
 
 import { httpClient } from '../client/httpClient';
+export interface AccountAccessChangeRequest {
+  new_status: NewStatusEnum;
+  reason_code: AccountAccessChangeRequestReasonCodeEnum;
+  note?: string;
+  evidence_summary?: string;
+  clean_account_confirmed?: boolean;
+}
+
+/**
+ * * `kyc_aml_review` - KYC/AML review
+* `compliance_hold` - Compliance hold
+* `email_recovery` - Email recovery
+* `support_request` - Support request
+* `account_closure` - Account closure
+* `admin_correction` - Admin correction
+* `other` - Other
+ */
+export type AccountAccessChangeRequestReasonCodeEnum = typeof AccountAccessChangeRequestReasonCodeEnum[keyof typeof AccountAccessChangeRequestReasonCodeEnum];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const AccountAccessChangeRequestReasonCodeEnum = {
+  kyc_aml_review: 'kyc_aml_review',
+  compliance_hold: 'compliance_hold',
+  email_recovery: 'email_recovery',
+  support_request: 'support_request',
+  account_closure: 'account_closure',
+  admin_correction: 'admin_correction',
+  other: 'other',
+} as const;
+
+export interface AccountAccessChangeResponse {
+  user: UserSummary;
+  event: AccountAccessEvent;
+}
+
+export interface AccountAccessEvent {
+  id: string;
+  user_id: string;
+  actor_user_id: string;
+  actor_account_type: string;
+  previous_status: string;
+  new_status: string;
+  previous_is_active: boolean;
+  new_is_active: boolean;
+  reason_code: string;
+  note: string;
+  evidence_summary: string;
+  clean_account_confirmed: boolean;
+  changed_at: string;
+}
+
 export interface AdminLoginConfirmRequest {
   code_id: string;
   /** @pattern ^\d{6}$ */
@@ -67,6 +119,23 @@ export interface AuthenticatedUserResponse {
   user: UserSummary;
 }
 
+/**
+ * * `approve` - Approve
+* `decline` - Decline
+* `request_reverification` - Request re-verification
+* `reopen` - Reopen manual review
+ */
+export type DecisionEnum = typeof DecisionEnum[keyof typeof DecisionEnum];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const DecisionEnum = {
+  approve: 'approve',
+  decline: 'decline',
+  request_reverification: 'request_reverification',
+  reopen: 'reopen',
+} as const;
+
 export interface DiditWebhookResponse {
   status: StatusEnum;
   idempotent: boolean;
@@ -78,6 +147,88 @@ export interface HealthResponse {
   operator: string;
   timezone: string;
   environment: string;
+}
+
+export interface KycAdminCase {
+  id: string;
+  subject_type: string;
+  subject_reference: string;
+  /** @nullable */
+  user_id: string | null;
+  provider: string;
+  provider_environment: string;
+  workflow_id: string;
+  status: string;
+  manual_review_required: boolean;
+  blocking_reason: string;
+  risk_classification: string;
+  detected_flags: string[];
+  provider_session_id: string;
+  provider_verification_id: string;
+  provider_report_id: string;
+  aml_screening_id: string;
+  provider_subject_id: string;
+  /** @nullable */
+  decision_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KycManualReviewDecision {
+  id: string;
+  case_id: string;
+  actor_user_id: string;
+  actor_account_type: string;
+  decision: string;
+  reason_code: string;
+  previous_status: string;
+  new_status: string;
+  note: string;
+  evidence_summary: string;
+  decided_at: string;
+}
+
+export interface KycManualReviewDecisionRequest {
+  decision: DecisionEnum;
+  reason_code: KycManualReviewDecisionRequestReasonCodeEnum;
+  note?: string;
+  evidence_summary?: string;
+}
+
+/**
+ * * `pep_review` - PEP review
+* `high_risk_review` - High-risk review
+* `adverse_media_review` - Adverse-media review
+* `sanctions_review` - Sanctions review
+* `provider_decline_review` - Provider decline review
+* `inconclusive_provider_result` - Inconclusive provider result
+* `document_or_identity_issue` - Document or identity issue
+* `reverification_required` - Re-verification required
+* `off_platform_review` - Off-platform review
+* `admin_correction` - Admin correction
+* `other` - Other
+ */
+export type KycManualReviewDecisionRequestReasonCodeEnum = typeof KycManualReviewDecisionRequestReasonCodeEnum[keyof typeof KycManualReviewDecisionRequestReasonCodeEnum];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const KycManualReviewDecisionRequestReasonCodeEnum = {
+  pep_review: 'pep_review',
+  high_risk_review: 'high_risk_review',
+  adverse_media_review: 'adverse_media_review',
+  sanctions_review: 'sanctions_review',
+  provider_decline_review: 'provider_decline_review',
+  inconclusive_provider_result: 'inconclusive_provider_result',
+  document_or_identity_issue: 'document_or_identity_issue',
+  reverification_required: 'reverification_required',
+  off_platform_review: 'off_platform_review',
+  admin_correction: 'admin_correction',
+  other: 'other',
+} as const;
+
+export interface KycManualReviewDecisionResponse {
+  case: KycAdminCase;
+  decision: KycManualReviewDecision;
 }
 
 export interface KycSessionResponse {
@@ -126,6 +277,23 @@ export interface NaturalPersonRegistrationRequest {
 export interface NaturalPersonRegistrationResponse {
   user: UserSummary;
 }
+
+/**
+ * * `active` - active
+* `restricted` - restricted
+* `locked` - locked
+* `closed` - closed
+ */
+export type NewStatusEnum = typeof NewStatusEnum[keyof typeof NewStatusEnum];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const NewStatusEnum = {
+  active: 'active',
+  restricted: 'restricted',
+  locked: 'locked',
+  closed: 'closed',
+} as const;
 
 export interface PhoneVerificationConfirmRequest {
   challenge_id: string;
@@ -360,6 +528,66 @@ const {mutation: mutationOptions} = options ?
       > => {
 
       const mutationOptions = getV1AuthAdminUsersCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    
+export const v1AuthAdminUsersAccessCreate = (
+    userId: string,
+    accountAccessChangeRequest: AccountAccessChangeRequest,
+ signal?: AbortSignal
+) => {
+      
+      
+      return httpClient<AccountAccessChangeResponse>(
+      {url: `/api/v1/auth/admin/users/${userId}/access/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: accountAccessChangeRequest, signal
+    },
+      );
+    }
+  
+
+
+export const getV1AuthAdminUsersAccessCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminUsersAccessCreate>>, TError,{userId: string;data: AccountAccessChangeRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminUsersAccessCreate>>, TError,{userId: string;data: AccountAccessChangeRequest}, TContext> => {
+
+const mutationKey = ['v1AuthAdminUsersAccessCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthAdminUsersAccessCreate>>, {userId: string;data: AccountAccessChangeRequest}> = (props) => {
+          const {userId,data} = props ?? {};
+
+          return  v1AuthAdminUsersAccessCreate(userId,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthAdminUsersAccessCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthAdminUsersAccessCreate>>>
+    export type V1AuthAdminUsersAccessCreateMutationBody = AccountAccessChangeRequest
+    export type V1AuthAdminUsersAccessCreateMutationError = unknown
+
+    export const useV1AuthAdminUsersAccessCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminUsersAccessCreate>>, TError,{userId: string;data: AccountAccessChangeRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthAdminUsersAccessCreate>>,
+        TError,
+        {userId: string;data: AccountAccessChangeRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1AuthAdminUsersAccessCreateMutationOptions(options);
 
       return useMutation(mutationOptions, queryClient);
     }
@@ -831,6 +1059,153 @@ export function useV1HealthRetrieve<TData = Awaited<ReturnType<typeof v1HealthRe
 
 
 
+export const v1KycAdminCasesManualReviewCreate = (
+    caseId: string,
+    kycManualReviewDecisionRequest: KycManualReviewDecisionRequest,
+ signal?: AbortSignal
+) => {
+      
+      
+      return httpClient<KycManualReviewDecisionResponse>(
+      {url: `/api/v1/kyc/admin/cases/${caseId}/manual-review/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: kycManualReviewDecisionRequest, signal
+    },
+      );
+    }
+  
+
+
+export const getV1KycAdminCasesManualReviewCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1KycAdminCasesManualReviewCreate>>, TError,{caseId: string;data: KycManualReviewDecisionRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1KycAdminCasesManualReviewCreate>>, TError,{caseId: string;data: KycManualReviewDecisionRequest}, TContext> => {
+
+const mutationKey = ['v1KycAdminCasesManualReviewCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1KycAdminCasesManualReviewCreate>>, {caseId: string;data: KycManualReviewDecisionRequest}> = (props) => {
+          const {caseId,data} = props ?? {};
+
+          return  v1KycAdminCasesManualReviewCreate(caseId,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1KycAdminCasesManualReviewCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1KycAdminCasesManualReviewCreate>>>
+    export type V1KycAdminCasesManualReviewCreateMutationBody = KycManualReviewDecisionRequest
+    export type V1KycAdminCasesManualReviewCreateMutationError = unknown
+
+    export const useV1KycAdminCasesManualReviewCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1KycAdminCasesManualReviewCreate>>, TError,{caseId: string;data: KycManualReviewDecisionRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1KycAdminCasesManualReviewCreate>>,
+        TError,
+        {caseId: string;data: KycManualReviewDecisionRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1KycAdminCasesManualReviewCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    
+export const v1KycAdminManualReviewsList = (
+    
+ signal?: AbortSignal
+) => {
+      
+      
+      return httpClient<KycAdminCase[]>(
+      {url: `/api/v1/kyc/admin/manual-reviews/`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getV1KycAdminManualReviewsListQueryKey = () => {
+    return [
+    `/api/v1/kyc/admin/manual-reviews/`
+    ] as const;
+    }
+
+    
+export const getV1KycAdminManualReviewsListQueryOptions = <TData = Awaited<ReturnType<typeof v1KycAdminManualReviewsList>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminManualReviewsList>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1KycAdminManualReviewsListQueryKey();
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1KycAdminManualReviewsList>>> = ({ signal }) => v1KycAdminManualReviewsList(signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminManualReviewsList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1KycAdminManualReviewsListQueryResult = NonNullable<Awaited<ReturnType<typeof v1KycAdminManualReviewsList>>>
+export type V1KycAdminManualReviewsListQueryError = unknown
+
+
+export function useV1KycAdminManualReviewsList<TData = Awaited<ReturnType<typeof v1KycAdminManualReviewsList>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminManualReviewsList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1KycAdminManualReviewsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1KycAdminManualReviewsList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1KycAdminManualReviewsList<TData = Awaited<ReturnType<typeof v1KycAdminManualReviewsList>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminManualReviewsList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1KycAdminManualReviewsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1KycAdminManualReviewsList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1KycAdminManualReviewsList<TData = Awaited<ReturnType<typeof v1KycAdminManualReviewsList>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminManualReviewsList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1KycAdminManualReviewsList<TData = Awaited<ReturnType<typeof v1KycAdminManualReviewsList>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1KycAdminManualReviewsList>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1KycAdminManualReviewsListQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
 export const v1KycSessionCreate = (
     
  signal?: AbortSignal
@@ -1039,6 +1414,8 @@ export const getV1AuthAdminLoginStartCreateResponseMock = (overrideResponse: Par
 
 export const getV1AuthAdminUsersCreateResponseMock = (overrideResponse: Partial< AuthenticatedUserResponse > = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
 
+export const getV1AuthAdminUsersAccessCreateResponseMock = (overrideResponse: Partial< AccountAccessChangeResponse > = {}): AccountAccessChangeResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, event: {id: faker.string.uuid(), user_id: faker.string.uuid(), actor_user_id: faker.string.uuid(), actor_account_type: faker.string.alpha({length: {min: 10, max: 20}}), previous_status: faker.string.alpha({length: {min: 10, max: 20}}), new_status: faker.string.alpha({length: {min: 10, max: 20}}), previous_is_active: faker.datatype.boolean(), new_is_active: faker.datatype.boolean(), reason_code: faker.string.alpha({length: {min: 10, max: 20}}), note: faker.string.alpha({length: {min: 10, max: 20}}), evidence_summary: faker.string.alpha({length: {min: 10, max: 20}}), clean_account_confirmed: faker.datatype.boolean(), changed_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, ...overrideResponse})
+
 export const getV1AuthMagicLinkConsumeCreateResponseMock = (overrideResponse: Partial< AuthenticatedUserResponse > = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
 
 export const getV1AuthMeRetrieveResponseMock = (overrideResponse: Partial< AuthenticatedUserResponse > = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
@@ -1050,6 +1427,10 @@ export const getV1AuthPhoneRequestCreateResponseMock = (overrideResponse: Partia
 export const getV1AuthRegisterNaturalPersonCreateResponseMock = (overrideResponse: Partial< NaturalPersonRegistrationResponse > = {}): NaturalPersonRegistrationResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
 
 export const getV1HealthRetrieveResponseMock = (overrideResponse: Partial< HealthResponse > = {}): HealthResponse => ({status: faker.string.alpha({length: {min: 10, max: 20}}), platform: faker.string.alpha({length: {min: 10, max: 20}}), operator: faker.string.alpha({length: {min: 10, max: 20}}), timezone: faker.string.alpha({length: {min: 10, max: 20}}), environment: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getV1KycAdminCasesManualReviewCreateResponseMock = (overrideResponse: Partial< KycManualReviewDecisionResponse > = {}): KycManualReviewDecisionResponse => ({case: {id: faker.string.uuid(), subject_type: faker.string.alpha({length: {min: 10, max: 20}}), subject_reference: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), provider: faker.string.alpha({length: {min: 10, max: 20}}), provider_environment: faker.string.alpha({length: {min: 10, max: 20}}), workflow_id: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), manual_review_required: faker.datatype.boolean(), blocking_reason: faker.string.alpha({length: {min: 10, max: 20}}), risk_classification: faker.string.alpha({length: {min: 10, max: 20}}), detected_flags: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), provider_session_id: faker.string.alpha({length: {min: 10, max: 20}}), provider_verification_id: faker.string.alpha({length: {min: 10, max: 20}}), provider_report_id: faker.string.alpha({length: {min: 10, max: 20}}), aml_screening_id: faker.string.alpha({length: {min: 10, max: 20}}), provider_subject_id: faker.string.alpha({length: {min: 10, max: 20}}), decision_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, decision: {id: faker.string.uuid(), case_id: faker.string.uuid(), actor_user_id: faker.string.uuid(), actor_account_type: faker.string.alpha({length: {min: 10, max: 20}}), decision: faker.string.alpha({length: {min: 10, max: 20}}), reason_code: faker.string.alpha({length: {min: 10, max: 20}}), previous_status: faker.string.alpha({length: {min: 10, max: 20}}), new_status: faker.string.alpha({length: {min: 10, max: 20}}), note: faker.string.alpha({length: {min: 10, max: 20}}), evidence_summary: faker.string.alpha({length: {min: 10, max: 20}}), decided_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, ...overrideResponse})
+
+export const getV1KycAdminManualReviewsListResponseMock = (): KycAdminCase[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), subject_type: faker.string.alpha({length: {min: 10, max: 20}}), subject_reference: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), provider: faker.string.alpha({length: {min: 10, max: 20}}), provider_environment: faker.string.alpha({length: {min: 10, max: 20}}), workflow_id: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), manual_review_required: faker.datatype.boolean(), blocking_reason: faker.string.alpha({length: {min: 10, max: 20}}), risk_classification: faker.string.alpha({length: {min: 10, max: 20}}), detected_flags: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), provider_session_id: faker.string.alpha({length: {min: 10, max: 20}}), provider_verification_id: faker.string.alpha({length: {min: 10, max: 20}}), provider_report_id: faker.string.alpha({length: {min: 10, max: 20}}), aml_screening_id: faker.string.alpha({length: {min: 10, max: 20}}), provider_subject_id: faker.string.alpha({length: {min: 10, max: 20}}), decision_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`})))
 
 export const getV1KycSessionCreateResponseMock = (overrideResponse: Partial< KycSessionResponse > = {}): KycSessionResponse => ({status: faker.helpers.arrayElement(Object.values(StatusEnum)), provider_session_id: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), verification_url: faker.helpers.arrayElement([faker.internet.url(), null]), already_approved: faker.datatype.boolean(), ...overrideResponse})
 
@@ -1089,6 +1470,18 @@ export const getV1AuthAdminUsersCreateMockHandler = (overrideResponse?: Authenti
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AuthAdminUsersCreateResponseMock()),
       { status: 201,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1AuthAdminUsersAccessCreateMockHandler = (overrideResponse?: AccountAccessChangeResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AccountAccessChangeResponse> | AccountAccessChangeResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/admin/users/:userId/access/', async (info) => {await delay(1000);
+  
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthAdminUsersAccessCreateResponseMock()),
+      { status: 200,
         headers: { 'Content-Type': 'application/json' }
       })
   }, options)
@@ -1176,6 +1569,30 @@ export const getV1HealthRetrieveMockHandler = (overrideResponse?: HealthResponse
   }, options)
 }
 
+export const getV1KycAdminCasesManualReviewCreateMockHandler = (overrideResponse?: KycManualReviewDecisionResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<KycManualReviewDecisionResponse> | KycManualReviewDecisionResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/kyc/admin/cases/:caseId/manual-review/', async (info) => {await delay(1000);
+  
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1KycAdminCasesManualReviewCreateResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1KycAdminManualReviewsListMockHandler = (overrideResponse?: KycAdminCase[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<KycAdminCase[]> | KycAdminCase[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/kyc/admin/manual-reviews/', async (info) => {await delay(1000);
+  
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1KycAdminManualReviewsListResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
 export const getV1KycSessionCreateMockHandler = (overrideResponse?: KycSessionResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<KycSessionResponse> | KycSessionResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/kyc/session/', async (info) => {await delay(1000);
   
@@ -1215,6 +1632,7 @@ export const getBanxumApiMock = () => [
   getV1AuthAdminLoginConfirmCreateMockHandler(),
   getV1AuthAdminLoginStartCreateMockHandler(),
   getV1AuthAdminUsersCreateMockHandler(),
+  getV1AuthAdminUsersAccessCreateMockHandler(),
   getV1AuthMagicLinkConsumeCreateMockHandler(),
   getV1AuthMagicLinkRequestCreateMockHandler(),
   getV1AuthMeRetrieveMockHandler(),
@@ -1222,6 +1640,8 @@ export const getBanxumApiMock = () => [
   getV1AuthPhoneRequestCreateMockHandler(),
   getV1AuthRegisterNaturalPersonCreateMockHandler(),
   getV1HealthRetrieveMockHandler(),
+  getV1KycAdminCasesManualReviewCreateMockHandler(),
+  getV1KycAdminManualReviewsListMockHandler(),
   getV1KycSessionCreateMockHandler(),
   getV1KycStatusRetrieveMockHandler(),
   getV1KycWebhooksDiditCreateMockHandler()

@@ -3,6 +3,7 @@ from __future__ import annotations
 from django.urls import path
 
 from backend.apps.accounts_auth.api.views import (
+    AccountAccessChangeView,
     AdminLoginConfirmView,
     AdminLoginStartView,
     AdminUserCreateView,
@@ -21,6 +22,11 @@ urlpatterns = [
     path("admin/login/start/", AdminLoginStartView.as_view(), name="auth-admin-login-start"),
     path("admin/login/confirm/", AdminLoginConfirmView.as_view(), name="auth-admin-login-confirm"),
     path("admin/users/", AdminUserCreateView.as_view(), name="auth-admin-user-create"),
+    path(
+        "admin/users/<uuid:user_id>/access/",
+        AccountAccessChangeView.as_view(),
+        name="auth-admin-user-access-change",
+    ),
     path("phone/request/", PhoneVerificationRequestView.as_view(), name="auth-phone-request"),
     path("phone/confirm/", PhoneVerificationConfirmView.as_view(), name="auth-phone-confirm"),
     path("me/", CurrentUserView.as_view(), name="auth-me"),

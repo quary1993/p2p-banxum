@@ -3,6 +3,7 @@ from __future__ import annotations
 import secrets
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import cast
 
 from django.conf import settings
 from django.contrib.auth.hashers import identify_hasher
@@ -17,6 +18,8 @@ from backend.apps.accounts_auth.crypto import (
     encrypt_delivery_secret,
 )
 from backend.apps.accounts_auth.models import (
+    AccountAccessEvent,
+    AccountAccessReason,
     AccountStatus,
     AccountType,
     EmailLoginToken,
@@ -78,6 +81,10 @@ class AdminLoginInvalidCredentialsError(AccountsAuthError):
 
 
 class AdminAuthorizationError(AccountsAuthError):
+    pass
+
+
+class AccountAccessControlError(AccountsAuthError):
     pass
 
 
@@ -262,6 +269,17 @@ class CreateAdminUserCommand:
     email: str
     password: str
     full_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class ChangeAccountAccessCommand:
+    actor: User
+    user_id: str
+    new_status: AccountStatus
+    reason_code: AccountAccessReason
+    note: str = ""
+    evidence_summary: str = ""
+    clean_account_confirmed: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -956,6 +974,82 @@ def create_admin_user(command: CreateAdminUserCommand) -> User:
         )
     )
     return user
+
+
+@transaction.atomic
+def change_account_access(command: ChangeAccountAccessCommand) -> AccountAccessEvent:
+    if not command.actor.can_login or not is_admin_account(command.actor):
+        raise AdminAuthorizationError("Only an active admin can change account access.")
+
+    target_user = User.objects.select_for_update().filter(id=command.user_id).first()
+    if target_user is None:
+        raise AccountAccessControlError("Target account does not exist.")
+    if target_user.is_env_managed_superadmin:
+        raise AccountAccessControlError(
+            "Environment-managed superadmin access is controlled by deployment config."
+        )
+    if is_admin_account(target_user) and not is_superadmin_account(command.actor):
+        raise AdminAuthorizationError("Only a superadmin can change admin account access.")
+    if target_user.status == AccountStatus.CLOSED and command.new_status != AccountStatus.CLOSED:
+        raise AccountAccessControlError("Closed accounts cannot be reactivated in v1.")
+    if command.new_status == AccountStatus.PENDING_KYC:
+        raise AccountAccessControlError("Account access controls cannot set pending KYC.")
+    if command.new_status == AccountStatus.CLOSED and not command.clean_account_confirmed:
+        raise AccountAccessControlError("Account closure requires clean-account confirmation.")
+    if command.new_status == target_user.status:
+        raise AccountAccessControlError("Account already has the requested status.")
+    if not command.note.strip() and not command.evidence_summary.strip():
+        raise AccountAccessControlError("A note or evidence summary is required.")
+
+    previous_status = target_user.status
+    previous_is_active = target_user.is_active
+    target_user.status = command.new_status
+    target_user.is_active = command.new_status != AccountStatus.CLOSED
+    target_user.save(update_fields=["status", "is_active"])
+
+    event = AccountAccessEvent.objects.create(
+        user=target_user,
+        actor_user_id=command.actor.id,
+        actor_account_type=command.actor.account_type,
+        previous_status=previous_status,
+        new_status=command.new_status,
+        previous_is_active=previous_is_active,
+        new_is_active=target_user.is_active,
+        reason_code=command.reason_code,
+        note=command.note.strip(),
+        evidence_summary=command.evidence_summary.strip(),
+        clean_account_confirmed=command.clean_account_confirmed,
+        changed_at=timezone.now(),
+    )
+    record_audit_event(
+        AuditCommand(
+            actor=actor_for_user(command.actor),
+            action="account.access_changed",
+            target_type="User",
+            target_id=str(target_user.id),
+            metadata={
+                "previous_status": previous_status,
+                "new_status": command.new_status,
+                "reason_code": command.reason_code,
+                "event_id": str(event.id),
+            },
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="AccountAccessChanged",
+            aggregate_type="User",
+            aggregate_id=str(target_user.id),
+            payload={
+                "previous_status": previous_status,
+                "new_status": command.new_status,
+                "reason_code": command.reason_code,
+                "event_id": str(event.id),
+            },
+            idempotency_key=f"user:{target_user.id}:access-event:{event.id}",
+        )
+    )
+    return cast(AccountAccessEvent, event)
 
 
 def start_admin_login(command: AdminLoginStartCommand) -> AdminLoginStartResult:
