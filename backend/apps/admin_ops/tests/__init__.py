@@ -1,1 +1,1 @@
-"""Tests for admin_ops."""
+"""Admin operations tests."""

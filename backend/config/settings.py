@@ -218,6 +218,12 @@ SPECTACULAR_SETTINGS = {
     "DESCRIPTION": "Internal API for BANXUM investor and admin portals.",
     "VERSION": "0.1.0",
     "SERVE_INCLUDE_SCHEMA": False,
+    "ENUM_NAME_OVERRIDES": {
+        "AdminTaskPriorityEnum": "backend.apps.admin_ops.models.AdminTaskPriority.choices",
+        "AdminTaskStatusEnum": "backend.apps.admin_ops.models.AdminTaskStatus.choices",
+        "AdminTaskTypeEnum": "backend.apps.admin_ops.models.AdminTaskType.choices",
+        "KycStatusEnum": "backend.apps.kyc_compliance.models.KycStatus.choices",
+    },
 }
 
 CELERY_BROKER_URL = REDIS_URL

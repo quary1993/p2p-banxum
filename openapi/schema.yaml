@@ -4,6 +4,275 @@ info:
   version: 0.1.0
   description: Internal API for BANXUM investor and admin portals.
 paths:
+  /api/v1/admin-ops/audit-events/:
+    get:
+      operationId: v1_admin_ops_audit_events_list
+      parameters:
+      - in: query
+        name: action
+        schema:
+          type: string
+          maxLength: 128
+      - in: query
+        name: actor_id
+        schema:
+          type: string
+          maxLength: 128
+      - in: query
+        name: actor_type
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 250
+          minimum: 1
+          default: 100
+      - in: query
+        name: occurred_from
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: occurred_to
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: target_id
+        schema:
+          type: string
+          maxLength: 128
+      - in: query
+        name: target_type
+        schema:
+          type: string
+          maxLength: 128
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditEvent'
+          description: ''
+  /api/v1/admin-ops/tasks/:
+    get:
+      operationId: v1_admin_ops_tasks_list
+      parameters:
+      - in: query
+        name: assigned_admin_id
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: due_after
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: due_before
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 250
+          minimum: 1
+          default: 100
+      - in: query
+        name: priority
+        schema:
+          enum:
+          - low
+          - normal
+          - high
+          - urgent
+          type: string
+          minLength: 1
+        description: |-
+          * `low` - Low
+          * `normal` - Normal
+          * `high` - High
+          * `urgent` - Urgent
+      - in: query
+        name: related_object_id
+        schema:
+          type: string
+          maxLength: 128
+      - in: query
+        name: related_object_type
+        schema:
+          type: string
+          maxLength: 128
+      - in: query
+        name: status
+        schema:
+          enum:
+          - open
+          - in_progress
+          - waiting
+          - resolved
+          - cancelled
+          type: string
+          minLength: 1
+        description: |-
+          * `open` - Open
+          * `in_progress` - In progress
+          * `waiting` - Waiting
+          * `resolved` - Resolved
+          * `cancelled` - Cancelled
+      - in: query
+        name: task_type
+        schema:
+          enum:
+          - kyc_manual_review
+          - account_access_review
+          - borrower_onboarding
+          - loan_setup
+          - payment_reconciliation
+          - fx_settlement
+          - document_review
+          - email_delivery_failure
+          - reporting
+          - support
+          - other
+          type: string
+          minLength: 1
+        description: |-
+          * `kyc_manual_review` - KYC manual review
+          * `account_access_review` - Account access review
+          * `borrower_onboarding` - Borrower onboarding
+          * `loan_setup` - Loan setup
+          * `payment_reconciliation` - Payment reconciliation
+          * `fx_settlement` - FX settlement
+          * `document_review` - Document review
+          * `email_delivery_failure` - Email delivery failure
+          * `reporting` - Reporting
+          * `support` - Support
+          * `other` - Other
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminTask'
+          description: ''
+    post:
+      operationId: v1_admin_ops_tasks_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminTaskCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AdminTaskCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AdminTaskCreateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminTask'
+          description: ''
+  /api/v1/admin-ops/tasks/{task_id}/:
+    get:
+      operationId: v1_admin_ops_tasks_retrieve
+      parameters:
+      - in: path
+        name: task_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminTask'
+          description: ''
+    patch:
+      operationId: v1_admin_ops_tasks_partial_update
+      parameters:
+      - in: path
+        name: task_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedAdminTaskUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedAdminTaskUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedAdminTaskUpdateRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminTask'
+          description: ''
+  /api/v1/admin-ops/tasks/{task_id}/events/:
+    get:
+      operationId: v1_admin_ops_tasks_events_list
+      parameters:
+      - in: path
+        name: task_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminTaskEvent'
+          description: ''
   /api/v1/auth/admin/login/confirm/:
     post:
       operationId: v1_auth_admin_login_confirm_create
@@ -467,6 +736,188 @@ components:
       - code_id
       - expires_at
       - status
+    AdminTask:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        task_type:
+          type: string
+        title:
+          type: string
+        priority:
+          type: string
+        status:
+          type: string
+        assigned_admin_id:
+          type: string
+          format: uuid
+          nullable: true
+        created_by_id:
+          type: string
+          format: uuid
+        due_at:
+          type: string
+          format: date-time
+          nullable: true
+        notes:
+          type: string
+        related_object_type:
+          type: string
+        related_object_id:
+          type: string
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        completion_note:
+          type: string
+        is_terminal:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - assigned_admin_id
+      - completed_at
+      - completion_note
+      - created_at
+      - created_by_id
+      - due_at
+      - id
+      - is_terminal
+      - notes
+      - priority
+      - related_object_id
+      - related_object_type
+      - status
+      - task_type
+      - title
+      - updated_at
+    AdminTaskCreateRequest:
+      type: object
+      properties:
+        task_type:
+          $ref: '#/components/schemas/AdminTaskTypeEnum'
+        title:
+          type: string
+          maxLength: 255
+        priority:
+          allOf:
+          - $ref: '#/components/schemas/AdminTaskPriorityEnum'
+          default: normal
+        assigned_admin_id:
+          type: string
+          format: uuid
+          nullable: true
+        due_at:
+          type: string
+          format: date-time
+          nullable: true
+        notes:
+          type: string
+        related_object_type:
+          type: string
+          maxLength: 128
+        related_object_id:
+          type: string
+          maxLength: 128
+      required:
+      - task_type
+      - title
+    AdminTaskEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+        actor_user_id:
+          type: string
+          format: uuid
+        actor_account_type:
+          type: string
+        previous_status:
+          type: string
+        new_status:
+          type: string
+        note:
+          type: string
+        metadata: {}
+        occurred_at:
+          type: string
+          format: date-time
+      required:
+      - actor_account_type
+      - actor_user_id
+      - event_type
+      - id
+      - metadata
+      - new_status
+      - note
+      - occurred_at
+      - previous_status
+      - task_id
+    AdminTaskPriorityEnum:
+      enum:
+      - low
+      - normal
+      - high
+      - urgent
+      type: string
+      description: |-
+        * `low` - Low
+        * `normal` - Normal
+        * `high` - High
+        * `urgent` - Urgent
+    AdminTaskStatusEnum:
+      enum:
+      - open
+      - in_progress
+      - waiting
+      - resolved
+      - cancelled
+      type: string
+      description: |-
+        * `open` - Open
+        * `in_progress` - In progress
+        * `waiting` - Waiting
+        * `resolved` - Resolved
+        * `cancelled` - Cancelled
+    AdminTaskTypeEnum:
+      enum:
+      - kyc_manual_review
+      - account_access_review
+      - borrower_onboarding
+      - loan_setup
+      - payment_reconciliation
+      - fx_settlement
+      - document_review
+      - email_delivery_failure
+      - reporting
+      - support
+      - other
+      type: string
+      description: |-
+        * `kyc_manual_review` - KYC manual review
+        * `account_access_review` - Account access review
+        * `borrower_onboarding` - Borrower onboarding
+        * `loan_setup` - Loan setup
+        * `payment_reconciliation` - Payment reconciliation
+        * `fx_settlement` - FX settlement
+        * `document_review` - Document review
+        * `email_delivery_failure` - Email delivery failure
+        * `reporting` - Reporting
+        * `support` - Support
+        * `other` - Other
     AdminUserCreateRequest:
       type: object
       properties:
@@ -484,6 +935,38 @@ components:
       - email
       - full_name
       - password
+    AuditEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        occurred_at:
+          type: string
+          format: date-time
+        actor_type:
+          type: string
+        actor_id:
+          type: string
+        action:
+          type: string
+        target_type:
+          type: string
+        target_id:
+          type: string
+        request_id:
+          type: string
+        metadata: {}
+      required:
+      - action
+      - actor_id
+      - actor_type
+      - id
+      - metadata
+      - occurred_at
+      - request_id
+      - target_id
+      - target_type
     AuthenticatedUserResponse:
       type: object
       properties:
@@ -507,7 +990,7 @@ components:
       type: object
       properties:
         status:
-          $ref: '#/components/schemas/StatusEnum'
+          $ref: '#/components/schemas/KycStatusEnum'
         idempotent:
           type: boolean
       required:
@@ -700,7 +1183,7 @@ components:
       type: object
       properties:
         status:
-          $ref: '#/components/schemas/StatusEnum'
+          $ref: '#/components/schemas/KycStatusEnum'
         provider_session_id:
           type: string
           nullable: true
@@ -715,11 +1198,37 @@ components:
       - provider_session_id
       - status
       - verification_url
+    KycStatusEnum:
+      enum:
+      - not_started
+      - pending
+      - approved
+      - declined
+      - manual_review
+      - high_risk
+      - sanctions_hit
+      - pep_hit
+      - adverse_media_hit
+      - expired
+      - reverification_required
+      type: string
+      description: |-
+        * `not_started` - Not started
+        * `pending` - Pending
+        * `approved` - Approved
+        * `declined` - Declined
+        * `manual_review` - Manual review
+        * `high_risk` - High risk
+        * `sanctions_hit` - Sanctions hit
+        * `pep_hit` - PEP hit
+        * `adverse_media_hit` - Adverse media hit
+        * `expired` - Expired
+        * `reverification_required` - Re-verification required
     KycStatusResponse:
       type: object
       properties:
         status:
-          $ref: '#/components/schemas/StatusEnum'
+          $ref: '#/components/schemas/KycStatusEnum'
         financial_access_allowed:
           type: boolean
         phone_verified:
@@ -811,6 +1320,36 @@ components:
         * `restricted` - restricted
         * `locked` - locked
         * `closed` - closed
+    PatchedAdminTaskUpdateRequest:
+      type: object
+      properties:
+        task_type:
+          $ref: '#/components/schemas/AdminTaskTypeEnum'
+        title:
+          type: string
+          maxLength: 255
+        priority:
+          $ref: '#/components/schemas/AdminTaskPriorityEnum'
+        status:
+          $ref: '#/components/schemas/AdminTaskStatusEnum'
+        assigned_admin_id:
+          type: string
+          format: uuid
+          nullable: true
+        clear_assigned_admin:
+          type: boolean
+          default: false
+        due_at:
+          type: string
+          format: date-time
+          nullable: true
+        clear_due_at:
+          type: boolean
+          default: false
+        notes:
+          type: string
+        completion_note:
+          type: string
     PhoneVerificationConfirmRequest:
       type: object
       properties:
@@ -850,32 +1389,6 @@ components:
       - expires_at
       - phone_verified
       - status
-    StatusEnum:
-      enum:
-      - not_started
-      - pending
-      - approved
-      - declined
-      - manual_review
-      - high_risk
-      - sanctions_hit
-      - pep_hit
-      - adverse_media_hit
-      - expired
-      - reverification_required
-      type: string
-      description: |-
-        * `not_started` - Not started
-        * `pending` - Pending
-        * `approved` - Approved
-        * `declined` - Declined
-        * `manual_review` - Manual review
-        * `high_risk` - High risk
-        * `sanctions_hit` - Sanctions hit
-        * `pep_hit` - PEP hit
-        * `adverse_media_hit` - Adverse media hit
-        * `expired` - Expired
-        * `reverification_required` - Re-verification required
     UserSummary:
       type: object
       properties:

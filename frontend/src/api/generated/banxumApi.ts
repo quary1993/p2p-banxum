@@ -107,12 +107,142 @@ export interface AdminLoginStartResponse {
   expires_at: string;
 }
 
+export interface AdminTask {
+  id: string;
+  task_type: string;
+  title: string;
+  priority: string;
+  status: string;
+  /** @nullable */
+  assigned_admin_id: string | null;
+  created_by_id: string;
+  /** @nullable */
+  due_at: string | null;
+  notes: string;
+  related_object_type: string;
+  related_object_id: string;
+  /** @nullable */
+  completed_at: string | null;
+  completion_note: string;
+  is_terminal: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminTaskCreateRequest {
+  task_type: AdminTaskTypeEnum;
+  /** @maxLength 255 */
+  title: string;
+  priority?: AdminTaskPriorityEnum;
+  /** @nullable */
+  assigned_admin_id?: string | null;
+  /** @nullable */
+  due_at?: string | null;
+  notes?: string;
+  /** @maxLength 128 */
+  related_object_type?: string;
+  /** @maxLength 128 */
+  related_object_id?: string;
+}
+
+export interface AdminTaskEvent {
+  id: string;
+  task_id: string;
+  event_type: string;
+  actor_user_id: string;
+  actor_account_type: string;
+  previous_status: string;
+  new_status: string;
+  note: string;
+  metadata: unknown;
+  occurred_at: string;
+}
+
+/**
+ * * `low` - Low
+* `normal` - Normal
+* `high` - High
+* `urgent` - Urgent
+ */
+export type AdminTaskPriorityEnum = typeof AdminTaskPriorityEnum[keyof typeof AdminTaskPriorityEnum];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const AdminTaskPriorityEnum = {
+  low: 'low',
+  normal: 'normal',
+  high: 'high',
+  urgent: 'urgent',
+} as const;
+
+/**
+ * * `open` - Open
+* `in_progress` - In progress
+* `waiting` - Waiting
+* `resolved` - Resolved
+* `cancelled` - Cancelled
+ */
+export type AdminTaskStatusEnum = typeof AdminTaskStatusEnum[keyof typeof AdminTaskStatusEnum];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const AdminTaskStatusEnum = {
+  open: 'open',
+  in_progress: 'in_progress',
+  waiting: 'waiting',
+  resolved: 'resolved',
+  cancelled: 'cancelled',
+} as const;
+
+/**
+ * * `kyc_manual_review` - KYC manual review
+* `account_access_review` - Account access review
+* `borrower_onboarding` - Borrower onboarding
+* `loan_setup` - Loan setup
+* `payment_reconciliation` - Payment reconciliation
+* `fx_settlement` - FX settlement
+* `document_review` - Document review
+* `email_delivery_failure` - Email delivery failure
+* `reporting` - Reporting
+* `support` - Support
+* `other` - Other
+ */
+export type AdminTaskTypeEnum = typeof AdminTaskTypeEnum[keyof typeof AdminTaskTypeEnum];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const AdminTaskTypeEnum = {
+  kyc_manual_review: 'kyc_manual_review',
+  account_access_review: 'account_access_review',
+  borrower_onboarding: 'borrower_onboarding',
+  loan_setup: 'loan_setup',
+  payment_reconciliation: 'payment_reconciliation',
+  fx_settlement: 'fx_settlement',
+  document_review: 'document_review',
+  email_delivery_failure: 'email_delivery_failure',
+  reporting: 'reporting',
+  support: 'support',
+  other: 'other',
+} as const;
+
 export interface AdminUserCreateRequest {
   email: string;
   /** @minLength 1 */
   password: string;
   /** @maxLength 255 */
   full_name: string;
+}
+
+export interface AuditEvent {
+  id: string;
+  occurred_at: string;
+  actor_type: string;
+  actor_id: string;
+  action: string;
+  target_type: string;
+  target_id: string;
+  request_id: string;
+  metadata: unknown;
 }
 
 export interface AuthenticatedUserResponse {
@@ -137,7 +267,7 @@ export const DecisionEnum = {
 } as const;
 
 export interface DiditWebhookResponse {
-  status: StatusEnum;
+  status: KycStatusEnum;
   idempotent: boolean;
 }
 
@@ -232,7 +362,7 @@ export interface KycManualReviewDecisionResponse {
 }
 
 export interface KycSessionResponse {
-  status: StatusEnum;
+  status: KycStatusEnum;
   /** @nullable */
   provider_session_id: string | null;
   /** @nullable */
@@ -240,8 +370,39 @@ export interface KycSessionResponse {
   already_approved: boolean;
 }
 
+/**
+ * * `not_started` - Not started
+* `pending` - Pending
+* `approved` - Approved
+* `declined` - Declined
+* `manual_review` - Manual review
+* `high_risk` - High risk
+* `sanctions_hit` - Sanctions hit
+* `pep_hit` - PEP hit
+* `adverse_media_hit` - Adverse media hit
+* `expired` - Expired
+* `reverification_required` - Re-verification required
+ */
+export type KycStatusEnum = typeof KycStatusEnum[keyof typeof KycStatusEnum];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const KycStatusEnum = {
+  not_started: 'not_started',
+  pending: 'pending',
+  approved: 'approved',
+  declined: 'declined',
+  manual_review: 'manual_review',
+  high_risk: 'high_risk',
+  sanctions_hit: 'sanctions_hit',
+  pep_hit: 'pep_hit',
+  adverse_media_hit: 'adverse_media_hit',
+  expired: 'expired',
+  reverification_required: 'reverification_required',
+} as const;
+
 export interface KycStatusResponse {
-  status: StatusEnum;
+  status: KycStatusEnum;
   financial_access_allowed: boolean;
   phone_verified: boolean;
   provider: string;
@@ -295,6 +456,22 @@ export const NewStatusEnum = {
   closed: 'closed',
 } as const;
 
+export interface PatchedAdminTaskUpdateRequest {
+  task_type?: AdminTaskTypeEnum;
+  /** @maxLength 255 */
+  title?: string;
+  priority?: AdminTaskPriorityEnum;
+  status?: AdminTaskStatusEnum;
+  /** @nullable */
+  assigned_admin_id?: string | null;
+  clear_assigned_admin?: boolean;
+  /** @nullable */
+  due_at?: string | null;
+  clear_due_at?: boolean;
+  notes?: string;
+  completion_note?: string;
+}
+
 export interface PhoneVerificationConfirmRequest {
   challenge_id: string;
   /** @pattern ^\d{6}$ */
@@ -314,37 +491,6 @@ export interface PhoneVerificationRequestResponse {
   phone_verified: boolean;
 }
 
-/**
- * * `not_started` - Not started
-* `pending` - Pending
-* `approved` - Approved
-* `declined` - Declined
-* `manual_review` - Manual review
-* `high_risk` - High risk
-* `sanctions_hit` - Sanctions hit
-* `pep_hit` - PEP hit
-* `adverse_media_hit` - Adverse media hit
-* `expired` - Expired
-* `reverification_required` - Re-verification required
- */
-export type StatusEnum = typeof StatusEnum[keyof typeof StatusEnum];
-
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const StatusEnum = {
-  not_started: 'not_started',
-  pending: 'pending',
-  approved: 'approved',
-  declined: 'declined',
-  manual_review: 'manual_review',
-  high_risk: 'high_risk',
-  sanctions_hit: 'sanctions_hit',
-  pep_hit: 'pep_hit',
-  adverse_media_hit: 'adverse_media_hit',
-  expired: 'expired',
-  reverification_required: 'reverification_required',
-} as const;
-
 export interface UserSummary {
   id: string;
   email: string;
@@ -354,6 +500,596 @@ export interface UserSummary {
   phone_verified: boolean;
   marketing_consent: boolean;
 }
+
+export type V1AdminOpsAuditEventsListParams = {
+/**
+ * @maxLength 128
+ */
+action?: string;
+/**
+ * @maxLength 128
+ */
+actor_id?: string;
+/**
+ * @maxLength 64
+ */
+actor_type?: string;
+/**
+ * @minimum 1
+ * @maximum 250
+ */
+limit?: number;
+occurred_from?: string;
+occurred_to?: string;
+/**
+ * @maxLength 128
+ */
+target_id?: string;
+/**
+ * @maxLength 128
+ */
+target_type?: string;
+};
+
+export type V1AdminOpsTasksListParams = {
+assigned_admin_id?: string;
+due_after?: string;
+due_before?: string;
+/**
+ * @minimum 1
+ * @maximum 250
+ */
+limit?: number;
+/**
+ * * `low` - Low
+* `normal` - Normal
+* `high` - High
+* `urgent` - Urgent
+ * @minLength 1
+ */
+priority?: V1AdminOpsTasksListPriority;
+/**
+ * @maxLength 128
+ */
+related_object_id?: string;
+/**
+ * @maxLength 128
+ */
+related_object_type?: string;
+/**
+ * * `open` - Open
+* `in_progress` - In progress
+* `waiting` - Waiting
+* `resolved` - Resolved
+* `cancelled` - Cancelled
+ * @minLength 1
+ */
+status?: V1AdminOpsTasksListStatus;
+/**
+ * * `kyc_manual_review` - KYC manual review
+* `account_access_review` - Account access review
+* `borrower_onboarding` - Borrower onboarding
+* `loan_setup` - Loan setup
+* `payment_reconciliation` - Payment reconciliation
+* `fx_settlement` - FX settlement
+* `document_review` - Document review
+* `email_delivery_failure` - Email delivery failure
+* `reporting` - Reporting
+* `support` - Support
+* `other` - Other
+ * @minLength 1
+ */
+task_type?: V1AdminOpsTasksListTaskType;
+};
+
+export type V1AdminOpsTasksListPriority = typeof V1AdminOpsTasksListPriority[keyof typeof V1AdminOpsTasksListPriority];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const V1AdminOpsTasksListPriority = {
+  low: 'low',
+  normal: 'normal',
+  high: 'high',
+  urgent: 'urgent',
+} as const;
+
+export type V1AdminOpsTasksListStatus = typeof V1AdminOpsTasksListStatus[keyof typeof V1AdminOpsTasksListStatus];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const V1AdminOpsTasksListStatus = {
+  open: 'open',
+  in_progress: 'in_progress',
+  waiting: 'waiting',
+  resolved: 'resolved',
+  cancelled: 'cancelled',
+} as const;
+
+export type V1AdminOpsTasksListTaskType = typeof V1AdminOpsTasksListTaskType[keyof typeof V1AdminOpsTasksListTaskType];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const V1AdminOpsTasksListTaskType = {
+  kyc_manual_review: 'kyc_manual_review',
+  account_access_review: 'account_access_review',
+  borrower_onboarding: 'borrower_onboarding',
+  loan_setup: 'loan_setup',
+  payment_reconciliation: 'payment_reconciliation',
+  fx_settlement: 'fx_settlement',
+  document_review: 'document_review',
+  email_delivery_failure: 'email_delivery_failure',
+  reporting: 'reporting',
+  support: 'support',
+  other: 'other',
+} as const;
+
+export const v1AdminOpsAuditEventsList = (
+    params?: V1AdminOpsAuditEventsListParams,
+ signal?: AbortSignal
+) => {
+      
+      
+      return httpClient<AuditEvent[]>(
+      {url: `/api/v1/admin-ops/audit-events/`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+  
+
+
+
+export const getV1AdminOpsAuditEventsListQueryKey = (params?: V1AdminOpsAuditEventsListParams,) => {
+    return [
+    `/api/v1/admin-ops/audit-events/`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+    
+export const getV1AdminOpsAuditEventsListQueryOptions = <TData = Awaited<ReturnType<typeof v1AdminOpsAuditEventsList>>, TError = unknown>(params?: V1AdminOpsAuditEventsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsAuditEventsList>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1AdminOpsAuditEventsListQueryKey(params);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AdminOpsAuditEventsList>>> = ({ signal }) => v1AdminOpsAuditEventsList(params, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsAuditEventsList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1AdminOpsAuditEventsListQueryResult = NonNullable<Awaited<ReturnType<typeof v1AdminOpsAuditEventsList>>>
+export type V1AdminOpsAuditEventsListQueryError = unknown
+
+
+export function useV1AdminOpsAuditEventsList<TData = Awaited<ReturnType<typeof v1AdminOpsAuditEventsList>>, TError = unknown>(
+ params: undefined |  V1AdminOpsAuditEventsListParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsAuditEventsList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsAuditEventsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsAuditEventsList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsAuditEventsList<TData = Awaited<ReturnType<typeof v1AdminOpsAuditEventsList>>, TError = unknown>(
+ params?: V1AdminOpsAuditEventsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsAuditEventsList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsAuditEventsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsAuditEventsList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsAuditEventsList<TData = Awaited<ReturnType<typeof v1AdminOpsAuditEventsList>>, TError = unknown>(
+ params?: V1AdminOpsAuditEventsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsAuditEventsList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1AdminOpsAuditEventsList<TData = Awaited<ReturnType<typeof v1AdminOpsAuditEventsList>>, TError = unknown>(
+ params?: V1AdminOpsAuditEventsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsAuditEventsList>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1AdminOpsAuditEventsListQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1AdminOpsTasksList = (
+    params?: V1AdminOpsTasksListParams,
+ signal?: AbortSignal
+) => {
+      
+      
+      return httpClient<AdminTask[]>(
+      {url: `/api/v1/admin-ops/tasks/`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+  
+
+
+
+export const getV1AdminOpsTasksListQueryKey = (params?: V1AdminOpsTasksListParams,) => {
+    return [
+    `/api/v1/admin-ops/tasks/`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+    
+export const getV1AdminOpsTasksListQueryOptions = <TData = Awaited<ReturnType<typeof v1AdminOpsTasksList>>, TError = unknown>(params?: V1AdminOpsTasksListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsTasksList>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1AdminOpsTasksListQueryKey(params);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AdminOpsTasksList>>> = ({ signal }) => v1AdminOpsTasksList(params, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsTasksList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1AdminOpsTasksListQueryResult = NonNullable<Awaited<ReturnType<typeof v1AdminOpsTasksList>>>
+export type V1AdminOpsTasksListQueryError = unknown
+
+
+export function useV1AdminOpsTasksList<TData = Awaited<ReturnType<typeof v1AdminOpsTasksList>>, TError = unknown>(
+ params: undefined |  V1AdminOpsTasksListParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsTasksList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsTasksList>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsTasksList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsTasksList<TData = Awaited<ReturnType<typeof v1AdminOpsTasksList>>, TError = unknown>(
+ params?: V1AdminOpsTasksListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsTasksList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsTasksList>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsTasksList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsTasksList<TData = Awaited<ReturnType<typeof v1AdminOpsTasksList>>, TError = unknown>(
+ params?: V1AdminOpsTasksListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsTasksList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1AdminOpsTasksList<TData = Awaited<ReturnType<typeof v1AdminOpsTasksList>>, TError = unknown>(
+ params?: V1AdminOpsTasksListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsTasksList>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1AdminOpsTasksListQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1AdminOpsTasksCreate = (
+    adminTaskCreateRequest: AdminTaskCreateRequest,
+ signal?: AbortSignal
+) => {
+      
+      
+      return httpClient<AdminTask>(
+      {url: `/api/v1/admin-ops/tasks/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: adminTaskCreateRequest, signal
+    },
+      );
+    }
+  
+
+
+export const getV1AdminOpsTasksCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AdminOpsTasksCreate>>, TError,{data: AdminTaskCreateRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1AdminOpsTasksCreate>>, TError,{data: AdminTaskCreateRequest}, TContext> => {
+
+const mutationKey = ['v1AdminOpsTasksCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AdminOpsTasksCreate>>, {data: AdminTaskCreateRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AdminOpsTasksCreate(data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AdminOpsTasksCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AdminOpsTasksCreate>>>
+    export type V1AdminOpsTasksCreateMutationBody = AdminTaskCreateRequest
+    export type V1AdminOpsTasksCreateMutationError = unknown
+
+    export const useV1AdminOpsTasksCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AdminOpsTasksCreate>>, TError,{data: AdminTaskCreateRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AdminOpsTasksCreate>>,
+        TError,
+        {data: AdminTaskCreateRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1AdminOpsTasksCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    
+export const v1AdminOpsTasksRetrieve = (
+    taskId: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return httpClient<AdminTask>(
+      {url: `/api/v1/admin-ops/tasks/${taskId}/`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getV1AdminOpsTasksRetrieveQueryKey = (taskId?: string,) => {
+    return [
+    `/api/v1/admin-ops/tasks/${taskId}/`
+    ] as const;
+    }
+
+    
+export const getV1AdminOpsTasksRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1AdminOpsTasksRetrieve>>, TError = unknown>(taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsTasksRetrieve>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1AdminOpsTasksRetrieveQueryKey(taskId);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AdminOpsTasksRetrieve>>> = ({ signal }) => v1AdminOpsTasksRetrieve(taskId, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(taskId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsTasksRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1AdminOpsTasksRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1AdminOpsTasksRetrieve>>>
+export type V1AdminOpsTasksRetrieveQueryError = unknown
+
+
+export function useV1AdminOpsTasksRetrieve<TData = Awaited<ReturnType<typeof v1AdminOpsTasksRetrieve>>, TError = unknown>(
+ taskId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsTasksRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsTasksRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsTasksRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsTasksRetrieve<TData = Awaited<ReturnType<typeof v1AdminOpsTasksRetrieve>>, TError = unknown>(
+ taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsTasksRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsTasksRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsTasksRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsTasksRetrieve<TData = Awaited<ReturnType<typeof v1AdminOpsTasksRetrieve>>, TError = unknown>(
+ taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsTasksRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1AdminOpsTasksRetrieve<TData = Awaited<ReturnType<typeof v1AdminOpsTasksRetrieve>>, TError = unknown>(
+ taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsTasksRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1AdminOpsTasksRetrieveQueryOptions(taskId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1AdminOpsTasksPartialUpdate = (
+    taskId: string,
+    patchedAdminTaskUpdateRequest: PatchedAdminTaskUpdateRequest,
+ ) => {
+      
+      
+      return httpClient<AdminTask>(
+      {url: `/api/v1/admin-ops/tasks/${taskId}/`, method: 'PATCH',
+      headers: {'Content-Type': 'application/json', },
+      data: patchedAdminTaskUpdateRequest
+    },
+      );
+    }
+  
+
+
+export const getV1AdminOpsTasksPartialUpdateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AdminOpsTasksPartialUpdate>>, TError,{taskId: string;data: PatchedAdminTaskUpdateRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1AdminOpsTasksPartialUpdate>>, TError,{taskId: string;data: PatchedAdminTaskUpdateRequest}, TContext> => {
+
+const mutationKey = ['v1AdminOpsTasksPartialUpdate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AdminOpsTasksPartialUpdate>>, {taskId: string;data: PatchedAdminTaskUpdateRequest}> = (props) => {
+          const {taskId,data} = props ?? {};
+
+          return  v1AdminOpsTasksPartialUpdate(taskId,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AdminOpsTasksPartialUpdateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AdminOpsTasksPartialUpdate>>>
+    export type V1AdminOpsTasksPartialUpdateMutationBody = PatchedAdminTaskUpdateRequest
+    export type V1AdminOpsTasksPartialUpdateMutationError = unknown
+
+    export const useV1AdminOpsTasksPartialUpdate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AdminOpsTasksPartialUpdate>>, TError,{taskId: string;data: PatchedAdminTaskUpdateRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AdminOpsTasksPartialUpdate>>,
+        TError,
+        {taskId: string;data: PatchedAdminTaskUpdateRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1AdminOpsTasksPartialUpdateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    
+export const v1AdminOpsTasksEventsList = (
+    taskId: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return httpClient<AdminTaskEvent[]>(
+      {url: `/api/v1/admin-ops/tasks/${taskId}/events/`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getV1AdminOpsTasksEventsListQueryKey = (taskId?: string,) => {
+    return [
+    `/api/v1/admin-ops/tasks/${taskId}/events/`
+    ] as const;
+    }
+
+    
+export const getV1AdminOpsTasksEventsListQueryOptions = <TData = Awaited<ReturnType<typeof v1AdminOpsTasksEventsList>>, TError = unknown>(taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsTasksEventsList>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1AdminOpsTasksEventsListQueryKey(taskId);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AdminOpsTasksEventsList>>> = ({ signal }) => v1AdminOpsTasksEventsList(taskId, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(taskId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsTasksEventsList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1AdminOpsTasksEventsListQueryResult = NonNullable<Awaited<ReturnType<typeof v1AdminOpsTasksEventsList>>>
+export type V1AdminOpsTasksEventsListQueryError = unknown
+
+
+export function useV1AdminOpsTasksEventsList<TData = Awaited<ReturnType<typeof v1AdminOpsTasksEventsList>>, TError = unknown>(
+ taskId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsTasksEventsList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsTasksEventsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsTasksEventsList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsTasksEventsList<TData = Awaited<ReturnType<typeof v1AdminOpsTasksEventsList>>, TError = unknown>(
+ taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsTasksEventsList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsTasksEventsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsTasksEventsList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsTasksEventsList<TData = Awaited<ReturnType<typeof v1AdminOpsTasksEventsList>>, TError = unknown>(
+ taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsTasksEventsList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1AdminOpsTasksEventsList<TData = Awaited<ReturnType<typeof v1AdminOpsTasksEventsList>>, TError = unknown>(
+ taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsTasksEventsList>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1AdminOpsTasksEventsListQueryOptions(taskId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
 
 export const v1AuthAdminLoginConfirmCreate = (
     adminLoginConfirmRequest: AdminLoginConfirmRequest,
@@ -1408,6 +2144,18 @@ const {mutation: mutationOptions} = options ?
     }
 
 
+export const getV1AdminOpsAuditEventsListResponseMock = (): AuditEvent[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), occurred_at: `${faker.date.past().toISOString().split('.')[0]}Z`, actor_type: faker.string.alpha({length: {min: 10, max: 20}}), actor_id: faker.string.alpha({length: {min: 10, max: 20}}), action: faker.string.alpha({length: {min: 10, max: 20}}), target_type: faker.string.alpha({length: {min: 10, max: 20}}), target_id: faker.string.alpha({length: {min: 10, max: 20}}), request_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})))
+
+export const getV1AdminOpsTasksListResponseMock = (): AdminTask[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), task_type: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), assigned_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_by_id: faker.string.uuid(), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), notes: faker.string.alpha({length: {min: 10, max: 20}}), related_object_type: faker.string.alpha({length: {min: 10, max: 20}}), related_object_id: faker.string.alpha({length: {min: 10, max: 20}}), completed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), completion_note: faker.string.alpha({length: {min: 10, max: 20}}), is_terminal: faker.datatype.boolean(), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`})))
+
+export const getV1AdminOpsTasksCreateResponseMock = (overrideResponse: Partial< AdminTask > = {}): AdminTask => ({id: faker.string.uuid(), task_type: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), assigned_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_by_id: faker.string.uuid(), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), notes: faker.string.alpha({length: {min: 10, max: 20}}), related_object_type: faker.string.alpha({length: {min: 10, max: 20}}), related_object_id: faker.string.alpha({length: {min: 10, max: 20}}), completed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), completion_note: faker.string.alpha({length: {min: 10, max: 20}}), is_terminal: faker.datatype.boolean(), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+
+export const getV1AdminOpsTasksRetrieveResponseMock = (overrideResponse: Partial< AdminTask > = {}): AdminTask => ({id: faker.string.uuid(), task_type: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), assigned_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_by_id: faker.string.uuid(), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), notes: faker.string.alpha({length: {min: 10, max: 20}}), related_object_type: faker.string.alpha({length: {min: 10, max: 20}}), related_object_id: faker.string.alpha({length: {min: 10, max: 20}}), completed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), completion_note: faker.string.alpha({length: {min: 10, max: 20}}), is_terminal: faker.datatype.boolean(), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+
+export const getV1AdminOpsTasksPartialUpdateResponseMock = (overrideResponse: Partial< AdminTask > = {}): AdminTask => ({id: faker.string.uuid(), task_type: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), assigned_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_by_id: faker.string.uuid(), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), notes: faker.string.alpha({length: {min: 10, max: 20}}), related_object_type: faker.string.alpha({length: {min: 10, max: 20}}), related_object_id: faker.string.alpha({length: {min: 10, max: 20}}), completed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), completion_note: faker.string.alpha({length: {min: 10, max: 20}}), is_terminal: faker.datatype.boolean(), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+
+export const getV1AdminOpsTasksEventsListResponseMock = (): AdminTaskEvent[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), task_id: faker.string.uuid(), event_type: faker.string.alpha({length: {min: 10, max: 20}}), actor_user_id: faker.string.uuid(), actor_account_type: faker.string.alpha({length: {min: 10, max: 20}}), previous_status: faker.string.alpha({length: {min: 10, max: 20}}), new_status: faker.string.alpha({length: {min: 10, max: 20}}), note: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, occurred_at: `${faker.date.past().toISOString().split('.')[0]}Z`})))
+
 export const getV1AuthAdminLoginConfirmCreateResponseMock = (overrideResponse: Partial< AuthenticatedUserResponse > = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
 
 export const getV1AuthAdminLoginStartCreateResponseMock = (overrideResponse: Partial< AdminLoginStartResponse > = {}): AdminLoginStartResponse => ({code_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), expires_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
@@ -1432,12 +2180,84 @@ export const getV1KycAdminCasesManualReviewCreateResponseMock = (overrideRespons
 
 export const getV1KycAdminManualReviewsListResponseMock = (): KycAdminCase[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), subject_type: faker.string.alpha({length: {min: 10, max: 20}}), subject_reference: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), provider: faker.string.alpha({length: {min: 10, max: 20}}), provider_environment: faker.string.alpha({length: {min: 10, max: 20}}), workflow_id: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), manual_review_required: faker.datatype.boolean(), blocking_reason: faker.string.alpha({length: {min: 10, max: 20}}), risk_classification: faker.string.alpha({length: {min: 10, max: 20}}), detected_flags: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), provider_session_id: faker.string.alpha({length: {min: 10, max: 20}}), provider_verification_id: faker.string.alpha({length: {min: 10, max: 20}}), provider_report_id: faker.string.alpha({length: {min: 10, max: 20}}), aml_screening_id: faker.string.alpha({length: {min: 10, max: 20}}), provider_subject_id: faker.string.alpha({length: {min: 10, max: 20}}), decision_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`})))
 
-export const getV1KycSessionCreateResponseMock = (overrideResponse: Partial< KycSessionResponse > = {}): KycSessionResponse => ({status: faker.helpers.arrayElement(Object.values(StatusEnum)), provider_session_id: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), verification_url: faker.helpers.arrayElement([faker.internet.url(), null]), already_approved: faker.datatype.boolean(), ...overrideResponse})
+export const getV1KycSessionCreateResponseMock = (overrideResponse: Partial< KycSessionResponse > = {}): KycSessionResponse => ({status: faker.helpers.arrayElement(Object.values(KycStatusEnum)), provider_session_id: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), verification_url: faker.helpers.arrayElement([faker.internet.url(), null]), already_approved: faker.datatype.boolean(), ...overrideResponse})
 
-export const getV1KycStatusRetrieveResponseMock = (overrideResponse: Partial< KycStatusResponse > = {}): KycStatusResponse => ({status: faker.helpers.arrayElement(Object.values(StatusEnum)), financial_access_allowed: faker.datatype.boolean(), phone_verified: faker.datatype.boolean(), provider: faker.string.alpha({length: {min: 10, max: 20}}), provider_session_id: faker.string.alpha({length: {min: 10, max: 20}}), verification_url: faker.helpers.arrayElement([faker.internet.url(), null]), manual_review_required: faker.datatype.boolean(), detected_flags: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), risk_classification: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+export const getV1KycStatusRetrieveResponseMock = (overrideResponse: Partial< KycStatusResponse > = {}): KycStatusResponse => ({status: faker.helpers.arrayElement(Object.values(KycStatusEnum)), financial_access_allowed: faker.datatype.boolean(), phone_verified: faker.datatype.boolean(), provider: faker.string.alpha({length: {min: 10, max: 20}}), provider_session_id: faker.string.alpha({length: {min: 10, max: 20}}), verification_url: faker.helpers.arrayElement([faker.internet.url(), null]), manual_review_required: faker.datatype.boolean(), detected_flags: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), risk_classification: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getV1KycWebhooksDiditCreateResponseMock = (overrideResponse: Partial< DiditWebhookResponse > = {}): DiditWebhookResponse => ({status: faker.helpers.arrayElement(Object.values(StatusEnum)), idempotent: faker.datatype.boolean(), ...overrideResponse})
+export const getV1KycWebhooksDiditCreateResponseMock = (overrideResponse: Partial< DiditWebhookResponse > = {}): DiditWebhookResponse => ({status: faker.helpers.arrayElement(Object.values(KycStatusEnum)), idempotent: faker.datatype.boolean(), ...overrideResponse})
 
+
+export const getV1AdminOpsAuditEventsListMockHandler = (overrideResponse?: AuditEvent[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AuditEvent[]> | AuditEvent[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/admin-ops/audit-events/', async (info) => {await delay(1000);
+  
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AdminOpsAuditEventsListResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1AdminOpsTasksListMockHandler = (overrideResponse?: AdminTask[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AdminTask[]> | AdminTask[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/admin-ops/tasks/', async (info) => {await delay(1000);
+  
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AdminOpsTasksListResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1AdminOpsTasksCreateMockHandler = (overrideResponse?: AdminTask | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AdminTask> | AdminTask), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/admin-ops/tasks/', async (info) => {await delay(1000);
+  
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AdminOpsTasksCreateResponseMock()),
+      { status: 201,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1AdminOpsTasksRetrieveMockHandler = (overrideResponse?: AdminTask | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AdminTask> | AdminTask), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/admin-ops/tasks/:taskId/', async (info) => {await delay(1000);
+  
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AdminOpsTasksRetrieveResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1AdminOpsTasksPartialUpdateMockHandler = (overrideResponse?: AdminTask | ((info: Parameters<Parameters<typeof http.patch>[1]>[0]) => Promise<AdminTask> | AdminTask), options?: RequestHandlerOptions) => {
+  return http.patch('*/api/v1/admin-ops/tasks/:taskId/', async (info) => {await delay(1000);
+  
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AdminOpsTasksPartialUpdateResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1AdminOpsTasksEventsListMockHandler = (overrideResponse?: AdminTaskEvent[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AdminTaskEvent[]> | AdminTaskEvent[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/admin-ops/tasks/:taskId/events/', async (info) => {await delay(1000);
+  
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AdminOpsTasksEventsListResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
 
 export const getV1AuthAdminLoginConfirmCreateMockHandler = (overrideResponse?: AuthenticatedUserResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AuthenticatedUserResponse> | AuthenticatedUserResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/auth/admin/login/confirm/', async (info) => {await delay(1000);
@@ -1629,6 +2449,12 @@ export const getV1KycWebhooksDiditCreateMockHandler = (overrideResponse?: DiditW
   }, options)
 }
 export const getBanxumApiMock = () => [
+  getV1AdminOpsAuditEventsListMockHandler(),
+  getV1AdminOpsTasksListMockHandler(),
+  getV1AdminOpsTasksCreateMockHandler(),
+  getV1AdminOpsTasksRetrieveMockHandler(),
+  getV1AdminOpsTasksPartialUpdateMockHandler(),
+  getV1AdminOpsTasksEventsListMockHandler(),
   getV1AuthAdminLoginConfirmCreateMockHandler(),
   getV1AuthAdminLoginStartCreateMockHandler(),
   getV1AuthAdminUsersCreateMockHandler(),

@@ -28,3 +28,10 @@ Backend/API-only implementation slices do not create a visible UI surface. When 
 - Current first-version behavior: no UI was implemented in this slice; only backend API, OpenAPI schema, generated TypeScript client, append-only evidence models, and tests exist.
 - Suggested improvement: Claude Design should design or redesign the full admin compliance workflow, including queue filters, risk/status badges, provider-reference display, evidence summaries, decision forms, non-overridable sanctions/decline messaging, re-verification flow, account-control confirmation dialogs, closure clean-account confirmation copy, audit trail display, and clear distinction between Didit provider review and Garanta internal review.
 - Priority: important.
+
+## 2026-06-02: Admin Operations Task Queue
+
+- Screen or component: admin task queue, task detail, task event history, audit-log search.
+- Current first-version behavior: no UI was implemented in this slice; only backend API, OpenAPI schema, generated TypeScript client, append-only task-event evidence, and tests exist.
+- Suggested improvement: Claude Design should design or redesign the admin operational task workflow, including dashboard entry point, filters, saved views, SLA/due-date states, priority indicators, assignment controls, related-object links, empty states, task completion/cancellation copy, task event history display, and audit-log search ergonomics.
+- Priority: important.
