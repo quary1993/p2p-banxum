@@ -14,14 +14,19 @@ from backend.apps.platform_core.domain.access import is_admin_actor
 from backend.apps.servicing.api.serializers import (
     BorrowerRepaymentRecordRequestSerializer,
     BorrowerRepaymentRecordResponseSerializer,
+    LoanServicingStatusScanRequestSerializer,
+    LoanServicingStatusScanResponseSerializer,
     serialize_borrower_repayment_event,
     serialize_distribution_line,
+    serialize_status_change,
 )
 from backend.apps.servicing.services import (
     RecordBorrowerRepaymentCommand,
+    ScanLoanServicingStatusesCommand,
     ServicingAuthorizationError,
     ServicingValidationError,
     record_borrower_repayment,
+    scan_loan_servicing_statuses,
 )
 
 
@@ -78,4 +83,38 @@ class BorrowerRepaymentRecordView(APIView):
                 ],
             },
             status=status.HTTP_201_CREATED,
+        )
+
+
+class LoanServicingStatusScanView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=LoanServicingStatusScanRequestSerializer,
+        responses={200: LoanServicingStatusScanResponseSerializer},
+    )
+    def post(self, request: Request) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = LoanServicingStatusScanRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            result = scan_loan_servicing_statuses(
+                ScanLoanServicingStatusesCommand(
+                    actor=cast(Model, request.user),
+                    as_of_date=data["as_of_date"],
+                    loan_ids=tuple(str(loan_id) for loan_id in data.get("loan_ids", [])),
+                )
+            )
+        except ServicingAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except ServicingValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {
+                "as_of_date": result.as_of_date,
+                "changes": [serialize_status_change(change) for change in result.changes],
+            },
+            status=status.HTTP_200_OK,
         )

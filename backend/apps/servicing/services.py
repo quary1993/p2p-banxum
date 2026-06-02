@@ -44,6 +44,13 @@ class ServicingValidationError(ServicingError):
 
 MAX_IDEMPOTENCY_KEY_LENGTH = 160
 REQUEST_FINGERPRINT_METADATA_KEY = "request_fingerprint"
+LOAN_STATUS_FUNDED = "funded"
+LOAN_STATUS_LATE = "late"
+LOAN_STATUS_DEFAULTED = "defaulted"
+REPAYMENT_ALLOWED_LOAN_STATUSES = {LOAN_STATUS_FUNDED, LOAN_STATUS_LATE}
+STATUS_SCAN_LOAN_STATUSES = {LOAN_STATUS_FUNDED, LOAN_STATUS_LATE}
+LATE_THRESHOLD_DAYS = 5
+DEFAULT_THRESHOLD_DAYS = 16
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +86,30 @@ class ServicingDistributionPlanLine:
 class RecordBorrowerRepaymentResult:
     repayment_event: BorrowerRepaymentEvent
     distribution_lines: list[InvestorRepaymentDistributionLine]
+
+
+@dataclass(frozen=True, slots=True)
+class ScanLoanServicingStatusesCommand:
+    actor: Model
+    as_of_date: date
+    loan_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class LoanServicingStatusChange:
+    loan_id: str
+    previous_status: str
+    new_status: str
+    days_past_due: int
+    outstanding_minor: int
+    triggering_installment_id: str
+    triggering_due_date: date | None
+
+
+@dataclass(frozen=True, slots=True)
+class ScanLoanServicingStatusesResult:
+    as_of_date: date
+    changes: list[LoanServicingStatusChange]
 
 
 def _ledger_services() -> Any:
@@ -190,7 +221,7 @@ def _existing_repayment_for_idempotency(
     )
 
 
-def _locked_funded_loan(loan_id: str) -> Model:
+def _locked_repayable_loan(loan_id: str) -> Model:
     loan_model = apps.get_model("loans", "Loan")
     loan = cast(
         Model | None,
@@ -202,8 +233,13 @@ def _locked_funded_loan(loan_id: str) -> Model:
     if loan is None:
         raise ServicingValidationError("Loan does not exist.")
     loan_ref = cast(Any, loan)
-    if str(loan_ref.status) != "funded":
-        raise ServicingValidationError("Loan must be funded before borrower repayment.")
+    status = str(loan_ref.status)
+    if status == LOAN_STATUS_DEFAULTED:
+        raise ServicingValidationError(
+            "Defaulted loans must be handled through the recovery workflow."
+        )
+    if status not in REPAYMENT_ALLOWED_LOAN_STATUSES:
+        raise ServicingValidationError("Loan must be funded or late before borrower repayment.")
     if not bool(getattr(loan_ref.borrower, "can_transact", False)):
         raise ServicingValidationError(
             "Borrower KYB must be approved and free of compliance hold."
@@ -217,6 +253,148 @@ def _installment_paid_totals(installment: Model) -> tuple[int, int]:
         interest=Sum("interest_applied_minor"),
     )
     return int(aggregate["principal"] or 0), int(aggregate["interest"] or 0)
+
+
+def _first_outstanding_installment_status(
+    loan: Model,
+    *,
+    as_of_date: date,
+) -> tuple[str, int, int, Model | None]:
+    loan_ref = cast(Any, loan)
+    installment_model = apps.get_model("loans", "LoanInstallment")
+    installments = installment_model.objects.select_for_update().filter(
+        loan=loan,
+        schedule_version=loan_ref.schedule_version,
+    ).order_by("due_date", "installment_number", "id")
+    for installment in installments:
+        principal_paid, interest_paid = _installment_paid_totals(cast(Model, installment))
+        remaining_principal = int(installment.principal_minor) - principal_paid
+        remaining_interest = int(installment.interest_minor) - interest_paid
+        if remaining_principal < 0 or remaining_interest < 0:
+            raise ServicingValidationError("Installment payment totals exceed scheduled amounts.")
+        outstanding = remaining_principal + remaining_interest
+        if outstanding <= 0:
+            continue
+        days_past_due = max(0, (as_of_date - installment.due_date).days)
+        if days_past_due >= DEFAULT_THRESHOLD_DAYS:
+            return LOAN_STATUS_DEFAULTED, days_past_due, outstanding, cast(Model, installment)
+        if days_past_due >= LATE_THRESHOLD_DAYS:
+            return LOAN_STATUS_LATE, days_past_due, outstanding, cast(Model, installment)
+        return LOAN_STATUS_FUNDED, days_past_due, outstanding, cast(Model, installment)
+    return LOAN_STATUS_FUNDED, 0, 0, None
+
+
+def _record_loan_servicing_status_change(
+    *,
+    loan: Model,
+    actor: Model,
+    new_status: str,
+    as_of_date: date,
+    days_past_due: int,
+    outstanding_minor: int,
+    triggering_installment: Model | None,
+    reason: str,
+    metadata: dict[str, Any] | None = None,
+) -> LoanServicingStatusChange | None:
+    loan_ref = cast(Any, loan)
+    previous_status = str(loan_ref.status)
+    if previous_status == new_status:
+        return None
+    loan_ref.status = new_status
+    loan_ref.updated_by_admin_id = actor.pk
+    loan.save(update_fields=["status", "updated_by_admin_id", "updated_at"])
+    triggering_installment_id = (
+        str(cast(Any, triggering_installment).id) if triggering_installment is not None else ""
+    )
+    triggering_due_date = (
+        cast(date, cast(Any, triggering_installment).due_date)
+        if triggering_installment is not None
+        else None
+    )
+    event_metadata = {
+        "previous_status": previous_status,
+        "new_status": new_status,
+        "as_of_date": as_of_date.isoformat(),
+        "days_past_due": days_past_due,
+        "outstanding_minor": outstanding_minor,
+        "triggering_installment_id": triggering_installment_id,
+        "triggering_due_date": triggering_due_date.isoformat()
+        if triggering_due_date is not None
+        else "",
+        "reason": reason,
+        **(metadata or {}),
+    }
+    event_model = apps.get_model("loans", "LoanEvent")
+    event_model.objects.create(
+        loan=loan,
+        event_type="servicing_status_changed",
+        actor_user_id=actor.pk,
+        actor_account_type=str(getattr(actor, "account_type", "")),
+        previous_status=previous_status,
+        new_status=new_status,
+        note=f"Loan servicing status changed to {new_status}.",
+        metadata=event_metadata,
+    )
+    actor_ref = actor_ref_for_user(actor)
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref,
+            action="loan.servicing_status_changed",
+            target_type="Loan",
+            target_id=str(loan_ref.id),
+            metadata=event_metadata,
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="LoanServicingStatusChanged",
+            aggregate_type="Loan",
+            aggregate_id=str(loan_ref.id),
+            payload=event_metadata,
+            idempotency_key=(
+                f"loan:{loan_ref.id}:servicing-status:"
+                f"{new_status}:{as_of_date.isoformat()}"
+            ),
+        )
+    )
+    return LoanServicingStatusChange(
+        loan_id=str(loan_ref.id),
+        previous_status=previous_status,
+        new_status=new_status,
+        days_past_due=days_past_due,
+        outstanding_minor=outstanding_minor,
+        triggering_installment_id=triggering_installment_id,
+        triggering_due_date=triggering_due_date,
+    )
+
+
+def _refresh_loan_status_after_repayment(
+    *,
+    loan: Model,
+    actor: Model,
+    as_of_date: date,
+    repayment_event_id: str,
+) -> LoanServicingStatusChange | None:
+    loan_ref = cast(Any, loan)
+    if str(loan_ref.status) != LOAN_STATUS_LATE:
+        return None
+    new_status, days_past_due, outstanding, installment = _first_outstanding_installment_status(
+        loan,
+        as_of_date=as_of_date,
+    )
+    if new_status == LOAN_STATUS_DEFAULTED:
+        return None
+    return _record_loan_servicing_status_change(
+        loan=loan,
+        actor=actor,
+        new_status=new_status,
+        as_of_date=as_of_date,
+        days_past_due=days_past_due,
+        outstanding_minor=outstanding,
+        triggering_installment=installment,
+        reason="borrower_repayment",
+        metadata={"repayment_event_id": repayment_event_id},
+    )
 
 
 def _next_due_installment(loan: Model) -> tuple[Model, int, int]:
@@ -349,7 +527,7 @@ def record_borrower_repayment(
     if existing is not None:
         return existing
 
-    loan = _locked_funded_loan(command.loan_id)
+    loan = _locked_repayable_loan(command.loan_id)
     existing_after_lock = _existing_repayment_for_idempotency(
         idempotency_key,
         expected_fingerprint=request_fingerprint,
@@ -503,6 +681,12 @@ def record_borrower_repayment(
                 metadata={"line_index": index},
             )
         )
+    status_change = _refresh_loan_status_after_repayment(
+        loan=loan,
+        actor=command.actor,
+        as_of_date=command.value_date,
+        repayment_event_id=str(repayment_event.id),
+    )
 
     event_metadata = {
         "loan_id": str(loan_ref.id),
@@ -513,6 +697,12 @@ def record_borrower_repayment(
         "interest_applied_minor": interest_applied,
         "principal_applied_minor": principal_applied,
         "distribution_line_count": len(distribution_lines),
+        "loan_status_change": {
+            "previous_status": status_change.previous_status,
+            "new_status": status_change.new_status,
+        }
+        if status_change is not None
+        else {},
     }
     actor_ref = actor_ref_for_user(command.actor)
     record_audit_event(
@@ -537,3 +727,35 @@ def record_borrower_repayment(
         repayment_event=repayment_event,
         distribution_lines=distribution_lines,
     )
+
+
+@transaction.atomic
+def scan_loan_servicing_statuses(
+    command: ScanLoanServicingStatusesCommand,
+) -> ScanLoanServicingStatusesResult:
+    _require_admin_actor(command.actor)
+    loan_model = apps.get_model("loans", "Loan")
+    loans = loan_model.objects.select_for_update().filter(status__in=STATUS_SCAN_LOAN_STATUSES)
+    if command.loan_ids:
+        loans = loans.filter(id__in=[str(loan_id) for loan_id in command.loan_ids])
+    changes: list[LoanServicingStatusChange] = []
+    for loan in loans.order_by("id"):
+        new_status, days_past_due, outstanding, installment = (
+            _first_outstanding_installment_status(
+                cast(Model, loan),
+                as_of_date=command.as_of_date,
+            )
+        )
+        change = _record_loan_servicing_status_change(
+            loan=cast(Model, loan),
+            actor=command.actor,
+            new_status=new_status,
+            as_of_date=command.as_of_date,
+            days_past_due=days_past_due,
+            outstanding_minor=outstanding,
+            triggering_installment=installment,
+            reason="servicing_status_scan",
+        )
+        if change is not None:
+            changes.append(change)
+    return ScanLoanServicingStatusesResult(as_of_date=command.as_of_date, changes=changes)

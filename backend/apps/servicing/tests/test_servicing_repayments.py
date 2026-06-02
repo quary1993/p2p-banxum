@@ -20,8 +20,10 @@ from backend.apps.servicing.models import (
 )
 from backend.apps.servicing.services import (
     RecordBorrowerRepaymentCommand,
+    ScanLoanServicingStatusesCommand,
     ServicingValidationError,
     record_borrower_repayment,
+    scan_loan_servicing_statuses,
 )
 
 
@@ -167,6 +169,8 @@ def _repayment_command(
     loan: Model,
     *,
     amount_minor: int = 3_300_00,
+    booking_date: date = date(2026, 3, 1),
+    value_date: date = date(2026, 3, 1),
     warning_acknowledged: bool = False,
     idempotency_key: str = "servicing-repayment-1",
 ) -> RecordBorrowerRepaymentCommand:
@@ -174,8 +178,8 @@ def _repayment_command(
         actor=admin_user,
         loan_id=str(loan.pk),
         amount_minor=amount_minor,
-        booking_date=date(2026, 3, 1),
-        value_date=date(2026, 3, 1),
+        booking_date=booking_date,
+        value_date=value_date,
         collection_account_identifier="CH00GARANTALEDGER",
         payer_name="Servicing Borrower AG",
         payer_account_identifier="CH22BORROWER",
@@ -374,6 +378,128 @@ def test_second_repayment_advances_to_next_unpaid_installment(
     ]
     assert {holding.current_principal_minor for holding in holdings} == {0}
     assert {holding.status for holding in holdings} == {"closed"}
+
+
+@pytest.mark.django_db
+def test_status_scan_marks_loan_late_on_day_five(
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+
+    result = scan_loan_servicing_statuses(
+        ScanLoanServicingStatusesCommand(
+            actor=admin_user,
+            as_of_date=date(2026, 3, 5),
+            loan_ids=(str(loan.pk),),
+        )
+    )
+    loan.refresh_from_db()
+
+    assert cast(Any, loan).status == "late"
+    assert len(result.changes) == 1
+    assert result.changes[0].previous_status == "funded"
+    assert result.changes[0].new_status == "late"
+    assert result.changes[0].days_past_due == 5
+    assert result.changes[0].outstanding_minor == 3_300_00
+    assert DomainEvent.objects.filter(
+        event_type="LoanServicingStatusChanged",
+        aggregate_id=str(loan.pk),
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_late_loan_returns_to_funded_after_catchup_repayment(
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+    scan_loan_servicing_statuses(
+        ScanLoanServicingStatusesCommand(
+            actor=admin_user,
+            as_of_date=date(2026, 3, 5),
+            loan_ids=(str(loan.pk),),
+        )
+    )
+
+    result = record_borrower_repayment(
+        _repayment_command(
+            admin_user,
+            loan,
+            value_date=date(2026, 3, 6),
+            idempotency_key="servicing-late-catchup",
+        )
+    )
+    loan.refresh_from_db()
+
+    assert cast(Any, loan).status == "funded"
+    assert result.repayment_event.metadata["installment_number"] == 1
+    assert DomainEvent.objects.filter(
+        event_type="LoanServicingStatusChanged",
+        aggregate_id=str(loan.pk),
+        payload__new_status="funded",
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_status_scan_marks_loan_defaulted_on_day_sixteen_and_blocks_normal_repayment(
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+
+    result = scan_loan_servicing_statuses(
+        ScanLoanServicingStatusesCommand(
+            actor=admin_user,
+            as_of_date=date(2026, 3, 16),
+            loan_ids=(str(loan.pk),),
+        )
+    )
+    loan.refresh_from_db()
+
+    assert cast(Any, loan).status == "defaulted"
+    assert len(result.changes) == 1
+    assert result.changes[0].new_status == "defaulted"
+    assert result.changes[0].days_past_due == 16
+    with pytest.raises(ServicingValidationError, match="recovery workflow"):
+        record_borrower_repayment(
+            _repayment_command(
+                admin_user,
+                loan,
+                idempotency_key="servicing-defaulted-repayment",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_status_scan_admin_api(
+    client: Client,
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+    client.force_login(cast(Any, admin_user))
+
+    response = client.post(
+        "/api/v1/servicing/admin/status-scan/",
+        data={
+            "as_of_date": "2026-03-05",
+            "loan_ids": [str(loan.pk)],
+        },
+        content_type="application/json",
+    )
+    loan.refresh_from_db()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["as_of_date"] == "2026-03-05"
+    assert payload["changes"][0]["loan_id"] == str(loan.pk)
+    assert payload["changes"][0]["new_status"] == "late"
+    assert cast(Any, loan).status == "late"
 
 
 @pytest.mark.django_db

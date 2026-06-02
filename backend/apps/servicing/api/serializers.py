@@ -80,6 +80,30 @@ class BorrowerRepaymentRecordResponseSerializer(serializers.Serializer[Any]):
     distribution_lines = InvestorRepaymentDistributionLineSerializer(many=True)
 
 
+class LoanServicingStatusScanRequestSerializer(serializers.Serializer[Any]):
+    as_of_date = serializers.DateField()
+    loan_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        allow_empty=True,
+    )
+
+
+class LoanServicingStatusChangeSerializer(serializers.Serializer[Any]):
+    loan_id = serializers.UUIDField()
+    previous_status = serializers.CharField()
+    new_status = serializers.CharField()
+    days_past_due = serializers.IntegerField()
+    outstanding_minor = serializers.IntegerField()
+    triggering_installment_id = serializers.CharField(allow_blank=True)
+    triggering_due_date = serializers.DateField(allow_null=True)
+
+
+class LoanServicingStatusScanResponseSerializer(serializers.Serializer[Any]):
+    as_of_date = serializers.DateField()
+    changes = LoanServicingStatusChangeSerializer(many=True)
+
+
 def serialize_borrower_repayment_event(
     repayment_event: BorrowerRepaymentEvent,
 ) -> dict[str, Any]:
@@ -90,3 +114,15 @@ def serialize_distribution_line(
     distribution_line: InvestorRepaymentDistributionLine,
 ) -> dict[str, Any]:
     return dict(InvestorRepaymentDistributionLineSerializer(distribution_line).data)
+
+
+def serialize_status_change(change: Any) -> dict[str, Any]:
+    return {
+        "loan_id": change.loan_id,
+        "previous_status": change.previous_status,
+        "new_status": change.new_status,
+        "days_past_due": change.days_past_due,
+        "outstanding_minor": change.outstanding_minor,
+        "triggering_installment_id": change.triggering_installment_id,
+        "triggering_due_date": change.triggering_due_date,
+    }

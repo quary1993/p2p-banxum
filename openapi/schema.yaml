@@ -1407,6 +1407,9 @@ paths:
           - draft
           - published
           - funded
+          - late
+          - defaulted
+          - repaid
           - cancelled
           type: string
           minLength: 1
@@ -1414,6 +1417,9 @@ paths:
           * `draft` - Draft
           * `published` - Published
           * `funded` - Funded
+          * `late` - Late
+          * `defaulted` - Defaulted
+          * `repaid` - Repaid
           * `cancelled` - Cancelled
       tags:
       - v1
@@ -1779,6 +1785,32 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BorrowerRepaymentRecordResponse'
+          description: ''
+  /api/v1/servicing/admin/status-scan/:
+    post:
+      operationId: v1_servicing_admin_status_scan_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoanServicingStatusScanRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoanServicingStatusScanRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoanServicingStatusScanRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanServicingStatusScanResponse'
           description: ''
 components:
   schemas:
@@ -4359,6 +4391,60 @@ components:
       - schedule_version
       - total_minor
       - updated_at
+    LoanServicingStatusChange:
+      type: object
+      properties:
+        loan_id:
+          type: string
+          format: uuid
+        previous_status:
+          type: string
+        new_status:
+          type: string
+        days_past_due:
+          type: integer
+        outstanding_minor:
+          type: integer
+        triggering_installment_id:
+          type: string
+        triggering_due_date:
+          type: string
+          format: date
+          nullable: true
+      required:
+      - days_past_due
+      - loan_id
+      - new_status
+      - outstanding_minor
+      - previous_status
+      - triggering_due_date
+      - triggering_installment_id
+    LoanServicingStatusScanRequest:
+      type: object
+      properties:
+        as_of_date:
+          type: string
+          format: date
+        loan_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+      required:
+      - as_of_date
+    LoanServicingStatusScanResponse:
+      type: object
+      properties:
+        as_of_date:
+          type: string
+          format: date
+        changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/LoanServicingStatusChange'
+      required:
+      - as_of_date
+      - changes
     MagicLinkConsume:
       type: object
       properties:

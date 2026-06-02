@@ -12,6 +12,9 @@ class LoanStatus(models.TextChoices):
     DRAFT = "draft", "Draft"
     PUBLISHED = "published", "Published"
     FUNDED = "funded", "Funded"
+    LATE = "late", "Late"
+    DEFAULTED = "defaulted", "Defaulted"
+    REPAID = "repaid", "Repaid"
     CANCELLED = "cancelled", "Cancelled"
 
 
@@ -91,6 +94,7 @@ class LoanEventType(models.TextChoices):
     PUBLISHED = "published", "Published"
     FUNDING_CLOSED = "funding_closed", "Funding closed"
     SCHEDULE_GENERATED = "schedule_generated", "Schedule generated"
+    SERVICING_STATUS_CHANGED = "servicing_status_changed", "Servicing status changed"
 
 
 class Loan(TimestampedModel):

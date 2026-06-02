@@ -1256,6 +1256,27 @@ export interface LoanInstallment {
   updated_at: string;
 }
 
+export interface LoanServicingStatusChange {
+  loan_id: string;
+  previous_status: string;
+  new_status: string;
+  days_past_due: number;
+  outstanding_minor: number;
+  triggering_installment_id: string;
+  /** @nullable */
+  triggering_due_date: string | null;
+}
+
+export interface LoanServicingStatusScanRequest {
+  as_of_date: string;
+  loan_ids?: string[];
+}
+
+export interface LoanServicingStatusScanResponse {
+  as_of_date: string;
+  changes: LoanServicingStatusChange[];
+}
+
 export interface MagicLinkConsume {
   token: string;
 }
@@ -2020,6 +2041,9 @@ risk_rating?: V1LoansAdminLoansListRiskRating;
  * * `draft` - Draft
 * `published` - Published
 * `funded` - Funded
+* `late` - Late
+* `defaulted` - Defaulted
+* `repaid` - Repaid
 * `cancelled` - Cancelled
  * @minLength 1
  */
@@ -2093,6 +2117,9 @@ export const V1LoansAdminLoansListStatus = {
   draft: 'draft',
   published: 'published',
   funded: 'funded',
+  late: 'late',
+  defaulted: 'defaulted',
+  repaid: 'repaid',
   cancelled: 'cancelled',
 } as const;
 
@@ -6154,6 +6181,65 @@ const {mutation: mutationOptions} = options ?
       return useMutation(mutationOptions, queryClient);
     }
 
+export const v1ServicingAdminStatusScanCreate = (
+    loanServicingStatusScanRequest: LoanServicingStatusScanRequest,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<LoanServicingStatusScanResponse>(
+      {url: `/api/v1/servicing/admin/status-scan/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: loanServicingStatusScanRequest, signal
+    },
+      );
+    }
+
+
+
+export const getV1ServicingAdminStatusScanCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1ServicingAdminStatusScanCreate>>, TError,{data: LoanServicingStatusScanRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1ServicingAdminStatusScanCreate>>, TError,{data: LoanServicingStatusScanRequest}, TContext> => {
+
+const mutationKey = ['v1ServicingAdminStatusScanCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1ServicingAdminStatusScanCreate>>, {data: LoanServicingStatusScanRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1ServicingAdminStatusScanCreate(data,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1ServicingAdminStatusScanCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1ServicingAdminStatusScanCreate>>>
+    export type V1ServicingAdminStatusScanCreateMutationBody = LoanServicingStatusScanRequest
+    export type V1ServicingAdminStatusScanCreateMutationError = unknown
+
+    export const useV1ServicingAdminStatusScanCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1ServicingAdminStatusScanCreate>>, TError,{data: LoanServicingStatusScanRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1ServicingAdminStatusScanCreate>>,
+        TError,
+        {data: LoanServicingStatusScanRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1ServicingAdminStatusScanCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+
 
 export const getV1AdminOpsAuditEventsListResponseMock = (): AuditEvent[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), occurred_at: `${faker.date.past().toISOString().split('.')[0]}Z`, actor_type: faker.string.alpha({length: {min: 10, max: 20}}), actor_id: faker.string.alpha({length: {min: 10, max: 20}}), action: faker.string.alpha({length: {min: 10, max: 20}}), target_type: faker.string.alpha({length: {min: 10, max: 20}}), target_id: faker.string.alpha({length: {min: 10, max: 20}}), request_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})))
 
@@ -6270,6 +6356,8 @@ export const getV1MarketplacePrimaryOrdersCreateResponseMock = (overrideResponse
 export const getV1MarketplacePrimaryOrdersAllocateBalanceCreateResponseMock = (overrideResponse: Partial< PrimaryInvestmentOrder > = {}): PrimaryInvestmentOrder => ({id: faker.string.uuid(), loan_id: faker.string.uuid(), investor_user_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), requested_amount_minor: faker.number.int({min: undefined, max: undefined}), allocated_amount_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), document_acceptance_id: faker.helpers.arrayElement([faker.string.uuid(), null]), reservation_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), release_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), lot_allocations: {}, created_by_user_id: faker.string.uuid(), allocated_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), released_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), closed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), closed_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), notes: faker.string.alpha({length: {min: 10, max: 20}}), admin_notes: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
 
 export const getV1ServicingAdminBorrowerRepaymentsCreateResponseMock = (overrideResponse: Partial< BorrowerRepaymentRecordResponse > = {}): BorrowerRepaymentRecordResponse => ({repayment_event: {id: faker.string.uuid(), loan_id: faker.string.uuid(), installment_id: faker.string.uuid(), event_type: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), booking_date: faker.date.past().toISOString().split('T')[0], value_date: faker.date.past().toISOString().split('T')[0], received_at: `${faker.date.past().toISOString().split('.')[0]}Z`, expected_due_minor: faker.number.int({min: undefined, max: undefined}), interest_applied_minor: faker.number.int({min: undefined, max: undefined}), principal_applied_minor: faker.number.int({min: undefined, max: undefined}), fees_applied_minor: faker.number.int({min: undefined, max: undefined}), penalties_applied_minor: faker.number.int({min: undefined, max: undefined}), remaining_installment_interest_minor: faker.number.int({min: undefined, max: undefined}), remaining_installment_principal_minor: faker.number.int({min: undefined, max: undefined}), warning_acknowledged: faker.datatype.boolean(), bank_operation_id: faker.string.uuid(), journal_entry_id: faker.string.uuid(), created_by_admin_id: faker.string.uuid(), notes: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, idempotency_key: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, distribution_lines: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), repayment_event_id: faker.string.uuid(), holding_id: faker.string.uuid(), investor_user_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), balance_lot_id: faker.string.uuid(), amount_minor: faker.number.int({min: undefined, max: undefined}), principal_minor: faker.number.int({min: undefined, max: undefined}), interest_minor: faker.number.int({min: undefined, max: undefined}), fee_minor: faker.number.int({min: undefined, max: undefined}), current_principal_before_minor: faker.number.int({min: undefined, max: undefined}), current_principal_after_minor: faker.number.int({min: undefined, max: undefined}), metadata: {}, occurred_at: `${faker.date.past().toISOString().split('.')[0]}Z`})), ...overrideResponse})
+
+export const getV1ServicingAdminStatusScanCreateResponseMock = (overrideResponse: Partial< LoanServicingStatusScanResponse > = {}): LoanServicingStatusScanResponse => ({as_of_date: faker.date.past().toISOString().split('T')[0], changes: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({loan_id: faker.string.uuid(), previous_status: faker.string.alpha({length: {min: 10, max: 20}}), new_status: faker.string.alpha({length: {min: 10, max: 20}}), days_past_due: faker.number.int({min: undefined, max: undefined}), outstanding_minor: faker.number.int({min: undefined, max: undefined}), triggering_installment_id: faker.string.alpha({length: {min: 10, max: 20}}), triggering_due_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null])})), ...overrideResponse})
 
 
 export const getV1AdminOpsAuditEventsListMockHandler = (overrideResponse?: AuditEvent[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AuditEvent[]> | AuditEvent[]), options?: RequestHandlerOptions) => {
@@ -6965,6 +7053,18 @@ export const getV1ServicingAdminBorrowerRepaymentsCreateMockHandler = (overrideR
       })
   }, options)
 }
+
+export const getV1ServicingAdminStatusScanCreateMockHandler = (overrideResponse?: LoanServicingStatusScanResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<LoanServicingStatusScanResponse> | LoanServicingStatusScanResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/servicing/admin/status-scan/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1ServicingAdminStatusScanCreateResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
 export const getBanxumApiMock = () => [
   getV1AdminOpsAuditEventsListMockHandler(),
   getV1AdminOpsTasksListMockHandler(),
@@ -7023,5 +7123,6 @@ export const getBanxumApiMock = () => [
   getV1MarketplacePrimaryLoansRetrieveMockHandler(),
   getV1MarketplacePrimaryOrdersCreateMockHandler(),
   getV1MarketplacePrimaryOrdersAllocateBalanceCreateMockHandler(),
-  getV1ServicingAdminBorrowerRepaymentsCreateMockHandler()
+  getV1ServicingAdminBorrowerRepaymentsCreateMockHandler(),
+  getV1ServicingAdminStatusScanCreateMockHandler()
 ]
