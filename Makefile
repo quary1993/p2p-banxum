@@ -7,7 +7,7 @@ COMPOSE ?= docker compose
 TEST ?=
 MIGRATION_CHECK_DATABASE_URL ?= sqlite:///:memory:
 
-.PHONY: setup up down test test-backend test-frontend lint lint-backend lint-frontend lint-imports typecheck typecheck-backend typecheck-frontend migrate migration-check seed api-schema api-client check-generated agent-check backend-run frontend-run docker-build frontend-build
+.PHONY: setup up down test test-backend test-frontend lint lint-backend lint-frontend lint-imports typecheck typecheck-backend typecheck-frontend migrate migration-check seed bootstrap-superadmin api-schema api-client check-generated agent-check backend-run frontend-run docker-build frontend-build
 
 setup:
 	$(UV) sync --python $(PYTHON_VERSION) --group dev
@@ -60,6 +60,9 @@ migration-check:
 
 seed:
 	$(UV) run python backend/manage.py seed_demo
+
+bootstrap-superadmin:
+	$(UV) run python backend/manage.py bootstrap_superadmin
 
 api-schema:
 	mkdir -p openapi

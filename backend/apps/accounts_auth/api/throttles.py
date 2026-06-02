@@ -108,6 +108,30 @@ class NaturalPersonRegistrationThrottle(AuthThrottle):
     )
 
 
+class AdminLoginStartThrottle(AuthThrottle):
+    scope = "admin_login_start"
+    cooldown_rules = (CooldownRule("cooldown", settings.AUTH_ADMIN_LOGIN_COOLDOWN_SECONDS),)
+    window_rules = (
+        WindowRule("hour", 60 * 60, settings.AUTH_ADMIN_LOGIN_HOURLY_LIMIT),
+        WindowRule("day", 24 * 60 * 60, settings.AUTH_ADMIN_LOGIN_DAILY_LIMIT),
+    )
+
+    def get_identifiers(self, request: Request) -> tuple[str, ...]:
+        identifiers = list(super().get_identifiers(request))
+        email = request.data.get("email") if isinstance(request.data, dict) else None
+        if isinstance(email, str) and email:
+            identifiers.append(f"email:{_hash_identifier(email.strip().lower())}")
+        return tuple(identifiers)
+
+
+class AdminLoginConfirmThrottle(AuthThrottle):
+    scope = "admin_login_confirm"
+    window_rules = (
+        WindowRule("hour", 60 * 60, settings.AUTH_ADMIN_LOGIN_CONFIRM_HOURLY_LIMIT),
+        WindowRule("day", 24 * 60 * 60, settings.AUTH_ADMIN_LOGIN_CONFIRM_DAILY_LIMIT),
+    )
+
+
 class PhoneVerificationRequestThrottle(AuthThrottle):
     scope = "phone_verification_request"
     cooldown_rules = (CooldownRule("cooldown", settings.AUTH_PHONE_VERIFICATION_COOLDOWN_SECONDS),)

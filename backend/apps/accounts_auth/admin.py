@@ -9,8 +9,22 @@ from backend.apps.accounts_auth.models import User
 @admin.register(User)
 class UserAdmin(DjangoUserAdmin):  # type: ignore[type-arg]
     ordering = ("email",)
-    list_display = ("email", "full_name", "account_type", "status", "is_staff", "is_active")
-    list_filter = ("account_type", "status", "is_staff", "is_active")
+    list_display = (
+        "email",
+        "full_name",
+        "account_type",
+        "status",
+        "is_env_managed_superadmin",
+        "is_staff",
+        "is_active",
+    )
+    list_filter = (
+        "account_type",
+        "status",
+        "is_env_managed_superadmin",
+        "is_staff",
+        "is_active",
+    )
     search_fields = ("email", "full_name")
     fieldsets = (
         (None, {"fields": ("email", "password")}),
@@ -23,6 +37,7 @@ class UserAdmin(DjangoUserAdmin):  # type: ignore[type-arg]
                     "status",
                     "phone_number",
                     "phone_verified_at",
+                    "is_env_managed_superadmin",
                 )
             },
         ),

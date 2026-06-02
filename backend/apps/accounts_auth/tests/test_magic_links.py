@@ -69,6 +69,24 @@ def test_expired_magic_link_is_rejected(investor: User) -> None:
 
 
 @pytest.mark.django_db
+def test_admin_account_cannot_receive_magic_link() -> None:
+    admin_user = User.objects.create_user(
+        email="admin@example.test",
+        password="AdminPass123!",
+        full_name="Admin",
+        account_type=AccountType.ADMIN,
+        status=AccountStatus.ACTIVE,
+        is_staff=True,
+    )
+
+    with pytest.raises(InvalidOrExpiredTokenError):
+        issue_magic_link(MagicLinkRequestCommand(email=admin_user.email))
+
+    assert EmailLoginToken.objects.count() == 0
+    assert OutboxMessage.objects.filter(topic="email.magic_link_requested").count() == 0
+
+
+@pytest.mark.django_db
 def test_magic_link_request_api_does_not_reveal_account_existence(client: Client) -> None:
     response = client.post(
         "/api/v1/auth/magic-link/request/",

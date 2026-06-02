@@ -7,6 +7,7 @@ from typing import Any, cast
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import DatabaseError, connection, transaction
 from django.db.models import Model
 from django.test import Client
 from django.utils import timezone
@@ -203,6 +204,37 @@ def test_provider_events_are_append_only() -> None:
         KycProviderEvent.objects.filter(id=result.event.id).update(provider_status="approved")
     with pytest.raises(AppendOnlyViolation):
         KycProviderEvent.objects.filter(id=result.event.id).delete()
+
+
+@pytest.mark.django_db
+def test_provider_event_database_trigger_blocks_raw_update_and_delete() -> None:
+    user = create_lender()
+    session_result = create_kyc_session(CreateKycSessionCommand(user=user))
+    assert session_result.session is not None
+    result = process_didit_event(
+        ProviderKycEventCommand(
+            provider_event_id="didit-event-raw-sql-append-only",
+            provider_event_type="verification.processing",
+            provider_status="processing",
+            provider_session_id=session_result.session.provider_session_id,
+            vendor_data=f"user:{user.pk}",
+            raw_payload={"id": "didit-event-raw-sql-append-only"},
+        )
+    )
+
+    with pytest.raises(DatabaseError), transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE kyc_compliance_kycproviderevent SET provider_status = %s WHERE id = %s",
+                ["approved", result.event.id],
+            )
+
+    with pytest.raises(DatabaseError), transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM kyc_compliance_kycproviderevent WHERE id = %s",
+                [result.event.id],
+            )
 
 
 @pytest.mark.django_db

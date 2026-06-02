@@ -10,8 +10,13 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from backend.apps.accounts_auth.api.permissions import IsSuperAdminUser
 from backend.apps.accounts_auth.api.request_meta import client_ip, user_agent
 from backend.apps.accounts_auth.api.serializers import (
+    AdminLoginConfirmRequestSerializer,
+    AdminLoginStartRequestSerializer,
+    AdminLoginStartResponseSerializer,
+    AdminUserCreateRequestSerializer,
     AuthenticatedUserResponseSerializer,
     MagicLinkConsumeSerializer,
     MagicLinkRequestSerializer,
@@ -23,6 +28,8 @@ from backend.apps.accounts_auth.api.serializers import (
     serialize_user,
 )
 from backend.apps.accounts_auth.api.throttles import (
+    AdminLoginConfirmThrottle,
+    AdminLoginStartThrottle,
     MagicLinkRequestThrottle,
     NaturalPersonRegistrationThrottle,
     PhoneVerificationConfirmThrottle,
@@ -30,9 +37,15 @@ from backend.apps.accounts_auth.api.throttles import (
 )
 from backend.apps.accounts_auth.models import User
 from backend.apps.accounts_auth.services import (
+    AdminAuthorizationError,
+    AdminLoginConfirmCommand,
+    AdminLoginInvalidCredentialsError,
+    AdminLoginStartCommand,
+    CreateAdminUserCommand,
     DuplicateEmailError,
     InvalidOrExpiredCodeError,
     InvalidOrExpiredTokenError,
+    InvalidPasswordError,
     InvalidTermsAcceptanceError,
     MagicLinkConsumeCommand,
     MagicLinkRequestCommand,
@@ -41,12 +54,16 @@ from backend.apps.accounts_auth.services import (
     PhoneVerificationRequestCommand,
     PhoneVerificationThrottleError,
     RegisterNaturalPersonCommand,
+    SensitiveActionCodeThrottleError,
     TooManyCodeAttemptsError,
+    confirm_admin_login,
     confirm_phone_verification,
     consume_magic_link,
+    create_admin_user,
     issue_magic_link,
     register_natural_person_lender,
     request_phone_verification,
+    start_admin_login,
 )
 
 
@@ -135,6 +152,108 @@ class MagicLinkConsumeView(APIView):
             backend="django.contrib.auth.backends.ModelBackend",
         )
         return Response({"user": serialize_user(user)})
+
+
+class AdminLoginStartView(APIView):
+    authentication_classes: list[type] = []
+    permission_classes: list[type] = []
+    throttle_classes = [AdminLoginStartThrottle]
+
+    @extend_schema(
+        request=AdminLoginStartRequestSerializer,
+        responses={202: AdminLoginStartResponseSerializer},
+    )
+    def post(self, request: Request) -> Response:
+        serializer = AdminLoginStartRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            result = start_admin_login(
+                AdminLoginStartCommand(
+                    email=data["email"],
+                    password=data["password"],
+                    ip_address=client_ip(request),
+                    user_agent=user_agent(request),
+                )
+            )
+        except (AdminLoginInvalidCredentialsError, InvalidOrExpiredCodeError) as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except SensitiveActionCodeThrottleError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+
+        return Response(
+            {
+                "code_id": str(result.code_record.id),
+                "status": "code_sent",
+                "expires_at": result.code_record.expires_at.isoformat(),
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class AdminLoginConfirmView(APIView):
+    authentication_classes: list[type] = []
+    permission_classes: list[type] = []
+    throttle_classes = [AdminLoginConfirmThrottle]
+
+    @extend_schema(
+        request=AdminLoginConfirmRequestSerializer,
+        responses={200: AuthenticatedUserResponseSerializer},
+    )
+    def post(self, request: Request) -> Response:
+        serializer = AdminLoginConfirmRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            user = confirm_admin_login(
+                AdminLoginConfirmCommand(
+                    code_id=str(data["code_id"]),
+                    raw_code=data["code"],
+                    ip_address=client_ip(request),
+                    user_agent=user_agent(request),
+                )
+            )
+        except (AdminLoginInvalidCredentialsError, InvalidOrExpiredCodeError) as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except TooManyCodeAttemptsError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+
+        login(
+            request._request,  # noqa: SLF001
+            user,
+            backend="django.contrib.auth.backends.ModelBackend",
+        )
+        return Response({"user": serialize_user(user)})
+
+
+class AdminUserCreateView(APIView):
+    permission_classes = [IsAuthenticated, IsSuperAdminUser]
+
+    @extend_schema(
+        request=AdminUserCreateRequestSerializer,
+        responses={201: AuthenticatedUserResponseSerializer},
+    )
+    def post(self, request: Request) -> Response:
+        serializer = AdminUserCreateRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            user = create_admin_user(
+                CreateAdminUserCommand(
+                    actor=cast(User, request.user),
+                    email=data["email"],
+                    password=data["password"],
+                    full_name=data["full_name"],
+                )
+            )
+        except DuplicateEmailError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        except AdminAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except InvalidPasswordError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"user": serialize_user(user)}, status=status.HTTP_201_CREATED)
 
 
 class CurrentUserView(APIView):

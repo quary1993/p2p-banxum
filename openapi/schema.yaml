@@ -4,6 +4,80 @@ info:
   version: 0.1.0
   description: Internal API for BANXUM investor and admin portals.
 paths:
+  /api/v1/auth/admin/login/confirm/:
+    post:
+      operationId: v1_auth_admin_login_confirm_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminLoginConfirmRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AdminLoginConfirmRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AdminLoginConfirmRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticatedUserResponse'
+          description: ''
+  /api/v1/auth/admin/login/start/:
+    post:
+      operationId: v1_auth_admin_login_start_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminLoginStartRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AdminLoginStartRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AdminLoginStartRequest'
+        required: true
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminLoginStartResponse'
+          description: ''
+  /api/v1/auth/admin/users/:
+    post:
+      operationId: v1_auth_admin_users_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminUserCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AdminUserCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AdminUserCreateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticatedUserResponse'
+          description: ''
   /api/v1/auth/magic-link/consume/:
     post:
       operationId: v1_auth_magic_link_consume_create
@@ -180,6 +254,62 @@ paths:
           description: ''
 components:
   schemas:
+    AdminLoginConfirmRequest:
+      type: object
+      properties:
+        code_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          pattern: ^\d{6}$
+      required:
+      - code
+      - code_id
+    AdminLoginStartRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          writeOnly: true
+      required:
+      - email
+      - password
+    AdminLoginStartResponse:
+      type: object
+      properties:
+        code_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+      required:
+      - code_id
+      - expires_at
+      - status
+    AdminUserCreateRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+        full_name:
+          type: string
+          maxLength: 255
+      required:
+      - email
+      - full_name
+      - password
     AuthenticatedUserResponse:
       type: object
       properties:

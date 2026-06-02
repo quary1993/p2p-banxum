@@ -71,6 +71,16 @@ def test_sensitive_action_code_is_single_use_and_emits_email_outbox(investor: Us
 
 
 @pytest.mark.django_db
+def test_investor_cannot_receive_admin_login_code(investor: User) -> None:
+    with pytest.raises(InvalidOrExpiredCodeError):
+        issue_sensitive_action_code(
+            SensitiveActionCodeCommand(user=investor, action=SensitiveAction.ADMIN_LOGIN)
+        )
+
+    assert OutboxMessage.objects.count() == 0
+
+
+@pytest.mark.django_db
 def test_sensitive_action_code_enforces_max_attempts(investor: User) -> None:
     result = issue_sensitive_action_code(
         SensitiveActionCodeCommand(

@@ -31,6 +31,7 @@ Implemented and committed:
 - Phase 2 first accounts/auth slice: custom user model, natural-person lender registration record, registration terms acceptance evidence, magic-link login tokens, sensitive-action email codes, basic session auth API endpoints, and focused tests.
 - Phase 2 phone-verification foundation: authenticated phone verification request/confirm API, phone challenge records, encrypted local/mock verification codes, SMS outbox trigger without plaintext code payload, cooldown/attempt controls, audit/domain events, and focused tests.
 - Phase 2 KYC compliance foundation: user KYC case/session/event records, mock Didit hosted-session creation, signed Didit webhook processing, provider-status normalization, KYC financial-access gate, audit/domain events, authenticated status/session API, and focused tests.
+- Phase 2 admin-auth foundation: environment-managed superadmin bootstrap, superadmin-created admin accounts, admin email/password plus email-code login, investor/admin portal login separation, admin-auth throttles, audit/domain events, and focused tests.
 
 Accepted implementation deferrals from the platform-core audit:
 
@@ -53,9 +54,10 @@ Recent audit dispositions:
 - Earlier platform-core audit items reported as still open are closed in the current codebase: outbox retry reaches the 48-hour delay and has sequence tests, append-only tables have DB triggers for PostgreSQL and SQLite, money allocation/splitting helpers have deterministic residue tests, and Zurich business-date helpers have tests.
 - Registration terms hash handling is closed for the current auth scope because the server validates submitted terms against configured canonical `REGISTRATION_TERMS_VERSION` and `REGISTRATION_TERMS_HASH`. The documents/templates module will later replace the settings-backed source with persisted template/version ownership.
 - Didit webhook signature enforcement was hardened. Non-local environments require a valid signature regardless of copied environment overrides, deploy checks flag missing/disabled Didit signature config, and env examples no longer pin an unsafe false value.
-- KYC provider events are append-only at the Django model/service layer. Stronger DB-level append-only guards for non-core regulatory evidence tables can be added with the broader evidence-storage hardening pass if needed.
+- KYC provider events now have both Django model/service append-only enforcement and DB-level append-only triggers for PostgreSQL/SQLite, matching the audit/domain/platform-setting version tables.
 - Didit webhook `raw_payload` currently stores provider evidence as JSON in PostgreSQL. This is acceptable for the mock/internal foundation under encrypted infrastructure storage, but field-level encryption or restricted evidence-object storage is deferred to the KYC evidence-storage hardening/provider-artifact slice before production KYC data is retained.
 - The KYC financial-access gate is a primitive until financial endpoints exist. Every deposit, withdrawal, primary investment, secondary-market action, FX exchange, document-acceptance-for-transaction, and later money-moving endpoint must call the KYC/phone/account-status gate server-side before mutation.
+- Admin authentication now has an operational backend foundation. The first superadmin is synchronized from environment variables through `bootstrap_superadmin`; regular admin users are created by an authenticated superadmin through the admin-auth API; admin login requires password plus an email code; and admin accounts are blocked from investor magic-link login.
 
 ## 1. Review Outcome
 

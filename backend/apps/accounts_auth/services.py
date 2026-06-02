@@ -5,6 +5,9 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 from django.conf import settings
+from django.contrib.auth.hashers import identify_hasher
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -70,6 +73,52 @@ class PhoneAlreadyVerifiedError(AccountsAuthError):
     pass
 
 
+class AdminLoginInvalidCredentialsError(AccountsAuthError):
+    pass
+
+
+class AdminAuthorizationError(AccountsAuthError):
+    pass
+
+
+class InvalidPasswordError(AccountsAuthError):
+    pass
+
+
+class SuperadminBootstrapError(AccountsAuthError):
+    pass
+
+
+ADMIN_ACCOUNT_TYPES = frozenset({AccountType.ADMIN, AccountType.SUPERADMIN})
+MAGIC_LINK_ACCOUNT_TYPES = frozenset(
+    {
+        AccountType.NATURAL_PERSON_LENDER,
+        AccountType.LEGAL_ENTITY_LENDER_REPRESENTATIVE,
+    }
+)
+INVESTOR_SENSITIVE_ACTION_ACCOUNT_TYPES = MAGIC_LINK_ACCOUNT_TYPES
+
+
+def actor_for_user(user: User) -> ActorRef:
+    if user.account_type == AccountType.SUPERADMIN:
+        return ActorRef("superadmin", str(user.id))
+    if user.account_type == AccountType.ADMIN:
+        return ActorRef("admin", str(user.id))
+    return ActorRef("investor", str(user.id))
+
+
+def is_admin_account(user: User) -> bool:
+    return user.account_type in ADMIN_ACCOUNT_TYPES and user.is_staff
+
+
+def is_superadmin_account(user: User) -> bool:
+    return (
+        user.account_type == AccountType.SUPERADMIN
+        and user.is_staff
+        and user.is_superuser
+    )
+
+
 def normalize_email(email: str) -> str:
     normalized = User.objects.normalize_email(email).strip().lower()
     if not normalized:
@@ -81,11 +130,12 @@ def _audit_auth_failure(
     *,
     action: str,
     user_id: str = "",
+    actor: ActorRef | None = None,
     metadata: dict[str, object] | None = None,
 ) -> None:
     record_audit_event(
         AuditCommand(
-            actor=ActorRef("investor", user_id) if user_id else ActorRef.system(),
+            actor=actor or (ActorRef("investor", user_id) if user_id else ActorRef.system()),
             action=action,
             target_type="User" if user_id else "",
             target_id=user_id,
@@ -155,6 +205,8 @@ class SensitiveActionCodeIssueResult:
 class SensitiveActionCodeConsumeCommand:
     code_id: str
     raw_code: str
+    expected_user: User | None = None
+    expected_action: SensitiveAction | None = None
     ip_address: str | None = None
     user_agent: str = ""
 
@@ -181,6 +233,42 @@ class PhoneVerificationConfirmCommand:
     raw_code: str
     ip_address: str | None = None
     user_agent: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class AdminLoginStartCommand:
+    email: str
+    password: str
+    ip_address: str | None = None
+    user_agent: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class AdminLoginStartResult:
+    code_record: SensitiveActionCode
+
+
+@dataclass(frozen=True, slots=True)
+class AdminLoginConfirmCommand:
+    code_id: str
+    raw_code: str
+    ip_address: str | None = None
+    user_agent: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class CreateAdminUserCommand:
+    actor: User
+    email: str
+    password: str
+    full_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class BootstrapEnvSuperadminResult:
+    user: User | None
+    action: str
+    disabled_user_ids: tuple[str, ...] = ()
 
 
 @transaction.atomic
@@ -239,7 +327,11 @@ def register_natural_person_lender(command: RegisterNaturalPersonCommand) -> Use
 def issue_magic_link(command: MagicLinkRequestCommand) -> MagicLinkIssueResult:
     email = normalize_email(command.email)
     user = User.objects.filter(email=email).first()
-    if user is None or not user.can_login:
+    if (
+        user is None
+        or not user.can_login
+        or user.account_type not in MAGIC_LINK_ACCOUNT_TYPES
+    ):
         raise InvalidOrExpiredTokenError("Account cannot receive a login link.")
 
     raw_token = secrets.token_urlsafe(32)
@@ -293,10 +385,11 @@ def consume_magic_link(command: MagicLinkConsumeCommand) -> User:
                 metadata={"reason": "invalid_or_expired"},
             )
             failure = InvalidOrExpiredTokenError("Login link is invalid or expired.")
-        elif not token.user.can_login:
+        elif not token.user.can_login or token.user.account_type not in MAGIC_LINK_ACCOUNT_TYPES:
             _audit_auth_failure(
                 action="auth.magic_link_failed",
                 user_id=str(token.user_id),
+                actor=actor_for_user(token.user),
                 metadata={"reason": "account_cannot_login"},
             )
             failure = InvalidOrExpiredTokenError("Account cannot log in.")
@@ -328,6 +421,11 @@ def issue_sensitive_action_code(
 ) -> SensitiveActionCodeIssueResult:
     if not command.user.can_login:
         raise InvalidOrExpiredCodeError("Account cannot receive a sensitive-action code.")
+    if command.action == SensitiveAction.ADMIN_LOGIN:
+        if not is_admin_account(command.user):
+            raise InvalidOrExpiredCodeError("Account cannot receive an admin-login code.")
+    elif command.user.account_type not in INVESTOR_SENSITIVE_ACTION_ACCOUNT_TYPES:
+        raise InvalidOrExpiredCodeError("Account cannot receive this sensitive-action code.")
     if command.max_attempts <= 0:
         raise AccountsAuthError("max_attempts must be positive.")
 
@@ -385,7 +483,7 @@ def issue_sensitive_action_code(
     )
     record_audit_event(
         AuditCommand(
-            actor=ActorRef("investor", str(command.user.id)),
+            actor=actor_for_user(command.user),
             action="auth.sensitive_action_code_requested",
             target_type="User",
             target_id=str(command.user.id),
@@ -607,13 +705,45 @@ def consume_sensitive_action_code(
             _audit_auth_failure(
                 action="auth.sensitive_action_code_failed",
                 user_id=str(code_record.user_id) if code_record is not None else "",
+                actor=actor_for_user(code_record.user) if code_record is not None else None,
                 metadata={"reason": "invalid_expired_or_superseded"},
+            )
+            failure = InvalidOrExpiredCodeError("Sensitive-action code is invalid or expired.")
+        elif (
+            command.expected_user is not None
+            and code_record.user_id != command.expected_user.id
+        ):
+            _audit_auth_failure(
+                action="auth.sensitive_action_code_failed",
+                user_id=str(command.expected_user.id),
+                actor=actor_for_user(command.expected_user),
+                metadata={"reason": "user_mismatch"},
+            )
+            failure = InvalidOrExpiredCodeError("Sensitive-action code is invalid or expired.")
+        elif (
+            command.expected_action is not None
+            and code_record.action != command.expected_action
+        ):
+            _audit_auth_failure(
+                action="auth.sensitive_action_code_failed",
+                user_id=str(code_record.user_id),
+                actor=actor_for_user(code_record.user),
+                metadata={"reason": "action_mismatch"},
+            )
+            failure = InvalidOrExpiredCodeError("Sensitive-action code is invalid or expired.")
+        elif not code_record.user.can_login:
+            _audit_auth_failure(
+                action="auth.sensitive_action_code_failed",
+                user_id=str(code_record.user_id),
+                actor=actor_for_user(code_record.user),
+                metadata={"action": code_record.action, "reason": "account_cannot_login"},
             )
             failure = InvalidOrExpiredCodeError("Sensitive-action code is invalid or expired.")
         elif code_record.attempts >= code_record.max_attempts:
             _audit_auth_failure(
                 action="auth.sensitive_action_code_failed",
                 user_id=str(code_record.user_id),
+                actor=actor_for_user(code_record.user),
                 metadata={"action": code_record.action, "reason": "too_many_attempts"},
             )
             failure = TooManyCodeAttemptsError("Sensitive-action code attempt limit exceeded.")
@@ -624,6 +754,7 @@ def consume_sensitive_action_code(
                 _audit_auth_failure(
                     action="auth.sensitive_action_code_failed",
                     user_id=str(code_record.user_id),
+                    actor=actor_for_user(code_record.user),
                     metadata={"action": code_record.action, "reason": "too_many_attempts"},
                 )
                 failure = TooManyCodeAttemptsError(
@@ -633,6 +764,7 @@ def consume_sensitive_action_code(
                 _audit_auth_failure(
                     action="auth.sensitive_action_code_failed",
                     user_id=str(code_record.user_id),
+                    actor=actor_for_user(code_record.user),
                     metadata={"action": code_record.action, "reason": "invalid_code"},
                 )
                 failure = InvalidOrExpiredCodeError(
@@ -654,7 +786,7 @@ def consume_sensitive_action_code(
             )
             record_audit_event(
                 AuditCommand(
-                    actor=ActorRef("investor", str(code_record.user_id)),
+                    actor=actor_for_user(code_record.user),
                     action="auth.sensitive_action_code_consumed",
                     target_type="User",
                     target_id=str(code_record.user_id),
@@ -666,6 +798,232 @@ def consume_sensitive_action_code(
         raise failure
     assert code_record is not None
     return code_record
+
+
+@transaction.atomic
+def bootstrap_env_superadmin() -> BootstrapEnvSuperadminResult:
+    enabled = settings.GARANTA_SUPERADMIN_ENABLED
+    raw_email = (settings.GARANTA_SUPERADMIN_EMAIL or "").strip()
+    password_hash = (settings.GARANTA_SUPERADMIN_PASSWORD_HASH or "").strip()
+
+    if not enabled:
+        env_managed_users = list(
+            User.objects.select_for_update().filter(is_env_managed_superadmin=True)
+        )
+        disabled_ids: list[str] = []
+        for env_user in env_managed_users:
+            if env_user.is_active or env_user.status != AccountStatus.LOCKED:
+                env_user.is_active = False
+                env_user.status = AccountStatus.LOCKED
+                env_user.save(update_fields=["is_active", "status"])
+                disabled_ids.append(str(env_user.id))
+                record_audit_event(
+                    AuditCommand(
+                        actor=ActorRef.system(),
+                        action="admin.env_superadmin_disabled",
+                        target_type="User",
+                        target_id=str(env_user.id),
+                    )
+                )
+        return BootstrapEnvSuperadminResult(
+            user=None,
+            action="disabled",
+            disabled_user_ids=tuple(disabled_ids),
+        )
+
+    if not raw_email or not password_hash:
+        raise SuperadminBootstrapError(
+            "GARANTA_SUPERADMIN_EMAIL and GARANTA_SUPERADMIN_PASSWORD_HASH are required."
+        )
+    email = normalize_email(raw_email)
+    try:
+        identify_hasher(password_hash)
+    except ValueError as exc:
+        raise SuperadminBootstrapError(
+            "GARANTA_SUPERADMIN_PASSWORD_HASH is not a valid Django password hash."
+        ) from exc
+
+    conflicting_user = (
+        User.objects.select_for_update()
+        .filter(email=email, is_env_managed_superadmin=False)
+        .exclude(account_type=AccountType.SUPERADMIN)
+        .first()
+    )
+    if conflicting_user is not None:
+        raise SuperadminBootstrapError(
+            "Configured superadmin email already belongs to another account."
+        )
+
+    disabled_ids = []
+    for old_user in (
+        User.objects.select_for_update()
+        .filter(is_env_managed_superadmin=True)
+        .exclude(email=email)
+    ):
+        old_user.is_active = False
+        old_user.status = AccountStatus.LOCKED
+        old_user.save(update_fields=["is_active", "status"])
+        disabled_ids.append(str(old_user.id))
+        record_audit_event(
+            AuditCommand(
+                actor=ActorRef.system(),
+                action="admin.env_superadmin_disabled",
+                target_type="User",
+                target_id=str(old_user.id),
+                metadata={"reason": "env_email_changed"},
+            )
+        )
+
+    user = User.objects.select_for_update().filter(email=email).first()
+    action = "updated"
+    if user is None:
+        user = User(email=email, date_joined=timezone.now())
+        action = "created"
+
+    user.full_name = (settings.GARANTA_SUPERADMIN_FULL_NAME or "Env Superadmin").strip()
+    user.password = password_hash
+    user.account_type = AccountType.SUPERADMIN
+    user.status = AccountStatus.ACTIVE
+    user.is_staff = True
+    user.is_superuser = True
+    user.is_active = True
+    user.is_env_managed_superadmin = True
+    user.save()
+    record_audit_event(
+        AuditCommand(
+            actor=ActorRef.system(),
+            action="admin.env_superadmin_bootstrapped",
+            target_type="User",
+            target_id=str(user.id),
+            metadata={"result": action},
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="EnvSuperadminBootstrapped",
+            aggregate_type="User",
+            aggregate_id=str(user.id),
+            payload={"email": user.email, "result": action},
+            idempotency_key=f"user:{user.id}:env-superadmin:{action}",
+        )
+    )
+    return BootstrapEnvSuperadminResult(
+        user=user,
+        action=action,
+        disabled_user_ids=tuple(disabled_ids),
+    )
+
+
+@transaction.atomic
+def create_admin_user(command: CreateAdminUserCommand) -> User:
+    if not command.actor.can_login or not is_superadmin_account(command.actor):
+        raise AdminAuthorizationError("Only an active superadmin can create admin users.")
+    email = normalize_email(command.email)
+    if User.objects.filter(email=email).exists():
+        raise DuplicateEmailError("An account already exists for this email.")
+
+    user = User(
+        email=email,
+        full_name=command.full_name.strip(),
+        account_type=AccountType.ADMIN,
+        status=AccountStatus.ACTIVE,
+        is_staff=True,
+        is_superuser=False,
+        is_active=True,
+    )
+    try:
+        validate_password(command.password, user=user)
+    except DjangoValidationError as exc:
+        raise InvalidPasswordError("; ".join(exc.messages)) from exc
+    user.set_password(command.password)
+    user.save()
+    record_audit_event(
+        AuditCommand(
+            actor=actor_for_user(command.actor),
+            action="admin.user_created",
+            target_type="User",
+            target_id=str(user.id),
+            metadata={"email": user.email, "account_type": user.account_type},
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="AdminUserCreated",
+            aggregate_type="User",
+            aggregate_id=str(user.id),
+            payload={"email": user.email},
+            idempotency_key=f"user:{user.id}:admin-created",
+        )
+    )
+    return user
+
+
+def start_admin_login(command: AdminLoginStartCommand) -> AdminLoginStartResult:
+    email = normalize_email(command.email)
+    user = User.objects.filter(email=email).first()
+    if (
+        user is None
+        or not is_admin_account(user)
+        or not user.can_login
+        or not user.check_password(command.password)
+    ):
+        _audit_auth_failure(
+            action="auth.admin_login_failed",
+            user_id=str(user.id) if user is not None else "",
+            actor=actor_for_user(user) if user is not None else None,
+            metadata={"reason": "invalid_credentials_or_account"},
+        )
+        raise AdminLoginInvalidCredentialsError("Admin credentials are invalid.")
+
+    with transaction.atomic():
+        code_result = issue_sensitive_action_code(
+            SensitiveActionCodeCommand(
+                user=user,
+                action=SensitiveAction.ADMIN_LOGIN,
+                ip_address=command.ip_address,
+                user_agent=command.user_agent,
+            )
+        )
+        record_audit_event(
+            AuditCommand(
+                actor=actor_for_user(user),
+                action="auth.admin_login_password_accepted",
+                target_type="User",
+                target_id=str(user.id),
+            )
+        )
+    return AdminLoginStartResult(code_record=code_result.code_record)
+
+
+def confirm_admin_login(command: AdminLoginConfirmCommand) -> User:
+    code_record = consume_sensitive_action_code(
+        SensitiveActionCodeConsumeCommand(
+            code_id=command.code_id,
+            raw_code=command.raw_code,
+            expected_action=SensitiveAction.ADMIN_LOGIN,
+            ip_address=command.ip_address,
+            user_agent=command.user_agent,
+        )
+    )
+    user = code_record.user
+    if not is_admin_account(user) or not user.can_login:
+        _audit_auth_failure(
+            action="auth.admin_login_failed",
+            user_id=str(user.id),
+            actor=actor_for_user(user),
+            metadata={"reason": "account_cannot_login"},
+        )
+        raise AdminLoginInvalidCredentialsError("Admin credentials are invalid.")
+
+    record_audit_event(
+        AuditCommand(
+            actor=actor_for_user(user),
+            action="auth.admin_login_completed",
+            target_type="User",
+            target_id=str(user.id),
+        )
+    )
+    return user
 
 
 def delivery_secret_for_magic_link(token: EmailLoginToken) -> str:

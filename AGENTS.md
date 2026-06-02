@@ -42,6 +42,7 @@ Do not block backend or workflow implementation just because final visual design
 - `make typecheck`: run backend and frontend type checks.
 - `make migrate`: apply backend migrations.
 - `make seed`: run the local seed command.
+- `make bootstrap-superadmin`: synchronize the environment-managed superadmin account from env values.
 - `make api-schema`: generate committed OpenAPI schema.
 - `make api-client`: generate committed TypeScript API client.
 - `make agent-check`: run the standard handoff checks.

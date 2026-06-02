@@ -42,6 +42,28 @@ class AuthenticatedUserResponseSerializer(serializers.Serializer[Any]):
     user = UserSummarySerializer()
 
 
+class AdminLoginStartRequestSerializer(serializers.Serializer[Any]):
+    email = serializers.EmailField()
+    password = serializers.CharField(trim_whitespace=False, write_only=True)
+
+
+class AdminLoginStartResponseSerializer(serializers.Serializer[Any]):
+    code_id = serializers.UUIDField()
+    status = serializers.CharField()
+    expires_at = serializers.DateTimeField()
+
+
+class AdminLoginConfirmRequestSerializer(serializers.Serializer[Any]):
+    code_id = serializers.UUIDField()
+    code = serializers.RegexField(regex=r"^\d{6}$")
+
+
+class AdminUserCreateRequestSerializer(serializers.Serializer[Any]):
+    email = serializers.EmailField()
+    password = serializers.CharField(trim_whitespace=False, min_length=1, write_only=True)
+    full_name = serializers.CharField(max_length=255)
+
+
 class PhoneVerificationRequestResponseSerializer(serializers.Serializer[Any]):
     challenge_id = serializers.UUIDField(allow_null=True)
     status = serializers.CharField()

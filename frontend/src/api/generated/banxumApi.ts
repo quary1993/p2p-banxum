@@ -38,6 +38,31 @@ import type {
 } from 'msw';
 
 import { httpClient } from '../client/httpClient';
+export interface AdminLoginConfirmRequest {
+  code_id: string;
+  /** @pattern ^\d{6}$ */
+  code: string;
+}
+
+export interface AdminLoginStartRequest {
+  email: string;
+  password: string;
+}
+
+export interface AdminLoginStartResponse {
+  code_id: string;
+  status: string;
+  expires_at: string;
+}
+
+export interface AdminUserCreateRequest {
+  email: string;
+  /** @minLength 1 */
+  password: string;
+  /** @maxLength 255 */
+  full_name: string;
+}
+
 export interface AuthenticatedUserResponse {
   user: UserSummary;
 }
@@ -162,6 +187,183 @@ export interface UserSummary {
   marketing_consent: boolean;
 }
 
+export const v1AuthAdminLoginConfirmCreate = (
+    adminLoginConfirmRequest: AdminLoginConfirmRequest,
+ signal?: AbortSignal
+) => {
+      
+      
+      return httpClient<AuthenticatedUserResponse>(
+      {url: `/api/v1/auth/admin/login/confirm/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: adminLoginConfirmRequest, signal
+    },
+      );
+    }
+  
+
+
+export const getV1AuthAdminLoginConfirmCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminLoginConfirmCreate>>, TError,{data: AdminLoginConfirmRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminLoginConfirmCreate>>, TError,{data: AdminLoginConfirmRequest}, TContext> => {
+
+const mutationKey = ['v1AuthAdminLoginConfirmCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthAdminLoginConfirmCreate>>, {data: AdminLoginConfirmRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthAdminLoginConfirmCreate(data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthAdminLoginConfirmCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthAdminLoginConfirmCreate>>>
+    export type V1AuthAdminLoginConfirmCreateMutationBody = AdminLoginConfirmRequest
+    export type V1AuthAdminLoginConfirmCreateMutationError = unknown
+
+    export const useV1AuthAdminLoginConfirmCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminLoginConfirmCreate>>, TError,{data: AdminLoginConfirmRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthAdminLoginConfirmCreate>>,
+        TError,
+        {data: AdminLoginConfirmRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1AuthAdminLoginConfirmCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    
+export const v1AuthAdminLoginStartCreate = (
+    adminLoginStartRequest: AdminLoginStartRequest,
+ signal?: AbortSignal
+) => {
+      
+      
+      return httpClient<AdminLoginStartResponse>(
+      {url: `/api/v1/auth/admin/login/start/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: adminLoginStartRequest, signal
+    },
+      );
+    }
+  
+
+
+export const getV1AuthAdminLoginStartCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminLoginStartCreate>>, TError,{data: AdminLoginStartRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminLoginStartCreate>>, TError,{data: AdminLoginStartRequest}, TContext> => {
+
+const mutationKey = ['v1AuthAdminLoginStartCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthAdminLoginStartCreate>>, {data: AdminLoginStartRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthAdminLoginStartCreate(data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthAdminLoginStartCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthAdminLoginStartCreate>>>
+    export type V1AuthAdminLoginStartCreateMutationBody = AdminLoginStartRequest
+    export type V1AuthAdminLoginStartCreateMutationError = unknown
+
+    export const useV1AuthAdminLoginStartCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminLoginStartCreate>>, TError,{data: AdminLoginStartRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthAdminLoginStartCreate>>,
+        TError,
+        {data: AdminLoginStartRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1AuthAdminLoginStartCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    
+export const v1AuthAdminUsersCreate = (
+    adminUserCreateRequest: AdminUserCreateRequest,
+ signal?: AbortSignal
+) => {
+      
+      
+      return httpClient<AuthenticatedUserResponse>(
+      {url: `/api/v1/auth/admin/users/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: adminUserCreateRequest, signal
+    },
+      );
+    }
+  
+
+
+export const getV1AuthAdminUsersCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminUsersCreate>>, TError,{data: AdminUserCreateRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminUsersCreate>>, TError,{data: AdminUserCreateRequest}, TContext> => {
+
+const mutationKey = ['v1AuthAdminUsersCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthAdminUsersCreate>>, {data: AdminUserCreateRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthAdminUsersCreate(data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthAdminUsersCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthAdminUsersCreate>>>
+    export type V1AuthAdminUsersCreateMutationBody = AdminUserCreateRequest
+    export type V1AuthAdminUsersCreateMutationError = unknown
+
+    export const useV1AuthAdminUsersCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthAdminUsersCreate>>, TError,{data: AdminUserCreateRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthAdminUsersCreate>>,
+        TError,
+        {data: AdminUserCreateRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1AuthAdminUsersCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    
 export const v1AuthMagicLinkConsumeCreate = (
     magicLinkConsume: MagicLinkConsume,
  signal?: AbortSignal
@@ -831,6 +1033,12 @@ const {mutation: mutationOptions} = options ?
     }
 
 
+export const getV1AuthAdminLoginConfirmCreateResponseMock = (overrideResponse: Partial< AuthenticatedUserResponse > = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
+
+export const getV1AuthAdminLoginStartCreateResponseMock = (overrideResponse: Partial< AdminLoginStartResponse > = {}): AdminLoginStartResponse => ({code_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), expires_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+
+export const getV1AuthAdminUsersCreateResponseMock = (overrideResponse: Partial< AuthenticatedUserResponse > = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
+
 export const getV1AuthMagicLinkConsumeCreateResponseMock = (overrideResponse: Partial< AuthenticatedUserResponse > = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
 
 export const getV1AuthMeRetrieveResponseMock = (overrideResponse: Partial< AuthenticatedUserResponse > = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
@@ -849,6 +1057,42 @@ export const getV1KycStatusRetrieveResponseMock = (overrideResponse: Partial< Ky
 
 export const getV1KycWebhooksDiditCreateResponseMock = (overrideResponse: Partial< DiditWebhookResponse > = {}): DiditWebhookResponse => ({status: faker.helpers.arrayElement(Object.values(StatusEnum)), idempotent: faker.datatype.boolean(), ...overrideResponse})
 
+
+export const getV1AuthAdminLoginConfirmCreateMockHandler = (overrideResponse?: AuthenticatedUserResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AuthenticatedUserResponse> | AuthenticatedUserResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/admin/login/confirm/', async (info) => {await delay(1000);
+  
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthAdminLoginConfirmCreateResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1AuthAdminLoginStartCreateMockHandler = (overrideResponse?: AdminLoginStartResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AdminLoginStartResponse> | AdminLoginStartResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/admin/login/start/', async (info) => {await delay(1000);
+  
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthAdminLoginStartCreateResponseMock()),
+      { status: 202,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1AuthAdminUsersCreateMockHandler = (overrideResponse?: AuthenticatedUserResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AuthenticatedUserResponse> | AuthenticatedUserResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/admin/users/', async (info) => {await delay(1000);
+  
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthAdminUsersCreateResponseMock()),
+      { status: 201,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
 
 export const getV1AuthMagicLinkConsumeCreateMockHandler = (overrideResponse?: AuthenticatedUserResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AuthenticatedUserResponse> | AuthenticatedUserResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/auth/magic-link/consume/', async (info) => {await delay(1000);
@@ -968,6 +1212,9 @@ export const getV1KycWebhooksDiditCreateMockHandler = (overrideResponse?: DiditW
   }, options)
 }
 export const getBanxumApiMock = () => [
+  getV1AuthAdminLoginConfirmCreateMockHandler(),
+  getV1AuthAdminLoginStartCreateMockHandler(),
+  getV1AuthAdminUsersCreateMockHandler(),
   getV1AuthMagicLinkConsumeCreateMockHandler(),
   getV1AuthMagicLinkRequestCreateMockHandler(),
   getV1AuthMeRetrieveMockHandler(),
