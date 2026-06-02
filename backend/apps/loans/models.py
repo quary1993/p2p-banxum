@@ -11,6 +11,7 @@ from backend.apps.platform_core.models.base import AppendOnlyModel, TimestampedM
 class LoanStatus(models.TextChoices):
     DRAFT = "draft", "Draft"
     PUBLISHED = "published", "Published"
+    FUNDED = "funded", "Funded"
     CANCELLED = "cancelled", "Cancelled"
 
 
@@ -88,6 +89,7 @@ class LoanEventType(models.TextChoices):
     CREATED = "created", "Created"
     UPDATED = "updated", "Updated"
     PUBLISHED = "published", "Published"
+    FUNDING_CLOSED = "funding_closed", "Funding closed"
     SCHEDULE_GENERATED = "schedule_generated", "Schedule generated"
 
 

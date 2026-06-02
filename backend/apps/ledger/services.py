@@ -4,6 +4,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, cast
 
 from django.conf import settings
@@ -70,6 +71,7 @@ CANCELLATION_FINGERPRINT_METADATA_KEY = "cancellation_request_fingerprint"
 CANCELLATION_IDEMPOTENCY_METADATA_KEY = "cancellation_idempotency_key"
 INVESTMENT_RESERVATION_FINGERPRINT_METADATA_KEY = "investment_reservation_fingerprint"
 INVESTMENT_RELEASE_FINGERPRINT_METADATA_KEY = "investment_release_fingerprint"
+PRIMARY_LOAN_CLOSE_FINGERPRINT_METADATA_KEY = "primary_loan_close_fingerprint"
 
 
 @dataclass(frozen=True, slots=True)
@@ -295,6 +297,27 @@ class ReleaseInvestmentBalanceReservationCommand:
 @dataclass(frozen=True, slots=True)
 class InvestmentBalanceReleaseResult:
     journal_entry: LedgerJournalEntry
+
+
+@dataclass(frozen=True, slots=True)
+class ClosePrimaryLoanFundingCommand:
+    actor: Model
+    loan_id: str
+    borrower_id: str
+    accepted_principal_minor: int
+    borrower_success_fee_bps: int
+    currency: str
+    source_type: str
+    source_id: str
+    idempotency_key: str
+    as_of: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ClosePrimaryLoanFundingResult:
+    journal_entry: LedgerJournalEntry
+    borrower_success_fee_minor: int
+    borrower_disbursement_payable_minor: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -2340,6 +2363,34 @@ def _release_request_fingerprint(
     )
 
 
+def _primary_loan_close_request_fingerprint(
+    command: ClosePrimaryLoanFundingCommand,
+    *,
+    currency_code: str,
+    accepted_principal_minor: int,
+    borrower_success_fee_minor: int,
+    borrower_disbursement_payable_minor: int,
+    idempotency_key: str,
+) -> str:
+    actor_ref = actor_ref_for_user(command.actor)
+    return _stable_json_fingerprint(
+        {
+            "actor_type": actor_ref.actor_type,
+            "actor_id": actor_ref.actor_id,
+            "loan_id": str(command.loan_id),
+            "borrower_id": str(command.borrower_id),
+            "accepted_principal_minor": accepted_principal_minor,
+            "borrower_success_fee_bps": command.borrower_success_fee_bps,
+            "borrower_success_fee_minor": borrower_success_fee_minor,
+            "borrower_disbursement_payable_minor": borrower_disbursement_payable_minor,
+            "currency": currency_code,
+            "source_type": command.source_type.strip(),
+            "source_id": command.source_id.strip(),
+            "idempotency_key": idempotency_key,
+        }
+    )
+
+
 def _existing_investment_reservation(
     journal_idempotency_key: str,
     *,
@@ -2369,6 +2420,44 @@ def _existing_investment_release(
     if metadata.get(INVESTMENT_RELEASE_FINGERPRINT_METADATA_KEY) != expected_fingerprint:
         raise LedgerValidationError("Idempotency key was already used for a different request.")
     return InvestmentBalanceReleaseResult(journal_entry=existing)
+
+
+def _existing_primary_loan_close(
+    journal_idempotency_key: str,
+    *,
+    expected_fingerprint: str,
+) -> ClosePrimaryLoanFundingResult | None:
+    existing = LedgerJournalEntry.objects.filter(idempotency_key=journal_idempotency_key).first()
+    if existing is None:
+        return None
+    metadata = cast(dict[str, Any], existing.metadata)
+    if metadata.get(PRIMARY_LOAN_CLOSE_FINGERPRINT_METADATA_KEY) != expected_fingerprint:
+        raise LedgerValidationError("Idempotency key was already used for a different request.")
+    return ClosePrimaryLoanFundingResult(
+        journal_entry=existing,
+        borrower_success_fee_minor=int(metadata.get("borrower_success_fee_minor", 0)),
+        borrower_disbursement_payable_minor=int(
+            metadata.get("borrower_disbursement_payable_minor", 0)
+        ),
+    )
+
+
+def _credit_balance_for_account(account: LedgerAccount) -> int:
+    debit_total = (
+        LedgerPosting.objects.filter(
+            account=account,
+            side=LedgerPostingSide.DEBIT,
+        ).aggregate(total=Sum("amount_minor"))["total"]
+        or 0
+    )
+    credit_total = (
+        LedgerPosting.objects.filter(
+            account=account,
+            side=LedgerPostingSide.CREDIT,
+        ).aggregate(total=Sum("amount_minor"))["total"]
+        or 0
+    )
+    return int(credit_total) - int(debit_total)
 
 
 def _investment_lots_for_update(
@@ -2711,6 +2800,152 @@ def release_investor_balance_investment_reservation(
         )
     )
     return InvestmentBalanceReleaseResult(journal_entry=journal_entry)
+
+
+@transaction.atomic
+def close_primary_loan_funding(
+    command: ClosePrimaryLoanFundingCommand,
+) -> ClosePrimaryLoanFundingResult:
+    _require_admin_actor(command.actor)
+    currency = _enabled_currency(command.currency)
+    accepted_principal = _validate_money(
+        command.accepted_principal_minor,
+        currency.code,
+        "Accepted funded principal",
+    )
+    if type(command.borrower_success_fee_bps) is not int:
+        raise LedgerValidationError("Borrower success fee must be an integer bps value.")
+    if command.borrower_success_fee_bps < 0 or command.borrower_success_fee_bps > 10_000:
+        raise LedgerValidationError("Borrower success fee must be between 0 and 10,000 bps.")
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    source_type = _clean_required(command.source_type, "Source type")
+    source_id = _clean_required(command.source_id, "Source id")
+    as_of = command.as_of or now_utc()
+    value_date = business_date(as_of)
+    borrower_success_fee = int(
+        (
+            Decimal(accepted_principal)
+            * Decimal(command.borrower_success_fee_bps)
+            / Decimal(10_000)
+        ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    )
+    borrower_disbursement_payable = accepted_principal - borrower_success_fee
+    if borrower_disbursement_payable < 0:
+        raise LedgerValidationError("Borrower disbursement payable cannot be negative.")
+    journal_idempotency_key = _derived_idempotency_key(
+        "ledger-primary-loan-close",
+        idempotency_key,
+    )
+    request_fingerprint = _primary_loan_close_request_fingerprint(
+        command,
+        currency_code=currency.code,
+        accepted_principal_minor=accepted_principal,
+        borrower_success_fee_minor=borrower_success_fee,
+        borrower_disbursement_payable_minor=borrower_disbursement_payable,
+        idempotency_key=idempotency_key,
+    )
+    existing = _existing_primary_loan_close(
+        journal_idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing is not None:
+        return existing
+
+    loan_funding_escrow_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.LOAN_FUNDING_ESCROW,
+        currency=currency,
+        owner_type="loan",
+        owner_id=str(command.loan_id),
+        name=f"{currency.code} loan funding escrow {command.loan_id}",
+    )
+    escrow_balance = _credit_balance_for_account(loan_funding_escrow_account)
+    if escrow_balance < accepted_principal:
+        raise LedgerValidationError("Loan funding escrow has insufficient balance to close.")
+    borrower_disbursement_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.BORROWER_DISBURSEMENT_PAYABLE,
+        currency=currency,
+        owner_type="borrower",
+        owner_id=str(command.borrower_id),
+        name=f"{currency.code} borrower disbursement payable {command.borrower_id}",
+    )
+    postings = [
+        PostingCommand(
+            account=loan_funding_escrow_account,
+            side=LedgerPostingSide.DEBIT,
+            amount_minor=accepted_principal,
+            memo="Loan funding escrow closed into borrower payable and platform revenue",
+        )
+    ]
+    if borrower_disbursement_payable > 0:
+        postings.append(
+            PostingCommand(
+                account=borrower_disbursement_account,
+                side=LedgerPostingSide.CREDIT,
+                amount_minor=borrower_disbursement_payable,
+                memo="Borrower disbursement payable after success fee",
+            )
+        )
+    if borrower_success_fee > 0:
+        garanta_revenue_account = get_or_create_ledger_account(
+            account_type=LedgerAccountType.GARANTA_ACCRUED_REVENUE,
+            currency=currency,
+            owner_type="garanta",
+            owner_id="platform",
+            name=f"{currency.code} Garanta accrued revenue",
+        )
+        postings.append(
+            PostingCommand(
+                account=garanta_revenue_account,
+                side=LedgerPostingSide.CREDIT,
+                amount_minor=borrower_success_fee,
+                memo="Borrower success fee accrued at funding close",
+            )
+        )
+    try:
+        journal_entry = post_journal_entry(
+            PostJournalEntryCommand(
+                actor=command.actor,
+                event_type="primary_loan_funding_closed",
+                direction=LedgerDirection.INTERNAL,
+                currency=currency.code,
+                gross_amount_minor=accepted_principal,
+                net_amount_minor=borrower_disbursement_payable,
+                booking_date=value_date,
+                value_date=value_date,
+                effective_at=as_of,
+                received_at=as_of,
+                source_type=source_type,
+                source_id=source_id,
+                borrower_id=str(command.borrower_id),
+                loan_id=str(command.loan_id),
+                idempotency_key=journal_idempotency_key,
+                postings=postings,
+                tax_metadata={
+                    "garanta_revenue_minor": borrower_success_fee,
+                    "client_money_flow_minor": accepted_principal,
+                },
+                metadata={
+                    PRIMARY_LOAN_CLOSE_FINGERPRINT_METADATA_KEY: request_fingerprint,
+                    "borrower_success_fee_bps": command.borrower_success_fee_bps,
+                    "borrower_success_fee_minor": borrower_success_fee,
+                    "borrower_disbursement_payable_minor": borrower_disbursement_payable,
+                    "escrow_balance_before_close_minor": escrow_balance,
+                },
+            )
+        )
+    except IntegrityError:
+        existing_after_race = _existing_primary_loan_close(
+            journal_idempotency_key,
+            expected_fingerprint=request_fingerprint,
+        )
+        if existing_after_race is None:
+            raise
+        return existing_after_race
+    return ClosePrimaryLoanFundingResult(
+        journal_entry=journal_entry,
+        borrower_success_fee_minor=borrower_success_fee,
+        borrower_disbursement_payable_minor=borrower_disbursement_payable,
+    )
 
 
 def investor_balance_liability_minor(*, currency: Currency) -> int:

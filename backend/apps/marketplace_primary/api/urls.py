@@ -7,6 +7,7 @@ from backend.apps.marketplace_primary.api.views import (
     PrimaryInvestmentOrderAllocateView,
     PrimaryInvestmentOrderCreateView,
     PrimaryInvestmentOrderReleaseView,
+    PrimaryLoanCloseView,
     PublicMarketplaceLoanListView,
 )
 
@@ -31,5 +32,10 @@ urlpatterns = [
         "admin/orders/<uuid:order_id>/release-balance/",
         PrimaryInvestmentOrderReleaseView.as_view(),
         name="marketplace-primary-order-release",
+    ),
+    path(
+        "admin/loans/<uuid:loan_id>/close-funding/",
+        PrimaryLoanCloseView.as_view(),
+        name="marketplace-primary-loan-close-funding",
     ),
 ]

@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     "backend.apps.entities",
     "backend.apps.loans",
     "backend.apps.marketplace_primary",
+    "backend.apps.holdings",
     "backend.apps.ledger",
     "backend.apps.servicing",
     "backend.apps.secondary_market",

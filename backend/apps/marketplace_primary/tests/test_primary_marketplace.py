@@ -16,14 +16,18 @@ from backend.apps.marketplace_primary.models import (
     PrimaryInvestmentOrder,
     PrimaryInvestmentOrderEvent,
     PrimaryInvestmentOrderStatus,
+    PrimaryLoanClose,
+    PrimaryLoanCloseType,
 )
 from backend.apps.marketplace_primary.services import (
     AllocatePrimaryInvestmentOrderCommand,
+    ClosePrimaryLoanFundingCommand,
     CreatePrimaryInvestmentOrderCommand,
     MarketplacePrimaryAuthorizationError,
     MarketplacePrimaryValidationError,
     ReleasePrimaryInvestmentOrderCommand,
     allocate_primary_order_from_balance,
+    close_primary_loan_funding,
     create_primary_investment_order,
     release_primary_order_balance,
 )
@@ -228,6 +232,36 @@ def _republish_acceptance_template(acceptance: Model) -> None:
     )
     template.current_published_version = new_version
     template.save(update_fields=["current_published_version"])
+
+
+def _create_and_allocate_order(
+    *,
+    investor: Model,
+    loan: Model,
+    amount_minor: int,
+    idempotency_prefix: str,
+) -> PrimaryInvestmentOrder:
+    order = create_primary_investment_order(
+        CreatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            loan_id=str(loan.pk),
+            amount_minor=amount_minor,
+            idempotency_key=f"{idempotency_prefix}-order",
+        )
+    )
+    acceptance = _create_primary_acceptance(
+        investor,
+        order_id=str(order.id),
+        idempotency_key=f"{idempotency_prefix}-accept",
+    )
+    return allocate_primary_order_from_balance(
+        AllocatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            order_id=str(order.id),
+            document_acceptance_id=str(acceptance.pk),
+            idempotency_key=f"{idempotency_prefix}-allocate",
+        )
+    )
 
 
 @pytest.mark.django_db
@@ -860,6 +894,319 @@ def test_release_requires_admin(admin_user: Model, investor: Model) -> None:
 
 
 @pytest.mark.django_db
+def test_close_full_funding_creates_holdings_and_moves_escrow(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    user_model: Any = get_user_model()
+    other_investor = cast(
+        Model,
+        user_model.objects.create_user(
+            email="market-close-other@example.test",
+            full_name="Market Close Other",
+            account_type="natural_person_lender",
+            status="active",
+        ),
+    )
+    _approve_financial_access(investor)
+    _approve_financial_access(other_investor)
+    loan = _create_published_loan(admin_user, principal_minor=30_000_00)
+    _declare_deposit(
+        admin_user,
+        investor,
+        amount_minor=20_000_00,
+        idempotency_key="market-close-deposit-1",
+    )
+    _declare_deposit(
+        admin_user,
+        other_investor,
+        amount_minor=10_000_00,
+        idempotency_key="market-close-deposit-2",
+    )
+    pending_order = create_primary_investment_order(
+        CreatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            loan_id=str(loan.pk),
+            amount_minor=1_000_00,
+            idempotency_key="market-close-pending-order",
+        )
+    )
+    first_order = _create_and_allocate_order(
+        investor=investor,
+        loan=loan,
+        amount_minor=20_000_00,
+        idempotency_prefix="market-close-first",
+    )
+    second_order = _create_and_allocate_order(
+        investor=other_investor,
+        loan=loan,
+        amount_minor=10_000_00,
+        idempotency_prefix="market-close-second",
+    )
+
+    close = close_primary_loan_funding(
+        ClosePrimaryLoanFundingCommand(
+            actor=admin_user,
+            loan_id=str(loan.pk),
+            reason="Funding target reached.",
+            investor_message="Funding target reached.",
+            idempotency_key="market-close-full",
+        )
+    )
+    loan.refresh_from_db()
+    first_order.refresh_from_db()
+    second_order.refresh_from_db()
+    pending_order.refresh_from_db()
+    holding_model = apps.get_model("holdings", "InvestorLoanHolding")
+    holdings = list(holding_model.objects.filter(loan_id=loan.pk).order_by("source_id"))
+    posting_model = apps.get_model("ledger", "LedgerPosting")
+    postings = list(
+        posting_model.objects.filter(journal_entry=close.funding_close_journal_entry).order_by(
+            "side",
+            "amount_minor",
+        )
+    )
+
+    assert close.close_type == PrimaryLoanCloseType.FULL
+    assert close.accepted_principal_minor == 30_000_00
+    assert close.borrower_success_fee_minor == 600_00
+    assert close.borrower_disbursement_payable_minor == 29_400_00
+    assert close.allocated_order_count == 2
+    assert close.closed_not_invested_order_count == 1
+    assert cast(Any, loan).status == "funded"
+    assert cast(Any, loan).principal_minor == 30_000_00
+    assert first_order.status == PrimaryInvestmentOrderStatus.CLOSED_INVESTED
+    assert second_order.status == PrimaryInvestmentOrderStatus.CLOSED_INVESTED
+    assert pending_order.status == PrimaryInvestmentOrderStatus.CLOSED_NOT_INVESTED
+    assert len(holdings) == 2
+    assert {holding.original_principal_minor for holding in holdings} == {20_000_00, 10_000_00}
+    assert {holding.current_principal_minor for holding in holdings} == {20_000_00, 10_000_00}
+    assert sum(holding.loan_share_ppm for holding in holdings) == 1_000_000
+    assert close.funding_close_journal_entry.event_type == "primary_loan_funding_closed"
+    assert sum(posting.amount_minor for posting in postings if posting.side == "debit") == 30_000_00
+    assert (
+        sum(posting.amount_minor for posting in postings if posting.side == "credit")
+        == 30_000_00
+    )
+    assert AuditEvent.objects.filter(action="marketplace_primary.loan_funding_closed").exists()
+    assert DomainEvent.objects.filter(event_type="PrimaryLoanFundingClosed").exists()
+
+    with pytest.raises(MarketplacePrimaryValidationError, match="Closed loan"):
+        release_primary_order_balance(
+            ReleasePrimaryInvestmentOrderCommand(
+                actor=admin_user,
+                order_id=str(first_order.id),
+                reason="Should not release after close.",
+                idempotency_key="market-close-release-after-close",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_close_partial_funding_regenerates_schedule_and_requires_message(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user, principal_minor=100_000_00)
+    _declare_deposit(admin_user, investor, amount_minor=40_000_00, idempotency_key="partial-dep")
+    _create_and_allocate_order(
+        investor=investor,
+        loan=loan,
+        amount_minor=40_000_00,
+        idempotency_prefix="market-close-partial",
+    )
+
+    with pytest.raises(MarketplacePrimaryValidationError, match="Investor message"):
+        close_primary_loan_funding(
+            ClosePrimaryLoanFundingCommand(
+                actor=admin_user,
+                loan_id=str(loan.pk),
+                reason="Partial close approved.",
+                investor_message="",
+                idempotency_key="market-close-partial-missing-message",
+            )
+        )
+
+    close = close_primary_loan_funding(
+        ClosePrimaryLoanFundingCommand(
+            actor=admin_user,
+            loan_id=str(loan.pk),
+            reason="Partial close approved.",
+            investor_message="The loan is closing at the accepted funded amount.",
+            idempotency_key="market-close-partial-ok",
+        )
+    )
+    loan.refresh_from_db()
+    installment_model = apps.get_model("loans", "LoanInstallment")
+    principal_sum = sum(
+        installment.principal_minor
+        for installment in installment_model.objects.filter(
+            loan_id=loan.pk,
+            schedule_version=cast(Any, loan).schedule_version,
+        )
+    )
+
+    assert close.close_type == PrimaryLoanCloseType.PARTIAL
+    assert close.accepted_principal_minor == 40_000_00
+    assert cast(Any, loan).status == "funded"
+    assert cast(Any, loan).principal_minor == 40_000_00
+    assert cast(Any, loan).schedule_version == 2
+    assert principal_sum == 40_000_00
+
+
+@pytest.mark.django_db
+def test_close_is_idempotent_and_rejects_conflicting_replay(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user, principal_minor=10_000_00)
+    _declare_deposit(admin_user, investor, amount_minor=10_000_00, idempotency_key="idem-dep")
+    _create_and_allocate_order(
+        investor=investor,
+        loan=loan,
+        amount_minor=10_000_00,
+        idempotency_prefix="market-close-idem",
+    )
+
+    first = close_primary_loan_funding(
+        ClosePrimaryLoanFundingCommand(
+            actor=admin_user,
+            loan_id=str(loan.pk),
+            reason="Funding target reached.",
+            investor_message="Funding target reached.",
+            idempotency_key="market-close-idem",
+        )
+    )
+    second = close_primary_loan_funding(
+        ClosePrimaryLoanFundingCommand(
+            actor=admin_user,
+            loan_id=str(loan.pk),
+            reason="Funding target reached.",
+            investor_message="Funding target reached.",
+            idempotency_key="market-close-idem",
+        )
+    )
+
+    assert second.id == first.id
+    with pytest.raises(MarketplacePrimaryValidationError, match="different close request"):
+        close_primary_loan_funding(
+            ClosePrimaryLoanFundingCommand(
+                actor=admin_user,
+                loan_id=str(loan.pk),
+                reason="Different reason.",
+                investor_message="Funding target reached.",
+                idempotency_key="market-close-idem",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_close_requires_admin_allocated_orders_and_borrower_clearance(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user, principal_minor=10_000_00)
+
+    with pytest.raises(MarketplacePrimaryAuthorizationError):
+        close_primary_loan_funding(
+            ClosePrimaryLoanFundingCommand(
+                actor=investor,
+                loan_id=str(loan.pk),
+                reason="Investor cannot close.",
+                investor_message="",
+                idempotency_key="market-close-non-admin",
+            )
+        )
+    with pytest.raises(MarketplacePrimaryValidationError, match="no allocated"):
+        close_primary_loan_funding(
+            ClosePrimaryLoanFundingCommand(
+                actor=admin_user,
+                loan_id=str(loan.pk),
+                reason="No allocations.",
+                investor_message="",
+                idempotency_key="market-close-no-allocations",
+            )
+        )
+
+    cast(Any, loan).borrower.compliance_hold = True
+    cast(Any, loan).borrower.save(update_fields=["compliance_hold"])
+    _declare_deposit(admin_user, investor, amount_minor=10_000_00, idempotency_key="clearance-dep")
+    _create_and_allocate_order(
+        investor=investor,
+        loan=loan,
+        amount_minor=10_000_00,
+        idempotency_prefix="market-close-clearance",
+    )
+
+    with pytest.raises(MarketplacePrimaryValidationError, match="Borrower KYB"):
+        close_primary_loan_funding(
+            ClosePrimaryLoanFundingCommand(
+                actor=admin_user,
+                loan_id=str(loan.pk),
+                reason="Borrower blocked.",
+                investor_message="Borrower blocked.",
+                idempotency_key="market-close-borrower-blocked",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_primary_close_and_holding_events_have_append_only_guards(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user, principal_minor=10_000_00)
+    _declare_deposit(admin_user, investor, amount_minor=10_000_00, idempotency_key="guard-dep")
+    _create_and_allocate_order(
+        investor=investor,
+        loan=loan,
+        amount_minor=10_000_00,
+        idempotency_prefix="market-close-guard",
+    )
+    close = close_primary_loan_funding(
+        ClosePrimaryLoanFundingCommand(
+            actor=admin_user,
+            loan_id=str(loan.pk),
+            reason="Funding target reached.",
+            investor_message="Funding target reached.",
+            idempotency_key="market-close-guard",
+        )
+    )
+    holding_event_model = apps.get_model("holdings", "InvestorLoanHoldingEvent")
+    holding_event = holding_event_model.objects.get()
+
+    with pytest.raises(AppendOnlyViolation):
+        close.save()
+    with pytest.raises(AppendOnlyViolation):
+        close.delete()
+    with pytest.raises(AppendOnlyViolation):
+        PrimaryLoanClose.objects.filter(id=close.id).update(reason="mutated")
+    with pytest.raises(AppendOnlyViolation):
+        holding_event.save()
+    with pytest.raises(AppendOnlyViolation):
+        holding_event.delete()
+    with pytest.raises(AppendOnlyViolation):
+        holding_event_model.objects.filter(id=holding_event.id).update(note="mutated")
+    with pytest.raises(DatabaseError), transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE marketplace_primary_primaryloanclose "
+                "SET reason = %s WHERE id = %s",
+                ["mutated", close.id],
+            )
+    with pytest.raises(DatabaseError), transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE holdings_investorloanholdingevent SET note = %s WHERE id = %s",
+                ["mutated", holding_event.id],
+            )
+
+
+@pytest.mark.django_db
 def test_loan_committed_principal_constraint_is_db_enforced(
     admin_user: Model,
 ) -> None:
@@ -948,3 +1295,18 @@ def test_primary_marketplace_api_flow(
     assert "metadata" not in allocation_response.json()
     assert allocation_response.json()["status"] == PrimaryInvestmentOrderStatus.BALANCE_ALLOCATED
     assert PrimaryInvestmentOrder.objects.count() == 1
+
+    client.force_login(cast(Any, admin_user))
+    close_response = client.post(
+        f"/api/v1/marketplace/primary/admin/loans/{loan.pk}/close-funding/",
+        data={
+            "reason": "Partial funding accepted by operations.",
+            "investor_message": "The loan is closing at the accepted funded amount.",
+            "idempotency_key": "api-market-close-1",
+        },
+        content_type="application/json",
+    )
+
+    assert close_response.status_code == 200
+    assert close_response.json()["close_type"] == PrimaryLoanCloseType.PARTIAL
+    assert close_response.json()["accepted_principal_minor"] == 10_000_00

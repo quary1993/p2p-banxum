@@ -11,6 +11,7 @@ def test_domain_apps_are_installed() -> None:
         "entities",
         "loans",
         "marketplace_primary",
+        "holdings",
         "ledger",
         "servicing",
         "secondary_market",

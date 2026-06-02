@@ -1380,12 +1380,14 @@ paths:
           enum:
           - draft
           - published
+          - funded
           - cancelled
           type: string
           minLength: 1
         description: |-
           * `draft` - Draft
           * `published` - Published
+          * `funded` - Funded
           * `cancelled` - Cancelled
       tags:
       - v1
@@ -1554,6 +1556,39 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/LoanInstallment'
+          description: ''
+  /api/v1/marketplace/primary/admin/loans/{loan_id}/close-funding/:
+    post:
+      operationId: v1_marketplace_primary_admin_loans_close_funding_create
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrimaryLoanCloseRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PrimaryLoanCloseRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PrimaryLoanCloseRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrimaryLoanClose'
           description: ''
   /api/v1/marketplace/primary/admin/orders/{order_id}/release-balance/:
     post:
@@ -4525,6 +4560,77 @@ components:
       type: object
       properties:
         reason:
+          type: string
+        idempotency_key:
+          type: string
+          maxLength: 160
+      required:
+      - idempotency_key
+      - reason
+    PrimaryLoanClose:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        loan_id:
+          type: string
+          format: uuid
+        close_type:
+          type: string
+        accepted_principal_minor:
+          type: integer
+        currency:
+          type: string
+        allocated_order_count:
+          type: integer
+        closed_not_invested_order_count:
+          type: integer
+        borrower_success_fee_bps:
+          type: integer
+        borrower_success_fee_minor:
+          type: integer
+        borrower_disbursement_payable_minor:
+          type: integer
+        funding_close_journal_entry_id:
+          type: string
+          format: uuid
+        created_by_admin_id:
+          type: string
+          format: uuid
+        closed_at:
+          type: string
+          format: date-time
+        reason:
+          type: string
+        investor_message:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - accepted_principal_minor
+      - allocated_order_count
+      - borrower_disbursement_payable_minor
+      - borrower_success_fee_bps
+      - borrower_success_fee_minor
+      - close_type
+      - closed_at
+      - closed_not_invested_order_count
+      - created_at
+      - created_by_admin_id
+      - currency
+      - funding_close_journal_entry_id
+      - id
+      - investor_message
+      - loan_id
+      - reason
+    PrimaryLoanCloseRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+        investor_message:
           type: string
         idempotency_key:
           type: string

@@ -4,7 +4,7 @@ from typing import Any
 
 from rest_framework import serializers
 
-from backend.apps.marketplace_primary.models import PrimaryInvestmentOrder
+from backend.apps.marketplace_primary.models import PrimaryInvestmentOrder, PrimaryLoanClose
 
 
 class MarketplaceLoanPreviewSerializer(serializers.Serializer[Any]):
@@ -76,9 +76,38 @@ class PrimaryInvestmentOrderReleaseRequestSerializer(serializers.Serializer[Any]
     idempotency_key = serializers.CharField(max_length=160)
 
 
+class PrimaryLoanCloseSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    loan_id = serializers.UUIDField()
+    close_type = serializers.CharField()
+    accepted_principal_minor = serializers.IntegerField()
+    currency = serializers.CharField(source="currency.code")
+    allocated_order_count = serializers.IntegerField()
+    closed_not_invested_order_count = serializers.IntegerField()
+    borrower_success_fee_bps = serializers.IntegerField()
+    borrower_success_fee_minor = serializers.IntegerField()
+    borrower_disbursement_payable_minor = serializers.IntegerField()
+    funding_close_journal_entry_id = serializers.UUIDField()
+    created_by_admin_id = serializers.UUIDField()
+    closed_at = serializers.DateTimeField()
+    reason = serializers.CharField()
+    investor_message = serializers.CharField()
+    created_at = serializers.DateTimeField()
+
+
+class PrimaryLoanCloseRequestSerializer(serializers.Serializer[Any]):
+    reason = serializers.CharField()
+    investor_message = serializers.CharField(required=False, allow_blank=True)
+    idempotency_key = serializers.CharField(max_length=160)
+
+
 class PublicMarketplaceLoanListQuerySerializer(serializers.Serializer[Any]):
     limit = serializers.IntegerField(required=False, min_value=1, max_value=250, default=100)
 
 
 def serialize_primary_order(order: PrimaryInvestmentOrder) -> dict[str, Any]:
     return dict(PrimaryInvestmentOrderSerializer(order).data)
+
+
+def serialize_primary_loan_close(close: PrimaryLoanClose) -> dict[str, Any]:
+    return dict(PrimaryLoanCloseSerializer(close).data)

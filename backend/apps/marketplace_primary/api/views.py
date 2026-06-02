@@ -17,16 +17,21 @@ from backend.apps.marketplace_primary.api.serializers import (
     PrimaryInvestmentOrderCreateRequestSerializer,
     PrimaryInvestmentOrderReleaseRequestSerializer,
     PrimaryInvestmentOrderSerializer,
+    PrimaryLoanCloseRequestSerializer,
+    PrimaryLoanCloseSerializer,
     PublicMarketplaceLoanListQuerySerializer,
+    serialize_primary_loan_close,
     serialize_primary_order,
 )
 from backend.apps.marketplace_primary.services import (
     AllocatePrimaryInvestmentOrderCommand,
+    ClosePrimaryLoanFundingCommand,
     CreatePrimaryInvestmentOrderCommand,
     MarketplacePrimaryAuthorizationError,
     MarketplacePrimaryValidationError,
     ReleasePrimaryInvestmentOrderCommand,
     allocate_primary_order_from_balance,
+    close_primary_loan_funding,
     create_primary_investment_order,
     get_full_marketplace_loan,
     list_public_marketplace_loans,
@@ -146,3 +151,29 @@ class PrimaryInvestmentOrderReleaseView(APIView):
         except (MarketplacePrimaryAuthorizationError, MarketplacePrimaryValidationError) as exc:
             return _error_response(exc)
         return Response(serialize_primary_order(order), status=status.HTTP_200_OK)
+
+
+class PrimaryLoanCloseView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=PrimaryLoanCloseRequestSerializer,
+        responses={200: PrimaryLoanCloseSerializer},
+    )
+    def post(self, request: Request, loan_id: str) -> Response:
+        serializer = PrimaryLoanCloseRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            close = close_primary_loan_funding(
+                ClosePrimaryLoanFundingCommand(
+                    actor=cast(Model, request.user),
+                    loan_id=loan_id,
+                    reason=data["reason"],
+                    investor_message=data.get("investor_message", ""),
+                    idempotency_key=data["idempotency_key"],
+                )
+            )
+        except (MarketplacePrimaryAuthorizationError, MarketplacePrimaryValidationError) as exc:
+            return _error_response(exc)
+        return Response(serialize_primary_loan_close(close), status=status.HTTP_200_OK)

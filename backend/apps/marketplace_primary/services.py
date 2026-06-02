@@ -15,6 +15,8 @@ from backend.apps.marketplace_primary.models import (
     PrimaryInvestmentOrderEvent,
     PrimaryInvestmentOrderEventType,
     PrimaryInvestmentOrderStatus,
+    PrimaryLoanClose,
+    PrimaryLoanCloseType,
 )
 from backend.apps.platform_core.domain.access import (
     actor_ref_for_user,
@@ -48,6 +50,7 @@ ALLOCATION_FINGERPRINT_METADATA_KEY = "allocation_request_fingerprint"
 ALLOCATION_IDEMPOTENCY_METADATA_KEY = "allocation_idempotency_key"
 RELEASE_FINGERPRINT_METADATA_KEY = "release_request_fingerprint"
 RELEASE_IDEMPOTENCY_METADATA_KEY = "release_idempotency_key"
+CLOSE_FINGERPRINT_METADATA_KEY = "close_request_fingerprint"
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +75,15 @@ class ReleasePrimaryInvestmentOrderCommand:
     actor: Model
     order_id: str
     reason: str
+    idempotency_key: str
+
+
+@dataclass(frozen=True, slots=True)
+class ClosePrimaryLoanFundingCommand:
+    actor: Model
+    loan_id: str
+    reason: str
+    investor_message: str
     idempotency_key: str
 
 
@@ -252,6 +264,21 @@ def _release_request_fingerprint(
     )
 
 
+def _close_request_fingerprint(
+    command: ClosePrimaryLoanFundingCommand,
+    *,
+    idempotency_key: str,
+) -> str:
+    return _stable_json_fingerprint(
+        {
+            "loan_id": str(command.loan_id),
+            "reason": command.reason.strip(),
+            "investor_message": command.investor_message.strip(),
+            "idempotency_key": idempotency_key,
+        }
+    )
+
+
 def _existing_order_for_idempotency(
     idempotency_key: str,
     *,
@@ -268,6 +295,24 @@ def _existing_order_for_idempotency(
             "Idempotency key was already used for a different request."
         )
     return existing
+
+
+def _existing_close_for_idempotency(
+    idempotency_key: str,
+    *,
+    expected_fingerprint: str,
+) -> PrimaryLoanClose | None:
+    existing = PrimaryLoanClose.objects.filter(idempotency_key=idempotency_key).first()
+    if existing is None:
+        return None
+    if (
+        cast(dict[str, Any], existing.metadata).get(CLOSE_FINGERPRINT_METADATA_KEY)
+        != expected_fingerprint
+    ):
+        raise MarketplacePrimaryValidationError(
+            "Idempotency key was already used for a different close request."
+        )
+    return cast(PrimaryLoanClose, existing)
 
 
 def _record_order_event(
@@ -356,6 +401,14 @@ def _validate_primary_document_acceptance(
 
 def _ledger_services() -> Any:
     return import_module("backend.apps.ledger.services")
+
+
+def _holdings_services() -> Any:
+    return import_module("backend.apps.holdings.services")
+
+
+def _loans_services() -> Any:
+    return import_module("backend.apps.loans.services")
 
 
 @transaction.atomic
@@ -636,6 +689,8 @@ def release_primary_order_balance(
             note=reason,
         )
         return order
+    if order.status == PrimaryInvestmentOrderStatus.CLOSED_INVESTED:
+        raise MarketplacePrimaryValidationError("Closed loan orders cannot be released.")
     if order.status not in {
         PrimaryInvestmentOrderStatus.BALANCE_ALLOCATED,
         PrimaryInvestmentOrderStatus.PARTIALLY_ALLOCATED,
@@ -647,6 +702,8 @@ def release_primary_order_balance(
         raise MarketplacePrimaryValidationError("Order has no reservation journal to release.")
     loan = _loan_for_update(str(order.loan_id))
     loan_ref = cast(Any, loan)
+    if str(loan_ref.status) != "published":
+        raise MarketplacePrimaryValidationError("Closed loan orders cannot be released.")
     if int(loan_ref.committed_principal_minor) < order.allocated_amount_minor:
         raise MarketplacePrimaryValidationError("Loan committed principal would underflow.")
     ledger = _ledger_services()
@@ -718,6 +775,324 @@ def release_primary_order_balance(
         metadata=event_metadata,
     )
     return order
+
+
+def _allocated_orders_for_close(loan_id: str) -> list[PrimaryInvestmentOrder]:
+    return list(
+        PrimaryInvestmentOrder.objects.select_for_update()
+        .filter(
+            loan_id=loan_id,
+            status__in=[
+                PrimaryInvestmentOrderStatus.BALANCE_ALLOCATED,
+                PrimaryInvestmentOrderStatus.PARTIALLY_ALLOCATED,
+            ],
+        )
+        .order_by("allocated_at", "created_at", "id")
+    )
+
+
+def _pending_orders_for_close(loan_id: str) -> list[PrimaryInvestmentOrder]:
+    return list(
+        PrimaryInvestmentOrder.objects.select_for_update()
+        .filter(loan_id=loan_id, status=PrimaryInvestmentOrderStatus.PENDING)
+        .order_by("created_at", "id")
+    )
+
+
+def _record_loan_funding_closed_event(
+    *,
+    loan: Model,
+    actor: Model,
+    previous_status: str,
+    new_status: str,
+    close: PrimaryLoanClose,
+    metadata: dict[str, Any],
+) -> None:
+    loan_ref = cast(Any, loan)
+    loan_event_model = _model("loans", "LoanEvent")
+    loan_event_model.objects.create(
+        loan=loan,
+        event_type="funding_closed",
+        actor_user_id=actor.pk,
+        actor_account_type=_actor_account_type(actor),
+        previous_status=previous_status,
+        new_status=new_status,
+        note=close.reason,
+        metadata=metadata,
+    )
+    actor_ref = actor_ref_for_user(actor)
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref,
+            action="loan.funding_closed",
+            target_type="Loan",
+            target_id=str(loan_ref.id),
+            metadata=metadata,
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="LoanFundingClosed",
+            aggregate_type="Loan",
+            aggregate_id=str(loan_ref.id),
+            payload=metadata,
+            idempotency_key=f"loan:{loan_ref.id}:funding-closed",
+        )
+    )
+
+
+@transaction.atomic
+def close_primary_loan_funding(
+    command: ClosePrimaryLoanFundingCommand,
+) -> PrimaryLoanClose:
+    _require_admin_actor(command.actor)
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    reason = _clean_required(command.reason, "Close reason")
+    close_fingerprint = _close_request_fingerprint(command, idempotency_key=idempotency_key)
+    existing = _existing_close_for_idempotency(
+        idempotency_key,
+        expected_fingerprint=close_fingerprint,
+    )
+    if existing is not None:
+        return existing
+    if PrimaryLoanClose.objects.filter(loan_id=command.loan_id).exists():
+        raise MarketplacePrimaryValidationError("Loan funding is already closed.")
+
+    loan = _loan_for_update(command.loan_id)
+    loan_ref = cast(Any, loan)
+    if str(loan_ref.status) != "published":
+        raise MarketplacePrimaryValidationError("Only published loans can be closed.")
+    if not bool(getattr(loan_ref.borrower, "can_transact", False)):
+        raise MarketplacePrimaryValidationError(
+            "Borrower KYB must be approved and free of compliance hold."
+        )
+    allocated_orders = _allocated_orders_for_close(str(loan_ref.id))
+    if not allocated_orders:
+        raise MarketplacePrimaryValidationError("Loan has no allocated investment orders to close.")
+    accepted_principal = sum(order.allocated_amount_minor for order in allocated_orders)
+    if accepted_principal <= 0:
+        raise MarketplacePrimaryValidationError("Accepted funded principal must be positive.")
+    if accepted_principal != int(loan_ref.committed_principal_minor):
+        raise MarketplacePrimaryValidationError(
+            "Allocated orders do not match the loan committed principal."
+        )
+    if accepted_principal > int(loan_ref.principal_minor):
+        raise MarketplacePrimaryValidationError("Accepted funded principal exceeds loan principal.")
+
+    close_type = (
+        PrimaryLoanCloseType.FULL
+        if accepted_principal == int(loan_ref.principal_minor)
+        else PrimaryLoanCloseType.PARTIAL
+    )
+    investor_message = command.investor_message.strip()
+    if close_type == PrimaryLoanCloseType.PARTIAL:
+        if not investor_message:
+            raise MarketplacePrimaryValidationError(
+                "Investor message is required for partial loan close."
+            )
+        loans = _loans_services()
+        loan = loans.update_loan(
+            loans.UpdateLoanCommand(
+                actor=command.actor,
+                loan_id=str(loan_ref.id),
+                principal_minor=accepted_principal,
+                investor_message=investor_message,
+                note=reason,
+            )
+        )
+        loan_ref = cast(Any, loan)
+
+    closed_at = now_utc()
+    ledger = _ledger_services()
+    try:
+        ledger_result = ledger.close_primary_loan_funding(
+            ledger.ClosePrimaryLoanFundingCommand(
+                actor=command.actor,
+                loan_id=str(loan_ref.id),
+                borrower_id=str(loan_ref.borrower_id),
+                accepted_principal_minor=accepted_principal,
+                borrower_success_fee_bps=int(loan_ref.borrower_success_fee_bps),
+                currency=str(loan_ref.currency_id),
+                source_type="primary_loan_close",
+                source_id=str(loan_ref.id),
+                idempotency_key=idempotency_key,
+                as_of=closed_at,
+            )
+        )
+    except ledger.LedgerError as exc:
+        raise MarketplacePrimaryValidationError(str(exc)) from exc
+
+    pending_orders = _pending_orders_for_close(str(loan_ref.id))
+    close_metadata = {
+        CLOSE_FINGERPRINT_METADATA_KEY: close_fingerprint,
+        "loan_id": str(loan_ref.id),
+        "close_type": str(close_type),
+        "currency": str(loan_ref.currency_id),
+        "accepted_principal_minor": accepted_principal,
+        "allocated_order_ids": [str(order.id) for order in allocated_orders],
+        "pending_order_ids_closed_not_invested": [str(order.id) for order in pending_orders],
+        "funding_close_journal_entry_id": str(ledger_result.journal_entry.id),
+    }
+    try:
+        close = cast(
+            PrimaryLoanClose,
+            PrimaryLoanClose.objects.create(
+                loan=cast(Any, loan),
+                close_type=close_type,
+                accepted_principal_minor=accepted_principal,
+                currency_id=str(loan_ref.currency_id),
+                allocated_order_count=len(allocated_orders),
+                closed_not_invested_order_count=len(pending_orders),
+                borrower_success_fee_bps=int(loan_ref.borrower_success_fee_bps),
+                borrower_success_fee_minor=ledger_result.borrower_success_fee_minor,
+                borrower_disbursement_payable_minor=(
+                    ledger_result.borrower_disbursement_payable_minor
+                ),
+                funding_close_journal_entry=ledger_result.journal_entry,
+                created_by_admin_id=command.actor.pk,
+                closed_at=closed_at,
+                reason=reason,
+                investor_message=investor_message,
+                metadata=close_metadata,
+                idempotency_key=idempotency_key,
+            ),
+        )
+    except IntegrityError:
+        existing_after_race = _existing_close_for_idempotency(
+            idempotency_key,
+            expected_fingerprint=close_fingerprint,
+        )
+        if existing_after_race is None:
+            raise
+        return existing_after_race
+
+    holdings = _holdings_services()
+    holding_ids: list[str] = []
+    for order in allocated_orders:
+        holding = holdings.create_primary_market_holding(
+            holdings.CreatePrimaryMarketHoldingCommand(
+                actor=command.actor,
+                investor_user_id=str(order.investor_user_id),
+                loan_id=str(loan_ref.id),
+                primary_order_id=str(order.id),
+                principal_minor=order.allocated_amount_minor,
+                accepted_loan_principal_minor=accepted_principal,
+                currency=str(order.currency_id),
+                assignment_effective_at=closed_at,
+                idempotency_key=f"primary-close-holding:{order.id}",
+                metadata={
+                    "primary_close_id": str(close.id),
+                    "document_acceptance_id": str(order.document_acceptance_id or ""),
+                    "reservation_journal_entry_id": str(order.reservation_journal_entry_id or ""),
+                },
+            )
+        )
+        holding_ids.append(str(holding.id))
+        previous_status = str(order.status)
+        order.status = PrimaryInvestmentOrderStatus.CLOSED_INVESTED
+        order.closed_at = closed_at
+        order.closed_by_admin_id = command.actor.pk
+        order.admin_notes = reason
+        order.metadata = {
+            **cast(dict[str, Any], order.metadata),
+            "primary_close_id": str(close.id),
+            "holding_id": str(holding.id),
+        }
+        order.save(
+            update_fields=[
+                "status",
+                "closed_at",
+                "closed_by_admin_id",
+                "admin_notes",
+                "metadata",
+                "updated_at",
+            ]
+        )
+        _record_order_event(
+            order=order,
+            actor=command.actor,
+            event_type=PrimaryInvestmentOrderEventType.CLOSED_INVESTED,
+            previous_status=previous_status,
+            new_status=order.status,
+            note=reason,
+            metadata={
+                "primary_close_id": str(close.id),
+                "holding_id": str(holding.id),
+                "allocated_amount_minor": order.allocated_amount_minor,
+            },
+        )
+
+    for order in pending_orders:
+        previous_status = str(order.status)
+        order.status = PrimaryInvestmentOrderStatus.CLOSED_NOT_INVESTED
+        order.closed_at = closed_at
+        order.closed_by_admin_id = command.actor.pk
+        order.admin_notes = reason
+        order.metadata = {
+            **cast(dict[str, Any], order.metadata),
+            "primary_close_id": str(close.id),
+            "closed_reason": "Loan funding closed before order allocation.",
+        }
+        order.save(
+            update_fields=[
+                "status",
+                "closed_at",
+                "closed_by_admin_id",
+                "admin_notes",
+                "metadata",
+                "updated_at",
+            ]
+        )
+        _record_order_event(
+            order=order,
+            actor=command.actor,
+            event_type=PrimaryInvestmentOrderEventType.CLOSED_NOT_INVESTED,
+            previous_status=previous_status,
+            new_status=order.status,
+            note=reason,
+            metadata={"primary_close_id": str(close.id), "reason": "loan_funding_closed"},
+        )
+
+    previous_loan_status = str(loan_ref.status)
+    loan_ref.status = "funded"
+    loan_ref.updated_by_admin_id = command.actor.pk
+    loan.save(update_fields=["status", "updated_by_admin_id", "updated_at"])
+    event_metadata = {
+        **close_metadata,
+        "primary_close_id": str(close.id),
+        "holding_ids": holding_ids,
+        "borrower_success_fee_bps": close.borrower_success_fee_bps,
+        "borrower_success_fee_minor": close.borrower_success_fee_minor,
+        "borrower_disbursement_payable_minor": close.borrower_disbursement_payable_minor,
+    }
+    _record_loan_funding_closed_event(
+        loan=loan,
+        actor=command.actor,
+        previous_status=previous_loan_status,
+        new_status=str(loan_ref.status),
+        close=close,
+        metadata=event_metadata,
+    )
+    actor_ref = actor_ref_for_user(command.actor)
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref,
+            action="marketplace_primary.loan_funding_closed",
+            target_type="PrimaryLoanClose",
+            target_id=str(close.id),
+            metadata=event_metadata,
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="PrimaryLoanFundingClosed",
+            aggregate_type="PrimaryLoanClose",
+            aggregate_id=str(close.id),
+            payload=event_metadata,
+            idempotency_key=f"primary-loan-close:{close.id}:closed",
+        )
+    )
+    return close
 
 
 def loan_funding_progress(loan_id: str) -> dict[str, Any]:
