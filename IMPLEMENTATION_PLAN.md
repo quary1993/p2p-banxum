@@ -525,6 +525,8 @@ Borrowers and legal-entity lenders:
 - Borrower uploaded documents.
 - Legal-entity lender admin-created records.
 - Off-platform onboarding status and evidence references.
+- `borrower_investor_disclosure` is the single investor-facing borrower projection. Marketplace and investor borrower views must reuse it instead of rebuilding disclosure logic, so hide-absent optional fields and clean-scan document gating do not drift.
+- `borrower_can_transact` is the shared borrower transaction gate. Loan publication, funding close, borrower disbursement, borrower repayment processing, and any later borrower transaction mutation must call it once those modules exist.
 
 ### `loans`
 

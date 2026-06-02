@@ -126,6 +126,17 @@ def _validate_financials(data: dict[str, Any]) -> None:
         )
 
 
+def _validate_borrower_owned_file(
+    *,
+    stored_file: StoredFile,
+    borrower: BorrowerEntity,
+) -> None:
+    if stored_file.owner_type != "borrower" or stored_file.owner_id != str(borrower.id):
+        raise BorrowerValidationError(
+            "Stored file must be owned by the borrower entity before it can be linked."
+        )
+
+
 def _event_metadata_for_borrower(borrower: BorrowerEntity) -> dict[str, Any]:
     return {
         "legal_name": borrower.legal_name,
@@ -507,6 +518,7 @@ def add_borrower_document(command: AddBorrowerDocumentCommand) -> BorrowerDocume
     stored_file = StoredFile.objects.filter(id=command.stored_file_id).first()
     if stored_file is None:
         raise BorrowerValidationError("Stored file does not exist.")
+    _validate_borrower_owned_file(stored_file=stored_file, borrower=borrower)
     document_type = _document_type(command.document_type)
     display_name = _clean_required(command.display_name, "Display name")
     document = BorrowerDocument.objects.create(

@@ -28,6 +28,7 @@ from backend.apps.entities.services import (
 )
 from backend.apps.entities.tests.factories import create_user
 from backend.apps.platform_core.domain.access import actor_ref_for_user
+from backend.apps.platform_core.domain.actors import ActorRef
 from backend.apps.platform_core.models import AuditEvent, DomainEvent, StoredFile
 from backend.apps.platform_core.models.base import AppendOnlyViolation
 from backend.apps.platform_core.models.files import FileAccessScope
@@ -52,7 +53,13 @@ def investor() -> Model:
     )
 
 
-def _stored_file(admin_user: Model, *, storage_key: str = "borrowers/file.pdf") -> StoredFile:
+def _stored_file(
+    admin_user: Model,
+    *,
+    storage_key: str = "borrowers/file.pdf",
+    borrower_id: str | None = None,
+) -> StoredFile:
+    owner = ActorRef("borrower", borrower_id) if borrower_id is not None else None
     return register_stored_file(
         RegisterStoredFileCommand(
             storage_key=storage_key,
@@ -61,6 +68,7 @@ def _stored_file(admin_user: Model, *, storage_key: str = "borrowers/file.pdf") 
             size_bytes=100,
             checksum_sha256="a" * 64,
             created_by=actor_ref_for_user(admin_user),
+            owner=owner,
             access_scope=FileAccessScope.INTERNAL,
         )
     )
@@ -178,7 +186,7 @@ def test_borrower_document_visibility_requires_clean_file(admin_user: Model) -> 
             country="Switzerland",
         )
     )
-    stored_file = _stored_file(admin_user)
+    stored_file = _stored_file(admin_user, borrower_id=str(borrower.id))
     document = add_borrower_document(
         AddBorrowerDocumentCommand(
             actor=admin_user,
@@ -208,13 +216,35 @@ def test_borrower_document_visibility_requires_clean_file(admin_user: Model) -> 
 
 
 @pytest.mark.django_db
+def test_borrower_document_must_link_borrower_owned_file(admin_user: Model) -> None:
+    borrower = create_borrower_entity(
+        CreateBorrowerEntityCommand(
+            actor=admin_user,
+            legal_name="Owned File Borrower AG",
+            year_founded=2020,
+        )
+    )
+    unrelated_file = _stored_file(admin_user, storage_key="borrowers/unrelated.pdf")
+
+    with pytest.raises(BorrowerValidationError):
+        add_borrower_document(
+            AddBorrowerDocumentCommand(
+                actor=admin_user,
+                borrower_id=str(borrower.id),
+                stored_file_id=str(unrelated_file.id),
+                document_type=BorrowerDocumentType.PRESENTATION,
+                display_name="Wrong owner file",
+                investor_visible=True,
+            )
+        )
+
+
+@pytest.mark.django_db
 def test_borrower_admin_api_create_filter_update_document_and_disclosure(
     client: Client,
     admin_user: Model,
 ) -> None:
     client.force_login(cast(Any, admin_user))
-    stored_file = _stored_file(admin_user, storage_key="borrowers/api-file.pdf")
-    mark_file_scan_clean(stored_file)
 
     create_response = client.post(
         "/api/v1/entities/admin/borrowers/",
@@ -227,6 +257,12 @@ def test_borrower_admin_api_create_filter_update_document_and_disclosure(
         content_type="application/json",
     )
     borrower_id = create_response.json()["id"]
+    stored_file = _stored_file(
+        admin_user,
+        storage_key="borrowers/api-file.pdf",
+        borrower_id=borrower_id,
+    )
+    mark_file_scan_clean(stored_file)
     list_response = client.get(
         "/api/v1/entities/admin/borrowers/",
         data={"q": "API Borrower", "country": "Switzerland"},
