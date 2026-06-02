@@ -100,7 +100,7 @@ def _funded_loan_with_holdings(
             principal_minor=30_000_00,
             currency=currency,
             interest_rate_bps=1_000,
-            term_months=12,
+            term_months=2,
             repayment_type="equal_installments",
             funding_deadline=date(2026, 1, 31),
             first_payment_date=date(2026, 2, 28),
@@ -298,21 +298,115 @@ def test_partial_repayment_requires_warning_acknowledgement(
 
 
 @pytest.mark.django_db
-def test_repayment_rejects_overpayment_until_early_repayment_slice(
+def test_early_repayment_requires_warning_acknowledgement(
     admin_user: Model,
     investor_one: Model,
     investor_two: Model,
 ) -> None:
     loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
 
-    with pytest.raises(ServicingValidationError, match="early and multi-installment"):
+    with pytest.raises(ServicingValidationError, match="warning acknowledgement"):
         record_borrower_repayment(
             _repayment_command(
                 admin_user,
                 loan,
                 amount_minor=3_301_00,
-                warning_acknowledged=True,
                 idempotency_key="servicing-overpayment",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_early_repayment_recalculates_future_schedule(
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+
+    result = record_borrower_repayment(
+        _repayment_command(
+            admin_user,
+            loan,
+            amount_minor=13_300_00,
+            warning_acknowledged=True,
+            idempotency_key="servicing-early-repayment",
+        )
+    )
+    event = result.repayment_event
+    lines = list(
+        InvestorRepaymentDistributionLine.objects.filter(repayment_event=event).order_by(
+            "amount_minor"
+        )
+    )
+    loan.refresh_from_db()
+    version_two_rows = list(
+        apps.get_model("loans", "LoanInstallment").objects.filter(
+            loan=loan,
+            schedule_version=2,
+        ).order_by("installment_number")
+    )
+    holdings = {
+        str(holding.investor_user_id): holding
+        for holding in apps.get_model("holdings", "InvestorLoanHolding").objects.filter(
+            loan=loan
+        )
+    }
+
+    assert event.event_type == BorrowerRepaymentEventType.EARLY_REPAYMENT
+    assert event.interest_applied_minor == 300_00
+    assert event.principal_applied_minor == 3_000_00
+    assert event.future_principal_applied_minor == 10_000_00
+    assert [(line.principal_minor, line.interest_minor, line.amount_minor) for line in lines] == [
+        (4_333_33, 100_00, 4_433_33),
+        (8_666_67, 200_00, 8_866_67),
+    ]
+    assert holdings[str(investor_one.pk)].current_principal_minor == 5_666_67
+    assert holdings[str(investor_two.pk)].current_principal_minor == 11_333_33
+    assert cast(Any, loan).status == "funded"
+    assert cast(Any, loan).schedule_version == 2
+    assert [
+        (
+            row.installment_number,
+            row.principal_minor,
+            row.interest_minor,
+            row.total_minor,
+            row.admin_overridden,
+        )
+        for row in version_two_rows
+    ] == [
+        (1, 3_000_00, 300_00, 3_300_00, True),
+        (2, 17_000_00, 141_67, 17_141_67, True),
+    ]
+    assert DomainEvent.objects.filter(
+        event_type="LoanScheduleRecalculated",
+        aggregate_id=str(loan.pk),
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_early_repayment_is_not_used_for_late_multi_installment_catchup(
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+    scan_loan_servicing_statuses(
+        ScanLoanServicingStatusesCommand(
+            actor=admin_user,
+            as_of_date=date(2026, 3, 5),
+            loan_ids=(str(loan.pk),),
+        )
+    )
+
+    with pytest.raises(ServicingValidationError, match="Multiple-installment catch-up"):
+        record_borrower_repayment(
+            _repayment_command(
+                admin_user,
+                loan,
+                amount_minor=13_300_00,
+                warning_acknowledged=True,
+                idempotency_key="servicing-late-overpayment",
             )
         )
 

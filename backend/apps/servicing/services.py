@@ -117,6 +117,10 @@ def _ledger_services() -> Any:
     return import_module("backend.apps.ledger.services")
 
 
+def _schedule_domain() -> Any:
+    return import_module("backend.apps.loans.domain.schedules")
+
+
 def _require_admin_actor(actor: Model) -> None:
     if not is_admin_actor(actor):
         raise ServicingAuthorizationError("Only an active admin can manage servicing.")
@@ -249,7 +253,11 @@ def _locked_repayable_loan(loan_id: str) -> Model:
 
 
 def _installment_paid_totals(installment: Model) -> tuple[int, int]:
-    aggregate = BorrowerRepaymentEvent.objects.filter(installment=installment).aggregate(
+    installment_ref = cast(Any, installment)
+    aggregate = BorrowerRepaymentEvent.objects.filter(
+        loan_id=installment_ref.loan_id,
+        installment__installment_number=installment_ref.installment_number,
+    ).aggregate(
         principal=Sum("principal_applied_minor"),
         interest=Sum("interest_applied_minor"),
     )
@@ -510,6 +518,211 @@ def _record_holding_principal_update(
     )
 
 
+def _remaining_schedule_first_due_date(loan: Model, current_installment: Model) -> date:
+    loan_ref = cast(Any, loan)
+    current_ref = cast(Any, current_installment)
+    installment_model = apps.get_model("loans", "LoanInstallment")
+    next_installment = installment_model.objects.filter(
+        loan=loan,
+        schedule_version=loan_ref.schedule_version,
+        installment_number=int(current_ref.installment_number) + 1,
+    ).first()
+    if next_installment is not None:
+        return cast(date, next_installment.due_date)
+    schedules = _schedule_domain()
+    return cast(date, schedules.add_months(cast(date, current_ref.due_date), 1))
+
+
+def _remaining_schedule_rows_after_early_repayment(
+    *,
+    loan: Model,
+    current_installment: Model,
+    remaining_principal_minor: int,
+    currency_code: str,
+) -> list[Any]:
+    if remaining_principal_minor <= 0:
+        return []
+    loan_ref = cast(Any, loan)
+    current_number = int(cast(Any, current_installment).installment_number)
+    remaining_term = int(loan_ref.term_months) - current_number
+    if remaining_term <= 0:
+        return []
+    first_due_date = _remaining_schedule_first_due_date(loan, current_installment)
+    schedules = _schedule_domain()
+    repayment_type = str(loan_ref.repayment_type)
+    if repayment_type == "equal_installments":
+        rows = schedules.generate_equal_installment_schedule(
+            principal_minor=remaining_principal_minor,
+            currency=currency_code,
+            term_months=remaining_term,
+            annual_interest_bps=int(loan_ref.interest_rate_bps),
+            first_due_date=first_due_date,
+        )
+    elif repayment_type == "amortizing_principal_interest":
+        rows = schedules.generate_equal_principal_schedule(
+            principal_minor=remaining_principal_minor,
+            currency=currency_code,
+            term_months=remaining_term,
+            annual_interest_bps=int(loan_ref.interest_rate_bps),
+            first_due_date=first_due_date,
+        )
+    elif repayment_type in {"bullet_periodic_interest", "interest_only_then_bullet"}:
+        rows = schedules.generate_bullet_schedule(
+            principal_minor=remaining_principal_minor,
+            currency=currency_code,
+            term_months=remaining_term,
+            annual_interest_bps=int(loan_ref.interest_rate_bps),
+            first_due_date=first_due_date,
+        )
+    elif repayment_type == "interest_only_then_amortizing":
+        remaining_interest_only_months = max(
+            0,
+            int(loan_ref.interest_only_months) - current_number,
+        )
+        if 0 < remaining_interest_only_months < remaining_term:
+            rows = schedules.generate_interest_only_then_amortizing_schedule(
+                principal_minor=remaining_principal_minor,
+                currency=currency_code,
+                term_months=remaining_term,
+                annual_interest_bps=int(loan_ref.interest_rate_bps),
+                first_due_date=first_due_date,
+                interest_only_months=remaining_interest_only_months,
+            )
+        else:
+            rows = schedules.generate_equal_installment_schedule(
+                principal_minor=remaining_principal_minor,
+                currency=currency_code,
+                term_months=remaining_term,
+                annual_interest_bps=int(loan_ref.interest_rate_bps),
+                first_due_date=first_due_date,
+            )
+    else:
+        raise ServicingValidationError(
+            "Early repayment schedule recalculation is not supported for this repayment type."
+        )
+
+    schedule_row_type = schedules.ScheduleInstallmentDraft
+    return [
+        schedule_row_type(
+            installment_number=current_number + index,
+            due_date=row.due_date,
+            principal_minor=row.principal_minor,
+            interest_minor=row.interest_minor,
+            total_minor=row.total_minor,
+            admin_overridden=True,
+        )
+        for index, row in enumerate(rows, start=1)
+    ]
+
+
+def _recalculate_schedule_after_early_repayment(
+    *,
+    loan: Model,
+    actor: Model,
+    repayment_event: BorrowerRepaymentEvent,
+    current_installment: Model,
+    remaining_principal_minor: int,
+    currency_code: str,
+    future_principal_applied_minor: int,
+) -> dict[str, Any]:
+    if future_principal_applied_minor <= 0:
+        return {}
+    loan_ref = cast(Any, loan)
+    installment_ref = cast(Any, current_installment)
+    previous_schedule_version = int(loan_ref.schedule_version)
+    next_schedule_version = previous_schedule_version + 1
+    future_rows = _remaining_schedule_rows_after_early_repayment(
+        loan=loan,
+        current_installment=current_installment,
+        remaining_principal_minor=remaining_principal_minor,
+        currency_code=currency_code,
+    )
+    schedule_row_type = _schedule_domain().ScheduleInstallmentDraft
+    current_row = schedule_row_type(
+        installment_number=int(installment_ref.installment_number),
+        due_date=cast(date, installment_ref.due_date),
+        principal_minor=int(installment_ref.principal_minor),
+        interest_minor=int(installment_ref.interest_minor),
+        total_minor=int(installment_ref.total_minor),
+        admin_overridden=True,
+    )
+    schedule_rows = [current_row, *future_rows]
+    installment_model = apps.get_model("loans", "LoanInstallment")
+    installment_model.objects.bulk_create(
+        [
+            installment_model(
+                loan=loan,
+                schedule_version=next_schedule_version,
+                installment_number=row.installment_number,
+                due_date=row.due_date,
+                principal_minor=row.principal_minor,
+                interest_minor=row.interest_minor,
+                total_minor=row.total_minor,
+                admin_overridden=True,
+                metadata={
+                    "previous_schedule_version": previous_schedule_version,
+                    "reason": "early_repayment",
+                    "repayment_event_id": str(repayment_event.id),
+                },
+            )
+            for row in schedule_rows
+        ]
+    )
+    loan_ref.schedule_version = next_schedule_version
+    loan_ref.total_scheduled_principal_minor = sum(row.principal_minor for row in schedule_rows)
+    loan_ref.total_scheduled_interest_minor = sum(row.interest_minor for row in schedule_rows)
+    loan_ref.updated_by_admin_id = actor.pk
+    loan.save(
+        update_fields=[
+            "schedule_version",
+            "total_scheduled_principal_minor",
+            "total_scheduled_interest_minor",
+            "updated_by_admin_id",
+            "updated_at",
+        ]
+    )
+    metadata = {
+        "previous_schedule_version": previous_schedule_version,
+        "new_schedule_version": next_schedule_version,
+        "future_principal_applied_minor": future_principal_applied_minor,
+        "remaining_principal_minor": remaining_principal_minor,
+        "repayment_event_id": str(repayment_event.id),
+        "installment_count": len(schedule_rows),
+        "future_installment_count": len(future_rows),
+    }
+    event_model = apps.get_model("loans", "LoanEvent")
+    event_model.objects.create(
+        loan=loan,
+        event_type="schedule_generated",
+        actor_user_id=actor.pk,
+        actor_account_type=str(getattr(actor, "account_type", "")),
+        previous_status=str(loan_ref.status),
+        new_status=str(loan_ref.status),
+        note="Schedule recalculated after early repayment.",
+        metadata=metadata,
+    )
+    actor_ref = actor_ref_for_user(actor)
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref,
+            action="loan.schedule_recalculated_after_early_repayment",
+            target_type="Loan",
+            target_id=str(loan_ref.id),
+            metadata=metadata,
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="LoanScheduleRecalculated",
+            aggregate_type="Loan",
+            aggregate_id=str(loan_ref.id),
+            payload=metadata,
+            idempotency_key=f"loan:{loan_ref.id}:schedule:{next_schedule_version}",
+        )
+    )
+    return metadata
+
+
 @transaction.atomic
 def record_borrower_repayment(
     command: RecordBorrowerRepaymentCommand,
@@ -544,27 +757,46 @@ def record_borrower_repayment(
         raise ServicingValidationError("Repayment amount changed during validation.")
     installment, remaining_principal, remaining_interest = _next_due_installment(loan)
     expected_due = remaining_principal + remaining_interest
+    loan_status = str(loan_ref.status)
+    future_principal_applied = 0
     if amount_minor > expected_due:
-        raise ServicingValidationError(
-            "Repayment exceeds the next due installment; early and multi-installment "
-            "repayments are handled in a later servicing slice."
-        )
+        if not command.warning_acknowledged:
+            raise ServicingValidationError(
+                "Repayment differs from the next due installment; "
+                "warning acknowledgement is required."
+            )
+        if loan_status != LOAN_STATUS_FUNDED:
+            raise ServicingValidationError(
+                "Multiple-installment catch-up payments for late loans are handled in a "
+                "later servicing slice."
+            )
+        future_principal_applied = amount_minor - expected_due
     if amount_minor < expected_due and not command.warning_acknowledged:
         raise ServicingValidationError(
             "Repayment differs from the next due installment; warning acknowledgement is required."
         )
 
     interest_applied = min(amount_minor, remaining_interest)
-    principal_applied = amount_minor - interest_applied
-    event_type = (
-        BorrowerRepaymentEventType.REGULAR_INSTALLMENT
-        if amount_minor == expected_due
-        else BorrowerRepaymentEventType.PARTIAL_INSTALLMENT
-    )
+    principal_applied = min(remaining_principal, amount_minor - interest_applied)
+    if future_principal_applied > 0:
+        event_type = BorrowerRepaymentEventType.EARLY_REPAYMENT
+    elif amount_minor == expected_due:
+        event_type = BorrowerRepaymentEventType.REGULAR_INSTALLMENT
+    else:
+        event_type = BorrowerRepaymentEventType.PARTIAL_INSTALLMENT
     holdings = _active_holdings_for_loan(loan)
+    total_holding_principal = sum(
+        int(cast(Any, holding).current_principal_minor) for holding in holdings
+    )
+    max_future_principal = total_holding_principal - principal_applied
+    if future_principal_applied > max_future_principal:
+        raise ServicingValidationError(
+            "Repayment exceeds outstanding loan principal after the current installment."
+        )
+    principal_for_distribution = principal_applied + future_principal_applied
     distribution_plan = _distribution_plan(
         holdings=holdings,
-        principal_minor=principal_applied,
+        principal_minor=principal_for_distribution,
         interest_minor=interest_applied,
         currency_code=currency.code,
     )
@@ -618,6 +850,7 @@ def record_borrower_repayment(
         "loan_id": str(loan_ref.id),
         "borrower_id": str(loan_ref.borrower_id),
         "installment_number": int(cast(Any, installment).installment_number),
+        "future_principal_applied_minor": future_principal_applied,
         "ledger_journal_entry_id": str(ledger_result.journal_entry.id),
         "bank_operation_id": str(ledger_result.bank_operation.id),
     }
@@ -636,6 +869,7 @@ def record_borrower_repayment(
                 expected_due_minor=expected_due,
                 interest_applied_minor=interest_applied,
                 principal_applied_minor=principal_applied,
+                future_principal_applied_minor=future_principal_applied,
                 remaining_installment_interest_minor=remaining_interest - interest_applied,
                 remaining_installment_principal_minor=remaining_principal - principal_applied,
                 warning_acknowledged=command.warning_acknowledged,
@@ -683,6 +917,16 @@ def record_borrower_repayment(
                 metadata={"line_index": index},
             )
         )
+    remaining_loan_principal = sum(line.current_principal_after_minor for line in distribution_plan)
+    schedule_recalculation = _recalculate_schedule_after_early_repayment(
+        loan=loan,
+        actor=command.actor,
+        repayment_event=repayment_event,
+        current_installment=installment,
+        remaining_principal_minor=remaining_loan_principal,
+        currency_code=currency.code,
+        future_principal_applied_minor=future_principal_applied,
+    )
     status_change = _refresh_loan_status_after_repayment(
         loan=loan,
         actor=command.actor,
@@ -698,7 +942,9 @@ def record_borrower_repayment(
         "amount_minor": amount_minor,
         "interest_applied_minor": interest_applied,
         "principal_applied_minor": principal_applied,
+        "future_principal_applied_minor": future_principal_applied,
         "distribution_line_count": len(distribution_lines),
+        "schedule_recalculation": schedule_recalculation,
         "loan_status_change": {
             "previous_status": status_change.previous_status,
             "new_status": status_change.new_status,

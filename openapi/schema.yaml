@@ -2808,6 +2808,8 @@ components:
           type: integer
         principal_applied_minor:
           type: integer
+        future_principal_applied_minor:
+          type: integer
         fees_applied_minor:
           type: integer
         penalties_applied_minor:
@@ -2848,6 +2850,7 @@ components:
       - event_type
       - expected_due_minor
       - fees_applied_minor
+      - future_principal_applied_minor
       - id
       - idempotency_key
       - installment_id

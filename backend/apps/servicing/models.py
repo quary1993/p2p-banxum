@@ -10,6 +10,7 @@ from backend.apps.platform_core.models.base import AppendOnlyModel, TimestampedM
 class BorrowerRepaymentEventType(models.TextChoices):
     REGULAR_INSTALLMENT = "regular_installment", "Regular installment"
     PARTIAL_INSTALLMENT = "partial_installment", "Partial installment"
+    EARLY_REPAYMENT = "early_repayment", "Early repayment"
 
 
 class BorrowerRepaymentEvent(AppendOnlyModel, TimestampedModel):
@@ -37,6 +38,7 @@ class BorrowerRepaymentEvent(AppendOnlyModel, TimestampedModel):
     expected_due_minor = models.BigIntegerField()
     interest_applied_minor = models.BigIntegerField(default=0)
     principal_applied_minor = models.BigIntegerField(default=0)
+    future_principal_applied_minor = models.BigIntegerField(default=0)
     fees_applied_minor = models.BigIntegerField(default=0)
     penalties_applied_minor = models.BigIntegerField(default=0)
     remaining_installment_interest_minor = models.BigIntegerField(default=0)
@@ -69,6 +71,7 @@ class BorrowerRepaymentEvent(AppendOnlyModel, TimestampedModel):
                     models.Q(expected_due_minor__gte=0)
                     & models.Q(interest_applied_minor__gte=0)
                     & models.Q(principal_applied_minor__gte=0)
+                    & models.Q(future_principal_applied_minor__gte=0)
                     & models.Q(fees_applied_minor__gte=0)
                     & models.Q(penalties_applied_minor__gte=0)
                     & models.Q(remaining_installment_interest_minor__gte=0)
@@ -80,6 +83,7 @@ class BorrowerRepaymentEvent(AppendOnlyModel, TimestampedModel):
                 condition=models.Q(
                     amount_minor=models.F("interest_applied_minor")
                     + models.F("principal_applied_minor")
+                    + models.F("future_principal_applied_minor")
                     + models.F("fees_applied_minor")
                     + models.F("penalties_applied_minor")
                 ),

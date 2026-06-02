@@ -43,6 +43,7 @@ class BorrowerRepaymentEventSerializer(serializers.Serializer[Any]):
     expected_due_minor = serializers.IntegerField()
     interest_applied_minor = serializers.IntegerField()
     principal_applied_minor = serializers.IntegerField()
+    future_principal_applied_minor = serializers.IntegerField()
     fees_applied_minor = serializers.IntegerField()
     penalties_applied_minor = serializers.IntegerField()
     remaining_installment_interest_minor = serializers.IntegerField()
