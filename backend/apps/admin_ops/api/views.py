@@ -31,16 +31,9 @@ from backend.apps.admin_ops.services import (
     create_admin_task,
     update_admin_task,
 )
+from backend.apps.platform_core.domain.access import actor_ref_for_user, is_admin_actor
 from backend.apps.platform_core.models import AuditEvent
-
-
-def _is_admin_request_user(user: Any) -> bool:
-    return (
-        bool(getattr(user, "is_active", False))
-        and bool(getattr(user, "is_staff", False))
-        and str(getattr(user, "account_type", "")) in {"admin", "superadmin"}
-        and str(getattr(user, "status", "")) not in {"restricted", "locked", "closed"}
-    )
+from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 
 
 def _admin_forbidden_response() -> Response:
@@ -64,6 +57,14 @@ def _task_queryset_from_query(data: dict[str, Any]) -> QuerySet[AdminTask]:
     return queryset
 
 
+def _audit_search_filters(data: dict[str, Any]) -> dict[str, str | int]:
+    filters: dict[str, str | int] = {}
+    for key, value in data.items():
+        if value is not None and value != "":
+            filters[key] = value if isinstance(value, int) else str(value)
+    return filters
+
+
 class AdminTaskListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -72,7 +73,7 @@ class AdminTaskListCreateView(APIView):
         responses={200: AdminTaskSerializer(many=True)},
     )
     def get(self, request: Request) -> Response:
-        if not _is_admin_request_user(request.user):
+        if not is_admin_actor(request.user):
             return _admin_forbidden_response()
         serializer = AdminTaskListQuerySerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
@@ -88,7 +89,7 @@ class AdminTaskListCreateView(APIView):
         responses={201: AdminTaskSerializer},
     )
     def post(self, request: Request) -> Response:
-        if not _is_admin_request_user(request.user):
+        if not is_admin_actor(request.user):
             return _admin_forbidden_response()
         serializer = AdminTaskCreateRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -121,7 +122,7 @@ class AdminTaskDetailView(APIView):
 
     @extend_schema(responses={200: AdminTaskSerializer})
     def get(self, request: Request, task_id: str) -> Response:
-        if not _is_admin_request_user(request.user):
+        if not is_admin_actor(request.user):
             return _admin_forbidden_response()
         task = AdminTask.objects.filter(id=task_id).first()
         if task is None:
@@ -136,7 +137,7 @@ class AdminTaskDetailView(APIView):
         responses={200: AdminTaskSerializer},
     )
     def patch(self, request: Request, task_id: str) -> Response:
-        if not _is_admin_request_user(request.user):
+        if not is_admin_actor(request.user):
             return _admin_forbidden_response()
         serializer = AdminTaskUpdateRequestSerializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -177,7 +178,7 @@ class AdminTaskEventListView(APIView):
 
     @extend_schema(responses={200: AdminTaskEventSerializer(many=True)})
     def get(self, request: Request, task_id: str) -> Response:
-        if not _is_admin_request_user(request.user):
+        if not is_admin_actor(request.user):
             return _admin_forbidden_response()
         task = AdminTask.objects.filter(id=task_id).first()
         if task is None:
@@ -199,7 +200,7 @@ class AuditEventListView(APIView):
         responses={200: AuditEventSerializer(many=True)},
     )
     def get(self, request: Request) -> Response:
-        if not _is_admin_request_user(request.user):
+        if not is_admin_actor(request.user):
             return _admin_forbidden_response()
         serializer = AuditEventQuerySerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
@@ -212,7 +213,19 @@ class AuditEventListView(APIView):
             queryset = queryset.filter(occurred_at__gte=data["occurred_from"])
         if data.get("occurred_to"):
             queryset = queryset.filter(occurred_at__lte=data["occurred_to"])
+        events = list(queryset[: data["limit"]])
+        record_audit_event(
+            AuditCommand(
+                actor=actor_ref_for_user(request.user),
+                action="audit_event.search_performed",
+                target_type="AuditEvent",
+                metadata={
+                    "filters": _audit_search_filters(data),
+                    "result_count": len(events),
+                },
+            )
+        )
         return Response(
-            [serialize_audit_event(event) for event in queryset[: data["limit"]]],
+            [serialize_audit_event(event) for event in events],
             status=status.HTTP_200_OK,
         )

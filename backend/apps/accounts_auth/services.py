@@ -30,6 +30,13 @@ from backend.apps.accounts_auth.models import (
     SensitiveActionCode,
     User,
 )
+from backend.apps.platform_core.domain.access import (
+    actor_ref_for_user,
+    has_admin_role,
+    has_superadmin_role,
+    is_admin_actor,
+    is_superadmin_actor,
+)
 from backend.apps.platform_core.domain.actors import ActorRef
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import (
@@ -96,7 +103,6 @@ class SuperadminBootstrapError(AccountsAuthError):
     pass
 
 
-ADMIN_ACCOUNT_TYPES = frozenset({AccountType.ADMIN, AccountType.SUPERADMIN})
 MAGIC_LINK_ACCOUNT_TYPES = frozenset(
     {
         AccountType.NATURAL_PERSON_LENDER,
@@ -107,23 +113,15 @@ INVESTOR_SENSITIVE_ACTION_ACCOUNT_TYPES = MAGIC_LINK_ACCOUNT_TYPES
 
 
 def actor_for_user(user: User) -> ActorRef:
-    if user.account_type == AccountType.SUPERADMIN:
-        return ActorRef("superadmin", str(user.id))
-    if user.account_type == AccountType.ADMIN:
-        return ActorRef("admin", str(user.id))
-    return ActorRef("investor", str(user.id))
+    return actor_ref_for_user(user)
 
 
 def is_admin_account(user: User) -> bool:
-    return user.account_type in ADMIN_ACCOUNT_TYPES and user.is_staff
+    return has_admin_role(user)
 
 
 def is_superadmin_account(user: User) -> bool:
-    return (
-        user.account_type == AccountType.SUPERADMIN
-        and user.is_staff
-        and user.is_superuser
-    )
+    return has_superadmin_role(user)
 
 
 def normalize_email(email: str) -> str:
@@ -440,7 +438,7 @@ def issue_sensitive_action_code(
     if not command.user.can_login:
         raise InvalidOrExpiredCodeError("Account cannot receive a sensitive-action code.")
     if command.action == SensitiveAction.ADMIN_LOGIN:
-        if not is_admin_account(command.user):
+        if not is_admin_actor(command.user):
             raise InvalidOrExpiredCodeError("Account cannot receive an admin-login code.")
     elif command.user.account_type not in INVESTOR_SENSITIVE_ACTION_ACCOUNT_TYPES:
         raise InvalidOrExpiredCodeError("Account cannot receive this sensitive-action code.")
@@ -934,7 +932,7 @@ def bootstrap_env_superadmin() -> BootstrapEnvSuperadminResult:
 
 @transaction.atomic
 def create_admin_user(command: CreateAdminUserCommand) -> User:
-    if not command.actor.can_login or not is_superadmin_account(command.actor):
+    if not is_superadmin_actor(command.actor):
         raise AdminAuthorizationError("Only an active superadmin can create admin users.")
     email = normalize_email(command.email)
     if User.objects.filter(email=email).exists():
@@ -978,7 +976,7 @@ def create_admin_user(command: CreateAdminUserCommand) -> User:
 
 @transaction.atomic
 def change_account_access(command: ChangeAccountAccessCommand) -> AccountAccessEvent:
-    if not command.actor.can_login or not is_admin_account(command.actor):
+    if not is_admin_actor(command.actor):
         raise AdminAuthorizationError("Only an active admin can change account access.")
 
     target_user = User.objects.select_for_update().filter(id=command.user_id).first()
@@ -1057,8 +1055,7 @@ def start_admin_login(command: AdminLoginStartCommand) -> AdminLoginStartResult:
     user = User.objects.filter(email=email).first()
     if (
         user is None
-        or not is_admin_account(user)
-        or not user.can_login
+        or not is_admin_actor(user)
         or not user.check_password(command.password)
     ):
         _audit_auth_failure(
@@ -1100,7 +1097,7 @@ def confirm_admin_login(command: AdminLoginConfirmCommand) -> User:
         )
     )
     user = code_record.user
-    if not is_admin_account(user) or not user.can_login:
+    if not is_admin_actor(user):
         _audit_auth_failure(
             action="auth.admin_login_failed",
             user_id=str(user.id),

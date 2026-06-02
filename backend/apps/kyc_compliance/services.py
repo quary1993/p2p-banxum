@@ -22,6 +22,11 @@ from backend.apps.kyc_compliance.models import (
     KycStatus,
     KycVerificationCase,
 )
+from backend.apps.platform_core.domain.access import (
+    BLOCKING_ACCOUNT_STATUSES,
+    actor_ref_for_user,
+    is_admin_actor,
+)
 from backend.apps.platform_core.domain.actors import ActorRef
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import (
@@ -70,9 +75,6 @@ NON_OVERRIDABLE_APPROVAL_STATUSES = frozenset(
         KycStatus.DECLINED,
     }
 )
-
-BLOCKING_ACCOUNT_STATUSES = frozenset({"restricted", "locked", "closed"})
-
 
 class KycComplianceError(ValueError):
     pass
@@ -148,24 +150,6 @@ def vendor_data_for_user(user: Model) -> str:
 
 def _user_actor(user_id: str) -> ActorRef:
     return ActorRef("investor", user_id)
-
-
-def _actor_for_admin(user: Model) -> ActorRef:
-    account_type = str(getattr(user, "account_type", ""))
-    if account_type == "superadmin":
-        return ActorRef("superadmin", str(user.pk))
-    return ActorRef("admin", str(user.pk))
-
-
-def _is_admin_actor(user: Model) -> bool:
-    account_type = str(getattr(user, "account_type", ""))
-    status = str(getattr(user, "status", ""))
-    return (
-        bool(getattr(user, "is_active", False))
-        and bool(getattr(user, "is_staff", False))
-        and account_type in {"admin", "superadmin"}
-        and status not in BLOCKING_ACCOUNT_STATUSES
-    )
 
 
 def _provider_environment() -> str:
@@ -481,7 +465,7 @@ def process_didit_event(command: ProviderKycEventCommand) -> ProviderKycEventRes
 def record_manual_review_decision(
     command: ManualReviewDecisionCommand,
 ) -> KycManualReviewDecision:
-    if not _is_admin_actor(command.actor):
+    if not is_admin_actor(command.actor):
         raise KycManualReviewError("Only an active admin can record KYC manual review decisions.")
     if not command.note.strip() and not command.evidence_summary.strip():
         raise KycManualReviewError("A note or evidence summary is required.")
@@ -514,7 +498,7 @@ def record_manual_review_decision(
         ]
     )
     if new_status == KycStatus.APPROVED:
-        _activate_user_after_kyc_approval(case, _actor_for_admin(command.actor))
+        _activate_user_after_kyc_approval(case, actor_ref_for_user(command.actor))
 
     decision = KycManualReviewDecision.objects.create(
         case=case,
@@ -530,7 +514,7 @@ def record_manual_review_decision(
     )
     record_audit_event(
         AuditCommand(
-            actor=_actor_for_admin(command.actor),
+            actor=actor_ref_for_user(command.actor),
             action="kyc.manual_review_decision_recorded",
             target_type="KycVerificationCase",
             target_id=str(case.id),

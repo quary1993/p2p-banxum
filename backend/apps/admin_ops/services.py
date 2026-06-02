@@ -18,6 +18,7 @@ from backend.apps.admin_ops.models import (
     AdminTaskStatus,
     AdminTaskType,
 )
+from backend.apps.platform_core.domain.access import actor_ref_for_user, is_admin_actor
 from backend.apps.platform_core.domain.actors import ActorRef
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import DomainEventCommand, record_domain_event
@@ -39,23 +40,13 @@ def _actor_account_type(actor: Model) -> str:
     return str(getattr(actor, "account_type", ""))
 
 
-def _is_admin_actor(actor: Model) -> bool:
-    return (
-        bool(getattr(actor, "is_active", False))
-        and bool(getattr(actor, "is_staff", False))
-        and _actor_account_type(actor) in {"admin", "superadmin"}
-        and str(getattr(actor, "status", "")) not in {"restricted", "locked", "closed"}
-    )
-
-
 def _require_admin_actor(actor: Model) -> None:
-    if not _is_admin_actor(actor):
+    if not is_admin_actor(actor):
         raise AdminTaskAuthorizationError("Only an active admin can manage admin tasks.")
 
 
 def _actor_for_admin(actor: Model) -> ActorRef:
-    account_type = _actor_account_type(actor)
-    return ActorRef("superadmin" if account_type == "superadmin" else "admin", str(actor.pk))
+    return actor_ref_for_user(actor)
 
 
 def _task_type(value: str) -> AdminTaskType:
@@ -91,7 +82,7 @@ def _resolve_assignable_admin(admin_id: str | None) -> Model | None:
         return None
     user_model = get_user_model()
     admin = cast(Model | None, user_model.objects.filter(id=admin_id).first())
-    if admin is None or not _is_admin_actor(admin):
+    if admin is None or not is_admin_actor(admin):
         raise AdminTaskValidationError("Assigned user must be an active admin.")
     return admin
 

@@ -201,6 +201,14 @@ def test_admin_audit_log_endpoint_is_admin_only(
     assert response.status_code == 200
     assert len(response.json()) == 1
     assert response.json()[0]["target_id"] == str(task.id)
+    search_event = AuditEvent.objects.get(action="audit_event.search_performed")
+    assert search_event.actor_id == str(admin_user.pk)
+    assert search_event.metadata["filters"] == {
+        "action": "admin_task.created",
+        "target_id": str(task.id),
+        "limit": 100,
+    }
+    assert search_event.metadata["result_count"] == 1
 
 
 @pytest.mark.django_db

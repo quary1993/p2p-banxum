@@ -39,6 +39,7 @@ from backend.apps.kyc_compliance.services import (
     record_manual_review_decision,
     verify_didit_webhook_signature,
 )
+from backend.apps.platform_core.domain.access import is_admin_actor
 
 
 class KycStatusView(APIView):
@@ -78,21 +79,12 @@ class KycSessionCreateView(APIView):
         )
 
 
-def _is_admin_request_user(user: Any) -> bool:
-    return (
-        bool(getattr(user, "is_active", False))
-        and bool(getattr(user, "is_staff", False))
-        and str(getattr(user, "account_type", "")) in {"admin", "superadmin"}
-        and str(getattr(user, "status", "")) not in {"restricted", "locked", "closed"}
-    )
-
-
 class KycAdminManualReviewListView(APIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(responses={200: KycAdminCaseSerializer(many=True)})
     def get(self, request: Request) -> Response:
-        if not _is_admin_request_user(request.user):
+        if not is_admin_actor(request.user):
             return Response(
                 {"detail": "Only an active admin can view KYC manual reviews."},
                 status=status.HTTP_403_FORBIDDEN,
@@ -114,7 +106,7 @@ class KycAdminManualReviewDecisionView(APIView):
         responses={200: KycManualReviewDecisionResponseSerializer},
     )
     def post(self, request: Request, case_id: str) -> Response:
-        if not _is_admin_request_user(request.user):
+        if not is_admin_actor(request.user):
             return Response(
                 {"detail": "Only an active admin can record KYC manual review decisions."},
                 status=status.HTTP_403_FORBIDDEN,
