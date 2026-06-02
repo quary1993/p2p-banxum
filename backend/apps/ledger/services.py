@@ -74,6 +74,7 @@ INVESTMENT_RESERVATION_FINGERPRINT_METADATA_KEY = "investment_reservation_finger
 INVESTMENT_RELEASE_FINGERPRINT_METADATA_KEY = "investment_release_fingerprint"
 PRIMARY_LOAN_CLOSE_FINGERPRINT_METADATA_KEY = "primary_loan_close_fingerprint"
 FX_EXCHANGE_FINGERPRINT_METADATA_KEY = "fx_exchange_fingerprint"
+FX_EXTERNAL_SETTLEMENT_FINGERPRINT_METADATA_KEY = "fx_external_settlement_fingerprint"
 
 
 @dataclass(frozen=True, slots=True)
@@ -407,6 +408,26 @@ class ExecuteInvestorFxExchangeLedgerCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class DeclareFxExternalSettlementLedgerCommand:
+    actor: Model
+    settlement_id: str
+    sold_currency: str
+    bought_currency: str
+    sold_amount_minor: int
+    bought_amount_minor: int
+    booking_date: date
+    value_date: date
+    collection_account_identifier: str
+    bank_reference: str = ""
+    payment_reference: str = ""
+    evidence_reference: str = ""
+    notes: str = ""
+    idempotency_key: str = ""
+    as_of: datetime | None = None
+    metadata: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ClosePrimaryLoanFundingResult:
     journal_entry: LedgerJournalEntry
     borrower_success_fee_minor: int
@@ -419,6 +440,14 @@ class InvestorFxExchangeLedgerResult:
     target_journal_entry: LedgerJournalEntry
     target_balance_lot: InvestorBalanceLot
     source_lot_allocations: list[dict[str, Any]]
+
+
+@dataclass(frozen=True, slots=True)
+class FxExternalSettlementLedgerResult:
+    sold_bank_operation: BankOperation
+    bought_bank_operation: BankOperation
+    sold_journal_entry: LedgerJournalEntry
+    bought_journal_entry: LedgerJournalEntry
 
 
 @dataclass(frozen=True, slots=True)
@@ -3164,6 +3193,38 @@ def _fx_exchange_request_fingerprint(
     )
 
 
+def _fx_external_settlement_request_fingerprint(
+    command: DeclareFxExternalSettlementLedgerCommand,
+    *,
+    sold_currency_code: str,
+    bought_currency_code: str,
+    sold_amount_minor: int,
+    bought_amount_minor: int,
+    idempotency_key: str,
+) -> str:
+    actor_ref = actor_ref_for_user(command.actor)
+    return _stable_json_fingerprint(
+        {
+            "actor_type": actor_ref.actor_type,
+            "actor_id": actor_ref.actor_id,
+            "settlement_id": str(command.settlement_id),
+            "sold_currency": sold_currency_code,
+            "bought_currency": bought_currency_code,
+            "sold_amount_minor": sold_amount_minor,
+            "bought_amount_minor": bought_amount_minor,
+            "booking_date": command.booking_date.isoformat(),
+            "value_date": command.value_date.isoformat(),
+            "collection_account_identifier": command.collection_account_identifier.strip(),
+            "bank_reference": command.bank_reference.strip(),
+            "payment_reference": command.payment_reference.strip(),
+            "evidence_reference": command.evidence_reference.strip(),
+            "notes": command.notes.strip(),
+            "idempotency_key": idempotency_key,
+            "metadata": command.metadata or {},
+        }
+    )
+
+
 def _existing_investment_reservation(
     journal_idempotency_key: str,
     *,
@@ -3243,6 +3304,37 @@ def _existing_fx_exchange_ledger_result(
         source_lot_allocations=list(
             cast(list[dict[str, Any]], metadata.get("source_lot_allocations", []))
         ),
+    )
+
+
+def _existing_fx_external_settlement_ledger_result(
+    sold_journal_idempotency_key: str,
+    *,
+    expected_fingerprint: str,
+) -> FxExternalSettlementLedgerResult | None:
+    sold_journal = LedgerJournalEntry.objects.filter(
+        idempotency_key=sold_journal_idempotency_key
+    ).first()
+    if sold_journal is None:
+        return None
+    metadata = cast(dict[str, Any], sold_journal.metadata)
+    if metadata.get(FX_EXTERNAL_SETTLEMENT_FINGERPRINT_METADATA_KEY) != expected_fingerprint:
+        raise LedgerValidationError("Idempotency key was already used for a different request.")
+    bought_journal_id = str(metadata.get("bought_journal_entry_id", ""))
+    sold_bank_operation_id = str(metadata.get("sold_bank_operation_id", ""))
+    bought_bank_operation_id = str(metadata.get("bought_bank_operation_id", ""))
+    if not bought_journal_id or not sold_bank_operation_id or not bought_bank_operation_id:
+        raise LedgerValidationError("Existing FX external settlement evidence is incomplete.")
+    bought_journal = LedgerJournalEntry.objects.filter(id=bought_journal_id).first()
+    sold_bank_operation = BankOperation.objects.filter(id=sold_bank_operation_id).first()
+    bought_bank_operation = BankOperation.objects.filter(id=bought_bank_operation_id).first()
+    if bought_journal is None or sold_bank_operation is None or bought_bank_operation is None:
+        raise LedgerValidationError("Existing FX external settlement ledger records are missing.")
+    return FxExternalSettlementLedgerResult(
+        sold_bank_operation=cast(BankOperation, sold_bank_operation),
+        bought_bank_operation=cast(BankOperation, bought_bank_operation),
+        sold_journal_entry=sold_journal,
+        bought_journal_entry=bought_journal,
     )
 
 
@@ -3941,6 +4033,280 @@ def execute_investor_fx_exchange_ledger(
         target_journal_entry=target_journal,
         target_balance_lot=target_lot,
         source_lot_allocations=source_allocations,
+    )
+
+
+@transaction.atomic
+def declare_fx_external_settlement_ledger(
+    command: DeclareFxExternalSettlementLedgerCommand,
+) -> FxExternalSettlementLedgerResult:
+    _require_admin_actor(command.actor)
+    sold_currency = _enabled_currency(command.sold_currency)
+    bought_currency = _enabled_currency(command.bought_currency)
+    if sold_currency.code == bought_currency.code:
+        raise LedgerValidationError("FX external settlement currencies must differ.")
+    sold_amount_minor = _validate_money(
+        command.sold_amount_minor,
+        sold_currency.code,
+        "FX external sold amount",
+    )
+    bought_amount_minor = _validate_money(
+        command.bought_amount_minor,
+        bought_currency.code,
+        "FX external bought amount",
+    )
+    settlement_id = _clean_required(str(command.settlement_id), "FX settlement id")
+    collection_account_identifier = _clean_required(
+        command.collection_account_identifier,
+        "Collection account identifier",
+    )
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    confirmed_at = command.as_of or now_utc()
+    received_at = _received_at_from_value_date(command.value_date)
+    sold_bank_key = _derived_idempotency_key("bank-fx-external-sold", idempotency_key)
+    bought_bank_key = _derived_idempotency_key("bank-fx-external-bought", idempotency_key)
+    sold_journal_key = _derived_idempotency_key("ledger-fx-external-sold", idempotency_key)
+    bought_journal_key = _derived_idempotency_key("ledger-fx-external-bought", idempotency_key)
+    request_fingerprint = _fx_external_settlement_request_fingerprint(
+        command,
+        sold_currency_code=sold_currency.code,
+        bought_currency_code=bought_currency.code,
+        sold_amount_minor=sold_amount_minor,
+        bought_amount_minor=bought_amount_minor,
+        idempotency_key=idempotency_key,
+    )
+    existing = _existing_fx_external_settlement_ledger_result(
+        sold_journal_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing is not None:
+        return existing
+
+    bank_metadata = {
+        REQUEST_FINGERPRINT_METADATA_KEY: request_fingerprint,
+        "settlement_id": settlement_id,
+        "sold_currency": sold_currency.code,
+        "bought_currency": bought_currency.code,
+        "sold_amount_minor": sold_amount_minor,
+        "bought_amount_minor": bought_amount_minor,
+        "metadata": command.metadata or {},
+    }
+    actor_ref = actor_ref_for_user(command.actor)
+    try:
+        with transaction.atomic():
+            sold_bank_operation = BankOperation.objects.create(
+                operation_type=_bank_operation_type(
+                    BankOperationType.CURRENCY_EXCHANGE_EXTERNAL_SETTLEMENT
+                ),
+                status=BankOperationStatus.RECONCILED,
+                amount_minor=sold_amount_minor,
+                currency=sold_currency,
+                booking_date=command.booking_date,
+                value_date=command.value_date,
+                collection_account_identifier=collection_account_identifier,
+                payer_name="Garanta Finanzgruppe AG",
+                payer_account_identifier=collection_account_identifier,
+                payee_name="External FX counterparty",
+                bank_reference=command.bank_reference.strip(),
+                payment_reference=command.payment_reference.strip(),
+                linked_object_type="fx_external_settlement",
+                linked_object_id=settlement_id,
+                evidence_reference=command.evidence_reference.strip(),
+                confirmed_by_admin_id=command.actor.pk,
+                confirmed_at=confirmed_at,
+                notes=command.notes.strip(),
+                metadata={**bank_metadata, "side": "sold"},
+                idempotency_key=sold_bank_key,
+            )
+            bought_bank_operation = BankOperation.objects.create(
+                operation_type=_bank_operation_type(
+                    BankOperationType.CURRENCY_EXCHANGE_EXTERNAL_SETTLEMENT
+                ),
+                status=BankOperationStatus.RECONCILED,
+                amount_minor=bought_amount_minor,
+                currency=bought_currency,
+                booking_date=command.booking_date,
+                value_date=command.value_date,
+                collection_account_identifier=collection_account_identifier,
+                payer_name="External FX counterparty",
+                payee_name="Garanta Finanzgruppe AG",
+                payee_account_identifier=collection_account_identifier,
+                bank_reference=command.bank_reference.strip(),
+                payment_reference=command.payment_reference.strip(),
+                linked_object_type="fx_external_settlement",
+                linked_object_id=settlement_id,
+                evidence_reference=command.evidence_reference.strip(),
+                confirmed_by_admin_id=command.actor.pk,
+                confirmed_at=confirmed_at,
+                notes=command.notes.strip(),
+                metadata={**bank_metadata, "side": "bought"},
+                idempotency_key=bought_bank_key,
+            )
+            bought_collection_cash_account = get_or_create_ledger_account(
+                account_type=LedgerAccountType.COLLECTION_CASH,
+                currency=bought_currency,
+                name=f"{bought_currency.code} collection cash",
+            )
+            bought_fx_clearing_account = get_or_create_ledger_account(
+                account_type=LedgerAccountType.FX_CLEARING,
+                currency=bought_currency,
+                owner_type="fx",
+                owner_id="platform",
+                name=f"{bought_currency.code} FX clearing",
+            )
+            bought_journal = post_journal_entry(
+                PostJournalEntryCommand(
+                    actor=command.actor,
+                    event_type="fx_external_target_cash_settled",
+                    direction=LedgerDirection.IN,
+                    currency=bought_currency.code,
+                    gross_amount_minor=bought_amount_minor,
+                    net_amount_minor=bought_amount_minor,
+                    booking_date=command.booking_date,
+                    value_date=command.value_date,
+                    effective_at=confirmed_at,
+                    received_at=received_at,
+                    source_type="fx_external_settlement",
+                    source_id=settlement_id,
+                    bank_operation=bought_bank_operation,
+                    bank_reference=command.bank_reference.strip(),
+                    evidence_reference=command.evidence_reference.strip(),
+                    idempotency_key=bought_journal_key,
+                    postings=[
+                        PostingCommand(
+                            account=bought_collection_cash_account,
+                            side=LedgerPostingSide.DEBIT,
+                            amount_minor=bought_amount_minor,
+                            memo="External FX bought currency received",
+                        ),
+                        PostingCommand(
+                            account=bought_fx_clearing_account,
+                            side=LedgerPostingSide.CREDIT,
+                            amount_minor=bought_amount_minor,
+                            memo="External FX target clearing settled",
+                        ),
+                    ],
+                    tax_metadata={
+                        "external_fx_settlement_minor": bought_amount_minor,
+                    },
+                    metadata={
+                        FX_EXTERNAL_SETTLEMENT_FINGERPRINT_METADATA_KEY: request_fingerprint,
+                        "settlement_id": settlement_id,
+                        "sold_currency": sold_currency.code,
+                        "bought_currency": bought_currency.code,
+                        "sold_amount_minor": sold_amount_minor,
+                        "bought_amount_minor": bought_amount_minor,
+                        "sold_bank_operation_id": str(sold_bank_operation.id),
+                        "bought_bank_operation_id": str(bought_bank_operation.id),
+                        "metadata": command.metadata or {},
+                    },
+                )
+            )
+            sold_collection_cash_account = get_or_create_ledger_account(
+                account_type=LedgerAccountType.COLLECTION_CASH,
+                currency=sold_currency,
+                name=f"{sold_currency.code} collection cash",
+            )
+            sold_fx_clearing_account = get_or_create_ledger_account(
+                account_type=LedgerAccountType.FX_CLEARING,
+                currency=sold_currency,
+                owner_type="fx",
+                owner_id="platform",
+                name=f"{sold_currency.code} FX clearing",
+            )
+            sold_journal = post_journal_entry(
+                PostJournalEntryCommand(
+                    actor=command.actor,
+                    event_type="fx_external_source_cash_settled",
+                    direction=LedgerDirection.OUT,
+                    currency=sold_currency.code,
+                    gross_amount_minor=sold_amount_minor,
+                    net_amount_minor=sold_amount_minor,
+                    booking_date=command.booking_date,
+                    value_date=command.value_date,
+                    effective_at=confirmed_at,
+                    received_at=received_at,
+                    source_type="fx_external_settlement",
+                    source_id=settlement_id,
+                    bank_operation=sold_bank_operation,
+                    bank_reference=command.bank_reference.strip(),
+                    evidence_reference=command.evidence_reference.strip(),
+                    idempotency_key=sold_journal_key,
+                    postings=[
+                        PostingCommand(
+                            account=sold_fx_clearing_account,
+                            side=LedgerPostingSide.DEBIT,
+                            amount_minor=sold_amount_minor,
+                            memo="External FX source clearing settled",
+                        ),
+                        PostingCommand(
+                            account=sold_collection_cash_account,
+                            side=LedgerPostingSide.CREDIT,
+                            amount_minor=sold_amount_minor,
+                            memo="External FX sold currency paid out",
+                        ),
+                    ],
+                    tax_metadata={
+                        "external_fx_settlement_minor": sold_amount_minor,
+                    },
+                    metadata={
+                        FX_EXTERNAL_SETTLEMENT_FINGERPRINT_METADATA_KEY: request_fingerprint,
+                        "settlement_id": settlement_id,
+                        "sold_currency": sold_currency.code,
+                        "bought_currency": bought_currency.code,
+                        "sold_amount_minor": sold_amount_minor,
+                        "bought_amount_minor": bought_amount_minor,
+                        "sold_bank_operation_id": str(sold_bank_operation.id),
+                        "bought_bank_operation_id": str(bought_bank_operation.id),
+                        "bought_journal_entry_id": str(bought_journal.id),
+                        "metadata": command.metadata or {},
+                    },
+                )
+            )
+    except IntegrityError:
+        existing_after_race = _existing_fx_external_settlement_ledger_result(
+            sold_journal_key,
+            expected_fingerprint=request_fingerprint,
+        )
+        if existing_after_race is None:
+            raise
+        return existing_after_race
+
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref,
+            action="ledger.fx_external_settlement_declared",
+            target_type="FxExternalSettlement",
+            target_id=settlement_id,
+            metadata={
+                "sold_currency": sold_currency.code,
+                "bought_currency": bought_currency.code,
+                "sold_amount_minor": sold_amount_minor,
+                "bought_amount_minor": bought_amount_minor,
+            },
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="FxExternalSettlementLedgerPosted",
+            aggregate_type="FxExternalSettlement",
+            aggregate_id=settlement_id,
+            payload={
+                "sold_currency": sold_currency.code,
+                "bought_currency": bought_currency.code,
+                "sold_amount_minor": sold_amount_minor,
+                "bought_amount_minor": bought_amount_minor,
+                "sold_journal_entry_id": str(sold_journal.id),
+                "bought_journal_entry_id": str(bought_journal.id),
+            },
+            idempotency_key=f"fx-external-settlement:{settlement_id}:ledger-posted",
+        )
+    )
+    return FxExternalSettlementLedgerResult(
+        sold_bank_operation=cast(BankOperation, sold_bank_operation),
+        bought_bank_operation=cast(BankOperation, bought_bank_operation),
+        sold_journal_entry=sold_journal,
+        bought_journal_entry=bought_journal,
     )
 
 

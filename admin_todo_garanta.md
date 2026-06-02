@@ -54,7 +54,7 @@ What Garanta/bank/accountant may still refine:
 
 Why this is non-blocking:
 
-Engineering can implement the FX module with the resolved launch pairs, limits, Yahoo Finance adapter interface, rounding/display rules, same-provider sanity checks, no exposure-alert requirement, and external settlement declaration. Remaining items refine provider access, evidence labels, and accounting export mapping.
+Engineering has implemented the backend foundation for the FX module with the resolved launch pairs, limits, mock-provider adapter boundary, rounding/display rules, same-provider sanity checks, no exposure-alert requirement, external settlement declaration, and realized residual reporting. Remaining items refine provider access, evidence labels, and accounting export mapping before production operations.
 
 ### Manual Bank Operation Declaration and Reconciliation Evidence Refinement
 
@@ -88,7 +88,7 @@ What Garanta/bank/accountant may still refine:
 
 Why this is non-blocking:
 
-Engineering can implement manual bank-operation declaration, generic evidence attachment, ledger-bank reconciliation, FX external settlement declaration, realized FX gain/loss calculation, and accrued revenue reporting now. Bank-specific file layouts and final accounting labels can be configured before production operations.
+Engineering can continue implementing manual bank-operation declaration, generic evidence attachment, ledger-bank reconciliation, accrued revenue reporting, and production refinements. The FX external settlement declaration and realized residual report backend foundation is already implemented; bank-specific file layouts and final accounting labels can be configured before production operations.
 
 ### KYC/KYB/AML Evidence Storage Legal Confirmation
 

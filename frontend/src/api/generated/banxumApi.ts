@@ -809,6 +809,66 @@ export interface FxExchange {
   updated_at: string;
 }
 
+export interface FxExternalSettlement {
+  id: string;
+  sold_currency: string;
+  bought_currency: string;
+  start_date: string;
+  end_date: string;
+  expected_sold_amount_minor: number;
+  expected_bought_amount_minor: number;
+  expected_fee_minor: number;
+  sold_amount_minor: number;
+  bought_amount_minor: number;
+  sold_currency_residual_minor: number;
+  bought_currency_residual_minor: number;
+  /** @pattern ^-?\d{0,12}(?:\.\d{0,12})?$ */
+  actual_rate: string;
+  booking_date: string;
+  value_date: string;
+  collection_account_identifier: string;
+  bank_reference: string;
+  payment_reference: string;
+  evidence_reference: string;
+  notes: string;
+  status: string;
+  sold_bank_operation_id: string;
+  bought_bank_operation_id: string;
+  sold_journal_entry_id: string;
+  bought_journal_entry_id: string;
+  declared_by_admin_id: string;
+  declared_at: string;
+  metadata: unknown;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FxExternalSettlementDeclareRequest {
+  /** @maxLength 3 */
+  sold_currency: string;
+  /** @maxLength 3 */
+  bought_currency: string;
+  /** @minimum 1 */
+  sold_amount_minor: number;
+  /** @minimum 1 */
+  bought_amount_minor: number;
+  start_date: string;
+  end_date: string;
+  booking_date: string;
+  value_date: string;
+  /** @maxLength 128 */
+  collection_account_identifier: string;
+  /** @maxLength 160 */
+  bank_reference?: string;
+  /** @maxLength 160 */
+  payment_reference?: string;
+  /** @maxLength 255 */
+  evidence_reference?: string;
+  notes?: string;
+  /** @maxLength 160 */
+  idempotency_key: string;
+}
+
 export interface FxQuote {
   id: string;
   investor_user_id: string;
@@ -853,6 +913,18 @@ export interface FxQuoteIssueRequest {
   source_amount_minor: number;
   /** @maxLength 160 */
   idempotency_key: string;
+}
+
+export interface FxRealizedSettlementReport {
+  start_date: string;
+  end_date: string;
+  settlement_count: number;
+  expected_sold_by_currency_minor: unknown;
+  actual_sold_by_currency_minor: unknown;
+  expected_bought_by_currency_minor: unknown;
+  actual_bought_by_currency_minor: unknown;
+  fees_by_currency_minor: unknown;
+  residual_by_currency_minor: unknown;
 }
 
 export interface HealthResponse {
@@ -2047,6 +2119,11 @@ export const V1EntitiesAdminBorrowersListKybStatus = {
 } as const;
 
 export type V1FxAdminDeltaReportRetrieveParams = {
+end_date: string;
+start_date: string;
+};
+
+export type V1FxAdminRealizedSettlementReportRetrieveParams = {
 end_date: string;
 start_date: string;
 };
@@ -4360,6 +4437,153 @@ export function useV1FxAdminDeltaReportRetrieve<TData = Awaited<ReturnType<typeo
 
 
 
+export const v1FxAdminExternalSettlementsCreate = (
+    fxExternalSettlementDeclareRequest: FxExternalSettlementDeclareRequest,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<FxExternalSettlement>(
+      {url: `/api/v1/fx/admin/external-settlements/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: fxExternalSettlementDeclareRequest, signal
+    },
+      );
+    }
+
+
+
+export const getV1FxAdminExternalSettlementsCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1FxAdminExternalSettlementsCreate>>, TError,{data: FxExternalSettlementDeclareRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1FxAdminExternalSettlementsCreate>>, TError,{data: FxExternalSettlementDeclareRequest}, TContext> => {
+
+const mutationKey = ['v1FxAdminExternalSettlementsCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1FxAdminExternalSettlementsCreate>>, {data: FxExternalSettlementDeclareRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1FxAdminExternalSettlementsCreate(data,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1FxAdminExternalSettlementsCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1FxAdminExternalSettlementsCreate>>>
+    export type V1FxAdminExternalSettlementsCreateMutationBody = FxExternalSettlementDeclareRequest
+    export type V1FxAdminExternalSettlementsCreateMutationError = unknown
+
+    export const useV1FxAdminExternalSettlementsCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1FxAdminExternalSettlementsCreate>>, TError,{data: FxExternalSettlementDeclareRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1FxAdminExternalSettlementsCreate>>,
+        TError,
+        {data: FxExternalSettlementDeclareRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1FxAdminExternalSettlementsCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+
+export const v1FxAdminRealizedSettlementReportRetrieve = (
+    params: V1FxAdminRealizedSettlementReportRetrieveParams,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<FxRealizedSettlementReport>(
+      {url: `/api/v1/fx/admin/realized-settlement-report/`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+
+
+
+
+export const getV1FxAdminRealizedSettlementReportRetrieveQueryKey = (params?: V1FxAdminRealizedSettlementReportRetrieveParams,) => {
+    return [
+    `/api/v1/fx/admin/realized-settlement-report/`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+
+export const getV1FxAdminRealizedSettlementReportRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1FxAdminRealizedSettlementReportRetrieve>>, TError = unknown>(params: V1FxAdminRealizedSettlementReportRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1FxAdminRealizedSettlementReportRetrieve>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1FxAdminRealizedSettlementReportRetrieveQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1FxAdminRealizedSettlementReportRetrieve>>> = ({ signal }) => v1FxAdminRealizedSettlementReportRetrieve(params, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1FxAdminRealizedSettlementReportRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1FxAdminRealizedSettlementReportRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1FxAdminRealizedSettlementReportRetrieve>>>
+export type V1FxAdminRealizedSettlementReportRetrieveQueryError = unknown
+
+
+export function useV1FxAdminRealizedSettlementReportRetrieve<TData = Awaited<ReturnType<typeof v1FxAdminRealizedSettlementReportRetrieve>>, TError = unknown>(
+ params: V1FxAdminRealizedSettlementReportRetrieveParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1FxAdminRealizedSettlementReportRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1FxAdminRealizedSettlementReportRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1FxAdminRealizedSettlementReportRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1FxAdminRealizedSettlementReportRetrieve<TData = Awaited<ReturnType<typeof v1FxAdminRealizedSettlementReportRetrieve>>, TError = unknown>(
+ params: V1FxAdminRealizedSettlementReportRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1FxAdminRealizedSettlementReportRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1FxAdminRealizedSettlementReportRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1FxAdminRealizedSettlementReportRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1FxAdminRealizedSettlementReportRetrieve<TData = Awaited<ReturnType<typeof v1FxAdminRealizedSettlementReportRetrieve>>, TError = unknown>(
+ params: V1FxAdminRealizedSettlementReportRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1FxAdminRealizedSettlementReportRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1FxAdminRealizedSettlementReportRetrieve<TData = Awaited<ReturnType<typeof v1FxAdminRealizedSettlementReportRetrieve>>, TError = unknown>(
+ params: V1FxAdminRealizedSettlementReportRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1FxAdminRealizedSettlementReportRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1FxAdminRealizedSettlementReportRetrieveQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
 export const v1FxQuotesCreate = (
     fxQuoteIssueRequest: FxQuoteIssueRequest,
  signal?: AbortSignal
@@ -6596,6 +6820,10 @@ export const getV1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieveRespons
 
 export const getV1FxAdminDeltaReportRetrieveResponseMock = (overrideResponse: Partial< FxDeltaReport > = {}): FxDeltaReport => ({start_date: faker.date.past().toISOString().split('T')[0], end_date: faker.date.past().toISOString().split('T')[0], exchange_count: faker.number.int({min: undefined, max: undefined}), source_sold_by_currency_minor: {}, gross_target_bought_by_currency_minor: {}, target_credited_by_currency_minor: {}, fees_by_currency_minor: {}, net_external_settlement_by_currency_minor: {}, ...overrideResponse})
 
+export const getV1FxAdminExternalSettlementsCreateResponseMock = (overrideResponse: Partial< FxExternalSettlement > = {}): FxExternalSettlement => ({id: faker.string.uuid(), sold_currency: faker.string.alpha({length: {min: 10, max: 20}}), bought_currency: faker.string.alpha({length: {min: 10, max: 20}}), start_date: faker.date.past().toISOString().split('T')[0], end_date: faker.date.past().toISOString().split('T')[0], expected_sold_amount_minor: faker.number.int({min: undefined, max: undefined}), expected_bought_amount_minor: faker.number.int({min: undefined, max: undefined}), expected_fee_minor: faker.number.int({min: undefined, max: undefined}), sold_amount_minor: faker.number.int({min: undefined, max: undefined}), bought_amount_minor: faker.number.int({min: undefined, max: undefined}), sold_currency_residual_minor: faker.number.int({min: undefined, max: undefined}), bought_currency_residual_minor: faker.number.int({min: undefined, max: undefined}), actual_rate: faker.helpers.fromRegExp('^-?\d{0,12}(?:\.\d{0,12})?$'), booking_date: faker.date.past().toISOString().split('T')[0], value_date: faker.date.past().toISOString().split('T')[0], collection_account_identifier: faker.string.alpha({length: {min: 10, max: 20}}), bank_reference: faker.string.alpha({length: {min: 10, max: 20}}), payment_reference: faker.string.alpha({length: {min: 10, max: 20}}), evidence_reference: faker.string.alpha({length: {min: 10, max: 20}}), notes: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), sold_bank_operation_id: faker.string.uuid(), bought_bank_operation_id: faker.string.uuid(), sold_journal_entry_id: faker.string.uuid(), bought_journal_entry_id: faker.string.uuid(), declared_by_admin_id: faker.string.uuid(), declared_at: `${faker.date.past().toISOString().split('.')[0]}Z`, metadata: {}, created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+
+export const getV1FxAdminRealizedSettlementReportRetrieveResponseMock = (overrideResponse: Partial< FxRealizedSettlementReport > = {}): FxRealizedSettlementReport => ({start_date: faker.date.past().toISOString().split('T')[0], end_date: faker.date.past().toISOString().split('T')[0], settlement_count: faker.number.int({min: undefined, max: undefined}), expected_sold_by_currency_minor: {}, actual_sold_by_currency_minor: {}, expected_bought_by_currency_minor: {}, actual_bought_by_currency_minor: {}, fees_by_currency_minor: {}, residual_by_currency_minor: {}, ...overrideResponse})
+
 export const getV1FxQuotesCreateResponseMock = (overrideResponse: Partial< FxQuote > = {}): FxQuote => ({id: faker.string.uuid(), investor_user_id: faker.string.uuid(), source_currency: faker.string.alpha({length: {min: 10, max: 20}}), target_currency: faker.string.alpha({length: {min: 10, max: 20}}), source_amount_minor: faker.number.int({min: undefined, max: undefined}), provider: faker.string.alpha({length: {min: 10, max: 20}}), provider_quote_id: faker.string.alpha({length: {min: 10, max: 20}}), rate: faker.helpers.fromRegExp('^-?\d{0,12}(?:\.\d{0,12})?$'), previous_day_average_rate: faker.helpers.arrayElement([faker.helpers.fromRegExp('^-?\d{0,12}(?:\.\d{0,12})?$'), null]), platform_fee_bps: faker.number.int({min: undefined, max: undefined}), gross_target_amount_minor: faker.number.int({min: undefined, max: undefined}), fee_minor: faker.number.int({min: undefined, max: undefined}), target_amount_minor: faker.number.int({min: undefined, max: undefined}), limit_chf_equivalent_minor: faker.number.int({min: undefined, max: undefined}), issued_at: `${faker.date.past().toISOString().split('.')[0]}Z`, expires_at: `${faker.date.past().toISOString().split('.')[0]}Z`, provider_rate_timestamp: `${faker.date.past().toISOString().split('.')[0]}Z`, sanity_check_passed: faker.datatype.boolean(), sanity_metadata: {}, status: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
 
 export const getV1FxQuotesExecuteCreateResponseMock = (overrideResponse: Partial< FxExchange > = {}): FxExchange => ({id: faker.string.uuid(), quote_id: faker.string.uuid(), investor_user_id: faker.string.uuid(), source_currency: faker.string.alpha({length: {min: 10, max: 20}}), target_currency: faker.string.alpha({length: {min: 10, max: 20}}), source_amount_minor: faker.number.int({min: undefined, max: undefined}), rate: faker.helpers.fromRegExp('^-?\d{0,12}(?:\.\d{0,12})?$'), platform_fee_bps: faker.number.int({min: undefined, max: undefined}), gross_target_amount_minor: faker.number.int({min: undefined, max: undefined}), fee_minor: faker.number.int({min: undefined, max: undefined}), target_amount_minor: faker.number.int({min: undefined, max: undefined}), limit_chf_equivalent_minor: faker.number.int({min: undefined, max: undefined}), status: faker.string.alpha({length: {min: 10, max: 20}}), source_journal_entry_id: faker.string.uuid(), target_journal_entry_id: faker.string.uuid(), target_balance_lot_id: faker.string.uuid(), source_lot_allocations: {}, executed_at: `${faker.date.past().toISOString().split('.')[0]}Z`, created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
@@ -7019,6 +7247,30 @@ export const getV1FxAdminDeltaReportRetrieveMockHandler = (overrideResponse?: Fx
   }, options)
 }
 
+export const getV1FxAdminExternalSettlementsCreateMockHandler = (overrideResponse?: FxExternalSettlement | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<FxExternalSettlement> | FxExternalSettlement), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/fx/admin/external-settlements/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1FxAdminExternalSettlementsCreateResponseMock()),
+      { status: 201,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1FxAdminRealizedSettlementReportRetrieveMockHandler = (overrideResponse?: FxRealizedSettlementReport | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<FxRealizedSettlementReport> | FxRealizedSettlementReport), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/fx/admin/realized-settlement-report/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1FxAdminRealizedSettlementReportRetrieveResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
 export const getV1FxQuotesCreateMockHandler = (overrideResponse?: FxQuote | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<FxQuote> | FxQuote), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/fx/quotes/', async (info) => {await delay(1000);
 
@@ -7433,6 +7685,8 @@ export const getBanxumApiMock = () => [
   getV1EntitiesAdminBorrowersEventsListMockHandler(),
   getV1EntitiesAdminBorrowersInvestorDisclosurePreviewRetrieveMockHandler(),
   getV1FxAdminDeltaReportRetrieveMockHandler(),
+  getV1FxAdminExternalSettlementsCreateMockHandler(),
+  getV1FxAdminRealizedSettlementReportRetrieveMockHandler(),
   getV1FxQuotesCreateMockHandler(),
   getV1FxQuotesExecuteCreateMockHandler(),
   getV1HealthRetrieveMockHandler(),

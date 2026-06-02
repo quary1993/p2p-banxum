@@ -5,7 +5,7 @@ from typing import Any
 from django.contrib import admin
 from django.http import HttpRequest
 
-from backend.apps.fx.models import FxEvent, FxExchange, FxQuote
+from backend.apps.fx.models import FxEvent, FxExchange, FxExternalSettlement, FxQuote
 
 
 class ReadOnlyFxAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
@@ -52,8 +52,31 @@ class FxExchangeAdmin(ReadOnlyFxAdmin):
     search_fields = ("id", "investor_user_id", "quote__id", "idempotency_key")
 
 
+@admin.register(FxExternalSettlement)
+class FxExternalSettlementAdmin(ReadOnlyFxAdmin):
+    list_display = (
+        "id",
+        "sold_currency",
+        "bought_currency",
+        "sold_amount_minor",
+        "bought_amount_minor",
+        "sold_currency_residual_minor",
+        "bought_currency_residual_minor",
+        "value_date",
+        "declared_at",
+    )
+    list_filter = ("sold_currency", "bought_currency", "status", "value_date")
+    search_fields = ("id", "bank_reference", "payment_reference", "idempotency_key")
+
+
 @admin.register(FxEvent)
 class FxEventAdmin(ReadOnlyFxAdmin):
     list_display = ("id", "event_type", "actor_user_id", "occurred_at")
     list_filter = ("event_type",)
-    search_fields = ("id", "actor_user_id", "quote__id", "exchange__id")
+    search_fields = (
+        "id",
+        "actor_user_id",
+        "quote__id",
+        "exchange__id",
+        "external_settlement__id",
+    )

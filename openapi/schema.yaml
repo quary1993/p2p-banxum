@@ -954,6 +954,59 @@ paths:
               schema:
                 $ref: '#/components/schemas/FxDeltaReport'
           description: ''
+  /api/v1/fx/admin/external-settlements/:
+    post:
+      operationId: v1_fx_admin_external_settlements_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FxExternalSettlementDeclareRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FxExternalSettlementDeclareRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FxExternalSettlementDeclareRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FxExternalSettlement'
+          description: ''
+  /api/v1/fx/admin/realized-settlement-report/:
+    get:
+      operationId: v1_fx_admin_realized_settlement_report_retrieve
+      parameters:
+      - in: query
+        name: end_date
+        schema:
+          type: string
+          format: date
+        required: true
+      - in: query
+        name: start_date
+        schema:
+          type: string
+          format: date
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FxRealizedSettlementReport'
+          description: ''
   /api/v1/fx/quotes/:
     post:
       operationId: v1_fx_quotes_create
@@ -3432,6 +3485,169 @@ components:
       - target_currency
       - target_journal_entry_id
       - updated_at
+    FxExternalSettlement:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        sold_currency:
+          type: string
+        bought_currency:
+          type: string
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        expected_sold_amount_minor:
+          type: integer
+        expected_bought_amount_minor:
+          type: integer
+        expected_fee_minor:
+          type: integer
+        sold_amount_minor:
+          type: integer
+        bought_amount_minor:
+          type: integer
+        sold_currency_residual_minor:
+          type: integer
+        bought_currency_residual_minor:
+          type: integer
+        actual_rate:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,12})?$
+        booking_date:
+          type: string
+          format: date
+        value_date:
+          type: string
+          format: date
+        collection_account_identifier:
+          type: string
+        bank_reference:
+          type: string
+        payment_reference:
+          type: string
+        evidence_reference:
+          type: string
+        notes:
+          type: string
+        status:
+          type: string
+        sold_bank_operation_id:
+          type: string
+          format: uuid
+        bought_bank_operation_id:
+          type: string
+          format: uuid
+        sold_journal_entry_id:
+          type: string
+          format: uuid
+        bought_journal_entry_id:
+          type: string
+          format: uuid
+        declared_by_admin_id:
+          type: string
+          format: uuid
+        declared_at:
+          type: string
+          format: date-time
+        metadata: {}
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - actual_rate
+      - bank_reference
+      - booking_date
+      - bought_amount_minor
+      - bought_bank_operation_id
+      - bought_currency
+      - bought_currency_residual_minor
+      - bought_journal_entry_id
+      - collection_account_identifier
+      - created_at
+      - declared_at
+      - declared_by_admin_id
+      - end_date
+      - evidence_reference
+      - expected_bought_amount_minor
+      - expected_fee_minor
+      - expected_sold_amount_minor
+      - id
+      - metadata
+      - notes
+      - payment_reference
+      - sold_amount_minor
+      - sold_bank_operation_id
+      - sold_currency
+      - sold_currency_residual_minor
+      - sold_journal_entry_id
+      - start_date
+      - status
+      - updated_at
+      - value_date
+    FxExternalSettlementDeclareRequest:
+      type: object
+      properties:
+        sold_currency:
+          type: string
+          maxLength: 3
+        bought_currency:
+          type: string
+          maxLength: 3
+        sold_amount_minor:
+          type: integer
+          minimum: 1
+        bought_amount_minor:
+          type: integer
+          minimum: 1
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        booking_date:
+          type: string
+          format: date
+        value_date:
+          type: string
+          format: date
+        collection_account_identifier:
+          type: string
+          maxLength: 128
+        bank_reference:
+          type: string
+          maxLength: 160
+        payment_reference:
+          type: string
+          maxLength: 160
+        evidence_reference:
+          type: string
+          maxLength: 255
+        notes:
+          type: string
+        idempotency_key:
+          type: string
+          maxLength: 160
+      required:
+      - booking_date
+      - bought_amount_minor
+      - bought_currency
+      - collection_account_identifier
+      - end_date
+      - idempotency_key
+      - sold_amount_minor
+      - sold_currency
+      - start_date
+      - value_date
     FxQuote:
       type: object
       properties:
@@ -3542,6 +3758,33 @@ components:
       - source_amount_minor
       - source_currency
       - target_currency
+    FxRealizedSettlementReport:
+      type: object
+      properties:
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        settlement_count:
+          type: integer
+        expected_sold_by_currency_minor: {}
+        actual_sold_by_currency_minor: {}
+        expected_bought_by_currency_minor: {}
+        actual_bought_by_currency_minor: {}
+        fees_by_currency_minor: {}
+        residual_by_currency_minor: {}
+      required:
+      - actual_bought_by_currency_minor
+      - actual_sold_by_currency_minor
+      - end_date
+      - expected_bought_by_currency_minor
+      - expected_sold_by_currency_minor
+      - fees_by_currency_minor
+      - residual_by_currency_minor
+      - settlement_count
+      - start_date
     HealthResponse:
       type: object
       properties:

@@ -6,8 +6,8 @@ from typing import Any
 from django.utils import timezone
 from rest_framework import serializers
 
-from backend.apps.fx.models import FxExchange, FxQuote
-from backend.apps.fx.services import FxDeltaReport
+from backend.apps.fx.models import FxExchange, FxExternalSettlement, FxQuote
+from backend.apps.fx.services import FxDeltaReport, FxRealizedSettlementReport
 
 
 class FxQuoteSerializer(serializers.Serializer[Any]):
@@ -69,6 +69,39 @@ class FxExchangeSerializer(serializers.Serializer[Any]):
     updated_at = serializers.DateTimeField()
 
 
+class FxExternalSettlementSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    sold_currency = serializers.CharField(source="sold_currency.code")
+    bought_currency = serializers.CharField(source="bought_currency.code")
+    start_date = serializers.DateField()
+    end_date = serializers.DateField()
+    expected_sold_amount_minor = serializers.IntegerField()
+    expected_bought_amount_minor = serializers.IntegerField()
+    expected_fee_minor = serializers.IntegerField()
+    sold_amount_minor = serializers.IntegerField()
+    bought_amount_minor = serializers.IntegerField()
+    sold_currency_residual_minor = serializers.IntegerField()
+    bought_currency_residual_minor = serializers.IntegerField()
+    actual_rate = serializers.DecimalField(max_digits=24, decimal_places=12)
+    booking_date = serializers.DateField()
+    value_date = serializers.DateField()
+    collection_account_identifier = serializers.CharField()
+    bank_reference = serializers.CharField()
+    payment_reference = serializers.CharField()
+    evidence_reference = serializers.CharField()
+    notes = serializers.CharField()
+    status = serializers.CharField()
+    sold_bank_operation_id = serializers.UUIDField()
+    bought_bank_operation_id = serializers.UUIDField()
+    sold_journal_entry_id = serializers.UUIDField()
+    bought_journal_entry_id = serializers.UUIDField()
+    declared_by_admin_id = serializers.UUIDField()
+    declared_at = serializers.DateTimeField()
+    metadata = serializers.JSONField()
+    created_at = serializers.DateTimeField()
+    updated_at = serializers.DateTimeField()
+
+
 class FxQuoteIssueRequestSerializer(serializers.Serializer[Any]):
     source_currency = serializers.CharField(max_length=3)
     target_currency = serializers.CharField(max_length=3)
@@ -85,6 +118,23 @@ class FxDeltaReportQuerySerializer(serializers.Serializer[Any]):
     end_date = serializers.DateField()
 
 
+class FxExternalSettlementDeclareRequestSerializer(serializers.Serializer[Any]):
+    sold_currency = serializers.CharField(max_length=3)
+    bought_currency = serializers.CharField(max_length=3)
+    sold_amount_minor = serializers.IntegerField(min_value=1)
+    bought_amount_minor = serializers.IntegerField(min_value=1)
+    start_date = serializers.DateField()
+    end_date = serializers.DateField()
+    booking_date = serializers.DateField()
+    value_date = serializers.DateField()
+    collection_account_identifier = serializers.CharField(max_length=128)
+    bank_reference = serializers.CharField(max_length=160, allow_blank=True, required=False)
+    payment_reference = serializers.CharField(max_length=160, allow_blank=True, required=False)
+    evidence_reference = serializers.CharField(max_length=255, allow_blank=True, required=False)
+    notes = serializers.CharField(allow_blank=True, required=False)
+    idempotency_key = serializers.CharField(max_length=160)
+
+
 class FxDeltaReportSerializer(serializers.Serializer[Any]):
     start_date = serializers.DateField()
     end_date = serializers.DateField()
@@ -96,6 +146,18 @@ class FxDeltaReportSerializer(serializers.Serializer[Any]):
     net_external_settlement_by_currency_minor = serializers.JSONField()
 
 
+class FxRealizedSettlementReportSerializer(serializers.Serializer[Any]):
+    start_date = serializers.DateField()
+    end_date = serializers.DateField()
+    settlement_count = serializers.IntegerField()
+    expected_sold_by_currency_minor = serializers.JSONField()
+    actual_sold_by_currency_minor = serializers.JSONField()
+    expected_bought_by_currency_minor = serializers.JSONField()
+    actual_bought_by_currency_minor = serializers.JSONField()
+    fees_by_currency_minor = serializers.JSONField()
+    residual_by_currency_minor = serializers.JSONField()
+
+
 def serialize_fx_quote(quote: FxQuote) -> dict[str, Any]:
     return dict(FxQuoteSerializer(quote).data)
 
@@ -104,5 +166,13 @@ def serialize_fx_exchange(exchange: FxExchange) -> dict[str, Any]:
     return dict(FxExchangeSerializer(exchange).data)
 
 
+def serialize_fx_external_settlement(settlement: FxExternalSettlement) -> dict[str, Any]:
+    return dict(FxExternalSettlementSerializer(settlement).data)
+
+
 def serialize_fx_delta_report(report: FxDeltaReport) -> dict[str, Any]:
+    return dict(asdict(report))
+
+
+def serialize_fx_realized_settlement_report(report: FxRealizedSettlementReport) -> dict[str, Any]:
     return dict(asdict(report))

@@ -14,8 +14,9 @@ from django.test import Client
 from django.test.utils import override_settings
 from django.utils import timezone
 
-from backend.apps.fx.models import FxEvent, FxEventType, FxExchange, FxQuote
+from backend.apps.fx.models import FxEvent, FxEventType, FxExchange, FxExternalSettlement, FxQuote
 from backend.apps.fx.services import (
+    DeclareFxExternalSettlementCommand,
     ExecuteFxQuoteCommand,
     FxAuthorizationError,
     FxValidationError,
@@ -23,6 +24,8 @@ from backend.apps.fx.services import (
     ProviderRate,
     configured_mock_provider_rate,
     create_fx_delta_report,
+    create_fx_realized_settlement_report,
+    declare_fx_external_settlement,
     execute_fx_quote,
     issue_fx_quote,
 )
@@ -420,6 +423,156 @@ def test_reconciliation_identity_includes_fx_clearing_and_fee_revenue(
 
 
 @pytest.mark.django_db
+def test_declare_fx_external_settlement_posts_cash_and_reports_realized_residuals(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    _deposit(
+        admin_user,
+        investor,
+        amount_minor=12_000_00,
+        idempotency_key="fx-external-settlement-deposit",
+    )
+    as_of = _as_of()
+    quote = issue_fx_quote(
+        _quote_command(
+            investor,
+            amount_minor=12_000_00,
+            idempotency_key="fx-external-settlement-quote",
+            as_of=as_of,
+        )
+    )
+    execute_fx_quote(
+        ExecuteFxQuoteCommand(
+            actor=investor,
+            quote_id=str(quote.id),
+            idempotency_key="fx-external-settlement-execute",
+            as_of=as_of,
+        )
+    )
+
+    command = DeclareFxExternalSettlementCommand(
+        actor=admin_user,
+        sold_currency="CHF",
+        bought_currency="EUR",
+        sold_amount_minor=12_000_00,
+        bought_amount_minor=13_180_00,
+        start_date=as_of.date(),
+        end_date=as_of.date(),
+        booking_date=as_of.date(),
+        value_date=as_of.date(),
+        collection_account_identifier="FX-COLLECTION",
+        bank_reference="FX-BANK-1",
+        payment_reference="FX-PAYMENT-1",
+        evidence_reference="statement:fx-bank-1",
+        notes="External execution declared after bank report.",
+        idempotency_key="fx-external-settlement-declare",
+        as_of=as_of,
+    )
+    settlement = declare_fx_external_settlement(command)
+    idempotent = declare_fx_external_settlement(command)
+
+    assert idempotent.id == settlement.id
+    assert settlement.expected_sold_amount_minor == 12_000_00
+    assert settlement.expected_bought_amount_minor == 13_200_00
+    assert settlement.expected_fee_minor == 198_00
+    assert settlement.sold_amount_minor == 12_000_00
+    assert settlement.bought_amount_minor == 13_180_00
+    assert settlement.sold_currency_residual_minor == 0
+    assert settlement.bought_currency_residual_minor == -20_00
+    assert settlement.actual_rate == Decimal("1.098333333333")
+    assert settlement.sold_bank_operation.operation_type == "currency_exchange_external_settlement"
+    assert (
+        settlement.bought_bank_operation.operation_type
+        == "currency_exchange_external_settlement"
+    )
+    assert settlement.sold_bank_operation.amount_minor == 12_000_00
+    assert settlement.bought_bank_operation.amount_minor == 13_180_00
+
+    sold_postings = list(settlement.sold_journal_entry.postings.select_related("account"))
+    assert {
+        (posting.account.account_type, posting.side, posting.amount_minor)
+        for posting in sold_postings
+    } == {
+        ("fx_clearing", "debit", 12_000_00),
+        ("collection_cash", "credit", 12_000_00),
+    }
+    bought_postings = list(settlement.bought_journal_entry.postings.select_related("account"))
+    assert {
+        (posting.account.account_type, posting.side, posting.amount_minor)
+        for posting in bought_postings
+    } == {
+        ("collection_cash", "debit", 13_180_00),
+        ("fx_clearing", "credit", 13_180_00),
+    }
+    assert FxEvent.objects.filter(
+        external_settlement=settlement,
+        event_type=FxEventType.EXTERNAL_SETTLEMENT_DECLARED,
+    ).exists()
+    assert DomainEvent.objects.filter(
+        event_type="FxExternalSettlementDeclared",
+        aggregate_id=str(settlement.id),
+    ).exists()
+
+    chf_snapshot = _reconciliation_snapshot(
+        admin_user,
+        currency="CHF",
+        bank_stated_balance_minor=0,
+        as_of_date=as_of.date(),
+    )
+    eur_snapshot = _reconciliation_snapshot(
+        admin_user,
+        currency="EUR",
+        bank_stated_balance_minor=13_180_00,
+        as_of_date=as_of.date(),
+    )
+
+    assert chf_snapshot.reconciliation_difference_minor == 0
+    assert chf_snapshot.metadata["fx_clearing_signed_balance_minor"] == 0
+    assert chf_snapshot.metadata["collection_cash_ledger_balance_minor"] == 0
+    assert eur_snapshot.reconciliation_difference_minor == 0
+    assert eur_snapshot.investor_balance_liability_minor == 13_002_00
+    assert eur_snapshot.garanta_accrued_revenue_minor == 198_00
+    assert eur_snapshot.metadata["fx_clearing_signed_balance_minor"] == -20_00
+    assert eur_snapshot.metadata["collection_cash_ledger_balance_minor"] == 13_180_00
+
+    realized_report = create_fx_realized_settlement_report(
+        actor=admin_user,
+        start_date=as_of.date(),
+        end_date=as_of.date(),
+    )
+    assert realized_report.settlement_count == 1
+    assert realized_report.expected_sold_by_currency_minor == {"CHF": 12_000_00}
+    assert realized_report.actual_sold_by_currency_minor == {"CHF": 12_000_00}
+    assert realized_report.expected_bought_by_currency_minor == {"EUR": 13_200_00}
+    assert realized_report.actual_bought_by_currency_minor == {"EUR": 13_180_00}
+    assert realized_report.fees_by_currency_minor == {"EUR": 198_00}
+    assert realized_report.residual_by_currency_minor == {"CHF": 0, "EUR": -20_00}
+
+    mismatch_command = DeclareFxExternalSettlementCommand(
+        actor=admin_user,
+        sold_currency="CHF",
+        bought_currency="EUR",
+        sold_amount_minor=12_000_00,
+        bought_amount_minor=13_181_00,
+        start_date=as_of.date(),
+        end_date=as_of.date(),
+        booking_date=as_of.date(),
+        value_date=as_of.date(),
+        collection_account_identifier="FX-COLLECTION",
+        bank_reference="FX-BANK-1",
+        payment_reference="FX-PAYMENT-1",
+        evidence_reference="statement:fx-bank-1",
+        notes="External execution declared after bank report.",
+        idempotency_key="fx-external-settlement-declare",
+        as_of=as_of,
+    )
+    with pytest.raises(FxValidationError, match="different FX external settlement"):
+        declare_fx_external_settlement(mismatch_command)
+
+
+@pytest.mark.django_db
 def test_execute_fx_quote_rejects_expired_quote(
     admin_user: Model,
     investor: Model,
@@ -602,6 +755,30 @@ def test_fx_api_quote_execute_and_admin_delta_report(
         "/api/v1/fx/admin/delta-report/",
         data={"start_date": today.isoformat(), "end_date": today.isoformat()},
     )
+    settlement_response = client.post(
+        "/api/v1/fx/admin/external-settlements/",
+        data={
+            "sold_currency": "CHF",
+            "bought_currency": "EUR",
+            "sold_amount_minor": 10_000_00,
+            "bought_amount_minor": 10_490_00,
+            "start_date": today.isoformat(),
+            "end_date": today.isoformat(),
+            "booking_date": today.isoformat(),
+            "value_date": today.isoformat(),
+            "collection_account_identifier": "FX-COLLECTION",
+            "bank_reference": "FX-API-BANK",
+            "payment_reference": "FX-API-PAYMENT",
+            "evidence_reference": "statement:fx-api",
+            "notes": "",
+            "idempotency_key": "fx-api-settlement",
+        },
+        content_type="application/json",
+    )
+    realized_report_response = client.get(
+        "/api/v1/fx/admin/realized-settlement-report/",
+        data={"start_date": today.isoformat(), "end_date": today.isoformat()},
+    )
 
     assert quote_response.status_code == 201
     assert quote_payload["gross_target_amount_minor"] == 10_500_00
@@ -612,6 +789,13 @@ def test_fx_api_quote_execute_and_admin_delta_report(
     assert execute_response.json()["status"] == "completed"
     assert report_response.status_code == 200
     assert report_response.json()["exchange_count"] == 1
+    assert settlement_response.status_code == 201
+    assert settlement_response.json()["bought_currency_residual_minor"] == -10_00
+    assert realized_report_response.status_code == 200
+    assert realized_report_response.json()["residual_by_currency_minor"] == {
+        "CHF": 0,
+        "EUR": -10_00,
+    }
 
 
 @pytest.mark.django_db
@@ -631,10 +815,31 @@ def test_fx_append_only_records_have_app_and_db_guards(
             as_of=as_of,
         )
     )
+    settlement = declare_fx_external_settlement(
+        DeclareFxExternalSettlementCommand(
+            actor=admin_user,
+            sold_currency="CHF",
+            bought_currency="EUR",
+            sold_amount_minor=10_000_00,
+            bought_amount_minor=11_000_00,
+            start_date=as_of.date(),
+            end_date=as_of.date(),
+            booking_date=as_of.date(),
+            value_date=as_of.date(),
+            collection_account_identifier="FX-COLLECTION",
+            bank_reference="FX-APPEND-BANK",
+            payment_reference="FX-APPEND-PAYMENT",
+            evidence_reference="statement:fx-append",
+            notes="Append-only test settlement.",
+            idempotency_key="fx-append-settlement",
+            as_of=as_of,
+        )
+    )
     event = FxEvent.objects.get(event_type=FxEventType.EXCHANGE_COMPLETED)
     guarded_records = [
         (quote, FxQuote, "fx_fxquote"),
         (exchange, FxExchange, "fx_fxexchange"),
+        (settlement, FxExternalSettlement, "fx_fxexternalsettlement"),
         (event, FxEvent, "fx_fxevent"),
     ]
 

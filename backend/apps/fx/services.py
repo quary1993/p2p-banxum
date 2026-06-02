@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -12,7 +13,14 @@ from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Model, Sum
 
-from backend.apps.fx.models import FxEvent, FxEventType, FxExchange, FxQuote
+from backend.apps.fx.models import (
+    FxEvent,
+    FxEventType,
+    FxExchange,
+    FxExternalSettlement,
+    FxExternalSettlementStatus,
+    FxQuote,
+)
 from backend.apps.platform_core.domain.access import (
     actor_ref_for_user,
     is_admin_actor,
@@ -82,6 +90,26 @@ class ExecuteFxQuoteCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class DeclareFxExternalSettlementCommand:
+    actor: Model
+    sold_currency: str
+    bought_currency: str
+    sold_amount_minor: int
+    bought_amount_minor: int
+    start_date: date
+    end_date: date
+    booking_date: date
+    value_date: date
+    collection_account_identifier: str
+    bank_reference: str = ""
+    payment_reference: str = ""
+    evidence_reference: str = ""
+    notes: str = ""
+    idempotency_key: str = ""
+    as_of: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class FxDeltaReport:
     start_date: date
     end_date: date
@@ -91,6 +119,19 @@ class FxDeltaReport:
     target_credited_by_currency_minor: dict[str, int]
     fees_by_currency_minor: dict[str, int]
     net_external_settlement_by_currency_minor: dict[str, int]
+
+
+@dataclass(frozen=True, slots=True)
+class FxRealizedSettlementReport:
+    start_date: date
+    end_date: date
+    settlement_count: int
+    expected_sold_by_currency_minor: dict[str, int]
+    actual_sold_by_currency_minor: dict[str, int]
+    expected_bought_by_currency_minor: dict[str, int]
+    actual_bought_by_currency_minor: dict[str, int]
+    fees_by_currency_minor: dict[str, int]
+    residual_by_currency_minor: dict[str, int]
 
 
 def _ledger_services() -> Any:
@@ -242,6 +283,42 @@ def _exchange_request_fingerprint(
     )
 
 
+def _external_settlement_request_fingerprint(
+    command: DeclareFxExternalSettlementCommand,
+    *,
+    sold_currency_code: str,
+    bought_currency_code: str,
+    sold_amount_minor: int,
+    bought_amount_minor: int,
+    expected_sold_amount_minor: int,
+    expected_bought_amount_minor: int,
+    expected_fee_minor: int,
+    idempotency_key: str,
+) -> str:
+    return _stable_json_fingerprint(
+        {
+            "actor_id": str(command.actor.pk),
+            "sold_currency": sold_currency_code,
+            "bought_currency": bought_currency_code,
+            "sold_amount_minor": sold_amount_minor,
+            "bought_amount_minor": bought_amount_minor,
+            "expected_sold_amount_minor": expected_sold_amount_minor,
+            "expected_bought_amount_minor": expected_bought_amount_minor,
+            "expected_fee_minor": expected_fee_minor,
+            "start_date": command.start_date.isoformat(),
+            "end_date": command.end_date.isoformat(),
+            "booking_date": command.booking_date.isoformat(),
+            "value_date": command.value_date.isoformat(),
+            "collection_account_identifier": command.collection_account_identifier.strip(),
+            "bank_reference": command.bank_reference.strip(),
+            "payment_reference": command.payment_reference.strip(),
+            "evidence_reference": command.evidence_reference.strip(),
+            "notes": command.notes.strip(),
+            "idempotency_key": idempotency_key,
+        }
+    )
+
+
 def _existing_quote_for_idempotency(
     idempotency_key: str,
     *,
@@ -274,6 +351,24 @@ def _existing_exchange_for_idempotency(
     return cast(FxExchange, existing)
 
 
+def _existing_external_settlement_for_idempotency(
+    idempotency_key: str,
+    *,
+    expected_fingerprint: str,
+) -> FxExternalSettlement | None:
+    existing = FxExternalSettlement.objects.filter(idempotency_key=idempotency_key).first()
+    if existing is None:
+        return None
+    if (
+        cast(dict[str, Any], existing.metadata).get(REQUEST_FINGERPRINT_METADATA_KEY)
+        != expected_fingerprint
+    ):
+        raise FxValidationError(
+            "Idempotency key was already used for a different FX external settlement."
+        )
+    return cast(FxExternalSettlement, existing)
+
+
 def _require_financial_actor(actor: Model) -> None:
     if not user_can_access_financial_features(actor):
         raise FxAuthorizationError("Investor account cannot access FX features.")
@@ -301,6 +396,55 @@ def _business_day_bounds(value: date) -> tuple[datetime, datetime]:
 
 def _business_date_for_timestamp(value: datetime) -> date:
     return to_business_time(value).date()
+
+
+def _actual_rate(
+    *,
+    sold_currency: Currency,
+    bought_currency: Currency,
+    sold_amount_minor: int,
+    bought_amount_minor: int,
+) -> Decimal:
+    sold_major = Decimal(sold_amount_minor) / _minor_factor(sold_currency)
+    bought_major = Decimal(bought_amount_minor) / _minor_factor(bought_currency)
+    if sold_major <= 0:
+        raise FxValidationError("FX external sold amount must be positive.")
+    return (bought_major / sold_major).quantize(Decimal("0.000000000001"))
+
+
+def _exchange_date_range_bounds(start_date: date, end_date: date) -> tuple[datetime, datetime]:
+    if end_date < start_date:
+        raise FxValidationError("End date cannot be before start date.")
+    start, _ = _business_day_bounds(start_date)
+    _, end = _business_day_bounds(end_date)
+    return start, end
+
+
+def _expected_pair_totals(
+    *,
+    sold_currency_code: str,
+    bought_currency_code: str,
+    start_date: date,
+    end_date: date,
+) -> tuple[int, int, int, int]:
+    start, end = _exchange_date_range_bounds(start_date, end_date)
+    aggregate = FxExchange.objects.filter(
+        source_currency_id=sold_currency_code,
+        target_currency_id=bought_currency_code,
+        executed_at__gte=start,
+        executed_at__lt=end,
+    ).aggregate(
+        sold=Sum("source_amount_minor"),
+        bought=Sum("gross_target_amount_minor"),
+        credited=Sum("target_amount_minor"),
+        fees=Sum("fee_minor"),
+    )
+    return (
+        int(aggregate["sold"] or 0),
+        int(aggregate["bought"] or 0),
+        int(aggregate["credited"] or 0),
+        int(aggregate["fees"] or 0),
+    )
 
 
 def _daily_executed_chf_equivalent(investor_user_id: str, business_day: date) -> int:
@@ -742,6 +886,278 @@ def create_fx_delta_report(
         target_credited_by_currency_minor=target_credited,
         fees_by_currency_minor=fees,
         net_external_settlement_by_currency_minor=net,
+    )
+
+
+@transaction.atomic
+def declare_fx_external_settlement(
+    command: DeclareFxExternalSettlementCommand,
+) -> FxExternalSettlement:
+    if not is_admin_actor(command.actor):
+        raise FxAuthorizationError("Only an active admin can declare FX external settlements.")
+    sold_currency = _enabled_currency(command.sold_currency)
+    bought_currency = _enabled_currency(command.bought_currency)
+    if sold_currency.code == bought_currency.code:
+        raise FxValidationError("FX external settlement currencies must differ.")
+    pair = _pair_key(sold_currency.code, bought_currency.code)
+    if pair not in _enabled_pairs():
+        raise FxValidationError("FX pair is not enabled.")
+    _exchange_date_range_bounds(command.start_date, command.end_date)
+    sold_amount_minor = _validate_money(
+        command.sold_amount_minor,
+        sold_currency.code,
+        "FX external sold amount",
+    )
+    bought_amount_minor = _validate_money(
+        command.bought_amount_minor,
+        bought_currency.code,
+        "FX external bought amount",
+    )
+    collection_account_identifier = command.collection_account_identifier.strip()
+    if not collection_account_identifier:
+        raise FxValidationError("Collection account identifier is required.")
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    (
+        expected_sold_amount_minor,
+        expected_bought_amount_minor,
+        expected_target_credited_minor,
+        expected_fee_minor,
+    ) = _expected_pair_totals(
+        sold_currency_code=sold_currency.code,
+        bought_currency_code=bought_currency.code,
+        start_date=command.start_date,
+        end_date=command.end_date,
+    )
+    if expected_sold_amount_minor <= 0 or expected_bought_amount_minor <= 0:
+        raise FxValidationError("No internal FX exchanges exist for this pair and date range.")
+    sold_currency_residual_minor = expected_sold_amount_minor - sold_amount_minor
+    bought_currency_residual_minor = bought_amount_minor - expected_bought_amount_minor
+    actual_rate = _actual_rate(
+        sold_currency=sold_currency,
+        bought_currency=bought_currency,
+        sold_amount_minor=sold_amount_minor,
+        bought_amount_minor=bought_amount_minor,
+    )
+    request_fingerprint = _external_settlement_request_fingerprint(
+        command,
+        sold_currency_code=sold_currency.code,
+        bought_currency_code=bought_currency.code,
+        sold_amount_minor=sold_amount_minor,
+        bought_amount_minor=bought_amount_minor,
+        expected_sold_amount_minor=expected_sold_amount_minor,
+        expected_bought_amount_minor=expected_bought_amount_minor,
+        expected_fee_minor=expected_fee_minor,
+        idempotency_key=idempotency_key,
+    )
+    existing = _existing_external_settlement_for_idempotency(
+        idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing is not None:
+        return existing
+
+    as_of = command.as_of or now_utc()
+    settlement_id = uuid.uuid5(
+        uuid.NAMESPACE_URL,
+        f"banxum:fx-external-settlement:{idempotency_key}",
+    )
+    settlement_metadata = {
+        REQUEST_FINGERPRINT_METADATA_KEY: request_fingerprint,
+        "pair": pair,
+        "expected_target_credited_minor": expected_target_credited_minor,
+        "sold_currency_residual_policy": (
+            "expected sold minus actual sold; positive means source-currency clearing remains"
+        ),
+        "bought_currency_residual_policy": (
+            "actual bought minus expected bought; positive means target-currency surplus"
+        ),
+    }
+    ledger = _ledger_services()
+    try:
+        ledger_result = ledger.declare_fx_external_settlement_ledger(
+            ledger.DeclareFxExternalSettlementLedgerCommand(
+                actor=command.actor,
+                settlement_id=str(settlement_id),
+                sold_currency=sold_currency.code,
+                bought_currency=bought_currency.code,
+                sold_amount_minor=sold_amount_minor,
+                bought_amount_minor=bought_amount_minor,
+                booking_date=command.booking_date,
+                value_date=command.value_date,
+                collection_account_identifier=collection_account_identifier,
+                bank_reference=command.bank_reference,
+                payment_reference=command.payment_reference,
+                evidence_reference=command.evidence_reference,
+                notes=command.notes,
+                idempotency_key=idempotency_key,
+                as_of=as_of,
+                metadata={
+                    "pair": pair,
+                    "start_date": command.start_date.isoformat(),
+                    "end_date": command.end_date.isoformat(),
+                    "expected_sold_amount_minor": expected_sold_amount_minor,
+                    "expected_bought_amount_minor": expected_bought_amount_minor,
+                    "expected_fee_minor": expected_fee_minor,
+                    "sold_currency_residual_minor": sold_currency_residual_minor,
+                    "bought_currency_residual_minor": bought_currency_residual_minor,
+                },
+            )
+        )
+    except ledger.LedgerError as exc:
+        raise FxValidationError(str(exc)) from exc
+
+    try:
+        with transaction.atomic():
+            settlement = cast(
+                FxExternalSettlement,
+                FxExternalSettlement.objects.create(
+                    id=settlement_id,
+                    sold_currency=sold_currency,
+                    bought_currency=bought_currency,
+                    start_date=command.start_date,
+                    end_date=command.end_date,
+                    expected_sold_amount_minor=expected_sold_amount_minor,
+                    expected_bought_amount_minor=expected_bought_amount_minor,
+                    expected_fee_minor=expected_fee_minor,
+                    sold_amount_minor=sold_amount_minor,
+                    bought_amount_minor=bought_amount_minor,
+                    sold_currency_residual_minor=sold_currency_residual_minor,
+                    bought_currency_residual_minor=bought_currency_residual_minor,
+                    actual_rate=actual_rate,
+                    booking_date=command.booking_date,
+                    value_date=command.value_date,
+                    collection_account_identifier=collection_account_identifier,
+                    bank_reference=command.bank_reference.strip(),
+                    payment_reference=command.payment_reference.strip(),
+                    evidence_reference=command.evidence_reference.strip(),
+                    notes=command.notes.strip(),
+                    status=FxExternalSettlementStatus.DECLARED,
+                    sold_bank_operation=ledger_result.sold_bank_operation,
+                    bought_bank_operation=ledger_result.bought_bank_operation,
+                    sold_journal_entry=ledger_result.sold_journal_entry,
+                    bought_journal_entry=ledger_result.bought_journal_entry,
+                    declared_by_admin_id=command.actor.pk,
+                    declared_at=as_of,
+                    metadata=settlement_metadata,
+                    idempotency_key=idempotency_key,
+                ),
+            )
+    except IntegrityError:
+        existing_after_race = _existing_external_settlement_for_idempotency(
+            idempotency_key,
+            expected_fingerprint=request_fingerprint,
+        )
+        if existing_after_race is None:
+            raise
+        return existing_after_race
+
+    actor_ref = actor_ref_for_user(command.actor)
+    event_metadata = {
+        "settlement_id": str(settlement.id),
+        "pair": pair,
+        "start_date": command.start_date.isoformat(),
+        "end_date": command.end_date.isoformat(),
+        "sold_currency": sold_currency.code,
+        "bought_currency": bought_currency.code,
+        "expected_sold_amount_minor": expected_sold_amount_minor,
+        "expected_bought_amount_minor": expected_bought_amount_minor,
+        "sold_amount_minor": sold_amount_minor,
+        "bought_amount_minor": bought_amount_minor,
+        "sold_currency_residual_minor": sold_currency_residual_minor,
+        "bought_currency_residual_minor": bought_currency_residual_minor,
+        "actual_rate": str(actual_rate),
+    }
+    FxEvent.objects.create(
+        external_settlement=settlement,
+        event_type=FxEventType.EXTERNAL_SETTLEMENT_DECLARED,
+        actor_user_id=command.actor.pk,
+        actor_account_type=str(getattr(command.actor, "account_type", "")),
+        metadata=event_metadata,
+    )
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref,
+            action="fx.external_settlement_declared",
+            target_type="FxExternalSettlement",
+            target_id=str(settlement.id),
+            metadata=event_metadata,
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="FxExternalSettlementDeclared",
+            aggregate_type="FxExternalSettlement",
+            aggregate_id=str(settlement.id),
+            payload=event_metadata,
+            idempotency_key=f"fx-external-settlement:{settlement.id}:declared",
+        )
+    )
+    return settlement
+
+
+def create_fx_realized_settlement_report(
+    *,
+    actor: Model,
+    start_date: date,
+    end_date: date,
+) -> FxRealizedSettlementReport:
+    if not is_admin_actor(actor):
+        raise FxAuthorizationError("Only an active admin can inspect FX realized reports.")
+    if end_date < start_date:
+        raise FxValidationError("End date cannot be before start date.")
+    settlements = FxExternalSettlement.objects.filter(
+        value_date__gte=start_date,
+        value_date__lte=end_date,
+    )
+    expected_sold: dict[str, int] = {}
+    actual_sold: dict[str, int] = {}
+    expected_bought: dict[str, int] = {}
+    actual_bought: dict[str, int] = {}
+    fees: dict[str, int] = {}
+    residual: dict[str, int] = {}
+    for settlement in settlements:
+        sold_code = settlement.sold_currency_id
+        bought_code = settlement.bought_currency_id
+        expected_sold[sold_code] = (
+            expected_sold.get(sold_code, 0) + settlement.expected_sold_amount_minor
+        )
+        actual_sold[sold_code] = actual_sold.get(sold_code, 0) + settlement.sold_amount_minor
+        expected_bought[bought_code] = (
+            expected_bought.get(bought_code, 0) + settlement.expected_bought_amount_minor
+        )
+        actual_bought[bought_code] = (
+            actual_bought.get(bought_code, 0) + settlement.bought_amount_minor
+        )
+        fees[bought_code] = fees.get(bought_code, 0) + settlement.expected_fee_minor
+        residual[sold_code] = (
+            residual.get(sold_code, 0) + settlement.sold_currency_residual_minor
+        )
+        residual[bought_code] = (
+            residual.get(bought_code, 0) + settlement.bought_currency_residual_minor
+        )
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(actor),
+            action="fx.realized_settlement_report_generated",
+            target_type="FxRealizedSettlementReport",
+            target_id=f"{start_date.isoformat()}:{end_date.isoformat()}",
+            metadata={
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "settlement_count": settlements.count(),
+            },
+        )
+    )
+    return FxRealizedSettlementReport(
+        start_date=start_date,
+        end_date=end_date,
+        settlement_count=settlements.count(),
+        expected_sold_by_currency_minor=expected_sold,
+        actual_sold_by_currency_minor=actual_sold,
+        expected_bought_by_currency_minor=expected_bought,
+        actual_bought_by_currency_minor=actual_bought,
+        fees_by_currency_minor=fees,
+        residual_by_currency_minor=residual,
     )
 
 
