@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from datetime import date, datetime, time
 from typing import Any, cast
+from unittest import mock
 
 import pytest
 from django.contrib.auth import get_user_model
-from django.db import DatabaseError, connection, transaction
+from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.db.models import Model
 from django.test import Client
 
@@ -98,6 +99,43 @@ def _deposit_command(
     )
 
 
+def _journal_command(
+    admin_user: Model,
+    *,
+    idempotency_key: str = "journal-1",
+) -> PostJournalEntryCommand:
+    currency = Currency.objects.get(code="CHF")
+    collection_cash = get_or_create_ledger_account(
+        account_type=LedgerAccountType.COLLECTION_CASH,
+        currency=currency,
+    )
+    investor_liability = get_or_create_ledger_account(
+        account_type=LedgerAccountType.INVESTOR_BALANCE_LIABILITY,
+        currency=currency,
+        owner_type="investor",
+        owner_id="investor-1",
+    )
+    return PostJournalEntryCommand(
+        actor=admin_user,
+        event_type="journal_race_test",
+        direction=LedgerDirection.IN,
+        currency="CHF",
+        gross_amount_minor=100_00,
+        net_amount_minor=100_00,
+        booking_date=date(2026, 1, 1),
+        value_date=date(2026, 1, 1),
+        effective_at=_received_at(date(2026, 1, 1)),
+        received_at=_received_at(date(2026, 1, 1)),
+        source_type="test",
+        source_id=idempotency_key,
+        idempotency_key=idempotency_key,
+        postings=[
+            PostingCommand(collection_cash, LedgerPostingSide.DEBIT, 100_00),
+            PostingCommand(investor_liability, LedgerPostingSide.CREDIT, 100_00),
+        ],
+    )
+
+
 @pytest.mark.django_db
 def test_post_journal_entry_requires_balanced_postings(admin_user: Model) -> None:
     currency = Currency.objects.get(code="CHF")
@@ -174,6 +212,59 @@ def test_lender_deposit_is_idempotent(admin_user: Model, investor: Model) -> Non
     assert BankOperation.objects.count() == 1
     assert LedgerJournalEntry.objects.count() == 1
     assert InvestorBalanceLot.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_post_journal_entry_returns_existing_entry_after_idempotency_race(
+    admin_user: Model,
+) -> None:
+    existing = post_journal_entry(_journal_command(admin_user, idempotency_key="journal-race"))
+
+    with (
+        mock.patch(
+            "backend.apps.ledger.services._existing_journal_entry_for_idempotency",
+            side_effect=[None, existing],
+        ),
+        mock.patch.object(
+            LedgerJournalEntry.objects,
+            "create",
+            side_effect=IntegrityError("duplicate idempotency key"),
+        ),
+    ):
+        result = post_journal_entry(_journal_command(admin_user, idempotency_key="journal-race"))
+
+    assert result.id == existing.id
+    assert LedgerJournalEntry.objects.filter(idempotency_key="journal-race").count() == 1
+
+
+@pytest.mark.django_db
+def test_lender_deposit_returns_existing_result_after_idempotency_race(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    existing = declare_lender_deposit(
+        _deposit_command(admin_user, investor, idempotency_key="deposit-race")
+    )
+
+    with (
+        mock.patch(
+            "backend.apps.ledger.services._existing_lender_deposit_result",
+            side_effect=[None, existing],
+        ),
+        mock.patch.object(
+            BankOperation.objects,
+            "create",
+            side_effect=IntegrityError("duplicate idempotency key"),
+        ),
+    ):
+        result = declare_lender_deposit(
+            _deposit_command(admin_user, investor, idempotency_key="deposit-race")
+        )
+
+    assert result.bank_operation.id == existing.bank_operation.id
+    assert result.journal_entry.id == existing.journal_entry.id
+    assert result.balance_lot.id == existing.balance_lot.id
+    assert BankOperation.objects.filter(idempotency_key="deposit-race").count() == 1
 
 
 @pytest.mark.django_db

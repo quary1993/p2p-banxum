@@ -5,7 +5,7 @@ from datetime import date, datetime, time, timedelta
 from typing import Any, cast
 
 from django.contrib.auth import get_user_model
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Model, Sum
 
 from backend.apps.ledger.models import (
@@ -283,16 +283,23 @@ def _validate_postings(
     return debit_total, credit_total
 
 
+def _existing_journal_entry_for_idempotency(idempotency_key: str) -> LedgerJournalEntry | None:
+    existing = LedgerJournalEntry.objects.filter(idempotency_key=idempotency_key).first()
+    if existing is None:
+        return None
+    return cast(LedgerJournalEntry, existing)
+
+
 @transaction.atomic
 def post_journal_entry(command: PostJournalEntryCommand) -> LedgerJournalEntry:
     currency = _enabled_currency(command.currency)
-    existing = LedgerJournalEntry.objects.filter(idempotency_key=command.idempotency_key).first()
+    idempotency_key = _clean_required(command.idempotency_key, "Idempotency key")
+    existing = _existing_journal_entry_for_idempotency(idempotency_key)
     if existing is not None:
-        return cast(LedgerJournalEntry, existing)
+        return existing
     _clean_required(command.event_type, "Event type")
     _clean_required(command.source_type, "Source type")
     _clean_required(command.source_id, "Source id")
-    _clean_required(command.idempotency_key, "Idempotency key")
     _ledger_direction(command.direction)
     _validate_money(command.gross_amount_minor, currency.code, "Gross amount")
     _validate_nonnegative_money(command.net_amount_minor, currency.code, "Net amount")
@@ -300,34 +307,41 @@ def post_journal_entry(command: PostJournalEntryCommand) -> LedgerJournalEntry:
         raise LedgerValidationError("Net amount cannot exceed gross amount.")
     _validate_postings(postings=command.postings, currency=currency)
     actor_ref = actor_ref_for_user(command.actor)
-    journal_entry = cast(
-        LedgerJournalEntry,
-        LedgerJournalEntry.objects.create(
-            event_type=command.event_type.strip(),
-            direction=command.direction,
-            booking_date=command.booking_date,
-            value_date=command.value_date,
-            effective_at=command.effective_at,
-            received_at=command.received_at,
-            currency=currency,
-            gross_amount_minor=command.gross_amount_minor,
-            net_amount_minor=command.net_amount_minor,
-            source_type=command.source_type.strip(),
-            source_id=command.source_id.strip(),
-            lender_user_id=command.lender_user_id,
-            borrower_id=command.borrower_id,
-            loan_id=command.loan_id,
-            bank_operation=command.bank_operation,
-            bank_reference=command.bank_reference.strip(),
-            evidence_reference=command.evidence_reference.strip(),
-            actor_type=actor_ref.actor_type,
-            actor_id=actor_ref.actor_id,
-            tax_metadata=command.tax_metadata or {},
-            metadata=command.metadata or {},
-            reversal_of=command.reversal_of,
-            idempotency_key=command.idempotency_key.strip(),
-        ),
-    )
+    try:
+        with transaction.atomic():
+            journal_entry = cast(
+                LedgerJournalEntry,
+                LedgerJournalEntry.objects.create(
+                    event_type=command.event_type.strip(),
+                    direction=command.direction,
+                    booking_date=command.booking_date,
+                    value_date=command.value_date,
+                    effective_at=command.effective_at,
+                    received_at=command.received_at,
+                    currency=currency,
+                    gross_amount_minor=command.gross_amount_minor,
+                    net_amount_minor=command.net_amount_minor,
+                    source_type=command.source_type.strip(),
+                    source_id=command.source_id.strip(),
+                    lender_user_id=command.lender_user_id,
+                    borrower_id=command.borrower_id,
+                    loan_id=command.loan_id,
+                    bank_operation=command.bank_operation,
+                    bank_reference=command.bank_reference.strip(),
+                    evidence_reference=command.evidence_reference.strip(),
+                    actor_type=actor_ref.actor_type,
+                    actor_id=actor_ref.actor_id,
+                    tax_metadata=command.tax_metadata or {},
+                    metadata=command.metadata or {},
+                    reversal_of=command.reversal_of,
+                    idempotency_key=idempotency_key,
+                ),
+            )
+    except IntegrityError:
+        existing_after_race = _existing_journal_entry_for_idempotency(idempotency_key)
+        if existing_after_race is None:
+            raise
+        return existing_after_race
     LedgerPosting.objects.bulk_create(
         [
             LedgerPosting(
@@ -374,19 +388,30 @@ def post_journal_entry(command: PostJournalEntryCommand) -> LedgerJournalEntry:
     return journal_entry
 
 
+def _existing_lender_deposit_result(idempotency_key: str) -> LenderDepositResult | None:
+    existing_operation = BankOperation.objects.filter(idempotency_key=idempotency_key).first()
+    if existing_operation is None:
+        return None
+    existing_journal = existing_operation.journal_entries.first()
+    if existing_journal is None:
+        raise LedgerValidationError("Existing bank operation has no journal entry.")
+    existing_lot = existing_journal.balance_lots.first()
+    if existing_lot is None:
+        raise LedgerValidationError("Existing lender deposit has no balance lot.")
+    return LenderDepositResult(
+        cast(BankOperation, existing_operation),
+        cast(LedgerJournalEntry, existing_journal),
+        cast(InvestorBalanceLot, existing_lot),
+    )
+
+
 @transaction.atomic
 def declare_lender_deposit(command: DeclareLenderDepositCommand) -> LenderDepositResult:
     _require_admin_actor(command.actor)
     idempotency_key = _clean_required(command.idempotency_key, "Idempotency key")
-    existing_operation = BankOperation.objects.filter(idempotency_key=idempotency_key).first()
-    if existing_operation is not None:
-        existing_journal = existing_operation.journal_entries.first()
-        if existing_journal is None:
-            raise LedgerValidationError("Existing bank operation has no journal entry.")
-        existing_lot = existing_journal.balance_lots.first()
-        if existing_lot is None:
-            raise LedgerValidationError("Existing lender deposit has no balance lot.")
-        return LenderDepositResult(existing_operation, existing_journal, existing_lot)
+    existing_result = _existing_lender_deposit_result(idempotency_key)
+    if existing_result is not None:
+        return existing_result
 
     investor = _investor_for_id(command.investor_user_id)
     currency = _enabled_currency(command.currency)
@@ -397,29 +422,36 @@ def declare_lender_deposit(command: DeclareLenderDepositCommand) -> LenderDeposi
     )
     received_at = _received_at_from_value_date(command.value_date)
     confirmed_at = now_utc()
-    bank_operation = BankOperation.objects.create(
-        operation_type=_bank_operation_type(BankOperationType.LENDER_DEPOSIT),
-        status=BankOperationStatus.RECONCILED,
-        amount_minor=amount_minor,
-        currency=currency,
-        booking_date=command.booking_date,
-        value_date=command.value_date,
-        collection_account_identifier=collection_account_identifier,
-        payer_name=command.payer_name.strip(),
-        payer_account_identifier=command.payer_account_identifier.strip(),
-        payee_name="Garanta Finanzgruppe AG",
-        payee_account_identifier=collection_account_identifier,
-        bank_reference=command.bank_reference.strip(),
-        payment_reference=command.payment_reference.strip(),
-        linked_object_type="investor",
-        linked_object_id=str(investor.pk),
-        evidence_reference=command.evidence_reference.strip(),
-        confirmed_by_admin_id=command.actor.pk,
-        confirmed_at=confirmed_at,
-        notes=command.notes.strip(),
-        metadata={"matched_investor_email": str(getattr(investor, "email", ""))},
-        idempotency_key=idempotency_key,
-    )
+    try:
+        with transaction.atomic():
+            bank_operation = BankOperation.objects.create(
+                operation_type=_bank_operation_type(BankOperationType.LENDER_DEPOSIT),
+                status=BankOperationStatus.RECONCILED,
+                amount_minor=amount_minor,
+                currency=currency,
+                booking_date=command.booking_date,
+                value_date=command.value_date,
+                collection_account_identifier=collection_account_identifier,
+                payer_name=command.payer_name.strip(),
+                payer_account_identifier=command.payer_account_identifier.strip(),
+                payee_name="Garanta Finanzgruppe AG",
+                payee_account_identifier=collection_account_identifier,
+                bank_reference=command.bank_reference.strip(),
+                payment_reference=command.payment_reference.strip(),
+                linked_object_type="investor",
+                linked_object_id=str(investor.pk),
+                evidence_reference=command.evidence_reference.strip(),
+                confirmed_by_admin_id=command.actor.pk,
+                confirmed_at=confirmed_at,
+                notes=command.notes.strip(),
+                metadata={"matched_investor_email": str(getattr(investor, "email", ""))},
+                idempotency_key=idempotency_key,
+            )
+    except IntegrityError:
+        existing_after_race = _existing_lender_deposit_result(idempotency_key)
+        if existing_after_race is None:
+            raise
+        return existing_after_race
     collection_cash_account = get_or_create_ledger_account(
         account_type=LedgerAccountType.COLLECTION_CASH,
         currency=currency,
