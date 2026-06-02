@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime, time
 from typing import Any, cast
 from unittest import mock
@@ -28,8 +29,10 @@ from backend.apps.ledger.models import (
 )
 from backend.apps.ledger.services import (
     CancelInvestorWithdrawalCommand,
+    ClosePrimaryLoanFundingCommand,
     CreateReconciliationSnapshotCommand,
     DeclareLenderDepositCommand,
+    FinalizeBorrowerDisbursementCommand,
     FinalizeInvestorWithdrawalCommand,
     LedgerValidationError,
     PostingCommand,
@@ -38,8 +41,10 @@ from backend.apps.ledger.services import (
     RequestInvestorWithdrawalCommand,
     RunBalanceAgeingScanCommand,
     cancel_investor_withdrawal,
+    close_primary_loan_funding,
     create_reconciliation_snapshot,
     declare_lender_deposit,
+    finalize_borrower_disbursement,
     finalize_investor_withdrawal,
     get_or_create_ledger_account,
     plan_investment_balance_consumption,
@@ -171,6 +176,77 @@ def _journal_command(
             PostingCommand(investor_liability, LedgerPostingSide.CREDIT, amount_minor),
         ],
     )
+
+
+def _closed_primary_loan_funding(
+    admin_user: Model,
+    *,
+    principal_minor: int = 100_000_00,
+    borrower_success_fee_bps: int = 200,
+    seed_key: str = "borrower-disbursement-seed",
+) -> tuple[uuid.UUID, uuid.UUID]:
+    loan_id = uuid.uuid4()
+    borrower_model = apps.get_model("entities", "BorrowerEntity")
+    borrower = cast(
+        Model,
+        borrower_model.objects.create(
+            legal_name="Ledger Borrower AG",
+            year_founded=2018,
+            kyb_status="approved",
+            compliance_hold=False,
+            country="Switzerland",
+            created_by_admin_id=admin_user.pk,
+        ),
+    )
+    borrower_id = cast(uuid.UUID, borrower.pk)
+    currency = Currency.objects.get(code="CHF")
+    collection_cash = get_or_create_ledger_account(
+        account_type=LedgerAccountType.COLLECTION_CASH,
+        currency=currency,
+    )
+    loan_escrow = get_or_create_ledger_account(
+        account_type=LedgerAccountType.LOAN_FUNDING_ESCROW,
+        currency=currency,
+        owner_type="loan",
+        owner_id=str(loan_id),
+    )
+    post_journal_entry(
+        PostJournalEntryCommand(
+            actor=admin_user,
+            event_type="test_primary_funding_reserved",
+            direction=LedgerDirection.INTERNAL,
+            currency="CHF",
+            gross_amount_minor=principal_minor,
+            net_amount_minor=principal_minor,
+            booking_date=date(2026, 1, 1),
+            value_date=date(2026, 1, 1),
+            effective_at=_received_at(date(2026, 1, 1)),
+            received_at=_received_at(date(2026, 1, 1)),
+            source_type="test",
+            source_id=str(loan_id),
+            loan_id=str(loan_id),
+            idempotency_key=f"{seed_key}-escrow-{loan_id}",
+            postings=[
+                PostingCommand(collection_cash, LedgerPostingSide.DEBIT, principal_minor),
+                PostingCommand(loan_escrow, LedgerPostingSide.CREDIT, principal_minor),
+            ],
+        )
+    )
+    close_primary_loan_funding(
+        ClosePrimaryLoanFundingCommand(
+            actor=admin_user,
+            loan_id=str(loan_id),
+            borrower_id=str(borrower_id),
+            accepted_principal_minor=principal_minor,
+            borrower_success_fee_bps=borrower_success_fee_bps,
+            currency="CHF",
+            source_type="primary_loan_close",
+            source_id=str(loan_id),
+            idempotency_key=f"{seed_key}-close-{loan_id}",
+            as_of=_received_at(date(2026, 1, 1)),
+        )
+    )
+    return loan_id, borrower_id
 
 
 @pytest.mark.django_db
@@ -1005,6 +1081,174 @@ def test_admin_finalizes_withdrawal_and_reconciliation_reflects_cash_out(
 
 
 @pytest.mark.django_db
+def test_borrower_disbursement_finalization_clears_payable(admin_user: Model) -> None:
+    loan_id, borrower_id = _closed_primary_loan_funding(admin_user)
+
+    pending_snapshot = create_reconciliation_snapshot(
+        CreateReconciliationSnapshotCommand(
+            actor=admin_user,
+            currency="CHF",
+            as_of_date=date(2026, 1, 1),
+            bank_stated_balance_minor=100_000_00,
+        )
+    )
+    result = finalize_borrower_disbursement(
+        FinalizeBorrowerDisbursementCommand(
+            actor=admin_user,
+            loan_id=str(loan_id),
+            borrower_id=str(borrower_id),
+            amount_minor=98_000_00,
+            currency="CHF",
+            booking_date=date(2026, 1, 2),
+            value_date=date(2026, 1, 2),
+            collection_account_identifier="CH00GARANTALEDGER",
+            payee_name="Borrower AG",
+            payee_account_identifier="CH22BORROWER",
+            bank_reference="BANK-BORROWER-DISB-1",
+            payment_reference=f"LOAN-{loan_id}",
+            evidence_reference="statement:borrower-disbursement-1",
+            admin_notes="Borrower payout after success fee.",
+            idempotency_key="borrower-disbursement-1",
+        )
+    )
+    postings = list(result.journal_entry.postings.select_related("account").order_by("side"))
+    final_snapshot = create_reconciliation_snapshot(
+        CreateReconciliationSnapshotCommand(
+            actor=admin_user,
+            currency="CHF",
+            as_of_date=date(2026, 1, 2),
+            bank_stated_balance_minor=2_000_00,
+        )
+    )
+
+    assert pending_snapshot.reconciliation_difference_minor == 0
+    assert pending_snapshot.metadata["borrower_disbursement_payable_minor"] == 98_000_00
+    assert pending_snapshot.garanta_accrued_revenue_minor == 2_000_00
+    assert result.bank_operation.operation_type == "borrower_loan_disbursement"
+    assert result.bank_operation.linked_object_type == "loan"
+    assert result.bank_operation.linked_object_id == str(loan_id)
+    assert result.journal_entry.event_type == "borrower_loan_disbursement_finalized"
+    assert result.journal_entry.direction == "out"
+    assert str(result.journal_entry.borrower_id) == str(borrower_id)
+    assert str(result.journal_entry.loan_id) == str(loan_id)
+    assert [(posting.side, posting.amount_minor) for posting in postings] == [
+        ("credit", 98_000_00),
+        ("debit", 98_000_00),
+    ]
+    assert {posting.account.account_type for posting in postings} == {
+        LedgerAccountType.BORROWER_DISBURSEMENT_PAYABLE,
+        LedgerAccountType.COLLECTION_CASH,
+    }
+    assert final_snapshot.reconciliation_difference_minor == 0
+    assert final_snapshot.metadata["borrower_disbursement_payable_minor"] == 0
+    assert final_snapshot.metadata["collection_cash_ledger_balance_minor"] == 2_000_00
+    assert final_snapshot.garanta_accrued_revenue_minor == 2_000_00
+    assert DomainEvent.objects.filter(
+        event_type="BorrowerDisbursementFinalized",
+        aggregate_id=str(result.bank_operation.id),
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_borrower_disbursement_finalization_is_idempotent_and_rejects_mismatch(
+    admin_user: Model,
+) -> None:
+    loan_id, borrower_id = _closed_primary_loan_funding(admin_user)
+    command = FinalizeBorrowerDisbursementCommand(
+        actor=admin_user,
+        loan_id=str(loan_id),
+        borrower_id=str(borrower_id),
+        amount_minor=98_000_00,
+        currency="CHF",
+        booking_date=date(2026, 1, 2),
+        value_date=date(2026, 1, 2),
+        collection_account_identifier="CH00GARANTALEDGER",
+        payee_name="Borrower AG",
+        payee_account_identifier="CH22BORROWER",
+        bank_reference="BANK-BORROWER-DISB-2",
+        payment_reference=f"LOAN-{loan_id}",
+        evidence_reference="statement:borrower-disbursement-2",
+        admin_notes="Borrower payout after success fee.",
+        idempotency_key="borrower-disbursement-2",
+    )
+
+    result = finalize_borrower_disbursement(command)
+    idempotent = finalize_borrower_disbursement(command)
+    with pytest.raises(LedgerValidationError, match="different request"):
+        finalize_borrower_disbursement(
+            FinalizeBorrowerDisbursementCommand(
+                actor=admin_user,
+                loan_id=str(loan_id),
+                borrower_id=str(borrower_id),
+                amount_minor=97_999_00,
+                currency="CHF",
+                booking_date=date(2026, 1, 2),
+                value_date=date(2026, 1, 2),
+                collection_account_identifier="CH00GARANTALEDGER",
+                payee_name="Borrower AG",
+                payee_account_identifier="CH22BORROWER",
+                idempotency_key="borrower-disbursement-2",
+            )
+        )
+
+    assert idempotent.bank_operation.id == result.bank_operation.id
+    assert idempotent.journal_entry.id == result.journal_entry.id
+    assert BankOperation.objects.filter(
+        operation_type="borrower_loan_disbursement"
+    ).count() == 1
+
+
+@pytest.mark.django_db
+def test_borrower_disbursement_rejects_amount_that_differs_from_payable(
+    admin_user: Model,
+) -> None:
+    loan_id, borrower_id = _closed_primary_loan_funding(admin_user)
+
+    with pytest.raises(LedgerValidationError, match="outstanding payable"):
+        finalize_borrower_disbursement(
+            FinalizeBorrowerDisbursementCommand(
+                actor=admin_user,
+                loan_id=str(loan_id),
+                borrower_id=str(borrower_id),
+                amount_minor=97_999_00,
+                currency="CHF",
+                booking_date=date(2026, 1, 2),
+                value_date=date(2026, 1, 2),
+                collection_account_identifier="CH00GARANTALEDGER",
+                payee_name="Borrower AG",
+                payee_account_identifier="CH22BORROWER",
+                idempotency_key="borrower-disbursement-wrong-amount",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_borrower_disbursement_requires_borrower_can_still_transact(
+    admin_user: Model,
+) -> None:
+    loan_id, borrower_id = _closed_primary_loan_funding(admin_user)
+    borrower_model = apps.get_model("entities", "BorrowerEntity")
+    borrower_model.objects.filter(id=borrower_id).update(compliance_hold=True)
+
+    with pytest.raises(LedgerValidationError, match="Borrower KYB"):
+        finalize_borrower_disbursement(
+            FinalizeBorrowerDisbursementCommand(
+                actor=admin_user,
+                loan_id=str(loan_id),
+                borrower_id=str(borrower_id),
+                amount_minor=98_000_00,
+                currency="CHF",
+                booking_date=date(2026, 1, 2),
+                value_date=date(2026, 1, 2),
+                collection_account_identifier="CH00GARANTALEDGER",
+                payee_name="Borrower AG",
+                payee_account_identifier="CH22BORROWER",
+                idempotency_key="borrower-disbursement-borrower-hold",
+            )
+        )
+
+
+@pytest.mark.django_db
 def test_admin_cancels_requested_withdrawal_and_restores_balance(
     admin_user: Model,
     investor: Model,
@@ -1197,6 +1441,42 @@ def test_withdrawal_request_and_finalization_api(
     assert finalize_response.status_code == 200
     assert finalize_response.json()["withdrawal_request"]["status"] == "finalized"
     assert finalize_response.json()["bank_operation"]["operation_type"] == "lender_withdrawal"
+
+
+@pytest.mark.django_db
+def test_borrower_disbursement_finalization_api(
+    client: Client,
+    admin_user: Model,
+) -> None:
+    loan_id, borrower_id = _closed_primary_loan_funding(admin_user)
+    client.force_login(cast(Any, admin_user))
+
+    response = client.post(
+        "/api/v1/ledger/admin/borrower-disbursements/",
+        data={
+            "loan_id": str(loan_id),
+            "borrower_id": str(borrower_id),
+            "amount_minor": 98_000_00,
+            "currency": "CHF",
+            "booking_date": "2026-01-02",
+            "value_date": "2026-01-02",
+            "collection_account_identifier": "CH00GARANTALEDGER",
+            "payee_name": "Borrower AG",
+            "payee_account_identifier": "CH22BORROWER",
+            "bank_reference": "BANK-BORROWER-DISB-API",
+            "payment_reference": f"LOAN-{loan_id}",
+            "evidence_reference": "statement:borrower-disbursement-api",
+            "admin_notes": "Paid manually.",
+            "idempotency_key": "borrower-disbursement-api",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["bank_operation"]["operation_type"] == "borrower_loan_disbursement"
+    assert payload["journal_entry"]["event_type"] == "borrower_loan_disbursement_finalized"
+    assert payload["journal_entry"]["loan_id"] == str(loan_id)
 
 
 @pytest.mark.django_db

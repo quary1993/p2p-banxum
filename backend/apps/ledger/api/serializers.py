@@ -242,6 +242,28 @@ class InvestorWithdrawalFinalizeResponseSerializer(serializers.Serializer[Any]):
     journal_entry = LedgerJournalEntrySerializer()
 
 
+class BorrowerDisbursementFinalizeRequestSerializer(serializers.Serializer[Any]):
+    loan_id = serializers.UUIDField()
+    borrower_id = serializers.UUIDField()
+    amount_minor = serializers.IntegerField(min_value=1)
+    currency = serializers.CharField(max_length=3)
+    booking_date = serializers.DateField()
+    value_date = serializers.DateField()
+    collection_account_identifier = serializers.CharField(max_length=128)
+    payee_name = serializers.CharField(max_length=255)
+    payee_account_identifier = serializers.CharField(max_length=128)
+    bank_reference = serializers.CharField(required=False, allow_blank=True, max_length=160)
+    payment_reference = serializers.CharField(required=False, allow_blank=True, max_length=160)
+    evidence_reference = serializers.CharField(required=False, allow_blank=True, max_length=255)
+    admin_notes = serializers.CharField(required=False, allow_blank=True)
+    idempotency_key = serializers.CharField(max_length=160)
+
+
+class BorrowerDisbursementFinalizeResponseSerializer(serializers.Serializer[Any]):
+    bank_operation = BankOperationSerializer()
+    journal_entry = LedgerJournalEntrySerializer()
+
+
 class InvestorWithdrawalCancelRequestSerializer(serializers.Serializer[Any]):
     reason = serializers.CharField(required=False, allow_blank=True)
     idempotency_key = serializers.CharField(max_length=160)

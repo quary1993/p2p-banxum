@@ -13,6 +13,8 @@ from rest_framework.views import APIView
 from backend.apps.ledger.api.serializers import (
     BalanceAgeingScanRequestSerializer,
     BalanceAgeingScanResponseSerializer,
+    BorrowerDisbursementFinalizeRequestSerializer,
+    BorrowerDisbursementFinalizeResponseSerializer,
     InvestorBalanceSummaryQuerySerializer,
     InvestorBalanceSummarySerializer,
     InvestorPayoutInstructionRegisterRequestSerializer,
@@ -40,6 +42,7 @@ from backend.apps.ledger.services import (
     CancelInvestorWithdrawalCommand,
     CreateReconciliationSnapshotCommand,
     DeclareLenderDepositCommand,
+    FinalizeBorrowerDisbursementCommand,
     FinalizeInvestorWithdrawalCommand,
     LedgerAuthorizationError,
     LedgerValidationError,
@@ -49,6 +52,7 @@ from backend.apps.ledger.services import (
     cancel_investor_withdrawal,
     create_reconciliation_snapshot,
     declare_lender_deposit,
+    finalize_borrower_disbursement,
     finalize_investor_withdrawal,
     register_investor_payout_instruction,
     request_investor_withdrawal,
@@ -249,6 +253,52 @@ class InvestorWithdrawalFinalizeView(APIView):
                 "journal_entry": serialize_journal_entry(result.journal_entry),
             },
             status=status.HTTP_200_OK,
+        )
+
+
+class BorrowerDisbursementFinalizeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=BorrowerDisbursementFinalizeRequestSerializer,
+        responses={201: BorrowerDisbursementFinalizeResponseSerializer},
+    )
+    def post(self, request: Request) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = BorrowerDisbursementFinalizeRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            result = finalize_borrower_disbursement(
+                FinalizeBorrowerDisbursementCommand(
+                    actor=cast(Model, request.user),
+                    loan_id=str(data["loan_id"]),
+                    borrower_id=str(data["borrower_id"]),
+                    amount_minor=data["amount_minor"],
+                    currency=data["currency"],
+                    booking_date=data["booking_date"],
+                    value_date=data["value_date"],
+                    collection_account_identifier=data["collection_account_identifier"],
+                    payee_name=data["payee_name"],
+                    payee_account_identifier=data["payee_account_identifier"],
+                    bank_reference=data.get("bank_reference", ""),
+                    payment_reference=data.get("payment_reference", ""),
+                    evidence_reference=data.get("evidence_reference", ""),
+                    admin_notes=data.get("admin_notes", ""),
+                    idempotency_key=data["idempotency_key"],
+                )
+            )
+        except LedgerAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except LedgerValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {
+                "bank_operation": serialize_bank_operation(result.bank_operation),
+                "journal_entry": serialize_journal_entry(result.journal_entry),
+            },
+            status=status.HTTP_201_CREATED,
         )
 
 

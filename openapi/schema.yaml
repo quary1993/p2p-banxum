@@ -1053,6 +1053,32 @@ paths:
               schema:
                 $ref: '#/components/schemas/BalanceAgeingScanResponse'
           description: ''
+  /api/v1/ledger/admin/borrower-disbursements/:
+    post:
+      operationId: v1_ledger_admin_borrower_disbursements_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BorrowerDisbursementFinalizeRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BorrowerDisbursementFinalizeRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BorrowerDisbursementFinalizeRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BorrowerDisbursementFinalizeResponse'
+          description: ''
   /api/v1/ledger/admin/investor-balance-summary/:
     get:
       operationId: v1_ledger_admin_investor_balance_summary_retrieve
@@ -2289,6 +2315,71 @@ components:
       - status
       - updated_at
       - value_date
+    BorrowerDisbursementFinalizeRequest:
+      type: object
+      properties:
+        loan_id:
+          type: string
+          format: uuid
+        borrower_id:
+          type: string
+          format: uuid
+        amount_minor:
+          type: integer
+          minimum: 1
+        currency:
+          type: string
+          maxLength: 3
+        booking_date:
+          type: string
+          format: date
+        value_date:
+          type: string
+          format: date
+        collection_account_identifier:
+          type: string
+          maxLength: 128
+        payee_name:
+          type: string
+          maxLength: 255
+        payee_account_identifier:
+          type: string
+          maxLength: 128
+        bank_reference:
+          type: string
+          maxLength: 160
+        payment_reference:
+          type: string
+          maxLength: 160
+        evidence_reference:
+          type: string
+          maxLength: 255
+        admin_notes:
+          type: string
+        idempotency_key:
+          type: string
+          maxLength: 160
+      required:
+      - amount_minor
+      - booking_date
+      - borrower_id
+      - collection_account_identifier
+      - currency
+      - idempotency_key
+      - loan_id
+      - payee_account_identifier
+      - payee_name
+      - value_date
+    BorrowerDisbursementFinalizeResponse:
+      type: object
+      properties:
+        bank_operation:
+          $ref: '#/components/schemas/BankOperation'
+        journal_entry:
+          $ref: '#/components/schemas/LedgerJournalEntry'
+      required:
+      - bank_operation
+      - journal_entry
     BorrowerDocument:
       type: object
       properties:

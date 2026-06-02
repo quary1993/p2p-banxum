@@ -7,6 +7,7 @@ from datetime import date, datetime, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, cast
 
+from django.apps import apps
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
@@ -172,6 +173,25 @@ class FinalizeInvestorWithdrawalCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class FinalizeBorrowerDisbursementCommand:
+    actor: Model
+    loan_id: str
+    borrower_id: str
+    amount_minor: int
+    currency: str
+    booking_date: date
+    value_date: date
+    collection_account_identifier: str
+    payee_name: str
+    payee_account_identifier: str
+    bank_reference: str = ""
+    payment_reference: str = ""
+    evidence_reference: str = ""
+    admin_notes: str = ""
+    idempotency_key: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class CancelInvestorWithdrawalCommand:
     actor: Model
     withdrawal_request_id: str
@@ -182,6 +202,12 @@ class CancelInvestorWithdrawalCommand:
 @dataclass(frozen=True, slots=True)
 class InvestorWithdrawalFinalizeResult:
     withdrawal_request: InvestorWithdrawalRequest
+    bank_operation: BankOperation
+    journal_entry: LedgerJournalEntry
+
+
+@dataclass(frozen=True, slots=True)
+class BorrowerDisbursementFinalizeResult:
     bank_operation: BankOperation
     journal_entry: LedgerJournalEntry
 
@@ -343,6 +369,17 @@ class CreateReconciliationSnapshotCommand:
 def _require_admin_actor(actor: Model) -> None:
     if not is_admin_actor(actor):
         raise LedgerAuthorizationError("Only an active admin can manage ledger operations.")
+
+
+def _require_borrower_can_transact(borrower_id: str) -> None:
+    borrower_model = apps.get_model("entities", "BorrowerEntity")
+    borrower = cast(Model | None, borrower_model.objects.filter(id=borrower_id).first())
+    if borrower is None:
+        raise LedgerValidationError("Borrower does not exist.")
+    if not bool(getattr(borrower, "can_transact", False)):
+        raise LedgerValidationError(
+            "Borrower KYB must be approved and free of compliance hold."
+        )
 
 
 def _clean_required(value: str, label: str) -> str:
@@ -713,6 +750,33 @@ def _withdrawal_finalization_fingerprint(
             "booking_date": command.booking_date.isoformat(),
             "value_date": command.value_date.isoformat(),
             "collection_account_identifier": command.collection_account_identifier.strip(),
+            "bank_reference": command.bank_reference.strip(),
+            "payment_reference": command.payment_reference.strip(),
+            "evidence_reference": command.evidence_reference.strip(),
+            "admin_notes": command.admin_notes.strip(),
+            "idempotency_key": idempotency_key,
+        }
+    )
+
+
+def _borrower_disbursement_finalization_fingerprint(
+    command: FinalizeBorrowerDisbursementCommand,
+    *,
+    currency_code: str,
+    amount_minor: int,
+    idempotency_key: str,
+) -> str:
+    return _stable_json_fingerprint(
+        {
+            "loan_id": str(command.loan_id),
+            "borrower_id": str(command.borrower_id),
+            "amount_minor": amount_minor,
+            "currency": currency_code,
+            "booking_date": command.booking_date.isoformat(),
+            "value_date": command.value_date.isoformat(),
+            "collection_account_identifier": command.collection_account_identifier.strip(),
+            "payee_name": command.payee_name.strip(),
+            "payee_account_identifier": command.payee_account_identifier.strip(),
             "bank_reference": command.bank_reference.strip(),
             "payment_reference": command.payment_reference.strip(),
             "evidence_reference": command.evidence_reference.strip(),
@@ -1153,6 +1217,29 @@ def _existing_withdrawal_finalization_for_idempotency(
         raise LedgerValidationError("Existing withdrawal bank operation has no journal entry.")
     return InvestorWithdrawalFinalizeResult(
         withdrawal_request,
+        cast(BankOperation, bank_operation),
+        cast(LedgerJournalEntry, journal_entry),
+    )
+
+
+def _existing_borrower_disbursement_finalization_for_idempotency(
+    idempotency_key: str,
+    *,
+    expected_fingerprint: str | None = None,
+) -> BorrowerDisbursementFinalizeResult | None:
+    bank_operation = BankOperation.objects.filter(idempotency_key=idempotency_key).first()
+    if bank_operation is None:
+        return None
+    _assert_fingerprint_matches(
+        stored_metadata=cast(dict[str, Any], bank_operation.metadata),
+        expected_fingerprint=expected_fingerprint,
+    )
+    journal_entry = bank_operation.journal_entries.first()
+    if journal_entry is None:
+        raise LedgerValidationError(
+            "Existing borrower disbursement bank operation has no journal entry."
+        )
+    return BorrowerDisbursementFinalizeResult(
         cast(BankOperation, bank_operation),
         cast(LedgerJournalEntry, journal_entry),
     )
@@ -1626,6 +1713,187 @@ def finalize_investor_withdrawal(
         )
     )
     return InvestorWithdrawalFinalizeResult(withdrawal_request, bank_operation, journal_entry)
+
+
+@transaction.atomic
+def finalize_borrower_disbursement(
+    command: FinalizeBorrowerDisbursementCommand,
+) -> BorrowerDisbursementFinalizeResult:
+    _require_admin_actor(command.actor)
+    currency = _enabled_currency(command.currency)
+    amount_minor = _validate_money(command.amount_minor, currency.code, "Disbursement amount")
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    collection_account_identifier = _clean_required(
+        command.collection_account_identifier,
+        "Collection account identifier",
+    )
+    payee_name = _clean_required(command.payee_name, "Payee name")
+    payee_account_identifier = _clean_required(
+        command.payee_account_identifier,
+        "Payee account identifier",
+    )
+    request_fingerprint = _borrower_disbursement_finalization_fingerprint(
+        command,
+        currency_code=currency.code,
+        amount_minor=amount_minor,
+        idempotency_key=idempotency_key,
+    )
+    existing = _existing_borrower_disbursement_finalization_for_idempotency(
+        idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing is not None:
+        return existing
+
+    _require_borrower_can_transact(str(command.borrower_id))
+    borrower_disbursement_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.BORROWER_DISBURSEMENT_PAYABLE,
+        currency=currency,
+        owner_type="loan",
+        owner_id=str(command.loan_id),
+        name=f"{currency.code} borrower disbursement payable loan {command.loan_id}",
+    )
+    payable_balance = _credit_balance_for_account(borrower_disbursement_account)
+    if payable_balance <= 0:
+        raise LedgerValidationError("Loan has no borrower disbursement payable balance.")
+    if amount_minor != payable_balance:
+        raise LedgerValidationError(
+            "Borrower disbursement amount must equal the outstanding payable balance."
+        )
+    collection_cash_balance = _account_group_balance_minor(
+        currency=currency,
+        account_type=LedgerAccountType.COLLECTION_CASH,
+    )
+    if collection_cash_balance < amount_minor:
+        raise LedgerValidationError(
+            "Collection cash balance is insufficient for borrower disbursement."
+        )
+
+    finalized_at = now_utc()
+    bank_operation_metadata = {
+        REQUEST_FINGERPRINT_METADATA_KEY: request_fingerprint,
+        "loan_id": str(command.loan_id),
+        "borrower_id": str(command.borrower_id),
+        "payable_balance_before_disbursement_minor": payable_balance,
+    }
+    try:
+        with transaction.atomic():
+            bank_operation = BankOperation.objects.create(
+                operation_type=_bank_operation_type(
+                    BankOperationType.BORROWER_LOAN_DISBURSEMENT
+                ),
+                status=BankOperationStatus.RECONCILED,
+                amount_minor=amount_minor,
+                currency=currency,
+                booking_date=command.booking_date,
+                value_date=command.value_date,
+                collection_account_identifier=collection_account_identifier,
+                payer_name="Garanta Finanzgruppe AG",
+                payer_account_identifier=collection_account_identifier,
+                payee_name=payee_name,
+                payee_account_identifier=payee_account_identifier,
+                bank_reference=command.bank_reference.strip(),
+                payment_reference=command.payment_reference.strip(),
+                linked_object_type="loan",
+                linked_object_id=str(command.loan_id),
+                evidence_reference=command.evidence_reference.strip(),
+                confirmed_by_admin_id=command.actor.pk,
+                confirmed_at=finalized_at,
+                notes=command.admin_notes.strip(),
+                metadata=bank_operation_metadata,
+                idempotency_key=idempotency_key,
+            )
+    except IntegrityError:
+        existing_after_race = _existing_borrower_disbursement_finalization_for_idempotency(
+            idempotency_key,
+            expected_fingerprint=request_fingerprint,
+        )
+        if existing_after_race is None:
+            raise
+        return existing_after_race
+
+    collection_cash_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.COLLECTION_CASH,
+        currency=currency,
+        name=f"{currency.code} collection cash",
+    )
+    journal_entry = post_journal_entry(
+        PostJournalEntryCommand(
+            actor=command.actor,
+            event_type="borrower_loan_disbursement_finalized",
+            direction=LedgerDirection.OUT,
+            currency=currency.code,
+            gross_amount_minor=amount_minor,
+            net_amount_minor=amount_minor,
+            booking_date=command.booking_date,
+            value_date=command.value_date,
+            effective_at=finalized_at,
+            received_at=_received_at_from_value_date(command.value_date),
+            source_type="bank_operation",
+            source_id=str(bank_operation.id),
+            borrower_id=str(command.borrower_id),
+            loan_id=str(command.loan_id),
+            bank_operation=bank_operation,
+            bank_reference=command.bank_reference,
+            evidence_reference=command.evidence_reference,
+            idempotency_key=_derived_idempotency_key("ledger", idempotency_key),
+            postings=[
+                PostingCommand(
+                    account=borrower_disbursement_account,
+                    side=LedgerPostingSide.DEBIT,
+                    amount_minor=amount_minor,
+                    memo="Borrower disbursement payable cleared",
+                ),
+                PostingCommand(
+                    account=collection_cash_account,
+                    side=LedgerPostingSide.CREDIT,
+                    amount_minor=amount_minor,
+                    memo="Cash paid to borrower from collection account",
+                ),
+            ],
+            tax_metadata={
+                "client_money_flow_minor": amount_minor,
+            },
+            metadata={
+                "bank_operation_type": BankOperationType.BORROWER_LOAN_DISBURSEMENT,
+                "loan_id": str(command.loan_id),
+                "borrower_id": str(command.borrower_id),
+                "payable_balance_before_disbursement_minor": payable_balance,
+            },
+        )
+    )
+    actor_ref = actor_ref_for_user(command.actor)
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref,
+            action="ledger.borrower_disbursement_finalized",
+            target_type="BankOperation",
+            target_id=str(bank_operation.id),
+            metadata={
+                "loan_id": str(command.loan_id),
+                "borrower_id": str(command.borrower_id),
+                "currency": currency.code,
+                "amount_minor": amount_minor,
+                "journal_entry_id": str(journal_entry.id),
+            },
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="BorrowerDisbursementFinalized",
+            aggregate_type="BankOperation",
+            aggregate_id=str(bank_operation.id),
+            payload={
+                "loan_id": str(command.loan_id),
+                "borrower_id": str(command.borrower_id),
+                "currency": currency.code,
+                "amount_minor": amount_minor,
+                "journal_entry_id": str(journal_entry.id),
+            },
+            idempotency_key=f"bank-operation:{bank_operation.id}:borrower-disbursement-finalized",
+        )
+    )
+    return BorrowerDisbursementFinalizeResult(bank_operation, journal_entry)
 
 
 @transaction.atomic
@@ -2864,9 +3132,9 @@ def close_primary_loan_funding(
     borrower_disbursement_account = get_or_create_ledger_account(
         account_type=LedgerAccountType.BORROWER_DISBURSEMENT_PAYABLE,
         currency=currency,
-        owner_type="borrower",
-        owner_id=str(command.borrower_id),
-        name=f"{currency.code} borrower disbursement payable {command.borrower_id}",
+        owner_type="loan",
+        owner_id=str(command.loan_id),
+        name=f"{currency.code} borrower disbursement payable loan {command.loan_id}",
     )
     postings = [
         PostingCommand(
@@ -3084,6 +3352,10 @@ def create_reconciliation_snapshot(
         currency=currency,
         account_type=LedgerAccountType.WITHDRAWAL_PAYABLE,
     )
+    borrower_disbursement_payable = _credit_balance_minor(
+        currency=currency,
+        account_type=LedgerAccountType.BORROWER_DISBURSEMENT_PAYABLE,
+    )
     collection_cash_balance = _account_group_balance_minor(
         currency=currency,
         account_type=LedgerAccountType.COLLECTION_CASH,
@@ -3094,12 +3366,17 @@ def create_reconciliation_snapshot(
             (LedgerAccountType.GARANTA_ACCRUED_REVENUE, garanta_accrued),
             (LedgerAccountType.SUSPENSE_UNMATCHED_CASH, suspense),
             (LedgerAccountType.WITHDRAWAL_PAYABLE, withdrawal_payable),
+            (
+                LedgerAccountType.BORROWER_DISBURSEMENT_PAYABLE,
+                borrower_disbursement_payable,
+            ),
         ]
         if amount < 0
     ]
     expected = (
         investor_balance
         + withdrawal_payable
+        + borrower_disbursement_payable
         + garanta_accrued
         + suspense
         + pending_exception_balance
@@ -3115,6 +3392,7 @@ def create_reconciliation_snapshot(
             ),
             "investor_balance_liability_posting_minor": investor_posting_balance,
             "withdrawal_payable_minor": withdrawal_payable,
+            "borrower_disbursement_payable_minor": borrower_disbursement_payable,
             "collection_cash_ledger_balance_minor": collection_cash_balance,
             "bank_to_collection_cash_difference_minor": bank_to_collection_cash_difference,
             "account_sign_anomalies": account_sign_anomalies,
