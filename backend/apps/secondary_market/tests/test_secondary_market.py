@@ -606,7 +606,29 @@ def test_secondary_market_api_create_list_and_approve(
     client.force_login(cast(Any, investor))
     list_response = client.get("/api/v1/marketplace/secondary/listings/")
     assert list_response.status_code == 200
-    assert list_response.json()[0]["public_disclosure_note"] == "Late loan disclosure."
+    buyer_listing = list_response.json()[0]
+    assert buyer_listing["public_disclosure_note"] == "Late loan disclosure."
+    assert buyer_listing["loan_title"] == "Secondary bridge loan"
+    assert buyer_listing["buyer_total_cost_minor"] > 0
+    assert buyer_listing["taker_fee_minor"] > 0
+    assert buyer_listing["risk_acknowledgement_required"] is True
+    private_fields = {
+        "holding_id",
+        "seller_user_id",
+        "created_by_user_id",
+        "seller_net_proceeds_minor",
+        "maker_fee_bps",
+        "maker_fee_minor",
+        "minimum_maker_fee_minor",
+        "document_acceptance_id",
+        "approved_by_admin_id",
+        "approval_reason",
+        "rejected_by_admin_id",
+        "rejection_reason",
+        "removed_by_admin_id",
+        "removal_reason",
+    }
+    assert private_fields.isdisjoint(buyer_listing)
 
 
 @pytest.mark.django_db

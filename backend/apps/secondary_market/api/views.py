@@ -11,12 +11,14 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from backend.apps.secondary_market.api.serializers import (
+    SecondaryMarketBuyerListingSerializer,
     SecondaryMarketListingApproveRequestSerializer,
     SecondaryMarketListingCreateRequestSerializer,
     SecondaryMarketListingListQuerySerializer,
     SecondaryMarketListingRejectRequestSerializer,
     SecondaryMarketListingRemoveRequestSerializer,
     SecondaryMarketListingSerializer,
+    serialize_secondary_buyer_listing,
     serialize_secondary_listing,
 )
 from backend.apps.secondary_market.services import (
@@ -48,7 +50,7 @@ class SecondaryMarketListingListCreateView(APIView):
 
     @extend_schema(
         parameters=[SecondaryMarketListingListQuerySerializer],
-        responses={200: SecondaryMarketListingSerializer(many=True)},
+        responses={200: SecondaryMarketBuyerListingSerializer(many=True)},
     )
     def get(self, request: Request) -> Response:
         serializer = SecondaryMarketListingListQuerySerializer(data=request.query_params)
@@ -62,7 +64,7 @@ class SecondaryMarketListingListCreateView(APIView):
         except (SecondaryMarketAuthorizationError, SecondaryMarketValidationError) as exc:
             return _error_response(exc)
         return Response(
-            [serialize_secondary_listing(listing) for listing in listings],
+            [serialize_secondary_buyer_listing(listing) for listing in listings],
             status=status.HTTP_200_OK,
         )
 

@@ -51,6 +51,31 @@ class SecondaryMarketListingSerializer(serializers.Serializer[Any]):
     updated_at = serializers.DateTimeField()
 
 
+class SecondaryMarketBuyerListingSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    loan_id = serializers.UUIDField()
+    loan_title = serializers.CharField(source="loan.title")
+    status = serializers.CharField()
+    current_principal_minor = serializers.IntegerField()
+    currency = serializers.CharField(source="currency.code")
+    price_bps = serializers.IntegerField()
+    transfer_price_minor = serializers.IntegerField()
+    discount_premium_bps = serializers.IntegerField()
+    accrued_interest_minor = serializers.IntegerField()
+    accrued_interest_from_date = serializers.DateField(allow_null=True)
+    accrued_interest_to_date = serializers.DateField()
+    taker_fee_bps = serializers.IntegerField()
+    minimum_taker_fee_minor = serializers.IntegerField()
+    taker_fee_minor = serializers.IntegerField()
+    buyer_total_cost_minor = serializers.IntegerField()
+    loan_status_at_listing = serializers.CharField()
+    days_past_due = serializers.IntegerField()
+    last_payment_date = serializers.DateField(allow_null=True)
+    risk_acknowledgement_required = serializers.BooleanField()
+    public_disclosure_note = serializers.CharField()
+    listed_at = serializers.DateTimeField(allow_null=True)
+
+
 class SecondaryMarketListingCreateRequestSerializer(serializers.Serializer[Any]):
     holding_id = serializers.UUIDField()
     price_bps = serializers.IntegerField(min_value=1, max_value=1_000_000)
@@ -81,3 +106,7 @@ class SecondaryMarketListingListQuerySerializer(serializers.Serializer[Any]):
 
 def serialize_secondary_listing(listing: SecondaryMarketListing) -> dict[str, Any]:
     return dict(SecondaryMarketListingSerializer(listing).data)
+
+
+def serialize_secondary_buyer_listing(listing: SecondaryMarketListing) -> dict[str, Any]:
+    return dict(SecondaryMarketBuyerListingSerializer(listing).data)
