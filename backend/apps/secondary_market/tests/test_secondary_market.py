@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time
+from importlib import import_module
 from typing import Any, cast
 from zoneinfo import ZoneInfo
 
@@ -18,16 +19,19 @@ from backend.apps.secondary_market.models import (
     SecondaryMarketListingEvent,
     SecondaryMarketListingEventType,
     SecondaryMarketListingStatus,
+    SecondaryMarketPurchase,
 )
 from backend.apps.secondary_market.services import (
     ApproveSecondaryMarketListingCommand,
     CreateSecondaryMarketListingCommand,
+    PurchaseSecondaryMarketListingCommand,
     RejectSecondaryMarketListingCommand,
     SecondaryMarketAuthorizationError,
     SecondaryMarketValidationError,
     approve_secondary_market_listing,
     create_secondary_market_listing,
     list_active_secondary_market_listings,
+    purchase_secondary_market_listing,
     reject_secondary_market_listing,
 )
 
@@ -252,6 +256,54 @@ def _create_listing_acceptance(
             data_snapshot={},
             idempotency_key=idempotency_key,
         ),
+    )
+
+
+def _create_purchase_acceptance(
+    buyer: Model,
+    listing: Model,
+    *,
+    idempotency_key: str = "secondary-purchase-accept-1",
+    category: str = "secondary_market_purchase",
+    context_type: str = "secondary_market_purchase",
+    context_id: str | None = None,
+) -> Model:
+    return _create_listing_acceptance(
+        buyer,
+        listing,
+        idempotency_key=idempotency_key,
+        category=category,
+        context_type=context_type,
+        context_id=context_id or str(cast(Any, listing).id),
+    )
+
+
+def _declare_deposit(
+    admin_user: Model,
+    investor: Model,
+    *,
+    amount_minor: int = 20_000_00,
+    value_date: date = date(2026, 1, 10),
+    idempotency_key: str = "secondary-buyer-deposit-1",
+) -> Any:
+    ledger = import_module("backend.apps.ledger.services")
+    return ledger.declare_lender_deposit(
+        ledger.DeclareLenderDepositCommand(
+            actor=admin_user,
+            investor_user_id=str(investor.pk),
+            amount_minor=amount_minor,
+            currency="CHF",
+            booking_date=value_date,
+            value_date=value_date,
+            collection_account_identifier="GARANTA-CHF",
+            payer_name="Secondary buyer",
+            payer_account_identifier="CH0000000000000000002",
+            bank_reference=idempotency_key,
+            payment_reference=f"PAY-{idempotency_key}",
+            evidence_reference="statement-2026-01-10",
+            notes="Buyer balance for secondary-market purchase test.",
+            idempotency_key=idempotency_key,
+        )
     )
 
 
@@ -632,6 +684,305 @@ def test_secondary_market_api_create_list_and_approve(
 
 
 @pytest.mark.django_db
+def test_purchase_listing_settles_ledger_transfers_holding_and_is_idempotent(
+    admin_user: Model,
+    investor: Model,
+    other_investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    _approve_financial_access(other_investor)
+    loan = _create_funded_loan(admin_user)
+    seller_holding = _create_holding(admin_user, investor, loan)
+    listing_acceptance = _create_listing_acceptance(investor, seller_holding)
+    listing = create_secondary_market_listing(
+        CreateSecondaryMarketListingCommand(
+            actor=investor,
+            holding_id=str(cast(Any, seller_holding).id),
+            price_bps=9500,
+            document_acceptance_id=str(listing_acceptance.pk),
+            idempotency_key="secondary-purchase-listing",
+        )
+    )
+    deposit = _declare_deposit(
+        admin_user,
+        other_investor,
+        amount_minor=20_000_00,
+        idempotency_key="secondary-purchase-buyer-deposit",
+    )
+    purchase_acceptance = _create_purchase_acceptance(other_investor, listing)
+
+    purchase = purchase_secondary_market_listing(
+        PurchaseSecondaryMarketListingCommand(
+            actor=other_investor,
+            listing_id=str(listing.id),
+            document_acceptance_id=str(purchase_acceptance.pk),
+            idempotency_key="secondary-purchase-1",
+        )
+    )
+
+    listing.refresh_from_db()
+    cast(Any, seller_holding).refresh_from_db()
+    deposit.balance_lot.refresh_from_db()
+    buyer_holding = purchase.buyer_holding
+    seller_balance_lot = purchase.seller_balance_lot
+    assert listing.status == SecondaryMarketListingStatus.SOLD
+    assert listing.sold_to_user_id == other_investor.pk
+    assert cast(Any, seller_holding).status == "transferred"
+    assert cast(Any, seller_holding).current_principal_minor == 0
+    assert str(buyer_holding.investor_user_id) == str(other_investor.pk)
+    assert buyer_holding.status == "active"
+    assert buyer_holding.source_type == "secondary_market"
+    assert buyer_holding.current_principal_minor == 10_000_00
+    assert purchase.transfer_price_minor == 9_500_00
+    assert purchase.accrued_interest_minor == 4_932
+    assert purchase.maker_fee_minor == 2_375
+    assert purchase.taker_fee_minor == 7_125
+    assert purchase.seller_net_proceeds_minor == 952_557
+    assert purchase.buyer_total_cost_minor == 962_057
+    assert str(seller_balance_lot.investor_user_id) == str(investor.pk)
+    assert seller_balance_lot.source_type == "secondary_market_proceeds"
+    assert seller_balance_lot.available_amount_minor == 952_557
+    assert deposit.balance_lot.available_amount_minor == 1_037_943
+    assert deposit.balance_lot.invested_amount_minor == 962_057
+
+    postings = {
+        (posting.account.account_type, posting.account.owner_id, posting.side): (
+            posting.amount_minor
+        )
+        for posting in purchase.ledger_journal_entry.postings.select_related("account")
+    }
+    assert postings[("investor_balance_liability", str(other_investor.pk), "debit")] == 962_057
+    assert postings[("investor_balance_liability", str(investor.pk), "credit")] == 952_557
+    assert postings[("platform_fee_revenue", "platform", "credit")] == 9_500
+
+    replay = purchase_secondary_market_listing(
+        PurchaseSecondaryMarketListingCommand(
+            actor=other_investor,
+            listing_id=str(listing.id),
+            document_acceptance_id=str(purchase_acceptance.pk),
+            idempotency_key="secondary-purchase-1",
+        )
+    )
+    assert replay.id == purchase.id
+    assert SecondaryMarketPurchase.objects.count() == 1
+    assert SecondaryMarketListingEvent.objects.filter(
+        listing=listing,
+        event_type=SecondaryMarketListingEventType.SOLD,
+    ).exists()
+    assert AuditEvent.objects.filter(action="secondary_market.purchase_completed").exists()
+    assert DomainEvent.objects.filter(event_type="SecondaryMarketPurchaseCompleted").exists()
+
+
+@pytest.mark.django_db
+def test_purchase_requires_current_terms_and_rejects_own_or_stale_listing(
+    admin_user: Model,
+    investor: Model,
+    other_investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    _approve_financial_access(other_investor)
+    loan = _create_funded_loan(admin_user)
+    seller_holding = _create_holding(admin_user, investor, loan)
+    listing_acceptance = _create_listing_acceptance(investor, seller_holding)
+    listing = create_secondary_market_listing(
+        CreateSecondaryMarketListingCommand(
+            actor=investor,
+            holding_id=str(cast(Any, seller_holding).id),
+            price_bps=9500,
+            document_acceptance_id=str(listing_acceptance.pk),
+            idempotency_key="secondary-purchase-negative-listing",
+        )
+    )
+    _declare_deposit(
+        admin_user,
+        other_investor,
+        idempotency_key="secondary-purchase-negative-deposit",
+    )
+    wrong_context = _create_purchase_acceptance(
+        other_investor,
+        listing,
+        idempotency_key="secondary-purchase-wrong-context",
+        context_id="different-listing",
+    )
+    with pytest.raises(SecondaryMarketValidationError, match="does not match"):
+        purchase_secondary_market_listing(
+            PurchaseSecondaryMarketListingCommand(
+                actor=other_investor,
+                listing_id=str(listing.id),
+                document_acceptance_id=str(wrong_context.pk),
+                idempotency_key="secondary-purchase-wrong-context-key",
+            )
+        )
+
+    own_acceptance = _create_purchase_acceptance(
+        investor,
+        listing,
+        idempotency_key="secondary-purchase-own-acceptance",
+    )
+    with pytest.raises(SecondaryMarketValidationError, match="own listing"):
+        purchase_secondary_market_listing(
+            PurchaseSecondaryMarketListingCommand(
+                actor=investor,
+                listing_id=str(listing.id),
+                document_acceptance_id=str(own_acceptance.pk),
+                idempotency_key="secondary-purchase-own-listing",
+            )
+        )
+
+    stale_acceptance = _create_purchase_acceptance(
+        other_investor,
+        listing,
+        idempotency_key="secondary-purchase-stale-acceptance",
+    )
+    _republish_acceptance_template(stale_acceptance)
+    with pytest.raises(SecondaryMarketValidationError, match="no longer current"):
+        purchase_secondary_market_listing(
+            PurchaseSecondaryMarketListingCommand(
+                actor=other_investor,
+                listing_id=str(listing.id),
+                document_acceptance_id=str(stale_acceptance.pk),
+                idempotency_key="secondary-purchase-stale-terms",
+            )
+        )
+
+    fresh_acceptance = _create_purchase_acceptance(
+        other_investor,
+        listing,
+        idempotency_key="secondary-purchase-fresh-before-stale-status",
+    )
+    cast(Any, loan).status = "late"
+    loan.save(update_fields=["status"])
+    with pytest.raises(SecondaryMarketValidationError, match="Loan status changed"):
+        purchase_secondary_market_listing(
+            PurchaseSecondaryMarketListingCommand(
+                actor=other_investor,
+                listing_id=str(listing.id),
+                document_acceptance_id=str(fresh_acceptance.pk),
+                idempotency_key="secondary-purchase-stale-status",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_nonstandard_purchase_requires_buyer_risk_acknowledgement(
+    admin_user: Model,
+    investor: Model,
+    other_investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    _approve_financial_access(other_investor)
+    loan = _create_funded_loan(admin_user, status="late")
+    _create_current_installment(loan, due_date=date(2026, 1, 1))
+    seller_holding = _create_holding(admin_user, investor, loan)
+    listing_acceptance = _create_listing_acceptance(investor, seller_holding)
+    listing = create_secondary_market_listing(
+        CreateSecondaryMarketListingCommand(
+            actor=investor,
+            holding_id=str(cast(Any, seller_holding).id),
+            price_bps=9000,
+            document_acceptance_id=str(listing_acceptance.pk),
+            idempotency_key="secondary-purchase-late-listing",
+        )
+    )
+    listing = approve_secondary_market_listing(
+        ApproveSecondaryMarketListingCommand(
+            actor=admin_user,
+            listing_id=str(listing.id),
+            reason="Approved with disclosure.",
+            disclosure_note="Loan is late.",
+            idempotency_key="secondary-purchase-late-approve",
+        )
+    )
+    _declare_deposit(
+        admin_user,
+        other_investor,
+        idempotency_key="secondary-purchase-late-deposit",
+    )
+    purchase_acceptance = _create_purchase_acceptance(other_investor, listing)
+
+    with pytest.raises(SecondaryMarketValidationError, match="acknowledge"):
+        purchase_secondary_market_listing(
+            PurchaseSecondaryMarketListingCommand(
+                actor=other_investor,
+                listing_id=str(listing.id),
+                document_acceptance_id=str(purchase_acceptance.pk),
+                idempotency_key="secondary-purchase-late-no-ack",
+            )
+        )
+
+    purchase = purchase_secondary_market_listing(
+        PurchaseSecondaryMarketListingCommand(
+            actor=other_investor,
+            listing_id=str(listing.id),
+            document_acceptance_id=str(purchase_acceptance.pk),
+            risk_acknowledgement_accepted=True,
+            idempotency_key="secondary-purchase-late-with-ack",
+        )
+    )
+    assert purchase.risk_acknowledgement_accepted is True
+    assert purchase.loan_status_at_purchase == "late"
+    assert purchase.accrued_interest_minor == 0
+
+
+@pytest.mark.django_db
+def test_secondary_market_api_purchase_response_hides_seller_economics(
+    admin_user: Model,
+    investor: Model,
+    other_investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    _approve_financial_access(other_investor)
+    loan = _create_funded_loan(admin_user)
+    seller_holding = _create_holding(admin_user, investor, loan)
+    listing_acceptance = _create_listing_acceptance(investor, seller_holding)
+    listing = create_secondary_market_listing(
+        CreateSecondaryMarketListingCommand(
+            actor=investor,
+            holding_id=str(cast(Any, seller_holding).id),
+            price_bps=9500,
+            document_acceptance_id=str(listing_acceptance.pk),
+            idempotency_key="secondary-api-purchase-listing",
+        )
+    )
+    _declare_deposit(
+        admin_user,
+        other_investor,
+        idempotency_key="secondary-api-purchase-deposit",
+    )
+    purchase_acceptance = _create_purchase_acceptance(other_investor, listing)
+    client = Client()
+    client.force_login(cast(Any, other_investor))
+
+    response = client.post(
+        f"/api/v1/marketplace/secondary/listings/{listing.id}/purchase/",
+        {
+            "document_acceptance_id": str(purchase_acceptance.pk),
+            "idempotency_key": "secondary-api-purchase",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["listing_id"] == str(listing.id)
+    assert payload["buyer_total_cost_minor"] == 962_057
+    private_fields = {
+        "seller_user_id",
+        "seller_holding_id",
+        "seller_net_proceeds_minor",
+        "maker_fee_bps",
+        "maker_fee_minor",
+        "minimum_maker_fee_minor",
+        "ledger_journal_entry_id",
+        "seller_balance_lot_id",
+        "purchase_document_acceptance_id",
+        "idempotency_key",
+        "metadata",
+    }
+    assert private_fields.isdisjoint(payload)
+
+
+@pytest.mark.django_db
 def test_secondary_market_listing_event_has_app_and_db_append_only_guards(
     admin_user: Model,
     investor: Model,
@@ -666,5 +1017,58 @@ def test_secondary_market_listing_event_has_app_and_db_append_only_guards(
                 "UPDATE secondary_market_secondarymarketlistingevent "
                 "SET note = %s WHERE id = %s",
                 ["mutated", db_record_id],
+            )
+    assert "append-only" in str(update_error.value)
+
+
+@pytest.mark.django_db
+def test_secondary_market_purchase_has_app_and_db_append_only_guards(
+    admin_user: Model,
+    investor: Model,
+    other_investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    _approve_financial_access(other_investor)
+    loan = _create_funded_loan(admin_user)
+    seller_holding = _create_holding(admin_user, investor, loan)
+    listing_acceptance = _create_listing_acceptance(investor, seller_holding)
+    listing = create_secondary_market_listing(
+        CreateSecondaryMarketListingCommand(
+            actor=investor,
+            holding_id=str(cast(Any, seller_holding).id),
+            price_bps=9500,
+            document_acceptance_id=str(listing_acceptance.pk),
+            idempotency_key="secondary-purchase-guard-listing",
+        )
+    )
+    _declare_deposit(
+        admin_user,
+        other_investor,
+        idempotency_key="secondary-purchase-guard-deposit",
+    )
+    purchase_acceptance = _create_purchase_acceptance(other_investor, listing)
+    purchase = purchase_secondary_market_listing(
+        PurchaseSecondaryMarketListingCommand(
+            actor=other_investor,
+            listing_id=str(listing.id),
+            document_acceptance_id=str(purchase_acceptance.pk),
+            idempotency_key="secondary-purchase-guard",
+        )
+    )
+
+    with pytest.raises(AppendOnlyViolation):
+        purchase.save()
+    with pytest.raises(AppendOnlyViolation):
+        purchase.delete()
+    with pytest.raises(AppendOnlyViolation):
+        SecondaryMarketPurchase.objects.filter(id=purchase.id).update(days_past_due=1)
+
+    db_record_id = purchase.pk.hex
+    with pytest.raises(DatabaseError) as update_error, transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE secondary_market_secondarymarketpurchase "
+                "SET days_past_due = %s WHERE id = %s",
+                [1, db_record_id],
             )
     assert "append-only" in str(update_error.value)

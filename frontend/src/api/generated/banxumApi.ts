@@ -1972,6 +1972,39 @@ export interface SecondaryMarketListingRemoveRequest {
   idempotency_key: string;
 }
 
+export interface SecondaryMarketPurchase {
+  id: string;
+  listing_id: string;
+  loan_id: string;
+  buyer_holding_id: string;
+  current_principal_minor: number;
+  currency: string;
+  price_bps: number;
+  transfer_price_minor: number;
+  discount_premium_bps: number;
+  accrued_interest_minor: number;
+  /** @nullable */
+  accrued_interest_from_date: string | null;
+  accrued_interest_to_date: string;
+  taker_fee_bps: number;
+  minimum_taker_fee_minor: number;
+  taker_fee_minor: number;
+  buyer_total_cost_minor: number;
+  loan_status_at_purchase: string;
+  days_past_due: number;
+  /** @nullable */
+  last_payment_date: string | null;
+  risk_acknowledgement_accepted: boolean;
+  purchased_at: string;
+}
+
+export interface SecondaryMarketPurchaseRequest {
+  document_acceptance_id: string;
+  risk_acknowledgement_accepted?: boolean;
+  /** @maxLength 160 */
+  idempotency_key: string;
+}
+
 export interface UserSummary {
   id: string;
   email: string;
@@ -7089,6 +7122,66 @@ const {mutation: mutationOptions} = options ?
       return useMutation(mutationOptions, queryClient);
     }
 
+export const v1MarketplaceSecondaryListingsPurchaseCreate = (
+    listingId: string,
+    secondaryMarketPurchaseRequest: SecondaryMarketPurchaseRequest,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<SecondaryMarketPurchase>(
+      {url: `/api/v1/marketplace/secondary/listings/${listingId}/purchase/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: secondaryMarketPurchaseRequest, signal
+    },
+      );
+    }
+
+
+
+export const getV1MarketplaceSecondaryListingsPurchaseCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1MarketplaceSecondaryListingsPurchaseCreate>>, TError,{listingId: string;data: SecondaryMarketPurchaseRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1MarketplaceSecondaryListingsPurchaseCreate>>, TError,{listingId: string;data: SecondaryMarketPurchaseRequest}, TContext> => {
+
+const mutationKey = ['v1MarketplaceSecondaryListingsPurchaseCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1MarketplaceSecondaryListingsPurchaseCreate>>, {listingId: string;data: SecondaryMarketPurchaseRequest}> = (props) => {
+          const {listingId,data} = props ?? {};
+
+          return  v1MarketplaceSecondaryListingsPurchaseCreate(listingId,data,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1MarketplaceSecondaryListingsPurchaseCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1MarketplaceSecondaryListingsPurchaseCreate>>>
+    export type V1MarketplaceSecondaryListingsPurchaseCreateMutationBody = SecondaryMarketPurchaseRequest
+    export type V1MarketplaceSecondaryListingsPurchaseCreateMutationError = unknown
+
+    export const useV1MarketplaceSecondaryListingsPurchaseCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1MarketplaceSecondaryListingsPurchaseCreate>>, TError,{listingId: string;data: SecondaryMarketPurchaseRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1MarketplaceSecondaryListingsPurchaseCreate>>,
+        TError,
+        {listingId: string;data: SecondaryMarketPurchaseRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1MarketplaceSecondaryListingsPurchaseCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+
 export const v1ServicingAdminBorrowerRepaymentsCreate = (
     borrowerRepaymentRecordRequest: BorrowerRepaymentRecordRequest,
  signal?: AbortSignal
@@ -7341,6 +7434,8 @@ export const getV1MarketplaceSecondaryAdminListingsRemoveCreateResponseMock = (o
 export const getV1MarketplaceSecondaryListingsListResponseMock = (): SecondaryMarketBuyerListing[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), loan_id: faker.string.uuid(), loan_title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), current_principal_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), price_bps: faker.number.int({min: undefined, max: undefined}), transfer_price_minor: faker.number.int({min: undefined, max: undefined}), discount_premium_bps: faker.number.int({min: undefined, max: undefined}), accrued_interest_minor: faker.number.int({min: undefined, max: undefined}), accrued_interest_from_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), accrued_interest_to_date: faker.date.past().toISOString().split('T')[0], taker_fee_bps: faker.number.int({min: undefined, max: undefined}), minimum_taker_fee_minor: faker.number.int({min: undefined, max: undefined}), taker_fee_minor: faker.number.int({min: undefined, max: undefined}), buyer_total_cost_minor: faker.number.int({min: undefined, max: undefined}), loan_status_at_listing: faker.string.alpha({length: {min: 10, max: 20}}), days_past_due: faker.number.int({min: undefined, max: undefined}), last_payment_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), risk_acknowledgement_required: faker.datatype.boolean(), public_disclosure_note: faker.string.alpha({length: {min: 10, max: 20}}), listed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null])})))
 
 export const getV1MarketplaceSecondaryListingsCreateResponseMock = (overrideResponse: Partial< SecondaryMarketListing > = {}): SecondaryMarketListing => ({id: faker.string.uuid(), holding_id: faker.string.uuid(), loan_id: faker.string.uuid(), seller_user_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), publication_type: faker.string.alpha({length: {min: 10, max: 20}}), current_principal_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), price_bps: faker.number.int({min: undefined, max: undefined}), transfer_price_minor: faker.number.int({min: undefined, max: undefined}), discount_premium_bps: faker.number.int({min: undefined, max: undefined}), accrued_interest_minor: faker.number.int({min: undefined, max: undefined}), accrued_interest_from_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), accrued_interest_to_date: faker.date.past().toISOString().split('T')[0], maker_fee_bps: faker.number.int({min: undefined, max: undefined}), taker_fee_bps: faker.number.int({min: undefined, max: undefined}), minimum_maker_fee_minor: faker.number.int({min: undefined, max: undefined}), minimum_taker_fee_minor: faker.number.int({min: undefined, max: undefined}), maker_fee_minor: faker.number.int({min: undefined, max: undefined}), taker_fee_minor: faker.number.int({min: undefined, max: undefined}), seller_net_proceeds_minor: faker.number.int({min: undefined, max: undefined}), buyer_total_cost_minor: faker.number.int({min: undefined, max: undefined}), loan_status_at_listing: faker.string.alpha({length: {min: 10, max: 20}}), days_past_due: faker.number.int({min: undefined, max: undefined}), last_payment_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), risk_acknowledgement_required: faker.datatype.boolean(), document_acceptance_id: faker.string.uuid(), public_disclosure_note: faker.string.alpha({length: {min: 10, max: 20}}), listed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), approved_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), approved_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), approval_reason: faker.string.alpha({length: {min: 10, max: 20}}), rejected_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), rejected_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), rejection_reason: faker.string.alpha({length: {min: 10, max: 20}}), removed_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), removed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), removal_reason: faker.string.alpha({length: {min: 10, max: 20}}), created_by_user_id: faker.string.uuid(), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+
+export const getV1MarketplaceSecondaryListingsPurchaseCreateResponseMock = (overrideResponse: Partial< SecondaryMarketPurchase > = {}): SecondaryMarketPurchase => ({id: faker.string.uuid(), listing_id: faker.string.uuid(), loan_id: faker.string.uuid(), buyer_holding_id: faker.string.uuid(), current_principal_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), price_bps: faker.number.int({min: undefined, max: undefined}), transfer_price_minor: faker.number.int({min: undefined, max: undefined}), discount_premium_bps: faker.number.int({min: undefined, max: undefined}), accrued_interest_minor: faker.number.int({min: undefined, max: undefined}), accrued_interest_from_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), accrued_interest_to_date: faker.date.past().toISOString().split('T')[0], taker_fee_bps: faker.number.int({min: undefined, max: undefined}), minimum_taker_fee_minor: faker.number.int({min: undefined, max: undefined}), taker_fee_minor: faker.number.int({min: undefined, max: undefined}), buyer_total_cost_minor: faker.number.int({min: undefined, max: undefined}), loan_status_at_purchase: faker.string.alpha({length: {min: 10, max: 20}}), days_past_due: faker.number.int({min: undefined, max: undefined}), last_payment_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), risk_acknowledgement_accepted: faker.datatype.boolean(), purchased_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
 
 export const getV1ServicingAdminBorrowerRepaymentsCreateResponseMock = (overrideResponse: Partial< BorrowerRepaymentRecordResponse > = {}): BorrowerRepaymentRecordResponse => ({repayment_event: {id: faker.string.uuid(), loan_id: faker.string.uuid(), installment_id: faker.string.uuid(), event_type: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), booking_date: faker.date.past().toISOString().split('T')[0], value_date: faker.date.past().toISOString().split('T')[0], received_at: `${faker.date.past().toISOString().split('.')[0]}Z`, expected_due_minor: faker.number.int({min: undefined, max: undefined}), interest_applied_minor: faker.number.int({min: undefined, max: undefined}), principal_applied_minor: faker.number.int({min: undefined, max: undefined}), future_principal_applied_minor: faker.number.int({min: undefined, max: undefined}), fees_applied_minor: faker.number.int({min: undefined, max: undefined}), penalties_applied_minor: faker.number.int({min: undefined, max: undefined}), remaining_installment_interest_minor: faker.number.int({min: undefined, max: undefined}), remaining_installment_principal_minor: faker.number.int({min: undefined, max: undefined}), warning_acknowledged: faker.datatype.boolean(), bank_operation_id: faker.string.uuid(), journal_entry_id: faker.string.uuid(), created_by_admin_id: faker.string.uuid(), notes: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, idempotency_key: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, distribution_lines: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), repayment_event_id: faker.string.uuid(), holding_id: faker.string.uuid(), investor_user_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), balance_lot_id: faker.string.uuid(), amount_minor: faker.number.int({min: undefined, max: undefined}), principal_minor: faker.number.int({min: undefined, max: undefined}), interest_minor: faker.number.int({min: undefined, max: undefined}), fee_minor: faker.number.int({min: undefined, max: undefined}), current_principal_before_minor: faker.number.int({min: undefined, max: undefined}), current_principal_after_minor: faker.number.int({min: undefined, max: undefined}), metadata: {}, occurred_at: `${faker.date.past().toISOString().split('.')[0]}Z`})), ...overrideResponse})
 
@@ -8149,6 +8244,18 @@ export const getV1MarketplaceSecondaryListingsCreateMockHandler = (overrideRespo
   }, options)
 }
 
+export const getV1MarketplaceSecondaryListingsPurchaseCreateMockHandler = (overrideResponse?: SecondaryMarketPurchase | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<SecondaryMarketPurchase> | SecondaryMarketPurchase), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/marketplace/secondary/listings/:listingId/purchase/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1MarketplaceSecondaryListingsPurchaseCreateResponseMock()),
+      { status: 201,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
 export const getV1ServicingAdminBorrowerRepaymentsCreateMockHandler = (overrideResponse?: BorrowerRepaymentRecordResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<BorrowerRepaymentRecordResponse> | BorrowerRepaymentRecordResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/servicing/admin/borrower-repayments/', async (info) => {await delay(1000);
 
@@ -8240,6 +8347,7 @@ export const getBanxumApiMock = () => [
   getV1MarketplaceSecondaryAdminListingsRemoveCreateMockHandler(),
   getV1MarketplaceSecondaryListingsListMockHandler(),
   getV1MarketplaceSecondaryListingsCreateMockHandler(),
+  getV1MarketplaceSecondaryListingsPurchaseCreateMockHandler(),
   getV1ServicingAdminBorrowerRepaymentsCreateMockHandler(),
   getV1ServicingAdminStatusScanCreateMockHandler()
 ]

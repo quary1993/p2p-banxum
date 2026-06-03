@@ -18,12 +18,16 @@ from backend.apps.secondary_market.api.serializers import (
     SecondaryMarketListingRejectRequestSerializer,
     SecondaryMarketListingRemoveRequestSerializer,
     SecondaryMarketListingSerializer,
+    SecondaryMarketPurchaseRequestSerializer,
+    SecondaryMarketPurchaseSerializer,
     serialize_secondary_buyer_listing,
     serialize_secondary_listing,
+    serialize_secondary_purchase,
 )
 from backend.apps.secondary_market.services import (
     ApproveSecondaryMarketListingCommand,
     CreateSecondaryMarketListingCommand,
+    PurchaseSecondaryMarketListingCommand,
     RejectSecondaryMarketListingCommand,
     RemoveSecondaryMarketListingCommand,
     SecondaryMarketAuthorizationError,
@@ -31,6 +35,7 @@ from backend.apps.secondary_market.services import (
     approve_secondary_market_listing,
     create_secondary_market_listing,
     list_active_secondary_market_listings,
+    purchase_secondary_market_listing,
     reject_secondary_market_listing,
     remove_secondary_market_listing,
 )
@@ -166,3 +171,29 @@ class SecondaryMarketListingRemoveView(APIView):
         except (SecondaryMarketAuthorizationError, SecondaryMarketValidationError) as exc:
             return _error_response(exc)
         return Response(serialize_secondary_listing(listing), status=status.HTTP_200_OK)
+
+
+class SecondaryMarketListingPurchaseView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=SecondaryMarketPurchaseRequestSerializer,
+        responses={201: SecondaryMarketPurchaseSerializer},
+    )
+    def post(self, request: Request, listing_id: str) -> Response:
+        serializer = SecondaryMarketPurchaseRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            purchase = purchase_secondary_market_listing(
+                PurchaseSecondaryMarketListingCommand(
+                    actor=cast(Model, request.user),
+                    listing_id=listing_id,
+                    document_acceptance_id=str(data["document_acceptance_id"]),
+                    risk_acknowledgement_accepted=data["risk_acknowledgement_accepted"],
+                    idempotency_key=data["idempotency_key"],
+                )
+            )
+        except (SecondaryMarketAuthorizationError, SecondaryMarketValidationError) as exc:
+            return _error_response(exc)
+        return Response(serialize_secondary_purchase(purchase), status=status.HTTP_201_CREATED)

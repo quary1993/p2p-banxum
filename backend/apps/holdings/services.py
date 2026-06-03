@@ -7,6 +7,7 @@ from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, cast
 
+from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.db.models import Model
 
@@ -17,7 +18,11 @@ from backend.apps.holdings.models import (
     InvestorLoanHoldingSourceType,
     InvestorLoanHoldingStatus,
 )
-from backend.apps.platform_core.domain.access import actor_ref_for_user, is_admin_actor
+from backend.apps.platform_core.domain.access import (
+    actor_ref_for_user,
+    is_admin_actor,
+    is_lender_actor,
+)
 from backend.apps.platform_core.domain.money import Money, MoneyError, normalize_currency
 from backend.apps.platform_core.models import Currency
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
@@ -54,6 +59,25 @@ class CreatePrimaryMarketHoldingCommand:
     idempotency_key: str
     loan_share_ppm: int | None = None
     metadata: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TransferSecondaryMarketHoldingCommand:
+    actor: Model
+    seller_holding_id: str
+    buyer_user_id: str
+    purchase_id: str
+    principal_minor: int
+    currency: str
+    assignment_effective_at: datetime
+    idempotency_key: str
+    metadata: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SecondaryMarketHoldingTransferResult:
+    seller_holding: InvestorLoanHolding
+    buyer_holding: InvestorLoanHolding
 
 
 def _require_admin_actor(actor: Model) -> None:
@@ -166,6 +190,43 @@ def _existing_holding_for_idempotency(
     return existing
 
 
+def _lender_account_for_id(investor_user_id: str) -> Model:
+    user_model = get_user_model()
+    investor = cast(Model | None, user_model.objects.filter(id=investor_user_id).first())
+    if investor is None:
+        raise HoldingsValidationError("Investor account does not exist.")
+    if not is_lender_actor(investor):
+        raise HoldingsValidationError("Investor account must be an active lender account.")
+    return investor
+
+
+def _secondary_transfer_request_fingerprint(
+    command: TransferSecondaryMarketHoldingCommand,
+    *,
+    seller_user_id: str,
+    buyer_user_id: str,
+    loan_id: str,
+    currency_code: str,
+    principal_minor: int,
+    loan_share_ppm: int,
+    idempotency_key: str,
+) -> str:
+    return _stable_json_fingerprint(
+        {
+            "seller_holding_id": str(command.seller_holding_id),
+            "seller_user_id": seller_user_id,
+            "buyer_user_id": buyer_user_id,
+            "loan_id": loan_id,
+            "purchase_id": str(command.purchase_id),
+            "principal_minor": principal_minor,
+            "loan_share_ppm": loan_share_ppm,
+            "currency": currency_code,
+            "assignment_effective_at": command.assignment_effective_at,
+            "idempotency_key": idempotency_key,
+        }
+    )
+
+
 def _record_holding_event(
     *,
     holding: InvestorLoanHolding,
@@ -190,6 +251,158 @@ def _record_holding_event(
             note=note.strip(),
             metadata=metadata or {},
         ),
+    )
+
+
+@transaction.atomic
+def transfer_holding_for_secondary_market_purchase(
+    command: TransferSecondaryMarketHoldingCommand,
+) -> SecondaryMarketHoldingTransferResult:
+    buyer = _lender_account_for_id(command.buyer_user_id)
+    buyer_id = str(buyer.pk)
+    currency = _enabled_currency(command.currency)
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    seller_holding = (
+        InvestorLoanHolding.objects.select_for_update()
+        .select_related("loan", "currency")
+        .filter(id=command.seller_holding_id)
+        .first()
+    )
+    if seller_holding is None:
+        raise HoldingsValidationError("Seller holding does not exist.")
+    seller_id = str(seller_holding.investor_user_id)
+    if seller_id == buyer_id:
+        raise HoldingsValidationError("Buyer and seller must be different investors.")
+    if seller_holding.currency_id != currency.code:
+        raise HoldingsValidationError("Holding currency does not match transfer currency.")
+    principal_minor = _validate_money(
+        command.principal_minor,
+        currency.code,
+        "Secondary-market holding principal",
+    )
+    request_fingerprint = _secondary_transfer_request_fingerprint(
+        command,
+        seller_user_id=seller_id,
+        buyer_user_id=buyer_id,
+        loan_id=str(seller_holding.loan_id),
+        currency_code=currency.code,
+        principal_minor=principal_minor,
+        loan_share_ppm=seller_holding.loan_share_ppm,
+        idempotency_key=idempotency_key,
+    )
+    existing = _existing_holding_for_idempotency(
+        idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing is not None:
+        return SecondaryMarketHoldingTransferResult(
+            seller_holding=seller_holding,
+            buyer_holding=existing,
+        )
+    if seller_holding.status != InvestorLoanHoldingStatus.ACTIVE:
+        raise HoldingsValidationError("Only active holdings can be transferred.")
+    if int(seller_holding.current_principal_minor) != principal_minor:
+        raise HoldingsValidationError("Transfer principal must equal the full current holding.")
+    metadata = {
+        **(command.metadata or {}),
+        REQUEST_FINGERPRINT_METADATA_KEY: request_fingerprint,
+        "seller_holding_id": str(seller_holding.id),
+        "purchase_id": str(command.purchase_id),
+    }
+    try:
+        buyer_holding = InvestorLoanHolding.objects.create(
+            loan=seller_holding.loan,
+            investor_user_id=buyer_id,
+            source_type=InvestorLoanHoldingSourceType.SECONDARY_MARKET,
+            source_id=str(command.purchase_id),
+            status=InvestorLoanHoldingStatus.ACTIVE,
+            original_principal_minor=principal_minor,
+            current_principal_minor=principal_minor,
+            currency=currency,
+            loan_share_ppm=seller_holding.loan_share_ppm,
+            assignment_effective_at=command.assignment_effective_at,
+            created_by_admin_id=command.actor.pk,
+            metadata=metadata,
+            idempotency_key=idempotency_key,
+        )
+    except IntegrityError:
+        existing_after_race = _existing_holding_for_idempotency(
+            idempotency_key,
+            expected_fingerprint=request_fingerprint,
+        )
+        if existing_after_race is None:
+            raise
+        return SecondaryMarketHoldingTransferResult(
+            seller_holding=seller_holding,
+            buyer_holding=existing_after_race,
+        )
+
+    previous_status = str(seller_holding.status)
+    seller_metadata = dict(cast(dict[str, Any], seller_holding.metadata))
+    seller_metadata["transferred_to_holding_id"] = str(buyer_holding.id)
+    seller_metadata["secondary_market_purchase_id"] = str(command.purchase_id)
+    seller_holding.status = InvestorLoanHoldingStatus.TRANSFERRED
+    seller_holding.current_principal_minor = 0
+    seller_holding.metadata = seller_metadata
+    seller_holding.save(
+        update_fields=["status", "current_principal_minor", "metadata", "updated_at"]
+    )
+    seller_event_metadata = {
+        "purchase_id": str(command.purchase_id),
+        "seller_holding_id": str(seller_holding.id),
+        "buyer_holding_id": str(buyer_holding.id),
+        "seller_user_id": seller_id,
+        "buyer_user_id": buyer_id,
+        "loan_id": str(seller_holding.loan_id),
+        "currency": currency.code,
+        "principal_minor": principal_minor,
+    }
+    _record_holding_event(
+        holding=seller_holding,
+        actor=command.actor,
+        event_type=InvestorLoanHoldingEventType.TRANSFERRED,
+        previous_status=previous_status,
+        new_status=seller_holding.status,
+        metadata=seller_event_metadata,
+    )
+    _record_holding_event(
+        holding=buyer_holding,
+        actor=command.actor,
+        event_type=InvestorLoanHoldingEventType.CREATED,
+        new_status=buyer_holding.status,
+        metadata=seller_event_metadata,
+    )
+    actor_ref = actor_ref_for_user(command.actor)
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref,
+            action="holding.secondary_market_transferred",
+            target_type="InvestorLoanHolding",
+            target_id=str(seller_holding.id),
+            metadata=seller_event_metadata,
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="InvestorLoanHoldingTransferred",
+            aggregate_type="InvestorLoanHolding",
+            aggregate_id=str(seller_holding.id),
+            payload=seller_event_metadata,
+            idempotency_key=f"holding:{seller_holding.id}:secondary-market-transferred",
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="InvestorLoanHoldingCreated",
+            aggregate_type="InvestorLoanHolding",
+            aggregate_id=str(buyer_holding.id),
+            payload=seller_event_metadata,
+            idempotency_key=f"holding:{buyer_holding.id}:created",
+        )
+    )
+    return SecondaryMarketHoldingTransferResult(
+        seller_holding=seller_holding,
+        buyer_holding=buyer_holding,
     )
 
 

@@ -28,6 +28,7 @@ class SecondaryMarketListingEventType(models.TextChoices):
     APPROVED = "approved", "Approved"
     REJECTED = "rejected", "Rejected"
     REMOVED = "removed", "Removed"
+    SOLD = "sold", "Sold"
 
 
 class SecondaryMarketListing(TimestampedModel):
@@ -91,6 +92,8 @@ class SecondaryMarketListing(TimestampedModel):
     removed_by_admin_id = models.UUIDField(null=True, blank=True)
     removed_at = models.DateTimeField(null=True, blank=True)
     removal_reason = models.TextField(blank=True)
+    sold_to_user_id = models.UUIDField(null=True, blank=True)
+    sold_at = models.DateTimeField(null=True, blank=True)
     created_by_user_id = models.UUIDField()
     metadata = models.JSONField(default=dict, blank=True)
     idempotency_key = models.CharField(max_length=160, unique=True)
@@ -178,4 +181,116 @@ class SecondaryMarketListingEvent(AppendOnlyModel):
             models.Index(fields=["holding_id", "event_type"]),
             models.Index(fields=["seller_user_id", "occurred_at"]),
             models.Index(fields=["actor_user_id", "occurred_at"]),
+        ]
+
+
+class SecondaryMarketPurchase(AppendOnlyModel, TimestampedModel):
+    listing = models.ForeignKey(
+        SecondaryMarketListing,
+        on_delete=models.PROTECT,
+        related_name="purchases",
+    )
+    seller_holding = models.ForeignKey(
+        "holdings.InvestorLoanHolding",
+        on_delete=models.PROTECT,
+        related_name="secondary_market_sales",
+    )
+    buyer_holding = models.ForeignKey(
+        "holdings.InvestorLoanHolding",
+        on_delete=models.PROTECT,
+        related_name="secondary_market_purchases",
+    )
+    loan = models.ForeignKey(
+        "loans.Loan",
+        on_delete=models.PROTECT,
+        related_name="secondary_market_purchases",
+    )
+    buyer_user_id = models.UUIDField()
+    seller_user_id = models.UUIDField()
+    currency = models.ForeignKey(
+        "platform_core.Currency",
+        on_delete=models.PROTECT,
+        related_name="secondary_market_purchases",
+    )
+    current_principal_minor = models.BigIntegerField()
+    price_bps = models.PositiveIntegerField()
+    transfer_price_minor = models.BigIntegerField()
+    discount_premium_bps = models.IntegerField()
+    accrued_interest_minor = models.BigIntegerField(default=0)
+    accrued_interest_from_date = models.DateField(null=True, blank=True)
+    accrued_interest_to_date = models.DateField()
+    maker_fee_bps = models.PositiveIntegerField()
+    taker_fee_bps = models.PositiveIntegerField()
+    minimum_maker_fee_minor = models.BigIntegerField(default=0)
+    minimum_taker_fee_minor = models.BigIntegerField(default=0)
+    maker_fee_minor = models.BigIntegerField(default=0)
+    taker_fee_minor = models.BigIntegerField(default=0)
+    seller_net_proceeds_minor = models.BigIntegerField()
+    buyer_total_cost_minor = models.BigIntegerField()
+    loan_status_at_purchase = models.CharField(max_length=64)
+    days_past_due = models.PositiveIntegerField(default=0)
+    last_payment_date = models.DateField(null=True, blank=True)
+    purchase_document_acceptance = models.ForeignKey(
+        "documents.DocumentAcceptanceEvidence",
+        on_delete=models.PROTECT,
+        related_name="secondary_market_purchases",
+    )
+    risk_acknowledgement_accepted = models.BooleanField(default=False)
+    ledger_journal_entry = models.ForeignKey(
+        "ledger.LedgerJournalEntry",
+        on_delete=models.PROTECT,
+        related_name="secondary_market_purchases",
+    )
+    seller_balance_lot = models.ForeignKey(
+        "ledger.InvestorBalanceLot",
+        on_delete=models.PROTECT,
+        related_name="secondary_market_sales",
+    )
+    buyer_lot_allocations = models.JSONField(default=list, blank=True)
+    purchased_at = models.DateTimeField()
+    metadata = models.JSONField(default=dict, blank=True)
+    idempotency_key = models.CharField(max_length=160, unique=True)
+
+    class Meta:
+        ordering = ["-purchased_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(fields=["listing"], name="unique_purchase_per_listing"),
+            models.CheckConstraint(
+                condition=models.Q(current_principal_minor__gt=0),
+                name="secondary_purchase_current_principal_positive",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(price_bps__gt=0),
+                name="secondary_purchase_price_bps_positive",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(transfer_price_minor__gt=0),
+                name="secondary_purchase_transfer_price_positive",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(accrued_interest_minor__gte=0),
+                name="secondary_purchase_accrued_interest_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(minimum_maker_fee_minor__gte=0)
+                & models.Q(minimum_taker_fee_minor__gte=0)
+                & models.Q(maker_fee_minor__gte=0)
+                & models.Q(taker_fee_minor__gte=0),
+                name="secondary_purchase_fees_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(seller_net_proceeds_minor__gte=0),
+                name="secondary_purchase_seller_net_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(buyer_total_cost_minor__gt=0),
+                name="secondary_purchase_buyer_total_positive",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["listing", "purchased_at"]),
+            models.Index(fields=["buyer_user_id", "purchased_at"]),
+            models.Index(fields=["seller_user_id", "purchased_at"]),
+            models.Index(fields=["loan", "purchased_at"]),
+            models.Index(fields=["currency", "purchased_at"]),
         ]

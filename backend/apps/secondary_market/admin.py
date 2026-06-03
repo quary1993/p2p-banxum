@@ -8,6 +8,7 @@ from django.http import HttpRequest
 from backend.apps.secondary_market.models import (
     SecondaryMarketListing,
     SecondaryMarketListingEvent,
+    SecondaryMarketPurchase,
 )
 
 
@@ -55,3 +56,22 @@ class SecondaryMarketListingEventAdmin(ReadOnlySecondaryMarketAdmin):
     list_filter = ("event_type",)
     search_fields = ("id", "listing__id", "holding_id", "loan_id", "seller_user_id")
     readonly_fields = tuple(field.name for field in SecondaryMarketListingEvent._meta.fields)
+
+
+@admin.register(SecondaryMarketPurchase)
+class SecondaryMarketPurchaseAdmin(ReadOnlySecondaryMarketAdmin):
+    list_display = (
+        "id",
+        "listing",
+        "loan",
+        "buyer_user_id",
+        "seller_user_id",
+        "current_principal_minor",
+        "transfer_price_minor",
+        "buyer_total_cost_minor",
+        "currency",
+        "purchased_at",
+    )
+    list_filter = ("currency", "loan_status_at_purchase", "risk_acknowledgement_accepted")
+    search_fields = ("id", "listing__id", "loan__id", "buyer_user_id", "seller_user_id")
+    readonly_fields = tuple(field.name for field in SecondaryMarketPurchase._meta.fields)

@@ -2047,6 +2047,39 @@ paths:
               schema:
                 $ref: '#/components/schemas/SecondaryMarketListing'
           description: ''
+  /api/v1/marketplace/secondary/listings/{listing_id}/purchase/:
+    post:
+      operationId: v1_marketplace_secondary_listings_purchase_create
+      parameters:
+      - in: path
+        name: listing_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SecondaryMarketPurchaseRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SecondaryMarketPurchaseRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SecondaryMarketPurchaseRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecondaryMarketPurchase'
+          description: ''
   /api/v1/servicing/admin/borrower-repayments/:
     post:
       operationId: v1_servicing_admin_borrower_repayments_create
@@ -6228,6 +6261,98 @@ components:
       required:
       - idempotency_key
       - reason
+    SecondaryMarketPurchase:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        listing_id:
+          type: string
+          format: uuid
+        loan_id:
+          type: string
+          format: uuid
+        buyer_holding_id:
+          type: string
+          format: uuid
+        current_principal_minor:
+          type: integer
+        currency:
+          type: string
+        price_bps:
+          type: integer
+        transfer_price_minor:
+          type: integer
+        discount_premium_bps:
+          type: integer
+        accrued_interest_minor:
+          type: integer
+        accrued_interest_from_date:
+          type: string
+          format: date
+          nullable: true
+        accrued_interest_to_date:
+          type: string
+          format: date
+        taker_fee_bps:
+          type: integer
+        minimum_taker_fee_minor:
+          type: integer
+        taker_fee_minor:
+          type: integer
+        buyer_total_cost_minor:
+          type: integer
+        loan_status_at_purchase:
+          type: string
+        days_past_due:
+          type: integer
+        last_payment_date:
+          type: string
+          format: date
+          nullable: true
+        risk_acknowledgement_accepted:
+          type: boolean
+        purchased_at:
+          type: string
+          format: date-time
+      required:
+      - accrued_interest_from_date
+      - accrued_interest_minor
+      - accrued_interest_to_date
+      - buyer_holding_id
+      - buyer_total_cost_minor
+      - currency
+      - current_principal_minor
+      - days_past_due
+      - discount_premium_bps
+      - id
+      - last_payment_date
+      - listing_id
+      - loan_id
+      - loan_status_at_purchase
+      - minimum_taker_fee_minor
+      - price_bps
+      - purchased_at
+      - risk_acknowledgement_accepted
+      - taker_fee_bps
+      - taker_fee_minor
+      - transfer_price_minor
+    SecondaryMarketPurchaseRequest:
+      type: object
+      properties:
+        document_acceptance_id:
+          type: string
+          format: uuid
+        risk_acknowledgement_accepted:
+          type: boolean
+          default: false
+        idempotency_key:
+          type: string
+          maxLength: 160
+      required:
+      - document_acceptance_id
+      - idempotency_key
     UserSummary:
       type: object
       properties:

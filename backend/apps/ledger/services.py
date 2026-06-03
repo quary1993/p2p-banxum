@@ -75,6 +75,7 @@ INVESTMENT_RELEASE_FINGERPRINT_METADATA_KEY = "investment_release_fingerprint"
 PRIMARY_LOAN_CLOSE_FINGERPRINT_METADATA_KEY = "primary_loan_close_fingerprint"
 FX_EXCHANGE_FINGERPRINT_METADATA_KEY = "fx_exchange_fingerprint"
 FX_EXTERNAL_SETTLEMENT_FINGERPRINT_METADATA_KEY = "fx_external_settlement_fingerprint"
+SECONDARY_MARKET_PURCHASE_FINGERPRINT_METADATA_KEY = "secondary_market_purchase_fingerprint"
 
 
 @dataclass(frozen=True, slots=True)
@@ -408,6 +409,29 @@ class ExecuteInvestorFxExchangeLedgerCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class SettleSecondaryMarketPurchaseLedgerCommand:
+    actor: Model
+    purchase_id: str
+    listing_id: str
+    loan_id: str
+    buyer_user_id: str
+    seller_user_id: str
+    currency: str
+    current_principal_minor: int
+    transfer_price_minor: int
+    accrued_interest_minor: int
+    maker_fee_minor: int
+    taker_fee_minor: int
+    seller_net_proceeds_minor: int
+    buyer_total_cost_minor: int
+    source_type: str
+    source_id: str
+    idempotency_key: str
+    as_of: datetime | None = None
+    metadata: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class DeclareFxExternalSettlementLedgerCommand:
     actor: Model
     settlement_id: str
@@ -448,6 +472,13 @@ class FxExternalSettlementLedgerResult:
     bought_bank_operation: BankOperation
     sold_journal_entry: LedgerJournalEntry
     bought_journal_entry: LedgerJournalEntry
+
+
+@dataclass(frozen=True, slots=True)
+class SecondaryMarketPurchaseLedgerResult:
+    journal_entry: LedgerJournalEntry
+    seller_balance_lot: InvestorBalanceLot
+    buyer_lot_allocations: list[dict[str, Any]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -953,6 +984,44 @@ def _borrower_repayment_distribution_fingerprint(
                 }
                 for line in command.distribution_lines
             ],
+        }
+    )
+
+
+def _secondary_market_purchase_ledger_fingerprint(
+    command: SettleSecondaryMarketPurchaseLedgerCommand,
+    *,
+    buyer_user_id: str,
+    seller_user_id: str,
+    currency_code: str,
+    current_principal_minor: int,
+    transfer_price_minor: int,
+    accrued_interest_minor: int,
+    maker_fee_minor: int,
+    taker_fee_minor: int,
+    seller_net_proceeds_minor: int,
+    buyer_total_cost_minor: int,
+    idempotency_key: str,
+) -> str:
+    return _stable_json_fingerprint(
+        {
+            "purchase_id": str(command.purchase_id),
+            "listing_id": str(command.listing_id),
+            "loan_id": str(command.loan_id),
+            "buyer_user_id": buyer_user_id,
+            "seller_user_id": seller_user_id,
+            "currency": currency_code,
+            "current_principal_minor": current_principal_minor,
+            "transfer_price_minor": transfer_price_minor,
+            "accrued_interest_minor": accrued_interest_minor,
+            "maker_fee_minor": maker_fee_minor,
+            "taker_fee_minor": taker_fee_minor,
+            "seller_net_proceeds_minor": seller_net_proceeds_minor,
+            "buyer_total_cost_minor": buyer_total_cost_minor,
+            "source_type": command.source_type.strip(),
+            "source_id": command.source_id.strip(),
+            "idempotency_key": idempotency_key,
+            "metadata": command.metadata or {},
         }
     )
 
@@ -3307,6 +3376,29 @@ def _existing_fx_exchange_ledger_result(
     )
 
 
+def _existing_secondary_market_purchase_ledger_result(
+    journal_idempotency_key: str,
+    *,
+    expected_fingerprint: str,
+) -> SecondaryMarketPurchaseLedgerResult | None:
+    journal = LedgerJournalEntry.objects.filter(idempotency_key=journal_idempotency_key).first()
+    if journal is None:
+        return None
+    metadata = cast(dict[str, Any], journal.metadata)
+    if metadata.get(SECONDARY_MARKET_PURCHASE_FINGERPRINT_METADATA_KEY) != expected_fingerprint:
+        raise LedgerValidationError("Idempotency key was already used for a different request.")
+    seller_balance_lot = journal.balance_lots.first()
+    if seller_balance_lot is None:
+        raise LedgerValidationError("Existing secondary-market seller balance lot is missing.")
+    return SecondaryMarketPurchaseLedgerResult(
+        journal_entry=cast(LedgerJournalEntry, journal),
+        seller_balance_lot=cast(InvestorBalanceLot, seller_balance_lot),
+        buyer_lot_allocations=list(
+            cast(list[dict[str, Any]], metadata.get("buyer_lot_allocations", []))
+        ),
+    )
+
+
 def _existing_fx_external_settlement_ledger_result(
     sold_journal_idempotency_key: str,
     *,
@@ -3772,6 +3864,292 @@ def release_investor_balance_investment_reservation(
         )
     )
     return InvestmentBalanceReleaseResult(journal_entry=journal_entry)
+
+
+@transaction.atomic
+def settle_secondary_market_purchase_ledger(
+    command: SettleSecondaryMarketPurchaseLedgerCommand,
+) -> SecondaryMarketPurchaseLedgerResult:
+    currency = _enabled_currency(command.currency)
+    current_principal_minor = _validate_money(
+        command.current_principal_minor,
+        currency.code,
+        "Secondary-market current principal",
+    )
+    transfer_price_minor = _validate_money(
+        command.transfer_price_minor,
+        currency.code,
+        "Secondary-market transfer price",
+    )
+    accrued_interest_minor = _validate_nonnegative_money(
+        command.accrued_interest_minor,
+        currency.code,
+        "Secondary-market accrued interest",
+    )
+    maker_fee_minor = _validate_nonnegative_money(
+        command.maker_fee_minor,
+        currency.code,
+        "Secondary-market maker fee",
+    )
+    taker_fee_minor = _validate_nonnegative_money(
+        command.taker_fee_minor,
+        currency.code,
+        "Secondary-market taker fee",
+    )
+    seller_net_proceeds_minor = _validate_money(
+        command.seller_net_proceeds_minor,
+        currency.code,
+        "Secondary-market seller net proceeds",
+    )
+    buyer_total_cost_minor = _validate_money(
+        command.buyer_total_cost_minor,
+        currency.code,
+        "Secondary-market buyer total cost",
+    )
+    if transfer_price_minor + accrued_interest_minor - maker_fee_minor != seller_net_proceeds_minor:
+        raise LedgerValidationError(
+            "Secondary-market seller net must equal transfer price plus accrued interest "
+            "minus maker fee."
+        )
+    if transfer_price_minor + accrued_interest_minor + taker_fee_minor != buyer_total_cost_minor:
+        raise LedgerValidationError(
+            "Secondary-market buyer total must equal transfer price plus accrued interest "
+            "plus taker fee."
+        )
+    if seller_net_proceeds_minor + maker_fee_minor + taker_fee_minor != buyer_total_cost_minor:
+        raise LedgerValidationError("Secondary-market purchase postings would not balance.")
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    source_type = _clean_required(command.source_type, "Source type")
+    source_id = _clean_required(command.source_id, "Source id")
+    buyer = _investment_actor_for_id(command.actor, command.buyer_user_id)
+    buyer_id = str(buyer.pk)
+    seller = _lender_account_for_id(command.seller_user_id)
+    seller_id = str(seller.pk)
+    if buyer_id == seller_id:
+        raise LedgerValidationError("Buyer and seller must be different investors.")
+    as_of = command.as_of or now_utc()
+    value_date = business_date(as_of)
+    journal_idempotency_key = _derived_idempotency_key(
+        "ledger-secondary-market-purchase",
+        idempotency_key,
+    )
+    request_fingerprint = _secondary_market_purchase_ledger_fingerprint(
+        command,
+        buyer_user_id=buyer_id,
+        seller_user_id=seller_id,
+        currency_code=currency.code,
+        current_principal_minor=current_principal_minor,
+        transfer_price_minor=transfer_price_minor,
+        accrued_interest_minor=accrued_interest_minor,
+        maker_fee_minor=maker_fee_minor,
+        taker_fee_minor=taker_fee_minor,
+        seller_net_proceeds_minor=seller_net_proceeds_minor,
+        buyer_total_cost_minor=buyer_total_cost_minor,
+        idempotency_key=idempotency_key,
+    )
+    existing = _existing_secondary_market_purchase_ledger_result(
+        journal_idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing is not None:
+        return existing
+    if InvestorBalanceLot.objects.filter(
+        investor_user_id=buyer_id,
+        status=BalanceLotStatus.PENALTY_MODE,
+        available_amount_minor__gt=0,
+    ).exists():
+        raise LedgerValidationError(
+            "Buyer has overdue balance in penalty mode and cannot buy secondary-market listings."
+        )
+
+    lots = _investment_lots_for_update(investor_user_id=buyer_id, currency=currency)
+    existing_after_locks = _existing_secondary_market_purchase_ledger_result(
+        journal_idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing_after_locks is not None:
+        return existing_after_locks
+    buyer_lot_allocations = _consume_lots_for_investment(
+        lots=lots,
+        amount_minor=buyer_total_cost_minor,
+        currency_code=currency.code,
+        loan_funding_deadline=value_date,
+        as_of=as_of,
+    )
+
+    buyer_liability_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.INVESTOR_BALANCE_LIABILITY,
+        currency=currency,
+        owner_type="investor",
+        owner_id=buyer_id,
+        name=f"{currency.code} investor balance liability {buyer_id}",
+    )
+    seller_liability_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.INVESTOR_BALANCE_LIABILITY,
+        currency=currency,
+        owner_type="investor",
+        owner_id=seller_id,
+        name=f"{currency.code} investor balance liability {seller_id}",
+    )
+    postings = [
+        PostingCommand(
+            account=buyer_liability_account,
+            side=LedgerPostingSide.DEBIT,
+            amount_minor=buyer_total_cost_minor,
+            memo="Secondary-market buyer balance debited",
+        ),
+        PostingCommand(
+            account=seller_liability_account,
+            side=LedgerPostingSide.CREDIT,
+            amount_minor=seller_net_proceeds_minor,
+            memo="Secondary-market seller proceeds credited",
+        ),
+    ]
+    platform_fee_minor = maker_fee_minor + taker_fee_minor
+    if platform_fee_minor > 0:
+        platform_fee_revenue_account = get_or_create_ledger_account(
+            account_type=LedgerAccountType.PLATFORM_FEE_REVENUE,
+            currency=currency,
+            owner_type="garanta",
+            owner_id="platform",
+            name=f"{currency.code} platform fee revenue",
+        )
+        postings.append(
+            PostingCommand(
+                account=platform_fee_revenue_account,
+                side=LedgerPostingSide.CREDIT,
+                amount_minor=platform_fee_minor,
+                memo="Secondary-market maker and taker fee revenue",
+            )
+        )
+    journal_entry = post_journal_entry(
+        PostJournalEntryCommand(
+            actor=command.actor,
+            event_type="secondary_market_purchase_settled",
+            direction=LedgerDirection.INTERNAL,
+            currency=currency.code,
+            gross_amount_minor=buyer_total_cost_minor,
+            net_amount_minor=seller_net_proceeds_minor,
+            booking_date=value_date,
+            value_date=value_date,
+            effective_at=as_of,
+            received_at=as_of,
+            source_type=source_type,
+            source_id=source_id,
+            lender_user_id=buyer_id,
+            loan_id=str(command.loan_id),
+            idempotency_key=journal_idempotency_key,
+            postings=postings,
+            tax_metadata={
+                "client_money_transfer_minor": transfer_price_minor + accrued_interest_minor,
+                "platform_fee_revenue_minor": platform_fee_minor,
+                "secondary_market_transfer_price_minor": transfer_price_minor,
+                "secondary_market_accrued_interest_minor": accrued_interest_minor,
+                "secondary_market_maker_fee_minor": maker_fee_minor,
+                "secondary_market_taker_fee_minor": taker_fee_minor,
+            },
+            metadata={
+                SECONDARY_MARKET_PURCHASE_FINGERPRINT_METADATA_KEY: request_fingerprint,
+                "purchase_id": str(command.purchase_id),
+                "listing_id": str(command.listing_id),
+                "loan_id": str(command.loan_id),
+                "buyer_user_id": buyer_id,
+                "seller_user_id": seller_id,
+                "current_principal_minor": current_principal_minor,
+                "transfer_price_minor": transfer_price_minor,
+                "accrued_interest_minor": accrued_interest_minor,
+                "maker_fee_minor": maker_fee_minor,
+                "taker_fee_minor": taker_fee_minor,
+                "seller_net_proceeds_minor": seller_net_proceeds_minor,
+                "buyer_total_cost_minor": buyer_total_cost_minor,
+                "buyer_lot_allocations": buyer_lot_allocations,
+                "metadata": command.metadata or {},
+            },
+        )
+    )
+    investment_deadline_at, withdrawal_deadline_at = _lot_deadlines(as_of)
+    _validate_lot_conservation_values(
+        original_amount_minor=seller_net_proceeds_minor,
+        available_amount_minor=seller_net_proceeds_minor,
+        currency_code=currency.code,
+    )
+    seller_balance_lot = InvestorBalanceLot.objects.create(
+        investor_user_id=seller_id,
+        currency=currency,
+        source_journal_entry=journal_entry,
+        source_type=BalanceLotSourceType.SECONDARY_MARKET_PROCEEDS,
+        source_id=source_id,
+        received_at=as_of,
+        investment_deadline_at=investment_deadline_at,
+        withdrawal_deadline_at=withdrawal_deadline_at,
+        original_amount_minor=seller_net_proceeds_minor,
+        available_amount_minor=seller_net_proceeds_minor,
+        lineage=[
+            {
+                "source_type": source_type,
+                "source_id": source_id,
+                "purchase_id": str(command.purchase_id),
+                "listing_id": str(command.listing_id),
+                "loan_id": str(command.loan_id),
+                "buyer_user_id": buyer_id,
+                "seller_user_id": seller_id,
+                "current_principal_minor": current_principal_minor,
+                "transfer_price_minor": transfer_price_minor,
+                "accrued_interest_minor": accrued_interest_minor,
+                "maker_fee_minor": maker_fee_minor,
+                "taker_fee_minor": taker_fee_minor,
+                "seller_net_proceeds_minor": seller_net_proceeds_minor,
+                "buyer_total_cost_minor": buyer_total_cost_minor,
+                "metadata": command.metadata or {},
+            }
+        ],
+    )
+    actor_ref = actor_ref_for_user(command.actor)
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref,
+            action="ledger.secondary_market_purchase_settled",
+            target_type="LedgerJournalEntry",
+            target_id=str(journal_entry.id),
+            metadata={
+                "purchase_id": str(command.purchase_id),
+                "listing_id": str(command.listing_id),
+                "loan_id": str(command.loan_id),
+                "buyer_user_id": buyer_id,
+                "seller_user_id": seller_id,
+                "currency": currency.code,
+                "buyer_total_cost_minor": buyer_total_cost_minor,
+                "seller_net_proceeds_minor": seller_net_proceeds_minor,
+                "platform_fee_minor": platform_fee_minor,
+                "seller_balance_lot_id": str(seller_balance_lot.id),
+            },
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="SecondaryMarketPurchaseSettled",
+            aggregate_type="LedgerJournalEntry",
+            aggregate_id=str(journal_entry.id),
+            payload={
+                "purchase_id": str(command.purchase_id),
+                "listing_id": str(command.listing_id),
+                "loan_id": str(command.loan_id),
+                "buyer_user_id": buyer_id,
+                "seller_user_id": seller_id,
+                "currency": currency.code,
+                "buyer_total_cost_minor": buyer_total_cost_minor,
+                "seller_net_proceeds_minor": seller_net_proceeds_minor,
+                "platform_fee_minor": platform_fee_minor,
+                "seller_balance_lot_id": str(seller_balance_lot.id),
+            },
+            idempotency_key=f"ledger:{journal_entry.id}:secondary-market-purchase-settled",
+        )
+    )
+    return SecondaryMarketPurchaseLedgerResult(
+        journal_entry=journal_entry,
+        seller_balance_lot=seller_balance_lot,
+        buyer_lot_allocations=buyer_lot_allocations,
+    )
 
 
 @transaction.atomic

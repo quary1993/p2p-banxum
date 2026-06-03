@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import uuid
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
+from importlib import import_module
 from typing import Any, cast
 
 from django.apps import apps
@@ -27,6 +29,7 @@ from backend.apps.secondary_market.models import (
     SecondaryMarketListingEventType,
     SecondaryMarketListingPublicationType,
     SecondaryMarketListingStatus,
+    SecondaryMarketPurchase,
 )
 
 
@@ -45,7 +48,9 @@ class SecondaryMarketValidationError(SecondaryMarketError):
 MAX_IDEMPOTENCY_KEY_LENGTH = 160
 PRICE_BPS_MAX = 1_000_000
 LISTING_CONTEXT_TYPE = "secondary_market_listing"
+PURCHASE_CONTEXT_TYPE = "secondary_market_purchase"
 LISTING_FINGERPRINT_METADATA_KEY = "listing_request_fingerprint"
+PURCHASE_FINGERPRINT_METADATA_KEY = "purchase_request_fingerprint"
 APPROVAL_FINGERPRINT_METADATA_KEY = "approval_request_fingerprint"
 APPROVAL_IDEMPOTENCY_METADATA_KEY = "approval_idempotency_key"
 REJECTION_FINGERPRINT_METADATA_KEY = "rejection_request_fingerprint"
@@ -113,8 +118,25 @@ class RemoveSecondaryMarketListingCommand:
     idempotency_key: str
 
 
+@dataclass(frozen=True, slots=True)
+class PurchaseSecondaryMarketListingCommand:
+    actor: Model
+    listing_id: str
+    document_acceptance_id: str
+    idempotency_key: str
+    risk_acknowledgement_accepted: bool = False
+
+
 def _model(app_label: str, model_name: str) -> Any:
     return apps.get_model(app_label, model_name)
+
+
+def _ledger_services() -> Any:
+    return import_module("backend.apps.ledger.services")
+
+
+def _holdings_services() -> Any:
+    return import_module("backend.apps.holdings.services")
 
 
 def _clean_required(value: str, label: str) -> str:
@@ -386,6 +408,37 @@ def _validate_listing_acceptance(
     return acceptance
 
 
+def _validate_purchase_acceptance(
+    *,
+    acceptance_id: str,
+    actor: Model,
+    listing: SecondaryMarketListing,
+) -> Model:
+    acceptance_model = _model("documents", "DocumentAcceptanceEvidence")
+    acceptance = cast(
+        Model | None,
+        acceptance_model.objects.select_related("template", "template_version")
+        .filter(id=acceptance_id, user_id=actor.pk)
+        .first(),
+    )
+    if acceptance is None:
+        raise SecondaryMarketValidationError("Document acceptance does not exist.")
+    acceptance_ref = cast(Any, acceptance)
+    if str(acceptance_ref.category) != "secondary_market_purchase":
+        raise SecondaryMarketValidationError("Document acceptance category is not valid.")
+    if str(acceptance_ref.context_type) != PURCHASE_CONTEXT_TYPE:
+        raise SecondaryMarketValidationError("Document acceptance context is not valid.")
+    if str(acceptance_ref.context_id) != str(listing.id):
+        raise SecondaryMarketValidationError(
+            "Document acceptance does not match this secondary-market listing."
+        )
+    if str(acceptance_ref.template.current_published_version_id) != str(
+        acceptance_ref.template_version_id
+    ):
+        raise SecondaryMarketValidationError("Document acceptance is no longer current.")
+    return acceptance
+
+
 def _listing_request_fingerprint(
     command: CreateSecondaryMarketListingCommand,
     *,
@@ -409,6 +462,43 @@ def _listing_request_fingerprint(
             "maker_fee_bps": pricing.maker_fee_bps,
             "taker_fee_bps": pricing.taker_fee_bps,
             "notes": command.notes.strip(),
+            "idempotency_key": idempotency_key,
+        }
+    )
+
+
+def _purchase_request_fingerprint(
+    command: PurchaseSecondaryMarketListingCommand,
+    *,
+    buyer_user_id: str,
+    seller_user_id: str,
+    holding_id: str,
+    loan_id: str,
+    price_bps: int,
+    pricing: SecondaryMarketListingPricing,
+    currency_code: str,
+    risk_acknowledgement_accepted: bool,
+    idempotency_key: str,
+) -> str:
+    return _stable_json_fingerprint(
+        {
+            "listing_id": str(command.listing_id),
+            "buyer_user_id": buyer_user_id,
+            "seller_user_id": seller_user_id,
+            "holding_id": holding_id,
+            "loan_id": loan_id,
+            "document_acceptance_id": str(command.document_acceptance_id),
+            "currency": currency_code,
+            "current_principal_minor": pricing.current_principal_minor,
+            "price_bps": price_bps,
+            "transfer_price_minor": pricing.transfer_price_minor,
+            "accrued_interest_minor": pricing.accrued_interest_minor,
+            "maker_fee_minor": pricing.maker_fee_minor,
+            "taker_fee_minor": pricing.taker_fee_minor,
+            "seller_net_proceeds_minor": pricing.seller_net_proceeds_minor,
+            "buyer_total_cost_minor": pricing.buyer_total_cost_minor,
+            "loan_status_at_purchase": pricing.loan_status_at_listing,
+            "risk_acknowledgement_accepted": risk_acknowledgement_accepted,
             "idempotency_key": idempotency_key,
         }
     )
@@ -449,6 +539,64 @@ def _existing_listing_for_idempotency(
             "Idempotency key was already used for a different listing request."
         )
     return existing
+
+
+def _existing_purchase_for_idempotency(
+    idempotency_key: str,
+    *,
+    expected_fingerprint: str,
+) -> SecondaryMarketPurchase | None:
+    existing = SecondaryMarketPurchase.objects.filter(idempotency_key=idempotency_key).first()
+    if existing is None:
+        return None
+    if (
+        cast(dict[str, Any], existing.metadata).get(PURCHASE_FINGERPRINT_METADATA_KEY)
+        != expected_fingerprint
+    ):
+        raise SecondaryMarketValidationError(
+            "Idempotency key was already used for a different purchase request."
+        )
+    return cast(SecondaryMarketPurchase, existing)
+
+
+def _existing_purchase_replay(
+    command: PurchaseSecondaryMarketListingCommand,
+    *,
+    buyer_user_id: str,
+    idempotency_key: str,
+) -> SecondaryMarketPurchase | None:
+    existing = (
+        SecondaryMarketPurchase.objects.select_related(
+            "listing",
+            "seller_holding",
+            "buyer_holding",
+            "loan",
+            "currency",
+        )
+        .filter(idempotency_key=idempotency_key)
+        .first()
+    )
+    if existing is None:
+        return None
+    if str(existing.listing_id) != str(command.listing_id):
+        raise SecondaryMarketValidationError(
+            "Idempotency key was already used for a different purchase request."
+        )
+    if str(existing.buyer_user_id) != buyer_user_id:
+        raise SecondaryMarketValidationError(
+            "Idempotency key was already used for a different purchase request."
+        )
+    if str(existing.purchase_document_acceptance_id) != str(command.document_acceptance_id):
+        raise SecondaryMarketValidationError(
+            "Idempotency key was already used for a different purchase request."
+        )
+    if bool(existing.risk_acknowledgement_accepted) != bool(
+        command.risk_acknowledgement_accepted
+    ):
+        raise SecondaryMarketValidationError(
+            "Idempotency key was already used for a different purchase request."
+        )
+    return cast(SecondaryMarketPurchase, existing)
 
 
 def _record_listing_event(
@@ -943,6 +1091,272 @@ def remove_secondary_market_listing(
         metadata=event_metadata,
     )
     return listing
+
+
+@transaction.atomic
+def purchase_secondary_market_listing(
+    command: PurchaseSecondaryMarketListingCommand,
+) -> SecondaryMarketPurchase:
+    _require_investor_financial_access(command.actor)
+    buyer_user_id = str(command.actor.pk)
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    replay = _existing_purchase_replay(
+        command,
+        buyer_user_id=buyer_user_id,
+        idempotency_key=idempotency_key,
+    )
+    if replay is not None:
+        return replay
+
+    listing = (
+        SecondaryMarketListing.objects.select_for_update()
+        .select_related("holding", "loan", "currency")
+        .filter(id=command.listing_id)
+        .first()
+    )
+    if listing is None:
+        raise SecondaryMarketValidationError("Secondary-market listing does not exist.")
+    replay_after_listing_lock = _existing_purchase_replay(
+        command,
+        buyer_user_id=buyer_user_id,
+        idempotency_key=idempotency_key,
+    )
+    if replay_after_listing_lock is not None:
+        return replay_after_listing_lock
+    if listing.status != SecondaryMarketListingStatus.ACTIVE:
+        raise SecondaryMarketValidationError("Secondary-market listing is not active.")
+    seller_user_id = str(listing.seller_user_id)
+    if seller_user_id == buyer_user_id:
+        raise SecondaryMarketValidationError("Buyer cannot purchase their own listing.")
+    if SecondaryMarketPurchase.objects.filter(listing=listing).exists():
+        raise SecondaryMarketValidationError("Secondary-market listing has already been sold.")
+
+    loan_model = _model("loans", "Loan")
+    loan = cast(
+        Model | None,
+        loan_model.objects.select_for_update().filter(id=listing.loan_id).first(),
+    )
+    if loan is None:
+        raise SecondaryMarketValidationError("Listing loan does not exist.")
+    holding_model = _model("holdings", "InvestorLoanHolding")
+    holding = cast(
+        Model | None,
+        holding_model.objects.select_for_update()
+        .select_related("currency")
+        .filter(id=listing.holding_id)
+        .first(),
+    )
+    if holding is None:
+        raise SecondaryMarketValidationError("Seller holding does not exist.")
+    holding_ref = cast(Any, holding)
+    loan_ref = cast(Any, loan)
+    if str(holding_ref.status) != "active":
+        raise SecondaryMarketValidationError("Seller holding is no longer active.")
+    if str(holding_ref.investor_user_id) != seller_user_id:
+        raise SecondaryMarketValidationError("Seller holding no longer belongs to the seller.")
+    if str(holding_ref.loan_id) != str(loan_ref.id):
+        raise SecondaryMarketValidationError("Seller holding no longer matches the listed loan.")
+    if str(holding_ref.currency_id) != str(listing.currency_id):
+        raise SecondaryMarketValidationError("Seller holding currency has changed.")
+    if int(holding_ref.current_principal_minor) != int(listing.current_principal_minor):
+        raise SecondaryMarketValidationError("Seller holding principal has changed.")
+    if str(loan_ref.status) != str(listing.loan_status_at_listing):
+        raise SecondaryMarketValidationError(
+            "Loan status changed after listing; seller must relist with current disclosures."
+        )
+    if listing.risk_acknowledgement_required and not command.risk_acknowledgement_accepted:
+        raise SecondaryMarketValidationError(
+            "Buyer must acknowledge the non-standard listing risk disclosure."
+        )
+
+    acceptance = _validate_purchase_acceptance(
+        acceptance_id=command.document_acceptance_id,
+        actor=command.actor,
+        listing=listing,
+    )
+    settlement_at = now_utc()
+    settlement_date = business_date(settlement_at)
+    pricing = _pricing_snapshot(
+        holding=holding,
+        loan=loan,
+        price_bps=int(listing.price_bps),
+        as_of_date=settlement_date,
+    )
+    if pricing.loan_status_at_listing != str(listing.loan_status_at_listing):
+        raise SecondaryMarketValidationError(
+            "Loan status changed after listing; seller must relist with current disclosures."
+        )
+    purchase_id = uuid.uuid4()
+    request_fingerprint = _purchase_request_fingerprint(
+        command,
+        buyer_user_id=buyer_user_id,
+        seller_user_id=seller_user_id,
+        holding_id=str(holding_ref.id),
+        loan_id=str(loan_ref.id),
+        price_bps=int(listing.price_bps),
+        pricing=pricing,
+        currency_code=str(listing.currency_id),
+        risk_acknowledgement_accepted=bool(command.risk_acknowledgement_accepted),
+        idempotency_key=idempotency_key,
+    )
+    existing = _existing_purchase_for_idempotency(
+        idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing is not None:
+        return existing
+
+    ledger = _ledger_services()
+    try:
+        ledger_result = ledger.settle_secondary_market_purchase_ledger(
+            ledger.SettleSecondaryMarketPurchaseLedgerCommand(
+                actor=command.actor,
+                purchase_id=str(purchase_id),
+                listing_id=str(listing.id),
+                loan_id=str(loan_ref.id),
+                buyer_user_id=buyer_user_id,
+                seller_user_id=seller_user_id,
+                currency=str(listing.currency_id),
+                current_principal_minor=pricing.current_principal_minor,
+                transfer_price_minor=pricing.transfer_price_minor,
+                accrued_interest_minor=pricing.accrued_interest_minor,
+                maker_fee_minor=pricing.maker_fee_minor,
+                taker_fee_minor=pricing.taker_fee_minor,
+                seller_net_proceeds_minor=pricing.seller_net_proceeds_minor,
+                buyer_total_cost_minor=pricing.buyer_total_cost_minor,
+                source_type="secondary_market_purchase",
+                source_id=str(purchase_id),
+                idempotency_key=idempotency_key,
+                as_of=settlement_at,
+                metadata={"request_fingerprint": request_fingerprint},
+            )
+        )
+    except ledger.LedgerError as exc:
+        raise SecondaryMarketValidationError(str(exc)) from exc
+
+    holdings = _holdings_services()
+    try:
+        holding_result = holdings.transfer_holding_for_secondary_market_purchase(
+            holdings.TransferSecondaryMarketHoldingCommand(
+                actor=command.actor,
+                seller_holding_id=str(holding_ref.id),
+                buyer_user_id=buyer_user_id,
+                purchase_id=str(purchase_id),
+                principal_minor=pricing.current_principal_minor,
+                currency=str(listing.currency_id),
+                assignment_effective_at=settlement_at,
+                idempotency_key=idempotency_key,
+                metadata={"request_fingerprint": request_fingerprint},
+            )
+        )
+    except holdings.HoldingsError as exc:
+        raise SecondaryMarketValidationError(str(exc)) from exc
+
+    metadata = {
+        PURCHASE_FINGERPRINT_METADATA_KEY: request_fingerprint,
+        "terms_context": {
+            "context_type": PURCHASE_CONTEXT_TYPE,
+            "context_id": str(listing.id),
+        },
+        "pricing_date": str(settlement_date),
+        "accrual_day_count": "ACT/365",
+        "ledger_journal_entry_id": str(ledger_result.journal_entry.id),
+        "seller_balance_lot_id": str(ledger_result.seller_balance_lot.id),
+        "buyer_lot_allocations": ledger_result.buyer_lot_allocations,
+        "seller_holding_id": str(holding_ref.id),
+        "buyer_holding_id": str(holding_result.buyer_holding.id),
+    }
+    try:
+        with transaction.atomic():
+            purchase = SecondaryMarketPurchase.objects.create(
+                id=purchase_id,
+                listing=listing,
+                seller_holding=holding_result.seller_holding,
+                buyer_holding=holding_result.buyer_holding,
+                loan=cast(Any, loan),
+                buyer_user_id=buyer_user_id,
+                seller_user_id=seller_user_id,
+                currency=listing.currency,
+                current_principal_minor=pricing.current_principal_minor,
+                price_bps=int(listing.price_bps),
+                transfer_price_minor=pricing.transfer_price_minor,
+                discount_premium_bps=pricing.discount_premium_bps,
+                accrued_interest_minor=pricing.accrued_interest_minor,
+                accrued_interest_from_date=pricing.accrued_interest_from_date,
+                accrued_interest_to_date=pricing.accrued_interest_to_date,
+                maker_fee_bps=pricing.maker_fee_bps,
+                taker_fee_bps=pricing.taker_fee_bps,
+                minimum_maker_fee_minor=pricing.minimum_maker_fee_minor,
+                minimum_taker_fee_minor=pricing.minimum_taker_fee_minor,
+                maker_fee_minor=pricing.maker_fee_minor,
+                taker_fee_minor=pricing.taker_fee_minor,
+                seller_net_proceeds_minor=pricing.seller_net_proceeds_minor,
+                buyer_total_cost_minor=pricing.buyer_total_cost_minor,
+                loan_status_at_purchase=pricing.loan_status_at_listing,
+                days_past_due=pricing.days_past_due,
+                last_payment_date=pricing.last_payment_date,
+                purchase_document_acceptance=cast(Any, acceptance),
+                risk_acknowledgement_accepted=bool(command.risk_acknowledgement_accepted),
+                ledger_journal_entry=ledger_result.journal_entry,
+                seller_balance_lot=ledger_result.seller_balance_lot,
+                buyer_lot_allocations=ledger_result.buyer_lot_allocations,
+                purchased_at=settlement_at,
+                metadata=metadata,
+                idempotency_key=idempotency_key,
+            )
+    except IntegrityError:
+        existing_after_race = _existing_purchase_for_idempotency(
+            idempotency_key,
+            expected_fingerprint=request_fingerprint,
+        )
+        if existing_after_race is None:
+            raise
+        return existing_after_race
+
+    previous_status = str(listing.status)
+    listing.status = SecondaryMarketListingStatus.SOLD
+    listing.sold_to_user_id = command.actor.pk
+    listing.sold_at = settlement_at
+    listing.metadata = {
+        **cast(dict[str, Any], listing.metadata),
+        "secondary_market_purchase_id": str(purchase.id),
+        "sold_to_user_id": buyer_user_id,
+        "sold_at": settlement_at.isoformat(),
+    }
+    listing.save(update_fields=["status", "sold_to_user_id", "sold_at", "metadata", "updated_at"])
+    event_metadata = {
+        "purchase_id": str(purchase.id),
+        "listing_id": str(listing.id),
+        "seller_holding_id": str(holding_ref.id),
+        "buyer_holding_id": str(holding_result.buyer_holding.id),
+        "loan_id": str(loan_ref.id),
+        "currency": str(listing.currency_id),
+        "buyer_user_id": buyer_user_id,
+        "seller_user_id": seller_user_id,
+        "current_principal_minor": pricing.current_principal_minor,
+        "transfer_price_minor": pricing.transfer_price_minor,
+        "accrued_interest_minor": pricing.accrued_interest_minor,
+        "maker_fee_minor": pricing.maker_fee_minor,
+        "taker_fee_minor": pricing.taker_fee_minor,
+        "seller_net_proceeds_minor": pricing.seller_net_proceeds_minor,
+        "buyer_total_cost_minor": pricing.buyer_total_cost_minor,
+    }
+    _record_listing_event(
+        listing=listing,
+        actor=command.actor,
+        event_type=SecondaryMarketListingEventType.SOLD,
+        previous_status=previous_status,
+        new_status=listing.status,
+        metadata=event_metadata,
+    )
+    _record_audit_and_domain(
+        actor=command.actor,
+        action="secondary_market.purchase_completed",
+        event_type="SecondaryMarketPurchaseCompleted",
+        listing=listing,
+        metadata=event_metadata,
+    )
+    return cast(SecondaryMarketPurchase, purchase)
 
 
 def list_active_secondary_market_listings(
