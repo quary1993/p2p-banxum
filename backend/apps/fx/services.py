@@ -11,13 +11,14 @@ from typing import Any, cast
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models import Model, Sum
+from django.db.models import Model, QuerySet, Sum
 
 from backend.apps.fx.models import (
     FxEvent,
     FxEventType,
     FxExchange,
     FxExternalSettlement,
+    FxExternalSettlementExchange,
     FxExternalSettlementStatus,
     FxQuote,
 )
@@ -132,6 +133,15 @@ class FxRealizedSettlementReport:
     actual_bought_by_currency_minor: dict[str, int]
     fees_by_currency_minor: dict[str, int]
     residual_by_currency_minor: dict[str, int]
+
+
+@dataclass(frozen=True, slots=True)
+class FxExpectedSettlementBatch:
+    exchanges: list[FxExchange]
+    expected_sold_amount_minor: int
+    expected_bought_amount_minor: int
+    expected_target_credited_minor: int
+    expected_fee_minor: int
 
 
 def _ledger_services() -> Any:
@@ -290,9 +300,6 @@ def _external_settlement_request_fingerprint(
     bought_currency_code: str,
     sold_amount_minor: int,
     bought_amount_minor: int,
-    expected_sold_amount_minor: int,
-    expected_bought_amount_minor: int,
-    expected_fee_minor: int,
     idempotency_key: str,
 ) -> str:
     return _stable_json_fingerprint(
@@ -302,9 +309,6 @@ def _external_settlement_request_fingerprint(
             "bought_currency": bought_currency_code,
             "sold_amount_minor": sold_amount_minor,
             "bought_amount_minor": bought_amount_minor,
-            "expected_sold_amount_minor": expected_sold_amount_minor,
-            "expected_bought_amount_minor": expected_bought_amount_minor,
-            "expected_fee_minor": expected_fee_minor,
             "start_date": command.start_date.isoformat(),
             "end_date": command.end_date.isoformat(),
             "booking_date": command.booking_date.isoformat(),
@@ -420,7 +424,79 @@ def _exchange_date_range_bounds(start_date: date, end_date: date) -> tuple[datet
     return start, end
 
 
-def _expected_pair_totals(
+def _unsettled_exchanges_in_range(start_date: date, end_date: date) -> QuerySet[FxExchange]:
+    start, end = _exchange_date_range_bounds(start_date, end_date)
+    return FxExchange.objects.filter(
+        executed_at__gte=start,
+        executed_at__lt=end,
+        settlement_links__isnull=True,
+    )
+
+
+def _expected_pair_batch(
+    *,
+    sold_currency_code: str,
+    bought_currency_code: str,
+    start_date: date,
+    end_date: date,
+) -> FxExpectedSettlementBatch:
+    start, end = _exchange_date_range_bounds(start_date, end_date)
+    exchanges = list(
+        FxExchange.objects.select_for_update()
+        .filter(
+            source_currency_id=sold_currency_code,
+            target_currency_id=bought_currency_code,
+            executed_at__gte=start,
+            executed_at__lt=end,
+            settlement_links__isnull=True,
+        )
+        .order_by("executed_at", "id")
+    )
+    return FxExpectedSettlementBatch(
+        exchanges=exchanges,
+        expected_sold_amount_minor=sum(exchange.source_amount_minor for exchange in exchanges),
+        expected_bought_amount_minor=sum(
+            exchange.gross_target_amount_minor for exchange in exchanges
+        ),
+        expected_target_credited_minor=sum(exchange.target_amount_minor for exchange in exchanges),
+        expected_fee_minor=sum(exchange.fee_minor for exchange in exchanges),
+    )
+
+
+def _create_external_settlement_exchange_links(
+    *,
+    settlement: FxExternalSettlement,
+    exchanges: list[FxExchange],
+    settled_at: datetime,
+) -> None:
+    try:
+        with transaction.atomic():
+            FxExternalSettlementExchange.objects.bulk_create(
+                [
+                    FxExternalSettlementExchange(
+                        external_settlement=settlement,
+                        exchange=exchange,
+                        source_amount_minor=exchange.source_amount_minor,
+                        gross_target_amount_minor=exchange.gross_target_amount_minor,
+                        target_amount_minor=exchange.target_amount_minor,
+                        fee_minor=exchange.fee_minor,
+                        settled_at=settled_at,
+                        metadata={
+                            "quote_id": str(exchange.quote_id),
+                            "source_currency": exchange.source_currency_id,
+                            "target_currency": exchange.target_currency_id,
+                        },
+                    )
+                    for exchange in exchanges
+                ]
+            )
+    except IntegrityError as exc:
+        raise FxValidationError(
+            "One or more FX exchanges in this date range were already settled."
+        ) from exc
+
+
+def _expected_unsettled_totals(
     *,
     sold_currency_code: str,
     bought_currency_code: str,
@@ -433,6 +509,7 @@ def _expected_pair_totals(
         target_currency_id=bought_currency_code,
         executed_at__gte=start,
         executed_at__lt=end,
+        settlement_links__isnull=True,
     ).aggregate(
         sold=Sum("source_amount_minor"),
         bought=Sum("gross_target_amount_minor"),
@@ -841,9 +918,7 @@ def create_fx_delta_report(
         raise FxAuthorizationError("Only an active admin can inspect FX delta reports.")
     if end_date < start_date:
         raise FxValidationError("End date cannot be before start date.")
-    start, _ = _business_day_bounds(start_date)
-    _, end = _business_day_bounds(end_date)
-    exchanges = FxExchange.objects.filter(executed_at__gte=start, executed_at__lt=end)
+    exchanges = _unsettled_exchanges_in_range(start_date, end_date)
     source_sold: dict[str, int] = {}
     gross_target_bought: dict[str, int] = {}
     target_credited: dict[str, int] = {}
@@ -917,36 +992,12 @@ def declare_fx_external_settlement(
     if not collection_account_identifier:
         raise FxValidationError("Collection account identifier is required.")
     idempotency_key = _clean_idempotency_key(command.idempotency_key)
-    (
-        expected_sold_amount_minor,
-        expected_bought_amount_minor,
-        expected_target_credited_minor,
-        expected_fee_minor,
-    ) = _expected_pair_totals(
-        sold_currency_code=sold_currency.code,
-        bought_currency_code=bought_currency.code,
-        start_date=command.start_date,
-        end_date=command.end_date,
-    )
-    if expected_sold_amount_minor <= 0 or expected_bought_amount_minor <= 0:
-        raise FxValidationError("No internal FX exchanges exist for this pair and date range.")
-    sold_currency_residual_minor = expected_sold_amount_minor - sold_amount_minor
-    bought_currency_residual_minor = bought_amount_minor - expected_bought_amount_minor
-    actual_rate = _actual_rate(
-        sold_currency=sold_currency,
-        bought_currency=bought_currency,
-        sold_amount_minor=sold_amount_minor,
-        bought_amount_minor=bought_amount_minor,
-    )
     request_fingerprint = _external_settlement_request_fingerprint(
         command,
         sold_currency_code=sold_currency.code,
         bought_currency_code=bought_currency.code,
         sold_amount_minor=sold_amount_minor,
         bought_amount_minor=bought_amount_minor,
-        expected_sold_amount_minor=expected_sold_amount_minor,
-        expected_bought_amount_minor=expected_bought_amount_minor,
-        expected_fee_minor=expected_fee_minor,
         idempotency_key=idempotency_key,
     )
     existing = _existing_external_settlement_for_idempotency(
@@ -955,6 +1006,28 @@ def declare_fx_external_settlement(
     )
     if existing is not None:
         return existing
+    batch = _expected_pair_batch(
+        sold_currency_code=sold_currency.code,
+        bought_currency_code=bought_currency.code,
+        start_date=command.start_date,
+        end_date=command.end_date,
+    )
+    expected_sold_amount_minor = batch.expected_sold_amount_minor
+    expected_bought_amount_minor = batch.expected_bought_amount_minor
+    expected_target_credited_minor = batch.expected_target_credited_minor
+    expected_fee_minor = batch.expected_fee_minor
+    if expected_sold_amount_minor <= 0 or expected_bought_amount_minor <= 0:
+        raise FxValidationError(
+            "No unsettled internal FX exchanges exist for this pair and date range."
+        )
+    sold_currency_residual_minor = expected_sold_amount_minor - sold_amount_minor
+    bought_currency_residual_minor = bought_amount_minor - expected_bought_amount_minor
+    actual_rate = _actual_rate(
+        sold_currency=sold_currency,
+        bought_currency=bought_currency,
+        sold_amount_minor=sold_amount_minor,
+        bought_amount_minor=bought_amount_minor,
+    )
 
     as_of = command.as_of or now_utc()
     settlement_id = uuid.uuid5(
@@ -965,6 +1038,8 @@ def declare_fx_external_settlement(
         REQUEST_FINGERPRINT_METADATA_KEY: request_fingerprint,
         "pair": pair,
         "expected_target_credited_minor": expected_target_credited_minor,
+        "settled_exchange_ids": [str(exchange.id) for exchange in batch.exchanges],
+        "settled_exchange_count": len(batch.exchanges),
         "sold_currency_residual_policy": (
             "expected sold minus actual sold; positive means source-currency clearing remains"
         ),
@@ -1000,6 +1075,7 @@ def declare_fx_external_settlement(
                     "expected_fee_minor": expected_fee_minor,
                     "sold_currency_residual_minor": sold_currency_residual_minor,
                     "bought_currency_residual_minor": bought_currency_residual_minor,
+                    "settled_exchange_ids": [str(exchange.id) for exchange in batch.exchanges],
                 },
             )
         )
@@ -1041,6 +1117,11 @@ def declare_fx_external_settlement(
                     metadata=settlement_metadata,
                     idempotency_key=idempotency_key,
                 ),
+            )
+            _create_external_settlement_exchange_links(
+                settlement=settlement,
+                exchanges=batch.exchanges,
+                settled_at=as_of,
             )
     except IntegrityError:
         existing_after_race = _existing_external_settlement_for_idempotency(

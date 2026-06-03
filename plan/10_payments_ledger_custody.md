@@ -563,10 +563,10 @@ Owner: Garanta finance / operations / product.
 Decision:
 Investor currency exchange is instant in the platform. When an investor accepts an FX quote, the platform immediately debits the source currency balance and credits the target currency balance according to the accepted quote.
 
-Admin settles the aggregate external currency exchange at the end of the day or at the beginning of the next day based on the platform FX delta reports.
+Admin settles the aggregate external currency exchange at the end of the day or at the beginning of the next day based on the platform FX delta reports. FX delta reports show internal FX exchanges that have not yet been linked to an external settlement. Once an external settlement is declared, each included exchange is linked to that settlement and excluded from later delta reports.
 
 Rationale:
-Instant platform FX gives investors immediate usability, while admin FX delta reports allow Garanta to offset currency exposure operationally.
+Instant platform FX gives investors immediate usability, while admin FX delta reports allow Garanta to offset currency exposure operationally. Each internal FX exchange may be linked to only one external settlement, preventing overlapping date ranges from double-settling the same exchange.
 
 Follow-ups:
 No intraday/overnight unhedged exposure alerts are required at launch. Quote lock/expiry is defined in PAY-DEC-018 as 1 minute. External execution differences are handled through PAY-DEC-027.
@@ -644,7 +644,7 @@ Owner: Garanta finance / operations / accounting.
 Decision:
 Investor FX remains instant inside the platform. Accepted user FX quotes immediately debit source-currency balance lots, credit target-currency balance lots, and post configured FX fee revenue.
 
-Admin later queries the FX delta report for a day or period, checks/downloads any necessary report, executes the external FX transaction needed to offset the platform's user FX activity, and declares the `currency_exchange_external_settlement` bank operation. The declared external FX settlement stores sold currency, sold amount, bought currency, bought amount, booking date, value date, bank/PSP references, evidence, and notes. The platform infers the actual executed conversion rate including all fees/costs from the final realized amounts declared by admin.
+Admin later queries the unsettled FX delta report for a day or period, checks/downloads any necessary report, executes the external FX transaction needed to offset the platform's unsettled user FX activity, and declares the `currency_exchange_external_settlement` bank operation. The declared external FX settlement stores sold currency, sold amount, bought currency, bought amount, booking date, value date, bank/PSP references, evidence, and notes. The platform links every included internal exchange to the settlement so it cannot be settled again through an overlapping range. The platform infers the actual executed conversion rate including all fees/costs from the final realized amounts declared by admin.
 
 After the external FX settlement is declared, the platform calculates realized FX result by comparing:
 

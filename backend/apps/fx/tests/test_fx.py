@@ -14,7 +14,14 @@ from django.test import Client
 from django.test.utils import override_settings
 from django.utils import timezone
 
-from backend.apps.fx.models import FxEvent, FxEventType, FxExchange, FxExternalSettlement, FxQuote
+from backend.apps.fx.models import (
+    FxEvent,
+    FxEventType,
+    FxExchange,
+    FxExternalSettlement,
+    FxExternalSettlementExchange,
+    FxQuote,
+)
 from backend.apps.fx.services import (
     DeclareFxExternalSettlementCommand,
     ExecuteFxQuoteCommand,
@@ -489,6 +496,11 @@ def test_declare_fx_external_settlement_posts_cash_and_reports_realized_residual
     )
     assert settlement.sold_bank_operation.amount_minor == 12_000_00
     assert settlement.bought_bank_operation.amount_minor == 13_180_00
+    settlement_links = list(settlement.settled_exchanges.select_related("exchange"))
+    assert len(settlement_links) == 1
+    assert settlement_links[0].exchange.quote_id == quote.id
+    assert settlement_links[0].source_amount_minor == 12_000_00
+    assert settlement.metadata["settled_exchange_ids"] == [str(settlement_links[0].exchange_id)]
 
     sold_postings = list(settlement.sold_journal_entry.postings.select_related("account"))
     assert {
@@ -549,6 +561,36 @@ def test_declare_fx_external_settlement_posts_cash_and_reports_realized_residual
     assert realized_report.actual_bought_by_currency_minor == {"EUR": 13_180_00}
     assert realized_report.fees_by_currency_minor == {"EUR": 198_00}
     assert realized_report.residual_by_currency_minor == {"CHF": 0, "EUR": -20_00}
+
+    post_settlement_delta_report = create_fx_delta_report(
+        actor=admin_user,
+        start_date=as_of.date(),
+        end_date=as_of.date(),
+    )
+    assert post_settlement_delta_report.exchange_count == 0
+    assert post_settlement_delta_report.source_sold_by_currency_minor == {}
+    assert post_settlement_delta_report.net_external_settlement_by_currency_minor == {}
+
+    overlapping_command = DeclareFxExternalSettlementCommand(
+        actor=admin_user,
+        sold_currency="CHF",
+        bought_currency="EUR",
+        sold_amount_minor=12_000_00,
+        bought_amount_minor=13_180_00,
+        start_date=as_of.date(),
+        end_date=as_of.date(),
+        booking_date=as_of.date(),
+        value_date=as_of.date(),
+        collection_account_identifier="FX-COLLECTION",
+        bank_reference="FX-BANK-OVERLAP",
+        payment_reference="FX-PAYMENT-OVERLAP",
+        evidence_reference="statement:fx-bank-overlap",
+        notes="Overlapping date range should not resettle exchange.",
+        idempotency_key="fx-external-settlement-overlap",
+        as_of=as_of,
+    )
+    with pytest.raises(FxValidationError, match="No unsettled internal FX exchanges"):
+        declare_fx_external_settlement(overlapping_command)
 
     mismatch_command = DeclareFxExternalSettlementCommand(
         actor=admin_user,
@@ -836,10 +878,16 @@ def test_fx_append_only_records_have_app_and_db_guards(
         )
     )
     event = FxEvent.objects.get(event_type=FxEventType.EXCHANGE_COMPLETED)
+    settlement_link = FxExternalSettlementExchange.objects.get(external_settlement=settlement)
     guarded_records = [
         (quote, FxQuote, "fx_fxquote"),
         (exchange, FxExchange, "fx_fxexchange"),
         (settlement, FxExternalSettlement, "fx_fxexternalsettlement"),
+        (
+            settlement_link,
+            FxExternalSettlementExchange,
+            "fx_fxexternalsettlementexchange",
+        ),
         (event, FxEvent, "fx_fxevent"),
     ]
 

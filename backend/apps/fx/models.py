@@ -201,6 +201,45 @@ class FxExternalSettlement(AppendOnlyModel, TimestampedModel):
         ]
 
 
+class FxExternalSettlementExchange(AppendOnlyModel, TimestampedModel):
+    external_settlement = models.ForeignKey(
+        FxExternalSettlement,
+        on_delete=models.PROTECT,
+        related_name="settled_exchanges",
+    )
+    exchange = models.ForeignKey(
+        FxExchange,
+        on_delete=models.PROTECT,
+        related_name="settlement_links",
+    )
+    source_amount_minor = models.BigIntegerField()
+    gross_target_amount_minor = models.BigIntegerField()
+    target_amount_minor = models.BigIntegerField()
+    fee_minor = models.BigIntegerField()
+    settled_at = models.DateTimeField()
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["settled_at", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["exchange"],
+                name="unique_external_settlement_per_fx_exchange",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(source_amount_minor__gt=0)
+                & models.Q(gross_target_amount_minor__gt=0)
+                & models.Q(target_amount_minor__gt=0)
+                & models.Q(fee_minor__gte=0),
+                name="fx_settlement_exchange_amounts_valid",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["external_settlement", "settled_at"]),
+            models.Index(fields=["exchange"]),
+        ]
+
+
 class FxEvent(AppendOnlyModel):
     quote = models.ForeignKey(
         FxQuote,
