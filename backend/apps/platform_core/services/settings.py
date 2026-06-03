@@ -82,6 +82,18 @@ DEFAULT_PLATFORM_SETTINGS = (
     ),
     SettingDefinition("secondary_market.maker_fee_bps", 25, "integer", "Seller/maker fee."),
     SettingDefinition("secondary_market.taker_fee_bps", 75, "integer", "Buyer/taker fee."),
+    SettingDefinition(
+        "secondary_market.minimum_maker_fee_minor_by_currency",
+        {},
+        "json",
+        "Optional seller/maker minimum fee by currency in minor units.",
+    ),
+    SettingDefinition(
+        "secondary_market.minimum_taker_fee_minor_by_currency",
+        {},
+        "json",
+        "Optional buyer/taker minimum fee by currency in minor units.",
+    ),
     SettingDefinition("payments.lender_payment_fee_minor", 0, "integer", "Lender payment fee."),
     SettingDefinition(
         "loans.validation_limits",

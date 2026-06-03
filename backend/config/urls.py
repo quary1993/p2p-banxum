@@ -15,6 +15,7 @@ urlpatterns = [
     path("api/v1/entities/", include("backend.apps.entities.api.urls")),
     path("api/v1/loans/", include("backend.apps.loans.api.urls")),
     path("api/v1/marketplace/primary/", include("backend.apps.marketplace_primary.api.urls")),
+    path("api/v1/marketplace/secondary/", include("backend.apps.secondary_market.api.urls")),
     path("api/v1/ledger/", include("backend.apps.ledger.api.urls")),
     path("api/v1/servicing/", include("backend.apps.servicing.api.urls")),
     path("api/v1/fx/", include("backend.apps.fx.api.urls")),
