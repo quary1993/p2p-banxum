@@ -17,13 +17,16 @@ from backend.apps.platform_core.models.base import AppendOnlyViolation
 from backend.apps.servicing.models import (
     BorrowerRepaymentEvent,
     BorrowerRepaymentEventType,
+    InvestorRecoveryDistributionLine,
     InvestorRepaymentDistributionLine,
+    LoanRecoveryEvent,
     LoanRiskNote,
     LoanWriteOffEvent,
 )
 from backend.apps.servicing.services import (
     AddLoanRiskNoteCommand,
     RecordBorrowerRepaymentCommand,
+    RecordLoanRecoveryPaymentCommand,
     RecordLoanWriteOffCommand,
     ScanLoanServicingStatusesCommand,
     ServicingAuthorizationError,
@@ -31,6 +34,7 @@ from backend.apps.servicing.services import (
     add_loan_risk_note,
     list_public_loan_risk_notes,
     record_borrower_repayment,
+    record_loan_recovery_payment,
     record_loan_write_off,
     scan_loan_servicing_statuses,
 )
@@ -1044,6 +1048,260 @@ def test_risk_note_api_redacts_public_response(
 
 
 @pytest.mark.django_db
+def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+    scan_loan_servicing_statuses(
+        ScanLoanServicingStatusesCommand(
+            actor=admin_user,
+            as_of_date=date(2026, 3, 16),
+            loan_ids=(str(loan.pk),),
+        )
+    )
+
+    result = record_loan_recovery_payment(
+        RecordLoanRecoveryPaymentCommand(
+            actor=admin_user,
+            loan_id=str(loan.pk),
+            gross_recovered_minor=10_000_00,
+            externally_deducted_costs_minor=1_000_00,
+            third_party_costs_from_received_minor=500_00,
+            recovery_fee_applied=True,
+            recovery_fee_bps=1000,
+            principal_recovered_minor=6_000_00,
+            contractual_interest_recovered_minor=1_000_00,
+            default_interest_recovered_minor=500_00,
+            penalties_recovered_minor=100_00,
+            other_costs_recovered_minor=50_00,
+            booking_date=date(2026, 3, 20),
+            value_date=date(2026, 3, 20),
+            collection_account_identifier="CH00GARANTARECOVERY",
+            payer_name="Recovery counsel",
+            payer_account_identifier="CH0000000000000000009",
+            bank_reference="REC-2026-001",
+            payment_reference="LOAN-RECOVERY",
+            evidence_reference="recovery-pack-1",
+            notes="Partial recovery after enforcement.",
+            idempotency_key="servicing-recovery-1",
+        )
+    )
+
+    event = result.recovery_event
+    assert event.gross_recovered_minor == 10_000_00
+    assert event.externally_deducted_costs_minor == 1_000_00
+    assert event.net_received_minor == 9_000_00
+    assert event.third_party_costs_from_received_minor == 500_00
+    assert event.recovery_fee_base_minor == 8_500_00
+    assert event.recovery_fee_minor == 850_00
+    assert event.net_available_for_distribution_minor == 7_650_00
+    assert event.rounding_difference_minor == 0
+    assert event.recovery_waterfall_config["allocation_method"] == (
+        "pro_rata_by_current_principal"
+    )
+
+    lines = {str(line.investor_user_id): line for line in result.distribution_lines}
+    investor_one_line = lines[str(investor_one.pk)]
+    investor_two_line = lines[str(investor_two.pk)]
+    assert investor_one_line.amount_minor == 2_550_00
+    assert investor_two_line.amount_minor == 5_100_00
+    assert investor_one_line.principal_minor == 2_000_00
+    assert investor_two_line.principal_minor == 4_000_00
+    assert investor_one_line.contractual_interest_minor == 333_33
+    assert investor_two_line.contractual_interest_minor == 666_67
+    assert investor_one_line.default_interest_minor == 166_67
+    assert investor_two_line.default_interest_minor == 333_33
+    assert investor_one_line.penalties_minor == 33_33
+    assert investor_two_line.penalties_minor == 66_67
+    assert investor_one_line.other_costs_minor == 16_67
+    assert investor_two_line.other_costs_minor == 33_33
+    assert {line.balance_lot.source_type for line in lines.values()} == {
+        "recovery_distribution"
+    }
+    assert {line.balance_lot.available_amount_minor for line in lines.values()} == {
+        2_550_00,
+        5_100_00,
+    }
+
+    holding_model = apps.get_model("holdings", "InvestorLoanHolding")
+    holdings = {
+        str(holding.investor_user_id): holding
+        for holding in holding_model.objects.filter(loan=loan).order_by("investor_user_id")
+    }
+    assert holdings[str(investor_one.pk)].current_principal_minor == 8_000_00
+    assert holdings[str(investor_two.pk)].current_principal_minor == 16_000_00
+
+    postings = {
+        (
+            posting.account.account_type,
+            posting.account.owner_type,
+            posting.side,
+            posting.amount_minor,
+        )
+        for posting in event.journal_entry.postings.select_related("account")
+    }
+    assert ("collection_cash", "", "debit", 9_000_00) in postings
+    assert ("platform_fee_revenue", "garanta", "credit", 850_00) in postings
+    assert ("recovery_distribution_payable", "loan", "credit", 500_00) in postings
+
+    ledger = import_module("backend.apps.ledger.services")
+    snapshot = ledger.create_reconciliation_snapshot(
+        ledger.CreateReconciliationSnapshotCommand(
+            actor=admin_user,
+            currency="CHF",
+            as_of_date=date(2026, 3, 20),
+            bank_stated_balance_minor=9_000_00,
+        )
+    )
+    assert snapshot.reconciliation_difference_minor == 0
+    assert snapshot.garanta_accrued_revenue_minor == 850_00
+    assert snapshot.metadata["platform_fee_revenue_minor"] == 850_00
+    assert snapshot.metadata["recovery_distribution_payable_minor"] == 500_00
+    assert AuditEvent.objects.filter(action="servicing.loan_recovery_recorded").exists()
+    assert DomainEvent.objects.filter(event_type="LoanRecoveryRecorded").exists()
+    assert DomainEvent.objects.filter(event_type="LoanRecoveryDistributed").exists()
+
+    replay = record_loan_recovery_payment(
+        RecordLoanRecoveryPaymentCommand(
+            actor=admin_user,
+            loan_id=str(loan.pk),
+            gross_recovered_minor=10_000_00,
+            externally_deducted_costs_minor=1_000_00,
+            third_party_costs_from_received_minor=500_00,
+            recovery_fee_applied=True,
+            recovery_fee_bps=1000,
+            principal_recovered_minor=6_000_00,
+            contractual_interest_recovered_minor=1_000_00,
+            default_interest_recovered_minor=500_00,
+            penalties_recovered_minor=100_00,
+            other_costs_recovered_minor=50_00,
+            booking_date=date(2026, 3, 20),
+            value_date=date(2026, 3, 20),
+            collection_account_identifier="CH00GARANTARECOVERY",
+            payer_name="Recovery counsel",
+            payer_account_identifier="CH0000000000000000009",
+            bank_reference="REC-2026-001",
+            payment_reference="LOAN-RECOVERY",
+            evidence_reference="recovery-pack-1",
+            notes="Partial recovery after enforcement.",
+            idempotency_key="servicing-recovery-1",
+        )
+    )
+    assert replay.recovery_event.id == event.id
+
+
+@pytest.mark.django_db
+def test_recovery_payment_requires_defaulted_loan_and_reconciled_category_split(
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+
+    with pytest.raises(ServicingValidationError, match="defaulted or written-off"):
+        record_loan_recovery_payment(
+            RecordLoanRecoveryPaymentCommand(
+                actor=admin_user,
+                loan_id=str(loan.pk),
+                gross_recovered_minor=1_000_00,
+                externally_deducted_costs_minor=0,
+                third_party_costs_from_received_minor=0,
+                recovery_fee_applied=False,
+                recovery_fee_bps=0,
+                principal_recovered_minor=1_000_00,
+                contractual_interest_recovered_minor=0,
+                default_interest_recovered_minor=0,
+                penalties_recovered_minor=0,
+                other_costs_recovered_minor=0,
+                booking_date=date(2026, 3, 20),
+                value_date=date(2026, 3, 20),
+                collection_account_identifier="CH00GARANTARECOVERY",
+                payer_name="Recovery counsel",
+                idempotency_key="servicing-recovery-funded",
+            )
+        )
+
+    scan_loan_servicing_statuses(
+        ScanLoanServicingStatusesCommand(
+            actor=admin_user,
+            as_of_date=date(2026, 3, 16),
+            loan_ids=(str(loan.pk),),
+        )
+    )
+    with pytest.raises(ServicingValidationError, match="category split"):
+        record_loan_recovery_payment(
+            RecordLoanRecoveryPaymentCommand(
+                actor=admin_user,
+                loan_id=str(loan.pk),
+                gross_recovered_minor=1_000_00,
+                externally_deducted_costs_minor=0,
+                third_party_costs_from_received_minor=0,
+                recovery_fee_applied=False,
+                recovery_fee_bps=0,
+                principal_recovered_minor=900_00,
+                contractual_interest_recovered_minor=0,
+                default_interest_recovered_minor=0,
+                penalties_recovered_minor=0,
+                other_costs_recovered_minor=0,
+                booking_date=date(2026, 3, 20),
+                value_date=date(2026, 3, 20),
+                collection_account_identifier="CH00GARANTARECOVERY",
+                payer_name="Recovery counsel",
+                idempotency_key="servicing-recovery-mismatch",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_recovery_payment_admin_api(
+    client: Client,
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+    scan_loan_servicing_statuses(
+        ScanLoanServicingStatusesCommand(
+            actor=admin_user,
+            as_of_date=date(2026, 3, 16),
+            loan_ids=(str(loan.pk),),
+        )
+    )
+    client.force_login(cast(Any, admin_user))
+
+    response = client.post(
+        "/api/v1/servicing/admin/recoveries/",
+        data={
+            "loan_id": str(loan.pk),
+            "gross_recovered_minor": 3_000_00,
+            "externally_deducted_costs_minor": 0,
+            "third_party_costs_from_received_minor": 0,
+            "recovery_fee_applied": False,
+            "recovery_fee_bps": 0,
+            "principal_recovered_minor": 3_000_00,
+            "contractual_interest_recovered_minor": 0,
+            "default_interest_recovered_minor": 0,
+            "penalties_recovered_minor": 0,
+            "other_costs_recovered_minor": 0,
+            "booking_date": "2026-03-20",
+            "value_date": "2026-03-20",
+            "collection_account_identifier": "CH00GARANTARECOVERY",
+            "payer_name": "Recovery counsel",
+            "idempotency_key": "servicing-recovery-api",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["recovery_event"]["loan_id"] == str(loan.pk)
+    assert payload["recovery_event"]["net_available_for_distribution_minor"] == 3_000_00
+    assert sum(line["principal_minor"] for line in payload["distribution_lines"]) == 3_000_00
+
+
+@pytest.mark.django_db
 def test_record_write_off_changes_defaulted_loan_to_written_off_and_is_idempotent(
     admin_user: Model,
     investor_one: Model,
@@ -1281,5 +1539,73 @@ def test_risk_note_and_write_off_records_have_app_and_db_guards(
             cursor.execute(
                 "DELETE FROM servicing_loanwriteoffevent WHERE id = %s",
                 [write_off.id.hex],
+            )
+    assert "append-only" in str(delete_error.value)
+
+
+@pytest.mark.django_db
+def test_recovery_records_have_app_and_db_guards(
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+    scan_loan_servicing_statuses(
+        ScanLoanServicingStatusesCommand(
+            actor=admin_user,
+            as_of_date=date(2026, 3, 16),
+            loan_ids=(str(loan.pk),),
+        )
+    )
+    result = record_loan_recovery_payment(
+        RecordLoanRecoveryPaymentCommand(
+            actor=admin_user,
+            loan_id=str(loan.pk),
+            gross_recovered_minor=1_000_00,
+            externally_deducted_costs_minor=0,
+            third_party_costs_from_received_minor=0,
+            recovery_fee_applied=False,
+            recovery_fee_bps=0,
+            principal_recovered_minor=1_000_00,
+            contractual_interest_recovered_minor=0,
+            default_interest_recovered_minor=0,
+            penalties_recovered_minor=0,
+            other_costs_recovered_minor=0,
+            booking_date=date(2026, 3, 20),
+            value_date=date(2026, 3, 20),
+            collection_account_identifier="CH00GARANTARECOVERY",
+            payer_name="Recovery counsel",
+            idempotency_key="servicing-append-recovery",
+        )
+    )
+    recovery_event = result.recovery_event
+    recovery_line = result.distribution_lines[0]
+
+    with pytest.raises(AppendOnlyViolation):
+        recovery_event.notes = "mutated"
+        recovery_event.save()
+    with pytest.raises(AppendOnlyViolation):
+        recovery_line.metadata = {"mutated": True}
+        recovery_line.save()
+    with pytest.raises(AppendOnlyViolation):
+        LoanRecoveryEvent.objects.filter(id=recovery_event.id).update(notes="mutated")
+    with pytest.raises(AppendOnlyViolation):
+        InvestorRecoveryDistributionLine.objects.filter(id=recovery_line.id).update(
+            metadata={"mutated": True}
+        )
+
+    with pytest.raises(DatabaseError) as update_error, transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE servicing_loanrecoveryevent SET notes = %s WHERE id = %s",
+                ["mutated", recovery_event.id.hex],
+            )
+    assert "append-only" in str(update_error.value)
+
+    with pytest.raises(DatabaseError) as delete_error, transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM servicing_investorrecoverydistributionline WHERE id = %s",
+                [recovery_line.id.hex],
             )
     assert "append-only" in str(delete_error.value)

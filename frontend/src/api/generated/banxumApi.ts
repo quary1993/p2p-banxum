@@ -1004,6 +1004,25 @@ export interface InvestorPayoutInstructionRegisterResponse {
   payout_instruction: InvestorPayoutInstruction;
 }
 
+export interface InvestorRecoveryDistributionLine {
+  id: string;
+  recovery_event_id: string;
+  holding_id: string;
+  investor_user_id: string;
+  currency: string;
+  balance_lot_id: string;
+  amount_minor: number;
+  principal_minor: number;
+  contractual_interest_minor: number;
+  default_interest_minor: number;
+  penalties_minor: number;
+  other_costs_minor: number;
+  current_principal_before_minor: number;
+  current_principal_after_minor: number;
+  metadata: unknown;
+  occurred_at: string;
+}
+
 export interface InvestorRepaymentDistributionLine {
   id: string;
   repayment_event_id: string;
@@ -1409,6 +1428,91 @@ export interface LoanInstallment {
   metadata: unknown;
   created_at: string;
   updated_at: string;
+}
+
+export interface LoanRecoveryEvent {
+  id: string;
+  loan_id: string;
+  borrower_id: string;
+  currency: string;
+  gross_recovered_minor: number;
+  externally_deducted_costs_minor: number;
+  net_received_minor: number;
+  third_party_costs_from_received_minor: number;
+  recovery_fee_applied: boolean;
+  recovery_fee_bps: number;
+  recovery_fee_base_minor: number;
+  recovery_fee_minor: number;
+  net_available_for_distribution_minor: number;
+  principal_recovered_minor: number;
+  contractual_interest_recovered_minor: number;
+  default_interest_recovered_minor: number;
+  penalties_recovered_minor: number;
+  other_costs_recovered_minor: number;
+  rounding_difference_minor: number;
+  booking_date: string;
+  value_date: string;
+  received_at: string;
+  bank_operation_id: string;
+  journal_entry_id: string;
+  recovery_waterfall_config: unknown;
+  evidence_reference: string;
+  notes: string;
+  created_by_admin_id: string;
+  metadata: unknown;
+  idempotency_key: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LoanRecoveryPaymentRecordRequest {
+  loan_id: string;
+  /** @minimum 1 */
+  gross_recovered_minor: number;
+  /** @minimum 0 */
+  externally_deducted_costs_minor?: number;
+  /** @minimum 0 */
+  third_party_costs_from_received_minor?: number;
+  recovery_fee_applied?: boolean;
+  /**
+   * @minimum 0
+   * @maximum 10000
+   */
+  recovery_fee_bps?: number;
+  /** @minimum 0 */
+  principal_recovered_minor: number;
+  /** @minimum 0 */
+  contractual_interest_recovered_minor?: number;
+  /** @minimum 0 */
+  default_interest_recovered_minor?: number;
+  /** @minimum 0 */
+  penalties_recovered_minor?: number;
+  /** @minimum 0 */
+  other_costs_recovered_minor?: number;
+  booking_date: string;
+  value_date: string;
+  /** @maxLength 128 */
+  collection_account_identifier: string;
+  /** @maxLength 255 */
+  payer_name: string;
+  /** @maxLength 128 */
+  payer_account_identifier?: string;
+  /** @maxLength 160 */
+  bank_reference?: string;
+  /** @maxLength 160 */
+  payment_reference?: string;
+  /** @maxLength 255 */
+  evidence_reference?: string;
+  notes?: string;
+  recovery_waterfall_config?: unknown;
+  metadata?: unknown;
+  /** @maxLength 160 */
+  idempotency_key: string;
+}
+
+export interface LoanRecoveryPaymentRecordResponse {
+  recovery_event: LoanRecoveryEvent;
+  distribution_lines: InvestorRecoveryDistributionLine[];
 }
 
 export interface LoanRiskNote {
@@ -7380,6 +7484,65 @@ const {mutation: mutationOptions} = options ?
       return useMutation(mutationOptions, queryClient);
     }
 
+export const v1ServicingAdminRecoveriesCreate = (
+    loanRecoveryPaymentRecordRequest: LoanRecoveryPaymentRecordRequest,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<LoanRecoveryPaymentRecordResponse>(
+      {url: `/api/v1/servicing/admin/recoveries/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: loanRecoveryPaymentRecordRequest, signal
+    },
+      );
+    }
+
+
+
+export const getV1ServicingAdminRecoveriesCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1ServicingAdminRecoveriesCreate>>, TError,{data: LoanRecoveryPaymentRecordRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1ServicingAdminRecoveriesCreate>>, TError,{data: LoanRecoveryPaymentRecordRequest}, TContext> => {
+
+const mutationKey = ['v1ServicingAdminRecoveriesCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1ServicingAdminRecoveriesCreate>>, {data: LoanRecoveryPaymentRecordRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1ServicingAdminRecoveriesCreate(data,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1ServicingAdminRecoveriesCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1ServicingAdminRecoveriesCreate>>>
+    export type V1ServicingAdminRecoveriesCreateMutationBody = LoanRecoveryPaymentRecordRequest
+    export type V1ServicingAdminRecoveriesCreateMutationError = unknown
+
+    export const useV1ServicingAdminRecoveriesCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1ServicingAdminRecoveriesCreate>>, TError,{data: LoanRecoveryPaymentRecordRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1ServicingAdminRecoveriesCreate>>,
+        TError,
+        {data: LoanRecoveryPaymentRecordRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1ServicingAdminRecoveriesCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+
 export const v1ServicingAdminRiskNotesList = (
     params: V1ServicingAdminRiskNotesListParams,
  signal?: AbortSignal
@@ -7867,6 +8030,8 @@ export const getV1MarketplaceSecondaryListingsCreateResponseMock = (overrideResp
 export const getV1MarketplaceSecondaryListingsPurchaseCreateResponseMock = (overrideResponse: Partial< SecondaryMarketPurchase > = {}): SecondaryMarketPurchase => ({id: faker.string.uuid(), listing_id: faker.string.uuid(), loan_id: faker.string.uuid(), buyer_holding_id: faker.string.uuid(), current_principal_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), price_bps: faker.number.int({min: undefined, max: undefined}), transfer_price_minor: faker.number.int({min: undefined, max: undefined}), discount_premium_bps: faker.number.int({min: undefined, max: undefined}), accrued_interest_minor: faker.number.int({min: undefined, max: undefined}), accrued_interest_from_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), accrued_interest_to_date: faker.date.past().toISOString().split('T')[0], taker_fee_bps: faker.number.int({min: undefined, max: undefined}), minimum_taker_fee_minor: faker.number.int({min: undefined, max: undefined}), taker_fee_minor: faker.number.int({min: undefined, max: undefined}), buyer_total_cost_minor: faker.number.int({min: undefined, max: undefined}), loan_status_at_purchase: faker.string.alpha({length: {min: 10, max: 20}}), days_past_due: faker.number.int({min: undefined, max: undefined}), last_payment_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), risk_acknowledgement_accepted: faker.datatype.boolean(), purchased_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
 
 export const getV1ServicingAdminBorrowerRepaymentsCreateResponseMock = (overrideResponse: Partial< BorrowerRepaymentRecordResponse > = {}): BorrowerRepaymentRecordResponse => ({repayment_event: {id: faker.string.uuid(), loan_id: faker.string.uuid(), installment_id: faker.string.uuid(), event_type: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), booking_date: faker.date.past().toISOString().split('T')[0], value_date: faker.date.past().toISOString().split('T')[0], received_at: `${faker.date.past().toISOString().split('.')[0]}Z`, expected_due_minor: faker.number.int({min: undefined, max: undefined}), interest_applied_minor: faker.number.int({min: undefined, max: undefined}), principal_applied_minor: faker.number.int({min: undefined, max: undefined}), future_principal_applied_minor: faker.number.int({min: undefined, max: undefined}), fees_applied_minor: faker.number.int({min: undefined, max: undefined}), penalties_applied_minor: faker.number.int({min: undefined, max: undefined}), remaining_installment_interest_minor: faker.number.int({min: undefined, max: undefined}), remaining_installment_principal_minor: faker.number.int({min: undefined, max: undefined}), warning_acknowledged: faker.datatype.boolean(), bank_operation_id: faker.string.uuid(), journal_entry_id: faker.string.uuid(), created_by_admin_id: faker.string.uuid(), notes: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, idempotency_key: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, distribution_lines: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), repayment_event_id: faker.string.uuid(), holding_id: faker.string.uuid(), investor_user_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), balance_lot_id: faker.string.uuid(), amount_minor: faker.number.int({min: undefined, max: undefined}), principal_minor: faker.number.int({min: undefined, max: undefined}), interest_minor: faker.number.int({min: undefined, max: undefined}), fee_minor: faker.number.int({min: undefined, max: undefined}), current_principal_before_minor: faker.number.int({min: undefined, max: undefined}), current_principal_after_minor: faker.number.int({min: undefined, max: undefined}), metadata: {}, occurred_at: `${faker.date.past().toISOString().split('.')[0]}Z`})), ...overrideResponse})
+
+export const getV1ServicingAdminRecoveriesCreateResponseMock = (overrideResponse: Partial< LoanRecoveryPaymentRecordResponse > = {}): LoanRecoveryPaymentRecordResponse => ({recovery_event: {id: faker.string.uuid(), loan_id: faker.string.uuid(), borrower_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), gross_recovered_minor: faker.number.int({min: undefined, max: undefined}), externally_deducted_costs_minor: faker.number.int({min: undefined, max: undefined}), net_received_minor: faker.number.int({min: undefined, max: undefined}), third_party_costs_from_received_minor: faker.number.int({min: undefined, max: undefined}), recovery_fee_applied: faker.datatype.boolean(), recovery_fee_bps: faker.number.int({min: undefined, max: undefined}), recovery_fee_base_minor: faker.number.int({min: undefined, max: undefined}), recovery_fee_minor: faker.number.int({min: undefined, max: undefined}), net_available_for_distribution_minor: faker.number.int({min: undefined, max: undefined}), principal_recovered_minor: faker.number.int({min: undefined, max: undefined}), contractual_interest_recovered_minor: faker.number.int({min: undefined, max: undefined}), default_interest_recovered_minor: faker.number.int({min: undefined, max: undefined}), penalties_recovered_minor: faker.number.int({min: undefined, max: undefined}), other_costs_recovered_minor: faker.number.int({min: undefined, max: undefined}), rounding_difference_minor: faker.number.int({min: undefined, max: undefined}), booking_date: faker.date.past().toISOString().split('T')[0], value_date: faker.date.past().toISOString().split('T')[0], received_at: `${faker.date.past().toISOString().split('.')[0]}Z`, bank_operation_id: faker.string.uuid(), journal_entry_id: faker.string.uuid(), recovery_waterfall_config: {}, evidence_reference: faker.string.alpha({length: {min: 10, max: 20}}), notes: faker.string.alpha({length: {min: 10, max: 20}}), created_by_admin_id: faker.string.uuid(), metadata: {}, idempotency_key: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, distribution_lines: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), recovery_event_id: faker.string.uuid(), holding_id: faker.string.uuid(), investor_user_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), balance_lot_id: faker.string.uuid(), amount_minor: faker.number.int({min: undefined, max: undefined}), principal_minor: faker.number.int({min: undefined, max: undefined}), contractual_interest_minor: faker.number.int({min: undefined, max: undefined}), default_interest_minor: faker.number.int({min: undefined, max: undefined}), penalties_minor: faker.number.int({min: undefined, max: undefined}), other_costs_minor: faker.number.int({min: undefined, max: undefined}), current_principal_before_minor: faker.number.int({min: undefined, max: undefined}), current_principal_after_minor: faker.number.int({min: undefined, max: undefined}), metadata: {}, occurred_at: `${faker.date.past().toISOString().split('.')[0]}Z`})), ...overrideResponse})
 
 export const getV1ServicingAdminRiskNotesListResponseMock = (): LoanRiskNote[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), loan_id: faker.string.uuid(), borrower_id: faker.string.uuid(), visibility: faker.string.alpha({length: {min: 10, max: 20}}), note_type: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), body: faker.string.alpha({length: {min: 10, max: 20}}), evidence_reference: faker.string.alpha({length: {min: 10, max: 20}}), created_by_admin_id: faker.string.uuid(), occurred_at: `${faker.date.past().toISOString().split('.')[0]}Z`, metadata: {}, idempotency_key: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`})))
 
@@ -8705,6 +8870,18 @@ export const getV1ServicingAdminBorrowerRepaymentsCreateMockHandler = (overrideR
   }, options)
 }
 
+export const getV1ServicingAdminRecoveriesCreateMockHandler = (overrideResponse?: LoanRecoveryPaymentRecordResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<LoanRecoveryPaymentRecordResponse> | LoanRecoveryPaymentRecordResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/servicing/admin/recoveries/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1ServicingAdminRecoveriesCreateResponseMock()),
+      { status: 201,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
 export const getV1ServicingAdminRiskNotesListMockHandler = (overrideResponse?: LoanRiskNote[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<LoanRiskNote[]> | LoanRiskNote[]), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/servicing/admin/risk-notes/', async (info) => {await delay(1000);
 
@@ -8834,6 +9011,7 @@ export const getBanxumApiMock = () => [
   getV1MarketplaceSecondaryListingsCreateMockHandler(),
   getV1MarketplaceSecondaryListingsPurchaseCreateMockHandler(),
   getV1ServicingAdminBorrowerRepaymentsCreateMockHandler(),
+  getV1ServicingAdminRecoveriesCreateMockHandler(),
   getV1ServicingAdminRiskNotesListMockHandler(),
   getV1ServicingAdminRiskNotesCreateMockHandler(),
   getV1ServicingAdminStatusScanCreateMockHandler(),

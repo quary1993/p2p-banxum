@@ -6,7 +6,9 @@ from rest_framework import serializers
 
 from backend.apps.servicing.models import (
     BorrowerRepaymentEvent,
+    InvestorRecoveryDistributionLine,
     InvestorRepaymentDistributionLine,
+    LoanRecoveryEvent,
     LoanRiskNote,
     LoanRiskNoteType,
     LoanRiskNoteVisibility,
@@ -180,6 +182,120 @@ class LoanWriteOffRecordRequestSerializer(serializers.Serializer[Any]):
     idempotency_key = serializers.CharField(max_length=160)
 
 
+class LoanRecoveryPaymentRecordRequestSerializer(serializers.Serializer[Any]):
+    loan_id = serializers.UUIDField()
+    gross_recovered_minor = serializers.IntegerField(min_value=1)
+    externally_deducted_costs_minor = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        default=0,
+    )
+    third_party_costs_from_received_minor = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        default=0,
+    )
+    recovery_fee_applied = serializers.BooleanField(required=False, default=False)
+    recovery_fee_bps = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        max_value=10_000,
+        default=0,
+    )
+    principal_recovered_minor = serializers.IntegerField(min_value=0)
+    contractual_interest_recovered_minor = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        default=0,
+    )
+    default_interest_recovered_minor = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        default=0,
+    )
+    penalties_recovered_minor = serializers.IntegerField(required=False, min_value=0, default=0)
+    other_costs_recovered_minor = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        default=0,
+    )
+    booking_date = serializers.DateField()
+    value_date = serializers.DateField()
+    collection_account_identifier = serializers.CharField(max_length=128)
+    payer_name = serializers.CharField(max_length=255)
+    payer_account_identifier = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=128,
+    )
+    bank_reference = serializers.CharField(required=False, allow_blank=True, max_length=160)
+    payment_reference = serializers.CharField(required=False, allow_blank=True, max_length=160)
+    evidence_reference = serializers.CharField(required=False, allow_blank=True, max_length=255)
+    notes = serializers.CharField(required=False, allow_blank=True)
+    recovery_waterfall_config = serializers.JSONField(required=False)
+    metadata = serializers.JSONField(required=False)
+    idempotency_key = serializers.CharField(max_length=160)
+
+
+class LoanRecoveryEventSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    loan_id = serializers.UUIDField()
+    borrower_id = serializers.UUIDField()
+    currency = serializers.CharField(source="currency.code")
+    gross_recovered_minor = serializers.IntegerField()
+    externally_deducted_costs_minor = serializers.IntegerField()
+    net_received_minor = serializers.IntegerField()
+    third_party_costs_from_received_minor = serializers.IntegerField()
+    recovery_fee_applied = serializers.BooleanField()
+    recovery_fee_bps = serializers.IntegerField()
+    recovery_fee_base_minor = serializers.IntegerField()
+    recovery_fee_minor = serializers.IntegerField()
+    net_available_for_distribution_minor = serializers.IntegerField()
+    principal_recovered_minor = serializers.IntegerField()
+    contractual_interest_recovered_minor = serializers.IntegerField()
+    default_interest_recovered_minor = serializers.IntegerField()
+    penalties_recovered_minor = serializers.IntegerField()
+    other_costs_recovered_minor = serializers.IntegerField()
+    rounding_difference_minor = serializers.IntegerField()
+    booking_date = serializers.DateField()
+    value_date = serializers.DateField()
+    received_at = serializers.DateTimeField()
+    bank_operation_id = serializers.UUIDField()
+    journal_entry_id = serializers.UUIDField()
+    recovery_waterfall_config = serializers.JSONField()
+    evidence_reference = serializers.CharField()
+    notes = serializers.CharField()
+    created_by_admin_id = serializers.UUIDField()
+    metadata = serializers.JSONField()
+    idempotency_key = serializers.CharField()
+    created_at = serializers.DateTimeField()
+    updated_at = serializers.DateTimeField()
+
+
+class InvestorRecoveryDistributionLineSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    recovery_event_id = serializers.UUIDField()
+    holding_id = serializers.UUIDField()
+    investor_user_id = serializers.UUIDField()
+    currency = serializers.CharField(source="currency.code")
+    balance_lot_id = serializers.UUIDField()
+    amount_minor = serializers.IntegerField()
+    principal_minor = serializers.IntegerField()
+    contractual_interest_minor = serializers.IntegerField()
+    default_interest_minor = serializers.IntegerField()
+    penalties_minor = serializers.IntegerField()
+    other_costs_minor = serializers.IntegerField()
+    current_principal_before_minor = serializers.IntegerField()
+    current_principal_after_minor = serializers.IntegerField()
+    metadata = serializers.JSONField()
+    occurred_at = serializers.DateTimeField()
+
+
+class LoanRecoveryPaymentRecordResponseSerializer(serializers.Serializer[Any]):
+    recovery_event = LoanRecoveryEventSerializer()
+    distribution_lines = InvestorRecoveryDistributionLineSerializer(many=True)
+
+
 class LoanWriteOffEventSerializer(serializers.Serializer[Any]):
     id = serializers.UUIDField()
     loan_id = serializers.UUIDField()
@@ -214,6 +330,18 @@ def serialize_distribution_line(
     distribution_line: InvestorRepaymentDistributionLine,
 ) -> dict[str, Any]:
     return dict(InvestorRepaymentDistributionLineSerializer(distribution_line).data)
+
+
+def serialize_recovery_event(
+    recovery_event: LoanRecoveryEvent,
+) -> dict[str, Any]:
+    return dict(LoanRecoveryEventSerializer(recovery_event).data)
+
+
+def serialize_recovery_distribution_line(
+    distribution_line: InvestorRecoveryDistributionLine,
+) -> dict[str, Any]:
+    return dict(InvestorRecoveryDistributionLineSerializer(distribution_line).data)
 
 
 def serialize_status_change(change: Any) -> dict[str, Any]:

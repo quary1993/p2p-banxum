@@ -2108,6 +2108,32 @@ paths:
               schema:
                 $ref: '#/components/schemas/BorrowerRepaymentRecordResponse'
           description: ''
+  /api/v1/servicing/admin/recoveries/:
+    post:
+      operationId: v1_servicing_admin_recoveries_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoanRecoveryPaymentRecordRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoanRecoveryPaymentRecordRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoanRecoveryPaymentRecordRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanRecoveryPaymentRecordResponse'
+          description: ''
   /api/v1/servicing/admin/risk-notes/:
     get:
       operationId: v1_servicing_admin_risk_notes_list
@@ -4287,6 +4313,63 @@ components:
           $ref: '#/components/schemas/InvestorPayoutInstruction'
       required:
       - payout_instruction
+    InvestorRecoveryDistributionLine:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        recovery_event_id:
+          type: string
+          format: uuid
+        holding_id:
+          type: string
+          format: uuid
+        investor_user_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+        balance_lot_id:
+          type: string
+          format: uuid
+        amount_minor:
+          type: integer
+        principal_minor:
+          type: integer
+        contractual_interest_minor:
+          type: integer
+        default_interest_minor:
+          type: integer
+        penalties_minor:
+          type: integer
+        other_costs_minor:
+          type: integer
+        current_principal_before_minor:
+          type: integer
+        current_principal_after_minor:
+          type: integer
+        metadata: {}
+        occurred_at:
+          type: string
+          format: date-time
+      required:
+      - amount_minor
+      - balance_lot_id
+      - contractual_interest_minor
+      - currency
+      - current_principal_after_minor
+      - current_principal_before_minor
+      - default_interest_minor
+      - holding_id
+      - id
+      - investor_user_id
+      - metadata
+      - occurred_at
+      - other_costs_minor
+      - penalties_minor
+      - principal_minor
+      - recovery_event_id
     InvestorRepaymentDistributionLine:
       type: object
       properties:
@@ -5234,6 +5317,211 @@ components:
       - schedule_version
       - total_minor
       - updated_at
+    LoanRecoveryEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        loan_id:
+          type: string
+          format: uuid
+        borrower_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+        gross_recovered_minor:
+          type: integer
+        externally_deducted_costs_minor:
+          type: integer
+        net_received_minor:
+          type: integer
+        third_party_costs_from_received_minor:
+          type: integer
+        recovery_fee_applied:
+          type: boolean
+        recovery_fee_bps:
+          type: integer
+        recovery_fee_base_minor:
+          type: integer
+        recovery_fee_minor:
+          type: integer
+        net_available_for_distribution_minor:
+          type: integer
+        principal_recovered_minor:
+          type: integer
+        contractual_interest_recovered_minor:
+          type: integer
+        default_interest_recovered_minor:
+          type: integer
+        penalties_recovered_minor:
+          type: integer
+        other_costs_recovered_minor:
+          type: integer
+        rounding_difference_minor:
+          type: integer
+        booking_date:
+          type: string
+          format: date
+        value_date:
+          type: string
+          format: date
+        received_at:
+          type: string
+          format: date-time
+        bank_operation_id:
+          type: string
+          format: uuid
+        journal_entry_id:
+          type: string
+          format: uuid
+        recovery_waterfall_config: {}
+        evidence_reference:
+          type: string
+        notes:
+          type: string
+        created_by_admin_id:
+          type: string
+          format: uuid
+        metadata: {}
+        idempotency_key:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - bank_operation_id
+      - booking_date
+      - borrower_id
+      - contractual_interest_recovered_minor
+      - created_at
+      - created_by_admin_id
+      - currency
+      - default_interest_recovered_minor
+      - evidence_reference
+      - externally_deducted_costs_minor
+      - gross_recovered_minor
+      - id
+      - idempotency_key
+      - journal_entry_id
+      - loan_id
+      - metadata
+      - net_available_for_distribution_minor
+      - net_received_minor
+      - notes
+      - other_costs_recovered_minor
+      - penalties_recovered_minor
+      - principal_recovered_minor
+      - received_at
+      - recovery_fee_applied
+      - recovery_fee_base_minor
+      - recovery_fee_bps
+      - recovery_fee_minor
+      - recovery_waterfall_config
+      - rounding_difference_minor
+      - third_party_costs_from_received_minor
+      - updated_at
+      - value_date
+    LoanRecoveryPaymentRecordRequest:
+      type: object
+      properties:
+        loan_id:
+          type: string
+          format: uuid
+        gross_recovered_minor:
+          type: integer
+          minimum: 1
+        externally_deducted_costs_minor:
+          type: integer
+          minimum: 0
+          default: 0
+        third_party_costs_from_received_minor:
+          type: integer
+          minimum: 0
+          default: 0
+        recovery_fee_applied:
+          type: boolean
+          default: false
+        recovery_fee_bps:
+          type: integer
+          maximum: 10000
+          minimum: 0
+          default: 0
+        principal_recovered_minor:
+          type: integer
+          minimum: 0
+        contractual_interest_recovered_minor:
+          type: integer
+          minimum: 0
+          default: 0
+        default_interest_recovered_minor:
+          type: integer
+          minimum: 0
+          default: 0
+        penalties_recovered_minor:
+          type: integer
+          minimum: 0
+          default: 0
+        other_costs_recovered_minor:
+          type: integer
+          minimum: 0
+          default: 0
+        booking_date:
+          type: string
+          format: date
+        value_date:
+          type: string
+          format: date
+        collection_account_identifier:
+          type: string
+          maxLength: 128
+        payer_name:
+          type: string
+          maxLength: 255
+        payer_account_identifier:
+          type: string
+          maxLength: 128
+        bank_reference:
+          type: string
+          maxLength: 160
+        payment_reference:
+          type: string
+          maxLength: 160
+        evidence_reference:
+          type: string
+          maxLength: 255
+        notes:
+          type: string
+        recovery_waterfall_config: {}
+        metadata: {}
+        idempotency_key:
+          type: string
+          maxLength: 160
+      required:
+      - booking_date
+      - collection_account_identifier
+      - gross_recovered_minor
+      - idempotency_key
+      - loan_id
+      - payer_name
+      - principal_recovered_minor
+      - value_date
+    LoanRecoveryPaymentRecordResponse:
+      type: object
+      properties:
+        recovery_event:
+          $ref: '#/components/schemas/LoanRecoveryEvent'
+        distribution_lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvestorRecoveryDistributionLine'
+      required:
+      - distribution_lines
+      - recovery_event
     LoanRiskNote:
       type: object
       properties:

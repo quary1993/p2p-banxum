@@ -177,6 +177,184 @@ class InvestorRepaymentDistributionLine(AppendOnlyModel):
         ]
 
 
+class LoanRecoveryEvent(AppendOnlyModel, TimestampedModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    loan = models.ForeignKey(
+        "loans.Loan",
+        on_delete=models.PROTECT,
+        related_name="recovery_events",
+    )
+    borrower_id = models.UUIDField()
+    currency = models.ForeignKey(
+        "platform_core.Currency",
+        on_delete=models.PROTECT,
+        related_name="loan_recovery_events",
+    )
+    gross_recovered_minor = models.BigIntegerField()
+    externally_deducted_costs_minor = models.BigIntegerField(default=0)
+    net_received_minor = models.BigIntegerField()
+    third_party_costs_from_received_minor = models.BigIntegerField(default=0)
+    recovery_fee_applied = models.BooleanField(default=False)
+    recovery_fee_bps = models.PositiveIntegerField(default=0)
+    recovery_fee_base_minor = models.BigIntegerField(default=0)
+    recovery_fee_minor = models.BigIntegerField(default=0)
+    net_available_for_distribution_minor = models.BigIntegerField()
+    principal_recovered_minor = models.BigIntegerField(default=0)
+    contractual_interest_recovered_minor = models.BigIntegerField(default=0)
+    default_interest_recovered_minor = models.BigIntegerField(default=0)
+    penalties_recovered_minor = models.BigIntegerField(default=0)
+    other_costs_recovered_minor = models.BigIntegerField(default=0)
+    rounding_difference_minor = models.BigIntegerField(default=0)
+    booking_date = models.DateField()
+    value_date = models.DateField()
+    received_at = models.DateTimeField()
+    bank_operation = models.ForeignKey(
+        "ledger.BankOperation",
+        on_delete=models.PROTECT,
+        related_name="loan_recovery_events",
+    )
+    journal_entry = models.ForeignKey(
+        "ledger.LedgerJournalEntry",
+        on_delete=models.PROTECT,
+        related_name="loan_recovery_events",
+    )
+    recovery_waterfall_config = models.JSONField(default=dict, blank=True)
+    evidence_reference = models.CharField(max_length=255, blank=True)
+    notes = models.TextField(blank=True)
+    created_by_admin_id = models.UUIDField()
+    metadata = models.JSONField(default=dict, blank=True)
+    idempotency_key = models.CharField(max_length=160, unique=True)
+
+    class Meta:
+        ordering = ["-value_date", "-created_at", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(gross_recovered_minor__gt=0)
+                    & models.Q(externally_deducted_costs_minor__gte=0)
+                    & models.Q(net_received_minor__gt=0)
+                    & models.Q(third_party_costs_from_received_minor__gte=0)
+                    & models.Q(recovery_fee_bps__gte=0)
+                    & models.Q(recovery_fee_base_minor__gte=0)
+                    & models.Q(recovery_fee_minor__gte=0)
+                    & models.Q(net_available_for_distribution_minor__gte=0)
+                    & models.Q(principal_recovered_minor__gte=0)
+                    & models.Q(contractual_interest_recovered_minor__gte=0)
+                    & models.Q(default_interest_recovered_minor__gte=0)
+                    & models.Q(penalties_recovered_minor__gte=0)
+                    & models.Q(other_costs_recovered_minor__gte=0)
+                    & models.Q(rounding_difference_minor__gte=0)
+                ),
+                name="servicing_recovery_amounts_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    net_received_minor=models.F("gross_recovered_minor")
+                    - models.F("externally_deducted_costs_minor")
+                ),
+                name="servicing_recovery_net_received_reconciles",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    net_available_for_distribution_minor=models.F("net_received_minor")
+                    - models.F("third_party_costs_from_received_minor")
+                    - models.F("recovery_fee_minor")
+                ),
+                name="servicing_recovery_net_available_reconciles",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    net_available_for_distribution_minor=models.F("principal_recovered_minor")
+                    + models.F("contractual_interest_recovered_minor")
+                    + models.F("default_interest_recovered_minor")
+                    + models.F("penalties_recovered_minor")
+                    + models.F("other_costs_recovered_minor")
+                    + models.F("rounding_difference_minor")
+                ),
+                name="servicing_recovery_distribution_reconciles",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["loan", "value_date"]),
+            models.Index(fields=["borrower_id", "value_date"]),
+            models.Index(fields=["currency", "value_date"]),
+            models.Index(fields=["bank_operation"]),
+            models.Index(fields=["journal_entry"]),
+        ]
+
+
+class InvestorRecoveryDistributionLine(AppendOnlyModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    recovery_event = models.ForeignKey(
+        LoanRecoveryEvent,
+        on_delete=models.PROTECT,
+        related_name="distribution_lines",
+    )
+    holding = models.ForeignKey(
+        "holdings.InvestorLoanHolding",
+        on_delete=models.PROTECT,
+        related_name="recovery_distribution_lines",
+    )
+    investor_user_id = models.UUIDField()
+    currency = models.ForeignKey(
+        "platform_core.Currency",
+        on_delete=models.PROTECT,
+        related_name="recovery_distribution_lines",
+    )
+    balance_lot = models.ForeignKey(
+        "ledger.InvestorBalanceLot",
+        on_delete=models.PROTECT,
+        related_name="recovery_distribution_lines",
+    )
+    amount_minor = models.BigIntegerField()
+    principal_minor = models.BigIntegerField(default=0)
+    contractual_interest_minor = models.BigIntegerField(default=0)
+    default_interest_minor = models.BigIntegerField(default=0)
+    penalties_minor = models.BigIntegerField(default=0)
+    other_costs_minor = models.BigIntegerField(default=0)
+    current_principal_before_minor = models.BigIntegerField()
+    current_principal_after_minor = models.BigIntegerField()
+    metadata = models.JSONField(default=dict, blank=True)
+    occurred_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["recovery_event", "occurred_at", "id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(amount_minor__gt=0),
+                name="servicing_recovery_line_amount_positive",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(principal_minor__gte=0)
+                    & models.Q(contractual_interest_minor__gte=0)
+                    & models.Q(default_interest_minor__gte=0)
+                    & models.Q(penalties_minor__gte=0)
+                    & models.Q(other_costs_minor__gte=0)
+                    & models.Q(current_principal_before_minor__gte=0)
+                    & models.Q(current_principal_after_minor__gte=0)
+                ),
+                name="servicing_recovery_line_amounts_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    amount_minor=models.F("principal_minor")
+                    + models.F("contractual_interest_minor")
+                    + models.F("default_interest_minor")
+                    + models.F("penalties_minor")
+                    + models.F("other_costs_minor")
+                ),
+                name="servicing_recovery_line_amount_reconciles",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["recovery_event", "investor_user_id"]),
+            models.Index(fields=["holding", "occurred_at"]),
+            models.Index(fields=["investor_user_id", "occurred_at"]),
+            models.Index(fields=["balance_lot"]),
+        ]
+
+
 class LoanRiskNote(AppendOnlyModel, TimestampedModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     loan = models.ForeignKey(

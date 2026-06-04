@@ -96,6 +96,7 @@ class LoanEventType(models.TextChoices):
     FUNDING_CLOSED = "funding_closed", "Funding closed"
     SCHEDULE_GENERATED = "schedule_generated", "Schedule generated"
     SERVICING_STATUS_CHANGED = "servicing_status_changed", "Servicing status changed"
+    RECOVERY_RECORDED = "recovery_recorded", "Recovery recorded"
     WRITE_OFF_RECORDED = "write_off_recorded", "Write-off recorded"
 
 

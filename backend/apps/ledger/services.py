@@ -207,6 +207,19 @@ class InvestorBalanceCreditLineCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class InvestorRecoveryCreditLineCommand:
+    investor_user_id: str
+    amount_minor: int
+    principal_minor: int = 0
+    contractual_interest_minor: int = 0
+    default_interest_minor: int = 0
+    penalties_minor: int = 0
+    other_costs_minor: int = 0
+    holding_id: str = ""
+    metadata: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class DeclareBorrowerRepaymentDistributionCommand:
     actor: Model
     loan_id: str
@@ -220,6 +233,30 @@ class DeclareBorrowerRepaymentDistributionCommand:
     source_type: str
     source_id: str
     distribution_lines: list[InvestorBalanceCreditLineCommand]
+    payer_account_identifier: str = ""
+    bank_reference: str = ""
+    payment_reference: str = ""
+    evidence_reference: str = ""
+    admin_notes: str = ""
+    idempotency_key: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class DeclareRecoveryDistributionCommand:
+    actor: Model
+    loan_id: str
+    borrower_id: str
+    net_received_minor: int
+    recovery_fee_minor: int
+    third_party_costs_from_received_minor: int
+    currency: str
+    booking_date: date
+    value_date: date
+    collection_account_identifier: str
+    payer_name: str
+    source_type: str
+    source_id: str
+    distribution_lines: list[InvestorRecoveryCreditLineCommand]
     payer_account_identifier: str = ""
     bank_reference: str = ""
     payment_reference: str = ""
@@ -259,6 +296,13 @@ class InvestorBalanceCreditResult:
 
 @dataclass(frozen=True, slots=True)
 class BorrowerRepaymentDistributionResult:
+    bank_operation: BankOperation
+    journal_entry: LedgerJournalEntry
+    balance_credits: list[InvestorBalanceCreditResult]
+
+
+@dataclass(frozen=True, slots=True)
+class RecoveryDistributionResult:
     bank_operation: BankOperation
     journal_entry: LedgerJournalEntry
     balance_credits: list[InvestorBalanceCreditResult]
@@ -988,6 +1032,53 @@ def _borrower_repayment_distribution_fingerprint(
     )
 
 
+def _recovery_distribution_fingerprint(
+    command: DeclareRecoveryDistributionCommand,
+    *,
+    currency_code: str,
+    net_received_minor: int,
+    recovery_fee_minor: int,
+    third_party_costs_from_received_minor: int,
+    idempotency_key: str,
+) -> str:
+    return _stable_json_fingerprint(
+        {
+            "loan_id": str(command.loan_id),
+            "borrower_id": str(command.borrower_id),
+            "net_received_minor": net_received_minor,
+            "recovery_fee_minor": recovery_fee_minor,
+            "third_party_costs_from_received_minor": third_party_costs_from_received_minor,
+            "currency": currency_code,
+            "booking_date": command.booking_date.isoformat(),
+            "value_date": command.value_date.isoformat(),
+            "collection_account_identifier": command.collection_account_identifier.strip(),
+            "payer_name": command.payer_name.strip(),
+            "payer_account_identifier": command.payer_account_identifier.strip(),
+            "bank_reference": command.bank_reference.strip(),
+            "payment_reference": command.payment_reference.strip(),
+            "evidence_reference": command.evidence_reference.strip(),
+            "admin_notes": command.admin_notes.strip(),
+            "source_type": command.source_type.strip(),
+            "source_id": command.source_id.strip(),
+            "idempotency_key": idempotency_key,
+            "distribution_lines": [
+                {
+                    "investor_user_id": str(line.investor_user_id),
+                    "amount_minor": line.amount_minor,
+                    "principal_minor": line.principal_minor,
+                    "contractual_interest_minor": line.contractual_interest_minor,
+                    "default_interest_minor": line.default_interest_minor,
+                    "penalties_minor": line.penalties_minor,
+                    "other_costs_minor": line.other_costs_minor,
+                    "holding_id": str(line.holding_id),
+                    "metadata": line.metadata or {},
+                }
+                for line in command.distribution_lines
+            ],
+        }
+    )
+
+
 def _secondary_market_purchase_ledger_fingerprint(
     command: SettleSecondaryMarketPurchaseLedgerCommand,
     *,
@@ -1513,6 +1604,38 @@ def _existing_borrower_repayment_distribution_for_idempotency(
             )
         )
     return BorrowerRepaymentDistributionResult(
+        cast(BankOperation, bank_operation),
+        cast(LedgerJournalEntry, journal_entry),
+        credits,
+    )
+
+
+def _existing_recovery_distribution_for_idempotency(
+    idempotency_key: str,
+    *,
+    expected_fingerprint: str | None = None,
+) -> RecoveryDistributionResult | None:
+    bank_operation = BankOperation.objects.filter(idempotency_key=idempotency_key).first()
+    if bank_operation is None:
+        return None
+    _assert_fingerprint_matches(
+        stored_metadata=cast(dict[str, Any], bank_operation.metadata),
+        expected_fingerprint=expected_fingerprint,
+    )
+    journal_entry = bank_operation.journal_entries.first()
+    if journal_entry is None:
+        raise LedgerValidationError("Existing recovery bank operation has no journal entry.")
+    credits: list[InvestorBalanceCreditResult] = []
+    for index, lot in enumerate(journal_entry.balance_lots.order_by("created_at", "id")):
+        credits.append(
+            InvestorBalanceCreditResult(
+                line_index=index,
+                investor_user_id=str(lot.investor_user_id),
+                amount_minor=lot.original_amount_minor,
+                balance_lot=cast(InvestorBalanceLot, lot),
+            )
+        )
+    return RecoveryDistributionResult(
         cast(BankOperation, bank_operation),
         cast(LedgerJournalEntry, journal_entry),
         credits,
@@ -2225,6 +2348,73 @@ def _validated_balance_credit_lines(
     return validated
 
 
+def _validated_recovery_credit_lines(
+    lines: list[InvestorRecoveryCreditLineCommand],
+    *,
+    currency_code: str,
+) -> list[InvestorRecoveryCreditLineCommand]:
+    if not lines:
+        raise LedgerValidationError("At least one investor recovery credit line is required.")
+    validated: list[InvestorRecoveryCreditLineCommand] = []
+    for line in lines:
+        _lender_account_for_id(line.investor_user_id)
+        amount_minor = _validate_money(
+            line.amount_minor,
+            currency_code,
+            "Recovery line amount",
+        )
+        principal_minor = _validate_nonnegative_money(
+            line.principal_minor,
+            currency_code,
+            "Recovery line principal",
+        )
+        contractual_interest_minor = _validate_nonnegative_money(
+            line.contractual_interest_minor,
+            currency_code,
+            "Recovery line contractual interest",
+        )
+        default_interest_minor = _validate_nonnegative_money(
+            line.default_interest_minor,
+            currency_code,
+            "Recovery line default interest",
+        )
+        penalties_minor = _validate_nonnegative_money(
+            line.penalties_minor,
+            currency_code,
+            "Recovery line penalties",
+        )
+        other_costs_minor = _validate_nonnegative_money(
+            line.other_costs_minor,
+            currency_code,
+            "Recovery line other costs",
+        )
+        if (
+            principal_minor
+            + contractual_interest_minor
+            + default_interest_minor
+            + penalties_minor
+            + other_costs_minor
+            != amount_minor
+        ):
+            raise LedgerValidationError(
+                "Recovery line amount must equal its recovery category sum."
+            )
+        validated.append(
+            InvestorRecoveryCreditLineCommand(
+                investor_user_id=str(line.investor_user_id),
+                amount_minor=amount_minor,
+                principal_minor=principal_minor,
+                contractual_interest_minor=contractual_interest_minor,
+                default_interest_minor=default_interest_minor,
+                penalties_minor=penalties_minor,
+                other_costs_minor=other_costs_minor,
+                holding_id=str(line.holding_id),
+                metadata=line.metadata or {},
+            )
+        )
+    return validated
+
+
 @transaction.atomic
 def declare_borrower_repayment_distribution(
     command: DeclareBorrowerRepaymentDistributionCommand,
@@ -2461,6 +2651,323 @@ def declare_borrower_repayment_distribution(
         )
     )
     return BorrowerRepaymentDistributionResult(
+        bank_operation=bank_operation,
+        journal_entry=journal_entry,
+        balance_credits=balance_credits,
+    )
+
+
+@transaction.atomic
+def declare_recovery_distribution(
+    command: DeclareRecoveryDistributionCommand,
+) -> RecoveryDistributionResult:
+    _require_admin_actor(command.actor)
+    currency = _enabled_currency(command.currency)
+    net_received_minor = _validate_money(
+        command.net_received_minor,
+        currency.code,
+        "Net recovery received amount",
+    )
+    recovery_fee_minor = _validate_nonnegative_money(
+        command.recovery_fee_minor,
+        currency.code,
+        "Recovery fee amount",
+    )
+    third_party_costs_from_received_minor = _validate_nonnegative_money(
+        command.third_party_costs_from_received_minor,
+        currency.code,
+        "Third-party recovery costs from received funds",
+    )
+    net_available_minor = (
+        net_received_minor - recovery_fee_minor - third_party_costs_from_received_minor
+    )
+    _validate_money(
+        net_available_minor,
+        currency.code,
+        "Net recovery amount available for investor distribution",
+    )
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    source_type = _clean_required(command.source_type, "Source type")
+    source_id = _clean_required(command.source_id, "Source id")
+    collection_account_identifier = _clean_required(
+        command.collection_account_identifier,
+        "Collection account identifier",
+    )
+    payer_name = _clean_required(command.payer_name, "Payer name")
+    distribution_lines = _validated_recovery_credit_lines(
+        command.distribution_lines,
+        currency_code=currency.code,
+    )
+    if sum(line.amount_minor for line in distribution_lines) != net_available_minor:
+        raise LedgerValidationError(
+            "Recovery distribution lines must sum to the net amount available."
+        )
+    request_fingerprint = _recovery_distribution_fingerprint(
+        DeclareRecoveryDistributionCommand(
+            actor=command.actor,
+            loan_id=str(command.loan_id),
+            borrower_id=str(command.borrower_id),
+            net_received_minor=net_received_minor,
+            recovery_fee_minor=recovery_fee_minor,
+            third_party_costs_from_received_minor=third_party_costs_from_received_minor,
+            currency=currency.code,
+            booking_date=command.booking_date,
+            value_date=command.value_date,
+            collection_account_identifier=collection_account_identifier,
+            payer_name=payer_name,
+            source_type=source_type,
+            source_id=source_id,
+            distribution_lines=distribution_lines,
+            payer_account_identifier=command.payer_account_identifier,
+            bank_reference=command.bank_reference,
+            payment_reference=command.payment_reference,
+            evidence_reference=command.evidence_reference,
+            admin_notes=command.admin_notes,
+            idempotency_key=idempotency_key,
+        ),
+        currency_code=currency.code,
+        net_received_minor=net_received_minor,
+        recovery_fee_minor=recovery_fee_minor,
+        third_party_costs_from_received_minor=third_party_costs_from_received_minor,
+        idempotency_key=idempotency_key,
+    )
+    existing = _existing_recovery_distribution_for_idempotency(
+        idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing is not None:
+        return existing
+
+    confirmed_at = now_utc()
+    bank_operation_metadata = {
+        REQUEST_FINGERPRINT_METADATA_KEY: request_fingerprint,
+        "loan_id": str(command.loan_id),
+        "borrower_id": str(command.borrower_id),
+        "distribution_line_count": len(distribution_lines),
+        "recovery_fee_minor": recovery_fee_minor,
+        "third_party_costs_from_received_minor": third_party_costs_from_received_minor,
+    }
+    try:
+        with transaction.atomic():
+            bank_operation = BankOperation.objects.create(
+                operation_type=_bank_operation_type(BankOperationType.BORROWER_REPAYMENT),
+                status=BankOperationStatus.RECONCILED,
+                amount_minor=net_received_minor,
+                currency=currency,
+                booking_date=command.booking_date,
+                value_date=command.value_date,
+                collection_account_identifier=collection_account_identifier,
+                payer_name=payer_name,
+                payer_account_identifier=command.payer_account_identifier.strip(),
+                payee_name="Garanta Finanzgruppe AG",
+                payee_account_identifier=collection_account_identifier,
+                bank_reference=command.bank_reference.strip(),
+                payment_reference=command.payment_reference.strip(),
+                linked_object_type="loan_recovery_event",
+                linked_object_id=str(command.source_id),
+                evidence_reference=command.evidence_reference.strip(),
+                confirmed_by_admin_id=command.actor.pk,
+                confirmed_at=confirmed_at,
+                notes=command.admin_notes.strip(),
+                metadata=bank_operation_metadata,
+                idempotency_key=idempotency_key,
+            )
+    except IntegrityError:
+        existing_after_race = _existing_recovery_distribution_for_idempotency(
+            idempotency_key,
+            expected_fingerprint=request_fingerprint,
+        )
+        if existing_after_race is None:
+            raise
+        return existing_after_race
+
+    collection_cash_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.COLLECTION_CASH,
+        currency=currency,
+        name=f"{currency.code} collection cash",
+    )
+    postings = [
+        PostingCommand(
+            account=collection_cash_account,
+            side=LedgerPostingSide.DEBIT,
+            amount_minor=net_received_minor,
+            memo="Recovery payment received into collection account",
+        )
+    ]
+    for line in distribution_lines:
+        investor_liability_account = get_or_create_ledger_account(
+            account_type=LedgerAccountType.INVESTOR_BALANCE_LIABILITY,
+            currency=currency,
+            owner_type="investor",
+            owner_id=str(line.investor_user_id),
+            name=f"{currency.code} investor balance liability {line.investor_user_id}",
+        )
+        postings.append(
+            PostingCommand(
+                account=investor_liability_account,
+                side=LedgerPostingSide.CREDIT,
+                amount_minor=line.amount_minor,
+                memo="Recovery distribution credited to investor balance",
+            )
+        )
+    if recovery_fee_minor > 0:
+        platform_fee_revenue_account = get_or_create_ledger_account(
+            account_type=LedgerAccountType.PLATFORM_FEE_REVENUE,
+            currency=currency,
+            owner_type="garanta",
+            owner_id="platform",
+            name=f"{currency.code} platform fee revenue",
+        )
+        postings.append(
+            PostingCommand(
+                account=platform_fee_revenue_account,
+                side=LedgerPostingSide.CREDIT,
+                amount_minor=recovery_fee_minor,
+                memo="Garanta recovery fee revenue",
+            )
+        )
+    if third_party_costs_from_received_minor > 0:
+        recovery_cost_payable_account = get_or_create_ledger_account(
+            account_type=LedgerAccountType.RECOVERY_DISTRIBUTION_PAYABLE,
+            currency=currency,
+            owner_type="loan",
+            owner_id=str(command.loan_id),
+            name=f"{currency.code} recovery cost payable {command.loan_id}",
+        )
+        postings.append(
+            PostingCommand(
+                account=recovery_cost_payable_account,
+                side=LedgerPostingSide.CREDIT,
+                amount_minor=third_party_costs_from_received_minor,
+                memo="Recovery costs payable from received funds",
+            )
+        )
+    received_at = _received_at_from_value_date(command.value_date)
+    journal_entry = post_journal_entry(
+        PostJournalEntryCommand(
+            actor=command.actor,
+            event_type="loan_recovery_distributed",
+            direction=LedgerDirection.IN,
+            currency=currency.code,
+            gross_amount_minor=net_received_minor,
+            net_amount_minor=net_available_minor,
+            booking_date=command.booking_date,
+            value_date=command.value_date,
+            effective_at=confirmed_at,
+            received_at=received_at,
+            source_type=source_type,
+            source_id=source_id,
+            borrower_id=str(command.borrower_id),
+            loan_id=str(command.loan_id),
+            bank_operation=bank_operation,
+            bank_reference=command.bank_reference,
+            evidence_reference=command.evidence_reference,
+            idempotency_key=_derived_idempotency_key("ledger", idempotency_key),
+            postings=postings,
+            tax_metadata={
+                "client_money_flow_minor": net_available_minor,
+                "recovery_fee_revenue_minor": recovery_fee_minor,
+                "third_party_costs_from_received_minor": (
+                    third_party_costs_from_received_minor
+                ),
+                "principal_minor": sum(line.principal_minor for line in distribution_lines),
+                "contractual_interest_minor": sum(
+                    line.contractual_interest_minor for line in distribution_lines
+                ),
+                "default_interest_minor": sum(
+                    line.default_interest_minor for line in distribution_lines
+                ),
+                "penalties_minor": sum(line.penalties_minor for line in distribution_lines),
+                "other_costs_minor": sum(line.other_costs_minor for line in distribution_lines),
+            },
+            metadata={
+                REQUEST_FINGERPRINT_METADATA_KEY: request_fingerprint,
+                "bank_operation_type": BankOperationType.BORROWER_REPAYMENT,
+                "bank_operation_subtype": "loan_recovery",
+                "loan_id": str(command.loan_id),
+                "borrower_id": str(command.borrower_id),
+                "distribution_line_count": len(distribution_lines),
+                "recovery_fee_minor": recovery_fee_minor,
+                "third_party_costs_from_received_minor": (
+                    third_party_costs_from_received_minor
+                ),
+            },
+        )
+    )
+    investment_deadline_at, withdrawal_deadline_at = _lot_deadlines(received_at)
+    balance_credits: list[InvestorBalanceCreditResult] = []
+    for index, line in enumerate(distribution_lines):
+        _validate_lot_conservation_values(
+            original_amount_minor=line.amount_minor,
+            available_amount_minor=line.amount_minor,
+            currency_code=currency.code,
+        )
+        balance_lot = InvestorBalanceLot.objects.create(
+            investor_user_id=line.investor_user_id,
+            currency=currency,
+            source_journal_entry=journal_entry,
+            source_type=BalanceLotSourceType.RECOVERY_DISTRIBUTION,
+            source_id=f"{source_id}:{index}",
+            received_at=received_at,
+            investment_deadline_at=investment_deadline_at,
+            withdrawal_deadline_at=withdrawal_deadline_at,
+            original_amount_minor=line.amount_minor,
+            available_amount_minor=line.amount_minor,
+            lineage=[
+                {
+                    "source_type": source_type,
+                    "source_id": source_id,
+                    "line_index": index,
+                    "loan_id": str(command.loan_id),
+                    "holding_id": line.holding_id,
+                    "principal_minor": line.principal_minor,
+                    "contractual_interest_minor": line.contractual_interest_minor,
+                    "default_interest_minor": line.default_interest_minor,
+                    "penalties_minor": line.penalties_minor,
+                    "other_costs_minor": line.other_costs_minor,
+                    "metadata": line.metadata or {},
+                }
+            ],
+        )
+        balance_credits.append(
+            InvestorBalanceCreditResult(
+                line_index=index,
+                investor_user_id=str(line.investor_user_id),
+                amount_minor=line.amount_minor,
+                balance_lot=balance_lot,
+            )
+        )
+    actor_ref = actor_ref_for_user(command.actor)
+    audit_payload = {
+        "loan_id": str(command.loan_id),
+        "borrower_id": str(command.borrower_id),
+        "currency": currency.code,
+        "net_received_minor": net_received_minor,
+        "net_available_minor": net_available_minor,
+        "recovery_fee_minor": recovery_fee_minor,
+        "third_party_costs_from_received_minor": third_party_costs_from_received_minor,
+        "journal_entry_id": str(journal_entry.id),
+        "balance_lot_ids": [str(credit.balance_lot.id) for credit in balance_credits],
+    }
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref,
+            action="ledger.loan_recovery_distributed",
+            target_type="BankOperation",
+            target_id=str(bank_operation.id),
+            metadata=audit_payload,
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="LoanRecoveryDistributed",
+            aggregate_type="BankOperation",
+            aggregate_id=str(bank_operation.id),
+            payload=audit_payload,
+            idempotency_key=f"bank-operation:{bank_operation.id}:loan-recovery-distributed",
+        )
+    )
+    return RecoveryDistributionResult(
         bank_operation=bank_operation,
         journal_entry=journal_entry,
         balance_credits=balance_credits,
@@ -4962,11 +5469,15 @@ def create_reconciliation_snapshot(
         currency=currency,
         account_type=LedgerAccountType.GARANTA_ACCRUED_REVENUE,
     )
+    platform_fee_revenue = _credit_balance_minor(
+        currency=currency,
+        account_type=LedgerAccountType.PLATFORM_FEE_REVENUE,
+    )
     fx_fee_revenue = _credit_balance_minor(
         currency=currency,
         account_type=LedgerAccountType.FX_FEE_REVENUE,
     )
-    garanta_accrued = platform_accrued_revenue + fx_fee_revenue
+    garanta_accrued = platform_accrued_revenue + platform_fee_revenue + fx_fee_revenue
     fx_clearing = _credit_balance_minor(
         currency=currency,
         account_type=LedgerAccountType.FX_CLEARING,
@@ -4983,6 +5494,10 @@ def create_reconciliation_snapshot(
         currency=currency,
         account_type=LedgerAccountType.BORROWER_DISBURSEMENT_PAYABLE,
     )
+    recovery_distribution_payable = _credit_balance_minor(
+        currency=currency,
+        account_type=LedgerAccountType.RECOVERY_DISTRIBUTION_PAYABLE,
+    )
     collection_cash_balance = _account_group_balance_minor(
         currency=currency,
         account_type=LedgerAccountType.COLLECTION_CASH,
@@ -4991,12 +5506,17 @@ def create_reconciliation_snapshot(
         {"account_type": account_type, "credit_balance_minor": amount}
         for account_type, amount in [
             (LedgerAccountType.GARANTA_ACCRUED_REVENUE, platform_accrued_revenue),
+            (LedgerAccountType.PLATFORM_FEE_REVENUE, platform_fee_revenue),
             (LedgerAccountType.FX_FEE_REVENUE, fx_fee_revenue),
             (LedgerAccountType.SUSPENSE_UNMATCHED_CASH, suspense),
             (LedgerAccountType.WITHDRAWAL_PAYABLE, withdrawal_payable),
             (
                 LedgerAccountType.BORROWER_DISBURSEMENT_PAYABLE,
                 borrower_disbursement_payable,
+            ),
+            (
+                LedgerAccountType.RECOVERY_DISTRIBUTION_PAYABLE,
+                recovery_distribution_payable,
             ),
         ]
         if amount < 0
@@ -5005,6 +5525,7 @@ def create_reconciliation_snapshot(
         investor_balance
         + withdrawal_payable
         + borrower_disbursement_payable
+        + recovery_distribution_payable
         + garanta_accrued
         + fx_clearing
         + suspense
@@ -5021,6 +5542,7 @@ def create_reconciliation_snapshot(
             ),
             "investor_balance_liability_posting_minor": investor_posting_balance,
             "platform_accrued_revenue_minor": platform_accrued_revenue,
+            "platform_fee_revenue_minor": platform_fee_revenue,
             "fx_fee_revenue_minor": fx_fee_revenue,
             "fx_clearing_signed_balance_minor": fx_clearing,
             "fx_clearing_sign_policy": (
@@ -5029,6 +5551,7 @@ def create_reconciliation_snapshot(
             ),
             "withdrawal_payable_minor": withdrawal_payable,
             "borrower_disbursement_payable_minor": borrower_disbursement_payable,
+            "recovery_distribution_payable_minor": recovery_distribution_payable,
             "collection_cash_ledger_balance_minor": collection_cash_balance,
             "bank_to_collection_cash_difference_minor": bank_to_collection_cash_difference,
             "account_sign_anomalies": account_sign_anomalies,

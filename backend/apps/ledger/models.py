@@ -67,6 +67,7 @@ class BankOperationStatus(models.TextChoices):
 class BalanceLotSourceType(models.TextChoices):
     DEPOSIT = "deposit", "Deposit"
     INSTALLMENT = "installment", "Installment"
+    RECOVERY_DISTRIBUTION = "recovery_distribution", "Recovery distribution"
     SECONDARY_MARKET_PROCEEDS = "secondary_market_proceeds", "Secondary-market proceeds"
     FX_PROCEEDS = "fx_proceeds", "FX proceeds"
     REFUND = "refund", "Refund"

@@ -14,6 +14,8 @@ from backend.apps.platform_core.domain.access import is_admin_actor
 from backend.apps.servicing.api.serializers import (
     BorrowerRepaymentRecordRequestSerializer,
     BorrowerRepaymentRecordResponseSerializer,
+    LoanRecoveryPaymentRecordRequestSerializer,
+    LoanRecoveryPaymentRecordResponseSerializer,
     LoanRiskNoteCreateRequestSerializer,
     LoanRiskNoteListQuerySerializer,
     LoanRiskNoteSerializer,
@@ -26,6 +28,8 @@ from backend.apps.servicing.api.serializers import (
     serialize_borrower_repayment_event,
     serialize_distribution_line,
     serialize_public_risk_note,
+    serialize_recovery_distribution_line,
+    serialize_recovery_event,
     serialize_risk_note,
     serialize_status_change,
     serialize_write_off_event,
@@ -33,6 +37,7 @@ from backend.apps.servicing.api.serializers import (
 from backend.apps.servicing.services import (
     AddLoanRiskNoteCommand,
     RecordBorrowerRepaymentCommand,
+    RecordLoanRecoveryPaymentCommand,
     RecordLoanWriteOffCommand,
     ScanLoanServicingStatusesCommand,
     ServicingAuthorizationError,
@@ -41,6 +46,7 @@ from backend.apps.servicing.services import (
     list_admin_loan_risk_notes,
     list_public_loan_risk_notes,
     record_borrower_repayment,
+    record_loan_recovery_payment,
     record_loan_write_off,
     scan_loan_servicing_statuses,
 )
@@ -259,3 +265,69 @@ class LoanWriteOffRecordView(APIView):
         except ServicingValidationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(serialize_write_off_event(write_off), status=status.HTTP_201_CREATED)
+
+
+class LoanRecoveryPaymentRecordView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=LoanRecoveryPaymentRecordRequestSerializer,
+        responses={201: LoanRecoveryPaymentRecordResponseSerializer},
+    )
+    def post(self, request: Request) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = LoanRecoveryPaymentRecordRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            result = record_loan_recovery_payment(
+                RecordLoanRecoveryPaymentCommand(
+                    actor=cast(Model, request.user),
+                    loan_id=str(data["loan_id"]),
+                    gross_recovered_minor=data["gross_recovered_minor"],
+                    externally_deducted_costs_minor=data[
+                        "externally_deducted_costs_minor"
+                    ],
+                    third_party_costs_from_received_minor=data[
+                        "third_party_costs_from_received_minor"
+                    ],
+                    recovery_fee_applied=data["recovery_fee_applied"],
+                    recovery_fee_bps=data["recovery_fee_bps"],
+                    principal_recovered_minor=data["principal_recovered_minor"],
+                    contractual_interest_recovered_minor=data[
+                        "contractual_interest_recovered_minor"
+                    ],
+                    default_interest_recovered_minor=data[
+                        "default_interest_recovered_minor"
+                    ],
+                    penalties_recovered_minor=data["penalties_recovered_minor"],
+                    other_costs_recovered_minor=data["other_costs_recovered_minor"],
+                    booking_date=data["booking_date"],
+                    value_date=data["value_date"],
+                    collection_account_identifier=data["collection_account_identifier"],
+                    payer_name=data["payer_name"],
+                    payer_account_identifier=data.get("payer_account_identifier", ""),
+                    bank_reference=data.get("bank_reference", ""),
+                    payment_reference=data.get("payment_reference", ""),
+                    evidence_reference=data.get("evidence_reference", ""),
+                    notes=data.get("notes", ""),
+                    recovery_waterfall_config=data.get("recovery_waterfall_config", {}),
+                    metadata=data.get("metadata", {}),
+                    idempotency_key=data["idempotency_key"],
+                )
+            )
+        except ServicingAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except ServicingValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {
+                "recovery_event": serialize_recovery_event(result.recovery_event),
+                "distribution_lines": [
+                    serialize_recovery_distribution_line(line)
+                    for line in result.distribution_lines
+                ],
+            },
+            status=status.HTTP_201_CREATED,
+        )

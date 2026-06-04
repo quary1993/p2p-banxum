@@ -4,6 +4,7 @@ from django.urls import path
 
 from backend.apps.servicing.api.views import (
     BorrowerRepaymentRecordView,
+    LoanRecoveryPaymentRecordView,
     LoanRiskNoteAdminListCreateView,
     LoanServicingStatusScanView,
     LoanWriteOffRecordView,
@@ -35,5 +36,10 @@ urlpatterns = [
         "admin/write-offs/",
         LoanWriteOffRecordView.as_view(),
         name="servicing-write-off-record",
+    ),
+    path(
+        "admin/recoveries/",
+        LoanRecoveryPaymentRecordView.as_view(),
+        name="servicing-recovery-record",
     ),
 ]

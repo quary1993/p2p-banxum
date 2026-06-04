@@ -4,7 +4,9 @@ from django.contrib import admin
 
 from backend.apps.servicing.models import (
     BorrowerRepaymentEvent,
+    InvestorRecoveryDistributionLine,
     InvestorRepaymentDistributionLine,
+    LoanRecoveryEvent,
     LoanRiskNote,
     LoanWriteOffEvent,
 )
@@ -53,6 +55,42 @@ class InvestorRepaymentDistributionLineAdmin(ReadOnlyServicingAdmin):
     list_filter = ("currency",)
     search_fields = ("id", "investor_user_id", "repayment_event__id")
     readonly_fields = tuple(field.name for field in InvestorRepaymentDistributionLine._meta.fields)
+
+
+@admin.register(LoanRecoveryEvent)
+class LoanRecoveryEventAdmin(ReadOnlyServicingAdmin):
+    list_display = (
+        "id",
+        "loan",
+        "currency",
+        "gross_recovered_minor",
+        "net_received_minor",
+        "net_available_for_distribution_minor",
+        "recovery_fee_minor",
+        "created_by_admin_id",
+        "value_date",
+    )
+    list_filter = ("currency", "recovery_fee_applied", "value_date")
+    search_fields = ("id", "loan__title", "borrower_id", "bank_operation__bank_reference")
+    readonly_fields = tuple(field.name for field in LoanRecoveryEvent._meta.fields)
+
+
+@admin.register(InvestorRecoveryDistributionLine)
+class InvestorRecoveryDistributionLineAdmin(ReadOnlyServicingAdmin):
+    list_display = (
+        "id",
+        "recovery_event",
+        "holding",
+        "investor_user_id",
+        "amount_minor",
+        "principal_minor",
+        "contractual_interest_minor",
+        "default_interest_minor",
+        "currency",
+    )
+    list_filter = ("currency",)
+    search_fields = ("id", "investor_user_id", "recovery_event__id")
+    readonly_fields = tuple(field.name for field in InvestorRecoveryDistributionLine._meta.fields)
 
 
 @admin.register(LoanRiskNote)
