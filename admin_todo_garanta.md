@@ -496,12 +496,12 @@ What Garanta must provide:
 - Maximum export size expectations.
 - Which reports require redacted and full versions.
 - Whether any legally required reports must be materialized and retained, rather than regenerated on demand.
-- Whether full/unredacted exports should remain available to all active admins at launch, or require an extra reason code, superadmin approval, dual control, or a narrower finance/compliance role.
+- Whether the current superadmin-only rule for full/unredacted exports and restricted KYC/audit/tax/account-statement report exports should later be replaced by an extra reason code, dual control, or a narrower finance/compliance role.
 - Whether generated CSV/PDF/ZIP artifacts should be stored in Garanta-controlled object storage at generation time, or whether returning the artifact to the admin plus storing immutable checksum/manifest evidence is enough for launch.
 
 Why this is non-blocking:
 
-The reporting module is now built export-first with reproducible CSV, deterministic backend PDF, and ZIP evidence package outputs. Current backend foundation defaults to redacted exports, audits full exports, stores immutable report-run metadata/checksums/manifests/file lists, and does not persist generated artifacts in object storage. Exact PDF layout, report labels, redaction refinements, full-export governance, and artifact-storage requirements can be refined once Garanta reviews sample reports.
+The reporting module is now built export-first with reproducible CSV, deterministic backend PDF, and deterministic ZIP evidence package outputs. Current backend foundation defaults to redacted exports, requires superadmin for full/unredacted exports and restricted KYC/audit/tax/account-statement exports, audits report generation, stores immutable report-run metadata/checksums/manifests/file lists, and does not persist generated artifacts in object storage. Exact PDF layout, report labels, redaction refinements, optional dedicated export-role governance, and artifact-storage requirements can be refined once Garanta reviews sample reports.
 
 ### Document Delivery, Retention, and Template Operations
 

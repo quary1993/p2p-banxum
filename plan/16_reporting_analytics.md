@@ -85,7 +85,7 @@ Date: 2026-05-21.
 Owner: Garanta operations / security / compliance.
 
 Decision:
-Only admin can export reports at launch. Superadmin does not receive export access unless also assigned/admin-granted the admin operational role. Auditors/regulators do not need direct portal access at launch; Garanta admins generate and share/export packages offline.
+Only active admin users can export standard operational reports at launch. Full/unredacted exports require an active superadmin. Restricted KYC/AML, audit-log, participant account-statement, and annual tax-information reports require an active superadmin even when generated in redacted mode, until Garanta implements a dedicated compliance or finance export role. Auditors/regulators do not need direct portal access at launch; Garanta admins or superadmins generate and share/export packages offline according to the report sensitivity.
 
 Sensitive exports must support two modes:
 
@@ -98,7 +98,7 @@ Rationale:
 Admin-only export keeps the launch permission model simple while redacted/full modes support least-privilege sharing and audit needs.
 
 Follow-ups:
-Define the exact redaction rules per report. Full exports require audit logging only at launch; reason codes or enhanced confirmation can be reconsidered later.
+Define the exact redaction rules per report. Full exports and restricted report exports are superadmin-gated and audit logged at launch; reason codes, dual control, or a narrower finance/compliance role can be reconsidered later.
 
 ### RPT-DEC-004: No Launch BI Layer or Dashboards Required
 

@@ -26,7 +26,11 @@ from backend.apps.reporting.models import (
     ReportRun,
     ReportType,
 )
-from backend.apps.reporting.services import GenerateReportCommand, generate_report
+from backend.apps.reporting.services import (
+    GenerateReportCommand,
+    ReportingAuthorizationError,
+    generate_report,
+)
 
 
 @pytest.fixture
@@ -41,6 +45,19 @@ def admin_user() -> Model:
             account_type="admin",
             status="active",
             is_staff=True,
+        ),
+    )
+
+
+@pytest.fixture
+def superadmin_user() -> Model:
+    user_model: Any = get_user_model()
+    return cast(
+        Model,
+        user_model.objects.create_superuser(
+            email="reporting-superadmin@example.test",
+            password="AdminPass123!",
+            full_name="Reporting Superadmin",
         ),
     )
 
@@ -190,13 +207,14 @@ def test_operational_subledger_csv_redacts_sensitive_fields_and_logs(
 @pytest.mark.django_db
 def test_operational_subledger_full_mode_keeps_source_identifiers(
     admin_user: Model,
+    superadmin_user: Model,
     investor: Model,
 ) -> None:
     _declare_deposit(admin_user, investor, idempotency_key="reporting-deposit-full")
 
     artifact = generate_report(
         GenerateReportCommand(
-            actor=admin_user,
+            actor=superadmin_user,
             report_type=ReportType.OPERATIONAL_SUBLEDGER,
             start_date=date(2026, 1, 1),
             end_date=date(2026, 1, 31),
@@ -212,8 +230,56 @@ def test_operational_subledger_full_mode_keeps_source_identifiers(
 
 
 @pytest.mark.django_db
+def test_full_exports_require_superadmin(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _declare_deposit(admin_user, investor, idempotency_key="reporting-deposit-full-denied")
+
+    with pytest.raises(ReportingAuthorizationError, match="Full report exports require"):
+        generate_report(
+            GenerateReportCommand(
+                actor=admin_user,
+                report_type=ReportType.OPERATIONAL_SUBLEDGER,
+                start_date=date(2026, 1, 1),
+                end_date=date(2026, 1, 31),
+                redaction_mode=ReportRedactionMode.FULL,
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_sensitive_report_types_require_superadmin_even_when_redacted(
+    admin_user: Model,
+    superadmin_user: Model,
+) -> None:
+    with pytest.raises(ReportingAuthorizationError, match="requires an active superadmin"):
+        generate_report(
+            GenerateReportCommand(
+                actor=admin_user,
+                report_type=ReportType.KYC_STATUS,
+                start_date=date(2026, 1, 1),
+                end_date=date(2026, 1, 31),
+                redaction_mode=ReportRedactionMode.REDACTED,
+            )
+        )
+
+    artifact = generate_report(
+        GenerateReportCommand(
+            actor=superadmin_user,
+            report_type=ReportType.KYC_STATUS,
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 31),
+            redaction_mode=ReportRedactionMode.REDACTED,
+        )
+    )
+    assert artifact.report_run.report_type == "kyc_status"
+
+
+@pytest.mark.django_db
 def test_operational_subledger_neutralizes_csv_formula_cells_in_full_mode(
     admin_user: Model,
+    superadmin_user: Model,
     investor: Model,
 ) -> None:
     _declare_deposit(
@@ -225,7 +291,7 @@ def test_operational_subledger_neutralizes_csv_formula_cells_in_full_mode(
 
     artifact = generate_report(
         GenerateReportCommand(
-            actor=admin_user,
+            actor=superadmin_user,
             report_type=ReportType.OPERATIONAL_SUBLEDGER,
             start_date=date(2026, 1, 1),
             end_date=date(2026, 1, 31),
@@ -244,6 +310,7 @@ def test_operational_subledger_neutralizes_csv_formula_cells_in_full_mode(
 @pytest.mark.django_db
 def test_trial_balance_is_as_of_end_date_and_adds_currency_total(
     admin_user: Model,
+    superadmin_user: Model,
     investor: Model,
 ) -> None:
     _declare_deposit(
@@ -258,7 +325,7 @@ def test_trial_balance_is_as_of_end_date_and_adds_currency_total(
 
     artifact = generate_report(
         GenerateReportCommand(
-            actor=admin_user,
+            actor=superadmin_user,
             report_type=ReportType.TRIAL_BALANCE,
             start_date=date(2026, 1, 1),
             end_date=date(2026, 1, 31),
@@ -411,9 +478,43 @@ def test_zip_evidence_package_contains_manifest_csv_and_pdf(
         assert "manifest.json" in names
         assert "bank_operations_2026-01-01_2026-01-31.csv" in names
         assert "bank_operations_2026-01-01_2026-01-31.pdf" in names
+        assert {info.date_time for info in archive.infolist()} == {(1980, 1, 1, 0, 0, 0)}
         manifest = archive.read("manifest.json").decode("utf-8")
     assert '"report_type": "bank_operations"' in manifest
     assert artifact.manifest["included_files"]
+
+
+@pytest.mark.django_db
+def test_zip_evidence_package_checksum_is_reproducible_with_same_generation_metadata(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _declare_deposit(admin_user, investor)
+    pinned_as_of = datetime(2026, 1, 31, 12, 0, tzinfo=business_timezone())
+
+    first = generate_report(
+        GenerateReportCommand(
+            actor=admin_user,
+            report_type=ReportType.BANK_OPERATIONS,
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 31),
+            output_format=ReportOutputFormat.ZIP,
+            as_of=pinned_as_of,
+        )
+    )
+    second = generate_report(
+        GenerateReportCommand(
+            actor=admin_user,
+            report_type=ReportType.BANK_OPERATIONS,
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 31),
+            output_format=ReportOutputFormat.ZIP,
+            as_of=pinned_as_of,
+        )
+    )
+
+    assert first.content == second.content
+    assert first.report_run.content_sha256 == second.report_run.content_sha256
 
 
 @pytest.mark.django_db
@@ -443,13 +544,14 @@ def test_bank_operations_report_redacts_counterparty_and_bank_fields(
 @pytest.mark.django_db
 def test_bexio_export_uses_configurable_account_mapping_and_marks_unmapped(
     admin_user: Model,
+    superadmin_user: Model,
     investor: Model,
 ) -> None:
     _declare_deposit(admin_user, investor)
 
     artifact = generate_report(
         GenerateReportCommand(
-            actor=admin_user,
+            actor=superadmin_user,
             report_type=ReportType.BEXIO_ACCOUNTING_EXPORT,
             start_date=date(2026, 1, 1),
             end_date=date(2026, 1, 31),
@@ -480,6 +582,7 @@ def test_bexio_export_uses_configurable_account_mapping_and_marks_unmapped(
 @pytest.mark.django_db
 def test_participant_statement_and_annual_garanta_tax_info_are_ledger_derived(
     admin_user: Model,
+    superadmin_user: Model,
     investor: Model,
 ) -> None:
     _declare_deposit(admin_user, investor)
@@ -487,7 +590,7 @@ def test_participant_statement_and_annual_garanta_tax_info_are_ledger_derived(
 
     statement = generate_report(
         GenerateReportCommand(
-            actor=admin_user,
+            actor=superadmin_user,
             report_type=ReportType.PARTICIPANT_ACCOUNT_STATEMENT,
             start_date=date(2026, 1, 1),
             end_date=date(2026, 1, 31),
@@ -504,7 +607,7 @@ def test_participant_statement_and_annual_garanta_tax_info_are_ledger_derived(
 
     tax_info = generate_report(
         GenerateReportCommand(
-            actor=admin_user,
+            actor=superadmin_user,
             report_type=ReportType.ANNUAL_TAX_INFORMATION,
             period_preset=ReportPeriodPreset.CALENDAR_YEAR,
             period_anchor_date=date(2026, 6, 1),

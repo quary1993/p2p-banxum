@@ -16,7 +16,11 @@ from django.apps import apps
 from django.db import transaction
 from django.db.models import Model
 
-from backend.apps.platform_core.domain.access import actor_ref_for_user, is_admin_actor
+from backend.apps.platform_core.domain.access import (
+    actor_ref_for_user,
+    is_admin_actor,
+    is_superadmin_actor,
+)
 from backend.apps.platform_core.domain.time import (
     business_timezone,
     calendar_day_difference,
@@ -71,6 +75,15 @@ REVENUE_ACCOUNT_TYPES = frozenset(
 )
 PII_OWNER_TYPES = frozenset({"investor"})
 DEFAULT_EXPOSURE_LOAN_STATUSES = frozenset({"late", "defaulted", "written_off"})
+SUPERADMIN_ONLY_REPORT_TYPES = frozenset(
+    {
+        ReportType.KYC_STATUS,
+        ReportType.AUDIT_LOG,
+        ReportType.PARTICIPANT_ACCOUNT_STATEMENT,
+        ReportType.ANNUAL_TAX_INFORMATION,
+    }
+)
+FIXED_ZIP_ENTRY_DATE_TIME = (1980, 1, 1, 0, 0, 0)
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,6 +148,17 @@ def _ledger_model(model_name: str) -> Any:
 def _require_admin_actor(actor: Model) -> None:
     if not is_admin_actor(actor):
         raise ReportingAuthorizationError("Only an active admin can generate reports.")
+
+
+def _require_report_access(*, actor: Model, report_type: str, redaction_mode: str) -> None:
+    _require_admin_actor(actor)
+    if redaction_mode == ReportRedactionMode.FULL and not is_superadmin_actor(actor):
+        raise ReportingAuthorizationError("Full report exports require an active superadmin.")
+    if report_type in SUPERADMIN_ONLY_REPORT_TYPES and not is_superadmin_actor(actor):
+        raise ReportingAuthorizationError(
+            "This report contains restricted compliance, tax, statement, or audit data and "
+            "requires an active superadmin."
+        )
 
 
 def _report_type(value: str) -> str:
@@ -2502,9 +2526,9 @@ def _render_zip(
     )
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr(csv_rendered.filename, csv_bytes)
-        archive.writestr(pdf_rendered.filename, pdf_bytes)
-        archive.writestr(manifest_filename, manifest_bytes)
+        _write_zip_entry(archive, csv_rendered.filename, csv_bytes)
+        _write_zip_entry(archive, pdf_rendered.filename, pdf_bytes)
+        _write_zip_entry(archive, manifest_filename, manifest_bytes)
     zip_bytes = zip_buffer.getvalue()
     checksum = _content_checksum_bytes(zip_bytes)
     return RenderedReport(
@@ -2565,12 +2589,23 @@ def _render_report(
     raise ReportingValidationError(f"Unsupported report output format: {output_format}")
 
 
+def _write_zip_entry(archive: zipfile.ZipFile, filename: str, content: bytes) -> None:
+    entry = zipfile.ZipInfo(filename=filename, date_time=FIXED_ZIP_ENTRY_DATE_TIME)
+    entry.compress_type = zipfile.ZIP_DEFLATED
+    entry.external_attr = 0o600 << 16
+    archive.writestr(entry, content)
+
+
 @transaction.atomic
 def generate_report(command: GenerateReportCommand) -> GeneratedReportArtifact:
-    _require_admin_actor(command.actor)
     report_type = _report_type(command.report_type)
     output_format = _output_format(command.output_format)
     redaction_mode = _redaction_mode(command.redaction_mode)
+    _require_report_access(
+        actor=command.actor,
+        report_type=report_type,
+        redaction_mode=redaction_mode,
+    )
     generated_at = command.as_of or now_utc()
     period = _resolve_report_period(
         start_date=command.start_date,
