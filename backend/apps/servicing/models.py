@@ -13,6 +13,19 @@ class BorrowerRepaymentEventType(models.TextChoices):
     EARLY_REPAYMENT = "early_repayment", "Early repayment"
 
 
+class LoanRiskNoteVisibility(models.TextChoices):
+    INTERNAL = "internal", "Internal"
+    PUBLIC = "public", "Public"
+
+
+class LoanRiskNoteType(models.TextChoices):
+    INTERNAL_NOTE = "internal_note", "Internal note"
+    PUBLIC_UPDATE = "public_update", "Public update"
+    DEFAULT_UPDATE = "default_update", "Default update"
+    RECOVERY_UPDATE = "recovery_update", "Recovery update"
+    DOCUMENT_NOTE = "document_note", "Document note"
+
+
 class BorrowerRepaymentEvent(AppendOnlyModel, TimestampedModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     loan = models.ForeignKey(
@@ -161,4 +174,96 @@ class InvestorRepaymentDistributionLine(AppendOnlyModel):
             models.Index(fields=["holding", "occurred_at"]),
             models.Index(fields=["investor_user_id", "occurred_at"]),
             models.Index(fields=["balance_lot"]),
+        ]
+
+
+class LoanRiskNote(AppendOnlyModel, TimestampedModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    loan = models.ForeignKey(
+        "loans.Loan",
+        on_delete=models.PROTECT,
+        related_name="risk_notes",
+    )
+    borrower_id = models.UUIDField()
+    visibility = models.CharField(max_length=16, choices=LoanRiskNoteVisibility.choices)
+    note_type = models.CharField(max_length=64, choices=LoanRiskNoteType.choices)
+    title = models.CharField(max_length=255, blank=True)
+    body = models.TextField()
+    evidence_reference = models.CharField(max_length=255, blank=True)
+    created_by_admin_id = models.UUIDField()
+    occurred_at = models.DateTimeField()
+    metadata = models.JSONField(default=dict, blank=True)
+    idempotency_key = models.CharField(max_length=160, unique=True)
+
+    class Meta:
+        ordering = ["-occurred_at", "-id"]
+        indexes = [
+            models.Index(fields=["loan", "visibility", "occurred_at"]),
+            models.Index(fields=["borrower_id", "occurred_at"]),
+            models.Index(fields=["created_by_admin_id", "occurred_at"]),
+        ]
+
+
+class LoanWriteOffEvent(AppendOnlyModel, TimestampedModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    loan = models.ForeignKey(
+        "loans.Loan",
+        on_delete=models.PROTECT,
+        related_name="write_off_events",
+    )
+    borrower_id = models.UUIDField()
+    currency = models.ForeignKey(
+        "platform_core.Currency",
+        on_delete=models.PROTECT,
+        related_name="loan_write_off_events",
+    )
+    written_off_principal_minor = models.BigIntegerField(default=0)
+    written_off_contractual_interest_minor = models.BigIntegerField(default=0)
+    written_off_default_interest_minor = models.BigIntegerField(default=0)
+    written_off_fees_minor = models.BigIntegerField(default=0)
+    written_off_penalties_minor = models.BigIntegerField(default=0)
+    total_written_off_minor = models.BigIntegerField()
+    previous_loan_status = models.CharField(max_length=32)
+    new_loan_status = models.CharField(max_length=32)
+    reason = models.TextField()
+    notes = models.TextField(blank=True)
+    evidence_reference = models.CharField(max_length=255, blank=True)
+    written_off_at = models.DateTimeField()
+    created_by_admin_id = models.UUIDField()
+    metadata = models.JSONField(default=dict, blank=True)
+    idempotency_key = models.CharField(max_length=160, unique=True)
+
+    class Meta:
+        ordering = ["-written_off_at", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(written_off_principal_minor__gte=0)
+                    & models.Q(written_off_contractual_interest_minor__gte=0)
+                    & models.Q(written_off_default_interest_minor__gte=0)
+                    & models.Q(written_off_fees_minor__gte=0)
+                    & models.Q(written_off_penalties_minor__gte=0)
+                ),
+                name="servicing_write_off_amounts_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    total_written_off_minor=models.F("written_off_principal_minor")
+                    + models.F("written_off_contractual_interest_minor")
+                    + models.F("written_off_default_interest_minor")
+                    + models.F("written_off_fees_minor")
+                    + models.F("written_off_penalties_minor")
+                ),
+                name="servicing_write_off_total_reconciles",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(total_written_off_minor__gt=0),
+                name="servicing_write_off_total_positive",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["loan", "written_off_at"]),
+            models.Index(fields=["borrower_id", "written_off_at"]),
+            models.Index(fields=["currency", "written_off_at"]),
+            models.Index(fields=["created_by_admin_id", "written_off_at"]),
         ]

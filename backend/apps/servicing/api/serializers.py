@@ -7,6 +7,10 @@ from rest_framework import serializers
 from backend.apps.servicing.models import (
     BorrowerRepaymentEvent,
     InvestorRepaymentDistributionLine,
+    LoanRiskNote,
+    LoanRiskNoteType,
+    LoanRiskNoteVisibility,
+    LoanWriteOffEvent,
 )
 
 
@@ -105,6 +109,101 @@ class LoanServicingStatusScanResponseSerializer(serializers.Serializer[Any]):
     changes = LoanServicingStatusChangeSerializer(many=True)
 
 
+class LoanRiskNoteCreateRequestSerializer(serializers.Serializer[Any]):
+    loan_id = serializers.UUIDField()
+    visibility = serializers.ChoiceField(choices=LoanRiskNoteVisibility.choices)
+    note_type = serializers.ChoiceField(choices=LoanRiskNoteType.choices)
+    title = serializers.CharField(required=False, allow_blank=True, max_length=255)
+    body = serializers.CharField()
+    evidence_reference = serializers.CharField(required=False, allow_blank=True, max_length=255)
+    metadata = serializers.JSONField(required=False)
+    idempotency_key = serializers.CharField(max_length=160)
+
+
+class LoanRiskNoteListQuerySerializer(serializers.Serializer[Any]):
+    loan_id = serializers.UUIDField()
+    include_internal = serializers.BooleanField(required=False, default=True)
+    limit = serializers.IntegerField(required=False, min_value=1, max_value=250, default=100)
+
+
+class PublicLoanRiskNoteListQuerySerializer(serializers.Serializer[Any]):
+    loan_id = serializers.UUIDField()
+    limit = serializers.IntegerField(required=False, min_value=1, max_value=250, default=100)
+
+
+class LoanRiskNoteSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    loan_id = serializers.UUIDField()
+    borrower_id = serializers.UUIDField()
+    visibility = serializers.CharField()
+    note_type = serializers.CharField()
+    title = serializers.CharField()
+    body = serializers.CharField()
+    evidence_reference = serializers.CharField()
+    created_by_admin_id = serializers.UUIDField()
+    occurred_at = serializers.DateTimeField()
+    metadata = serializers.JSONField()
+    idempotency_key = serializers.CharField()
+    created_at = serializers.DateTimeField()
+    updated_at = serializers.DateTimeField()
+
+
+class PublicLoanRiskNoteSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    loan_id = serializers.UUIDField()
+    visibility = serializers.CharField()
+    note_type = serializers.CharField()
+    title = serializers.CharField()
+    body = serializers.CharField()
+    occurred_at = serializers.DateTimeField()
+
+
+class LoanWriteOffRecordRequestSerializer(serializers.Serializer[Any]):
+    loan_id = serializers.UUIDField()
+    written_off_principal_minor = serializers.IntegerField(min_value=0)
+    written_off_contractual_interest_minor = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        default=0,
+    )
+    written_off_default_interest_minor = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        default=0,
+    )
+    written_off_fees_minor = serializers.IntegerField(required=False, min_value=0, default=0)
+    written_off_penalties_minor = serializers.IntegerField(required=False, min_value=0, default=0)
+    reason = serializers.CharField()
+    notes = serializers.CharField(required=False, allow_blank=True)
+    evidence_reference = serializers.CharField(required=False, allow_blank=True, max_length=255)
+    metadata = serializers.JSONField(required=False)
+    idempotency_key = serializers.CharField(max_length=160)
+
+
+class LoanWriteOffEventSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    loan_id = serializers.UUIDField()
+    borrower_id = serializers.UUIDField()
+    currency = serializers.CharField(source="currency.code")
+    written_off_principal_minor = serializers.IntegerField()
+    written_off_contractual_interest_minor = serializers.IntegerField()
+    written_off_default_interest_minor = serializers.IntegerField()
+    written_off_fees_minor = serializers.IntegerField()
+    written_off_penalties_minor = serializers.IntegerField()
+    total_written_off_minor = serializers.IntegerField()
+    previous_loan_status = serializers.CharField()
+    new_loan_status = serializers.CharField()
+    reason = serializers.CharField()
+    notes = serializers.CharField()
+    evidence_reference = serializers.CharField()
+    written_off_at = serializers.DateTimeField()
+    created_by_admin_id = serializers.UUIDField()
+    metadata = serializers.JSONField()
+    idempotency_key = serializers.CharField()
+    created_at = serializers.DateTimeField()
+    updated_at = serializers.DateTimeField()
+
+
 def serialize_borrower_repayment_event(
     repayment_event: BorrowerRepaymentEvent,
 ) -> dict[str, Any]:
@@ -127,3 +226,15 @@ def serialize_status_change(change: Any) -> dict[str, Any]:
         "triggering_installment_id": change.triggering_installment_id,
         "triggering_due_date": change.triggering_due_date,
     }
+
+
+def serialize_risk_note(note: LoanRiskNote) -> dict[str, Any]:
+    return dict(LoanRiskNoteSerializer(note).data)
+
+
+def serialize_public_risk_note(note: LoanRiskNote) -> dict[str, Any]:
+    return dict(PublicLoanRiskNoteSerializer(note).data)
+
+
+def serialize_write_off_event(write_off: LoanWriteOffEvent) -> dict[str, Any]:
+    return dict(LoanWriteOffEventSerializer(write_off).data)

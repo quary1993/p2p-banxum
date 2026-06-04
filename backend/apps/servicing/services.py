@@ -12,14 +12,18 @@ from django.apps import apps
 from django.db import IntegrityError, transaction
 from django.db.models import Model, Sum
 
-from backend.apps.platform_core.domain.access import actor_ref_for_user, is_admin_actor
+from backend.apps.platform_core.domain.access import (
+    actor_ref_for_user,
+    is_admin_actor,
+    user_can_access_financial_features,
+)
 from backend.apps.platform_core.domain.money import (
     Money,
     MoneyError,
     allocate_by_weights,
     normalize_currency,
 )
-from backend.apps.platform_core.domain.time import business_timezone
+from backend.apps.platform_core.domain.time import business_timezone, now_utc
 from backend.apps.platform_core.models import Currency
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import DomainEventCommand, record_domain_event
@@ -27,6 +31,10 @@ from backend.apps.servicing.models import (
     BorrowerRepaymentEvent,
     BorrowerRepaymentEventType,
     InvestorRepaymentDistributionLine,
+    LoanRiskNote,
+    LoanRiskNoteType,
+    LoanRiskNoteVisibility,
+    LoanWriteOffEvent,
 )
 
 
@@ -48,10 +56,18 @@ LOAN_STATUS_FUNDED = "funded"
 LOAN_STATUS_LATE = "late"
 LOAN_STATUS_DEFAULTED = "defaulted"
 LOAN_STATUS_REPAID = "repaid"
+LOAN_STATUS_WRITTEN_OFF = "written_off"
 REPAYMENT_ALLOWED_LOAN_STATUSES = {LOAN_STATUS_FUNDED, LOAN_STATUS_LATE}
 STATUS_SCAN_LOAN_STATUSES = {LOAN_STATUS_FUNDED, LOAN_STATUS_LATE}
 LATE_THRESHOLD_DAYS = 5
 DEFAULT_THRESHOLD_DAYS = 16
+PUBLIC_NOTE_LOAN_STATUSES = {
+    LOAN_STATUS_FUNDED,
+    LOAN_STATUS_LATE,
+    LOAN_STATUS_DEFAULTED,
+    LOAN_STATUS_REPAID,
+    LOAN_STATUS_WRITTEN_OFF,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +127,35 @@ class LoanServicingStatusChange:
 class ScanLoanServicingStatusesResult:
     as_of_date: date
     changes: list[LoanServicingStatusChange]
+
+
+@dataclass(frozen=True, slots=True)
+class AddLoanRiskNoteCommand:
+    actor: Model
+    loan_id: str
+    visibility: str
+    note_type: str
+    body: str
+    idempotency_key: str
+    title: str = ""
+    evidence_reference: str = ""
+    metadata: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RecordLoanWriteOffCommand:
+    actor: Model
+    loan_id: str
+    written_off_principal_minor: int
+    reason: str
+    idempotency_key: str
+    written_off_contractual_interest_minor: int = 0
+    written_off_default_interest_minor: int = 0
+    written_off_fees_minor: int = 0
+    written_off_penalties_minor: int = 0
+    notes: str = ""
+    evidence_reference: str = ""
+    metadata: dict[str, Any] | None = None
 
 
 def _ledger_services() -> Any:
@@ -176,6 +221,35 @@ def _validate_positive_minor_amount(amount_minor: int, label: str) -> int:
     return amount_minor
 
 
+def _validate_nonnegative_minor_amount(amount_minor: int, label: str) -> int:
+    if type(amount_minor) is not int:
+        raise ServicingValidationError(f"{label} must be an integer minor-unit amount.")
+    if amount_minor < 0:
+        raise ServicingValidationError(f"{label} cannot be negative.")
+    return amount_minor
+
+
+def _loan_model() -> Any:
+    return apps.get_model("loans", "Loan")
+
+
+def _loan_event_model() -> Any:
+    return apps.get_model("loans", "LoanEvent")
+
+
+def _locked_loan(loan_id: str) -> Model:
+    loan = cast(
+        Model | None,
+        _loan_model().objects.select_for_update()
+        .select_related("borrower", "currency")
+        .filter(id=loan_id)
+        .first(),
+    )
+    if loan is None:
+        raise ServicingValidationError("Loan does not exist.")
+    return loan
+
+
 def _received_at_from_value_date(value_date: date) -> datetime:
     return datetime.combine(value_date, time.min, tzinfo=business_timezone())
 
@@ -226,17 +300,102 @@ def _existing_repayment_for_idempotency(
     )
 
 
-def _locked_repayable_loan(loan_id: str) -> Model:
-    loan_model = apps.get_model("loans", "Loan")
-    loan = cast(
-        Model | None,
-        loan_model.objects.select_for_update()
-        .select_related("borrower", "currency")
-        .filter(id=loan_id)
-        .first(),
+def _risk_note_fingerprint(
+    command: AddLoanRiskNoteCommand,
+    *,
+    visibility: str,
+    note_type: str,
+    title: str,
+    body: str,
+    evidence_reference: str,
+    idempotency_key: str,
+) -> str:
+    return _stable_json_fingerprint(
+        {
+            "loan_id": str(command.loan_id),
+            "visibility": visibility,
+            "note_type": note_type,
+            "title": title,
+            "body": body,
+            "evidence_reference": evidence_reference,
+            "metadata": command.metadata or {},
+            "idempotency_key": idempotency_key,
+        }
     )
-    if loan is None:
-        raise ServicingValidationError("Loan does not exist.")
+
+
+def _existing_risk_note_for_idempotency(
+    idempotency_key: str,
+    *,
+    expected_fingerprint: str,
+) -> LoanRiskNote | None:
+    existing = LoanRiskNote.objects.filter(idempotency_key=idempotency_key).first()
+    if existing is None:
+        return None
+    if (
+        cast(dict[str, Any], existing.metadata).get(REQUEST_FINGERPRINT_METADATA_KEY)
+        != expected_fingerprint
+    ):
+        raise ServicingValidationError(
+            "Idempotency key was already used for a different risk-note request."
+        )
+    return cast(LoanRiskNote, existing)
+
+
+def _write_off_fingerprint(
+    command: RecordLoanWriteOffCommand,
+    *,
+    currency_code: str,
+    principal_minor: int,
+    contractual_interest_minor: int,
+    default_interest_minor: int,
+    fees_minor: int,
+    penalties_minor: int,
+    total_minor: int,
+    reason: str,
+    notes: str,
+    evidence_reference: str,
+    idempotency_key: str,
+) -> str:
+    return _stable_json_fingerprint(
+        {
+            "loan_id": str(command.loan_id),
+            "currency": currency_code,
+            "written_off_principal_minor": principal_minor,
+            "written_off_contractual_interest_minor": contractual_interest_minor,
+            "written_off_default_interest_minor": default_interest_minor,
+            "written_off_fees_minor": fees_minor,
+            "written_off_penalties_minor": penalties_minor,
+            "total_written_off_minor": total_minor,
+            "reason": reason,
+            "notes": notes,
+            "evidence_reference": evidence_reference,
+            "metadata": command.metadata or {},
+            "idempotency_key": idempotency_key,
+        }
+    )
+
+
+def _existing_write_off_for_idempotency(
+    idempotency_key: str,
+    *,
+    expected_fingerprint: str,
+) -> LoanWriteOffEvent | None:
+    existing = LoanWriteOffEvent.objects.filter(idempotency_key=idempotency_key).first()
+    if existing is None:
+        return None
+    if (
+        cast(dict[str, Any], existing.metadata).get(REQUEST_FINGERPRINT_METADATA_KEY)
+        != expected_fingerprint
+    ):
+        raise ServicingValidationError(
+            "Idempotency key was already used for a different write-off request."
+        )
+    return cast(LoanWriteOffEvent, existing)
+
+
+def _locked_repayable_loan(loan_id: str) -> Model:
+    loan = _locked_loan(loan_id)
     loan_ref = cast(Any, loan)
     status = str(loan_ref.status)
     if status == LOAN_STATUS_DEFAULTED:
@@ -479,6 +638,63 @@ def _distribution_plan(
     if sum(line.amount_minor for line in plan) != principal_minor + interest_minor:
         raise ServicingValidationError("Distribution plan does not reconcile to repayment amount.")
     return plan
+
+
+def _actor_has_loan_holding(actor: Model, loan_id: str) -> bool:
+    holding_model = apps.get_model("holdings", "InvestorLoanHolding")
+    return bool(holding_model.objects.filter(loan_id=loan_id, investor_user_id=actor.pk).exists())
+
+
+def _validate_visibility(value: str) -> str:
+    cleaned = _clean_required(value, "Visibility")
+    allowed = {choice.value for choice in LoanRiskNoteVisibility}
+    if cleaned not in allowed:
+        raise ServicingValidationError("Risk-note visibility is not valid.")
+    return cleaned
+
+
+def _validate_note_type(value: str) -> str:
+    cleaned = _clean_required(value, "Note type")
+    allowed = {choice.value for choice in LoanRiskNoteType}
+    if cleaned not in allowed:
+        raise ServicingValidationError("Risk-note type is not valid.")
+    return cleaned
+
+
+def list_admin_loan_risk_notes(
+    *,
+    actor: Model,
+    loan_id: str,
+    include_internal: bool = True,
+    limit: int = 100,
+) -> list[LoanRiskNote]:
+    _require_admin_actor(actor)
+    safe_limit = min(max(int(limit), 1), 250)
+    query = LoanRiskNote.objects.select_related("loan", "loan__currency").filter(loan_id=loan_id)
+    if not include_internal:
+        query = query.filter(visibility=LoanRiskNoteVisibility.PUBLIC)
+    return list(query.order_by("-occurred_at", "-id")[:safe_limit])
+
+
+def list_public_loan_risk_notes(
+    *,
+    actor: Model,
+    loan_id: str,
+    limit: int = 100,
+) -> list[LoanRiskNote]:
+    if not is_admin_actor(actor):
+        if not user_can_access_financial_features(actor):
+            raise ServicingAuthorizationError("Investor account cannot view loan risk notes.")
+        if not _actor_has_loan_holding(actor, loan_id):
+            raise ServicingAuthorizationError(
+                "Investor can only view public notes for loans they hold."
+            )
+    safe_limit = min(max(int(limit), 1), 250)
+    return list(
+        LoanRiskNote.objects.select_related("loan", "loan__currency")
+        .filter(loan_id=loan_id, visibility=LoanRiskNoteVisibility.PUBLIC)
+        .order_by("-occurred_at", "-id")[:safe_limit]
+    )
 
 
 def _record_holding_principal_update(
@@ -1009,3 +1225,251 @@ def scan_loan_servicing_statuses(
         if change is not None:
             changes.append(change)
     return ScanLoanServicingStatusesResult(as_of_date=command.as_of_date, changes=changes)
+
+
+@transaction.atomic
+def add_loan_risk_note(command: AddLoanRiskNoteCommand) -> LoanRiskNote:
+    _require_admin_actor(command.actor)
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    visibility = _validate_visibility(command.visibility)
+    note_type = _validate_note_type(command.note_type)
+    title = command.title.strip()
+    body = _clean_required(command.body, "Risk note body")
+    evidence_reference = command.evidence_reference.strip()
+    if visibility == LoanRiskNoteVisibility.PUBLIC and note_type in {
+        LoanRiskNoteType.INTERNAL_NOTE,
+        LoanRiskNoteType.DOCUMENT_NOTE,
+    }:
+        raise ServicingValidationError("Internal/document notes cannot be marked public.")
+    loan = _locked_loan(command.loan_id)
+    loan_ref = cast(Any, loan)
+    if visibility == LoanRiskNoteVisibility.PUBLIC and str(loan_ref.status) not in (
+        PUBLIC_NOTE_LOAN_STATUSES
+    ):
+        raise ServicingValidationError("Public notes can only be added to active portfolio loans.")
+    request_fingerprint = _risk_note_fingerprint(
+        command,
+        visibility=visibility,
+        note_type=note_type,
+        title=title,
+        body=body,
+        evidence_reference=evidence_reference,
+        idempotency_key=idempotency_key,
+    )
+    existing = _existing_risk_note_for_idempotency(
+        idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing is not None:
+        return existing
+    metadata = {
+        REQUEST_FINGERPRINT_METADATA_KEY: request_fingerprint,
+        "loan_id": str(loan_ref.id),
+        "borrower_id": str(loan_ref.borrower_id),
+        "loan_status": str(loan_ref.status),
+        **(command.metadata or {}),
+    }
+    occurred_at = now_utc()
+    try:
+        with transaction.atomic():
+            note = LoanRiskNote.objects.create(
+                loan=loan,
+                borrower_id=loan_ref.borrower_id,
+                visibility=visibility,
+                note_type=note_type,
+                title=title,
+                body=body,
+                evidence_reference=evidence_reference,
+                created_by_admin_id=command.actor.pk,
+                occurred_at=occurred_at,
+                metadata=metadata,
+                idempotency_key=idempotency_key,
+            )
+    except IntegrityError:
+        existing_after_race = _existing_risk_note_for_idempotency(
+            idempotency_key,
+            expected_fingerprint=request_fingerprint,
+        )
+        if existing_after_race is None:
+            raise
+        return existing_after_race
+    actor_ref = actor_ref_for_user(command.actor)
+    event_metadata = {
+        "risk_note_id": str(note.id),
+        "loan_id": str(loan_ref.id),
+        "borrower_id": str(loan_ref.borrower_id),
+        "visibility": visibility,
+        "note_type": note_type,
+        "title": title,
+        "evidence_reference": evidence_reference,
+    }
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref,
+            action="servicing.loan_risk_note_added",
+            target_type="LoanRiskNote",
+            target_id=str(note.id),
+            metadata=event_metadata,
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="LoanRiskNoteAdded",
+            aggregate_type="Loan",
+            aggregate_id=str(loan_ref.id),
+            payload=event_metadata,
+            idempotency_key=f"loan-risk-note:{note.id}:added",
+        )
+    )
+    return cast(LoanRiskNote, note)
+
+
+@transaction.atomic
+def record_loan_write_off(command: RecordLoanWriteOffCommand) -> LoanWriteOffEvent:
+    _require_admin_actor(command.actor)
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    principal_minor = _validate_nonnegative_minor_amount(
+        command.written_off_principal_minor,
+        "Written-off principal",
+    )
+    contractual_interest_minor = _validate_nonnegative_minor_amount(
+        command.written_off_contractual_interest_minor,
+        "Written-off contractual interest",
+    )
+    default_interest_minor = _validate_nonnegative_minor_amount(
+        command.written_off_default_interest_minor,
+        "Written-off default interest",
+    )
+    fees_minor = _validate_nonnegative_minor_amount(
+        command.written_off_fees_minor,
+        "Written-off fees",
+    )
+    penalties_minor = _validate_nonnegative_minor_amount(
+        command.written_off_penalties_minor,
+        "Written-off penalties",
+    )
+    total_minor = (
+        principal_minor
+        + contractual_interest_minor
+        + default_interest_minor
+        + fees_minor
+        + penalties_minor
+    )
+    reason = _clean_required(command.reason, "Write-off reason")
+    notes = command.notes.strip()
+    evidence_reference = command.evidence_reference.strip()
+    loan = _locked_loan(command.loan_id)
+    loan_ref = cast(Any, loan)
+    currency = _enabled_currency(str(loan_ref.currency_id))
+    _validate_money(total_minor, currency.code, "Total written-off amount")
+    request_fingerprint = _write_off_fingerprint(
+        command,
+        currency_code=currency.code,
+        principal_minor=principal_minor,
+        contractual_interest_minor=contractual_interest_minor,
+        default_interest_minor=default_interest_minor,
+        fees_minor=fees_minor,
+        penalties_minor=penalties_minor,
+        total_minor=total_minor,
+        reason=reason,
+        notes=notes,
+        evidence_reference=evidence_reference,
+        idempotency_key=idempotency_key,
+    )
+    existing = _existing_write_off_for_idempotency(
+        idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing is not None:
+        return existing
+    previous_status = str(loan_ref.status)
+    if previous_status != LOAN_STATUS_DEFAULTED:
+        raise ServicingValidationError("Only defaulted loans can be written off.")
+    written_off_at = now_utc()
+    metadata = {
+        REQUEST_FINGERPRINT_METADATA_KEY: request_fingerprint,
+        "loan_id": str(loan_ref.id),
+        "borrower_id": str(loan_ref.borrower_id),
+        "previous_loan_status": previous_status,
+        "new_loan_status": LOAN_STATUS_WRITTEN_OFF,
+        **(command.metadata or {}),
+    }
+    try:
+        with transaction.atomic():
+            write_off = LoanWriteOffEvent.objects.create(
+                loan=loan,
+                borrower_id=loan_ref.borrower_id,
+                currency=currency,
+                written_off_principal_minor=principal_minor,
+                written_off_contractual_interest_minor=contractual_interest_minor,
+                written_off_default_interest_minor=default_interest_minor,
+                written_off_fees_minor=fees_minor,
+                written_off_penalties_minor=penalties_minor,
+                total_written_off_minor=total_minor,
+                previous_loan_status=previous_status,
+                new_loan_status=LOAN_STATUS_WRITTEN_OFF,
+                reason=reason,
+                notes=notes,
+                evidence_reference=evidence_reference,
+                written_off_at=written_off_at,
+                created_by_admin_id=command.actor.pk,
+                metadata=metadata,
+                idempotency_key=idempotency_key,
+            )
+    except IntegrityError:
+        existing_after_race = _existing_write_off_for_idempotency(
+            idempotency_key,
+            expected_fingerprint=request_fingerprint,
+        )
+        if existing_after_race is None:
+            raise
+        return existing_after_race
+    loan_ref.status = LOAN_STATUS_WRITTEN_OFF
+    loan_ref.updated_by_admin_id = command.actor.pk
+    loan.save(update_fields=["status", "updated_by_admin_id", "updated_at"])
+    event_metadata = {
+        "write_off_event_id": str(write_off.id),
+        "loan_id": str(loan_ref.id),
+        "borrower_id": str(loan_ref.borrower_id),
+        "currency": currency.code,
+        "written_off_principal_minor": principal_minor,
+        "written_off_contractual_interest_minor": contractual_interest_minor,
+        "written_off_default_interest_minor": default_interest_minor,
+        "written_off_fees_minor": fees_minor,
+        "written_off_penalties_minor": penalties_minor,
+        "total_written_off_minor": total_minor,
+        "previous_status": previous_status,
+        "new_status": LOAN_STATUS_WRITTEN_OFF,
+        "reason": reason,
+        "evidence_reference": evidence_reference,
+    }
+    _loan_event_model().objects.create(
+        loan=loan,
+        event_type="write_off_recorded",
+        actor_user_id=command.actor.pk,
+        actor_account_type=str(getattr(command.actor, "account_type", "")),
+        previous_status=previous_status,
+        new_status=LOAN_STATUS_WRITTEN_OFF,
+        note=reason,
+        metadata=event_metadata,
+    )
+    actor_ref = actor_ref_for_user(command.actor)
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref,
+            action="servicing.loan_write_off_recorded",
+            target_type="LoanWriteOffEvent",
+            target_id=str(write_off.id),
+            metadata=event_metadata,
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="LoanWriteOffRecorded",
+            aggregate_type="Loan",
+            aggregate_id=str(loan_ref.id),
+            payload=event_metadata,
+            idempotency_key=f"loan:{loan_ref.id}:write-off:{write_off.id}",
+        )
+    )
+    return cast(LoanWriteOffEvent, write_off)

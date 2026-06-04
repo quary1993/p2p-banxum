@@ -10,19 +10,28 @@ from django.contrib.auth import get_user_model
 from django.db import DatabaseError, connection, transaction
 from django.db.models import Model
 from django.test import Client
+from django.utils import timezone
 
-from backend.apps.platform_core.models import Currency, DomainEvent
+from backend.apps.platform_core.models import AuditEvent, Currency, DomainEvent
 from backend.apps.platform_core.models.base import AppendOnlyViolation
 from backend.apps.servicing.models import (
     BorrowerRepaymentEvent,
     BorrowerRepaymentEventType,
     InvestorRepaymentDistributionLine,
+    LoanRiskNote,
+    LoanWriteOffEvent,
 )
 from backend.apps.servicing.services import (
+    AddLoanRiskNoteCommand,
     RecordBorrowerRepaymentCommand,
+    RecordLoanWriteOffCommand,
     ScanLoanServicingStatusesCommand,
+    ServicingAuthorizationError,
     ServicingValidationError,
+    add_loan_risk_note,
+    list_public_loan_risk_notes,
     record_borrower_repayment,
+    record_loan_write_off,
     scan_loan_servicing_statuses,
 )
 
@@ -277,6 +286,24 @@ def _repayment_command(
         admin_notes="Borrower repayment received.",
         warning_acknowledged=warning_acknowledged,
         idempotency_key=idempotency_key,
+    )
+
+
+def _approve_financial_access(investor: Model) -> None:
+    now = timezone.now()
+    cast(Any, investor).phone_verified_at = now
+    investor.save(update_fields=["phone_verified_at"])
+    kyc_case_model = apps.get_model("kyc_compliance", "KycVerificationCase")
+    kyc_case_model.objects.update_or_create(
+        user_id=investor.pk,
+        defaults={
+            "subject_reference": f"user:{investor.pk}",
+            "provider_environment": "test",
+            "workflow_id": "test-workflow",
+            "vendor_data": f"user:{investor.pk}",
+            "status": "approved",
+            "decision_at": now,
+        },
     )
 
 
@@ -880,6 +907,279 @@ def test_repayment_admin_api(
 
 
 @pytest.mark.django_db
+def test_admin_adds_internal_and_public_risk_notes_with_investor_visibility(
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    _approve_financial_access(investor_one)
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+
+    internal_note = add_loan_risk_note(
+        AddLoanRiskNoteCommand(
+            actor=admin_user,
+            loan_id=str(loan.pk),
+            visibility="internal",
+            note_type="internal_note",
+            title="Internal follow-up",
+            body="Borrower called operations and requested a callback.",
+            evidence_reference="drive://internal-note",
+            idempotency_key="servicing-risk-note-internal",
+        )
+    )
+    public_note = add_loan_risk_note(
+        AddLoanRiskNoteCommand(
+            actor=admin_user,
+            loan_id=str(loan.pk),
+            visibility="public",
+            note_type="public_update",
+            title="Payment update",
+            body="Garanta is following up with the borrower regarding the late payment.",
+            idempotency_key="servicing-risk-note-public",
+        )
+    )
+
+    replay = add_loan_risk_note(
+        AddLoanRiskNoteCommand(
+            actor=admin_user,
+            loan_id=str(loan.pk),
+            visibility="public",
+            note_type="public_update",
+            title="Payment update",
+            body="Garanta is following up with the borrower regarding the late payment.",
+            idempotency_key="servicing-risk-note-public",
+        )
+    )
+    assert replay.id == public_note.id
+
+    notes = list_public_loan_risk_notes(actor=investor_one, loan_id=str(loan.pk))
+    assert [note.id for note in notes] == [public_note.id]
+    assert internal_note.id not in {note.id for note in notes}
+    assert DomainEvent.objects.filter(event_type="LoanRiskNoteAdded").count() == 2
+    assert AuditEvent.objects.filter(action="servicing.loan_risk_note_added").count() == 2
+
+    user_model: Any = get_user_model()
+    unrelated_investor = cast(
+        Model,
+        user_model.objects.create_user(
+            email="servicing-unrelated@example.test",
+            full_name="Servicing Unrelated",
+            account_type="natural_person_lender",
+            status="active",
+            is_staff=False,
+        ),
+    )
+    _approve_financial_access(unrelated_investor)
+    with pytest.raises(ServicingValidationError, match="different risk-note"):
+        add_loan_risk_note(
+            AddLoanRiskNoteCommand(
+                actor=admin_user,
+                loan_id=str(loan.pk),
+                visibility="public",
+                note_type="public_update",
+                title="Changed title",
+                body="Garanta is following up with the borrower regarding the late payment.",
+                idempotency_key="servicing-risk-note-public",
+            )
+        )
+    with pytest.raises(ServicingAuthorizationError, match="Investor can only view"):
+        list_public_loan_risk_notes(actor=unrelated_investor, loan_id=str(loan.pk))
+
+
+@pytest.mark.django_db
+def test_risk_note_api_redacts_public_response(
+    client: Client,
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    _approve_financial_access(investor_one)
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+    client.force_login(cast(Any, admin_user))
+
+    create_response = client.post(
+        "/api/v1/servicing/admin/risk-notes/",
+        data={
+            "loan_id": str(loan.pk),
+            "visibility": "public",
+            "note_type": "public_update",
+            "title": "Payment update",
+            "body": "Garanta is following up with the borrower.",
+            "evidence_reference": "statement:private",
+            "metadata": {"internal_case": "RISK-1"},
+            "idempotency_key": "servicing-risk-note-api",
+        },
+        content_type="application/json",
+    )
+    assert create_response.status_code == 201
+    assert create_response.json()["evidence_reference"] == "statement:private"
+
+    client.force_login(cast(Any, investor_one))
+    public_response = client.get(
+        f"/api/v1/servicing/loan-risk-notes/?loan_id={loan.pk}",
+    )
+
+    assert public_response.status_code == 200
+    public_note = public_response.json()[0]
+    assert public_note["title"] == "Payment update"
+    private_fields = {
+        "borrower_id",
+        "evidence_reference",
+        "created_by_admin_id",
+        "metadata",
+        "idempotency_key",
+        "created_at",
+        "updated_at",
+    }
+    assert private_fields.isdisjoint(public_note)
+
+
+@pytest.mark.django_db
+def test_record_write_off_changes_defaulted_loan_to_written_off_and_is_idempotent(
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+    scan_loan_servicing_statuses(
+        ScanLoanServicingStatusesCommand(
+            actor=admin_user,
+            as_of_date=date(2026, 3, 16),
+            loan_ids=(str(loan.pk),),
+        )
+    )
+
+    write_off = record_loan_write_off(
+        RecordLoanWriteOffCommand(
+            actor=admin_user,
+            loan_id=str(loan.pk),
+            written_off_principal_minor=30_000_00,
+            written_off_contractual_interest_minor=500_00,
+            written_off_default_interest_minor=125_00,
+            written_off_fees_minor=25_00,
+            written_off_penalties_minor=50_00,
+            reason="Recovery exhausted after legal review.",
+            notes="Evidence retained offline.",
+            evidence_reference="writeoff-pack-1",
+            idempotency_key="servicing-write-off-1",
+        )
+    )
+    loan.refresh_from_db()
+
+    assert cast(Any, loan).status == "written_off"
+    assert write_off.total_written_off_minor == 30_700_00
+    assert write_off.previous_loan_status == "defaulted"
+    assert write_off.new_loan_status == "written_off"
+    assert write_off.currency_id == "CHF"
+    assert apps.get_model("loans", "LoanEvent").objects.filter(
+        loan=loan,
+        event_type="write_off_recorded",
+        previous_status="defaulted",
+        new_status="written_off",
+    ).exists()
+    assert AuditEvent.objects.filter(action="servicing.loan_write_off_recorded").exists()
+    assert DomainEvent.objects.filter(event_type="LoanWriteOffRecorded").exists()
+
+    replay = record_loan_write_off(
+        RecordLoanWriteOffCommand(
+            actor=admin_user,
+            loan_id=str(loan.pk),
+            written_off_principal_minor=30_000_00,
+            written_off_contractual_interest_minor=500_00,
+            written_off_default_interest_minor=125_00,
+            written_off_fees_minor=25_00,
+            written_off_penalties_minor=50_00,
+            reason="Recovery exhausted after legal review.",
+            notes="Evidence retained offline.",
+            evidence_reference="writeoff-pack-1",
+            idempotency_key="servicing-write-off-1",
+        )
+    )
+    assert replay.id == write_off.id
+
+    with pytest.raises(ServicingValidationError, match="different write-off"):
+        record_loan_write_off(
+            RecordLoanWriteOffCommand(
+                actor=admin_user,
+                loan_id=str(loan.pk),
+                written_off_principal_minor=29_000_00,
+                reason="Changed.",
+                idempotency_key="servicing-write-off-1",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_write_off_requires_defaulted_loan_and_positive_total(
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+
+    with pytest.raises(ServicingValidationError, match="Total written-off amount"):
+        record_loan_write_off(
+            RecordLoanWriteOffCommand(
+                actor=admin_user,
+                loan_id=str(loan.pk),
+                written_off_principal_minor=0,
+                reason="Zero total is invalid.",
+                idempotency_key="servicing-write-off-zero",
+            )
+        )
+    with pytest.raises(ServicingValidationError, match="Only defaulted"):
+        record_loan_write_off(
+            RecordLoanWriteOffCommand(
+                actor=admin_user,
+                loan_id=str(loan.pk),
+                written_off_principal_minor=1_000_00,
+                reason="Not defaulted.",
+                idempotency_key="servicing-write-off-funded",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_write_off_admin_api(
+    client: Client,
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+    scan_loan_servicing_statuses(
+        ScanLoanServicingStatusesCommand(
+            actor=admin_user,
+            as_of_date=date(2026, 3, 16),
+            loan_ids=(str(loan.pk),),
+        )
+    )
+    client.force_login(cast(Any, admin_user))
+
+    response = client.post(
+        "/api/v1/servicing/admin/write-offs/",
+        data={
+            "loan_id": str(loan.pk),
+            "written_off_principal_minor": 30_000_00,
+            "written_off_contractual_interest_minor": 500_00,
+            "reason": "Recovery exhausted.",
+            "notes": "Legal evidence retained.",
+            "evidence_reference": "writeoff-api-pack",
+            "idempotency_key": "servicing-write-off-api",
+        },
+        content_type="application/json",
+    )
+    loan.refresh_from_db()
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["loan_id"] == str(loan.pk)
+    assert payload["currency"] == "CHF"
+    assert payload["total_written_off_minor"] == 30_500_00
+    assert cast(Any, loan).status == "written_off"
+
+
+@pytest.mark.django_db
 def test_servicing_append_only_records_have_app_and_db_guards(
     admin_user: Model,
     investor_one: Model,
@@ -909,5 +1209,68 @@ def test_servicing_append_only_records_have_app_and_db_guards(
             cursor.execute(
                 "DELETE FROM servicing_investorrepaymentdistributionline WHERE id = %s",
                 [line.id.hex],
+            )
+    assert "append-only" in str(delete_error.value)
+
+
+@pytest.mark.django_db
+def test_risk_note_and_write_off_records_have_app_and_db_guards(
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+    note = add_loan_risk_note(
+        AddLoanRiskNoteCommand(
+            actor=admin_user,
+            loan_id=str(loan.pk),
+            visibility="internal",
+            note_type="internal_note",
+            title="Internal note",
+            body="Internal note body.",
+            idempotency_key="servicing-append-risk-note",
+        )
+    )
+    scan_loan_servicing_statuses(
+        ScanLoanServicingStatusesCommand(
+            actor=admin_user,
+            as_of_date=date(2026, 3, 16),
+            loan_ids=(str(loan.pk),),
+        )
+    )
+    write_off = record_loan_write_off(
+        RecordLoanWriteOffCommand(
+            actor=admin_user,
+            loan_id=str(loan.pk),
+            written_off_principal_minor=30_000_00,
+            reason="Write-off append-only test.",
+            idempotency_key="servicing-append-write-off",
+        )
+    )
+
+    with pytest.raises(AppendOnlyViolation):
+        note.body = "mutated"
+        note.save()
+    with pytest.raises(AppendOnlyViolation):
+        write_off.reason = "mutated"
+        write_off.save()
+    with pytest.raises(AppendOnlyViolation):
+        LoanRiskNote.objects.filter(id=note.id).update(body="mutated")
+    with pytest.raises(AppendOnlyViolation):
+        LoanWriteOffEvent.objects.filter(id=write_off.id).update(reason="mutated")
+
+    with pytest.raises(DatabaseError) as update_error, transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE servicing_loanrisknote SET body = %s WHERE id = %s",
+                ["mutated", note.id.hex],
+            )
+    assert "append-only" in str(update_error.value)
+
+    with pytest.raises(DatabaseError) as delete_error, transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM servicing_loanwriteoffevent WHERE id = %s",
+                [write_off.id.hex],
             )
     assert "append-only" in str(delete_error.value)

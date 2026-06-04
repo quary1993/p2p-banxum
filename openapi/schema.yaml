@@ -1549,6 +1549,7 @@ paths:
           - late
           - defaulted
           - repaid
+          - written_off
           - cancelled
           type: string
           minLength: 1
@@ -1559,6 +1560,7 @@ paths:
           * `late` - Late
           * `defaulted` - Defaulted
           * `repaid` - Repaid
+          * `written_off` - Written off
           * `cancelled` - Cancelled
       tags:
       - v1
@@ -2106,6 +2108,66 @@ paths:
               schema:
                 $ref: '#/components/schemas/BorrowerRepaymentRecordResponse'
           description: ''
+  /api/v1/servicing/admin/risk-notes/:
+    get:
+      operationId: v1_servicing_admin_risk_notes_list
+      parameters:
+      - in: query
+        name: include_internal
+        schema:
+          type: boolean
+          default: true
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 250
+          minimum: 1
+          default: 100
+      - in: query
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LoanRiskNote'
+          description: ''
+    post:
+      operationId: v1_servicing_admin_risk_notes_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoanRiskNoteCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoanRiskNoteCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoanRiskNoteCreateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanRiskNote'
+          description: ''
   /api/v1/servicing/admin/status-scan/:
     post:
       operationId: v1_servicing_admin_status_scan_create
@@ -2131,6 +2193,62 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/LoanServicingStatusScanResponse'
+          description: ''
+  /api/v1/servicing/admin/write-offs/:
+    post:
+      operationId: v1_servicing_admin_write_offs_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoanWriteOffRecordRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoanWriteOffRecordRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoanWriteOffRecordRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanWriteOffEvent'
+          description: ''
+  /api/v1/servicing/loan-risk-notes/:
+    get:
+      operationId: v1_servicing_loan_risk_notes_list
+      parameters:
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 250
+          minimum: 1
+          default: 100
+      - in: query
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PublicLoanRiskNote'
           description: ''
 components:
   schemas:
@@ -5116,6 +5234,86 @@ components:
       - schedule_version
       - total_minor
       - updated_at
+    LoanRiskNote:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        loan_id:
+          type: string
+          format: uuid
+        borrower_id:
+          type: string
+          format: uuid
+        visibility:
+          type: string
+        note_type:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+        evidence_reference:
+          type: string
+        created_by_admin_id:
+          type: string
+          format: uuid
+        occurred_at:
+          type: string
+          format: date-time
+        metadata: {}
+        idempotency_key:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - body
+      - borrower_id
+      - created_at
+      - created_by_admin_id
+      - evidence_reference
+      - id
+      - idempotency_key
+      - loan_id
+      - metadata
+      - note_type
+      - occurred_at
+      - title
+      - updated_at
+      - visibility
+    LoanRiskNoteCreateRequest:
+      type: object
+      properties:
+        loan_id:
+          type: string
+          format: uuid
+        visibility:
+          $ref: '#/components/schemas/VisibilityEnum'
+        note_type:
+          $ref: '#/components/schemas/NoteTypeEnum'
+        title:
+          type: string
+          maxLength: 255
+        body:
+          type: string
+        evidence_reference:
+          type: string
+          maxLength: 255
+        metadata: {}
+        idempotency_key:
+          type: string
+          maxLength: 160
+      required:
+      - body
+      - idempotency_key
+      - loan_id
+      - note_type
+      - visibility
     LoanServicingStatusChange:
       type: object
       properties:
@@ -5170,6 +5368,120 @@ components:
       required:
       - as_of_date
       - changes
+    LoanWriteOffEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        loan_id:
+          type: string
+          format: uuid
+        borrower_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+        written_off_principal_minor:
+          type: integer
+        written_off_contractual_interest_minor:
+          type: integer
+        written_off_default_interest_minor:
+          type: integer
+        written_off_fees_minor:
+          type: integer
+        written_off_penalties_minor:
+          type: integer
+        total_written_off_minor:
+          type: integer
+        previous_loan_status:
+          type: string
+        new_loan_status:
+          type: string
+        reason:
+          type: string
+        notes:
+          type: string
+        evidence_reference:
+          type: string
+        written_off_at:
+          type: string
+          format: date-time
+        created_by_admin_id:
+          type: string
+          format: uuid
+        metadata: {}
+        idempotency_key:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - borrower_id
+      - created_at
+      - created_by_admin_id
+      - currency
+      - evidence_reference
+      - id
+      - idempotency_key
+      - loan_id
+      - metadata
+      - new_loan_status
+      - notes
+      - previous_loan_status
+      - reason
+      - total_written_off_minor
+      - updated_at
+      - written_off_at
+      - written_off_contractual_interest_minor
+      - written_off_default_interest_minor
+      - written_off_fees_minor
+      - written_off_penalties_minor
+      - written_off_principal_minor
+    LoanWriteOffRecordRequest:
+      type: object
+      properties:
+        loan_id:
+          type: string
+          format: uuid
+        written_off_principal_minor:
+          type: integer
+          minimum: 0
+        written_off_contractual_interest_minor:
+          type: integer
+          minimum: 0
+          default: 0
+        written_off_default_interest_minor:
+          type: integer
+          minimum: 0
+          default: 0
+        written_off_fees_minor:
+          type: integer
+          minimum: 0
+          default: 0
+        written_off_penalties_minor:
+          type: integer
+          minimum: 0
+          default: 0
+        reason:
+          type: string
+        notes:
+          type: string
+        evidence_reference:
+          type: string
+          maxLength: 255
+        metadata: {}
+        idempotency_key:
+          type: string
+          maxLength: 160
+      required:
+      - idempotency_key
+      - loan_id
+      - reason
+      - written_off_principal_minor
     MagicLinkConsume:
       type: object
       properties:
@@ -5372,6 +5684,20 @@ components:
         * `restricted` - restricted
         * `locked` - locked
         * `closed` - closed
+    NoteTypeEnum:
+      enum:
+      - internal_note
+      - public_update
+      - default_update
+      - recovery_update
+      - document_note
+      type: string
+      description: |-
+        * `internal_note` - Internal note
+        * `public_update` - Public update
+        * `default_update` - Default update
+        * `recovery_update` - Recovery update
+        * `document_note` - Document note
     PatchedAdminTaskUpdateRequest:
       type: object
       properties:
@@ -5803,6 +6129,34 @@ components:
       - template_key
       - title
       - version_number
+    PublicLoanRiskNote:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        loan_id:
+          type: string
+          format: uuid
+        visibility:
+          type: string
+        note_type:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+      required:
+      - body
+      - id
+      - loan_id
+      - note_type
+      - occurred_at
+      - title
+      - visibility
     PublishLoanRequest:
       type: object
       properties:
@@ -6380,6 +6734,14 @@ components:
       - marketing_consent
       - phone_verified
       - status
+    VisibilityEnum:
+      enum:
+      - internal
+      - public
+      type: string
+      description: |-
+        * `internal` - Internal
+        * `public` - Public
   securitySchemes:
     cookieAuth:
       type: apiKey

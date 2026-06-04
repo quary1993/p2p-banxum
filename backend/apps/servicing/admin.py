@@ -5,6 +5,8 @@ from django.contrib import admin
 from backend.apps.servicing.models import (
     BorrowerRepaymentEvent,
     InvestorRepaymentDistributionLine,
+    LoanRiskNote,
+    LoanWriteOffEvent,
 )
 
 
@@ -51,3 +53,36 @@ class InvestorRepaymentDistributionLineAdmin(ReadOnlyServicingAdmin):
     list_filter = ("currency",)
     search_fields = ("id", "investor_user_id", "repayment_event__id")
     readonly_fields = tuple(field.name for field in InvestorRepaymentDistributionLine._meta.fields)
+
+
+@admin.register(LoanRiskNote)
+class LoanRiskNoteAdmin(ReadOnlyServicingAdmin):
+    list_display = (
+        "id",
+        "loan",
+        "visibility",
+        "note_type",
+        "title",
+        "created_by_admin_id",
+        "occurred_at",
+    )
+    list_filter = ("visibility", "note_type")
+    search_fields = ("id", "loan__title", "borrower_id", "title", "body")
+    readonly_fields = tuple(field.name for field in LoanRiskNote._meta.fields)
+
+
+@admin.register(LoanWriteOffEvent)
+class LoanWriteOffEventAdmin(ReadOnlyServicingAdmin):
+    list_display = (
+        "id",
+        "loan",
+        "currency",
+        "total_written_off_minor",
+        "previous_loan_status",
+        "new_loan_status",
+        "created_by_admin_id",
+        "written_off_at",
+    )
+    list_filter = ("currency", "previous_loan_status", "new_loan_status")
+    search_fields = ("id", "loan__title", "borrower_id", "reason", "evidence_reference")
+    readonly_fields = tuple(field.name for field in LoanWriteOffEvent._meta.fields)

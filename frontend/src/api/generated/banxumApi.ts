@@ -1411,6 +1411,37 @@ export interface LoanInstallment {
   updated_at: string;
 }
 
+export interface LoanRiskNote {
+  id: string;
+  loan_id: string;
+  borrower_id: string;
+  visibility: string;
+  note_type: string;
+  title: string;
+  body: string;
+  evidence_reference: string;
+  created_by_admin_id: string;
+  occurred_at: string;
+  metadata: unknown;
+  idempotency_key: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LoanRiskNoteCreateRequest {
+  loan_id: string;
+  visibility: VisibilityEnum;
+  note_type: NoteTypeEnum;
+  /** @maxLength 255 */
+  title?: string;
+  body: string;
+  /** @maxLength 255 */
+  evidence_reference?: string;
+  metadata?: unknown;
+  /** @maxLength 160 */
+  idempotency_key: string;
+}
+
 export interface LoanServicingStatusChange {
   loan_id: string;
   previous_status: string;
@@ -1430,6 +1461,51 @@ export interface LoanServicingStatusScanRequest {
 export interface LoanServicingStatusScanResponse {
   as_of_date: string;
   changes: LoanServicingStatusChange[];
+}
+
+export interface LoanWriteOffEvent {
+  id: string;
+  loan_id: string;
+  borrower_id: string;
+  currency: string;
+  written_off_principal_minor: number;
+  written_off_contractual_interest_minor: number;
+  written_off_default_interest_minor: number;
+  written_off_fees_minor: number;
+  written_off_penalties_minor: number;
+  total_written_off_minor: number;
+  previous_loan_status: string;
+  new_loan_status: string;
+  reason: string;
+  notes: string;
+  evidence_reference: string;
+  written_off_at: string;
+  created_by_admin_id: string;
+  metadata: unknown;
+  idempotency_key: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LoanWriteOffRecordRequest {
+  loan_id: string;
+  /** @minimum 0 */
+  written_off_principal_minor: number;
+  /** @minimum 0 */
+  written_off_contractual_interest_minor?: number;
+  /** @minimum 0 */
+  written_off_default_interest_minor?: number;
+  /** @minimum 0 */
+  written_off_fees_minor?: number;
+  /** @minimum 0 */
+  written_off_penalties_minor?: number;
+  reason: string;
+  notes?: string;
+  /** @maxLength 255 */
+  evidence_reference?: string;
+  metadata?: unknown;
+  /** @maxLength 160 */
+  idempotency_key: string;
 }
 
 export interface MagicLinkConsume {
@@ -1523,6 +1599,25 @@ export const NewStatusEnum = {
   restricted: 'restricted',
   locked: 'locked',
   closed: 'closed',
+} as const;
+
+/**
+ * * `internal_note` - Internal note
+* `public_update` - Public update
+* `default_update` - Default update
+* `recovery_update` - Recovery update
+* `document_note` - Document note
+ */
+export type NoteTypeEnum = typeof NoteTypeEnum[keyof typeof NoteTypeEnum];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const NoteTypeEnum = {
+  internal_note: 'internal_note',
+  public_update: 'public_update',
+  default_update: 'default_update',
+  recovery_update: 'recovery_update',
+  document_note: 'document_note',
 } as const;
 
 export interface PatchedAdminTaskUpdateRequest {
@@ -1721,6 +1816,16 @@ export interface PublicDocumentTemplateVersion {
   content_hash: string;
   /** @nullable */
   published_at: string | null;
+}
+
+export interface PublicLoanRiskNote {
+  id: string;
+  loan_id: string;
+  visibility: string;
+  note_type: string;
+  title: string;
+  body: string;
+  occurred_at: string;
 }
 
 export interface PublishLoanRequest {
@@ -2014,6 +2119,19 @@ export interface UserSummary {
   phone_verified: boolean;
   marketing_consent: boolean;
 }
+
+/**
+ * * `internal` - Internal
+* `public` - Public
+ */
+export type VisibilityEnum = typeof VisibilityEnum[keyof typeof VisibilityEnum];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const VisibilityEnum = {
+  internal: 'internal',
+  public: 'public',
+} as const;
 
 export type V1AdminOpsAuditEventsListParams = {
 /**
@@ -2355,6 +2473,7 @@ risk_rating?: V1LoansAdminLoansListRiskRating;
 * `late` - Late
 * `defaulted` - Defaulted
 * `repaid` - Repaid
+* `written_off` - Written off
 * `cancelled` - Cancelled
  * @minLength 1
  */
@@ -2431,6 +2550,7 @@ export const V1LoansAdminLoansListStatus = {
   late: 'late',
   defaulted: 'defaulted',
   repaid: 'repaid',
+  written_off: 'written_off',
   cancelled: 'cancelled',
 } as const;
 
@@ -2448,6 +2568,25 @@ export type V1MarketplaceSecondaryListingsListParams = {
  * @maximum 250
  */
 limit?: number;
+};
+
+export type V1ServicingAdminRiskNotesListParams = {
+include_internal?: boolean;
+/**
+ * @minimum 1
+ * @maximum 250
+ */
+limit?: number;
+loan_id: string;
+};
+
+export type V1ServicingLoanRiskNotesListParams = {
+/**
+ * @minimum 1
+ * @maximum 250
+ */
+limit?: number;
+loan_id: string;
 };
 
 export const v1AdminOpsAuditEventsList = (
@@ -7241,6 +7380,153 @@ const {mutation: mutationOptions} = options ?
       return useMutation(mutationOptions, queryClient);
     }
 
+export const v1ServicingAdminRiskNotesList = (
+    params: V1ServicingAdminRiskNotesListParams,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<LoanRiskNote[]>(
+      {url: `/api/v1/servicing/admin/risk-notes/`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+
+
+
+
+export const getV1ServicingAdminRiskNotesListQueryKey = (params?: V1ServicingAdminRiskNotesListParams,) => {
+    return [
+    `/api/v1/servicing/admin/risk-notes/`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+
+export const getV1ServicingAdminRiskNotesListQueryOptions = <TData = Awaited<ReturnType<typeof v1ServicingAdminRiskNotesList>>, TError = unknown>(params: V1ServicingAdminRiskNotesListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1ServicingAdminRiskNotesList>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1ServicingAdminRiskNotesListQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1ServicingAdminRiskNotesList>>> = ({ signal }) => v1ServicingAdminRiskNotesList(params, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1ServicingAdminRiskNotesList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1ServicingAdminRiskNotesListQueryResult = NonNullable<Awaited<ReturnType<typeof v1ServicingAdminRiskNotesList>>>
+export type V1ServicingAdminRiskNotesListQueryError = unknown
+
+
+export function useV1ServicingAdminRiskNotesList<TData = Awaited<ReturnType<typeof v1ServicingAdminRiskNotesList>>, TError = unknown>(
+ params: V1ServicingAdminRiskNotesListParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1ServicingAdminRiskNotesList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1ServicingAdminRiskNotesList>>,
+          TError,
+          Awaited<ReturnType<typeof v1ServicingAdminRiskNotesList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1ServicingAdminRiskNotesList<TData = Awaited<ReturnType<typeof v1ServicingAdminRiskNotesList>>, TError = unknown>(
+ params: V1ServicingAdminRiskNotesListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1ServicingAdminRiskNotesList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1ServicingAdminRiskNotesList>>,
+          TError,
+          Awaited<ReturnType<typeof v1ServicingAdminRiskNotesList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1ServicingAdminRiskNotesList<TData = Awaited<ReturnType<typeof v1ServicingAdminRiskNotesList>>, TError = unknown>(
+ params: V1ServicingAdminRiskNotesListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1ServicingAdminRiskNotesList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1ServicingAdminRiskNotesList<TData = Awaited<ReturnType<typeof v1ServicingAdminRiskNotesList>>, TError = unknown>(
+ params: V1ServicingAdminRiskNotesListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1ServicingAdminRiskNotesList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1ServicingAdminRiskNotesListQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1ServicingAdminRiskNotesCreate = (
+    loanRiskNoteCreateRequest: LoanRiskNoteCreateRequest,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<LoanRiskNote>(
+      {url: `/api/v1/servicing/admin/risk-notes/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: loanRiskNoteCreateRequest, signal
+    },
+      );
+    }
+
+
+
+export const getV1ServicingAdminRiskNotesCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1ServicingAdminRiskNotesCreate>>, TError,{data: LoanRiskNoteCreateRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1ServicingAdminRiskNotesCreate>>, TError,{data: LoanRiskNoteCreateRequest}, TContext> => {
+
+const mutationKey = ['v1ServicingAdminRiskNotesCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1ServicingAdminRiskNotesCreate>>, {data: LoanRiskNoteCreateRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1ServicingAdminRiskNotesCreate(data,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1ServicingAdminRiskNotesCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1ServicingAdminRiskNotesCreate>>>
+    export type V1ServicingAdminRiskNotesCreateMutationBody = LoanRiskNoteCreateRequest
+    export type V1ServicingAdminRiskNotesCreateMutationError = unknown
+
+    export const useV1ServicingAdminRiskNotesCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1ServicingAdminRiskNotesCreate>>, TError,{data: LoanRiskNoteCreateRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1ServicingAdminRiskNotesCreate>>,
+        TError,
+        {data: LoanRiskNoteCreateRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1ServicingAdminRiskNotesCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+
 export const v1ServicingAdminStatusScanCreate = (
     loanServicingStatusScanRequest: LoanServicingStatusScanRequest,
  signal?: AbortSignal
@@ -7299,6 +7585,149 @@ const {mutation: mutationOptions} = options ?
 
       return useMutation(mutationOptions, queryClient);
     }
+
+export const v1ServicingAdminWriteOffsCreate = (
+    loanWriteOffRecordRequest: LoanWriteOffRecordRequest,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<LoanWriteOffEvent>(
+      {url: `/api/v1/servicing/admin/write-offs/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: loanWriteOffRecordRequest, signal
+    },
+      );
+    }
+
+
+
+export const getV1ServicingAdminWriteOffsCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1ServicingAdminWriteOffsCreate>>, TError,{data: LoanWriteOffRecordRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1ServicingAdminWriteOffsCreate>>, TError,{data: LoanWriteOffRecordRequest}, TContext> => {
+
+const mutationKey = ['v1ServicingAdminWriteOffsCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1ServicingAdminWriteOffsCreate>>, {data: LoanWriteOffRecordRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1ServicingAdminWriteOffsCreate(data,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1ServicingAdminWriteOffsCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1ServicingAdminWriteOffsCreate>>>
+    export type V1ServicingAdminWriteOffsCreateMutationBody = LoanWriteOffRecordRequest
+    export type V1ServicingAdminWriteOffsCreateMutationError = unknown
+
+    export const useV1ServicingAdminWriteOffsCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1ServicingAdminWriteOffsCreate>>, TError,{data: LoanWriteOffRecordRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1ServicingAdminWriteOffsCreate>>,
+        TError,
+        {data: LoanWriteOffRecordRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1ServicingAdminWriteOffsCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+
+export const v1ServicingLoanRiskNotesList = (
+    params: V1ServicingLoanRiskNotesListParams,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<PublicLoanRiskNote[]>(
+      {url: `/api/v1/servicing/loan-risk-notes/`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+
+
+
+
+export const getV1ServicingLoanRiskNotesListQueryKey = (params?: V1ServicingLoanRiskNotesListParams,) => {
+    return [
+    `/api/v1/servicing/loan-risk-notes/`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+
+export const getV1ServicingLoanRiskNotesListQueryOptions = <TData = Awaited<ReturnType<typeof v1ServicingLoanRiskNotesList>>, TError = unknown>(params: V1ServicingLoanRiskNotesListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1ServicingLoanRiskNotesList>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1ServicingLoanRiskNotesListQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1ServicingLoanRiskNotesList>>> = ({ signal }) => v1ServicingLoanRiskNotesList(params, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1ServicingLoanRiskNotesList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1ServicingLoanRiskNotesListQueryResult = NonNullable<Awaited<ReturnType<typeof v1ServicingLoanRiskNotesList>>>
+export type V1ServicingLoanRiskNotesListQueryError = unknown
+
+
+export function useV1ServicingLoanRiskNotesList<TData = Awaited<ReturnType<typeof v1ServicingLoanRiskNotesList>>, TError = unknown>(
+ params: V1ServicingLoanRiskNotesListParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1ServicingLoanRiskNotesList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1ServicingLoanRiskNotesList>>,
+          TError,
+          Awaited<ReturnType<typeof v1ServicingLoanRiskNotesList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1ServicingLoanRiskNotesList<TData = Awaited<ReturnType<typeof v1ServicingLoanRiskNotesList>>, TError = unknown>(
+ params: V1ServicingLoanRiskNotesListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1ServicingLoanRiskNotesList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1ServicingLoanRiskNotesList>>,
+          TError,
+          Awaited<ReturnType<typeof v1ServicingLoanRiskNotesList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1ServicingLoanRiskNotesList<TData = Awaited<ReturnType<typeof v1ServicingLoanRiskNotesList>>, TError = unknown>(
+ params: V1ServicingLoanRiskNotesListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1ServicingLoanRiskNotesList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1ServicingLoanRiskNotesList<TData = Awaited<ReturnType<typeof v1ServicingLoanRiskNotesList>>, TError = unknown>(
+ params: V1ServicingLoanRiskNotesListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1ServicingLoanRiskNotesList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1ServicingLoanRiskNotesListQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
 
 
 export const getV1AdminOpsAuditEventsListResponseMock = (): AuditEvent[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), occurred_at: `${faker.date.past().toISOString().split('.')[0]}Z`, actor_type: faker.string.alpha({length: {min: 10, max: 20}}), actor_id: faker.string.alpha({length: {min: 10, max: 20}}), action: faker.string.alpha({length: {min: 10, max: 20}}), target_type: faker.string.alpha({length: {min: 10, max: 20}}), target_id: faker.string.alpha({length: {min: 10, max: 20}}), request_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})))
@@ -7439,7 +7868,15 @@ export const getV1MarketplaceSecondaryListingsPurchaseCreateResponseMock = (over
 
 export const getV1ServicingAdminBorrowerRepaymentsCreateResponseMock = (overrideResponse: Partial< BorrowerRepaymentRecordResponse > = {}): BorrowerRepaymentRecordResponse => ({repayment_event: {id: faker.string.uuid(), loan_id: faker.string.uuid(), installment_id: faker.string.uuid(), event_type: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), booking_date: faker.date.past().toISOString().split('T')[0], value_date: faker.date.past().toISOString().split('T')[0], received_at: `${faker.date.past().toISOString().split('.')[0]}Z`, expected_due_minor: faker.number.int({min: undefined, max: undefined}), interest_applied_minor: faker.number.int({min: undefined, max: undefined}), principal_applied_minor: faker.number.int({min: undefined, max: undefined}), future_principal_applied_minor: faker.number.int({min: undefined, max: undefined}), fees_applied_minor: faker.number.int({min: undefined, max: undefined}), penalties_applied_minor: faker.number.int({min: undefined, max: undefined}), remaining_installment_interest_minor: faker.number.int({min: undefined, max: undefined}), remaining_installment_principal_minor: faker.number.int({min: undefined, max: undefined}), warning_acknowledged: faker.datatype.boolean(), bank_operation_id: faker.string.uuid(), journal_entry_id: faker.string.uuid(), created_by_admin_id: faker.string.uuid(), notes: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, idempotency_key: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, distribution_lines: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), repayment_event_id: faker.string.uuid(), holding_id: faker.string.uuid(), investor_user_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), balance_lot_id: faker.string.uuid(), amount_minor: faker.number.int({min: undefined, max: undefined}), principal_minor: faker.number.int({min: undefined, max: undefined}), interest_minor: faker.number.int({min: undefined, max: undefined}), fee_minor: faker.number.int({min: undefined, max: undefined}), current_principal_before_minor: faker.number.int({min: undefined, max: undefined}), current_principal_after_minor: faker.number.int({min: undefined, max: undefined}), metadata: {}, occurred_at: `${faker.date.past().toISOString().split('.')[0]}Z`})), ...overrideResponse})
 
+export const getV1ServicingAdminRiskNotesListResponseMock = (): LoanRiskNote[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), loan_id: faker.string.uuid(), borrower_id: faker.string.uuid(), visibility: faker.string.alpha({length: {min: 10, max: 20}}), note_type: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), body: faker.string.alpha({length: {min: 10, max: 20}}), evidence_reference: faker.string.alpha({length: {min: 10, max: 20}}), created_by_admin_id: faker.string.uuid(), occurred_at: `${faker.date.past().toISOString().split('.')[0]}Z`, metadata: {}, idempotency_key: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`})))
+
+export const getV1ServicingAdminRiskNotesCreateResponseMock = (overrideResponse: Partial< LoanRiskNote > = {}): LoanRiskNote => ({id: faker.string.uuid(), loan_id: faker.string.uuid(), borrower_id: faker.string.uuid(), visibility: faker.string.alpha({length: {min: 10, max: 20}}), note_type: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), body: faker.string.alpha({length: {min: 10, max: 20}}), evidence_reference: faker.string.alpha({length: {min: 10, max: 20}}), created_by_admin_id: faker.string.uuid(), occurred_at: `${faker.date.past().toISOString().split('.')[0]}Z`, metadata: {}, idempotency_key: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+
 export const getV1ServicingAdminStatusScanCreateResponseMock = (overrideResponse: Partial< LoanServicingStatusScanResponse > = {}): LoanServicingStatusScanResponse => ({as_of_date: faker.date.past().toISOString().split('T')[0], changes: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({loan_id: faker.string.uuid(), previous_status: faker.string.alpha({length: {min: 10, max: 20}}), new_status: faker.string.alpha({length: {min: 10, max: 20}}), days_past_due: faker.number.int({min: undefined, max: undefined}), outstanding_minor: faker.number.int({min: undefined, max: undefined}), triggering_installment_id: faker.string.alpha({length: {min: 10, max: 20}}), triggering_due_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null])})), ...overrideResponse})
+
+export const getV1ServicingAdminWriteOffsCreateResponseMock = (overrideResponse: Partial< LoanWriteOffEvent > = {}): LoanWriteOffEvent => ({id: faker.string.uuid(), loan_id: faker.string.uuid(), borrower_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), written_off_principal_minor: faker.number.int({min: undefined, max: undefined}), written_off_contractual_interest_minor: faker.number.int({min: undefined, max: undefined}), written_off_default_interest_minor: faker.number.int({min: undefined, max: undefined}), written_off_fees_minor: faker.number.int({min: undefined, max: undefined}), written_off_penalties_minor: faker.number.int({min: undefined, max: undefined}), total_written_off_minor: faker.number.int({min: undefined, max: undefined}), previous_loan_status: faker.string.alpha({length: {min: 10, max: 20}}), new_loan_status: faker.string.alpha({length: {min: 10, max: 20}}), reason: faker.string.alpha({length: {min: 10, max: 20}}), notes: faker.string.alpha({length: {min: 10, max: 20}}), evidence_reference: faker.string.alpha({length: {min: 10, max: 20}}), written_off_at: `${faker.date.past().toISOString().split('.')[0]}Z`, created_by_admin_id: faker.string.uuid(), metadata: {}, idempotency_key: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+
+export const getV1ServicingLoanRiskNotesListResponseMock = (): PublicLoanRiskNote[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), loan_id: faker.string.uuid(), visibility: faker.string.alpha({length: {min: 10, max: 20}}), note_type: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), body: faker.string.alpha({length: {min: 10, max: 20}}), occurred_at: `${faker.date.past().toISOString().split('.')[0]}Z`})))
 
 
 export const getV1AdminOpsAuditEventsListMockHandler = (overrideResponse?: AuditEvent[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AuditEvent[]> | AuditEvent[]), options?: RequestHandlerOptions) => {
@@ -8268,12 +8705,60 @@ export const getV1ServicingAdminBorrowerRepaymentsCreateMockHandler = (overrideR
   }, options)
 }
 
+export const getV1ServicingAdminRiskNotesListMockHandler = (overrideResponse?: LoanRiskNote[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<LoanRiskNote[]> | LoanRiskNote[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/servicing/admin/risk-notes/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1ServicingAdminRiskNotesListResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1ServicingAdminRiskNotesCreateMockHandler = (overrideResponse?: LoanRiskNote | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<LoanRiskNote> | LoanRiskNote), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/servicing/admin/risk-notes/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1ServicingAdminRiskNotesCreateResponseMock()),
+      { status: 201,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
 export const getV1ServicingAdminStatusScanCreateMockHandler = (overrideResponse?: LoanServicingStatusScanResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<LoanServicingStatusScanResponse> | LoanServicingStatusScanResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/servicing/admin/status-scan/', async (info) => {await delay(1000);
 
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1ServicingAdminStatusScanCreateResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1ServicingAdminWriteOffsCreateMockHandler = (overrideResponse?: LoanWriteOffEvent | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<LoanWriteOffEvent> | LoanWriteOffEvent), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/servicing/admin/write-offs/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1ServicingAdminWriteOffsCreateResponseMock()),
+      { status: 201,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1ServicingLoanRiskNotesListMockHandler = (overrideResponse?: PublicLoanRiskNote[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<PublicLoanRiskNote[]> | PublicLoanRiskNote[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/servicing/loan-risk-notes/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1ServicingLoanRiskNotesListResponseMock()),
       { status: 200,
         headers: { 'Content-Type': 'application/json' }
       })
@@ -8349,5 +8834,9 @@ export const getBanxumApiMock = () => [
   getV1MarketplaceSecondaryListingsCreateMockHandler(),
   getV1MarketplaceSecondaryListingsPurchaseCreateMockHandler(),
   getV1ServicingAdminBorrowerRepaymentsCreateMockHandler(),
-  getV1ServicingAdminStatusScanCreateMockHandler()
+  getV1ServicingAdminRiskNotesListMockHandler(),
+  getV1ServicingAdminRiskNotesCreateMockHandler(),
+  getV1ServicingAdminStatusScanCreateMockHandler(),
+  getV1ServicingAdminWriteOffsCreateMockHandler(),
+  getV1ServicingLoanRiskNotesListMockHandler()
 ]

@@ -15,6 +15,7 @@ class LoanStatus(models.TextChoices):
     LATE = "late", "Late"
     DEFAULTED = "defaulted", "Defaulted"
     REPAID = "repaid", "Repaid"
+    WRITTEN_OFF = "written_off", "Written off"
     CANCELLED = "cancelled", "Cancelled"
 
 
@@ -95,6 +96,7 @@ class LoanEventType(models.TextChoices):
     FUNDING_CLOSED = "funding_closed", "Funding closed"
     SCHEDULE_GENERATED = "schedule_generated", "Schedule generated"
     SERVICING_STATUS_CHANGED = "servicing_status_changed", "Servicing status changed"
+    WRITE_OFF_RECORDED = "write_off_recorded", "Write-off recorded"
 
 
 class Loan(TimestampedModel):
