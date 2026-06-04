@@ -1,7 +1,7 @@
 # Admin TODO: Garanta Business, Legal, Accounting, and Operational Decisions
 
 Status: Working list for Garanta admins, management, legal/compliance advisors, finance, and operations.
-Last updated: 2026-06-01.
+Last updated: 2026-06-04.
 
 This file is for non-technical Garanta stakeholders. It explains what business, legal, accounting, operational, and compliance decisions are still needed.
 
@@ -149,6 +149,50 @@ What Garanta/accountant/legal may still refine:
 Why this is non-blocking:
 
 Engineering can implement deterministic recovery allocation, interest cutoff, separate recovery categories, reports, ledger entries, and notifications now. Remaining items refine wording and accountant-approved export mapping.
+
+### Write-Off Loss Recognition and Recovery Reconciliation Policy
+
+Needed before the future loss-recognition settlement workflow, investor loss reporting, and final write-off/recovery tax statement logic are enabled.
+
+Current implementation:
+
+- Write-off records immutable evidence, component amounts, reason, notes, and supporting reference, then moves the loan to `written_off`.
+- Write-off does not currently close investor holdings, reduce holding principal, or post investor loss ledger entries.
+- Recovery payments recorded after default or write-off can reduce current holding principal and credit investors with recovered amounts.
+- This means write-off evidence, remaining holding principal, cumulative recoveries, investor losses, and later tax/reporting treatment must be reconciled by a future loss-recognition workflow.
+
+What Garanta/accountant/legal must decide:
+
+- Whether investors recognize a loss at the write-off date, only when the recovery process is finally closed, or through a two-step model where write-off records an expected loss and later recoveries offset that loss.
+- Whether write-off should immediately close or loss-adjust holdings, or whether holdings remain open until final recovery closure.
+- Which ledger entries are required for investor loss recognition and whether those entries are informational, tax-relevant, or both.
+- How later recoveries of written-off amounts should be reported against earlier write-off/loss evidence.
+- Required investor-facing wording for write-off, later recovery, and any final loss/recovery statement.
+
+Why this is non-blocking:
+
+The current backend correctly records write-off evidence and recovery distributions without losing money conservation. The final loss-recognition/accounting policy is needed before building the future settlement/reporting workflow that turns write-off evidence into final investor loss treatment.
+
+### Fully Recovered Impaired Loan Terminal Status
+
+Needed before the future recovery-closure workflow, investor portfolio wording for fully recovered defaulted or written-off loans, and final recovery/write-off reports are finalized.
+
+Current implementation:
+
+- Recovery payments reduce holding principal where recovered principal is allocated.
+- A loan can remain `defaulted` or `written_off` even if recovery payments reduce all affected holdings to zero.
+- The platform does not automatically move such a loan to a separate `recovered`, `resolved`, or `closed after recovery` status.
+
+What Garanta must decide:
+
+- Whether a fully recovered impaired loan should remain in its historical impairment status (`defaulted` or `written_off`) or move to a new terminal status such as `recovered`, `resolved`, or `closed after recovery`.
+- Which status wording investors should see in their portfolio and historical statements.
+- Which status accounting, tax, and recovery reports should use.
+- Whether this transition should happen automatically when all holding principal reaches zero, or manually after admin confirms the legal/recovery file is complete.
+
+Why this is non-blocking:
+
+Current recovery payments are correctly recorded and reported while preserving the impairment status. The terminal-status decision should be made before implementing a dedicated recovery-closure workflow or relying on a final status in investor/accounting reports.
 
 ### Privacy Closure and Reversible Pseudonymization Policy
 

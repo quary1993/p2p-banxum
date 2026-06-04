@@ -250,6 +250,8 @@ Impacted modules:
 Follow-ups:
 Design the workflow so maker-checker approval can be enabled later for sensitive status changes.
 
+The backend recovery-payment foundation does not automatically move a fully recovered impaired loan to a separate `recovered` or `resolved` terminal status. Garanta must decide whether a loan should remain in its historical impairment status (`defaulted` or `written_off`) or move to a new terminal status after recoveries reduce all holding principal to zero. This decision affects investor portfolio wording, recovery/write-off reports, tax statements, and accounting exports.
+
 ### RISK-DEC-009: Track Actual Recoveries Only
 
 Status: Accepted.
@@ -342,7 +344,7 @@ Future monitoring signals may include covenant breach, expired insurance/collate
 6. System automatically changes loan status to `Defaulted` on day 16 after due date if unpaid, using Europe/Zurich calendar days.
 7. Admin records any generic recovery/legal event, recovered payment, operational event, or write-off.
 8. If recovered funds are available for lenders, admin records the recovered amount and the system calculates lender distributions as investor balance credits.
-9. Admin closes the loan as recovered, written off, repaid, or otherwise closed according to the workflow and evidence.
+9. Admin closes the loan as recovered, written off, repaid, or otherwise closed according to the workflow and evidence. The exact terminal status for a fully recovered defaulted/written-off loan is a Garanta policy decision tracked in `admin_todo_garanta.md`.
 
 ## Data Requirements
 
