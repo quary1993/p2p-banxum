@@ -2082,6 +2082,32 @@ paths:
               schema:
                 $ref: '#/components/schemas/SecondaryMarketPurchase'
           description: ''
+  /api/v1/reporting/admin/reports/:
+    post:
+      operationId: v1_reporting_admin_reports_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportGenerateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ReportGenerateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ReportGenerateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportGenerateResponse'
+          description: ''
   /api/v1/servicing/admin/borrower-repayments/:
     post:
       operationId: v1_servicing_admin_borrower_repayments_create
@@ -5986,6 +6012,11 @@ components:
         * `default_update` - Default update
         * `recovery_update` - Recovery update
         * `document_note` - Document note
+    OutputFormatEnum:
+      enum:
+      - csv
+      type: string
+      description: '* `csv` - CSV'
     PatchedAdminTaskUpdateRequest:
       type: object
       properties:
@@ -6551,6 +6582,14 @@ components:
       - as_of_date
       - bank_stated_balance_minor
       - currency
+    RedactionModeEnum:
+      enum:
+      - redacted
+      - full
+      type: string
+      description: |-
+        * `redacted` - Redacted
+        * `full` - Full
     RepaymentTypeEnum:
       enum:
       - equal_installments
@@ -6565,6 +6604,119 @@ components:
         * `amortizing_principal_interest` - Amortizing principal and interest
         * `interest_only_then_bullet` - Interest-only then bullet
         * `interest_only_then_amortizing` - Interest-only then amortizing
+    ReportGenerateRequest:
+      type: object
+      properties:
+        report_type:
+          $ref: '#/components/schemas/ReportTypeEnum'
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        output_format:
+          allOf:
+          - $ref: '#/components/schemas/OutputFormatEnum'
+          default: csv
+        redaction_mode:
+          allOf:
+          - $ref: '#/components/schemas/RedactionModeEnum'
+          default: redacted
+        filters: {}
+        destination_note:
+          type: string
+      required:
+      - end_date
+      - report_type
+      - start_date
+    ReportGenerateResponse:
+      type: object
+      properties:
+        report_run:
+          $ref: '#/components/schemas/ReportRun'
+        content_type:
+          type: string
+        filename:
+          type: string
+        content:
+          type: string
+        manifest: {}
+      required:
+      - content
+      - content_type
+      - filename
+      - manifest
+      - report_run
+    ReportRun:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        report_type:
+          type: string
+        output_format:
+          type: string
+        redaction_mode:
+          type: string
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        generated_by_admin_id:
+          type: string
+          format: uuid
+        generated_at:
+          type: string
+          format: date-time
+        definition_version:
+          type: string
+        filters: {}
+        row_count:
+          type: integer
+        content_sha256:
+          type: string
+        manifest: {}
+        destination_note:
+          type: string
+        metadata: {}
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - content_sha256
+      - created_at
+      - definition_version
+      - destination_note
+      - end_date
+      - filters
+      - generated_at
+      - generated_by_admin_id
+      - id
+      - manifest
+      - metadata
+      - output_format
+      - redaction_mode
+      - report_type
+      - row_count
+      - start_date
+      - updated_at
+    ReportTypeEnum:
+      enum:
+      - operational_subledger
+      - trial_balance
+      - garanta_accrued_revenue
+      type: string
+      description: |-
+        * `operational_subledger` - Operational subledger
+        * `trial_balance` - Trial balance
+        * `garanta_accrued_revenue` - Garanta accrued revenue
     RiskRatingEnum:
       enum:
       - AAA

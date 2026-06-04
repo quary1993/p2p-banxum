@@ -1724,6 +1724,17 @@ export const NoteTypeEnum = {
   document_note: 'document_note',
 } as const;
 
+/**
+ * * `csv` - CSV
+ */
+export type OutputFormatEnum = typeof OutputFormatEnum[keyof typeof OutputFormatEnum];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const OutputFormatEnum = {
+  csv: 'csv',
+} as const;
+
 export interface PatchedAdminTaskUpdateRequest {
   task_type?: AdminTaskTypeEnum;
   /** @maxLength 255 */
@@ -1999,6 +2010,19 @@ export interface ReconciliationSnapshotCreateRequest {
 }
 
 /**
+ * * `redacted` - Redacted
+* `full` - Full
+ */
+export type RedactionModeEnum = typeof RedactionModeEnum[keyof typeof RedactionModeEnum];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const RedactionModeEnum = {
+  redacted: 'redacted',
+  full: 'full',
+} as const;
+
+/**
  * * `equal_installments` - Equal installments
 * `bullet_periodic_interest` - Bullet principal with periodic interest
 * `amortizing_principal_interest` - Amortizing principal and interest
@@ -2015,6 +2039,59 @@ export const RepaymentTypeEnum = {
   amortizing_principal_interest: 'amortizing_principal_interest',
   interest_only_then_bullet: 'interest_only_then_bullet',
   interest_only_then_amortizing: 'interest_only_then_amortizing',
+} as const;
+
+export interface ReportGenerateRequest {
+  report_type: ReportTypeEnum;
+  start_date: string;
+  end_date: string;
+  output_format?: OutputFormatEnum;
+  redaction_mode?: RedactionModeEnum;
+  filters?: unknown;
+  destination_note?: string;
+}
+
+export interface ReportGenerateResponse {
+  report_run: ReportRun;
+  content_type: string;
+  filename: string;
+  content: string;
+  manifest: unknown;
+}
+
+export interface ReportRun {
+  id: string;
+  report_type: string;
+  output_format: string;
+  redaction_mode: string;
+  start_date: string;
+  end_date: string;
+  generated_by_admin_id: string;
+  generated_at: string;
+  definition_version: string;
+  filters: unknown;
+  row_count: number;
+  content_sha256: string;
+  manifest: unknown;
+  destination_note: string;
+  metadata: unknown;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * * `operational_subledger` - Operational subledger
+* `trial_balance` - Trial balance
+* `garanta_accrued_revenue` - Garanta accrued revenue
+ */
+export type ReportTypeEnum = typeof ReportTypeEnum[keyof typeof ReportTypeEnum];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ReportTypeEnum = {
+  operational_subledger: 'operational_subledger',
+  trial_balance: 'trial_balance',
+  garanta_accrued_revenue: 'garanta_accrued_revenue',
 } as const;
 
 /**
@@ -7425,6 +7502,65 @@ const {mutation: mutationOptions} = options ?
       return useMutation(mutationOptions, queryClient);
     }
 
+export const v1ReportingAdminReportsCreate = (
+    reportGenerateRequest: ReportGenerateRequest,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<ReportGenerateResponse>(
+      {url: `/api/v1/reporting/admin/reports/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: reportGenerateRequest, signal
+    },
+      );
+    }
+
+
+
+export const getV1ReportingAdminReportsCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1ReportingAdminReportsCreate>>, TError,{data: ReportGenerateRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1ReportingAdminReportsCreate>>, TError,{data: ReportGenerateRequest}, TContext> => {
+
+const mutationKey = ['v1ReportingAdminReportsCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1ReportingAdminReportsCreate>>, {data: ReportGenerateRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1ReportingAdminReportsCreate(data,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1ReportingAdminReportsCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1ReportingAdminReportsCreate>>>
+    export type V1ReportingAdminReportsCreateMutationBody = ReportGenerateRequest
+    export type V1ReportingAdminReportsCreateMutationError = unknown
+
+    export const useV1ReportingAdminReportsCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1ReportingAdminReportsCreate>>, TError,{data: ReportGenerateRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1ReportingAdminReportsCreate>>,
+        TError,
+        {data: ReportGenerateRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1ReportingAdminReportsCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+
 export const v1ServicingAdminBorrowerRepaymentsCreate = (
     borrowerRepaymentRecordRequest: BorrowerRepaymentRecordRequest,
  signal?: AbortSignal
@@ -8028,6 +8164,8 @@ export const getV1MarketplaceSecondaryListingsListResponseMock = (): SecondaryMa
 export const getV1MarketplaceSecondaryListingsCreateResponseMock = (overrideResponse: Partial< SecondaryMarketListing > = {}): SecondaryMarketListing => ({id: faker.string.uuid(), holding_id: faker.string.uuid(), loan_id: faker.string.uuid(), seller_user_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), publication_type: faker.string.alpha({length: {min: 10, max: 20}}), current_principal_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), price_bps: faker.number.int({min: undefined, max: undefined}), transfer_price_minor: faker.number.int({min: undefined, max: undefined}), discount_premium_bps: faker.number.int({min: undefined, max: undefined}), accrued_interest_minor: faker.number.int({min: undefined, max: undefined}), accrued_interest_from_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), accrued_interest_to_date: faker.date.past().toISOString().split('T')[0], maker_fee_bps: faker.number.int({min: undefined, max: undefined}), taker_fee_bps: faker.number.int({min: undefined, max: undefined}), minimum_maker_fee_minor: faker.number.int({min: undefined, max: undefined}), minimum_taker_fee_minor: faker.number.int({min: undefined, max: undefined}), maker_fee_minor: faker.number.int({min: undefined, max: undefined}), taker_fee_minor: faker.number.int({min: undefined, max: undefined}), seller_net_proceeds_minor: faker.number.int({min: undefined, max: undefined}), buyer_total_cost_minor: faker.number.int({min: undefined, max: undefined}), loan_status_at_listing: faker.string.alpha({length: {min: 10, max: 20}}), days_past_due: faker.number.int({min: undefined, max: undefined}), last_payment_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), risk_acknowledgement_required: faker.datatype.boolean(), document_acceptance_id: faker.string.uuid(), public_disclosure_note: faker.string.alpha({length: {min: 10, max: 20}}), listed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), approved_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), approved_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), approval_reason: faker.string.alpha({length: {min: 10, max: 20}}), rejected_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), rejected_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), rejection_reason: faker.string.alpha({length: {min: 10, max: 20}}), removed_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), removed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), removal_reason: faker.string.alpha({length: {min: 10, max: 20}}), created_by_user_id: faker.string.uuid(), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
 
 export const getV1MarketplaceSecondaryListingsPurchaseCreateResponseMock = (overrideResponse: Partial< SecondaryMarketPurchase > = {}): SecondaryMarketPurchase => ({id: faker.string.uuid(), listing_id: faker.string.uuid(), loan_id: faker.string.uuid(), buyer_holding_id: faker.string.uuid(), current_principal_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), price_bps: faker.number.int({min: undefined, max: undefined}), transfer_price_minor: faker.number.int({min: undefined, max: undefined}), discount_premium_bps: faker.number.int({min: undefined, max: undefined}), accrued_interest_minor: faker.number.int({min: undefined, max: undefined}), accrued_interest_from_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), accrued_interest_to_date: faker.date.past().toISOString().split('T')[0], taker_fee_bps: faker.number.int({min: undefined, max: undefined}), minimum_taker_fee_minor: faker.number.int({min: undefined, max: undefined}), taker_fee_minor: faker.number.int({min: undefined, max: undefined}), buyer_total_cost_minor: faker.number.int({min: undefined, max: undefined}), loan_status_at_purchase: faker.string.alpha({length: {min: 10, max: 20}}), days_past_due: faker.number.int({min: undefined, max: undefined}), last_payment_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), risk_acknowledgement_accepted: faker.datatype.boolean(), purchased_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+
+export const getV1ReportingAdminReportsCreateResponseMock = (overrideResponse: Partial< ReportGenerateResponse > = {}): ReportGenerateResponse => ({report_run: {id: faker.string.uuid(), report_type: faker.string.alpha({length: {min: 10, max: 20}}), output_format: faker.string.alpha({length: {min: 10, max: 20}}), redaction_mode: faker.string.alpha({length: {min: 10, max: 20}}), start_date: faker.date.past().toISOString().split('T')[0], end_date: faker.date.past().toISOString().split('T')[0], generated_by_admin_id: faker.string.uuid(), generated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, definition_version: faker.string.alpha({length: {min: 10, max: 20}}), filters: {}, row_count: faker.number.int({min: undefined, max: undefined}), content_sha256: faker.string.alpha({length: {min: 10, max: 20}}), manifest: {}, destination_note: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, content_type: faker.string.alpha({length: {min: 10, max: 20}}), filename: faker.string.alpha({length: {min: 10, max: 20}}), content: faker.string.alpha({length: {min: 10, max: 20}}), manifest: {}, ...overrideResponse})
 
 export const getV1ServicingAdminBorrowerRepaymentsCreateResponseMock = (overrideResponse: Partial< BorrowerRepaymentRecordResponse > = {}): BorrowerRepaymentRecordResponse => ({repayment_event: {id: faker.string.uuid(), loan_id: faker.string.uuid(), installment_id: faker.string.uuid(), event_type: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), booking_date: faker.date.past().toISOString().split('T')[0], value_date: faker.date.past().toISOString().split('T')[0], received_at: `${faker.date.past().toISOString().split('.')[0]}Z`, expected_due_minor: faker.number.int({min: undefined, max: undefined}), interest_applied_minor: faker.number.int({min: undefined, max: undefined}), principal_applied_minor: faker.number.int({min: undefined, max: undefined}), future_principal_applied_minor: faker.number.int({min: undefined, max: undefined}), fees_applied_minor: faker.number.int({min: undefined, max: undefined}), penalties_applied_minor: faker.number.int({min: undefined, max: undefined}), remaining_installment_interest_minor: faker.number.int({min: undefined, max: undefined}), remaining_installment_principal_minor: faker.number.int({min: undefined, max: undefined}), warning_acknowledged: faker.datatype.boolean(), bank_operation_id: faker.string.uuid(), journal_entry_id: faker.string.uuid(), created_by_admin_id: faker.string.uuid(), notes: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, idempotency_key: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, distribution_lines: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), repayment_event_id: faker.string.uuid(), holding_id: faker.string.uuid(), investor_user_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), balance_lot_id: faker.string.uuid(), amount_minor: faker.number.int({min: undefined, max: undefined}), principal_minor: faker.number.int({min: undefined, max: undefined}), interest_minor: faker.number.int({min: undefined, max: undefined}), fee_minor: faker.number.int({min: undefined, max: undefined}), current_principal_before_minor: faker.number.int({min: undefined, max: undefined}), current_principal_after_minor: faker.number.int({min: undefined, max: undefined}), metadata: {}, occurred_at: `${faker.date.past().toISOString().split('.')[0]}Z`})), ...overrideResponse})
 
@@ -8858,6 +8996,18 @@ export const getV1MarketplaceSecondaryListingsPurchaseCreateMockHandler = (overr
   }, options)
 }
 
+export const getV1ReportingAdminReportsCreateMockHandler = (overrideResponse?: ReportGenerateResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<ReportGenerateResponse> | ReportGenerateResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/reporting/admin/reports/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1ReportingAdminReportsCreateResponseMock()),
+      { status: 201,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
 export const getV1ServicingAdminBorrowerRepaymentsCreateMockHandler = (overrideResponse?: BorrowerRepaymentRecordResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<BorrowerRepaymentRecordResponse> | BorrowerRepaymentRecordResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/servicing/admin/borrower-repayments/', async (info) => {await delay(1000);
 
@@ -9010,6 +9160,7 @@ export const getBanxumApiMock = () => [
   getV1MarketplaceSecondaryListingsListMockHandler(),
   getV1MarketplaceSecondaryListingsCreateMockHandler(),
   getV1MarketplaceSecondaryListingsPurchaseCreateMockHandler(),
+  getV1ReportingAdminReportsCreateMockHandler(),
   getV1ServicingAdminBorrowerRepaymentsCreateMockHandler(),
   getV1ServicingAdminRecoveriesCreateMockHandler(),
   getV1ServicingAdminRiskNotesListMockHandler(),
