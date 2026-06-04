@@ -496,10 +496,12 @@ What Garanta must provide:
 - Maximum export size expectations.
 - Which reports require redacted and full versions.
 - Whether any legally required reports must be materialized and retained, rather than regenerated on demand.
+- Whether full/unredacted exports should remain available to all active admins at launch, or require an extra reason code, superadmin approval, dual control, or a narrower finance/compliance role.
+- Whether generated CSV/PDF/ZIP artifacts should be stored in Garanta-controlled object storage at generation time, or whether returning the artifact to the admin plus storing immutable checksum/manifest evidence is enough for launch.
 
 Why this is non-blocking:
 
-The reporting module can be built export-first with reproducible PDF/CSV/ZIP reports. Exact layout and redaction details can be refined once sample reports exist.
+The reporting module can be built export-first with reproducible PDF/CSV/ZIP reports. Current backend foundation defaults to redacted exports, audits full exports, stores immutable report-run metadata/checksums, and does not persist the CSV file itself. Exact layout, redaction, full-export governance, and artifact-storage requirements can be refined once sample reports exist.
 
 ### Document Delivery, Retention, and Template Operations
 

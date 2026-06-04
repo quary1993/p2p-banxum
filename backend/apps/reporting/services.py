@@ -40,6 +40,8 @@ class ReportingValidationError(ReportingError):
 
 REPORT_DEFINITION_VERSION = "reporting-v1"
 CSV_CONTENT_TYPE = "text/csv; charset=utf-8"
+CSV_FORMULA_PREFIXES = ("=", "+", "-", "@")
+CSV_FORMULA_LEADING_CHARS = ("\t", "\r", "\n")
 
 REVENUE_ACCOUNT_TYPES = frozenset(
     {
@@ -149,8 +151,16 @@ def _csv_cell(value: Any) -> str | int:
     if isinstance(value, date | datetime):
         return value.isoformat()
     if isinstance(value, dict | list):
-        return _stable_json(value)
-    return str(value)
+        value = _stable_json(value)
+    text = str(value)
+    stripped = text.lstrip(" \t\r\n")
+    if (
+        text.startswith(CSV_FORMULA_LEADING_CHARS)
+        or text.startswith(CSV_FORMULA_PREFIXES)
+        or stripped.startswith(CSV_FORMULA_PREFIXES)
+    ):
+        return f"'{text}"
+    return text
 
 
 def _rows_to_csv(*, columns: list[str], rows: list[dict[str, Any]]) -> str:
@@ -301,6 +311,7 @@ def _trial_balance_dataset(
 ) -> ReportDataset:
     posting_model = _ledger_model("LedgerPosting")
     columns = [
+        "row_type",
         "currency",
         "account_code",
         "account_name",
@@ -315,7 +326,6 @@ def _trial_balance_dataset(
     queryset = (
         posting_model.objects.select_related("journal_entry", "account", "currency")
         .filter(
-            journal_entry__value_date__gte=start_date,
             journal_entry__value_date__lte=end_date,
         )
         .order_by("currency__code", "account__code", "id")
@@ -323,13 +333,15 @@ def _trial_balance_dataset(
     if currency_filter:
         queryset = queryset.filter(currency__code=currency_filter)
 
+    postings = list(queryset)
     grouped: dict[str, dict[str, Any]] = {}
-    for posting in list(queryset):
+    for posting in postings:
         account = posting.account
         key = str(account.id)
         owner_type = str(account.owner_type or "")
         if key not in grouped:
             grouped[key] = {
+                "row_type": "account",
                 "currency": posting.currency.code,
                 "account_code": account.code,
                 "account_name": account.name,
@@ -355,10 +367,39 @@ def _trial_balance_dataset(
         grouped.values(),
         key=lambda row: (str(row["currency"]), str(row["account_code"])),
     )
+    totals_by_currency: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        currency = str(row["currency"])
+        if currency not in totals_by_currency:
+            totals_by_currency[currency] = {
+                "row_type": "currency_total",
+                "currency": currency,
+                "account_code": "__TOTAL__",
+                "account_name": "Trial balance currency total",
+                "account_type": "control_total",
+                "account_owner_type": "",
+                "account_owner_id": "",
+                "total_debit_minor": 0,
+                "total_credit_minor": 0,
+                "signed_balance_minor": 0,
+            }
+        totals_by_currency[currency]["total_debit_minor"] += int(row["total_debit_minor"])
+        totals_by_currency[currency]["total_credit_minor"] += int(row["total_credit_minor"])
+        totals_by_currency[currency]["signed_balance_minor"] += int(row["signed_balance_minor"])
+    rows.extend(
+        sorted(
+            totals_by_currency.values(),
+            key=lambda row: str(row["currency"]),
+        )
+    )
     return ReportDataset(
         columns=columns,
         rows=rows,
-        source_counts={"ledger_accounts": len(rows), "ledger_postings": int(queryset.count())},
+        source_counts={
+            "ledger_accounts": len(grouped),
+            "ledger_postings": len(postings),
+            "control_total_rows": len(totals_by_currency),
+        },
     )
 
 
@@ -460,6 +501,12 @@ def _build_dataset(
     raise ReportingValidationError(f"Unsupported report type: {report_type}")
 
 
+def _report_semantics(report_type: str) -> str:
+    if report_type == ReportType.TRIAL_BALANCE:
+        return "as_of_end_date_cumulative_balances_with_currency_control_totals"
+    return "inclusive_value_date_range"
+
+
 @transaction.atomic
 def generate_report(command: GenerateReportCommand) -> GeneratedReportArtifact:
     _require_admin_actor(command.actor)
@@ -493,6 +540,7 @@ def generate_report(command: GenerateReportCommand) -> GeneratedReportArtifact:
         "generated_at": generated_at.isoformat(),
         "generated_by_admin_id": str(command.actor.pk),
         "definition_version": REPORT_DEFINITION_VERSION,
+        "semantics": _report_semantics(report_type),
         "filters": filters,
         "columns": dataset.columns,
         "row_count": len(dataset.rows),

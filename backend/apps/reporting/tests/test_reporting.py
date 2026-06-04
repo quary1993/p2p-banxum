@@ -68,6 +68,7 @@ def _declare_deposit(
     amount_minor: int = 100_00,
     idempotency_key: str = "reporting-deposit-1",
     value_date: date = date(2026, 1, 5),
+    bank_reference: str | None = None,
 ) -> None:
     ledger_services: Any = import_module("backend.apps.ledger.services")
     ledger_services.declare_lender_deposit(
@@ -81,7 +82,7 @@ def _declare_deposit(
             collection_account_identifier="CH00GARANTAREPORT",
             payer_name="Reporting Investor",
             payer_account_identifier="CH11REPORTINVESTOR",
-            bank_reference=f"BANK-{idempotency_key}",
+            bank_reference=bank_reference or f"BANK-{idempotency_key}",
             payment_reference=f"INV-{investor.pk}",
             evidence_reference=f"statement:{idempotency_key}",
             notes="Matched for reporting test.",
@@ -208,10 +209,47 @@ def test_operational_subledger_full_mode_keeps_source_identifiers(
 
 
 @pytest.mark.django_db
-def test_trial_balance_groups_debit_credit_and_signed_balances(
+def test_operational_subledger_neutralizes_csv_formula_cells_in_full_mode(
     admin_user: Model,
     investor: Model,
 ) -> None:
+    _declare_deposit(
+        admin_user,
+        investor,
+        idempotency_key="reporting-deposit-formula",
+        bank_reference='=HYPERLINK("https://evil.example","open")',
+    )
+
+    artifact = generate_report(
+        GenerateReportCommand(
+            actor=admin_user,
+            report_type=ReportType.OPERATIONAL_SUBLEDGER,
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 31),
+            redaction_mode=ReportRedactionMode.FULL,
+        )
+    )
+
+    rows = _csv_rows(artifact.content)
+    assert {row["bank_reference"] for row in rows} == {
+        '\'=HYPERLINK("https://evil.example","open")'
+    }
+    assert ',"=HYPERLINK' not in artifact.content
+    assert ',"\'=HYPERLINK' in artifact.content
+
+
+@pytest.mark.django_db
+def test_trial_balance_is_as_of_end_date_and_adds_currency_total(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _declare_deposit(
+        admin_user,
+        investor,
+        amount_minor=50_00,
+        idempotency_key="reporting-deposit-prior-period",
+        value_date=date(2025, 12, 31),
+    )
     _declare_deposit(admin_user, investor, amount_minor=100_00)
     _post_platform_fee_revenue(admin_user, amount_minor=25_00)
 
@@ -227,13 +265,22 @@ def test_trial_balance_groups_debit_credit_and_signed_balances(
 
     rows = _csv_rows(artifact.content)
     by_account_type = {row["account_type"]: row for row in rows}
-    assert int(by_account_type["collection_cash"]["total_debit_minor"]) == 125_00
+    assert artifact.manifest["semantics"] == (
+        "as_of_end_date_cumulative_balances_with_currency_control_totals"
+    )
+    assert int(by_account_type["collection_cash"]["total_debit_minor"]) == 175_00
     assert int(by_account_type["collection_cash"]["total_credit_minor"]) == 0
-    assert int(by_account_type["collection_cash"]["signed_balance_minor"]) == 125_00
-    assert int(by_account_type["investor_balance_liability"]["total_credit_minor"]) == 100_00
-    assert int(by_account_type["investor_balance_liability"]["signed_balance_minor"]) == -100_00
+    assert int(by_account_type["collection_cash"]["signed_balance_minor"]) == 175_00
+    assert int(by_account_type["investor_balance_liability"]["total_credit_minor"]) == 150_00
+    assert int(by_account_type["investor_balance_liability"]["signed_balance_minor"]) == -150_00
     assert int(by_account_type["platform_fee_revenue"]["total_credit_minor"]) == 25_00
     assert int(by_account_type["platform_fee_revenue"]["signed_balance_minor"]) == -25_00
+    total_row = by_account_type["control_total"]
+    assert total_row["row_type"] == "currency_total"
+    assert total_row["account_code"] == "__TOTAL__"
+    assert int(total_row["total_debit_minor"]) == 175_00
+    assert int(total_row["total_credit_minor"]) == 175_00
+    assert int(total_row["signed_balance_minor"]) == 0
 
 
 @pytest.mark.django_db

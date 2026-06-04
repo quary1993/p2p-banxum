@@ -468,6 +468,21 @@ Why this is non-blocking:
 
 The current local and CI test stack validates the ledger invariants on SQLite and the production migrations install PostgreSQL triggers. Feature implementation can continue, but PostgreSQL has different trigger, locking, and transaction semantics, so production-specific ledger guarantees must be verified before go-live with real funds.
 
+### Large Report Streaming and Range Limits
+
+Needed before high-volume production reporting or wide historical exports.
+
+What the technical team must add:
+
+- Maximum row-count/date-range guardrails for synchronous report generation.
+- Streaming CSV generation or background report jobs for large exports instead of building the whole dataset and CSV in memory.
+- Object-storage backed generated artifacts when Garanta decides reports must be materialized and retained.
+- Operational timeout/error handling for large reports, with admin-visible failure evidence.
+
+Why this is non-blocking:
+
+Launch reporting volume is expected to be small, and the current foundation is intentionally synchronous so report definitions, redaction, checksums, manifests, and OpenAPI contracts are easy to verify. Scaling the export engine can be done behind the same report-run evidence model when production volume requires it.
+
 ### Future Managed-Service Migration
 
 Needed when traffic, operational risk, or compliance expectations justify higher infrastructure cost.
