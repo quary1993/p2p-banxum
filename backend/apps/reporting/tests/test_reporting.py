@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import base64
 import csv
 import hashlib
 import io
+import zipfile
 from datetime import date, datetime, time
 from importlib import import_module
 from typing import Any, cast
@@ -14,11 +16,12 @@ from django.db.models import Model
 from django.test import Client
 
 from backend.apps.platform_core.domain.time import business_timezone
-from backend.apps.platform_core.models import AuditEvent, Currency, DomainEvent
+from backend.apps.platform_core.models import AuditEvent, Currency, DomainEvent, OutboxMessage
 from backend.apps.platform_core.models.base import AppendOnlyViolation
 from backend.apps.reporting.models import (
     ReportEvent,
     ReportOutputFormat,
+    ReportPeriodPreset,
     ReportRedactionMode,
     ReportRun,
     ReportType,
@@ -348,8 +351,220 @@ def test_report_api_is_admin_only_and_returns_csv_payload(
     assert response.status_code == 201
     payload = response.json()
     assert payload["content_type"] == "text/csv; charset=utf-8"
+    assert payload["content_encoding"] == "text"
     assert payload["filename"] == "operational_subledger_2026-01-01_2026-01-31.csv"
     assert payload["manifest"]["row_count"] == 2
+
+
+@pytest.mark.django_db
+def test_monthly_period_preset_resolves_dates_and_pdf_payload(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _declare_deposit(admin_user, investor)
+
+    artifact = generate_report(
+        GenerateReportCommand(
+            actor=admin_user,
+            report_type=ReportType.OPERATIONAL_SUBLEDGER,
+            period_preset=ReportPeriodPreset.MONTHLY,
+            period_anchor_date=date(2026, 1, 15),
+            output_format=ReportOutputFormat.PDF,
+            redaction_mode=ReportRedactionMode.REDACTED,
+        )
+    )
+
+    pdf_bytes = base64.b64decode(artifact.content.encode("ascii"))
+    assert artifact.content_type == "application/pdf"
+    assert artifact.content_encoding == "base64"
+    assert artifact.filename == "operational_subledger_2026-01-01_2026-01-31.pdf"
+    assert pdf_bytes.startswith(b"%PDF-1.4")
+    assert artifact.report_run.start_date == date(2026, 1, 1)
+    assert artifact.report_run.end_date == date(2026, 1, 31)
+    assert artifact.manifest["period_preset"] == "monthly"
+    assert artifact.report_run.content_sha256 == hashlib.sha256(pdf_bytes).hexdigest()
+
+
+@pytest.mark.django_db
+def test_zip_evidence_package_contains_manifest_csv_and_pdf(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _declare_deposit(admin_user, investor)
+
+    artifact = generate_report(
+        GenerateReportCommand(
+            actor=admin_user,
+            report_type=ReportType.BANK_OPERATIONS,
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 31),
+            output_format=ReportOutputFormat.ZIP,
+        )
+    )
+
+    zip_bytes = base64.b64decode(artifact.content.encode("ascii"))
+    assert artifact.content_type == "application/zip"
+    assert artifact.content_encoding == "base64"
+    assert artifact.report_run.content_sha256 == hashlib.sha256(zip_bytes).hexdigest()
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
+        names = set(archive.namelist())
+        assert "manifest.json" in names
+        assert "bank_operations_2026-01-01_2026-01-31.csv" in names
+        assert "bank_operations_2026-01-01_2026-01-31.pdf" in names
+        manifest = archive.read("manifest.json").decode("utf-8")
+    assert '"report_type": "bank_operations"' in manifest
+    assert artifact.manifest["included_files"]
+
+
+@pytest.mark.django_db
+def test_bank_operations_report_redacts_counterparty_and_bank_fields(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _declare_deposit(admin_user, investor)
+
+    artifact = generate_report(
+        GenerateReportCommand(
+            actor=admin_user,
+            report_type=ReportType.BANK_OPERATIONS,
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 31),
+            redaction_mode=ReportRedactionMode.REDACTED,
+        )
+    )
+
+    rows = _csv_rows(artifact.content)
+    assert rows[0]["payer_name"] == "REDACTED"
+    assert rows[0]["payer_account_identifier"] == "REDACTED"
+    assert rows[0]["bank_reference"] == "REDACTED"
+    assert "Reporting Investor" not in artifact.content
+
+
+@pytest.mark.django_db
+def test_bexio_export_uses_configurable_account_mapping_and_marks_unmapped(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _declare_deposit(admin_user, investor)
+
+    artifact = generate_report(
+        GenerateReportCommand(
+            actor=admin_user,
+            report_type=ReportType.BEXIO_ACCOUNTING_EXPORT,
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 31),
+            redaction_mode=ReportRedactionMode.FULL,
+            filters={
+                "bexio_mapping": {
+                    "account_types": {
+                        "collection_cash": {
+                            "account_code": "1020",
+                            "tax_code": "NA",
+                            "label": "Collection cash",
+                        }
+                    }
+                }
+            },
+        )
+    )
+
+    rows = _csv_rows(artifact.content)
+    by_account_type = {row["ledger_account_type"]: row for row in rows}
+    assert by_account_type["collection_cash"]["bexio_account_code"] == "1020"
+    assert by_account_type["collection_cash"]["bexio_tax_code"] == "NA"
+    assert by_account_type["collection_cash"]["mapping_status"] == "configured"
+    assert by_account_type["investor_balance_liability"]["mapping_status"] == "unmapped"
+    assert artifact.manifest["notes"]
+
+
+@pytest.mark.django_db
+def test_participant_statement_and_annual_garanta_tax_info_are_ledger_derived(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _declare_deposit(admin_user, investor)
+    _post_platform_fee_revenue(admin_user, amount_minor=25_00)
+
+    statement = generate_report(
+        GenerateReportCommand(
+            actor=admin_user,
+            report_type=ReportType.PARTICIPANT_ACCOUNT_STATEMENT,
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 31),
+            redaction_mode=ReportRedactionMode.FULL,
+            filters={"participant_type": "lender", "participant_id": str(investor.pk)},
+        )
+    )
+    statement_rows = _csv_rows(statement.content)
+    assert statement_rows
+    assert {row["participant_id"] for row in statement_rows} == {str(investor.pk)}
+    assert "principal_or_settlement_movement" in {
+        row["statement_section"] for row in statement_rows
+    }
+
+    tax_info = generate_report(
+        GenerateReportCommand(
+            actor=admin_user,
+            report_type=ReportType.ANNUAL_TAX_INFORMATION,
+            period_preset=ReportPeriodPreset.CALENDAR_YEAR,
+            period_anchor_date=date(2026, 6, 1),
+            filters={"participant_type": "garanta"},
+        )
+    )
+    tax_rows = _csv_rows(tax_info.content)
+    assert {
+        row["category"] for row in tax_rows
+    } >= {
+        "platform_revenue:platform_fee_revenue:secondary_market_purchase_settled",
+        "informational_only_not_tax_advice",
+    }
+    revenue_row = next(
+        row
+        for row in tax_rows
+        if row["category"]
+        == "platform_revenue:platform_fee_revenue:secondary_market_purchase_settled"
+    )
+    assert revenue_row["amount_minor"] == "2500"
+
+
+@pytest.mark.django_db
+def test_failed_outbox_report_redacts_payload_and_error_by_default(admin_user: Model) -> None:
+    OutboxMessage.objects.create(
+        idempotency_key="failed-email-reporting-test",
+        topic="email.transactional.installment",
+        payload={"recipient": "investor@example.test", "body": "private"},
+        status="dead_letter",
+        attempts=8,
+        last_error="smtp rejected investor@example.test",
+    )
+
+    artifact = generate_report(
+        GenerateReportCommand(
+            actor=admin_user,
+            report_type=ReportType.FAILED_OUTBOX,
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 12, 31),
+            redaction_mode=ReportRedactionMode.REDACTED,
+        )
+    )
+
+    rows = _csv_rows(artifact.content)
+    assert rows == [
+        {
+            "outbox_message_id": rows[0]["outbox_message_id"],
+            "idempotency_key": "failed-email-reporting-test",
+            "topic": "email.transactional.installment",
+            "status": "dead_letter",
+            "attempts": "8",
+            "next_attempt_at": "",
+            "processed_at": "",
+            "last_error": "REDACTED",
+            "payload_json": "{}",
+            "created_at": rows[0]["created_at"],
+            "updated_at": rows[0]["updated_at"],
+        }
+    ]
+    assert "investor@example.test" not in artifact.content
 
 
 @pytest.mark.django_db

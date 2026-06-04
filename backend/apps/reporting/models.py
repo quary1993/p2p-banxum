@@ -11,10 +11,41 @@ class ReportType(models.TextChoices):
     OPERATIONAL_SUBLEDGER = "operational_subledger", "Operational subledger"
     TRIAL_BALANCE = "trial_balance", "Trial balance"
     GARANTA_ACCRUED_REVENUE = "garanta_accrued_revenue", "Garanta accrued revenue"
+    BEXIO_ACCOUNTING_EXPORT = "bexio_accounting_export", "Bexio accounting export"
+    BANK_OPERATIONS = "bank_operations", "Bank operations"
+    RECONCILIATION = "reconciliation", "Reconciliation"
+    INVESTOR_BALANCES = "investor_balances", "Investor balances"
+    BALANCE_AGEING = "balance_ageing", "Balance ageing"
+    WITHDRAWALS = "withdrawals", "Withdrawals"
+    LOAN_FUNDING = "loan_funding", "Loan funding"
+    REPAYMENT_STATUS = "repayment_status", "Repayment status"
+    DEFAULT_EXPOSURE = "default_exposure", "Default exposure"
+    RECOVERY_WRITE_OFF = "recovery_write_off", "Recovery/write-off"
+    FX_ACTIVITY = "fx_activity", "FX activity"
+    KYC_STATUS = "kyc_status", "KYC status"
+    AUDIT_LOG = "audit_log", "Audit log"
+    FAILED_OUTBOX = "failed_outbox", "Failed outbox"
+    PARTICIPANT_ACCOUNT_STATEMENT = (
+        "participant_account_statement",
+        "Participant account statement",
+    )
+    ANNUAL_TAX_INFORMATION = "annual_tax_information", "Annual tax information"
 
 
 class ReportOutputFormat(models.TextChoices):
     CSV = "csv", "CSV"
+    PDF = "pdf", "PDF"
+    ZIP = "zip", "ZIP evidence package"
+
+
+class ReportPeriodPreset(models.TextChoices):
+    CUSTOM = "custom", "Custom"
+    DAILY = "daily", "Daily"
+    WEEKLY = "weekly", "Weekly"
+    MONTHLY = "monthly", "Monthly"
+    QUARTERLY = "quarterly", "Quarterly"
+    YEARLY = "yearly", "Yearly"
+    CALENDAR_YEAR = "calendar_year", "Calendar year"
 
 
 class ReportRedactionMode(models.TextChoices):

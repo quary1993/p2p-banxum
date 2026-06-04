@@ -1726,6 +1726,8 @@ export const NoteTypeEnum = {
 
 /**
  * * `csv` - CSV
+* `pdf` - PDF
+* `zip` - ZIP evidence package
  */
 export type OutputFormatEnum = typeof OutputFormatEnum[keyof typeof OutputFormatEnum];
 
@@ -1733,6 +1735,8 @@ export type OutputFormatEnum = typeof OutputFormatEnum[keyof typeof OutputFormat
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const OutputFormatEnum = {
   csv: 'csv',
+  pdf: 'pdf',
+  zip: 'zip',
 } as const;
 
 export interface PatchedAdminTaskUpdateRequest {
@@ -1822,6 +1826,29 @@ export interface PatchedLoanUpdateRequest {
   investor_message?: string;
   note?: string;
 }
+
+/**
+ * * `custom` - Custom
+* `daily` - Daily
+* `weekly` - Weekly
+* `monthly` - Monthly
+* `quarterly` - Quarterly
+* `yearly` - Yearly
+* `calendar_year` - Calendar year
+ */
+export type PeriodPresetEnum = typeof PeriodPresetEnum[keyof typeof PeriodPresetEnum];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const PeriodPresetEnum = {
+  custom: 'custom',
+  daily: 'daily',
+  weekly: 'weekly',
+  monthly: 'monthly',
+  quarterly: 'quarterly',
+  yearly: 'yearly',
+  calendar_year: 'calendar_year',
+} as const;
 
 export interface PhoneVerificationConfirmRequest {
   challenge_id: string;
@@ -2043,8 +2070,10 @@ export const RepaymentTypeEnum = {
 
 export interface ReportGenerateRequest {
   report_type: ReportTypeEnum;
-  start_date: string;
-  end_date: string;
+  start_date?: string;
+  end_date?: string;
+  period_preset?: PeriodPresetEnum;
+  period_anchor_date?: string;
   output_format?: OutputFormatEnum;
   redaction_mode?: RedactionModeEnum;
   filters?: unknown;
@@ -2055,6 +2084,7 @@ export interface ReportGenerateResponse {
   report_run: ReportRun;
   content_type: string;
   filename: string;
+  content_encoding: string;
   content: string;
   manifest: unknown;
 }
@@ -2083,6 +2113,22 @@ export interface ReportRun {
  * * `operational_subledger` - Operational subledger
 * `trial_balance` - Trial balance
 * `garanta_accrued_revenue` - Garanta accrued revenue
+* `bexio_accounting_export` - Bexio accounting export
+* `bank_operations` - Bank operations
+* `reconciliation` - Reconciliation
+* `investor_balances` - Investor balances
+* `balance_ageing` - Balance ageing
+* `withdrawals` - Withdrawals
+* `loan_funding` - Loan funding
+* `repayment_status` - Repayment status
+* `default_exposure` - Default exposure
+* `recovery_write_off` - Recovery/write-off
+* `fx_activity` - FX activity
+* `kyc_status` - KYC status
+* `audit_log` - Audit log
+* `failed_outbox` - Failed outbox
+* `participant_account_statement` - Participant account statement
+* `annual_tax_information` - Annual tax information
  */
 export type ReportTypeEnum = typeof ReportTypeEnum[keyof typeof ReportTypeEnum];
 
@@ -2092,6 +2138,22 @@ export const ReportTypeEnum = {
   operational_subledger: 'operational_subledger',
   trial_balance: 'trial_balance',
   garanta_accrued_revenue: 'garanta_accrued_revenue',
+  bexio_accounting_export: 'bexio_accounting_export',
+  bank_operations: 'bank_operations',
+  reconciliation: 'reconciliation',
+  investor_balances: 'investor_balances',
+  balance_ageing: 'balance_ageing',
+  withdrawals: 'withdrawals',
+  loan_funding: 'loan_funding',
+  repayment_status: 'repayment_status',
+  default_exposure: 'default_exposure',
+  recovery_write_off: 'recovery_write_off',
+  fx_activity: 'fx_activity',
+  kyc_status: 'kyc_status',
+  audit_log: 'audit_log',
+  failed_outbox: 'failed_outbox',
+  participant_account_statement: 'participant_account_statement',
+  annual_tax_information: 'annual_tax_information',
 } as const;
 
 /**
@@ -8165,7 +8227,7 @@ export const getV1MarketplaceSecondaryListingsCreateResponseMock = (overrideResp
 
 export const getV1MarketplaceSecondaryListingsPurchaseCreateResponseMock = (overrideResponse: Partial< SecondaryMarketPurchase > = {}): SecondaryMarketPurchase => ({id: faker.string.uuid(), listing_id: faker.string.uuid(), loan_id: faker.string.uuid(), buyer_holding_id: faker.string.uuid(), current_principal_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), price_bps: faker.number.int({min: undefined, max: undefined}), transfer_price_minor: faker.number.int({min: undefined, max: undefined}), discount_premium_bps: faker.number.int({min: undefined, max: undefined}), accrued_interest_minor: faker.number.int({min: undefined, max: undefined}), accrued_interest_from_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), accrued_interest_to_date: faker.date.past().toISOString().split('T')[0], taker_fee_bps: faker.number.int({min: undefined, max: undefined}), minimum_taker_fee_minor: faker.number.int({min: undefined, max: undefined}), taker_fee_minor: faker.number.int({min: undefined, max: undefined}), buyer_total_cost_minor: faker.number.int({min: undefined, max: undefined}), loan_status_at_purchase: faker.string.alpha({length: {min: 10, max: 20}}), days_past_due: faker.number.int({min: undefined, max: undefined}), last_payment_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), risk_acknowledgement_accepted: faker.datatype.boolean(), purchased_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
 
-export const getV1ReportingAdminReportsCreateResponseMock = (overrideResponse: Partial< ReportGenerateResponse > = {}): ReportGenerateResponse => ({report_run: {id: faker.string.uuid(), report_type: faker.string.alpha({length: {min: 10, max: 20}}), output_format: faker.string.alpha({length: {min: 10, max: 20}}), redaction_mode: faker.string.alpha({length: {min: 10, max: 20}}), start_date: faker.date.past().toISOString().split('T')[0], end_date: faker.date.past().toISOString().split('T')[0], generated_by_admin_id: faker.string.uuid(), generated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, definition_version: faker.string.alpha({length: {min: 10, max: 20}}), filters: {}, row_count: faker.number.int({min: undefined, max: undefined}), content_sha256: faker.string.alpha({length: {min: 10, max: 20}}), manifest: {}, destination_note: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, content_type: faker.string.alpha({length: {min: 10, max: 20}}), filename: faker.string.alpha({length: {min: 10, max: 20}}), content: faker.string.alpha({length: {min: 10, max: 20}}), manifest: {}, ...overrideResponse})
+export const getV1ReportingAdminReportsCreateResponseMock = (overrideResponse: Partial< ReportGenerateResponse > = {}): ReportGenerateResponse => ({report_run: {id: faker.string.uuid(), report_type: faker.string.alpha({length: {min: 10, max: 20}}), output_format: faker.string.alpha({length: {min: 10, max: 20}}), redaction_mode: faker.string.alpha({length: {min: 10, max: 20}}), start_date: faker.date.past().toISOString().split('T')[0], end_date: faker.date.past().toISOString().split('T')[0], generated_by_admin_id: faker.string.uuid(), generated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, definition_version: faker.string.alpha({length: {min: 10, max: 20}}), filters: {}, row_count: faker.number.int({min: undefined, max: undefined}), content_sha256: faker.string.alpha({length: {min: 10, max: 20}}), manifest: {}, destination_note: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, content_type: faker.string.alpha({length: {min: 10, max: 20}}), filename: faker.string.alpha({length: {min: 10, max: 20}}), content_encoding: faker.string.alpha({length: {min: 10, max: 20}}), content: faker.string.alpha({length: {min: 10, max: 20}}), manifest: {}, ...overrideResponse})
 
 export const getV1ServicingAdminBorrowerRepaymentsCreateResponseMock = (overrideResponse: Partial< BorrowerRepaymentRecordResponse > = {}): BorrowerRepaymentRecordResponse => ({repayment_event: {id: faker.string.uuid(), loan_id: faker.string.uuid(), installment_id: faker.string.uuid(), event_type: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), booking_date: faker.date.past().toISOString().split('T')[0], value_date: faker.date.past().toISOString().split('T')[0], received_at: `${faker.date.past().toISOString().split('.')[0]}Z`, expected_due_minor: faker.number.int({min: undefined, max: undefined}), interest_applied_minor: faker.number.int({min: undefined, max: undefined}), principal_applied_minor: faker.number.int({min: undefined, max: undefined}), future_principal_applied_minor: faker.number.int({min: undefined, max: undefined}), fees_applied_minor: faker.number.int({min: undefined, max: undefined}), penalties_applied_minor: faker.number.int({min: undefined, max: undefined}), remaining_installment_interest_minor: faker.number.int({min: undefined, max: undefined}), remaining_installment_principal_minor: faker.number.int({min: undefined, max: undefined}), warning_acknowledged: faker.datatype.boolean(), bank_operation_id: faker.string.uuid(), journal_entry_id: faker.string.uuid(), created_by_admin_id: faker.string.uuid(), notes: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, idempotency_key: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, distribution_lines: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), repayment_event_id: faker.string.uuid(), holding_id: faker.string.uuid(), investor_user_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), balance_lot_id: faker.string.uuid(), amount_minor: faker.number.int({min: undefined, max: undefined}), principal_minor: faker.number.int({min: undefined, max: undefined}), interest_minor: faker.number.int({min: undefined, max: undefined}), fee_minor: faker.number.int({min: undefined, max: undefined}), current_principal_before_minor: faker.number.int({min: undefined, max: undefined}), current_principal_after_minor: faker.number.int({min: undefined, max: undefined}), metadata: {}, occurred_at: `${faker.date.past().toISOString().split('.')[0]}Z`})), ...overrideResponse})
 

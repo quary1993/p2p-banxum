@@ -6015,8 +6015,13 @@ components:
     OutputFormatEnum:
       enum:
       - csv
+      - pdf
+      - zip
       type: string
-      description: '* `csv` - CSV'
+      description: |-
+        * `csv` - CSV
+        * `pdf` - PDF
+        * `zip` - ZIP evidence package
     PatchedAdminTaskUpdateRequest:
       type: object
       properties:
@@ -6178,6 +6183,24 @@ components:
           type: string
         note:
           type: string
+    PeriodPresetEnum:
+      enum:
+      - custom
+      - daily
+      - weekly
+      - monthly
+      - quarterly
+      - yearly
+      - calendar_year
+      type: string
+      description: |-
+        * `custom` - Custom
+        * `daily` - Daily
+        * `weekly` - Weekly
+        * `monthly` - Monthly
+        * `quarterly` - Quarterly
+        * `yearly` - Yearly
+        * `calendar_year` - Calendar year
     PhoneVerificationConfirmRequest:
       type: object
       properties:
@@ -6615,6 +6638,13 @@ components:
         end_date:
           type: string
           format: date
+        period_preset:
+          allOf:
+          - $ref: '#/components/schemas/PeriodPresetEnum'
+          default: custom
+        period_anchor_date:
+          type: string
+          format: date
         output_format:
           allOf:
           - $ref: '#/components/schemas/OutputFormatEnum'
@@ -6627,9 +6657,7 @@ components:
         destination_note:
           type: string
       required:
-      - end_date
       - report_type
-      - start_date
     ReportGenerateResponse:
       type: object
       properties:
@@ -6639,11 +6667,14 @@ components:
           type: string
         filename:
           type: string
+        content_encoding:
+          type: string
         content:
           type: string
         manifest: {}
       required:
       - content
+      - content_encoding
       - content_type
       - filename
       - manifest
@@ -6712,11 +6743,43 @@ components:
       - operational_subledger
       - trial_balance
       - garanta_accrued_revenue
+      - bexio_accounting_export
+      - bank_operations
+      - reconciliation
+      - investor_balances
+      - balance_ageing
+      - withdrawals
+      - loan_funding
+      - repayment_status
+      - default_exposure
+      - recovery_write_off
+      - fx_activity
+      - kyc_status
+      - audit_log
+      - failed_outbox
+      - participant_account_statement
+      - annual_tax_information
       type: string
       description: |-
         * `operational_subledger` - Operational subledger
         * `trial_balance` - Trial balance
         * `garanta_accrued_revenue` - Garanta accrued revenue
+        * `bexio_accounting_export` - Bexio accounting export
+        * `bank_operations` - Bank operations
+        * `reconciliation` - Reconciliation
+        * `investor_balances` - Investor balances
+        * `balance_ageing` - Balance ageing
+        * `withdrawals` - Withdrawals
+        * `loan_funding` - Loan funding
+        * `repayment_status` - Repayment status
+        * `default_exposure` - Default exposure
+        * `recovery_write_off` - Recovery/write-off
+        * `fx_activity` - FX activity
+        * `kyc_status` - KYC status
+        * `audit_log` - Audit log
+        * `failed_outbox` - Failed outbox
+        * `participant_account_statement` - Participant account statement
+        * `annual_tax_information` - Annual tax information
     RiskRatingEnum:
       enum:
       - AAA

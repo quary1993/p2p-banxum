@@ -6,6 +6,7 @@ from rest_framework import serializers
 
 from backend.apps.reporting.models import (
     ReportOutputFormat,
+    ReportPeriodPreset,
     ReportRedactionMode,
     ReportRun,
     ReportType,
@@ -14,8 +15,14 @@ from backend.apps.reporting.models import (
 
 class ReportGenerateRequestSerializer(serializers.Serializer[Any]):
     report_type = serializers.ChoiceField(choices=ReportType.choices)
-    start_date = serializers.DateField()
-    end_date = serializers.DateField()
+    start_date = serializers.DateField(required=False)
+    end_date = serializers.DateField(required=False)
+    period_preset = serializers.ChoiceField(
+        choices=ReportPeriodPreset.choices,
+        required=False,
+        default=ReportPeriodPreset.CUSTOM,
+    )
+    period_anchor_date = serializers.DateField(required=False)
     output_format = serializers.ChoiceField(
         choices=ReportOutputFormat.choices,
         required=False,
@@ -54,6 +61,7 @@ class ReportGenerateResponseSerializer(serializers.Serializer[Any]):
     report_run = ReportRunSerializer()
     content_type = serializers.CharField()
     filename = serializers.CharField()
+    content_encoding = serializers.CharField()
     content = serializers.CharField()
     manifest = serializers.JSONField()
 

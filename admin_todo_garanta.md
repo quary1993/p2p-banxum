@@ -501,7 +501,7 @@ What Garanta must provide:
 
 Why this is non-blocking:
 
-The reporting module can be built export-first with reproducible PDF/CSV/ZIP reports. Current backend foundation defaults to redacted exports, audits full exports, stores immutable report-run metadata/checksums, and does not persist the CSV file itself. Exact layout, redaction, full-export governance, and artifact-storage requirements can be refined once sample reports exist.
+The reporting module is now built export-first with reproducible CSV, deterministic backend PDF, and ZIP evidence package outputs. Current backend foundation defaults to redacted exports, audits full exports, stores immutable report-run metadata/checksums/manifests/file lists, and does not persist generated artifacts in object storage. Exact PDF layout, report labels, redaction refinements, full-export governance, and artifact-storage requirements can be refined once Garanta reviews sample reports.
 
 ### Document Delivery, Retention, and Template Operations
 

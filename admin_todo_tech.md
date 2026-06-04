@@ -483,6 +483,21 @@ Why this is non-blocking:
 
 Launch reporting volume is expected to be small, and the current foundation is intentionally synchronous so report definitions, redaction, checksums, manifests, and OpenAPI contracts are easy to verify. Scaling the export engine can be done behind the same report-run evidence model when production volume requires it.
 
+### Report PDF Template Engine Integration
+
+Needed before production-polished legal/accounting/tax PDF layouts are published.
+
+What the technical team must add:
+
+- Install and package WeasyPrint in the backend deployment image, following the resolved PDF rendering decision.
+- Build HTML/CSS templates for statements, tax information reports, Bexio/accounting source reports, and evidence-package PDFs.
+- Run the deployment-image proof for fonts, page breaks, file size, and deterministic rendering.
+- Keep the current standard-library PDF renderer as a deterministic fallback or test renderer, but do not treat it as the final visual/layout engine.
+
+Why this is non-blocking:
+
+The current reporting backend already generates valid deterministic PDFs and ZIP evidence packages, so report data, checksums, manifests, and OpenAPI contracts can be verified now. WeasyPrint integration is needed for final production layout quality, not for report-source correctness.
+
 ### Future Managed-Service Migration
 
 Needed when traffic, operational risk, or compliance expectations justify higher infrastructure cost.
