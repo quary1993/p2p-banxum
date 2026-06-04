@@ -451,6 +451,32 @@ def test_nonstandard_listing_requires_admin_approval_and_disclosure(
 
 
 @pytest.mark.django_db
+def test_active_browse_excludes_listing_when_current_loan_status_changed(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_funded_loan(admin_user)
+    holding = _create_holding(admin_user, investor, loan)
+    acceptance = _create_listing_acceptance(investor, holding)
+    listing = create_secondary_market_listing(
+        CreateSecondaryMarketListingCommand(
+            actor=investor,
+            holding_id=str(cast(Any, holding).id),
+            price_bps=9500,
+            document_acceptance_id=str(acceptance.pk),
+            idempotency_key="secondary-listing-stale-status",
+        )
+    )
+    assert list_active_secondary_market_listings(actor=investor) == [listing]
+
+    cast(Any, loan).status = "written_off"
+    loan.save(update_fields=["status"])
+
+    assert list_active_secondary_market_listings(actor=investor) == []
+
+
+@pytest.mark.django_db
 def test_admin_can_reject_nonstandard_listing(
     admin_user: Model,
     investor: Model,

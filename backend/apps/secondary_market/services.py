@@ -10,7 +10,7 @@ from typing import Any, cast
 
 from django.apps import apps
 from django.db import IntegrityError, transaction
-from django.db.models import Model, Sum
+from django.db.models import F, Model, Sum
 
 from backend.apps.platform_core.domain.access import (
     actor_ref_for_user,
@@ -1368,6 +1368,9 @@ def list_active_secondary_market_listings(
     safe_limit = min(max(int(limit), 1), 250)
     return list(
         SecondaryMarketListing.objects.select_related("holding", "loan", "currency")
-        .filter(status=SecondaryMarketListingStatus.ACTIVE)
+        .filter(
+            status=SecondaryMarketListingStatus.ACTIVE,
+            loan__status=F("loan_status_at_listing"),
+        )
         .order_by("-listed_at", "-created_at", "-id")[:safe_limit]
     )

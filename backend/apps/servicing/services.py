@@ -640,7 +640,7 @@ def _distribution_plan(
     return plan
 
 
-def _actor_has_loan_holding(actor: Model, loan_id: str) -> bool:
+def _actor_has_loan_holding_history(actor: Model, loan_id: str) -> bool:
     holding_model = apps.get_model("holdings", "InvestorLoanHolding")
     return bool(holding_model.objects.filter(loan_id=loan_id, investor_user_id=actor.pk).exists())
 
@@ -685,9 +685,9 @@ def list_public_loan_risk_notes(
     if not is_admin_actor(actor):
         if not user_can_access_financial_features(actor):
             raise ServicingAuthorizationError("Investor account cannot view loan risk notes.")
-        if not _actor_has_loan_holding(actor, loan_id):
+        if not _actor_has_loan_holding_history(actor, loan_id):
             raise ServicingAuthorizationError(
-                "Investor can only view public notes for loans they hold."
+                "Investor can only view public notes for loans they hold or previously held."
             )
     safe_limit = min(max(int(limit), 1), 250)
     return list(

@@ -955,6 +955,15 @@ def test_admin_adds_internal_and_public_risk_notes_with_investor_visibility(
     notes = list_public_loan_risk_notes(actor=investor_one, loan_id=str(loan.pk))
     assert [note.id for note in notes] == [public_note.id]
     assert internal_note.id not in {note.id for note in notes}
+    investor_one_holding = apps.get_model("holdings", "InvestorLoanHolding").objects.get(
+        loan=loan,
+        investor_user_id=investor_one.pk,
+    )
+    investor_one_holding.status = "transferred"
+    investor_one_holding.current_principal_minor = 0
+    investor_one_holding.save(update_fields=["status", "current_principal_minor"])
+    historical_notes = list_public_loan_risk_notes(actor=investor_one, loan_id=str(loan.pk))
+    assert [note.id for note in historical_notes] == [public_note.id]
     assert DomainEvent.objects.filter(event_type="LoanRiskNoteAdded").count() == 2
     assert AuditEvent.objects.filter(action="servicing.loan_risk_note_added").count() == 2
 
