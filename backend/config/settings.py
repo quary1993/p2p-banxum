@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     "backend.apps.documents",
     "backend.apps.communications",
     "backend.apps.reporting",
+    "backend.apps.investor_portal",
     "backend.apps.admin_ops",
 ]
 

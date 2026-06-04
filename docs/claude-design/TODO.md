@@ -32,3 +32,10 @@ Backend/API-only implementation slices do not create a visible UI surface. When 
 - Current first-version behavior: no user-facing UI was implemented in this slice; backend APIs now expose current published templates and create immutable acceptance evidence for authenticated transaction contexts.
 - Suggested improvement: Claude Design should design the checkbox/clickwrap acceptance presentation, long-form legal text layout, required checkbox hierarchy, stale-template refresh state, accepted-document confirmation state, and user-facing document package/download surfaces for investor portal transactions.
 - Priority: important.
+
+## 2026-06-04: Investor Portal API Foundation
+
+- Screen or component: investor dashboard, balances, portfolio, activity timeline, primary-order history, secondary-market own-activity history, and FX history.
+- Current first-version behavior: no user-facing UI was implemented in this slice; backend APIs now expose self-scoped data contracts for dashboard summaries, balance ageing buckets/deadlines, payout instructions, holdings, exposure metrics, public loan-note summaries, recent activity, primary orders, secondary-market listings/purchases/sales, and FX quote/exchange history.
+- Suggested improvement: Claude Design should do the full investor-portal information architecture and visual pass before production UI implementation, including dashboard hierarchy, balance-ageing warnings, regulatory 60-day deadline language, portfolio/exposure charts, activity table density, empty/error/loading states, responsive behavior, and clear separation between read-only history and money-moving actions.
+- Priority: important.

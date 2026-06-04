@@ -1078,6 +1078,142 @@ paths:
               schema:
                 $ref: '#/components/schemas/HealthResponse'
           description: ''
+  /api/v1/investor/portal/activity/:
+    get:
+      operationId: v1_investor_portal_activity_retrieve
+      parameters:
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 250
+          minimum: 1
+          default: 50
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorActivity'
+          description: ''
+  /api/v1/investor/portal/balances/:
+    get:
+      operationId: v1_investor_portal_balances_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorBalancePortal'
+          description: ''
+  /api/v1/investor/portal/dashboard/:
+    get:
+      operationId: v1_investor_portal_dashboard_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorDashboard'
+          description: ''
+  /api/v1/investor/portal/fx/:
+    get:
+      operationId: v1_investor_portal_fx_retrieve
+      parameters:
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 250
+          minimum: 1
+          default: 50
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FxHistoryPortal'
+          description: ''
+  /api/v1/investor/portal/portfolio/:
+    get:
+      operationId: v1_investor_portal_portfolio_retrieve
+      parameters:
+      - in: query
+        name: include_inactive
+        schema:
+          type: boolean
+          default: false
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorPortfolio'
+          description: ''
+  /api/v1/investor/portal/primary-orders/:
+    get:
+      operationId: v1_investor_portal_primary_orders_retrieve
+      parameters:
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 250
+          minimum: 1
+          default: 50
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrimaryOrdersPortal'
+          description: ''
+  /api/v1/investor/portal/secondary-market/:
+    get:
+      operationId: v1_investor_portal_secondary_market_retrieve
+      parameters:
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 250
+          minimum: 1
+          default: 50
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecondaryMarketActivityPortal'
+          description: ''
   /api/v1/kyc/admin/cases/{case_id}/manual-review/:
     post:
       operationId: v1_kyc_admin_cases_manual_review_create
@@ -2396,6 +2532,45 @@ components:
       - previous_status
       - reason_code
       - user_id
+    ActivityEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        activity_type:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+        direction:
+          type: string
+        title:
+          type: string
+        amount_minor:
+          type: integer
+          nullable: true
+        currency:
+          type: string
+        status:
+          type: string
+        loan_id:
+          type: string
+          format: uuid
+          nullable: true
+        loan_title:
+          type: string
+        metadata: {}
+      required:
+      - activity_type
+      - amount_minor
+      - currency
+      - direction
+      - id
+      - loan_title
+      - metadata
+      - occurred_at
+      - status
+      - title
     AdminLoginConfirmRequest:
       type: object
       properties:
@@ -2634,6 +2809,16 @@ components:
       - email
       - full_name
       - password
+    AmountByCurrency:
+      type: object
+      properties:
+        currency:
+          type: string
+        amount_minor:
+          type: integer
+      required:
+      - amount_minor
+      - currency
     AuditEvent:
       type: object
       properties:
@@ -2781,6 +2966,113 @@ components:
       - penalty_mode_transitions
       - reminders_due
       - skipped_lot_ids
+    BalanceLot:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+        source_type:
+          type: string
+        status:
+          type: string
+        bucket:
+          type: string
+        received_at:
+          type: string
+          format: date-time
+        investment_deadline_at:
+          type: string
+          format: date-time
+        withdrawal_deadline_at:
+          type: string
+          format: date-time
+        days_until_investment_deadline:
+          type: integer
+        days_until_withdrawal_deadline:
+          type: integer
+        original_amount_minor:
+          type: integer
+        available_amount_minor:
+          type: integer
+        invested_amount_minor:
+          type: integer
+        converted_amount_minor:
+          type: integer
+        withdrawn_amount_minor:
+          type: integer
+        penalized_amount_minor:
+          type: integer
+        requires_withdrawal:
+          type: boolean
+        blocks_financial_actions:
+          type: boolean
+      required:
+      - available_amount_minor
+      - blocks_financial_actions
+      - bucket
+      - converted_amount_minor
+      - currency
+      - days_until_investment_deadline
+      - days_until_withdrawal_deadline
+      - id
+      - invested_amount_minor
+      - investment_deadline_at
+      - original_amount_minor
+      - penalized_amount_minor
+      - received_at
+      - requires_withdrawal
+      - source_type
+      - status
+      - withdrawal_deadline_at
+      - withdrawn_amount_minor
+    BalanceSummary:
+      type: object
+      properties:
+        investor_user_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+        total_available_minor:
+          type: integer
+        investable_minor:
+          type: integer
+        withdraw_only_minor:
+          type: integer
+        overdue_minor:
+          type: integer
+        frozen_minor:
+          type: integer
+        penalty_mode_minor:
+          type: integer
+        lot_count:
+          type: integer
+        active_lot_count:
+          type: integer
+        next_investment_deadline_at:
+          type: string
+          format: date-time
+          nullable: true
+        next_withdrawal_deadline_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - active_lot_count
+      - currency
+      - frozen_minor
+      - investable_minor
+      - investor_user_id
+      - lot_count
+      - next_investment_deadline_at
+      - next_withdrawal_deadline_at
+      - overdue_minor
+      - penalty_mode_minor
+      - total_available_minor
+      - withdraw_only_minor
     BankOperation:
       type: object
       properties:
@@ -3737,6 +4029,25 @@ components:
         metadata: {}
         note:
           type: string
+    ExposureBucket:
+      type: object
+      properties:
+        key:
+          type: string
+        name:
+          type: string
+        currency:
+          type: string
+        outstanding_principal_minor:
+          type: integer
+        holding_count:
+          type: integer
+      required:
+      - currency
+      - holding_count
+      - key
+      - name
+      - outstanding_principal_minor
     FxDeltaReport:
       type: object
       properties:
@@ -3836,6 +4147,49 @@ components:
       - target_currency
       - target_journal_entry_id
       - updated_at
+    FxExchangePortal:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        quote_id:
+          type: string
+          format: uuid
+        source_currency:
+          type: string
+        target_currency:
+          type: string
+        source_amount_minor:
+          type: integer
+        rate:
+          type: string
+        platform_fee_bps:
+          type: integer
+        gross_target_amount_minor:
+          type: integer
+        fee_minor:
+          type: integer
+        target_amount_minor:
+          type: integer
+        status:
+          type: string
+        executed_at:
+          type: string
+          format: date-time
+      required:
+      - executed_at
+      - fee_minor
+      - gross_target_amount_minor
+      - id
+      - platform_fee_bps
+      - quote_id
+      - rate
+      - source_amount_minor
+      - source_currency
+      - status
+      - target_amount_minor
+      - target_currency
     FxExternalSettlement:
       type: object
       properties:
@@ -3999,6 +4353,20 @@ components:
       - sold_currency
       - start_date
       - value_date
+    FxHistoryPortal:
+      type: object
+      properties:
+        quotes:
+          type: array
+          items:
+            $ref: '#/components/schemas/FxQuotePortal'
+        exchanges:
+          type: array
+          items:
+            $ref: '#/components/schemas/FxExchangePortal'
+      required:
+      - exchanges
+      - quotes
     FxQuote:
       type: object
       properties:
@@ -4109,6 +4477,52 @@ components:
       - source_amount_minor
       - source_currency
       - target_currency
+    FxQuotePortal:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        source_currency:
+          type: string
+        target_currency:
+          type: string
+        source_amount_minor:
+          type: integer
+        rate:
+          type: string
+        platform_fee_bps:
+          type: integer
+        gross_target_amount_minor:
+          type: integer
+        fee_minor:
+          type: integer
+        target_amount_minor:
+          type: integer
+        issued_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        is_expired:
+          type: boolean
+        has_exchange:
+          type: boolean
+      required:
+      - expires_at
+      - fee_minor
+      - gross_target_amount_minor
+      - has_exchange
+      - id
+      - is_expired
+      - issued_at
+      - platform_fee_bps
+      - rate
+      - source_amount_minor
+      - source_currency
+      - target_amount_minor
+      - target_currency
     FxRealizedSettlementReport:
       type: object
       properties:
@@ -4155,6 +4569,76 @@ components:
       - platform
       - status
       - timezone
+    Holding:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+        source_type:
+          type: string
+        original_principal_minor:
+          type: integer
+        current_principal_minor:
+          type: integer
+        currency:
+          type: string
+        loan_share_ppm:
+          type: integer
+        assignment_effective_at:
+          type: string
+          format: date-time
+        loan:
+          $ref: '#/components/schemas/PortfolioLoan'
+        received_principal_minor:
+          type: integer
+        received_interest_minor:
+          type: integer
+        repayment_fee_minor:
+          type: integer
+        recovered_principal_minor:
+          type: integer
+        recovered_contractual_interest_minor:
+          type: integer
+        recovered_default_interest_minor:
+          type: integer
+        recovered_penalties_minor:
+          type: integer
+        recovered_other_costs_minor:
+          type: integer
+        latest_public_note:
+          allOf:
+          - $ref: '#/components/schemas/LatestPublicNote'
+          nullable: true
+      required:
+      - assignment_effective_at
+      - currency
+      - current_principal_minor
+      - id
+      - loan
+      - loan_share_ppm
+      - original_principal_minor
+      - received_interest_minor
+      - received_principal_minor
+      - recovered_contractual_interest_minor
+      - recovered_default_interest_minor
+      - recovered_other_costs_minor
+      - recovered_penalties_minor
+      - recovered_principal_minor
+      - repayment_fee_minor
+      - source_type
+      - status
+    InvestorActivity:
+      type: object
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActivityEntry'
+      required:
+      - entries
     InvestorBalanceLot:
       type: object
       properties:
@@ -4223,6 +4707,32 @@ components:
       - updated_at
       - withdrawal_deadline_at
       - withdrawn_amount_minor
+    InvestorBalancePortal:
+      type: object
+      properties:
+        as_of:
+          type: string
+          format: date-time
+        summaries:
+          type: array
+          items:
+            $ref: '#/components/schemas/BalanceSummary'
+        lots:
+          type: array
+          items:
+            $ref: '#/components/schemas/BalanceLot'
+        payout_instructions:
+          type: array
+          items:
+            $ref: '#/components/schemas/PayoutInstruction'
+        has_penalty_mode_balance:
+          type: boolean
+      required:
+      - as_of
+      - has_penalty_mode_balance
+      - lots
+      - payout_instructions
+      - summaries
     InvestorBalanceSummary:
       type: object
       properties:
@@ -4252,6 +4762,39 @@ components:
       - penalty_mode_minor
       - total_available_minor
       - withdraw_only_minor
+    InvestorDashboard:
+      type: object
+      properties:
+        as_of:
+          type: string
+          format: date-time
+        investor_user_id:
+          type: string
+          format: uuid
+        balances:
+          type: array
+          items:
+            $ref: '#/components/schemas/BalanceSummary'
+        portfolio_summary:
+          $ref: '#/components/schemas/PortfolioSummary'
+        exposure:
+          $ref: '#/components/schemas/PortfolioExposure'
+        pending_actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/PendingAction'
+        recent_activity:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActivityEntry'
+      required:
+      - as_of
+      - balances
+      - exposure
+      - investor_user_id
+      - pending_actions
+      - portfolio_summary
+      - recent_activity
     InvestorPayoutInstruction:
       type: object
       properties:
@@ -4339,6 +4882,25 @@ components:
           $ref: '#/components/schemas/InvestorPayoutInstruction'
       required:
       - payout_instruction
+    InvestorPortfolio:
+      type: object
+      properties:
+        as_of:
+          type: string
+          format: date-time
+        summary:
+          $ref: '#/components/schemas/PortfolioSummary'
+        holdings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Holding'
+        exposure:
+          $ref: '#/components/schemas/PortfolioExposure'
+      required:
+      - as_of
+      - exposure
+      - holdings
+      - summary
     InvestorRecoveryDistributionLine:
       type: object
       properties:
@@ -4901,6 +5463,24 @@ components:
       - risk_classification
       - status
       - verification_url
+    LatestPublicNote:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        note_type:
+          type: string
+        title:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - note_type
+      - occurred_at
+      - title
     LedgerJournalEntry:
       type: object
       properties:
@@ -6183,6 +6763,57 @@ components:
           type: string
         note:
           type: string
+    PayoutInstruction:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+        status:
+          type: string
+        destination_iban:
+          type: string
+        destination_account_name:
+          type: string
+        is_verified_usable:
+          type: boolean
+        verified_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - created_at
+      - currency
+      - destination_account_name
+      - destination_iban
+      - id
+      - is_verified_usable
+      - status
+      - verified_at
+    PendingAction:
+      type: object
+      properties:
+        type:
+          type: string
+        severity:
+          type: string
+        currency:
+          type: string
+        amount_minor:
+          type: integer
+        count:
+          type: integer
+        message:
+          type: string
+      required:
+      - message
+      - severity
+      - type
     PeriodPresetEnum:
       enum:
       - custom
@@ -6240,6 +6871,138 @@ components:
       - expires_at
       - phone_verified
       - status
+    PortfolioExposure:
+      type: object
+      properties:
+        by_borrower:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExposureBucket'
+        by_country:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExposureBucket'
+        by_purpose:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExposureBucket'
+        by_risk_rating:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExposureBucket'
+        by_collateral_type:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExposureBucket'
+        by_maturity:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExposureBucket'
+        by_loan_status:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExposureBucket'
+      required:
+      - by_borrower
+      - by_collateral_type
+      - by_country
+      - by_loan_status
+      - by_maturity
+      - by_purpose
+      - by_risk_rating
+    PortfolioLoan:
+      type: object
+      properties:
+        loan_id:
+          type: string
+          format: uuid
+        loan_title:
+          type: string
+        loan_status:
+          type: string
+        borrower_id:
+          type: string
+          format: uuid
+        borrower_name:
+          type: string
+        borrower_country:
+          type: string
+        purpose:
+          type: string
+        collateral_type:
+          type: string
+        risk_rating:
+          type: string
+        interest_rate_bps:
+          type: integer
+        term_months:
+          type: integer
+        repayment_type:
+          type: string
+        currency:
+          type: string
+        principal_minor:
+          type: integer
+        funding_deadline:
+          type: string
+          format: date
+        first_payment_date:
+          type: string
+          format: date
+        ltv_bps:
+          type: integer
+          nullable: true
+        days_past_due:
+          type: integer
+      required:
+      - borrower_country
+      - borrower_id
+      - borrower_name
+      - collateral_type
+      - currency
+      - days_past_due
+      - first_payment_date
+      - funding_deadline
+      - interest_rate_bps
+      - loan_id
+      - loan_status
+      - loan_title
+      - ltv_bps
+      - principal_minor
+      - purpose
+      - repayment_type
+      - risk_rating
+      - term_months
+    PortfolioSummary:
+      type: object
+      properties:
+        holding_count:
+          type: integer
+        active_holding_count:
+          type: integer
+        outstanding_principal_by_currency:
+          type: array
+          items:
+            $ref: '#/components/schemas/AmountByCurrency'
+        original_principal_by_currency:
+          type: array
+          items:
+            $ref: '#/components/schemas/AmountByCurrency'
+        realized_interest_by_currency:
+          type: array
+          items:
+            $ref: '#/components/schemas/AmountByCurrency'
+        late_or_defaulted_exposure_by_currency:
+          type: array
+          items:
+            $ref: '#/components/schemas/AmountByCurrency'
+      required:
+      - active_holding_count
+      - holding_count
+      - late_or_defaulted_exposure_by_currency
+      - original_principal_by_currency
+      - outstanding_principal_by_currency
+      - realized_interest_by_currency
     PrimaryInvestmentOrder:
       type: object
       properties:
@@ -6435,6 +7198,64 @@ components:
       required:
       - idempotency_key
       - reason
+    PrimaryOrderPortal:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        loan_id:
+          type: string
+          format: uuid
+        loan_title:
+          type: string
+        loan_status:
+          type: string
+        status:
+          type: string
+        requested_amount_minor:
+          type: integer
+        allocated_amount_minor:
+          type: integer
+        currency:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        allocated_at:
+          type: string
+          format: date-time
+          nullable: true
+        released_at:
+          type: string
+          format: date-time
+          nullable: true
+        closed_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - allocated_amount_minor
+      - allocated_at
+      - closed_at
+      - created_at
+      - currency
+      - id
+      - loan_id
+      - loan_status
+      - loan_title
+      - released_at
+      - requested_amount_minor
+      - status
+    PrimaryOrdersPortal:
+      type: object
+      properties:
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/PrimaryOrderPortal'
+      required:
+      - orders
     PublicDocumentTemplateVersion:
       type: object
       properties:
@@ -6826,6 +7647,89 @@ components:
         * `C` - C
         * `D` - D
         * `unrated` - Unrated
+    SecondaryListingPortal:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        holding_id:
+          type: string
+          format: uuid
+        loan_id:
+          type: string
+          format: uuid
+        loan_title:
+          type: string
+        status:
+          type: string
+        publication_type:
+          type: string
+        current_principal_minor:
+          type: integer
+        transfer_price_minor:
+          type: integer
+        discount_premium_bps:
+          type: integer
+        accrued_interest_minor:
+          type: integer
+        maker_fee_minor:
+          type: integer
+        seller_net_proceeds_minor:
+          type: integer
+        currency:
+          type: string
+        loan_status_at_listing:
+          type: string
+        risk_acknowledgement_required:
+          type: boolean
+        public_disclosure_note:
+          type: string
+        listed_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - accrued_interest_minor
+      - created_at
+      - currency
+      - current_principal_minor
+      - discount_premium_bps
+      - holding_id
+      - id
+      - listed_at
+      - loan_id
+      - loan_status_at_listing
+      - loan_title
+      - maker_fee_minor
+      - public_disclosure_note
+      - publication_type
+      - risk_acknowledgement_required
+      - seller_net_proceeds_minor
+      - status
+      - transfer_price_minor
+    SecondaryMarketActivityPortal:
+      type: object
+      properties:
+        listings:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecondaryListingPortal'
+        purchases_as_buyer:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecondaryPurchaseAsBuyerPortal'
+        sales_as_seller:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecondarySaleAsSellerPortal'
+      required:
+      - listings
+      - purchases_as_buyer
+      - sales_as_seller
     SecondaryMarketBuyerListing:
       type: object
       properties:
@@ -7210,6 +8114,111 @@ components:
       required:
       - document_acceptance_id
       - idempotency_key
+    SecondaryPurchaseAsBuyerPortal:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        listing_id:
+          type: string
+          format: uuid
+        loan_id:
+          type: string
+          format: uuid
+        loan_title:
+          type: string
+        buyer_holding_id:
+          type: string
+          format: uuid
+        current_principal_minor:
+          type: integer
+        transfer_price_minor:
+          type: integer
+        discount_premium_bps:
+          type: integer
+        accrued_interest_minor:
+          type: integer
+        taker_fee_minor:
+          type: integer
+        buyer_total_cost_minor:
+          type: integer
+        currency:
+          type: string
+        loan_status_at_purchase:
+          type: string
+        risk_acknowledgement_accepted:
+          type: boolean
+        purchased_at:
+          type: string
+          format: date-time
+      required:
+      - accrued_interest_minor
+      - buyer_holding_id
+      - buyer_total_cost_minor
+      - currency
+      - current_principal_minor
+      - discount_premium_bps
+      - id
+      - listing_id
+      - loan_id
+      - loan_status_at_purchase
+      - loan_title
+      - purchased_at
+      - risk_acknowledgement_accepted
+      - taker_fee_minor
+      - transfer_price_minor
+    SecondarySaleAsSellerPortal:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        listing_id:
+          type: string
+          format: uuid
+        loan_id:
+          type: string
+          format: uuid
+        loan_title:
+          type: string
+        seller_holding_id:
+          type: string
+          format: uuid
+        current_principal_minor:
+          type: integer
+        transfer_price_minor:
+          type: integer
+        discount_premium_bps:
+          type: integer
+        accrued_interest_minor:
+          type: integer
+        maker_fee_minor:
+          type: integer
+        seller_net_proceeds_minor:
+          type: integer
+        currency:
+          type: string
+        loan_status_at_purchase:
+          type: string
+        purchased_at:
+          type: string
+          format: date-time
+      required:
+      - accrued_interest_minor
+      - currency
+      - current_principal_minor
+      - discount_premium_bps
+      - id
+      - listing_id
+      - loan_id
+      - loan_status_at_purchase
+      - loan_title
+      - maker_fee_minor
+      - purchased_at
+      - seller_holding_id
+      - seller_net_proceeds_minor
+      - transfer_price_minor
     UserSummary:
       type: object
       properties:
