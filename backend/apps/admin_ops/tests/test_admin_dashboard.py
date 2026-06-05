@@ -227,6 +227,28 @@ def test_admin_dashboard_aggregates_daily_operations(
         created_by_admin_id=admin_user.pk,
         metadata={},
     )
+    reconciliation_model.objects.create(
+        currency=Currency.objects.get(code="CHF"),
+        as_of_date=today,
+        bank_stated_balance_minor=1_000_00,
+        investor_balance_liability_minor=1_000_00,
+        reconciliation_difference_minor=0,
+        created_by_admin_id=admin_user.pk,
+        metadata={
+            "account_sign_anomalies": [
+                {"account_type": "withdrawal_payable", "credit_balance_minor": -10_00}
+            ],
+            "investor_balance_integrity_breaks": [
+                {
+                    "investor_user_id": str(investor.pk),
+                    "currency": "CHF",
+                    "lot_available_minor": 1_000_00,
+                    "liability_posting_minor": 990_00,
+                    "difference_minor": 10_00,
+                }
+            ],
+        },
+    )
     OutboxMessage.objects.create(
         idempotency_key="admin-dashboard-dead-email",
         topic="email.transactional.test",
@@ -256,7 +278,7 @@ def test_admin_dashboard_aggregates_daily_operations(
         "secondary_listing_approvals": 0,
         "fx_unsettled_exchanges": 0,
         "failed_email_messages": 1,
-        "reconciliation_breaks": 1,
+        "reconciliation_breaks": 2,
         "balance_lots_overdue": 1,
         "balance_lots_penalty_mode": 0,
     }
@@ -272,6 +294,10 @@ def test_admin_dashboard_aggregates_daily_operations(
     assert dashboard["queues"]["balance_ageing_actions"][0]["kind"] == "balance_lot_overdue"
     assert dashboard["queues"]["servicing_due"][0]["amount_minor"] == 1_100_00
     assert dashboard["queues"]["failed_emails"][0]["metadata"]["attempts"] == 8
+    reconciliation_signals = [
+        item["metadata"]["break_signals"] for item in dashboard["queues"]["reconciliation_breaks"]
+    ]
+    assert ["account_sign_anomalies", "investor_balance_integrity_breaks"] in reconciliation_signals
 
 
 @pytest.mark.django_db

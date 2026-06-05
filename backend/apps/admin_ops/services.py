@@ -8,7 +8,7 @@ from typing import Any, cast
 from django.apps import apps
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from django.db.models import Count, Model, Q, Sum
+from django.db.models import Count, Model, Sum
 from django.utils import timezone
 
 from backend.apps.admin_ops.models import (
@@ -216,6 +216,18 @@ def _currency_summary(
     if currency_code not in summaries:
         summaries[currency_code] = _currency_summary_defaults(currency_code)
     return summaries[currency_code]
+
+
+def _reconciliation_break_signals(snapshot: Any) -> list[str]:
+    signals: list[str] = []
+    if int(getattr(snapshot, "reconciliation_difference_minor", 0)) != 0:
+        signals.append("reconciliation_difference")
+    metadata = cast(dict[str, Any], getattr(snapshot, "metadata", {}) or {})
+    if metadata.get("account_sign_anomalies"):
+        signals.append("account_sign_anomalies")
+    if metadata.get("investor_balance_integrity_breaks"):
+        signals.append("investor_balance_integrity_breaks")
+    return signals
 
 
 @dataclass(frozen=True, slots=True)
@@ -840,17 +852,24 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
         )
 
     reconciliation_model = _model("ledger", "ReconciliationSnapshot")
-    reconciliation_breaks = reconciliation_model.objects.filter(
-        ~Q(reconciliation_difference_minor=0)
-    ).select_related("currency")
-    for snapshot in reconciliation_breaks.order_by("-as_of_date", "-created_at", "-id")[
-        :queue_limit
-    ]:
+    reconciliation_break_count = 0
+    for snapshot in (
+        reconciliation_model.objects.select_related("currency")
+        .order_by("-as_of_date", "-created_at", "-id")
+        .all()
+    ):
+        break_signals = _reconciliation_break_signals(snapshot)
+        if not break_signals:
+            continue
+        reconciliation_break_count += 1
+        if len(queues["reconciliation_breaks"]) >= queue_limit:
+            continue
+        snapshot_metadata = cast(dict[str, Any], getattr(snapshot, "metadata", {}) or {})
         queues["reconciliation_breaks"].append(
             _queue_item(
                 kind="reconciliation_break",
                 item_id=str(snapshot.pk),
-                title="Ledger/bank reconciliation difference",
+                title="Ledger/bank reconciliation exception",
                 status="break",
                 due_date=getattr(snapshot, "as_of_date", None),
                 currency=_currency_code(snapshot),
@@ -858,11 +877,21 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
                 object_type="ReconciliationSnapshot",
                 object_id=str(snapshot.pk),
                 metadata={
+                    "break_signals": break_signals,
+                    "account_sign_anomaly_count": len(
+                        snapshot_metadata.get("account_sign_anomalies") or []
+                    ),
+                    "investor_balance_integrity_break_count": len(
+                        snapshot_metadata.get("investor_balance_integrity_breaks") or []
+                    ),
                     "bank_stated_balance_minor": int(
                         getattr(snapshot, "bank_stated_balance_minor", 0)
                     ),
                     "investor_balance_liability_minor": int(
                         getattr(snapshot, "investor_balance_liability_minor", 0)
+                    ),
+                    "bank_to_collection_cash_difference_minor": int(
+                        snapshot_metadata.get("bank_to_collection_cash_difference_minor") or 0
                     ),
                 },
             )
@@ -884,7 +913,7 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
         "secondary_listing_approvals": secondary_approval_queryset.count(),
         "fx_unsettled_exchanges": unsettled_fx.count(),
         "failed_email_messages": failed_email_queryset.count(),
-        "reconciliation_breaks": reconciliation_breaks.count(),
+        "reconciliation_breaks": reconciliation_break_count,
         "balance_lots_overdue": balance_lots_overdue_count,
         "balance_lots_penalty_mode": balance_lots_penalty_mode_count,
     }

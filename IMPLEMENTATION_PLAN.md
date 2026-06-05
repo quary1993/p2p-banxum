@@ -1822,6 +1822,10 @@ Tasks:
   repayment-due loans, late/default/write-off risk loans, secondary-market
   listing approvals, unsettled FX settlement deltas, failed email outbox
   messages, and reconciliation breaks.
+- Implemented foundation: reconciliation-break queue surfaces all snapshot
+  integrity signals, including non-zero reconciliation differences,
+  account-sign anomalies, and investor balance lot-vs-liability integrity
+  breaks.
 - Implemented foundation: currency-level operational buckets for available
   balances, investable/withdraw-only/overdue lots, frozen/penalty-mode lots,
   pending withdrawals, forced withdrawals, pending bank operations, and
@@ -1830,6 +1834,13 @@ Tasks:
   and runtime app lookups to preserve module-boundary independence.
 - Deferred: final admin-console dashboard UI, detailed drill-through screens,
   saved views, operational SLA widgets, and per-queue bulk actions.
+- Deferred: DB-side dashboard aggregations, caching, and polling/range limits
+  for high-frequency admin dashboard refreshes. Launch traffic and data volume
+  are expected to be small enough for correctness-first Python aggregation.
+- Deferred: finer admin/compliance-role governance for KYC/AML dashboard queue
+  visibility. Launch roles remain `admin` and `superadmin`; any active admin
+  can see KYC review queue summaries until a dedicated compliance role is
+  introduced.
 - User operations:
   - investor search.
   - legal-entity lender management.

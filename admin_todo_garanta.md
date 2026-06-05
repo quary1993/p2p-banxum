@@ -553,6 +553,21 @@ Why this is non-blocking:
 
 The platform can implement audited admin actions and account closure prerequisites. Reason-code refinements can be configuration/polish.
 
+### Admin Operations Role Governance
+
+Needed before Garanta wants narrower role separation inside the admin portal.
+
+What Garanta must provide:
+
+- Whether KYC/AML dashboard queue visibility should remain available to all active admins, or only to superadmins/a future compliance role.
+- Whether failed-email, withdrawal, reconciliation, and audit dashboards need separate finance/compliance/support visibility groups.
+- Whether a dedicated compliance or finance role should be added before launch, or whether launch should keep the already documented two-role model: `superadmin` and `admin`.
+- If narrower roles are required later, which dashboard queues and detailed operational screens each role may view and action.
+
+Why this is non-blocking:
+
+Launch roles are intentionally simple: `superadmin` handles parametrization and `admin` handles operations. The dashboard is admin-only and does not expose data to investors or public users. Finer KYC/AML/finance/support role separation can be added later if Garanta decides the operational governance benefit outweighs launch complexity.
+
 ### Legal-Entity Lender Evidence Category Policy
 
 Needed before final operational procedure and production compliance operations.

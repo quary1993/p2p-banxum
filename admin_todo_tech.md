@@ -498,6 +498,21 @@ Why this is non-blocking:
 
 The current reporting backend already generates valid deterministic PDFs and ZIP evidence packages, so report data, checksums, manifests, and OpenAPI contracts can be verified now. WeasyPrint integration is needed for final production layout quality, not for report-source correctness.
 
+### Admin Dashboard Aggregation Scaling
+
+Needed before high-frequency dashboard polling or materially larger production data volume.
+
+What the technical team must add:
+
+- Move dashboard balance-ageing bucket summaries from Python iteration to database-side conditional `SUM`/`COUNT` aggregations.
+- Move dashboard servicing due counts to a batched or denormalized projection rather than scanning repayable loans and computing snapshots on every dashboard load.
+- Add response caching or refresh throttling if the admin console auto-refreshes the dashboard frequently.
+- Add endpoint-level query profiling around dashboard load time before production volume grows.
+
+Why this is non-blocking:
+
+The launch dashboard is read-only and queue-limited, and expected launch volume is low. The current implementation prioritizes correctness and reuse of authoritative source models. DB-side aggregation can be introduced behind the same API contract when operational load justifies it.
+
 ### Future Managed-Service Migration
 
 Needed when traffic, operational risk, or compliance expectations justify higher infrastructure cost.
