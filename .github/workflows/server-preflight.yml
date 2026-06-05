@@ -1,0 +1,98 @@
+name: Server Preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment to inspect.
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+
+jobs:
+  preflight:
+    name: SSH and host readiness preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Validate required secrets
+        env:
+          SSH_HOST: ${{ secrets.BANXUM_SSH_HOST }}
+          SSH_USER: ${{ secrets.BANXUM_SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.BANXUM_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_PRIVATE_KEY"
+
+      - name: Prepare SSH key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.BANXUM_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/banxum_deploy_key"
+          chmod 600 "$HOME/.ssh/banxum_deploy_key"
+
+      - name: Trust host key
+        env:
+          SSH_HOST: ${{ secrets.BANXUM_SSH_HOST }}
+          SSH_PORT: ${{ secrets.BANXUM_SSH_PORT || '22' }}
+        run: |
+          set -euo pipefail
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> "$HOME/.ssh/known_hosts"
+
+      - name: Read-only server preflight
+        env:
+          SSH_HOST: ${{ secrets.BANXUM_SSH_HOST }}
+          SSH_USER: ${{ secrets.BANXUM_SSH_USER }}
+          SSH_PORT: ${{ secrets.BANXUM_SSH_PORT || '22' }}
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/banxum_deploy_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -eu
+
+          echo "ssh_connection_status=ok"
+          printf "remote_user=%s\n" "$(id -un)"
+          printf "kernel=%s\n" "$(uname -srm)"
+          printf "git_available=%s\n" "$(command -v git >/dev/null 2>&1 && echo yes || echo no)"
+          printf "docker_available=%s\n" "$(command -v docker >/dev/null 2>&1 && echo yes || echo no)"
+          printf "podman_available=%s\n" "$(command -v podman >/dev/null 2>&1 && echo yes || echo no)"
+          printf "compose_v2_available=%s\n" "$(command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1 && echo yes || echo no)"
+          printf "node_available=%s\n" "$(command -v node >/dev/null 2>&1 && echo yes || echo no)"
+          printf "python3_available=%s\n" "$(command -v python3 >/dev/null 2>&1 && echo yes || echo no)"
+
+          printf "home_has_banxum_dir=%s\n" "$([ -d "$HOME/banxum" ] || [ -d "$HOME/p2p-BANXUM" ] || [ -d "$HOME/p2p-banxum" ] && echo yes || echo no)"
+          printf "opt_has_banxum_dir=%s\n" "$([ -d /opt/banxum ] || [ -d /opt/p2p-banxum ] && echo yes || echo no)"
+
+          printf "root_disk="
+          df -h / | tail -1 | tr -s " " | cut -d" " -f2-5
+          if command -v free >/dev/null 2>&1; then
+            printf "memory="
+            free -m | awk '/^Mem:/ {print $2"MB total, "$7"MB available"}'
+          fi
+          printf "common_listening_ports="
+          ss -H -tln 2>/dev/null \
+            | sed "s/.*://" \
+            | cut -d" " -f1 \
+            | sort -n \
+            | uniq \
+            | grep -E "^(22|80|443|8000|5173|5432|6379|9000|9001)$" \
+            | paste -sd, - || true
+          printf "\n"
+
+          if command -v docker >/dev/null 2>&1; then
+            printf "running_container_count=%s\n" "$(docker ps -q | wc -l | tr -d " ")"
+            printf "banxum_container_count=%s\n" "$(docker ps -a --filter name=banxum --format "{{.ID}}" | wc -l | tr -d " ")"
+          fi
+          REMOTE

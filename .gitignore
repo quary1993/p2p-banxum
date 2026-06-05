@@ -1,7 +1,10 @@
 .DS_Store
+# Local secrets. Keep examples tracked, never real credentials.
 .env
 .env.*
 !.env.example
+docs/secrets.md
+*.pem
 .claude/settings.local.json
 .venv/
 node_modules/
