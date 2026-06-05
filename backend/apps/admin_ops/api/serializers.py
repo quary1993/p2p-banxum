@@ -119,6 +119,69 @@ class AuditEventQuerySerializer(serializers.Serializer[Any]):
     limit = serializers.IntegerField(required=False, min_value=1, max_value=250, default=100)
 
 
+class AdminDashboardQuerySerializer(serializers.Serializer[Any]):
+    as_of = serializers.DateTimeField(required=False)
+    due_window_days = serializers.IntegerField(required=False, min_value=0, max_value=60, default=7)
+    limit = serializers.IntegerField(required=False, min_value=1, max_value=50, default=10)
+
+
+class AdminDashboardQueueItemSerializer(serializers.Serializer[Any]):
+    kind = serializers.CharField()
+    id = serializers.CharField()
+    title = serializers.CharField()
+    status = serializers.CharField(allow_blank=True)
+    priority = serializers.CharField(allow_blank=True)
+    due_at = serializers.DateTimeField(allow_null=True)
+    due_date = serializers.DateField(allow_null=True)
+    currency = serializers.CharField(allow_blank=True)
+    amount_minor = serializers.IntegerField(allow_null=True)
+    object_type = serializers.CharField(allow_blank=True)
+    object_id = serializers.CharField(allow_blank=True)
+    metadata = serializers.JSONField()
+
+
+class AdminDashboardCurrencySummarySerializer(serializers.Serializer[Any]):
+    currency = serializers.CharField()
+    available_balance_minor = serializers.IntegerField()
+    investable_available_minor = serializers.IntegerField()
+    withdraw_only_available_minor = serializers.IntegerField()
+    overdue_available_minor = serializers.IntegerField()
+    frozen_available_minor = serializers.IntegerField()
+    penalty_mode_available_minor = serializers.IntegerField()
+    pending_withdrawal_minor = serializers.IntegerField()
+    forced_withdrawal_minor = serializers.IntegerField()
+    pending_bank_operation_minor = serializers.IntegerField()
+    fx_unsettled_sold_minor = serializers.IntegerField()
+    fx_unsettled_bought_minor = serializers.IntegerField()
+    fx_unsettled_fee_minor = serializers.IntegerField()
+
+
+class AdminDashboardQueuesSerializer(serializers.Serializer[Any]):
+    admin_tasks = AdminDashboardQueueItemSerializer(many=True)
+    kyc_reviews = AdminDashboardQueueItemSerializer(many=True)
+    bank_operations_pending = AdminDashboardQueueItemSerializer(many=True)
+    withdrawals_requested = AdminDashboardQueueItemSerializer(many=True)
+    forced_withdrawals_requested = AdminDashboardQueueItemSerializer(many=True)
+    balance_ageing_actions = AdminDashboardQueueItemSerializer(many=True)
+    funding_loans = AdminDashboardQueueItemSerializer(many=True)
+    servicing_due = AdminDashboardQueueItemSerializer(many=True)
+    loan_risk = AdminDashboardQueueItemSerializer(many=True)
+    secondary_listing_approvals = AdminDashboardQueueItemSerializer(many=True)
+    fx_settlement_deltas = AdminDashboardQueueItemSerializer(many=True)
+    failed_emails = AdminDashboardQueueItemSerializer(many=True)
+    reconciliation_breaks = AdminDashboardQueueItemSerializer(many=True)
+
+
+class AdminOperationsDashboardSerializer(serializers.Serializer[Any]):
+    as_of = serializers.DateTimeField()
+    as_of_date = serializers.DateField()
+    due_window_days = serializers.IntegerField()
+    queue_limit = serializers.IntegerField()
+    summary = serializers.JSONField()
+    currency_summaries = AdminDashboardCurrencySummarySerializer(many=True)
+    queues = AdminDashboardQueuesSerializer()
+
+
 def serialize_admin_task(task: AdminTask) -> dict[str, Any]:
     return dict(AdminTaskSerializer(task).data)
 

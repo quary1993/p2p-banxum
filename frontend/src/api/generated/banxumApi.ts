@@ -106,6 +106,56 @@ export interface ActivityEntry {
   metadata: unknown;
 }
 
+export interface AdminDashboardCurrencySummary {
+  currency: string;
+  available_balance_minor: number;
+  investable_available_minor: number;
+  withdraw_only_available_minor: number;
+  overdue_available_minor: number;
+  frozen_available_minor: number;
+  penalty_mode_available_minor: number;
+  pending_withdrawal_minor: number;
+  forced_withdrawal_minor: number;
+  pending_bank_operation_minor: number;
+  fx_unsettled_sold_minor: number;
+  fx_unsettled_bought_minor: number;
+  fx_unsettled_fee_minor: number;
+}
+
+export interface AdminDashboardQueueItem {
+  kind: string;
+  id: string;
+  title: string;
+  status: string;
+  priority: string;
+  /** @nullable */
+  due_at: string | null;
+  /** @nullable */
+  due_date: string | null;
+  currency: string;
+  /** @nullable */
+  amount_minor: number | null;
+  object_type: string;
+  object_id: string;
+  metadata: unknown;
+}
+
+export interface AdminDashboardQueues {
+  admin_tasks: AdminDashboardQueueItem[];
+  kyc_reviews: AdminDashboardQueueItem[];
+  bank_operations_pending: AdminDashboardQueueItem[];
+  withdrawals_requested: AdminDashboardQueueItem[];
+  forced_withdrawals_requested: AdminDashboardQueueItem[];
+  balance_ageing_actions: AdminDashboardQueueItem[];
+  funding_loans: AdminDashboardQueueItem[];
+  servicing_due: AdminDashboardQueueItem[];
+  loan_risk: AdminDashboardQueueItem[];
+  secondary_listing_approvals: AdminDashboardQueueItem[];
+  fx_settlement_deltas: AdminDashboardQueueItem[];
+  failed_emails: AdminDashboardQueueItem[];
+  reconciliation_breaks: AdminDashboardQueueItem[];
+}
+
 export interface AdminLoginConfirmRequest {
   code_id: string;
   /** @pattern ^\d{6}$ */
@@ -121,6 +171,16 @@ export interface AdminLoginStartResponse {
   code_id: string;
   status: string;
   expires_at: string;
+}
+
+export interface AdminOperationsDashboard {
+  as_of: string;
+  as_of_date: string;
+  due_window_days: number;
+  queue_limit: number;
+  summary: unknown;
+  currency_summaries: AdminDashboardCurrencySummary[];
+  queues: AdminDashboardQueues;
 }
 
 export interface AdminTask {
@@ -2719,6 +2779,20 @@ target_id?: string;
 target_type?: string;
 };
 
+export type V1AdminOpsDashboardRetrieveParams = {
+as_of?: string;
+/**
+ * @minimum 0
+ * @maximum 60
+ */
+due_window_days?: number;
+/**
+ * @minimum 1
+ * @maximum 50
+ */
+limit?: number;
+};
+
 export type V1AdminOpsTasksListParams = {
 assigned_admin_id?: string;
 due_after?: string;
@@ -3257,6 +3331,94 @@ export function useV1AdminOpsAuditEventsList<TData = Awaited<ReturnType<typeof v
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getV1AdminOpsAuditEventsListQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1AdminOpsDashboardRetrieve = (
+    params?: V1AdminOpsDashboardRetrieveParams,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<AdminOperationsDashboard>(
+      {url: `/api/v1/admin-ops/dashboard/`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+
+
+
+
+export const getV1AdminOpsDashboardRetrieveQueryKey = (params?: V1AdminOpsDashboardRetrieveParams,) => {
+    return [
+    `/api/v1/admin-ops/dashboard/`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+
+export const getV1AdminOpsDashboardRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1AdminOpsDashboardRetrieve>>, TError = unknown>(params?: V1AdminOpsDashboardRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsDashboardRetrieve>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1AdminOpsDashboardRetrieveQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AdminOpsDashboardRetrieve>>> = ({ signal }) => v1AdminOpsDashboardRetrieve(params, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsDashboardRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1AdminOpsDashboardRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1AdminOpsDashboardRetrieve>>>
+export type V1AdminOpsDashboardRetrieveQueryError = unknown
+
+
+export function useV1AdminOpsDashboardRetrieve<TData = Awaited<ReturnType<typeof v1AdminOpsDashboardRetrieve>>, TError = unknown>(
+ params: undefined |  V1AdminOpsDashboardRetrieveParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsDashboardRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsDashboardRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsDashboardRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsDashboardRetrieve<TData = Awaited<ReturnType<typeof v1AdminOpsDashboardRetrieve>>, TError = unknown>(
+ params?: V1AdminOpsDashboardRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsDashboardRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsDashboardRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsDashboardRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsDashboardRetrieve<TData = Awaited<ReturnType<typeof v1AdminOpsDashboardRetrieve>>, TError = unknown>(
+ params?: V1AdminOpsDashboardRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsDashboardRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1AdminOpsDashboardRetrieve<TData = Awaited<ReturnType<typeof v1AdminOpsDashboardRetrieve>>, TError = unknown>(
+ params?: V1AdminOpsDashboardRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsDashboardRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1AdminOpsDashboardRetrieveQueryOptions(params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
@@ -9056,6 +9218,8 @@ export function useV1ServicingLoanRiskNotesList<TData = Awaited<ReturnType<typeo
 
 export const getV1AdminOpsAuditEventsListResponseMock = (): AuditEvent[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), occurred_at: `${faker.date.past().toISOString().split('.')[0]}Z`, actor_type: faker.string.alpha({length: {min: 10, max: 20}}), actor_id: faker.string.alpha({length: {min: 10, max: 20}}), action: faker.string.alpha({length: {min: 10, max: 20}}), target_type: faker.string.alpha({length: {min: 10, max: 20}}), target_id: faker.string.alpha({length: {min: 10, max: 20}}), request_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})))
 
+export const getV1AdminOpsDashboardRetrieveResponseMock = (overrideResponse: Partial< AdminOperationsDashboard > = {}): AdminOperationsDashboard => ({as_of: `${faker.date.past().toISOString().split('.')[0]}Z`, as_of_date: faker.date.past().toISOString().split('T')[0], due_window_days: faker.number.int({min: undefined, max: undefined}), queue_limit: faker.number.int({min: undefined, max: undefined}), summary: {}, currency_summaries: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({currency: faker.string.alpha({length: {min: 10, max: 20}}), available_balance_minor: faker.number.int({min: undefined, max: undefined}), investable_available_minor: faker.number.int({min: undefined, max: undefined}), withdraw_only_available_minor: faker.number.int({min: undefined, max: undefined}), overdue_available_minor: faker.number.int({min: undefined, max: undefined}), frozen_available_minor: faker.number.int({min: undefined, max: undefined}), penalty_mode_available_minor: faker.number.int({min: undefined, max: undefined}), pending_withdrawal_minor: faker.number.int({min: undefined, max: undefined}), forced_withdrawal_minor: faker.number.int({min: undefined, max: undefined}), pending_bank_operation_minor: faker.number.int({min: undefined, max: undefined}), fx_unsettled_sold_minor: faker.number.int({min: undefined, max: undefined}), fx_unsettled_bought_minor: faker.number.int({min: undefined, max: undefined}), fx_unsettled_fee_minor: faker.number.int({min: undefined, max: undefined})})), queues: {admin_tasks: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), kyc_reviews: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), bank_operations_pending: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), withdrawals_requested: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), forced_withdrawals_requested: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), balance_ageing_actions: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), funding_loans: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), servicing_due: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), loan_risk: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), secondary_listing_approvals: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), fx_settlement_deltas: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), failed_emails: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), reconciliation_breaks: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}}))}, ...overrideResponse})
+
 export const getV1AdminOpsTasksListResponseMock = (): AdminTask[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), task_type: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), assigned_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_by_id: faker.string.uuid(), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), notes: faker.string.alpha({length: {min: 10, max: 20}}), related_object_type: faker.string.alpha({length: {min: 10, max: 20}}), related_object_id: faker.string.alpha({length: {min: 10, max: 20}}), completed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), completion_note: faker.string.alpha({length: {min: 10, max: 20}}), is_terminal: faker.datatype.boolean(), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`})))
 
 export const getV1AdminOpsTasksCreateResponseMock = (overrideResponse: Partial< AdminTask > = {}): AdminTask => ({id: faker.string.uuid(), task_type: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), assigned_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_by_id: faker.string.uuid(), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), notes: faker.string.alpha({length: {min: 10, max: 20}}), related_object_type: faker.string.alpha({length: {min: 10, max: 20}}), related_object_id: faker.string.alpha({length: {min: 10, max: 20}}), completed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), completion_note: faker.string.alpha({length: {min: 10, max: 20}}), is_terminal: faker.datatype.boolean(), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
@@ -9227,6 +9391,18 @@ export const getV1AdminOpsAuditEventsListMockHandler = (overrideResponse?: Audit
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AdminOpsAuditEventsListResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1AdminOpsDashboardRetrieveMockHandler = (overrideResponse?: AdminOperationsDashboard | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AdminOperationsDashboard> | AdminOperationsDashboard), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/admin-ops/dashboard/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AdminOpsDashboardRetrieveResponseMock()),
       { status: 200,
         headers: { 'Content-Type': 'application/json' }
       })
@@ -10216,6 +10392,7 @@ export const getV1ServicingLoanRiskNotesListMockHandler = (overrideResponse?: Pu
 }
 export const getBanxumApiMock = () => [
   getV1AdminOpsAuditEventsListMockHandler(),
+  getV1AdminOpsDashboardRetrieveMockHandler(),
   getV1AdminOpsTasksListMockHandler(),
   getV1AdminOpsTasksCreateMockHandler(),
   getV1AdminOpsTasksRetrieveMockHandler(),

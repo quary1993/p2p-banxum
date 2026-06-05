@@ -11,6 +11,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from backend.apps.admin_ops.api.serializers import (
+    AdminDashboardQuerySerializer,
+    AdminOperationsDashboardSerializer,
     AdminTaskCreateRequestSerializer,
     AdminTaskEventSerializer,
     AdminTaskListQuerySerializer,
@@ -27,8 +29,10 @@ from backend.apps.admin_ops.services import (
     AdminTaskAuthorizationError,
     AdminTaskValidationError,
     CreateAdminTaskCommand,
+    GetAdminDashboardCommand,
     UpdateAdminTaskCommand,
     create_admin_task,
+    get_admin_operations_dashboard,
     update_admin_task,
 )
 from backend.apps.platform_core.domain.access import actor_ref_for_user, is_admin_actor
@@ -115,6 +119,30 @@ class AdminTaskListCreateView(APIView):
         except AdminTaskValidationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(serialize_admin_task(task), status=status.HTTP_201_CREATED)
+
+
+class AdminOperationsDashboardView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        parameters=[AdminDashboardQuerySerializer],
+        responses={200: AdminOperationsDashboardSerializer},
+    )
+    def get(self, request: Request) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = AdminDashboardQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        dashboard = get_admin_operations_dashboard(
+            GetAdminDashboardCommand(
+                actor=cast(Model, request.user),
+                as_of=data.get("as_of"),
+                due_window_days=data["due_window_days"],
+                queue_limit=data["limit"],
+            )
+        )
+        return Response(dashboard, status=status.HTTP_200_OK)
 
 
 class AdminTaskDetailView(APIView):

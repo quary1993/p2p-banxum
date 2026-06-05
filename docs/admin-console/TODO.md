@@ -64,3 +64,10 @@ Each entry should include:
 - Current first-version behavior: no UI was implemented in this slice; only backend API, OpenAPI schema, generated TypeScript client, immutable template versions, publication service, current-template lookup, clickwrap acceptance evidence, append-only guards, and tests exist.
 - Required admin-console improvement: Codex should implement the superadmin template editor and publication flow, including category/key/language selection, body editor, checkbox-label editor, variable-scope helper panel, placeholder validation errors, legal-review reference fields, version history, current-published marker, acceptance evidence search, and links from transaction/admin workflows to accepted document evidence.
 - Priority: important.
+
+## 2026-06-05: Daily Operations Dashboard API
+
+- Screen or component: admin daily operations dashboard.
+- Current first-version behavior: backend-only dashboard API is available at `/api/v1/admin-ops/dashboard/`; it returns summary counters, currency-level operational buckets, and short queues for tasks, KYC review, bank-operation exceptions, withdrawals, balance ageing, funding loans, servicing due items, risk loans, secondary-market approvals, unsettled FX, failed email outbox messages, and reconciliation breaks.
+- Required admin-console improvement: Codex should implement the full dashboard screen using this API, including dense KPI cards, currency bucket table, queue tabs, severity/status badges, due/overdue states, drill-through links to the owning operational screen, refresh controls, empty/error/loading states, and a compact responsive layout suitable for daily finance/compliance operations.
+- Priority: important.

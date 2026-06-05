@@ -1814,6 +1814,22 @@ Tasks:
   - due repayments.
   - failed emails.
   - KYC/admin tasks.
+- Implemented foundation: admin-only daily operations dashboard API at
+  `/api/v1/admin-ops/dashboard/`.
+- Implemented foundation: dashboard summary counters and short queues for:
+  admin tasks, KYC review cases, pending/unmatched bank operations, requested
+  withdrawals, forced withdrawals, balance-ageing actions, funding loans,
+  repayment-due loans, late/default/write-off risk loans, secondary-market
+  listing approvals, unsettled FX settlement deltas, failed email outbox
+  messages, and reconciliation breaks.
+- Implemented foundation: currency-level operational buckets for available
+  balances, investable/withdraw-only/overdue lots, frozen/penalty-mode lots,
+  pending withdrawals, forced withdrawals, pending bank operations, and
+  unsettled FX sold/bought/fee amounts.
+- Implemented foundation: dashboard uses existing authoritative source tables
+  and runtime app lookups to preserve module-boundary independence.
+- Deferred: final admin-console dashboard UI, detailed drill-through screens,
+  saved views, operational SLA widgets, and per-queue bulk actions.
 - User operations:
   - investor search.
   - legal-entity lender management.

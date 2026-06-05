@@ -63,6 +63,40 @@ paths:
                 items:
                   $ref: '#/components/schemas/AuditEvent'
           description: ''
+  /api/v1/admin-ops/dashboard/:
+    get:
+      operationId: v1_admin_ops_dashboard_retrieve
+      parameters:
+      - in: query
+        name: as_of
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: due_window_days
+        schema:
+          type: integer
+          maximum: 60
+          minimum: 0
+          default: 7
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 50
+          minimum: 1
+          default: 10
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminOperationsDashboard'
+          description: ''
   /api/v1/admin-ops/tasks/:
     get:
       operationId: v1_admin_ops_tasks_list
@@ -2571,6 +2605,162 @@ components:
       - occurred_at
       - status
       - title
+    AdminDashboardCurrencySummary:
+      type: object
+      properties:
+        currency:
+          type: string
+        available_balance_minor:
+          type: integer
+        investable_available_minor:
+          type: integer
+        withdraw_only_available_minor:
+          type: integer
+        overdue_available_minor:
+          type: integer
+        frozen_available_minor:
+          type: integer
+        penalty_mode_available_minor:
+          type: integer
+        pending_withdrawal_minor:
+          type: integer
+        forced_withdrawal_minor:
+          type: integer
+        pending_bank_operation_minor:
+          type: integer
+        fx_unsettled_sold_minor:
+          type: integer
+        fx_unsettled_bought_minor:
+          type: integer
+        fx_unsettled_fee_minor:
+          type: integer
+      required:
+      - available_balance_minor
+      - currency
+      - forced_withdrawal_minor
+      - frozen_available_minor
+      - fx_unsettled_bought_minor
+      - fx_unsettled_fee_minor
+      - fx_unsettled_sold_minor
+      - investable_available_minor
+      - overdue_available_minor
+      - penalty_mode_available_minor
+      - pending_bank_operation_minor
+      - pending_withdrawal_minor
+      - withdraw_only_available_minor
+    AdminDashboardQueueItem:
+      type: object
+      properties:
+        kind:
+          type: string
+        id:
+          type: string
+        title:
+          type: string
+        status:
+          type: string
+        priority:
+          type: string
+        due_at:
+          type: string
+          format: date-time
+          nullable: true
+        due_date:
+          type: string
+          format: date
+          nullable: true
+        currency:
+          type: string
+        amount_minor:
+          type: integer
+          nullable: true
+        object_type:
+          type: string
+        object_id:
+          type: string
+        metadata: {}
+      required:
+      - amount_minor
+      - currency
+      - due_at
+      - due_date
+      - id
+      - kind
+      - metadata
+      - object_id
+      - object_type
+      - priority
+      - status
+      - title
+    AdminDashboardQueues:
+      type: object
+      properties:
+        admin_tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminDashboardQueueItem'
+        kyc_reviews:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminDashboardQueueItem'
+        bank_operations_pending:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminDashboardQueueItem'
+        withdrawals_requested:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminDashboardQueueItem'
+        forced_withdrawals_requested:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminDashboardQueueItem'
+        balance_ageing_actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminDashboardQueueItem'
+        funding_loans:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminDashboardQueueItem'
+        servicing_due:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminDashboardQueueItem'
+        loan_risk:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminDashboardQueueItem'
+        secondary_listing_approvals:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminDashboardQueueItem'
+        fx_settlement_deltas:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminDashboardQueueItem'
+        failed_emails:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminDashboardQueueItem'
+        reconciliation_breaks:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminDashboardQueueItem'
+      required:
+      - admin_tasks
+      - balance_ageing_actions
+      - bank_operations_pending
+      - failed_emails
+      - forced_withdrawals_requested
+      - funding_loans
+      - fx_settlement_deltas
+      - kyc_reviews
+      - loan_risk
+      - reconciliation_breaks
+      - secondary_listing_approvals
+      - servicing_due
+      - withdrawals_requested
     AdminLoginConfirmRequest:
       type: object
       properties:
@@ -2610,6 +2800,34 @@ components:
       - code_id
       - expires_at
       - status
+    AdminOperationsDashboard:
+      type: object
+      properties:
+        as_of:
+          type: string
+          format: date-time
+        as_of_date:
+          type: string
+          format: date
+        due_window_days:
+          type: integer
+        queue_limit:
+          type: integer
+        summary: {}
+        currency_summaries:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminDashboardCurrencySummary'
+        queues:
+          $ref: '#/components/schemas/AdminDashboardQueues'
+      required:
+      - as_of
+      - as_of_date
+      - currency_summaries
+      - due_window_days
+      - queue_limit
+      - queues
+      - summary
     AdminTask:
       type: object
       properties:
