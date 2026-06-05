@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterable
 from datetime import datetime
+from importlib import import_module
 from typing import Any
 
 from django.apps import apps
@@ -22,6 +23,10 @@ class InvestorPortalValidationError(RuntimeError):
 
 def _model(app_label: str, model_name: str) -> Any:
     return apps.get_model(app_label, model_name)
+
+
+def _servicing_services() -> Any:
+    return import_module("backend.apps.servicing.services")
 
 
 def _require_financial_access(actor: Model) -> str:
@@ -224,33 +229,11 @@ def get_investor_balances(*, actor: Model, as_of: datetime | None = None) -> dic
 
 
 def _loan_days_past_due(loan: Any, *, as_of: datetime) -> int:
-    installment_model = _model("loans", "LoanInstallment")
-    repayment_model = _model("servicing", "BorrowerRepaymentEvent")
-    loan_id = str(loan.pk)
-    schedule_version = int(getattr(loan, "schedule_version", 1))
-    as_of_date = business_date(as_of)
-    for installment in (
-        installment_model.objects.filter(
-            loan_id=loan_id,
-            schedule_version=schedule_version,
-            due_date__lt=as_of_date,
-        )
-        .order_by("due_date", "installment_number", "id")
-    ):
-        paid_totals = repayment_model.objects.filter(installment_id=installment.pk).aggregate(
-            principal=Sum("principal_applied_minor"),
-            future_principal=Sum("future_principal_applied_minor"),
-            interest=Sum("interest_applied_minor"),
-            fees=Sum("fees_applied_minor"),
-            penalties=Sum("penalties_applied_minor"),
-        )
-        paid = sum(
-            int(paid_totals.get(field) or 0)
-            for field in ["principal", "future_principal", "interest", "fees", "penalties"]
-        )
-        if paid < int(installment.total_minor):
-            return int(max(0, (as_of_date - installment.due_date).days))
-    return 0
+    snapshot = _servicing_services().get_loan_servicing_status_snapshot(
+        loan=loan,
+        as_of_date=business_date(as_of),
+    )
+    return int(snapshot.days_past_due)
 
 
 def _loan_projection(loan: Any, *, as_of: datetime) -> dict[str, Any]:

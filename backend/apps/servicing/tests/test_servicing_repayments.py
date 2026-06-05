@@ -32,6 +32,7 @@ from backend.apps.servicing.services import (
     ServicingAuthorizationError,
     ServicingValidationError,
     add_loan_risk_note,
+    get_loan_servicing_status_snapshot,
     list_public_loan_risk_notes,
     record_borrower_repayment,
     record_loan_recovery_payment,
@@ -777,6 +778,32 @@ def test_status_scan_marks_loan_late_on_day_five(
     assert result.changes[0].days_past_due == 5
     assert result.changes[0].outstanding_minor == 3_300_00
     assert DomainEvent.objects.filter(
+        event_type="LoanServicingStatusChanged",
+        aggregate_id=str(loan.pk),
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_servicing_status_snapshot_reports_days_past_due_without_mutating_loan(
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+
+    snapshot = get_loan_servicing_status_snapshot(
+        loan=loan,
+        as_of_date=date(2026, 3, 5),
+    )
+    loan.refresh_from_db()
+
+    assert snapshot.loan_id == str(loan.pk)
+    assert snapshot.status == "late"
+    assert snapshot.days_past_due == 5
+    assert snapshot.outstanding_minor == 3_300_00
+    assert snapshot.triggering_due_date == date(2026, 2, 28)
+    assert cast(Any, loan).status == "funded"
+    assert not DomainEvent.objects.filter(
         event_type="LoanServicingStatusChanged",
         aggregate_id=str(loan.pk),
     ).exists()

@@ -176,6 +176,16 @@ class LoanServicingStatusChange:
 
 
 @dataclass(frozen=True, slots=True)
+class LoanServicingStatusSnapshot:
+    loan_id: str
+    status: str
+    days_past_due: int
+    outstanding_minor: int
+    triggering_installment_id: str
+    triggering_due_date: date | None
+
+
+@dataclass(frozen=True, slots=True)
 class ScanLoanServicingStatusesResult:
     as_of_date: date
     changes: list[LoanServicingStatusChange]
@@ -560,13 +570,16 @@ def _first_outstanding_installment_status(
     loan: Model,
     *,
     as_of_date: date,
+    lock_installments: bool = True,
 ) -> tuple[str, int, int, Model | None]:
     loan_ref = cast(Any, loan)
     installment_model = apps.get_model("loans", "LoanInstallment")
-    installments = installment_model.objects.select_for_update().filter(
+    installments = installment_model.objects.filter(
         loan=loan,
         schedule_version=loan_ref.schedule_version,
     ).order_by("due_date", "installment_number", "id")
+    if lock_installments:
+        installments = installments.select_for_update()
     for installment in installments:
         principal_paid, interest_paid = _installment_paid_totals(cast(Model, installment))
         remaining_principal = int(installment.principal_minor) - principal_paid
@@ -583,6 +596,29 @@ def _first_outstanding_installment_status(
             return LOAN_STATUS_LATE, days_past_due, outstanding, cast(Model, installment)
         return LOAN_STATUS_FUNDED, days_past_due, outstanding, cast(Model, installment)
     return LOAN_STATUS_REPAID, 0, 0, None
+
+
+def get_loan_servicing_status_snapshot(
+    *,
+    loan: Model,
+    as_of_date: date,
+) -> LoanServicingStatusSnapshot:
+    status, days_past_due, outstanding, installment = _first_outstanding_installment_status(
+        loan,
+        as_of_date=as_of_date,
+        lock_installments=False,
+    )
+    installment_ref = cast(Any, installment) if installment is not None else None
+    return LoanServicingStatusSnapshot(
+        loan_id=str(cast(Any, loan).pk),
+        status=status,
+        days_past_due=days_past_due,
+        outstanding_minor=outstanding,
+        triggering_installment_id=str(installment_ref.pk) if installment_ref is not None else "",
+        triggering_due_date=cast(date, installment_ref.due_date)
+        if installment_ref is not None
+        else None,
+    )
 
 
 def _record_loan_servicing_status_change(
