@@ -458,6 +458,7 @@ def _expected_pair_batch(
     end_date: date,
 ) -> FxExpectedSettlementBatch:
     start, end = _exchange_date_range_bounds(start_date, end_date)
+    settled_exchange_ids = FxExternalSettlementExchange.objects.values("exchange_id")
     exchanges = list(
         FxExchange.objects.select_for_update()
         .filter(
@@ -465,8 +466,8 @@ def _expected_pair_batch(
             target_currency_id=bought_currency_code,
             executed_at__gte=start,
             executed_at__lt=end,
-            settlement_links__isnull=True,
         )
+        .exclude(id__in=settled_exchange_ids)
         .order_by("executed_at", "id")
     )
     return FxExpectedSettlementBatch(

@@ -819,11 +819,7 @@ def publish_document_template_version(
     if source_version is None:
         raise DocumentValidationError("Template version does not exist.")
     template = source_version.template
-    template = (
-        DocumentTemplate.objects.select_for_update()
-        .select_related("current_published_version")
-        .get(id=template.id)
-    )
+    template = DocumentTemplate.objects.select_for_update().get(id=template.id)
 
     if (
         source_version.status == DocumentTemplateVersionStatus.PUBLISHED
@@ -834,7 +830,16 @@ def publish_document_template_version(
     if source_version.status == DocumentTemplateVersionStatus.PUBLISHED:
         published_version = source_version
     else:
-        current_version = template.current_published_version
+        current_version = cast(
+            DocumentTemplateVersion | None,
+            (
+                DocumentTemplateVersion.objects.filter(
+                    id=template.current_published_version_id
+                ).first()
+                if template.current_published_version_id
+                else None
+            ),
+        )
         if (
             current_version is not None
             and current_version.status == DocumentTemplateVersionStatus.PUBLISHED

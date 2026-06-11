@@ -144,7 +144,7 @@ def _deposit_command(
         collection_account_identifier="CH00GARANTALEDGER",
         payer_name="Ledger Investor",
         payer_account_identifier="CH11INVESTOR",
-        bank_reference=f"BANK-{idempotency_key}",
+        bank_reference=f"BANK-{idempotency_key[:120]}",
         payment_reference=f"INV-{investor.pk}",
         evidence_reference=f"statement:{idempotency_key}",
         notes="Matched manually.",
