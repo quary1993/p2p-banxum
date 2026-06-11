@@ -77,6 +77,14 @@ test("registration KYC handoff reflects Didit plus Garanta evidence retention", 
   expect(screen.queryByText(/does not store your identity documents/i)).not.toBeInTheDocument();
 });
 
+test("Didit return page tells secondary devices to go back to the original device", () => {
+  renderApp("/kyc/callback");
+
+  expect(screen.getByText("Identity check submitted")).toBeInTheDocument();
+  expect(screen.getByText(/return to the device where you started/i)).toBeInTheDocument();
+  expect(screen.getByText("Log in here")).toBeInTheDocument();
+});
+
 test("renders the admin operations dashboard in preview mode", () => {
   renderApp("/admin");
 

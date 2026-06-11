@@ -365,6 +365,10 @@ export function App() {
     return <AdminApp />;
   }
 
+  if (window.location.pathname.startsWith("/kyc/callback")) {
+    return <KycReturnScreen setRoute={setRoute} />;
+  }
+
   if (route.name === "public") {
     return <PublicLanding setRoute={setRoute} />;
   }
@@ -663,6 +667,66 @@ function LoginFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
   );
 }
 
+function KycReturnScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) {
+  const authMeQuery = useV1AuthMeRetrieve({
+    query: { enabled: !isFixturePreview, retry: false, staleTime: 0 }
+  });
+  const sessionUser = authMeQuery.data?.user;
+
+  // The Didit redirect lands on /kyc/callback, which the SPA router does not
+  // know; every exit must first restore the root path.
+  const leaveTo = (name: RouteName) => {
+    window.history.replaceState({}, "", "/");
+    goTo(setRoute, name);
+  };
+
+  useEffect(() => {
+    if (!sessionUser) return;
+    // This browser holds the investor session, so verification was completed
+    // on the same device: continue straight to the live verification status.
+    removeStoredObject(registerFlowStorageKey);
+    window.history.replaceState({}, "", "/");
+    goTo(setRoute, "kyc");
+  }, [sessionUser, setRoute]);
+
+  if (!isFixturePreview && (authMeQuery.isPending || sessionUser)) {
+    return (
+      <AuthShell onClose={() => leaveTo("public")}>
+        <div className="auth-card">
+          <Empty icon="clock" title="Finishing identity verification">
+            Returning you to your verification status.
+          </Empty>
+        </div>
+      </AuthShell>
+    );
+  }
+
+  // No session in this browser: the identity capture happened on a secondary
+  // device (QR hand-off). The originating device keeps the session and picks
+  // up the result automatically.
+  return (
+    <AuthShell onClose={() => leaveTo("public")}>
+      <div className="auth-card">
+        <div className="col" style={{ alignItems: "center", gap: 14, textAlign: "center" }}>
+          <div className="avatar" style={{ height: 50, width: 50 }}>
+            <Icon name="checkCircle" size={22} />
+          </div>
+          <h2 style={{ fontSize: 18 }}>Identity check submitted</h2>
+          <p className="muted" style={{ fontSize: 13 }}>
+            You can close this tab and return to the device where you started
+            registration. It will continue automatically as soon as the
+            verification result arrives.
+          </p>
+          <p className="muted" style={{ fontSize: 11.5 }}>
+            Want to continue on this device instead?{" "}
+            <a onClick={() => leaveTo("login")}>Log in here</a>.
+          </p>
+        </div>
+      </div>
+    </AuthShell>
+  );
+}
+
 type RegisterFlowState = {
   step: number;
   firstName: string;
@@ -784,6 +848,31 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
     !isFixturePreview &&
     Boolean(sessionUser) &&
     normalizedEmail(sessionUser?.email ?? "") !== normalizedEmail(email);
+
+  const kycStatusQuery = useV1KycStatusRetrieve({
+    query: {
+      enabled: !isFixturePreview && step === 2 && hasMatchingSession,
+      retry: false,
+      // Identity capture can happen on another device (QR hand-off), so keep
+      // polling until the provider reports a result.
+      refetchInterval: (query) => {
+        const caseStatus = query.state.data?.status;
+        return !caseStatus || caseStatus === "not_started" || caseStatus === "pending"
+          ? 4000
+          : false;
+      }
+    }
+  });
+  const kycCaseStatus = kycStatusQuery.data?.status;
+
+  useEffect(() => {
+    if (isFixturePreview || step !== 2 || !kycCaseStatus) return;
+    if (kycCaseStatus === "not_started" || kycCaseStatus === "pending") return;
+    // The provider produced a result: registration hand-off is complete, so
+    // continue inside the account on this (already signed-in) device.
+    removeStoredObject(registerFlowStorageKey);
+    goTo(setRoute, kycCaseStatus === "approved" ? "dashboard" : "kyc");
+  }, [kycCaseStatus, setRoute, step]);
 
   useEffect(() => {
     if (
@@ -1098,7 +1187,9 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
             <h2 style={{ fontSize: 19, marginBottom: 4 }}>Identity verification</h2>
             <p className="muted" style={{ fontSize: 13, marginBottom: 18 }}>
               We will redirect you to Didit for identity capture and verification. Garanta retains
-              the required compliance evidence and provider references for audit and regulatory access.
+              the required compliance evidence and provider references for audit and regulatory
+              access. If you verify on another device (for example via QR code), this page
+              continues automatically once the result arrives.
             </p>
             <KycTimeline current="pending" />
             <Banner tone="neutral" title="Provider handoff">
@@ -2994,10 +3085,22 @@ function PayoutIbanModal({ onClose }: { onClose: () => void }) {
 }
 
 function KycStatusScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) {
-  const statusQuery = useV1KycStatusRetrieve({ query: { enabled: !isFixturePreview, retry: false } });
+  const statusQuery = useV1KycStatusRetrieve({
+    query: {
+      enabled: !isFixturePreview,
+      retry: false,
+      // While capture is still open (possibly on another device), poll until
+      // the provider reports a result.
+      refetchInterval: (query) => {
+        const caseStatus = query.state.data?.status;
+        return caseStatus === "not_started" || caseStatus === "pending" ? 4000 : false;
+      }
+    }
+  });
   const sessionMutation = useV1KycSessionCreate();
   const [error, setError] = useState("");
   const kycStatus = isFixturePreview ? "manual_review" : statusQuery.data?.status;
+  const kycInCapture = kycStatus === "not_started" || kycStatus === "pending";
   const startKyc = () => {
     setError("");
     if (isFixturePreview) return;
@@ -3017,8 +3120,21 @@ function KycStatusScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) 
       <Card padded>
         <KycTimeline current={kycStatus === "approved" ? "approved" : kycStatus === "not_started" ? "pending" : "manual_review"} />
         {statusQuery.isError && !isFixturePreview ? <Banner tone="bad" title="Could not load KYC status">Retry after signing in or when the API connection is restored.</Banner> : null}
-        <Banner tone={kycStatus === "approved" ? "ok" : "info"} title={kycStatus === "approved" ? "Verification approved" : "Manual review"}>
-          {kycStatus === "approved" ? "Financial access is available if phone verification and account status are also valid." : "Your case is being reviewed. Financial actions remain locked until KYC is approved."}
+        <Banner
+          tone={kycStatus === "approved" ? "ok" : "info"}
+          title={
+            kycStatus === "approved"
+              ? "Verification approved"
+              : kycInCapture
+                ? "Verification in progress"
+                : "Manual review"
+          }
+        >
+          {kycStatus === "approved"
+            ? "Financial access is available if phone verification and account status are also valid."
+            : kycInCapture
+              ? "Finish identity capture with Didit on this or another device. This page updates automatically once the result arrives."
+              : "Your case is being reviewed. Financial actions remain locked until KYC is approved."}
         </Banner>
         {!isFixturePreview && kycStatus !== "approved" ? (
           <Button disabled={sessionMutation.isPending} style={{ marginTop: 16 }} variant="ghost" onClick={startKyc}>
