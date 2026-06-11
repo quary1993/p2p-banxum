@@ -2,6 +2,8 @@
 
 This repository implements BANXUM, a Swiss P2P lending platform operated by Garanta Finanzgruppe AG. Treat the `/plan` folder and `IMPLEMENTATION_PLAN.md` as product requirements unless a newer decision is documented.
 
+Branding rule: BANXUM is the user-facing platform/brand name. Garanta Finanzgruppe AG is the legal operator and should appear where the operator, contracting party, regulated entity, account holder, or legal footer is intended. Do not introduce alternate platform brand names. Keep brand/operator/support/domain/footer values configurable in templates and generated documents.
+
 ## Working Rules
 
 - Read the relevant planning module before editing implementation files.
@@ -40,13 +42,17 @@ Do not block backend or workflow implementation just because final visual design
 - `make down`: stop local stack.
 - `make test`: run backend and frontend tests.
 - `make test-backend`: run backend tests.
+- `make test-backend-postgres`: run backend tests with `POSTGRES_TEST_DATABASE_URL`.
+- `make test-postgres-hardening`: run focused PostgreSQL append-only/idempotency hardening tests.
 - `make test-frontend`: run frontend tests.
 - `make lint`: run backend and frontend lint.
 - `make lint-imports`: enforce backend module import boundaries.
 - `make typecheck`: run backend and frontend type checks.
 - `make migrate`: apply backend migrations.
+- `make migration-check-postgres`: run migration drift checks with `POSTGRES_TEST_DATABASE_URL`.
 - `make seed`: run the local seed command.
 - `make bootstrap-superadmin`: synchronize the environment-managed superadmin account from env values.
+- `make check-scheduled-jobs`: fail if scheduled-job evidence has failed or stale running runs.
 - `make api-schema`: generate committed OpenAPI schema.
 - `make api-client`: generate committed TypeScript API client.
 - `make agent-check`: run the standard handoff checks.

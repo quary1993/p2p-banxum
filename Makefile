@@ -6,8 +6,10 @@ NPM ?= npm
 COMPOSE ?= docker compose
 TEST ?=
 MIGRATION_CHECK_DATABASE_URL ?= sqlite:///:memory:
+POSTGRES_TEST_DATABASE_URL ?= postgres://banxum:banxum@localhost:5432/banxum
+POSTGRES_HARDENING_TEST ?= backend/apps/platform_core/tests/test_postgres_hardening.py
 
-.PHONY: setup up down test test-backend test-ledger test-frontend lint lint-backend lint-frontend lint-imports typecheck typecheck-backend typecheck-frontend migrate migration-check seed bootstrap-superadmin api-schema api-client check-generated agent-check backend-run frontend-run docker-build frontend-build
+.PHONY: setup up down test test-backend test-backend-postgres test-postgres-hardening test-ledger test-frontend lint lint-backend lint-frontend lint-imports typecheck typecheck-backend typecheck-frontend migrate migration-check migration-check-postgres seed bootstrap-superadmin api-schema api-client check-generated check-scheduled-jobs agent-check backend-run frontend-run docker-build frontend-build
 
 setup:
 	$(UV) sync --python $(PYTHON_VERSION) --group dev
@@ -29,6 +31,12 @@ test: test-backend test-frontend
 
 test-backend:
 	$(UV) run pytest $(if $(TEST),$(TEST),backend)
+
+test-backend-postgres:
+	DATABASE_URL="$(POSTGRES_TEST_DATABASE_URL)" $(UV) run pytest $(if $(TEST),$(TEST),backend)
+
+test-postgres-hardening:
+	DATABASE_URL="$(POSTGRES_TEST_DATABASE_URL)" $(UV) run pytest $(POSTGRES_HARDENING_TEST)
 
 test-ledger:
 	$(UV) run pytest backend/apps/ledger/tests
@@ -61,11 +69,17 @@ migrate:
 migration-check:
 	DATABASE_URL="$(MIGRATION_CHECK_DATABASE_URL)" $(UV) run python backend/manage.py makemigrations --check --dry-run
 
+migration-check-postgres:
+	DATABASE_URL="$(POSTGRES_TEST_DATABASE_URL)" $(UV) run python backend/manage.py makemigrations --check --dry-run
+
 seed:
 	$(UV) run python backend/manage.py seed_demo
 
 bootstrap-superadmin:
 	$(UV) run python backend/manage.py bootstrap_superadmin
+
+check-scheduled-jobs:
+	$(UV) run python backend/manage.py check_scheduled_jobs
 
 api-schema:
 	mkdir -p openapi

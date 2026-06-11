@@ -1,7 +1,7 @@
 # Admin TODO: Accounts, Credentials, API Access, and Domains
 
 Status: Working list.
-Last updated: 2026-06-01.
+Last updated: 2026-06-06.
 
 This file tracks accounts, credentials, API access, domains, portals, and third-party access that must be provided to make the platform functional.
 
@@ -11,15 +11,15 @@ Blocking means the related integration or deployment module cannot be completed 
 
 ### Didit KYC/AML Account and API Access
 
-Blocks: real Didit sandbox integration for identity, KYC, AML, registration-time onboarding, and webhook handling.
+Blocks: enabling live Didit KYC sessions and production-grade KYC evidence/report retention.
 
 Provide:
 
-- Didit sandbox account access.
-- Sandbox API credentials.
+- Didit sandbox/account access.
+- Sandbox API credentials. An API key was supplied in `docs/secrets.md` and validated against Didit's workflow-list endpoint on 2026-06-05.
 - Sandbox webhook signing secret or verification configuration.
 - Confirmation that staging/sandbox Didit webhooks are signed and that the platform should reject unsigned sandbox/staging webhooks.
-- Didit workflow ID for natural-person lender onboarding.
+- Didit workflow ID for natural-person lender onboarding. Supplied and validated on 2026-06-05: the configured value matches a published default KYC workflow in Didit.
 - Confirmation of the chosen Didit flow: hosted redirect, iframe, SDK, or mixed flow.
 - Callback/webhook URL requirements from Didit.
 - Didit event names/statuses that the platform should consume.
@@ -30,24 +30,30 @@ Provide:
 
 Why this is needed:
 
-The software can implement a mock Didit adapter without these credentials, but it cannot complete real sandbox session creation, webhook verification, or status mapping against Didit until sandbox access and workflow details exist. Production credentials are listed below as non-blocking because they are needed for launch, not for module implementation.
+The software can run locally with the mock Didit adapter. The real Didit hosted-session adapter is implemented and was smoke-tested successfully with the supplied API key, workflow ID, and signing secret. End-to-end webhook delivery still cannot be tested until Garanta provides a reachable staging or production domain/server and configures the Didit destination to that URL. Production credentials are listed below as non-blocking because they are needed for launch, not for module implementation.
 
 Current implementation boundary:
 
 - Implemented without Didit account access:
   - internal KYC case/session/event storage.
   - mock Didit session URLs.
-  - signed generic webhook ingestion boundary.
+  - signed Didit V3 webhook ingestion boundary with timestamp freshness, `X-Signature-V2`, raw `X-Signature`, and `X-Signature-Simple` support.
   - internal status normalization for known/common provider words and AML flags.
   - manual-review queue and append-only admin decisions.
   - account activation after approved KYC.
   - account restrict/lock/close/reactivate controls for Garanta admins.
   - append-only audit/evidence records and DB-level append-only guards.
-- Still blocked by missing Didit sandbox/account details:
-  - real Didit session creation API calls.
-  - exact Didit workflow ID and workflow routing.
+- Implemented after Didit API key was supplied:
+  - real hosted-session creation API path using `POST /v3/session/`.
+  - safe provider-session payload storage without persisting Didit `session_token`.
+  - deploy checks requiring API mode, API key, real workflow ID, and signed webhooks outside local development.
+  - API credential and workflow smoke test using `GET /v3/workflows/`; the configured workflow is published, default, and KYC type.
+  - BANXUM service smoke test creating a real hosted KYC session against Didit; the session returned a verification URL and did not persist the Didit session token.
+  - local V3 webhook signature-verification test using the supplied signing secret.
+- Still blocked by missing live server/webhook/report details:
   - exact redirect/iframe/SDK behavior and callback URLs.
-  - exact webhook signature headers, freshness/timestamp behavior, event names, payload fields, retry behavior, and status vocabulary for Garanta's configured workflow.
+  - Didit webhook destination secret and console delivery test against BANXUM staging/prod URLs.
+  - exact workflow-specific event names, payload fields, retry behavior, and status vocabulary for Garanta's configured workflow.
   - provider report download/export API integration.
   - provider report metadata, file checksum, local object-storage persistence, and report inclusion in evidence exports.
   - sandbox test users, test documents, and negative test scenarios.
@@ -57,6 +63,10 @@ Current implementation boundary:
 ### SendGrid Transactional Email Account
 
 Blocks: real sandbox/staging email delivery for magic-link login, admin email-code login, investor sensitive-action email codes, and transactional notices.
+
+Launch provider decision:
+
+- SendGrid is the selected launch transactional email provider.
 
 Provide:
 
@@ -78,11 +88,18 @@ The app relies on email for login and sensitive-action confirmation. Without tra
 
 Blocks: real sandbox/staging phone verification.
 
+Launch provider decision:
+
+- Twilio Verify is the selected launch phone-verification provider.
+
 Provide:
 
 - Twilio account access.
 - Twilio Verify service SID or equivalent service configuration.
 - Twilio sandbox/staging API credentials.
+- Supported credential styles are either `TWILIO_ACCOUNT_SID` plus `TWILIO_AUTH_TOKEN`, or
+  `TWILIO_API_KEY_SID` plus `TWILIO_API_KEY_SECRET`. API key authentication was validated against
+  Twilio on 2026-06-08, but the account had no Verify service configured at that time.
 - Sandbox/test configuration if available.
 - Allowed countries/phone formats.
 - SMS spending limits.
@@ -95,6 +112,11 @@ Phone verification is mandatory for natural-person lenders. The module can be mo
 ### FX Rate Provider Access
 
 Blocks: real currency-exchange quotes and FX sanity-check integration.
+
+Launch provider decision:
+
+- Yahoo Finance is the selected launch FX rate source for CHF/EUR and EUR/CHF.
+- The platform may keep the adapter boundary open for another provider if Yahoo's access method, commercial terms, rate timestamps, or reliability prove unsuitable before production launch. This is a provider-risk fallback only, not a current requirement.
 
 Provide:
 
@@ -189,6 +211,21 @@ Provide:
 Why this is needed:
 
 Provider callbacks, authenticated email sending, TLS, and production routing require actual domain names and DNS records.
+
+### Production Credential Rotation After Plain-HTTP Testing
+
+Blocks: treating the current production/staging environments as production-like.
+
+Provide/do:
+
+- Rotate any staging or production superadmin/admin passwords that were stored in local notes or used over raw-IP/plain-HTTP testing.
+- Move superadmin/admin credential storage to a password manager or secrets manager.
+- Store only password hashes or generated secret values in server environment files where possible.
+- Confirm which people should retain access to staging and production credentials.
+
+Why this is needed:
+
+The initial shared-server smoke deployment used raw IP/HTTP before final domain/TLS setup. Any credential used in that mode should be treated as exposed and rotated before real user data, provider callbacks, KYC evidence, or financial operations are enabled.
 
 ## Non-Blocking
 

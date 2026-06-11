@@ -1,7 +1,7 @@
 # Admin TODO: Technical Architecture and Implementation Decisions
 
 Status: Launch technical baseline resolved.
-Last updated: 2026-06-01.
+Last updated: 2026-06-06.
 
 This file tracks architecture and strictly technical decisions. It does not track provider credentials, legal wording, accounting policy, or business procedure unless the decision is a technical implementation detail.
 
@@ -12,6 +12,62 @@ Blocking means the technical team cannot complete the named implementation area 
 No technical architecture blockers remain for implementation after the 2026-06-01 launch-infrastructure decision set.
 
 Real deployment still needs the accounts/access items in `admin_todo_accounts.md`, especially AWS, GitHub, DNS, provider credentials, SendGrid, Twilio, Didit, Yahoo Finance access, and bank/collection-account details.
+
+### HTTPS Transport For Staging/Production
+
+Blocks: production-like staging, admin login with real credentials, KYC webhook testing with real user data, and any production financial/user-data handling.
+
+What must be done:
+
+- Assign real staging and production domains.
+- Put a TLS reverse proxy in front of the BANXUM containers on `80/443`.
+- Keep internal HTTP app ports such as `8081` and `8082` bound to `127.0.0.1` and closed to public internet.
+- Set `SESSION_COOKIE_SECURE=true`, `CSRF_COOKIE_SECURE=true`, `SECURE_SSL_REDIRECT=true`, `DJANGO_USE_X_FORWARDED_PROTO=true`, and domain-specific `DJANGO_ALLOWED_HOSTS`.
+- Set `PUBLIC_APP_BASE_URL` to the HTTPS URL in each environment so login links and provider callbacks are not generated with localhost or plaintext HTTP.
+- Rotate any production/staging admin or superadmin credentials that were used over plaintext HTTP or stored in local notes.
+
+Why this is needed:
+
+BANXUM uses cookie-based admin/investor sessions, CSRF tokens, KYC data, PII, and financial records. Plain HTTP exposes those values in transit and invalidates the platform's security assumptions.
+
+Status:
+
+Blocking before production-like use. Implementation can continue locally with private mock data and local HTTP only.
+
+### Scheduled-Job Monitoring Wiring
+
+Blocks: unattended production operation, first real-money balance ageing/forced-withdrawal cycle,
+servicing status/default detection, campaign-expiry cancellation, and email dispatch monitoring.
+
+What must be done:
+
+- Configure the production scheduler mechanism on the shared server, currently cron or systemd timers.
+- Run `run_scheduled_jobs --job email_outbox_dispatch` frequently, for example every 5 minutes.
+- Run the daily scheduled jobs at a controlled Europe/Zurich morning time:
+  - balance ageing and penalty charging.
+  - servicing status scan.
+  - primary funding expiry scan.
+  - reconciliation-break task sync.
+- Run `check_scheduled_jobs` at least every 15 minutes.
+- Alert the tech alert mailbox, and preferably paging/phone escalation for production, on any non-zero
+  `check_scheduled_jobs` exit.
+- Verify the production scheduled-job actor is a dedicated active scheduler service admin account via
+  `SCHEDULED_JOBS_ACTOR_EMAIL`, not a human admin.
+- Confirm scheduler logs are retained and rotated without touching trading-bot services on the shared
+  host.
+
+Why this is needed:
+
+The code now records durable scheduled-job evidence, skips duplicate periods, retries failed periods,
+and exposes a monitor command that detects failed or stale-running runs. Those controls only protect
+production if the runner and monitor are actually scheduled and alerting. Daily jobs have financial and
+regulatory side effects, especially idle-balance handling, forced withdrawals/penalties, servicing
+late/default transitions, and campaign-expiry cancellations.
+
+Status:
+
+Blocking before unattended production real-money operation. Implementation can continue, and staging
+can run these commands manually or through temporary cron while alert routing is finalized.
 
 ## Resolved Launch Technical Decisions
 
@@ -349,7 +405,7 @@ Production/staging note:
 
 - Set `CACHE_URL` or environment-specific `REDIS_URL` to a shared Redis instance/database so rate limits are enforced across all app workers.
 - Set dedicated `AUTH_DELIVERY_SECRET_ENCRYPTION_KEY` and `AUTH_SECRET_DIGEST_PEPPER`. If these are left empty, local fallback derives short-lived token/code encryption and digests from `DJANGO_SECRET_KEY`; this is acceptable for local development but couples in-flight auth secrets to `DJANGO_SECRET_KEY` rotation.
-- Set `DIDIT_WEBHOOK_SECRET` and keep `DIDIT_WEBHOOK_REQUIRE_SIGNATURE=true` for staging and production. The application hard-requires signed Didit webhooks outside local development and deploy checks fail unsafe non-local configurations.
+- Set `DIDIT_SESSION_PROVIDER=api`, `DIDIT_API_KEY`, a real published `DIDIT_WORKFLOW_ID`, `DIDIT_WEBHOOK_SECRET`, and keep `DIDIT_WEBHOOK_REQUIRE_SIGNATURE=true` for staging and production. The application hard-requires signed Didit webhooks outside local development and deploy checks fail unsafe non-local configurations, including mock Didit session mode, missing API key, and placeholder workflow IDs.
 
 ### Template Variable Registry Validation
 
@@ -411,6 +467,25 @@ Decision:
 Rationale:
 
 External APM is useful later, but not necessary for a low-traffic cost-optimized launch.
+
+### Additional PostgreSQL Concurrency Test Breadth
+
+Decision:
+
+- The current production-hardening pack validates DB-level append-only triggers and the canonical
+  create/idempotency race through concurrent same-key lender deposits on PostgreSQL.
+- Add broader Postgres-only concurrency tests later for row-lock-heavy paths if schedule allows:
+  - concurrent finalization of the same investor withdrawal request.
+  - concurrent secondary-market purchase attempts for the same listing.
+
+Rationale:
+
+The existing Postgres hardening test covers the unique-key/IntegrityError recovery pattern that most
+money flows share. Withdrawal finalization and secondary-market purchase add row-locking behavior on
+top of that pattern, so extra tests would improve confidence, but they are not required to close the
+current audit because those services already use `select_for_update`, unique constraints, idempotency
+fingerprints, and focused SQLite service tests. This is a hardening-depth backlog item, not a launch
+architecture blocker.
 
 ### Formal Incident-Response Program
 

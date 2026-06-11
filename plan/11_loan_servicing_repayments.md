@@ -279,11 +279,11 @@ Lender-facing recovery buckets are distributed pro rata to lenders holding parti
 
 Normal contractual interest stops accruing on the official default declaration date. Default/penalty interest starts accruing from that date instead of regular interest only if provided in the relevant loan/project agreement or project recovery configuration. It must be calculated using the project `default_penalty_interest_percent` and reported separately from normal contractual interest.
 
-Recovered amounts may include principal, contractual interest accrued until default date, default/penalty interest, penalties, and costs. These categories must be classified separately in the ledger, recovery/write-off report, and lender reports.
+Recovered amounts may include principal, contractual interest accrued until default date, default/penalty interest, penalties, and costs. These categories must be classified separately in the ledger, default/recovery report, and lender reports.
 
 Distribution rounding uses deterministic currency minor-unit rounding. Launch rounding is half-up per lender distribution line, with any rounding difference recorded separately as a recovery rounding difference.
 
-Each recovery payment must generate ledger entries, a recovery/write-off report, and notification to affected lenders.
+Each recovery payment must generate ledger entries, a default/recovery report, and notification to affected lenders.
 
 Rationale:
 Default recovery is case-specific and handled offline, but the waterfall, lender distribution, interest cutoff, category classification, recovery fee, third-party costs, rounding, reporting, and notification must still be deterministic and auditable.
@@ -304,7 +304,7 @@ Finalize lender notification wording, accountant-approved recovery report labels
 - Defaulted.
 - Operationally changed.
 - Repaid.
-- Written off.
+- Final resolution pending, only after Garanta defines a future recovered/resolved/loss-recognition workflow.
 - Cancelled.
 
 ## Schedule Requirements
@@ -350,7 +350,7 @@ For default recovery events, the project-specific recovery waterfall is applied 
 - Admin handles late reminders, borrower outreach, negotiation, and legal notices offline.
 - Admin records early repayment requests received off-platform.
 - Admin records operational change requests received off-platform.
-- Admin stores generic servicing, arrears, recovery, and write-off documents and notes.
+- Admin stores generic servicing, arrears, recovery, and default-resolution documents and notes.
 - Detailed borrower contact method tracking is not required in v1.
 
 ## Investor Servicing Features
@@ -380,7 +380,7 @@ For default recovery events, the project-specific recovery waterfall is applied 
 - Borrower operational changes that affect investor economics require admin confirmation and investor notification.
 - Direct free-form restructuring is out of scope; changes happen through defined operational events.
 - Direct arbitrary schedule editing is out of scope; material schedule changes must be caused by declared payment or operational events.
-- Write-offs can be recorded by admin in v1 with reason, notes, and document evidence; the workflow should allow approvals to be added later.
+- Write-off is not an operational v1 workflow. Defaulted loans remain in default/recovery handling until Garanta defines a separate advisor-approved recovered/resolved/loss-recognition workflow.
 - Closed loans are locked except for controlled corrections.
 
 ## Dependencies

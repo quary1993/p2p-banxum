@@ -5,6 +5,7 @@ from django.contrib import admin
 from backend.apps.documents.models import (
     DocumentAcceptanceEvidence,
     DocumentEvent,
+    DocumentRenderedArtifact,
     DocumentTemplate,
     DocumentTemplateVersion,
 )
@@ -58,3 +59,18 @@ class DocumentEventAdmin(ReadOnlyDocumentEvidenceAdmin):
     list_filter = ("event_type", "category", "actor_account_type")
     search_fields = ("actor_user_id", "note")
     readonly_fields = tuple(field.name for field in DocumentEvent._meta.fields)
+
+
+@admin.register(DocumentRenderedArtifact)
+class DocumentRenderedArtifactAdmin(ReadOnlyDocumentEvidenceAdmin):
+    list_display = (
+        "acceptance",
+        "output_format",
+        "purpose",
+        "filename",
+        "content_sha256",
+        "rendered_at",
+    )
+    list_filter = ("output_format", "purpose", "rendered_at")
+    search_fields = ("user_id", "actor_user_id", "filename", "content_sha256")
+    readonly_fields = tuple(field.name for field in DocumentRenderedArtifact._meta.fields)

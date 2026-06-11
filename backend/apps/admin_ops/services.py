@@ -7,7 +7,7 @@ from typing import Any, cast
 
 from django.apps import apps
 from django.contrib.auth import get_user_model
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Model, Sum
 from django.utils import timezone
 
@@ -230,12 +230,78 @@ def _reconciliation_break_signals(snapshot: Any) -> list[str]:
     return signals
 
 
+def _reconciliation_break_task_priority(signals: list[str]) -> AdminTaskPriority:
+    if "investor_balance_integrity_breaks" in signals or "account_sign_anomalies" in signals:
+        return AdminTaskPriority.URGENT
+    return AdminTaskPriority.HIGH
+
+
+def _reconciliation_break_task_title(snapshot: Any, signals: list[str]) -> str:
+    signal_label = ", ".join(signal.replace("_", " ") for signal in signals)
+    return (
+        f"Reconciliation exception {getattr(snapshot, 'currency_id', '')} "
+        f"{getattr(snapshot, 'as_of_date', '')}: {signal_label}"
+    )
+
+
+def _reconciliation_break_task_notes(snapshot: Any, signals: list[str]) -> str:
+    metadata = cast(dict[str, Any], getattr(snapshot, "metadata", {}) or {})
+    account_anomalies = metadata.get("account_sign_anomalies") or []
+    investor_breaks = metadata.get("investor_balance_integrity_breaks") or []
+    return "\n".join(
+        [
+            "Auto-created from a reconciliation snapshot integrity signal.",
+            f"Snapshot ID: {snapshot.pk}",
+            f"Currency: {getattr(snapshot, 'currency_id', '')}",
+            f"As-of date: {getattr(snapshot, 'as_of_date', '')}",
+            f"Signals: {', '.join(signals)}",
+            (
+                "Reconciliation difference minor: "
+                f"{int(getattr(snapshot, 'reconciliation_difference_minor', 0))}"
+            ),
+            f"Bank stated balance minor: {int(getattr(snapshot, 'bank_stated_balance_minor', 0))}",
+            (
+                "Investor balance liability minor: "
+                f"{int(getattr(snapshot, 'investor_balance_liability_minor', 0))}"
+            ),
+            (
+                "Bank-to-collection-cash difference minor: "
+                f"{int(metadata.get('bank_to_collection_cash_difference_minor') or 0)}"
+            ),
+            f"Account sign anomalies: {len(account_anomalies)}",
+            f"Investor balance integrity breaks: {len(investor_breaks)}",
+            (
+                "Resolve this task only after finance/admin confirms the break is "
+                "corrected, explained, or accepted as operational evidence."
+            ),
+        ]
+    )
+
+
+def _existing_reconciliation_break_task(snapshot: Any) -> AdminTask | None:
+    return (
+        AdminTask.objects.filter(
+            task_type=AdminTaskType.PAYMENT_RECONCILIATION,
+            related_object_type="ReconciliationSnapshot",
+            related_object_id=str(snapshot.pk),
+        )
+        .order_by("-created_at", "-id")
+        .first()
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class GetAdminDashboardCommand:
     actor: Model
     as_of: datetime | None = None
     due_window_days: int = 7
     queue_limit: int = 10
+
+
+@dataclass(frozen=True, slots=True)
+class SyncReconciliationBreakTasksCommand:
+    actor: Model
+    limit: int = 100
 
 
 @dataclass(frozen=True, slots=True)
@@ -449,6 +515,87 @@ def update_admin_task(command: UpdateAdminTaskCommand) -> AdminTask:
         )
     )
     return task
+
+
+def sync_reconciliation_break_tasks(
+    command: SyncReconciliationBreakTasksCommand,
+) -> dict[str, Any]:
+    _require_admin_actor(command.actor)
+    limit = max(1, min(command.limit, 500))
+    reconciliation_model = _model("ledger", "ReconciliationSnapshot")
+    created_tasks: list[AdminTask] = []
+    existing_tasks: list[AdminTask] = []
+    skipped_count = 0
+    synced_at = now_utc()
+
+    for snapshot in (
+        reconciliation_model.objects.select_related("currency")
+        .order_by("-as_of_date", "-created_at", "-id")[:limit]
+    ):
+        break_signals = _reconciliation_break_signals(snapshot)
+        if not break_signals:
+            skipped_count += 1
+            continue
+        existing = _existing_reconciliation_break_task(snapshot)
+        if existing is not None:
+            existing_tasks.append(existing)
+            continue
+
+        try:
+            task = create_admin_task(
+                CreateAdminTaskCommand(
+                    actor=command.actor,
+                    task_type=AdminTaskType.PAYMENT_RECONCILIATION,
+                    title=_reconciliation_break_task_title(snapshot, break_signals),
+                    priority=_reconciliation_break_task_priority(break_signals),
+                    due_at=synced_at,
+                    notes=_reconciliation_break_task_notes(snapshot, break_signals),
+                    related_object_type="ReconciliationSnapshot",
+                    related_object_id=str(snapshot.pk),
+                )
+            )
+        except IntegrityError:
+            existing = _existing_reconciliation_break_task(snapshot)
+            if existing is None:
+                raise
+            existing_tasks.append(existing)
+            continue
+        created_tasks.append(task)
+
+    metadata = {
+        "limit": limit,
+        "created_count": len(created_tasks),
+        "existing_count": len(existing_tasks),
+        "skipped_count": skipped_count,
+        "created_task_ids": [str(task.id) for task in created_tasks],
+        "existing_task_ids": [str(task.id) for task in existing_tasks],
+    }
+    record_audit_event(
+        AuditCommand(
+            actor=_actor_for_admin(command.actor),
+            action="admin_ops.reconciliation_break_tasks_synced",
+            target_type="AdminTask",
+            metadata=metadata,
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="ReconciliationBreakTasksSynced",
+            aggregate_type="AdminOps",
+            aggregate_id=str(command.actor.pk),
+            payload=metadata,
+            idempotency_key=(
+                "admin-ops:reconciliation-break-tasks-synced:"
+                f"{command.actor.pk}:{synced_at.isoformat()}"
+            ),
+        )
+    )
+    return {
+        "created_count": len(created_tasks),
+        "existing_count": len(existing_tasks),
+        "skipped_count": skipped_count,
+        "tasks": [*created_tasks, *existing_tasks],
+    }
 
 
 def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[str, Any]:

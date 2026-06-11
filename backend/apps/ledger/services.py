@@ -48,7 +48,19 @@ from backend.apps.platform_core.domain.time import (
 )
 from backend.apps.platform_core.models import Currency, DomainEvent
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
-from backend.apps.platform_core.services.events import DomainEventCommand, record_domain_event
+from backend.apps.platform_core.services.events import (
+    DomainEventCommand,
+    OutboxCommand,
+    enqueue_outbox_message,
+    record_domain_event,
+)
+from backend.apps.platform_core.services.sensitive_actions import (
+    BANK_ACCOUNT_CHANGE_ACTION,
+    WITHDRAWAL_ACTION,
+    SensitiveActionVerificationCommand,
+    SensitiveActionVerificationError,
+    verify_sensitive_action_code,
+)
 
 
 class LedgerError(ValueError):
@@ -76,6 +88,41 @@ PRIMARY_LOAN_CLOSE_FINGERPRINT_METADATA_KEY = "primary_loan_close_fingerprint"
 FX_EXCHANGE_FINGERPRINT_METADATA_KEY = "fx_exchange_fingerprint"
 FX_EXTERNAL_SETTLEMENT_FINGERPRINT_METADATA_KEY = "fx_external_settlement_fingerprint"
 SECONDARY_MARKET_PURCHASE_FINGERPRINT_METADATA_KEY = "secondary_market_purchase_fingerprint"
+
+
+def _investor_email_for_user_id(investor_user_id: str) -> str:
+    user_model = get_user_model()
+    user = user_model.objects.filter(id=investor_user_id).only("email").first()
+    return str(getattr(user, "email", "")).strip().lower() if user is not None else ""
+
+
+def _enqueue_investor_email(
+    *,
+    investor_user_id: str,
+    topic: str,
+    subject: str,
+    body_text: str,
+    template_key: str,
+    idempotency_key: str,
+    metadata: dict[str, Any],
+) -> None:
+    email = _investor_email_for_user_id(investor_user_id)
+    if not email:
+        return
+    enqueue_outbox_message(
+        OutboxCommand(
+            idempotency_key=idempotency_key,
+            topic=topic,
+            payload={
+                "user_id": investor_user_id,
+                "email": email,
+                "subject": subject,
+                "body_text": body_text,
+                "template_key": template_key,
+                "metadata": metadata,
+            },
+        )
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,14 +198,31 @@ class RegisterInvestorPayoutInstructionCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class RegisterInvestorSelfServicePayoutInstructionCommand:
+    actor: Model
+    currency: str
+    destination_iban: str
+    destination_account_name: str
+    sensitive_action_code_id: str = ""
+    sensitive_action_code: str = ""
+    notes: str = ""
+    ip_address: str | None = None
+    user_agent: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class RequestInvestorWithdrawalCommand:
     actor: Model
     amount_minor: int
     currency: str
     destination_iban: str
+    sensitive_action_code_id: str = ""
+    sensitive_action_code: str = ""
     destination_account_name: str = ""
     notes: str = ""
     idempotency_key: str = ""
+    ip_address: str | None = None
+    user_agent: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -334,6 +398,22 @@ class BalanceAgeingPenaltyModeTransition:
 
 
 @dataclass(frozen=True, slots=True)
+class BalancePenaltyCharge:
+    lot_id: str
+    investor_user_id: str
+    currency: str
+    charge_date: date
+    amount_minor: int
+    penalty_bps_per_day: int
+    penalty_basis_minor: int
+    available_before_minor: int
+    available_after_minor: int
+    penalized_before_minor: int
+    penalized_after_minor: int
+    journal_entry_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class BalanceAgeingForcedWithdrawalCandidate:
     investor_user_id: str
     currency: str
@@ -349,6 +429,7 @@ class BalanceAgeingScanResult:
     forced_withdrawal_candidates: list[BalanceAgeingForcedWithdrawalCandidate]
     forced_withdrawal_requests: list[InvestorWithdrawalRequest]
     penalty_mode_transitions: list[BalanceAgeingPenaltyModeTransition]
+    penalty_charges: list[BalancePenaltyCharge]
     skipped_lot_ids: list[str]
 
 
@@ -1292,16 +1373,18 @@ def _existing_lender_deposit_result(
 
 
 @transaction.atomic
-def register_investor_payout_instruction(
-    command: RegisterInvestorPayoutInstructionCommand,
+def _create_investor_payout_instruction(
+    *,
+    actor: Model,
+    investor: Model,
+    currency: Currency,
+    destination_iban: str,
+    destination_account_name: str,
+    is_verified_usable: bool,
+    notes: str,
+    metadata: dict[str, Any],
 ) -> InvestorPayoutInstruction:
-    _require_admin_actor(command.actor)
-    investor = _lender_account_for_id(command.investor_user_id)
-    currency = _enabled_currency(command.currency)
-    destination_iban = _clean_iban(command.destination_iban)
-    account_name = _clean_required(command.destination_account_name, "Destination account name")
-    verified_at = now_utc() if command.is_verified_usable else None
-
+    verified_at = now_utc() if is_verified_usable else None
     InvestorPayoutInstruction.objects.select_for_update().filter(
         investor_user_id=investor.pk,
         currency=currency,
@@ -1311,20 +1394,21 @@ def register_investor_payout_instruction(
         investor_user_id=investor.pk,
         currency=currency,
         destination_iban=destination_iban,
-        destination_account_name=account_name,
-        is_verified_usable=command.is_verified_usable,
-        verified_by_admin_id=command.actor.pk if command.is_verified_usable else None,
+        destination_account_name=destination_account_name,
+        is_verified_usable=is_verified_usable,
+        verified_by_admin_id=actor.pk if is_verified_usable else None,
         verified_at=verified_at,
-        created_by_admin_id=command.actor.pk,
-        notes=command.notes.strip(),
-        metadata=command.metadata or {},
+        created_by_admin_id=actor.pk,
+        notes=notes,
+        metadata=metadata,
     )
-    actor_ref = actor_ref_for_user(command.actor)
+    actor_ref = actor_ref_for_user(actor)
     event_metadata = {
         "investor_user_id": str(investor.pk),
         "currency": currency.code,
         "instruction_id": str(instruction.id),
         "is_verified_usable": instruction.is_verified_usable,
+        "requires_admin_verification": not instruction.is_verified_usable,
     }
     record_audit_event(
         AuditCommand(
@@ -1345,6 +1429,63 @@ def register_investor_payout_instruction(
         )
     )
     return instruction
+
+
+def register_investor_payout_instruction(
+    command: RegisterInvestorPayoutInstructionCommand,
+) -> InvestorPayoutInstruction:
+    _require_admin_actor(command.actor)
+    investor = _lender_account_for_id(command.investor_user_id)
+    currency = _enabled_currency(command.currency)
+    destination_iban = _clean_iban(command.destination_iban)
+    account_name = _clean_required(command.destination_account_name, "Destination account name")
+    return _create_investor_payout_instruction(
+        actor=command.actor,
+        investor=investor,
+        currency=currency,
+        destination_iban=destination_iban,
+        destination_account_name=account_name,
+        is_verified_usable=command.is_verified_usable,
+        notes=command.notes.strip(),
+        metadata=command.metadata or {},
+    )
+
+
+def register_investor_self_service_payout_instruction(
+    command: RegisterInvestorSelfServicePayoutInstructionCommand,
+) -> InvestorPayoutInstruction:
+    if not is_lender_actor(command.actor):
+        raise LedgerAuthorizationError("Only an active lender can register a payout instruction.")
+    try:
+        verify_sensitive_action_code(
+            SensitiveActionVerificationCommand(
+                actor=command.actor,
+                action=BANK_ACCOUNT_CHANGE_ACTION,
+                code_id=command.sensitive_action_code_id,
+                raw_code=command.sensitive_action_code,
+                ip_address=command.ip_address,
+                user_agent=command.user_agent,
+            )
+        )
+    except SensitiveActionVerificationError as exc:
+        raise LedgerValidationError(str(exc)) from exc
+
+    currency = _enabled_currency(command.currency)
+    destination_iban = _clean_iban(command.destination_iban)
+    account_name = _clean_required(command.destination_account_name, "Destination account name")
+    return _create_investor_payout_instruction(
+        actor=command.actor,
+        investor=command.actor,
+        currency=currency,
+        destination_iban=destination_iban,
+        destination_account_name=account_name,
+        is_verified_usable=False,
+        notes=command.notes.strip(),
+        metadata={
+            "submitted_by": "investor_self_service",
+            "requires_admin_verification": True,
+        },
+    )
 
 
 @transaction.atomic
@@ -1779,8 +1920,50 @@ def _restore_lots_from_withdrawal_allocations(
         raise LedgerValidationError("Withdrawal allocations do not match the request amount.")
 
 
-@transaction.atomic
 def request_investor_withdrawal(
+    command: RequestInvestorWithdrawalCommand,
+) -> InvestorWithdrawalRequest:
+    if not user_can_access_financial_features(command.actor):
+        raise LedgerAuthorizationError("Investor account cannot access financial features.")
+    investor_id = str(command.actor.pk)
+    currency = _enabled_currency(command.currency)
+    amount_minor = _validate_money(command.amount_minor, currency.code, "Withdrawal amount")
+    destination_iban = _clean_iban(command.destination_iban)
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    request_fingerprint = _withdrawal_request_fingerprint(
+        command,
+        actor_id=investor_id,
+        currency_code=currency.code,
+        amount_minor=amount_minor,
+        destination_iban=destination_iban,
+        idempotency_key=idempotency_key,
+    )
+    existing = _existing_withdrawal_request_for_idempotency(
+        idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing is not None:
+        return existing
+
+    try:
+        verify_sensitive_action_code(
+            SensitiveActionVerificationCommand(
+                actor=command.actor,
+                action=WITHDRAWAL_ACTION,
+                code_id=command.sensitive_action_code_id,
+                raw_code=command.sensitive_action_code,
+                ip_address=command.ip_address,
+                user_agent=command.user_agent,
+            )
+        )
+    except SensitiveActionVerificationError as exc:
+        raise LedgerValidationError(str(exc)) from exc
+
+    return _request_investor_withdrawal_after_sensitive_code(command)
+
+
+@transaction.atomic
+def _request_investor_withdrawal_after_sensitive_code(
     command: RequestInvestorWithdrawalCommand,
 ) -> InvestorWithdrawalRequest:
     if not user_can_access_financial_features(command.actor):
@@ -3181,6 +3364,22 @@ def _record_balance_ageing_reminder_due(
             idempotency_key=idempotency_key,
         )
     )
+    _enqueue_investor_email(
+        investor_user_id=str(lot.investor_user_id),
+        topic="email.balance_ageing_reminder",
+        subject=f"{settings.PLATFORM_BRAND_NAME} balance deadline reminder",
+        body_text=(
+            f"Your {settings.PLATFORM_BRAND_NAME} {lot.currency_id} balance source has "
+            f"{lot.available_amount_minor} minor units available and has reached day {day} "
+            "of the balance holding period.\n\n"
+            f"Withdrawal deadline: {lot.withdrawal_deadline_at.isoformat()}.\n"
+            "You can invest eligible funds, exchange eligible funds, or withdraw them before "
+            "the applicable deadline. The 60-day limit cannot be extended."
+        ),
+        template_key="balance.ageing_reminder.v1",
+        idempotency_key=f"email:{idempotency_key}",
+        metadata=payload,
+    )
     record_audit_event(
         AuditCommand(
             actor=actor_ref_for_user(actor),
@@ -3222,6 +3421,222 @@ def _unrecorded_balance_ageing_reminder_days(
         if threshold <= days_held
         and not _balance_ageing_reminder_already_recorded(lot=lot, day=threshold)
     ]
+
+
+def _balance_penalty_charge_idempotency_key(*, lot: InvestorBalanceLot, charge_date: date) -> str:
+    return f"balance-lot:{lot.id}:penalty-charge:{charge_date.isoformat()}"
+
+
+def _balance_penalty_basis_minor(lot: InvestorBalanceLot) -> int:
+    lineage = cast(list[dict[str, Any]], lot.lineage)
+    for item in reversed(lineage):
+        if item.get("event") != "penalty_mode_enabled":
+            continue
+        basis = item.get("penalty_basis_minor")
+        if type(basis) is int and basis > 0:
+            return basis
+    return lot.available_amount_minor + lot.penalized_amount_minor
+
+
+def _balance_penalty_charge_recorded_in_lineage(
+    *,
+    lot: InvestorBalanceLot,
+    charge_date: date,
+) -> bool:
+    expected = charge_date.isoformat()
+    lineage = cast(list[dict[str, Any]], lot.lineage)
+    return any(
+        item.get("event") == "balance_penalty_charged"
+        and item.get("charge_date") == expected
+        for item in lineage
+    )
+
+
+def _daily_balance_penalty_minor(
+    *,
+    penalty_basis_minor: int,
+    available_amount_minor: int,
+    bps_per_day: int,
+) -> int:
+    if type(bps_per_day) is not int:
+        raise LedgerValidationError("Balance penalty bps per day must be an integer.")
+    if bps_per_day < 0:
+        raise LedgerValidationError("Balance penalty bps per day cannot be negative.")
+    if bps_per_day == 0 or penalty_basis_minor <= 0 or available_amount_minor <= 0:
+        return 0
+    calculated = int(
+        (Decimal(penalty_basis_minor) * Decimal(bps_per_day) / Decimal(10_000)).quantize(
+            Decimal("1"),
+            rounding=ROUND_HALF_UP,
+        )
+    )
+    if calculated <= 0:
+        return 0
+    return min(calculated, available_amount_minor)
+
+
+def _charge_balance_penalty_for_lot(
+    *,
+    actor: Model,
+    lot: InvestorBalanceLot,
+    as_of: datetime,
+) -> BalancePenaltyCharge | None:
+    charge_date = business_date(as_of)
+    lot = (
+        InvestorBalanceLot.objects.select_for_update()
+        .select_related("currency")
+        .get(id=lot.id)
+    )
+    if lot.status != BalanceLotStatus.PENALTY_MODE:
+        return None
+    _validate_lot_conservation(lot)
+    idempotency_key = _balance_penalty_charge_idempotency_key(
+        lot=lot,
+        charge_date=charge_date,
+    )
+    if _balance_penalty_charge_recorded_in_lineage(lot=lot, charge_date=charge_date):
+        return None
+    if LedgerJournalEntry.objects.filter(idempotency_key=idempotency_key).exists():
+        return None
+    penalty_basis_minor = _balance_penalty_basis_minor(lot)
+    bps_per_day = int(settings.BALANCE_PENALTY_BPS_PER_DAY)
+    amount_minor = _daily_balance_penalty_minor(
+        penalty_basis_minor=penalty_basis_minor,
+        available_amount_minor=lot.available_amount_minor,
+        bps_per_day=bps_per_day,
+    )
+    if amount_minor <= 0:
+        return None
+
+    available_before = lot.available_amount_minor
+    penalized_before = lot.penalized_amount_minor
+    available_after = available_before - amount_minor
+    penalized_after = penalized_before + amount_minor
+    new_status = (
+        BalanceLotStatus.PENALTY_EXHAUSTED
+        if available_after == 0
+        else BalanceLotStatus.PENALTY_MODE
+    )
+    _validate_lot_conservation_values(
+        original_amount_minor=lot.original_amount_minor,
+        available_amount_minor=available_after,
+        invested_amount_minor=lot.invested_amount_minor,
+        converted_amount_minor=lot.converted_amount_minor,
+        withdrawn_amount_minor=lot.withdrawn_amount_minor,
+        penalized_amount_minor=penalized_after,
+        currency_code=lot.currency_id,
+    )
+    currency = lot.currency
+    investor_liability_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.INVESTOR_BALANCE_LIABILITY,
+        currency=currency,
+        owner_type="investor",
+        owner_id=str(lot.investor_user_id),
+        name=f"{currency.code} investor balance liability {lot.investor_user_id}",
+    )
+    platform_fee_revenue_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.PLATFORM_FEE_REVENUE,
+        currency=currency,
+        owner_type="garanta",
+        owner_id="platform",
+        name=f"{currency.code} platform fee revenue",
+    )
+    metadata = {
+        "balance_lot_id": str(lot.id),
+        "investor_user_id": str(lot.investor_user_id),
+        "charge_date": charge_date.isoformat(),
+        "penalty_bps_per_day": bps_per_day,
+        "penalty_basis_minor": penalty_basis_minor,
+        "available_before_minor": available_before,
+        "available_after_minor": available_after,
+        "penalized_before_minor": penalized_before,
+        "penalized_after_minor": penalized_after,
+    }
+    journal_entry = post_journal_entry(
+        PostJournalEntryCommand(
+            actor=actor,
+            event_type="balance_penalty_charged",
+            direction=LedgerDirection.INTERNAL,
+            currency=currency.code,
+            gross_amount_minor=amount_minor,
+            net_amount_minor=amount_minor,
+            booking_date=charge_date,
+            value_date=charge_date,
+            effective_at=as_of,
+            received_at=as_of,
+            source_type="balance_penalty_charge",
+            source_id=f"{lot.id}:{charge_date.isoformat()}",
+            lender_user_id=str(lot.investor_user_id),
+            idempotency_key=idempotency_key,
+            postings=[
+                PostingCommand(
+                    account=investor_liability_account,
+                    side=LedgerPostingSide.DEBIT,
+                    amount_minor=amount_minor,
+                    memo="Balance ageing penalty charged to investor balance",
+                ),
+                PostingCommand(
+                    account=platform_fee_revenue_account,
+                    side=LedgerPostingSide.CREDIT,
+                    amount_minor=amount_minor,
+                    memo="Balance ageing penalty revenue",
+                ),
+            ],
+            tax_metadata={
+                "balance_penalty_minor": amount_minor,
+                "client_money_flow_minor": 0,
+                "garanta_revenue_minor": amount_minor,
+            },
+            metadata=metadata,
+        )
+    )
+    lineage = list(cast(list[dict[str, Any]], lot.lineage))
+    lineage.append({"event": "balance_penalty_charged", **metadata})
+    lot.available_amount_minor = available_after
+    lot.penalized_amount_minor = penalized_after
+    lot.status = new_status
+    lot.lineage = lineage
+    lot.save(
+        update_fields=[
+            "available_amount_minor",
+            "penalized_amount_minor",
+            "status",
+            "lineage",
+            "updated_at",
+        ]
+    )
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(actor),
+            action="ledger.balance_penalty_charged",
+            target_type="InvestorBalanceLot",
+            target_id=str(lot.id),
+            metadata={**metadata, "journal_entry_id": str(journal_entry.id)},
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="BalancePenaltyCharged",
+            aggregate_type="InvestorBalanceLot",
+            aggregate_id=str(lot.id),
+            payload={**metadata, "journal_entry_id": str(journal_entry.id)},
+            idempotency_key=f"balance-lot:{lot.id}:penalty-charged:{charge_date.isoformat()}",
+        )
+    )
+    return BalancePenaltyCharge(
+        lot_id=str(lot.id),
+        investor_user_id=str(lot.investor_user_id),
+        currency=currency.code,
+        charge_date=charge_date,
+        amount_minor=amount_minor,
+        penalty_bps_per_day=bps_per_day,
+        penalty_basis_minor=penalty_basis_minor,
+        available_before_minor=available_before,
+        available_after_minor=available_after,
+        penalized_before_minor=penalized_before,
+        penalized_after_minor=penalized_after,
+        journal_entry_id=str(journal_entry.id),
+    )
 
 
 def _forced_withdrawal_request_fingerprint(
@@ -3428,6 +3843,7 @@ def run_balance_ageing_scan(command: RunBalanceAgeingScanCommand) -> BalanceAgei
 
     reminders_due: list[BalanceAgeingReminderDue] = []
     penalty_mode_transitions: list[BalanceAgeingPenaltyModeTransition] = []
+    penalty_charges: list[BalancePenaltyCharge] = []
     forced_withdrawal_candidates: list[BalanceAgeingForcedWithdrawalCandidate] = []
     forced_withdrawal_requests: list[InvestorWithdrawalRequest] = []
     skipped_lot_ids: list[str] = []
@@ -3497,6 +3913,14 @@ def run_balance_ageing_scan(command: RunBalanceAgeingScanCommand) -> BalanceAgei
         for lot in overdue_lots:
             if lot.status == BalanceLotStatus.PENALTY_MODE:
                 skipped_lot_ids.append(str(lot.id))
+                if not command.dry_run:
+                    charge = _charge_balance_penalty_for_lot(
+                        actor=command.actor,
+                        lot=lot,
+                        as_of=as_of,
+                    )
+                    if charge is not None:
+                        penalty_charges.append(charge)
                 continue
             transition = BalanceAgeingPenaltyModeTransition(
                 lot_id=str(lot.id),
@@ -3515,6 +3939,7 @@ def run_balance_ageing_scan(command: RunBalanceAgeingScanCommand) -> BalanceAgei
                     "event": "penalty_mode_enabled",
                     "as_of": as_of.isoformat(),
                     "penalty_bps_per_day": int(settings.BALANCE_PENALTY_BPS_PER_DAY),
+                    "penalty_basis_minor": lot.available_amount_minor,
                     "reason": "No verified usable payout instruction at 60-day holding limit.",
                 }
             )
@@ -3526,6 +3951,7 @@ def run_balance_ageing_scan(command: RunBalanceAgeingScanCommand) -> BalanceAgei
                 "amount_minor": lot.available_amount_minor,
                 "days_overdue": transition.days_overdue,
                 "penalty_bps_per_day": int(settings.BALANCE_PENALTY_BPS_PER_DAY),
+                "penalty_basis_minor": lot.available_amount_minor,
             }
             record_audit_event(
                 AuditCommand(
@@ -3545,6 +3971,13 @@ def run_balance_ageing_scan(command: RunBalanceAgeingScanCommand) -> BalanceAgei
                     idempotency_key=f"balance-lot:{lot.id}:penalty-mode-enabled",
                 )
             )
+            charge = _charge_balance_penalty_for_lot(
+                actor=command.actor,
+                lot=lot,
+                as_of=as_of,
+            )
+            if charge is not None:
+                penalty_charges.append(charge)
 
     return BalanceAgeingScanResult(
         as_of=as_of,
@@ -3552,6 +3985,7 @@ def run_balance_ageing_scan(command: RunBalanceAgeingScanCommand) -> BalanceAgei
         forced_withdrawal_candidates=forced_withdrawal_candidates,
         forced_withdrawal_requests=forced_withdrawal_requests,
         penalty_mode_transitions=penalty_mode_transitions,
+        penalty_charges=penalty_charges,
         skipped_lot_ids=skipped_lot_ids,
     )
 

@@ -46,6 +46,9 @@ class SecondaryMarketListingSerializer(serializers.Serializer[Any]):
     removed_by_admin_id = serializers.UUIDField(allow_null=True)
     removed_at = serializers.DateTimeField(allow_null=True)
     removal_reason = serializers.CharField()
+    cancelled_by_user_id = serializers.UUIDField(allow_null=True)
+    cancelled_at = serializers.DateTimeField(allow_null=True)
+    cancellation_reason = serializers.CharField()
     created_by_user_id = serializers.UUIDField()
     created_at = serializers.DateTimeField()
     updated_at = serializers.DateTimeField()
@@ -81,6 +84,8 @@ class SecondaryMarketListingCreateRequestSerializer(serializers.Serializer[Any])
     price_bps = serializers.IntegerField(min_value=1, max_value=1_000_000)
     document_acceptance_id = serializers.UUIDField()
     idempotency_key = serializers.CharField(max_length=160)
+    sensitive_action_code_id = serializers.UUIDField()
+    sensitive_action_code = serializers.CharField(max_length=32, trim_whitespace=True)
     notes = serializers.CharField(required=False, allow_blank=True)
 
 
@@ -100,10 +105,17 @@ class SecondaryMarketListingRemoveRequestSerializer(serializers.Serializer[Any])
     idempotency_key = serializers.CharField(max_length=160)
 
 
+class SecondaryMarketListingCancelRequestSerializer(serializers.Serializer[Any]):
+    reason = serializers.CharField()
+    idempotency_key = serializers.CharField(max_length=160)
+
+
 class SecondaryMarketPurchaseRequestSerializer(serializers.Serializer[Any]):
     document_acceptance_id = serializers.UUIDField()
     risk_acknowledgement_accepted = serializers.BooleanField(required=False, default=False)
     idempotency_key = serializers.CharField(max_length=160)
+    sensitive_action_code_id = serializers.UUIDField()
+    sensitive_action_code = serializers.CharField(max_length=32, trim_whitespace=True)
 
 
 class SecondaryMarketListingListQuerySerializer(serializers.Serializer[Any]):

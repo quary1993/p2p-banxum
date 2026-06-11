@@ -192,8 +192,8 @@ Formal KYC provider reports, including KYC status, failed/rejected KYC, high-ris
 - Defaulted loans from day 16 after due date, using Europe/Zurich calendar days.
 - Default list.
 - Investor exposure by defaulted loan.
-- Recovery/write-off action log covering platform actions, status changes, notes, document uploads, public notes, bulk investor emails, recovery events, and write-off events.
-- Write-off report.
+- Recovery/default action log covering platform actions, status changes, notes, document uploads, public notes, bulk investor emails, and recovery events.
+- Default-resolution/loss-recognition report only after Garanta finalizes the recovery-closure policy; operational v1 does not expose write-off as a normal state.
 - Recovery payment/waterfall report showing gross recovered amount, externally deducted legal/recovery costs, third-party recovery costs declared at recovery time, Garanta recovery fee decision/amount, net amount received by Garanta, net amount available for waterfall allocation, contractual-interest cutoff at default, default/penalty interest percent and amount after default if applicable, principal/interest/penalty/cost category split, lender allocations, and recovery rounding differences.
 - Early repayments.
 - Partial repayments.
@@ -236,7 +236,7 @@ Formal KYC provider reports, including KYC status, failed/rejected KYC, high-ris
 - Borrower account statements as admin-generated PDF and CSV.
 - Borrower annual tax information statements as admin-generated PDF and CSV.
 - Garanta internal annual account and tax information reports.
-- Tax-relevant amount exports covering participant income received/credited, costs incurred, fees, interest, losses/write-offs, recoveries, secondary-market results, FX activity, and balance penalties.
+- Tax-relevant amount exports covering participant income received/credited, costs incurred, fees, interest, losses after final default resolution, recoveries, secondary-market results, FX activity, and balance penalties.
 - Information-only principal/balance movement sections separating deposits, withdrawals, funded principal, repaid principal, principal received, principal repaid, outstanding principal, drawdowns, and repayment principal from income/cost totals.
 - Finance corrections approved by admin or superadmin.
 - Suspense balances.
@@ -299,7 +299,7 @@ Formal KYC provider reports, including KYC status, failed/rejected KYC, high-ris
 
 ## Q/A Backlog
 
-1. Partly answered by RISK-DEC-011: risk/recovery launch reports include default list, investor exposure by defaulted loan, action log, and write-off report.
+1. Partly answered by RISK-DEC-011 and the 2026-06-06 launch decision: risk/recovery launch reports include default list, investor exposure by defaulted loan, action log, and recovery/default reports. Write-off is not an operational v1 state.
 2. Answered by RPT-DEC-001: launch uses industry-standard operational, finance/accounting-source, risk, balance/FX, investor, borrower, audit, and evidence reports; exact external layouts can be refined later with examples.
 3. Answered by RPT-DEC-002: reports are on demand with custom ranges and daily, weekly, monthly, quarterly, yearly/calendar-year, and annual/fiscal-year presets.
 4. Answered by RPT-DEC-004: no launch BI/data warehouse layer is required, but the reporting architecture must be BI-ready.

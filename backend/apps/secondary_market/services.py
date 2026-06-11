@@ -9,6 +9,7 @@ from importlib import import_module
 from typing import Any, cast
 
 from django.apps import apps
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import F, Model, Sum
 
@@ -22,7 +23,19 @@ from backend.apps.platform_core.domain.time import business_date, now_utc, to_bu
 from backend.apps.platform_core.models import Currency
 from backend.apps.platform_core.selectors.settings import get_platform_setting_value
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
-from backend.apps.platform_core.services.events import DomainEventCommand, record_domain_event
+from backend.apps.platform_core.services.events import (
+    DomainEventCommand,
+    OutboxCommand,
+    enqueue_outbox_message,
+    record_domain_event,
+)
+from backend.apps.platform_core.services.sensitive_actions import (
+    SECONDARY_MARKET_LISTING_ACTION,
+    SECONDARY_MARKET_PURCHASE_ACTION,
+    SensitiveActionVerificationCommand,
+    SensitiveActionVerificationError,
+    verify_sensitive_action_code,
+)
 from backend.apps.secondary_market.models import (
     SecondaryMarketListing,
     SecondaryMarketListingEvent,
@@ -57,8 +70,45 @@ REJECTION_FINGERPRINT_METADATA_KEY = "rejection_request_fingerprint"
 REJECTION_IDEMPOTENCY_METADATA_KEY = "rejection_idempotency_key"
 REMOVAL_FINGERPRINT_METADATA_KEY = "removal_request_fingerprint"
 REMOVAL_IDEMPOTENCY_METADATA_KEY = "removal_idempotency_key"
+CANCELLATION_FINGERPRINT_METADATA_KEY = "cancellation_request_fingerprint"
+CANCELLATION_IDEMPOTENCY_METADATA_KEY = "cancellation_idempotency_key"
 PERFORMING_LOAN_STATUS = "funded"
 NONSTANDARD_LISTABLE_STATUSES = {"late", "defaulted"}
+
+
+def _investor_email_for_user_id(investor_user_id: str) -> str:
+    user_model = apps.get_model("accounts_auth", "User")
+    user = user_model.objects.filter(id=investor_user_id).only("email").first()
+    return str(getattr(user, "email", "")).strip().lower() if user is not None else ""
+
+
+def _enqueue_investor_email(
+    *,
+    investor_user_id: str,
+    topic: str,
+    subject: str,
+    body_text: str,
+    template_key: str,
+    idempotency_key: str,
+    metadata: dict[str, Any],
+) -> None:
+    email = _investor_email_for_user_id(investor_user_id)
+    if not email:
+        return
+    enqueue_outbox_message(
+        OutboxCommand(
+            idempotency_key=idempotency_key,
+            topic=topic,
+            payload={
+                "user_id": investor_user_id,
+                "email": email,
+                "subject": subject,
+                "body_text": body_text,
+                "template_key": template_key,
+                "metadata": metadata,
+            },
+        )
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,7 +140,11 @@ class CreateSecondaryMarketListingCommand:
     price_bps: int
     document_acceptance_id: str
     idempotency_key: str
+    sensitive_action_code_id: str = ""
+    sensitive_action_code: str = ""
     notes: str = ""
+    ip_address: str | None = None
+    user_agent: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,12 +173,24 @@ class RemoveSecondaryMarketListingCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class CancelSecondaryMarketListingCommand:
+    actor: Model
+    listing_id: str
+    reason: str
+    idempotency_key: str
+
+
+@dataclass(frozen=True, slots=True)
 class PurchaseSecondaryMarketListingCommand:
     actor: Model
     listing_id: str
     document_acceptance_id: str
     idempotency_key: str
+    sensitive_action_code_id: str = ""
+    sensitive_action_code: str = ""
     risk_acknowledgement_accepted: bool = False
+    ip_address: str | None = None
+    user_agent: str = ""
 
 
 def _model(app_label: str, model_name: str) -> Any:
@@ -666,8 +732,85 @@ def _open_listing_exists_for_holding(holding_id: str) -> bool:
     ).exists()
 
 
-@transaction.atomic
 def create_secondary_market_listing(
+    command: CreateSecondaryMarketListingCommand,
+) -> SecondaryMarketListing:
+    _require_investor_financial_access(command.actor)
+    seller_user_id = str(command.actor.pk)
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    price_bps = _validate_listing_price_bps(command.price_bps)
+    holding_model = _model("holdings", "InvestorLoanHolding")
+    holding = cast(
+        Model | None,
+        holding_model.objects.select_related("loan", "currency")
+        .filter(id=command.holding_id, investor_user_id=command.actor.pk)
+        .first(),
+    )
+    if holding is None:
+        raise SecondaryMarketValidationError("Holding does not exist.")
+    holding_ref = cast(Any, holding)
+    loan = cast(Model, holding_ref.loan)
+    loan_ref = cast(Any, loan)
+    if str(holding_ref.status) != "active":
+        raise SecondaryMarketValidationError("Only active holdings can be listed.")
+    if int(holding_ref.current_principal_minor) <= 0:
+        raise SecondaryMarketValidationError("Only holdings with principal can be listed.")
+    if str(holding_ref.currency_id) != str(loan_ref.currency_id):
+        raise SecondaryMarketValidationError("Holding currency does not match loan currency.")
+    loan_status = str(loan_ref.status)
+    if loan_status not in {PERFORMING_LOAN_STATUS, *NONSTANDARD_LISTABLE_STATUSES}:
+        raise SecondaryMarketValidationError("Loan status is not listable on the secondary market.")
+    currency = _enabled_currency(str(holding_ref.currency_id))
+    _validate_listing_acceptance(
+        acceptance_id=command.document_acceptance_id,
+        actor=command.actor,
+        holding=holding,
+    )
+    snapshot_date = business_date(now_utc())
+    pricing = _pricing_snapshot(
+        holding=holding,
+        loan=loan,
+        price_bps=price_bps,
+        as_of_date=snapshot_date,
+    )
+    request_fingerprint = _listing_request_fingerprint(
+        command,
+        seller_user_id=seller_user_id,
+        loan_id=str(loan_ref.id),
+        pricing=pricing,
+        currency_code=currency.code,
+        idempotency_key=idempotency_key,
+    )
+    existing = _existing_listing_for_idempotency(
+        idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing is not None:
+        return existing
+    if _open_listing_exists_for_holding(str(holding_ref.id)):
+        raise SecondaryMarketValidationError(
+            "Holding already has an open secondary-market listing."
+        )
+
+    try:
+        verify_sensitive_action_code(
+            SensitiveActionVerificationCommand(
+                actor=command.actor,
+                action=SECONDARY_MARKET_LISTING_ACTION,
+                code_id=command.sensitive_action_code_id,
+                raw_code=command.sensitive_action_code,
+                ip_address=command.ip_address,
+                user_agent=command.user_agent,
+            )
+        )
+    except SensitiveActionVerificationError as exc:
+        raise SecondaryMarketValidationError(str(exc)) from exc
+
+    return _create_secondary_market_listing_after_sensitive_code(command)
+
+
+@transaction.atomic
+def _create_secondary_market_listing_after_sensitive_code(
     command: CreateSecondaryMarketListingCommand,
 ) -> SecondaryMarketListing:
     _require_investor_financial_access(command.actor)
@@ -835,6 +978,22 @@ def create_secondary_market_listing(
         listing=listing,
         metadata=event_metadata,
     )
+    status_label = "active" if is_performing else "submitted for Garanta approval"
+    _enqueue_investor_email(
+        investor_user_id=seller_user_id,
+        topic="email.secondary_market_listing_status",
+        subject=f"{settings.PLATFORM_BRAND_NAME} secondary-market listing {status_label}",
+        body_text=(
+            f"Your {settings.PLATFORM_BRAND_NAME} secondary-market listing for loan "
+            f"{loan_ref.title} is {status_label}.\n\n"
+            f"Current principal: {pricing.current_principal_minor} minor units {currency.code}.\n"
+            f"Transfer price: {pricing.transfer_price_minor} minor units {currency.code}.\n"
+            f"Loan status disclosed at listing: {pricing.loan_status_at_listing}."
+        ),
+        template_key="secondary_market.listing_status.v1",
+        idempotency_key=f"email:secondary-listing:{listing.id}:created",
+        metadata=event_metadata,
+    )
     return listing
 
 
@@ -937,6 +1096,19 @@ def approve_secondary_market_listing(
         listing=listing,
         metadata=event_metadata,
     )
+    _enqueue_investor_email(
+        investor_user_id=str(listing.seller_user_id),
+        topic="email.secondary_market_listing_status",
+        subject=f"{settings.PLATFORM_BRAND_NAME} secondary-market listing approved",
+        body_text=(
+            f"Your {settings.PLATFORM_BRAND_NAME} secondary-market listing is now visible "
+            "to eligible buyers.\n\n"
+            f"Disclosure note: {disclosure_note}"
+        ),
+        template_key="secondary_market.listing_status.v1",
+        idempotency_key=f"email:secondary-listing:{listing.id}:approved",
+        metadata=event_metadata,
+    )
     return listing
 
 
@@ -1010,6 +1182,18 @@ def reject_secondary_market_listing(
         action="secondary_market.listing_rejected",
         event_type="SecondaryMarketListingRejected",
         listing=listing,
+        metadata=event_metadata,
+    )
+    _enqueue_investor_email(
+        investor_user_id=str(listing.seller_user_id),
+        topic="email.secondary_market_listing_status",
+        subject=f"{settings.PLATFORM_BRAND_NAME} secondary-market listing rejected",
+        body_text=(
+            f"Your {settings.PLATFORM_BRAND_NAME} secondary-market listing request was "
+            f"rejected.\n\nReason: {reason}"
+        ),
+        template_key="secondary_market.listing_status.v1",
+        idempotency_key=f"email:secondary-listing:{listing.id}:rejected",
         metadata=event_metadata,
     )
     return listing
@@ -1090,11 +1274,233 @@ def remove_secondary_market_listing(
         listing=listing,
         metadata=event_metadata,
     )
+    _enqueue_investor_email(
+        investor_user_id=str(listing.seller_user_id),
+        topic="email.secondary_market_listing_status",
+        subject=f"{settings.PLATFORM_BRAND_NAME} secondary-market listing removed",
+        body_text=(
+            f"Your {settings.PLATFORM_BRAND_NAME} secondary-market listing was removed by "
+            f"Garanta.\n\nReason: {reason}"
+        ),
+        template_key="secondary_market.listing_status.v1",
+        idempotency_key=f"email:secondary-listing:{listing.id}:removed",
+        metadata=event_metadata,
+    )
     return listing
 
 
 @transaction.atomic
+def cancel_secondary_market_listing(
+    command: CancelSecondaryMarketListingCommand,
+) -> SecondaryMarketListing:
+    _require_investor_financial_access(command.actor)
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    reason = _clean_required(command.reason, "Cancellation reason")
+    listing = (
+        SecondaryMarketListing.objects.select_for_update()
+        .filter(id=command.listing_id)
+        .first()
+    )
+    if listing is None or str(listing.seller_user_id) != str(command.actor.pk):
+        raise SecondaryMarketValidationError("Secondary-market listing does not exist.")
+    fingerprint = _admin_transition_fingerprint(
+        listing_id=str(listing.id),
+        action="cancel",
+        reason=reason,
+        idempotency_key=idempotency_key,
+    )
+    if _ensure_transition_idempotency(
+        listing=listing,
+        metadata_key=CANCELLATION_FINGERPRINT_METADATA_KEY,
+        idempotency_key_metadata_key=CANCELLATION_IDEMPOTENCY_METADATA_KEY,
+        idempotency_key=idempotency_key,
+        expected_fingerprint=fingerprint,
+        terminal_status=SecondaryMarketListingStatus.CANCELLED,
+    ):
+        return listing
+    if listing.status not in {
+        SecondaryMarketListingStatus.ACTIVE,
+        SecondaryMarketListingStatus.APPROVAL_REQUESTED,
+    }:
+        raise SecondaryMarketValidationError("Only open listings can be cancelled.")
+    previous_status = str(listing.status)
+    now = now_utc()
+    listing.status = SecondaryMarketListingStatus.CANCELLED
+    listing.cancelled_by_user_id = command.actor.pk
+    listing.cancelled_at = now
+    listing.cancellation_reason = reason
+    listing.metadata = {
+        **cast(dict[str, Any], listing.metadata),
+        CANCELLATION_IDEMPOTENCY_METADATA_KEY: idempotency_key,
+        CANCELLATION_FINGERPRINT_METADATA_KEY: fingerprint,
+    }
+    listing.save(
+        update_fields=[
+            "status",
+            "cancelled_by_user_id",
+            "cancelled_at",
+            "cancellation_reason",
+            "metadata",
+            "updated_at",
+        ]
+    )
+    event_metadata = {
+        "reason": reason,
+        "cancelled_by_user_id": str(command.actor.pk),
+    }
+    _record_listing_event(
+        listing=listing,
+        actor=command.actor,
+        event_type=SecondaryMarketListingEventType.CANCELLED,
+        previous_status=previous_status,
+        new_status=listing.status,
+        note=reason,
+        metadata=event_metadata,
+    )
+    _record_audit_and_domain(
+        actor=command.actor,
+        action="secondary_market.listing_cancelled",
+        event_type="SecondaryMarketListingCancelled",
+        listing=listing,
+        metadata=event_metadata,
+    )
+    _enqueue_investor_email(
+        investor_user_id=str(listing.seller_user_id),
+        topic="email.secondary_market_listing_status",
+        subject=f"{settings.PLATFORM_BRAND_NAME} secondary-market listing cancelled",
+        body_text=(
+            f"Your {settings.PLATFORM_BRAND_NAME} secondary-market listing was cancelled.\n\n"
+            f"Reason: {reason}"
+        ),
+        template_key="secondary_market.listing_status.v1",
+        idempotency_key=f"email:secondary-listing:{listing.id}:cancelled",
+        metadata=event_metadata,
+    )
+    return listing
+
+
 def purchase_secondary_market_listing(
+    command: PurchaseSecondaryMarketListingCommand,
+) -> SecondaryMarketPurchase:
+    _require_investor_financial_access(command.actor)
+    buyer_user_id = str(command.actor.pk)
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    replay = _existing_purchase_replay(
+        command,
+        buyer_user_id=buyer_user_id,
+        idempotency_key=idempotency_key,
+    )
+    if replay is not None:
+        return replay
+
+    listing = (
+        SecondaryMarketListing.objects.select_related("holding", "loan", "currency")
+        .filter(id=command.listing_id)
+        .first()
+    )
+    if listing is None:
+        raise SecondaryMarketValidationError("Secondary-market listing does not exist.")
+    replay_after_listing_read = _existing_purchase_replay(
+        command,
+        buyer_user_id=buyer_user_id,
+        idempotency_key=idempotency_key,
+    )
+    if replay_after_listing_read is not None:
+        return replay_after_listing_read
+    if listing.status != SecondaryMarketListingStatus.ACTIVE:
+        raise SecondaryMarketValidationError("Secondary-market listing is not active.")
+    seller_user_id = str(listing.seller_user_id)
+    if seller_user_id == buyer_user_id:
+        raise SecondaryMarketValidationError("Buyer cannot purchase their own listing.")
+    if SecondaryMarketPurchase.objects.filter(listing=listing).exists():
+        raise SecondaryMarketValidationError("Secondary-market listing has already been sold.")
+
+    loan_model = _model("loans", "Loan")
+    loan = cast(Model | None, loan_model.objects.filter(id=listing.loan_id).first())
+    if loan is None:
+        raise SecondaryMarketValidationError("Listing loan does not exist.")
+    holding_model = _model("holdings", "InvestorLoanHolding")
+    holding = cast(
+        Model | None,
+        holding_model.objects.select_related("currency").filter(id=listing.holding_id).first(),
+    )
+    if holding is None:
+        raise SecondaryMarketValidationError("Seller holding does not exist.")
+    holding_ref = cast(Any, holding)
+    loan_ref = cast(Any, loan)
+    if str(holding_ref.status) != "active":
+        raise SecondaryMarketValidationError("Seller holding is no longer active.")
+    if str(holding_ref.investor_user_id) != seller_user_id:
+        raise SecondaryMarketValidationError("Seller holding no longer belongs to the seller.")
+    if str(holding_ref.loan_id) != str(loan_ref.id):
+        raise SecondaryMarketValidationError("Seller holding no longer matches the listed loan.")
+    if str(holding_ref.currency_id) != str(listing.currency_id):
+        raise SecondaryMarketValidationError("Seller holding currency has changed.")
+    if int(holding_ref.current_principal_minor) != int(listing.current_principal_minor):
+        raise SecondaryMarketValidationError("Seller holding principal has changed.")
+    if str(loan_ref.status) != str(listing.loan_status_at_listing):
+        raise SecondaryMarketValidationError(
+            "Loan status changed after listing; seller must relist with current disclosures."
+        )
+    if listing.risk_acknowledgement_required and not command.risk_acknowledgement_accepted:
+        raise SecondaryMarketValidationError(
+            "Buyer must acknowledge the non-standard listing risk disclosure."
+        )
+
+    _validate_purchase_acceptance(
+        acceptance_id=command.document_acceptance_id,
+        actor=command.actor,
+        listing=listing,
+    )
+    settlement_date = business_date(now_utc())
+    pricing = _pricing_snapshot(
+        holding=holding,
+        loan=loan,
+        price_bps=int(listing.price_bps),
+        as_of_date=settlement_date,
+    )
+    if pricing.loan_status_at_listing != str(listing.loan_status_at_listing):
+        raise SecondaryMarketValidationError(
+            "Loan status changed after listing; seller must relist with current disclosures."
+        )
+    request_fingerprint = _purchase_request_fingerprint(
+        command,
+        buyer_user_id=buyer_user_id,
+        seller_user_id=seller_user_id,
+        holding_id=str(holding_ref.id),
+        loan_id=str(loan_ref.id),
+        price_bps=int(listing.price_bps),
+        pricing=pricing,
+        currency_code=str(listing.currency_id),
+        risk_acknowledgement_accepted=bool(command.risk_acknowledgement_accepted),
+        idempotency_key=idempotency_key,
+    )
+    existing = _existing_purchase_for_idempotency(
+        idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing is not None:
+        return existing
+
+    try:
+        verify_sensitive_action_code(
+            SensitiveActionVerificationCommand(
+                actor=command.actor,
+                action=SECONDARY_MARKET_PURCHASE_ACTION,
+                code_id=command.sensitive_action_code_id,
+                raw_code=command.sensitive_action_code,
+                ip_address=command.ip_address,
+                user_agent=command.user_agent,
+            )
+        )
+    except SensitiveActionVerificationError as exc:
+        raise SecondaryMarketValidationError(str(exc)) from exc
+
+    return _purchase_secondary_market_listing_after_sensitive_code(command)
+
+
+@transaction.atomic
+def _purchase_secondary_market_listing_after_sensitive_code(
     command: PurchaseSecondaryMarketListingCommand,
 ) -> SecondaryMarketPurchase:
     _require_investor_financial_access(command.actor)
@@ -1355,6 +1761,51 @@ def purchase_secondary_market_listing(
         event_type="SecondaryMarketPurchaseCompleted",
         listing=listing,
         metadata=event_metadata,
+    )
+    _enqueue_investor_email(
+        investor_user_id=buyer_user_id,
+        topic="email.secondary_market_purchase_confirmation",
+        subject=f"{settings.PLATFORM_BRAND_NAME} secondary-market purchase completed",
+        body_text=(
+            f"You purchased a secondary-market holding in {settings.PLATFORM_BRAND_NAME} "
+            f"loan {loan_ref.title}.\n\n"
+            f"Principal transferred: {pricing.current_principal_minor} minor units "
+            f"{listing.currency_id}.\n"
+            f"Transfer price: {pricing.transfer_price_minor} minor units {listing.currency_id}.\n"
+            f"Accrued interest paid to seller: {pricing.accrued_interest_minor} minor units.\n"
+            f"Taker fee: {pricing.taker_fee_minor} minor units.\n"
+            f"Total cost: {pricing.buyer_total_cost_minor} minor units."
+        ),
+        template_key="secondary_market.purchase_confirmation.buyer.v1",
+        idempotency_key=f"email:secondary-purchase:{purchase.id}:buyer",
+        metadata={
+            **event_metadata,
+            "recipient_role": "buyer",
+            "seller_user_id": "",
+        },
+    )
+    _enqueue_investor_email(
+        investor_user_id=seller_user_id,
+        topic="email.secondary_market_purchase_confirmation",
+        subject=f"{settings.PLATFORM_BRAND_NAME} secondary-market sale completed",
+        body_text=(
+            f"Your secondary-market sale in {settings.PLATFORM_BRAND_NAME} loan "
+            f"{loan_ref.title} has completed.\n\n"
+            f"Principal transferred: {pricing.current_principal_minor} minor units "
+            f"{listing.currency_id}.\n"
+            f"Transfer price: {pricing.transfer_price_minor} minor units {listing.currency_id}.\n"
+            f"Accrued interest paid to you: {pricing.accrued_interest_minor} minor units.\n"
+            f"Maker fee: {pricing.maker_fee_minor} minor units.\n"
+            f"Net proceeds credited to your balance: {pricing.seller_net_proceeds_minor} "
+            "minor units."
+        ),
+        template_key="secondary_market.purchase_confirmation.seller.v1",
+        idempotency_key=f"email:secondary-purchase:{purchase.id}:seller",
+        metadata={
+            **event_metadata,
+            "recipient_role": "seller",
+            "buyer_user_id": "",
+        },
     )
     return cast(SecondaryMarketPurchase, purchase)
 

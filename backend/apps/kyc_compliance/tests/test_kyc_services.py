@@ -21,6 +21,7 @@ from backend.apps.kyc_compliance.models import (
 )
 from backend.apps.kyc_compliance.services import (
     CreateKycSessionCommand,
+    DiditHostedSession,
     ProviderKycEventCommand,
     create_kyc_session,
     process_didit_event,
@@ -84,6 +85,52 @@ def test_create_kyc_session_reuses_active_pending_session() -> None:
     assert second.session is not None
     assert second.session.id == first.session.id
     assert KycProviderSession.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_create_kyc_session_uses_didit_api_provider_when_configured(
+    settings: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = create_lender()
+    settings.DIDIT_SESSION_PROVIDER = "api"
+    settings.DIDIT_API_KEY = "test-api-key"
+    settings.DIDIT_WORKFLOW_ID = "11111111-2222-3333-4444-555555555555"
+
+    def fake_create_didit_api_session(
+        *,
+        user: Model,
+        workflow_id: str,
+        vendor_data: str,
+    ) -> DiditHostedSession:
+        assert workflow_id == "11111111-2222-3333-4444-555555555555"
+        assert vendor_data == f"user:{user.pk}"
+        return DiditHostedSession(
+            provider_session_id="didit-real-session-1",
+            verification_url="https://verify.didit.me/session/test-token",
+            provider_status="Not Started",
+            provider_payload={
+                "mode": "api",
+                "session_kind": "user",
+                "status": "Not Started",
+                "session_token_present": True,
+            },
+        )
+
+    monkeypatch.setattr(
+        "backend.apps.kyc_compliance.services._create_didit_api_session",
+        fake_create_didit_api_session,
+    )
+
+    result = create_kyc_session(CreateKycSessionCommand(user=user))
+
+    assert result.session is not None
+    assert result.session.provider_session_id == "didit-real-session-1"
+    assert result.session.verification_url == "https://verify.didit.me/session/test-token"
+    assert result.session.provider_payload["mode"] == "api"
+    assert result.session.provider_payload["session_token_present"] is True
+    assert "session_token" not in result.session.provider_payload
+    assert result.case.provider_session_id == "didit-real-session-1"
 
 
 @pytest.mark.django_db
@@ -299,6 +346,59 @@ def test_didit_webhook_requires_valid_signature_when_configured(
     assert valid.json()["status"] == KycStatus.APPROVED
 
 
+@pytest.mark.django_db
+def test_didit_webhook_accepts_v3_signature_and_payload(
+    client: Client,
+    settings: Any,
+) -> None:
+    settings.DIDIT_WEBHOOK_SECRET = "test-secret"
+    settings.DIDIT_WEBHOOK_REQUIRE_SIGNATURE = True
+    user = create_lender()
+    session_result = create_kyc_session(CreateKycSessionCommand(user=user))
+    assert session_result.session is not None
+    timestamp = int(timezone.now().timestamp())
+    payload = {
+        "event_id": "didit-v3-webhook-in-review",
+        "webhook_type": "status.updated",
+        "timestamp": timestamp,
+        "session_id": session_result.session.provider_session_id,
+        "status": "In Review",
+        "workflow_id": "11111111-2222-3333-4444-555555555555",
+        "vendor_data": f"user:{user.pk}",
+        "decision": {
+            "session_kind": "KYC",
+            "status": "In Review",
+            "aml_screenings": [
+                {"node_id": "aml-node", "status": "In Review", "result": "PEP possible match"}
+            ],
+        },
+    }
+    body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    canonical = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    signature = hmac.new(b"test-secret", canonical, hashlib.sha256).hexdigest()
+
+    response = client.post(
+        "/api/v1/kyc/webhooks/didit/",
+        data=body,
+        content_type="application/json",
+        HTTP_X_SIGNATURE_V2=signature,
+        HTTP_X_TIMESTAMP=str(timestamp),
+    )
+
+    assert response.status_code == 202
+    assert response.json()["status"] == KycStatus.PEP_HIT
+    case = KycVerificationCase.objects.get(user_id=user.pk)
+    assert case.provider_session_id == session_result.session.provider_session_id
+    assert case.provider_verification_id == session_result.session.provider_session_id
+    assert case.aml_screening_id == "aml-node"
+    assert case.detected_flags == ["pep"]
+
+
 def test_didit_webhook_signature_is_required_outside_local_even_if_env_disables_it(
     settings: Any,
 ) -> None:
@@ -328,7 +428,15 @@ def test_didit_webhook_signature_system_check_flags_non_local_unsafe_config(
     settings.ENVIRONMENT = "production"
     settings.DIDIT_WEBHOOK_REQUIRE_SIGNATURE = False
     settings.DIDIT_WEBHOOK_SECRET = ""
+    settings.DIDIT_API_KEY = ""
+    settings.DIDIT_WORKFLOW_ID = "didit-natural-person-lender-v1"
 
     errors = check_didit_webhook_signature_config(None)
 
-    assert {error.id for error in errors} == {"kyc_compliance.E001", "kyc_compliance.E002"}
+    assert {error.id for error in errors} == {
+        "kyc_compliance.E001",
+        "kyc_compliance.E002",
+        "kyc_compliance.E003",
+        "kyc_compliance.E004",
+        "kyc_compliance.E005",
+    }

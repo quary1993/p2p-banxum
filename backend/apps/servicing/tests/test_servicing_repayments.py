@@ -12,11 +12,12 @@ from django.db.models import Model
 from django.test import Client
 from django.utils import timezone
 
-from backend.apps.platform_core.models import AuditEvent, Currency, DomainEvent
+from backend.apps.platform_core.models import AuditEvent, Currency, DomainEvent, OutboxMessage
 from backend.apps.platform_core.models.base import AppendOnlyViolation
 from backend.apps.servicing.models import (
     BorrowerRepaymentEvent,
     BorrowerRepaymentEventType,
+    InvestorLossRecognitionLine,
     InvestorRecoveryDistributionLine,
     InvestorRepaymentDistributionLine,
     LoanRecoveryEvent,
@@ -361,6 +362,14 @@ def test_record_borrower_repayment_distributes_to_lender_balances(
     assert holdings[str(investor_two.pk)].current_principal_minor == 18_000_00
     assert [line.balance_lot.available_amount_minor for line in lines] == [1_100_00, 2_200_00]
     assert {line.balance_lot.source_type for line in lines} == {"installment"}
+    repayment_emails = OutboxMessage.objects.filter(
+        topic="email.repayment_distribution_credited"
+    ).order_by("idempotency_key")
+    assert repayment_emails.count() == 2
+    assert {message.payload["user_id"] for message in repayment_emails} == {
+        str(investor_one.pk),
+        str(investor_two.pk),
+    }
     assert [(posting.side, posting.amount_minor) for posting in postings] == [
         ("credit", 1_100_00),
         ("credit", 2_200_00),
@@ -1151,6 +1160,14 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
         2_550_00,
         5_100_00,
     }
+    recovery_emails = OutboxMessage.objects.filter(
+        topic="email.recovery_distribution_credited"
+    ).order_by("idempotency_key")
+    assert recovery_emails.count() == 2
+    assert {message.payload["user_id"] for message in recovery_emails} == {
+        str(investor_one.pk),
+        str(investor_two.pk),
+    }
 
     holding_model = apps.get_model("holdings", "InvestorLoanHolding")
     holdings = {
@@ -1227,7 +1244,7 @@ def test_recovery_payment_requires_defaulted_loan_and_reconciled_category_split(
 ) -> None:
     loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
 
-    with pytest.raises(ServicingValidationError, match="defaulted or written-off"):
+    with pytest.raises(ServicingValidationError, match="before final loss recognition"):
         record_loan_recovery_payment(
             RecordLoanRecoveryPaymentCommand(
                 actor=admin_user,
@@ -1365,6 +1382,28 @@ def test_record_write_off_changes_defaulted_loan_to_written_off_and_is_idempoten
     assert write_off.previous_loan_status == "defaulted"
     assert write_off.new_loan_status == "written_off"
     assert write_off.currency_id == "CHF"
+    loss_lines = list(write_off.loss_recognition_lines.order_by("investor_user_id"))
+    assert len(loss_lines) == 2
+    assert sum(line.principal_loss_minor for line in loss_lines) == 30_000_00
+    assert sum(line.contractual_interest_loss_minor for line in loss_lines) == 500_00
+    assert sum(line.default_interest_loss_minor for line in loss_lines) == 125_00
+    assert sum(line.fees_loss_minor for line in loss_lines) == 25_00
+    assert sum(line.penalties_loss_minor for line in loss_lines) == 50_00
+    assert sum(line.total_loss_minor for line in loss_lines) == 30_700_00
+    assert {
+        line.current_principal_before_minor
+        for line in loss_lines
+    } == {10_000_00, 20_000_00}
+    assert {line.current_principal_after_minor for line in loss_lines} == {0}
+
+    holding_model = apps.get_model("holdings", "InvestorLoanHolding")
+    holdings = {
+        str(holding.investor_user_id): holding
+        for holding in holding_model.objects.filter(loan=loan)
+    }
+    assert holdings[str(investor_one.pk)].current_principal_minor == 0
+    assert holdings[str(investor_two.pk)].current_principal_minor == 0
+    assert {holding.status for holding in holdings.values()} == {"closed"}
     assert apps.get_model("loans", "LoanEvent").objects.filter(
         loan=loan,
         event_type="write_off_recorded",
@@ -1373,6 +1412,7 @@ def test_record_write_off_changes_defaulted_loan_to_written_off_and_is_idempoten
     ).exists()
     assert AuditEvent.objects.filter(action="servicing.loan_write_off_recorded").exists()
     assert DomainEvent.objects.filter(event_type="LoanWriteOffRecorded").exists()
+    assert DomainEvent.objects.filter(event_type="LoanLossRecognized").exists()
 
     replay = record_loan_write_off(
         RecordLoanWriteOffCommand(
@@ -1399,6 +1439,28 @@ def test_record_write_off_changes_defaulted_loan_to_written_off_and_is_idempoten
                 written_off_principal_minor=29_000_00,
                 reason="Changed.",
                 idempotency_key="servicing-write-off-1",
+            )
+        )
+    with pytest.raises(ServicingValidationError, match="before final loss recognition"):
+        record_loan_recovery_payment(
+            RecordLoanRecoveryPaymentCommand(
+                actor=admin_user,
+                loan_id=str(loan.pk),
+                gross_recovered_minor=1_000_00,
+                externally_deducted_costs_minor=0,
+                third_party_costs_from_received_minor=0,
+                recovery_fee_applied=False,
+                recovery_fee_bps=0,
+                principal_recovered_minor=1_000_00,
+                contractual_interest_recovered_minor=0,
+                default_interest_recovered_minor=0,
+                penalties_recovered_minor=0,
+                other_costs_recovered_minor=0,
+                booking_date=date(2026, 3, 20),
+                value_date=date(2026, 3, 20),
+                collection_account_identifier="CH00GARANTARECOVERY",
+                payer_name="Recovery counsel",
+                idempotency_key="servicing-recovery-after-write-off",
             )
         )
 
@@ -1432,9 +1494,27 @@ def test_write_off_requires_defaulted_loan_and_positive_total(
             )
         )
 
+    scan_loan_servicing_statuses(
+        ScanLoanServicingStatusesCommand(
+            actor=admin_user,
+            as_of_date=date(2026, 3, 16),
+            loan_ids=(str(loan.pk),),
+        )
+    )
+    with pytest.raises(ServicingValidationError, match="remaining active holding principal"):
+        record_loan_write_off(
+            RecordLoanWriteOffCommand(
+                actor=admin_user,
+                loan_id=str(loan.pk),
+                written_off_principal_minor=29_000_00,
+                reason="Partial principal loss is not final recognition.",
+                idempotency_key="servicing-write-off-partial-principal",
+            )
+        )
+
 
 @pytest.mark.django_db
-def test_write_off_admin_api(
+def test_write_off_admin_api_records_loss_recognition(
     client: Client,
     admin_user: Model,
     investor_one: Model,
@@ -1467,9 +1547,13 @@ def test_write_off_admin_api(
 
     assert response.status_code == 201
     payload = response.json()
-    assert payload["loan_id"] == str(loan.pk)
-    assert payload["currency"] == "CHF"
-    assert payload["total_written_off_minor"] == 30_500_00
+    assert payload["write_off_event"]["loan_id"] == str(loan.pk)
+    assert payload["write_off_event"]["currency"] == "CHF"
+    assert payload["write_off_event"]["total_written_off_minor"] == 30_500_00
+    assert len(payload["loss_recognition_lines"]) == 2
+    assert sum(
+        line["principal_loss_minor"] for line in payload["loss_recognition_lines"]
+    ) == 30_000_00
     assert cast(Any, loan).status == "written_off"
 
 
@@ -1541,6 +1625,8 @@ def test_risk_note_and_write_off_records_have_app_and_db_guards(
             idempotency_key="servicing-append-write-off",
         )
     )
+    loss_line = InvestorLossRecognitionLine.objects.filter(write_off_event=write_off).first()
+    assert loss_line is not None
 
     with pytest.raises(AppendOnlyViolation):
         note.body = "mutated"
@@ -1549,9 +1635,16 @@ def test_risk_note_and_write_off_records_have_app_and_db_guards(
         write_off.reason = "mutated"
         write_off.save()
     with pytest.raises(AppendOnlyViolation):
+        loss_line.metadata = {"mutated": True}
+        loss_line.save()
+    with pytest.raises(AppendOnlyViolation):
         LoanRiskNote.objects.filter(id=note.id).update(body="mutated")
     with pytest.raises(AppendOnlyViolation):
         LoanWriteOffEvent.objects.filter(id=write_off.id).update(reason="mutated")
+    with pytest.raises(AppendOnlyViolation):
+        InvestorLossRecognitionLine.objects.filter(id=loss_line.id).update(
+            metadata={"mutated": True}
+        )
 
     with pytest.raises(DatabaseError) as update_error, transaction.atomic():
         with connection.cursor() as cursor:
@@ -1568,6 +1661,15 @@ def test_risk_note_and_write_off_records_have_app_and_db_guards(
                 [write_off.id.hex],
             )
     assert "append-only" in str(delete_error.value)
+
+    with pytest.raises(DatabaseError) as loss_update_error, transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE servicing_investorlossrecognitionline "
+                "SET metadata = %s WHERE id = %s",
+                ['{"mutated": true}', loss_line.id.hex],
+            )
+    assert "append-only" in str(loss_update_error.value)
 
 
 @pytest.mark.django_db

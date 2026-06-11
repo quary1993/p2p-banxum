@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import urllib.error
+import urllib.parse
+import urllib.request
 import uuid
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from importlib import import_module
 from typing import Any, cast
@@ -33,6 +36,12 @@ from backend.apps.platform_core.models import Currency
 from backend.apps.platform_core.selectors.settings import get_platform_setting_value
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import DomainEventCommand, record_domain_event
+from backend.apps.platform_core.services.sensitive_actions import (
+    FX_ACTION,
+    SensitiveActionVerificationCommand,
+    SensitiveActionVerificationError,
+    verify_sensitive_action_code,
+)
 
 
 class FxError(ValueError):
@@ -59,6 +68,10 @@ DEFAULT_PAIR_RATE_BOUNDS = {
 }
 DEFAULT_PROVIDER_RATE_FRESHNESS_SECONDS = 300
 PREVIOUS_DAY_AVERAGE_MAX_DEVIATION_BPS = 500
+LOCAL_FX_ENVIRONMENTS = {"local", "test"}
+MOCK_FX_PROVIDERS = {"mock", "local"}
+YAHOO_FINANCE_PROVIDER = "yahoo_finance"
+DEFAULT_YAHOO_SYMBOLS = {"CHF/EUR": "CHFEUR=X", "EUR/CHF": "EURCHF=X"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,7 +100,11 @@ class ExecuteFxQuoteCommand:
     actor: Model
     quote_id: str
     idempotency_key: str
+    sensitive_action_code_id: str = ""
+    sensitive_action_code: str = ""
     as_of: datetime | None = None
+    ip_address: str | None = None
+    user_agent: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -765,8 +782,59 @@ def issue_fx_quote(command: IssueFxQuoteCommand) -> FxQuote:
     return quote
 
 
-@transaction.atomic
 def execute_fx_quote(command: ExecuteFxQuoteCommand) -> FxExchange:
+    _require_financial_actor(command.actor)
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    quote = (
+        FxQuote.objects.select_related("source_currency", "target_currency")
+        .filter(id=command.quote_id)
+        .first()
+    )
+    if quote is None:
+        raise FxValidationError("FX quote does not exist.")
+    if str(quote.investor_user_id) != str(command.actor.pk):
+        raise FxAuthorizationError("Investor can only execute their own FX quote.")
+    request_fingerprint = _exchange_request_fingerprint(
+        command,
+        quote=cast(FxQuote, quote),
+        idempotency_key=idempotency_key,
+    )
+    existing = _existing_exchange_for_idempotency(
+        idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing is not None:
+        return existing
+    if quote.exchanges.exists():
+        raise FxValidationError("FX quote has already been executed.")
+    as_of = command.as_of or now_utc()
+    if as_of > quote.expires_at:
+        raise FxValidationError("FX quote has expired.")
+    _assert_daily_limit(
+        investor_user_id=str(command.actor.pk),
+        business_day=_business_date_for_timestamp(as_of),
+        requested_chf_equivalent_minor=quote.limit_chf_equivalent_minor,
+    )
+
+    try:
+        verify_sensitive_action_code(
+            SensitiveActionVerificationCommand(
+                actor=command.actor,
+                action=FX_ACTION,
+                code_id=command.sensitive_action_code_id,
+                raw_code=command.sensitive_action_code,
+                ip_address=command.ip_address,
+                user_agent=command.user_agent,
+            )
+        )
+    except SensitiveActionVerificationError as exc:
+        raise FxValidationError(str(exc)) from exc
+
+    return _execute_fx_quote_after_sensitive_code(command)
+
+
+@transaction.atomic
+def _execute_fx_quote_after_sensitive_code(command: ExecuteFxQuoteCommand) -> FxExchange:
     _require_financial_actor(command.actor)
     idempotency_key = _clean_idempotency_key(command.idempotency_key)
     quote = (
@@ -1242,14 +1310,160 @@ def create_fx_realized_settlement_report(
     )
 
 
+def _fx_environment() -> str:
+    return str(settings.ENVIRONMENT).strip().lower()
+
+
+def _mock_fx_provider_allowed() -> bool:
+    return _fx_environment() in LOCAL_FX_ENVIRONMENTS and not bool(settings.IS_PRODUCTION)
+
+
+def _yahoo_symbol_for_pair(pair: str) -> str:
+    configured = get_platform_setting_value("fx.yahoo_symbols", DEFAULT_YAHOO_SYMBOLS)
+    if not isinstance(configured, dict):
+        configured = DEFAULT_YAHOO_SYMBOLS
+    symbol = str(configured.get(pair, DEFAULT_YAHOO_SYMBOLS.get(pair, ""))).strip()
+    if not symbol:
+        raise FxValidationError(f"Yahoo Finance symbol is not configured for FX pair {pair}.")
+    return symbol
+
+
+def _latest_numeric_close(values: list[Any]) -> Decimal | None:
+    for value in reversed(values):
+        if value is None:
+            continue
+        decimal = _as_decimal(value, "Yahoo Finance close price")
+        if decimal > 0:
+            return decimal
+    return None
+
+
+def _yahoo_chart_provider_rate(
+    *,
+    source_currency: str,
+    target_currency: str,
+) -> ProviderRate:
+    source = normalize_currency(source_currency)
+    target = normalize_currency(target_currency)
+    pair = _pair_key(source, target)
+    symbol = _yahoo_symbol_for_pair(pair)
+    base_url = str(settings.FX_YAHOO_CHART_URL).rstrip("/")
+    url = (
+        f"{base_url}/{urllib.parse.quote(symbol, safe='=')}"
+        "?range=2d&interval=1d&includePrePost=false"
+    )
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": str(settings.FX_YAHOO_USER_AGENT),
+        },
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(
+            request,
+            timeout=settings.FX_YAHOO_TIMEOUT_SECONDS,
+        ) as response:
+            if response.status < 200 or response.status >= 300:
+                raise FxValidationError(f"Yahoo Finance returned HTTP {response.status}.")
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise FxValidationError(f"Yahoo Finance returned HTTP {exc.code}.") from exc
+    except urllib.error.URLError as exc:
+        raise FxValidationError("Yahoo Finance rate request failed.") from exc
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise FxValidationError("Yahoo Finance returned malformed JSON.") from exc
+
+    chart = payload.get("chart") if isinstance(payload, dict) else None
+    if not isinstance(chart, dict):
+        raise FxValidationError("Yahoo Finance chart payload is malformed.")
+    if chart.get("error"):
+        raise FxValidationError("Yahoo Finance returned a chart error.")
+    results = chart.get("result")
+    if not isinstance(results, list) or not results:
+        raise FxValidationError("Yahoo Finance chart payload has no result.")
+    result = results[0]
+    if not isinstance(result, dict):
+        raise FxValidationError("Yahoo Finance chart result is malformed.")
+    meta = result.get("meta")
+    if not isinstance(meta, dict):
+        raise FxValidationError("Yahoo Finance chart metadata is missing.")
+
+    quote_rows = (result.get("indicators") or {}).get("quote") if isinstance(
+        result.get("indicators"),
+        dict,
+    ) else None
+    closes: list[Any] = []
+    if isinstance(quote_rows, list) and quote_rows and isinstance(quote_rows[0], dict):
+        close_values = quote_rows[0].get("close")
+        if isinstance(close_values, list):
+            closes = close_values
+
+    rate_value = meta.get("regularMarketPrice")
+    rate = _as_decimal(rate_value, "Yahoo Finance regular market price") if rate_value else None
+    if rate is None or rate <= 0:
+        rate = _latest_numeric_close(closes)
+    if rate is None or rate <= 0:
+        raise FxValidationError("Yahoo Finance did not return a positive executable rate.")
+
+    previous_value = meta.get("previousClose") or meta.get("chartPreviousClose")
+    previous_average: Decimal | None = None
+    if previous_value is not None:
+        previous_average = _as_decimal(previous_value, "Yahoo Finance previous close")
+    elif len(closes) >= 2:
+        previous_average = _latest_numeric_close(closes[:-1])
+
+    observed_timestamp = meta.get("regularMarketTime")
+    if observed_timestamp is None:
+        timestamps = result.get("timestamp")
+        if isinstance(timestamps, list) and timestamps:
+            observed_timestamp = timestamps[-1]
+    if not isinstance(observed_timestamp, int):
+        raise FxValidationError("Yahoo Finance did not return a usable rate timestamp.")
+    observed_at = datetime.fromtimestamp(observed_timestamp, tz=UTC)
+    payload_hash = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    ).hexdigest()
+    return ProviderRate(
+        provider=YAHOO_FINANCE_PROVIDER,
+        rate=rate,
+        previous_day_average_rate=previous_average,
+        observed_at=observed_at,
+        provider_quote_id=f"yahoo:{symbol}:{observed_timestamp}",
+        raw_payload_reference=f"sha256:{payload_hash}",
+    )
+
+
+def configured_provider_rate(
+    *,
+    source_currency: str,
+    target_currency: str,
+    as_of: datetime | None = None,
+) -> ProviderRate:
+    provider = str(settings.FX_RATE_PROVIDER).strip().lower()
+    if provider in MOCK_FX_PROVIDERS:
+        return configured_mock_provider_rate(
+            source_currency=source_currency,
+            target_currency=target_currency,
+            as_of=as_of,
+        )
+    if provider == YAHOO_FINANCE_PROVIDER:
+        return _yahoo_chart_provider_rate(
+            source_currency=source_currency,
+            target_currency=target_currency,
+        )
+    raise FxValidationError(f"Unsupported FX rate provider '{provider}'.")
+
+
 def configured_mock_provider_rate(
     *,
     source_currency: str,
     target_currency: str,
     as_of: datetime | None = None,
 ) -> ProviderRate:
-    if settings.IS_PRODUCTION:
-        raise FxValidationError("Mock FX provider cannot be used in production.")
+    if not _mock_fx_provider_allowed():
+        raise FxValidationError("Mock FX provider can be used only in local/test environments.")
     source = normalize_currency(source_currency)
     target = normalize_currency(target_currency)
     pair = _pair_key(source, target)

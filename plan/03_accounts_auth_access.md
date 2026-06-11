@@ -72,6 +72,9 @@ Impacted modules:
 Follow-ups:
 Define magic-link expiry, resend limits, rate limits, device/session behavior, Twilio verification retry limits, and exact support identity-reverification checklist for email recovery.
 
+Implementation status:
+The backend supports local/mock phone verification for development and Twilio Verify for staging/production through `PHONE_VERIFICATION_PROVIDER=twilio_verify`. In Twilio mode, BANXUM stores the local challenge/audit evidence and Twilio verification SID but not a local OTP digest; confirmation is checked through Twilio while local ownership, expiry, attempt limits, and throttles are still enforced. Non-local deploy checks require Twilio credentials and Verify service configuration. Live SMS delivery must be tested once staging/production credentials and phone-number policies are active.
+
 ### ACC-DEC-002: Admin and Superadmin Authentication
 
 Status: Accepted.

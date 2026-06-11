@@ -77,7 +77,7 @@ Define transactional notifications, operational messaging, support communication
 - Default/recovery update from day 16 after due date.
 - Recovery distribution credited notification showing loan/project, recovery event date, currency, credited amount, and available recovery category split, including principal, contractual interest, default/penalty interest, recovery costs/fees where disclosed, other penalties/costs, and rounding difference.
 - Admin-published public loan note for affected investors.
-- Bulk investor email for material loan status, arrears, default, recovery, or write-off changes.
+- Bulk investor email for material loan status, arrears, default, recovery, or final-resolution changes.
 - Account/security alert.
 - Terms update.
 - Support email reference.
@@ -109,6 +109,9 @@ Impacted modules:
 
 Follow-ups:
 Provide SendGrid account/API credentials, verified sender/domain, DNS records, and Twilio account/API credentials/Verify configuration. Decide sender domain.
+
+Implementation status:
+SendGrid dispatch and Twilio Verify are implemented behind provider settings, bounded provider calls, and non-local deploy checks. The current provider-integration audit is closed for code-level security posture: mock/local modes cannot satisfy non-local deploy checks, SendGrid and Twilio fail closed when credentials are missing or provider calls fail, and Twilio phone verification preserves BANXUM's local user ownership, expiry, attempts, audit, and verified-state controls. Business-event email outbox mapping is implemented for balance-ageing reminders, repayment credits, recovery distributions, and secondary-market listing/purchase events. Live SendGrid sender-domain/DNS validation, bounce/suppression webhooks, Twilio live delivery testing, and final advisor-approved wording/templates remain launch setup tasks.
 
 ### COMMS-DEC-002: Marketing Consent and Future Newsletter Lists
 
@@ -146,7 +149,7 @@ Mandatory transactional categories include:
 - Balance ageing, withdrawal, forced withdrawal, penalty, and missing-IBAN emails.
 - Repayment/balance-credit emails.
 - Currency-exchange emails.
-- Late, default, recovery, recovery distribution, write-off, and operational loan-change emails.
+- Late, default, recovery, recovery distribution, final-resolution, and operational loan-change emails.
 - Terms update emails.
 - Any secondary-market transaction email where the user is buyer, seller, or otherwise directly involved.
 
@@ -182,7 +185,7 @@ Date: 2026-05-21.
 Owner: Garanta operations / servicing / product.
 
 Decision:
-For material loan status, arrears, default, recovery, write-off, or operational updates, admin can choose:
+For material loan status, arrears, default, recovery, final-resolution, or operational updates, admin can choose:
 
 - Public loan note only.
 - Bulk email only.
@@ -340,6 +343,19 @@ If {{operator.legal_name}} does not have a usable IBAN for you, financial action
 Regards,
 {{platform.name}}
 {{operator.legal_name}}
+
+## Implementation Status
+
+The current backend queues idempotent transactional email outbox messages for:
+
+- Authentication magic links and sensitive-action confirmation codes, with the plaintext secret stored only in the short-lived encrypted auth record and rendered at dispatch time.
+- Balance-ageing reminder thresholds on days 25, 46, 53, 58, 59, and 60.
+- Borrower repayment distributions credited to lender balances.
+- Recovery distributions credited to lender balances.
+- Secondary-market listing lifecycle updates for sellers.
+- Secondary-market buyer and seller purchase/sale confirmations, without exposing counterparty identity.
+
+Local development uses the mock email provider. Staging and production must set `COMMUNICATIONS_EMAIL_PROVIDER=sendgrid`, `SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`, and sender-domain DNS before sending real notices. Final advisor-approved template wording, template versioning UI, attachments/secure document links, bounce/suppression webhook handling, and admin dead-letter task creation remain provider/content follow-ups before launch.
 
 ## Controls
 

@@ -1,26 +1,35 @@
 from __future__ import annotations
 
+import base64
+import csv
 import hashlib
+import io
 import json
 import re
+import textwrap
 from dataclasses import dataclass
 from typing import Any, cast
 
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Max, Model
 from django.utils import timezone
 
 from backend.apps.documents.models import (
     DocumentAcceptanceEvidence,
+    DocumentArtifactOutputFormat,
+    DocumentArtifactPurpose,
     DocumentCategory,
     DocumentEvent,
     DocumentEventType,
+    DocumentRenderedArtifact,
     DocumentTemplate,
     DocumentTemplateVersion,
     DocumentTemplateVersionStatus,
 )
 from backend.apps.platform_core.domain.access import (
     actor_ref_for_user,
+    is_admin_actor,
     is_lender_actor,
     is_superadmin_actor,
     user_can_access_financial_features,
@@ -50,6 +59,13 @@ MAX_ACCEPTANCE_JSON_BYTES = 65_536
 ACCEPTANCE_FINGERPRINT_METADATA_KEY = "request_fingerprint"
 PLACEHOLDER_PATTERN = re.compile(r"{{\s*([a-zA-Z_][\w]*(?:\.[a-zA-Z_][\w]*)*)\s*}}")
 TEMPLATE_KEY_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.:-]{0,127}$")
+CSV_CONTENT_TYPE = "text/csv; charset=utf-8"
+PDF_CONTENT_TYPE = "application/pdf"
+TEXT_CONTENT_ENCODING = "text"
+BASE64_CONTENT_ENCODING = "base64"
+DOCUMENT_ARTIFACT_RENDERER_VERSION = "document-artifact-renderer-v1"
+CSV_FORMULA_PREFIXES = ("=", "+", "-", "@")
+CSV_FORMULA_LEADING_CHARS = ("\t", "\r", "\n")
 
 
 DEFAULT_VARIABLE_SCOPES: dict[str, dict[str, Any]] = {
@@ -139,6 +155,26 @@ class AcceptDocumentTermsCommand:
     user_agent: str = ""
     idempotency_key: str | None = None
     metadata: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RenderDocumentAcceptanceArtifactCommand:
+    actor: Model
+    acceptance_id: str
+    output_format: str = DocumentArtifactOutputFormat.PDF
+    purpose: str = DocumentArtifactPurpose.INVESTOR_DOWNLOAD
+    metadata: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RenderedDocumentArtifact:
+    rendered_artifact: DocumentRenderedArtifact
+    content_type: str
+    filename: str
+    content: str
+    content_encoding: str
+    content_sha256: str
+    manifest: dict[str, Any]
 
 
 def _actor_account_type(actor: Model) -> str:
@@ -233,6 +269,39 @@ def _assert_json_payload_size(value: dict[str, Any], label: str) -> None:
         )
 
 
+def _deep_merge(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(left)
+    for key, value in right.items():
+        existing = merged.get(key)
+        if isinstance(existing, dict) and isinstance(value, dict):
+            merged[key] = _deep_merge(existing, value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _acceptance_data_snapshot(actor: Model, raw_snapshot: dict[str, Any]) -> dict[str, Any]:
+    snapshot = dict(raw_snapshot)
+    authoritative = {
+        "user": {
+            "id": str(actor.pk),
+            "email": str(getattr(actor, "email", "")),
+            "full_name": str(getattr(actor, "full_name", "")),
+            "account_type": _actor_account_type(actor),
+        },
+        "platform": {
+            "name": settings.PLATFORM_BRAND_NAME,
+            "base_url": settings.PUBLIC_APP_BASE_URL,
+        },
+        "operator": {
+            "name": settings.LEGAL_OPERATOR_NAME,
+        },
+    }
+    # Authoritative user/platform/operator values are set server-side so generated documents
+    # cannot be made to evidence a forged brand, operator, or accepting party.
+    return _deep_merge(snapshot, authoritative)
+
+
 def default_variable_schema(category: str) -> dict[str, Any]:
     document_category = _category(category)
     return dict(DEFAULT_VARIABLE_SCOPES[document_category])
@@ -267,6 +336,10 @@ def _stable_json_fingerprint(payload: dict[str, Any]) -> str:
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
     ).hexdigest()
+
+
+def _stable_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
 
 
 def _content_hash(
@@ -321,6 +394,264 @@ def _record_document_event(
             metadata=metadata or {},
         ),
     )
+
+
+def _artifact_output_format(value: str) -> DocumentArtifactOutputFormat:
+    try:
+        return DocumentArtifactOutputFormat(value.strip().lower())
+    except ValueError as exc:
+        raise DocumentValidationError("Document artifacts can be rendered as pdf or csv.") from exc
+
+
+def _artifact_purpose(value: str) -> DocumentArtifactPurpose:
+    try:
+        return DocumentArtifactPurpose(value.strip().lower())
+    except ValueError as exc:
+        raise DocumentValidationError("Unsupported document artifact purpose.") from exc
+
+
+def _document_access_allowed(actor: Model, acceptance: DocumentAcceptanceEvidence) -> bool:
+    if is_admin_actor(actor):
+        return True
+    return str(actor.pk) == str(acceptance.user_id) and is_lender_actor(actor)
+
+
+def _resolve_path(context: dict[str, Any], path: str) -> Any:
+    value: Any = context
+    for segment in path.split("."):
+        if isinstance(value, dict) and segment in value:
+            value = value[segment]
+            continue
+        raise DocumentValidationError(f"Document template variable is missing: {path}")
+    return value
+
+
+def _render_template_text(*, body: str, context: dict[str, Any]) -> str:
+    def replace(match: re.Match[str]) -> str:
+        value = _resolve_path(context, match.group(1))
+        if value is None:
+            return ""
+        if isinstance(value, dict | list):
+            return _stable_json(value)
+        return str(value)
+
+    return PLACEHOLDER_PATTERN.sub(replace, body)
+
+
+def _csv_cell(value: Any) -> str | int:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return value
+    if isinstance(value, dict | list):
+        value = _stable_json(value)
+    text = str(value)
+    stripped = text.lstrip(" \t\r\n")
+    if (
+        text.startswith(CSV_FORMULA_LEADING_CHARS)
+        or text.startswith(CSV_FORMULA_PREFIXES)
+        or stripped.startswith(CSV_FORMULA_PREFIXES)
+    ):
+        return f"'{text}"
+    return text
+
+
+def _rows_to_csv(*, columns: list[str], rows: list[dict[str, Any]]) -> str:
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=columns, extrasaction="ignore", lineterminator="\n")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({column: _csv_cell(row.get(column)) for column in columns})
+    return buffer.getvalue()
+
+
+def _content_sha256_bytes(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
+
+
+def _pdf_escape(text: str) -> str:
+    ascii_text = text.encode("latin-1", errors="replace").decode("latin-1")
+    return ascii_text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+
+def _simple_pdf_bytes(lines: list[str]) -> bytes:
+    wrapped_lines: list[str] = []
+    for line in lines:
+        wrapped_lines.extend(textwrap.wrap(line, width=112) or [""])
+    page_lines = [wrapped_lines[index : index + 62] for index in range(0, len(wrapped_lines), 62)]
+    if not page_lines:
+        page_lines = [["No document content."]]
+
+    objects: dict[int, bytes] = {}
+    page_object_ids: list[int] = []
+    objects[1] = b"<< /Type /Catalog /Pages 2 0 R >>"
+    objects[3] = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
+
+    next_id = 4
+    for page_number, lines_for_page in enumerate(page_lines, start=1):
+        content_id = next_id
+        page_id = next_id + 1
+        next_id += 2
+        page_object_ids.append(page_id)
+        text_commands = ["BT", "/F1 8 Tf", "10 TL", "36 800 Td"]
+        for line in lines_for_page:
+            text_commands.append(f"({_pdf_escape(line)}) Tj")
+            text_commands.append("T*")
+        text_commands.extend(["T*", f"(Page {page_number} of {len(page_lines)}) Tj", "ET"])
+        content = "\n".join(text_commands).encode("latin-1", errors="replace")
+        objects[content_id] = (
+            f"<< /Length {len(content)} >>\nstream\n".encode("ascii") + content + b"\nendstream"
+        )
+        objects[page_id] = (
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] "
+            + f"/Resources << /Font << /F1 3 0 R >> >> /Contents {content_id} 0 R >>".encode(
+                "ascii"
+            )
+        )
+
+    kids = " ".join(f"{page_id} 0 R" for page_id in page_object_ids)
+    objects[2] = f"<< /Type /Pages /Kids [{kids}] /Count {len(page_object_ids)} >>".encode("ascii")
+    ordered_ids = sorted(objects)
+    buffer = io.BytesIO()
+    buffer.write(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    offsets = {0: 0}
+    for object_id in ordered_ids:
+        offsets[object_id] = buffer.tell()
+        buffer.write(f"{object_id} 0 obj\n".encode("ascii"))
+        buffer.write(objects[object_id])
+        buffer.write(b"\nendobj\n")
+    xref_offset = buffer.tell()
+    max_id = max(ordered_ids)
+    buffer.write(f"xref\n0 {max_id + 1}\n".encode("ascii"))
+    buffer.write(b"0000000000 65535 f \n")
+    for object_id in range(1, max_id + 1):
+        offset = offsets.get(object_id, 0)
+        status = "n" if object_id in offsets else "f"
+        generation = "00000" if object_id in offsets else "65535"
+        buffer.write(f"{offset:010d} {generation} {status} \n".encode("ascii"))
+    buffer.write(
+        f"trailer\n<< /Size {max_id + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode(
+            "ascii"
+        )
+    )
+    return buffer.getvalue()
+
+
+def _safe_filename(value: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9_.-]+", "-", value.strip().lower()).strip("-")
+    return (cleaned or "document")[:80]
+
+
+def _artifact_manifest(
+    *,
+    acceptance: DocumentAcceptanceEvidence,
+    rendered_body: str,
+    output_format: str,
+    content_type: str,
+    filename: str,
+    content_sha256: str,
+    purpose: str,
+) -> dict[str, Any]:
+    return {
+        "document_kind": "acceptance_evidence",
+        "acceptance_id": str(acceptance.id),
+        "user_id": str(acceptance.user_id),
+        "category": acceptance.category,
+        "template_id": str(acceptance.template_id),
+        "template_version_id": str(acceptance.template_version_id),
+        "template_version_number": acceptance.template_version_number,
+        "template_hash": acceptance.template_hash,
+        "context_type": acceptance.context_type,
+        "context_id": acceptance.context_id,
+        "accepted_at": acceptance.accepted_at.isoformat(),
+        "output_format": output_format,
+        "content_type": content_type,
+        "filename": filename,
+        "content_sha256": content_sha256,
+        "purpose": purpose,
+        "renderer_version": DOCUMENT_ARTIFACT_RENDERER_VERSION,
+        "rendered_body_sha256": hashlib.sha256(rendered_body.encode("utf-8")).hexdigest(),
+        "source_of_truth": "template_version_and_acceptance_snapshot",
+        "legal_content_status": "template_content_must_be_approved_before_production_use",
+    }
+
+
+def _acceptance_render_context(acceptance: DocumentAcceptanceEvidence) -> dict[str, Any]:
+    snapshot = dict(acceptance.data_snapshot or {})
+    evidence = {
+        "id": str(acceptance.id),
+        "category": acceptance.category,
+        "template_hash": acceptance.template_hash,
+        "template_version_number": acceptance.template_version_number,
+        "context_type": acceptance.context_type,
+        "context_id": acceptance.context_id,
+        "accepted_at": acceptance.accepted_at.isoformat(),
+        "checkbox_labels": list(acceptance.accepted_checkbox_labels),
+    }
+    document = {
+        "title": acceptance.template_version.title,
+        "template_key": acceptance.template.template_key,
+        "language": acceptance.template.language,
+        "version_number": acceptance.template_version_number,
+        "content_hash": acceptance.template_hash,
+    }
+    return _deep_merge(snapshot, {"acceptance": evidence, "document": document})
+
+
+def _acceptance_rows(
+    *,
+    acceptance: DocumentAcceptanceEvidence,
+    rendered_body: str,
+) -> list[dict[str, Any]]:
+    return [
+        {"field": "document_title", "value": acceptance.template_version.title},
+        {"field": "category", "value": acceptance.category},
+        {"field": "template_key", "value": acceptance.template.template_key},
+        {"field": "template_version_id", "value": str(acceptance.template_version_id)},
+        {"field": "template_version_number", "value": acceptance.template_version_number},
+        {"field": "template_hash", "value": acceptance.template_hash},
+        {"field": "accepted_at", "value": acceptance.accepted_at.isoformat()},
+        {"field": "context_type", "value": acceptance.context_type},
+        {"field": "context_id", "value": acceptance.context_id},
+        {
+            "field": "accepted_checkbox_labels",
+            "value": "; ".join(str(label) for label in acceptance.accepted_checkbox_labels),
+        },
+        {"field": "rendered_body", "value": rendered_body},
+        {"field": "data_snapshot_json", "value": acceptance.data_snapshot},
+    ]
+
+
+def _acceptance_pdf_lines(
+    *,
+    acceptance: DocumentAcceptanceEvidence,
+    rendered_body: str,
+) -> list[str]:
+    return [
+        acceptance.template_version.title,
+        "",
+        *rendered_body.splitlines(),
+        "",
+        "Acceptance Evidence",
+        f"Platform: {settings.PLATFORM_BRAND_NAME}",
+        f"Operator: {settings.LEGAL_OPERATOR_NAME}",
+        f"Acceptance ID: {acceptance.id}",
+        f"User ID: {acceptance.user_id}",
+        f"Category: {acceptance.category}",
+        f"Context: {acceptance.context_type}:{acceptance.context_id}",
+        f"Accepted at: {acceptance.accepted_at.isoformat()}",
+        f"Template version ID: {acceptance.template_version_id}",
+        f"Template version number: {acceptance.template_version_number}",
+        f"Template hash: {acceptance.template_hash}",
+        "Accepted checkboxes:",
+        *[f"- {label}" for label in acceptance.accepted_checkbox_labels],
+        "",
+        "This artifact is regenerated from immutable BANXUM clickwrap evidence. "
+        "The accepted template version, content hash, data snapshot, context, timestamp, "
+        "IP/user-agent where available, and checkbox labels remain the source of truth.",
+    ]
 
 
 @transaction.atomic
@@ -665,9 +996,11 @@ def accept_document_terms(command: AcceptDocumentTermsCommand) -> DocumentAccept
         raise DocumentValidationError("All required checkbox labels must be accepted.")
     context_type = _clean_context(command.context_type, "Context type")
     context_id = _clean_context(command.context_id, "Context id")
-    data_snapshot = command.data_snapshot or {}
-    if not isinstance(data_snapshot, dict):
+    raw_data_snapshot = command.data_snapshot or {}
+    if not isinstance(raw_data_snapshot, dict):
         raise DocumentValidationError("Data snapshot must be an object.")
+    _assert_json_payload_size(raw_data_snapshot, "Data snapshot")
+    data_snapshot = _acceptance_data_snapshot(command.actor, raw_data_snapshot)
     _assert_json_payload_size(data_snapshot, "Data snapshot")
     if command.metadata is not None and not isinstance(command.metadata, dict):
         raise DocumentValidationError("Metadata must be an object.")
@@ -761,3 +1094,128 @@ def accept_document_terms(command: AcceptDocumentTermsCommand) -> DocumentAccept
         )
     )
     return acceptance
+
+
+@transaction.atomic
+def render_document_acceptance_artifact(
+    command: RenderDocumentAcceptanceArtifactCommand,
+) -> RenderedDocumentArtifact:
+    output_format = _artifact_output_format(command.output_format)
+    purpose = _artifact_purpose(command.purpose)
+    if command.metadata is not None and not isinstance(command.metadata, dict):
+        raise DocumentValidationError("Metadata must be an object.")
+    acceptance = cast(
+        DocumentAcceptanceEvidence | None,
+        DocumentAcceptanceEvidence.objects.select_related("template", "template_version")
+        .filter(id=command.acceptance_id)
+        .first(),
+    )
+    if acceptance is None:
+        raise DocumentValidationError("Document evidence was not found.")
+    if not _document_access_allowed(command.actor, acceptance):
+        raise DocumentAuthorizationError("Document evidence is not available to this account.")
+
+    context = _acceptance_render_context(acceptance)
+    rendered_body = _render_template_text(
+        body=acceptance.template_version.body,
+        context=context,
+    )
+    filename_base = _safe_filename(
+        f"{acceptance.template_version.title}-{acceptance.context_type}-{acceptance.context_id}"
+    )
+    if output_format == DocumentArtifactOutputFormat.CSV:
+        content = _rows_to_csv(
+            columns=["field", "value"],
+            rows=_acceptance_rows(acceptance=acceptance, rendered_body=rendered_body),
+        )
+        content_bytes = content.encode("utf-8")
+        content_type = CSV_CONTENT_TYPE
+        content_encoding = TEXT_CONTENT_ENCODING
+        filename = f"{filename_base}.csv"
+        encoded_content = content
+    else:
+        pdf_bytes = _simple_pdf_bytes(
+            _acceptance_pdf_lines(acceptance=acceptance, rendered_body=rendered_body)
+        )
+        content_bytes = pdf_bytes
+        content_type = PDF_CONTENT_TYPE
+        content_encoding = BASE64_CONTENT_ENCODING
+        filename = f"{filename_base}.pdf"
+        encoded_content = base64.b64encode(pdf_bytes).decode("ascii")
+
+    content_sha256 = _content_sha256_bytes(content_bytes)
+    manifest = _artifact_manifest(
+        acceptance=acceptance,
+        rendered_body=rendered_body,
+        output_format=output_format,
+        content_type=content_type,
+        filename=filename,
+        content_sha256=content_sha256,
+        purpose=purpose,
+    )
+    artifact = cast(
+        DocumentRenderedArtifact,
+        DocumentRenderedArtifact.objects.create(
+            acceptance=acceptance,
+            template=acceptance.template,
+            template_version=acceptance.template_version,
+            user_id=acceptance.user_id,
+            actor_user_id=command.actor.pk,
+            actor_account_type=_actor_account_type(command.actor),
+            output_format=output_format,
+            purpose=purpose,
+            content_type=content_type,
+            content_encoding=content_encoding,
+            filename=filename,
+            content_sha256=content_sha256,
+            manifest=manifest,
+            metadata=command.metadata or {},
+        ),
+    )
+    event_metadata = {
+        "acceptance_id": str(acceptance.id),
+        "rendered_artifact_id": str(artifact.id),
+        "user_id": str(acceptance.user_id),
+        "category": acceptance.category,
+        "template_version_id": str(acceptance.template_version_id),
+        "context_type": acceptance.context_type,
+        "context_id": acceptance.context_id,
+        "output_format": output_format,
+        "purpose": purpose,
+        "content_sha256": content_sha256,
+        "renderer_version": DOCUMENT_ARTIFACT_RENDERER_VERSION,
+    }
+    _record_document_event(
+        template=acceptance.template,
+        template_version=acceptance.template_version,
+        category=acceptance.category,
+        actor=command.actor,
+        event_type=DocumentEventType.ARTIFACT_RENDERED,
+        metadata=event_metadata,
+    )
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(command.actor),
+            action="document.artifact_rendered",
+            target_type="DocumentRenderedArtifact",
+            target_id=str(artifact.id),
+            metadata=event_metadata,
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="DocumentArtifactRendered",
+            aggregate_type="DocumentRenderedArtifact",
+            aggregate_id=str(artifact.id),
+            payload=event_metadata,
+        )
+    )
+    return RenderedDocumentArtifact(
+        rendered_artifact=artifact,
+        content_type=content_type,
+        filename=filename,
+        content=encoded_content,
+        content_encoding=content_encoding,
+        content_sha256=content_sha256,
+        manifest=manifest,
+    )

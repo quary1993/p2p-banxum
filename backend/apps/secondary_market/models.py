@@ -28,6 +28,7 @@ class SecondaryMarketListingEventType(models.TextChoices):
     APPROVED = "approved", "Approved"
     REJECTED = "rejected", "Rejected"
     REMOVED = "removed", "Removed"
+    CANCELLED = "cancelled", "Cancelled"
     SOLD = "sold", "Sold"
 
 
@@ -92,6 +93,9 @@ class SecondaryMarketListing(TimestampedModel):
     removed_by_admin_id = models.UUIDField(null=True, blank=True)
     removed_at = models.DateTimeField(null=True, blank=True)
     removal_reason = models.TextField(blank=True)
+    cancelled_by_user_id = models.UUIDField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancellation_reason = models.TextField(blank=True)
     sold_to_user_id = models.UUIDField(null=True, blank=True)
     sold_at = models.DateTimeField(null=True, blank=True)
     created_by_user_id = models.UUIDField()

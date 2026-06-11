@@ -11,10 +11,12 @@ dependencies = [
   "django-storages>=1.14,<2",
   "djangorestframework>=3.16,<4",
   "drf-spectacular>=0.28,<0.29",
+  "gunicorn>=23,<24",
   "psycopg[binary]>=3.2,<4",
   "pydantic>=2.11,<3",
   "redis>=6,<7",
   "structlog>=25,<26",
+  "whitenoise>=6.9,<7",
 ]
 
 [dependency-groups]

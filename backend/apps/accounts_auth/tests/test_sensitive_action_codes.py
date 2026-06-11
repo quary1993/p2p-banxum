@@ -4,6 +4,7 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
+from django.test import Client
 
 from backend.apps.accounts_auth.models import AccountStatus, AccountType, SensitiveAction, User
 from backend.apps.accounts_auth.services import (
@@ -182,3 +183,66 @@ def test_sensitive_action_code_reissue_supersedes_prior_active_code(
         )
     )
     assert consumed.consumed_at is not None
+
+
+@pytest.mark.django_db
+def test_sensitive_action_code_request_api_issues_investor_money_code(
+    client: Client,
+    investor: User,
+) -> None:
+    client.force_login(investor)
+
+    response = client.post(
+        "/api/v1/auth/sensitive-action-code/request/",
+        data={"action": SensitiveAction.FX},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["action"] == SensitiveAction.FX
+    assert body["status"] == "code_sent"
+    assert body["code_id"]
+    assert OutboxMessage.objects.filter(
+        topic="email.sensitive_action_code_requested",
+        payload__action=SensitiveAction.FX,
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_sensitive_action_code_request_api_rejects_admin_login_action(
+    client: Client,
+    investor: User,
+) -> None:
+    client.force_login(investor)
+
+    response = client.post(
+        "/api/v1/auth/sensitive-action-code/request/",
+        data={"action": SensitiveAction.ADMIN_LOGIN},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert OutboxMessage.objects.filter(topic="email.sensitive_action_code_requested").count() == 0
+
+
+@pytest.mark.django_db
+def test_sensitive_action_code_request_api_enforces_issue_cooldown(
+    client: Client,
+    investor: User,
+) -> None:
+    client.force_login(investor)
+
+    first = client.post(
+        "/api/v1/auth/sensitive-action-code/request/",
+        data={"action": SensitiveAction.WITHDRAWAL},
+        content_type="application/json",
+    )
+    second = client.post(
+        "/api/v1/auth/sensitive-action-code/request/",
+        data={"action": SensitiveAction.WITHDRAWAL},
+        content_type="application/json",
+    )
+
+    assert first.status_code == 202
+    assert second.status_code == 429

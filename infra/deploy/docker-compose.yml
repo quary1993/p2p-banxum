@@ -1,0 +1,62 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+
+  backend:
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile.deploy
+    restart: unless-stopped
+    env_file:
+      - ${BANXUM_BACKEND_ENV_FILE:-.env}
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+      CACHE_URL: redis://redis:6379/0
+      DJANGO_STATIC_ROOT: /app/staticfiles
+      DJANGO_MEDIA_ROOT: /app/backend/media
+    command: sh -c ".venv/bin/python backend/manage.py migrate --noinput && .venv/bin/python backend/manage.py collectstatic --noinput && .venv/bin/python backend/manage.py seed_demo && .venv/bin/python backend/manage.py bootstrap_superadmin && exec .venv/bin/gunicorn backend.config.wsgi:application --bind 0.0.0.0:8000 --workers ${GUNICORN_WORKERS:-2} --timeout ${GUNICORN_TIMEOUT:-60}"
+    volumes:
+      - media_data:/app/backend/media
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ../..
+      dockerfile: frontend/Dockerfile.deploy
+      args:
+        VITE_PLATFORM_BRAND_NAME: ${PLATFORM_BRAND_NAME:-BANXUM}
+        VITE_LEGAL_OPERATOR_NAME: ${LEGAL_OPERATOR_NAME:-Garanta Finanzgruppe AG}
+        VITE_SUPPORT_EMAIL: ${SUPPORT_EMAIL:-support@banxum.com}
+    restart: unless-stopped
+    ports:
+      - "${PUBLIC_BIND_ADDRESS:-127.0.0.1}:${PUBLIC_HTTP_PORT}:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  redis_data:
+  media_data:

@@ -4,6 +4,7 @@ from django.urls import path
 
 from backend.apps.secondary_market.api.views import (
     SecondaryMarketListingApproveView,
+    SecondaryMarketListingCancelView,
     SecondaryMarketListingListCreateView,
     SecondaryMarketListingPurchaseView,
     SecondaryMarketListingRejectView,
@@ -25,6 +26,11 @@ urlpatterns = [
         "listings/<uuid:listing_id>/purchase/",
         SecondaryMarketListingPurchaseView.as_view(),
         name="secondary-market-listing-purchase",
+    ),
+    path(
+        "listings/<uuid:listing_id>/cancel/",
+        SecondaryMarketListingCancelView.as_view(),
+        name="secondary-market-listing-cancel",
     ),
     path(
         "admin/listings/<uuid:listing_id>/reject/",

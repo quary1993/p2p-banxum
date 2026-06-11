@@ -111,6 +111,8 @@ class FxQuoteIssueRequestSerializer(serializers.Serializer[Any]):
 
 class FxQuoteExecuteRequestSerializer(serializers.Serializer[Any]):
     idempotency_key = serializers.CharField(max_length=160)
+    sensitive_action_code_id = serializers.UUIDField()
+    sensitive_action_code = serializers.CharField(max_length=32, trim_whitespace=True)
 
 
 class FxDeltaReportQuerySerializer(serializers.Serializer[Any]):

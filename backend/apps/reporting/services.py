@@ -20,6 +20,7 @@ from backend.apps.platform_core.domain.access import (
     actor_ref_for_user,
     is_admin_actor,
     is_superadmin_actor,
+    user_can_access_financial_features,
 )
 from backend.apps.platform_core.domain.time import (
     business_timezone,
@@ -98,6 +99,16 @@ class GenerateReportCommand:
     redaction_mode: str = ReportRedactionMode.REDACTED
     filters: dict[str, Any] | None = None
     destination_note: str = ""
+    as_of: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class GenerateInvestorSelfServiceReportCommand:
+    actor: Model
+    report_type: str
+    start_date: date
+    end_date: date
+    output_format: str = ReportOutputFormat.PDF
     as_of: datetime | None = None
 
 
@@ -2596,25 +2607,42 @@ def _write_zip_entry(archive: zipfile.ZipFile, filename: str, content: bytes) ->
     archive.writestr(entry, content)
 
 
-@transaction.atomic
-def generate_report(command: GenerateReportCommand) -> GeneratedReportArtifact:
-    report_type = _report_type(command.report_type)
-    output_format = _output_format(command.output_format)
-    redaction_mode = _redaction_mode(command.redaction_mode)
-    _require_report_access(
-        actor=command.actor,
-        report_type=report_type,
-        redaction_mode=redaction_mode,
-    )
-    generated_at = command.as_of or now_utc()
+def _require_investor_self_service_report_access(*, actor: Model, report_type: str) -> None:
+    if not user_can_access_financial_features(actor):
+        raise ReportingAuthorizationError(
+            "Investor self-service report downloads require active lender access, phone "
+            "verification, and approved KYC/KYB status."
+        )
+    if report_type not in {
+        ReportType.PARTICIPANT_ACCOUNT_STATEMENT,
+        ReportType.ANNUAL_TAX_INFORMATION,
+    }:
+        raise ReportingValidationError("This report type is not available for investor download.")
+
+
+def _generate_report_artifact(
+    *,
+    actor: Model,
+    report_type: str,
+    output_format: str,
+    redaction_mode: str,
+    start_date: date | None,
+    end_date: date | None,
+    period_preset: str,
+    period_anchor_date: date | None,
+    filters: dict[str, Any],
+    destination_note: str,
+    as_of: datetime | None,
+    run_mode: str,
+) -> GeneratedReportArtifact:
+    generated_at = as_of or now_utc()
     period = _resolve_report_period(
-        start_date=command.start_date,
-        end_date=command.end_date,
-        period_preset=command.period_preset,
-        period_anchor_date=command.period_anchor_date,
+        start_date=start_date,
+        end_date=end_date,
+        period_preset=period_preset,
+        period_anchor_date=period_anchor_date,
         as_of=generated_at,
     )
-    filters = dict(command.filters or {})
 
     dataset = _build_dataset(
         report_type=report_type,
@@ -2632,7 +2660,8 @@ def generate_report(command: GenerateReportCommand) -> GeneratedReportArtifact:
         "start_date": period.start_date.isoformat(),
         "end_date": period.end_date.isoformat(),
         "generated_at": generated_at.isoformat(),
-        "generated_by_admin_id": str(command.actor.pk),
+        "generated_by_actor_id": str(actor.pk),
+        "run_mode": run_mode,
         "definition_version": REPORT_DEFINITION_VERSION,
         "semantics": _report_semantics(report_type),
         "filters": filters,
@@ -2664,27 +2693,28 @@ def generate_report(command: GenerateReportCommand) -> GeneratedReportArtifact:
         redaction_mode=redaction_mode,
         start_date=period.start_date,
         end_date=period.end_date,
-        generated_by_admin_id=command.actor.pk,
+        generated_by_admin_id=actor.pk,
         generated_at=generated_at,
         definition_version=REPORT_DEFINITION_VERSION,
         filters=filters,
         row_count=len(dataset.rows),
         content_sha256=rendered.content_sha256,
         manifest=manifest,
-        destination_note=command.destination_note.strip(),
+        destination_note=destination_note.strip(),
         metadata={
             "content_type": rendered.content_type,
             "filename": rendered.filename,
             "content_encoding": rendered.content_encoding,
             "period_preset": period.preset,
             "period_anchor_date": period.anchor_date.isoformat() if period.anchor_date else "",
+            "run_mode": run_mode,
         },
     )
     ReportEvent.objects.create(
         report_run=report_run,
         event_type=ReportEventType.GENERATED,
-        actor_user_id=command.actor.pk,
-        actor_account_type=str(getattr(command.actor, "account_type", "")),
+        actor_user_id=actor.pk,
+        actor_account_type=str(getattr(actor, "account_type", "")),
         metadata={
             "report_type": report_type,
             "output_format": output_format,
@@ -2692,9 +2722,10 @@ def generate_report(command: GenerateReportCommand) -> GeneratedReportArtifact:
             "row_count": len(dataset.rows),
             "content_sha256": rendered.content_sha256,
             "content_encoding": rendered.content_encoding,
+            "run_mode": run_mode,
         },
     )
-    actor_ref = actor_ref_for_user(command.actor)
+    actor_ref = actor_ref_for_user(actor)
     record_audit_event(
         AuditCommand(
             actor=actor_ref,
@@ -2710,7 +2741,8 @@ def generate_report(command: GenerateReportCommand) -> GeneratedReportArtifact:
                 "period_preset": period.preset,
                 "row_count": len(dataset.rows),
                 "content_sha256": rendered.content_sha256,
-                "destination_note_present": bool(command.destination_note.strip()),
+                "destination_note_present": bool(destination_note.strip()),
+                "run_mode": run_mode,
             },
         )
     )
@@ -2728,6 +2760,7 @@ def generate_report(command: GenerateReportCommand) -> GeneratedReportArtifact:
                 "period_preset": period.preset,
                 "row_count": len(dataset.rows),
                 "content_sha256": rendered.content_sha256,
+                "run_mode": run_mode,
             },
         )
     )
@@ -2738,4 +2771,56 @@ def generate_report(command: GenerateReportCommand) -> GeneratedReportArtifact:
         content=rendered.content,
         content_encoding=rendered.content_encoding,
         manifest=manifest,
+    )
+
+
+@transaction.atomic
+def generate_report(command: GenerateReportCommand) -> GeneratedReportArtifact:
+    report_type = _report_type(command.report_type)
+    output_format = _output_format(command.output_format)
+    redaction_mode = _redaction_mode(command.redaction_mode)
+    _require_report_access(
+        actor=command.actor,
+        report_type=report_type,
+        redaction_mode=redaction_mode,
+    )
+    return _generate_report_artifact(
+        actor=command.actor,
+        report_type=report_type,
+        output_format=output_format,
+        redaction_mode=redaction_mode,
+        start_date=command.start_date,
+        end_date=command.end_date,
+        period_preset=command.period_preset,
+        period_anchor_date=command.period_anchor_date,
+        filters=dict(command.filters or {}),
+        destination_note=command.destination_note,
+        as_of=command.as_of,
+        run_mode="admin_export",
+    )
+
+
+@transaction.atomic
+def generate_investor_self_service_report(
+    command: GenerateInvestorSelfServiceReportCommand,
+) -> GeneratedReportArtifact:
+    report_type = _report_type(command.report_type)
+    output_format = _output_format(command.output_format)
+    _require_investor_self_service_report_access(actor=command.actor, report_type=report_type)
+    return _generate_report_artifact(
+        actor=command.actor,
+        report_type=report_type,
+        output_format=output_format,
+        redaction_mode=ReportRedactionMode.FULL,
+        start_date=command.start_date,
+        end_date=command.end_date,
+        period_preset=ReportPeriodPreset.CUSTOM,
+        period_anchor_date=None,
+        filters={
+            "participant_type": "lender",
+            "participant_id": str(command.actor.pk),
+        },
+        destination_note="investor self-service download",
+        as_of=command.as_of,
+        run_mode="investor_self_service",
     )

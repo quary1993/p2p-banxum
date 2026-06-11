@@ -2,15 +2,36 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import date, datetime
 from importlib import import_module
 from typing import Any
 
 from django.apps import apps
-from django.db.models import Model, Sum
+from django.db.models import Model, Q, Sum
 
 from backend.apps.platform_core.domain.access import user_can_access_financial_features
 from backend.apps.platform_core.domain.time import business_date, now_utc
+from backend.apps.platform_core.selectors.settings import get_platform_setting_value
+
+# Email bodies are private by default in the investor portal. Add a topic here only after
+# confirming the body cannot contain one-time codes, login links, bank details, or third-party PII.
+PORTAL_BODY_VISIBLE_EMAIL_TOPICS = frozenset(
+    {
+        "email.investor_notice",
+        "email.balance_ageing_reminder",
+        "email.deposit_reconciled",
+        "email.withdrawal_status",
+        "email.primary_investment_confirmation",
+        "email.secondary_market_listing_status",
+        "email.secondary_market_purchase_confirmation",
+        "email.fx_exchange_confirmation",
+        "email.repayment_distribution_credited",
+        "email.recovery_distribution_credited",
+        "email.loan_status_changed",
+        "email.loan_risk_note_published",
+    }
+)
 
 
 class InvestorPortalAuthorizationError(RuntimeError):
@@ -21,12 +42,31 @@ class InvestorPortalValidationError(RuntimeError):
     pass
 
 
+@dataclass(frozen=True, slots=True)
+class InvestorDocumentDownloadCommand:
+    actor: Model
+    document_kind: str
+    output_format: str = "pdf"
+    document_id: str = ""
+    start_date: date | None = None
+    end_date: date | None = None
+    year: int | None = None
+
+
 def _model(app_label: str, model_name: str) -> Any:
     return apps.get_model(app_label, model_name)
 
 
 def _servicing_services() -> Any:
     return import_module("backend.apps.servicing.services")
+
+
+def _reporting_services() -> Any:
+    return import_module("backend.apps.reporting.services")
+
+
+def _documents_services() -> Any:
+    return import_module("backend.apps.documents.services")
 
 
 def _require_financial_access(actor: Model) -> str:
@@ -44,6 +84,11 @@ def _bounded_limit(limit: int | None, *, default: int = 50, maximum: int = 250) 
     if limit < 1:
         raise InvestorPortalValidationError("Limit must be at least 1.")
     return min(limit, maximum)
+
+
+def _investor_payment_reference(*, investor_user_id: str, currency: str) -> str:
+    compact_id = investor_user_id.replace("-", "").upper()
+    return f"BX-{compact_id}-{currency}"
 
 
 def _enabled_currencies() -> list[Any]:
@@ -225,6 +270,332 @@ def get_investor_balances(*, actor: Model, as_of: datetime | None = None) -> dic
         "lots": visible_lots,
         "payout_instructions": payout_instructions,
         "has_penalty_mode_balance": penalty_mode_minor > 0,
+    }
+
+
+def get_deposit_instructions(*, actor: Model) -> dict[str, Any]:
+    investor_user_id = _require_financial_access(actor)
+    configured = get_platform_setting_value("payments.deposit_instructions_by_currency", {}) or {}
+    instructions: list[dict[str, Any]] = []
+    for currency in _enabled_currencies():
+        currency_code = _currency_code(currency)
+        details = dict(configured.get(currency_code, {}) or {})
+        iban = str(details.get("iban", "")).strip()
+        bic = str(details.get("bic", "")).strip()
+        bank_name = str(details.get("bank_name", "")).strip()
+        holder_name = str(
+            details.get("account_holder_name") or details.get("account_name") or ""
+        ).strip()
+        collection_identifier = str(
+            details.get("collection_account_identifier") or f"{currency_code}-COLLECTION"
+        ).strip()
+        instructions.append(
+            {
+                "currency": currency_code,
+                "account_holder_name": holder_name,
+                "iban": iban,
+                "bic": bic,
+                "bank_name": bank_name,
+                "collection_account_identifier": collection_identifier,
+                "payment_reference": _investor_payment_reference(
+                    investor_user_id=investor_user_id,
+                    currency=currency_code,
+                ),
+                "notes": str(details.get("notes", "")).strip(),
+                "is_configured": bool(iban and holder_name),
+            }
+        )
+    return {
+        "as_of": now_utc(),
+        "instructions": instructions,
+        "reference_rule": (
+            "The payment reference is unique to the investor and currency and must be included "
+            "unchanged in the bank transfer reference/description."
+        ),
+    }
+
+
+def _document_type_for_category(category: str) -> str:
+    if category == "registration":
+        return "Agreement"
+    if category == "primary_market_investment":
+        return "Assignment"
+    if category == "secondary_market_purchase":
+        return "Assignment"
+    if category == "secondary_market_listing":
+        return "Confirmation"
+    return "Agreement"
+
+
+def _document_context_label(acceptance: Any) -> str:
+    context_type = str(acceptance.context_type).replace("_", " ").title()
+    context_id = str(acceptance.context_id)
+    if not context_id:
+        return context_type
+    return f"{context_type} {context_id}"
+
+
+def get_investor_documents(*, actor: Model) -> dict[str, Any]:
+    investor_user_id = _require_financial_access(actor)
+    acceptance_model = _model("documents", "DocumentAcceptanceEvidence")
+    documents: list[dict[str, Any]] = []
+    for acceptance in (
+        acceptance_model.objects.filter(user_id=investor_user_id)
+        .select_related("template", "template_version")
+        .order_by("-accepted_at", "-id")
+    ):
+        version = acceptance.template_version
+        documents.append(
+            {
+                "id": str(acceptance.pk),
+                "document_kind": "acceptance_evidence",
+                "title": str(version.title),
+                "document_type": _document_type_for_category(str(acceptance.category)),
+                "version": f"v{acceptance.template_version_number}",
+                "date": acceptance.accepted_at,
+                "context_label": _document_context_label(acceptance),
+                "output_formats": ["pdf", "csv"],
+                "generated_on_request": False,
+                "content_hash": acceptance.template_hash,
+            }
+        )
+
+    as_of = now_utc()
+    today = business_date(as_of)
+    statement_start = date(today.year, 1, 1)
+    statement_end = today
+    tax_year = today.year - 1
+    documents.extend(
+        [
+            {
+                "id": f"statement-{today.year}",
+                "document_kind": "account_statement",
+                "title": f"Investor account statement - {today.year}",
+                "document_type": "Statement",
+                "version": "reporting-v2",
+                "date": as_of,
+                "context_label": f"{statement_start.isoformat()} to {statement_end.isoformat()}",
+                "output_formats": ["pdf", "csv", "zip"],
+                "generated_on_request": True,
+                "period_start": statement_start,
+                "period_end": statement_end,
+            },
+            {
+                "id": f"tax-{tax_year}",
+                "document_kind": "annual_tax_information",
+                "title": f"Annual lender tax information statement - {tax_year}",
+                "document_type": "Tax",
+                "version": "reporting-v2",
+                "date": as_of,
+                "context_label": f"Calendar year {tax_year}",
+                "output_formats": ["pdf", "csv", "zip"],
+                "generated_on_request": True,
+                "period_start": date(tax_year, 1, 1),
+                "period_end": date(tax_year, 12, 31),
+            },
+        ]
+    )
+    return {
+        "as_of": as_of,
+        "documents": documents,
+        "disclaimer": (
+            "Statements and annual tax-information files are informational only and are not "
+            "tax advice. Final tax treatment remains the responsibility of the investor."
+        ),
+    }
+
+
+def _acceptance_download_payload(
+    *,
+    actor: Model,
+    document_id: str,
+    output_format: str,
+) -> dict[str, Any]:
+    if not document_id:
+        raise InvestorPortalValidationError("document_id is required for acceptance evidence.")
+    documents = _documents_services()
+    try:
+        artifact = documents.render_document_acceptance_artifact(
+            documents.RenderDocumentAcceptanceArtifactCommand(
+                actor=actor,
+                acceptance_id=document_id,
+                output_format=output_format,
+                purpose="investor_download",
+                metadata={"source": "investor_portal"},
+            )
+        )
+    except documents.DocumentAuthorizationError as exc:
+        raise InvestorPortalValidationError("Document evidence was not found.") from exc
+    except documents.DocumentValidationError as exc:
+        raise InvestorPortalValidationError(str(exc)) from exc
+    return {
+        "content_type": artifact.content_type,
+        "filename": artifact.filename,
+        "content_encoding": artifact.content_encoding,
+        "content": artifact.content,
+        "content_sha256": artifact.content_sha256,
+        "manifest": artifact.manifest,
+    }
+
+
+def _report_period_from_download(command: InvestorDocumentDownloadCommand) -> tuple[date, date]:
+    today = business_date(now_utc())
+    if command.start_date and command.end_date:
+        if command.end_date < command.start_date:
+            raise InvestorPortalValidationError("end_date must be on or after start_date.")
+        return command.start_date, command.end_date
+    if command.document_kind == "annual_tax_information":
+        year = command.year or today.year - 1
+        return date(year, 1, 1), date(year, 12, 31)
+    year = command.year or today.year
+    return date(year, 1, 1), today if year == today.year else date(year, 12, 31)
+
+
+def download_investor_document(command: InvestorDocumentDownloadCommand) -> dict[str, Any]:
+    _require_financial_access(command.actor)
+    output_format = command.output_format.lower().strip()
+    if output_format not in {"pdf", "csv", "zip"}:
+        raise InvestorPortalValidationError("output_format must be pdf, csv, or zip.")
+    document_kind = command.document_kind.lower().strip()
+    if document_kind == "acceptance_evidence":
+        return _acceptance_download_payload(
+            actor=command.actor,
+            document_id=command.document_id,
+            output_format=output_format,
+        )
+    if document_kind not in {"account_statement", "annual_tax_information"}:
+        raise InvestorPortalValidationError("Unsupported investor document kind.")
+    start_date, end_date = _report_period_from_download(command)
+    reporting = _reporting_services()
+    report_type = (
+        "participant_account_statement"
+        if document_kind == "account_statement"
+        else "annual_tax_information"
+    )
+    artifact = reporting.generate_investor_self_service_report(
+        reporting.GenerateInvestorSelfServiceReportCommand(
+            actor=command.actor,
+            report_type=report_type,
+            start_date=start_date,
+            end_date=end_date,
+            output_format=output_format,
+        )
+    )
+    return {
+        "content_type": artifact.content_type,
+        "filename": artifact.filename,
+        "content_encoding": artifact.content_encoding,
+        "content": artifact.content,
+        "content_sha256": artifact.manifest.get("content_sha256", ""),
+        "manifest": artifact.manifest,
+    }
+
+
+def _notification_title_for_topic(topic: str) -> str:
+    if topic == "email.magic_link_requested":
+        return "Login link email"
+    if topic == "email.sensitive_action_code_requested":
+        return "Confirmation code email"
+    return topic.replace("email.", "").replace("_", " ").replace(".", " ").title()
+
+
+def _notification_body(*, topic: str, record: Any | None = None, outbox: Any | None = None) -> str:
+    if topic not in PORTAL_BODY_VISIBLE_EMAIL_TOPICS:
+        return (
+            "Delivery status only. Message contents are not shown in the portal for this "
+            "notification type."
+        )
+    if record is not None and str(record.body_text).strip():
+        return str(record.body_text).strip()
+    if outbox is not None:
+        payload = dict(outbox.payload or {})
+        body = str(payload.get("body_text", "")).strip()
+        if body:
+            return body
+    return "Notification delivery status update."
+
+
+def get_investor_notifications(*, actor: Model, limit: int | None = None) -> dict[str, Any]:
+    investor_user_id = _require_financial_access(actor)
+    limit_value = _bounded_limit(limit)
+    email = str(getattr(actor, "email", "")).strip().lower()
+    delivery_model = _model("communications", "EmailDeliveryRecord")
+    outbox_model = _model("platform_core", "OutboxMessage")
+    latest_records: dict[str, Any] = {}
+    for record in (
+        delivery_model.objects.filter(recipient_email=email, topic__startswith="email.")
+        .select_related("outbox_message")
+        .order_by("-created_at", "-id")[: limit_value * 3]
+    ):
+        key = str(record.outbox_message_id)
+        if key not in latest_records:
+            latest_records[key] = record
+        if len(latest_records) >= limit_value:
+            break
+
+    notifications: list[dict[str, Any]] = []
+    for record in latest_records.values():
+        topic = str(record.topic)
+        notifications.append(
+            {
+                "id": str(record.id),
+                "notification_source": "email_delivery",
+                "topic": topic,
+                "status": str(record.status),
+                "title": str(record.subject) or _notification_title_for_topic(topic),
+                "body": _notification_body(topic=topic, record=record),
+                "created_at": record.created_at,
+                "sent_at": record.sent_at,
+                "unread": False,
+                "metadata": {
+                    "outbox_message_id": str(record.outbox_message_id),
+                    "attempt_number": int(record.attempt_number),
+                    "provider": str(record.provider),
+                    "provider_message_id": str(record.provider_message_id),
+                    "error": str(record.error),
+                },
+            }
+        )
+
+    known_outbox_ids = {str(record.outbox_message_id) for record in latest_records.values()}
+    pending_outboxes = (
+        outbox_model.objects.filter(topic__startswith="email.")
+        .filter(
+            Q(payload__user_id=investor_user_id)
+            | Q(payload__email=email)
+            | Q(payload__recipient_email=email)
+            | Q(payload__to_email=email)
+        )
+        .exclude(id__in=known_outbox_ids)
+        .order_by("-created_at", "-id")[:limit_value]
+    )
+    for outbox in pending_outboxes:
+        topic = str(outbox.topic)
+        notifications.append(
+            {
+                "id": str(outbox.id),
+                "notification_source": "email_outbox",
+                "topic": topic,
+                "status": str(outbox.status),
+                "title": _notification_title_for_topic(topic),
+                "body": _notification_body(topic=topic, outbox=outbox),
+                "created_at": outbox.created_at,
+                "sent_at": outbox.processed_at,
+                "unread": str(outbox.status) in {"pending", "dead_letter"},
+                "metadata": {
+                    "attempts": int(outbox.attempts),
+                    "next_attempt_at": (
+                        outbox.next_attempt_at.isoformat() if outbox.next_attempt_at else ""
+                    ),
+                    "last_error": str(outbox.last_error),
+                },
+            }
+        )
+
+    notifications.sort(key=lambda item: item["created_at"], reverse=True)
+    return {
+        "notifications": notifications[:limit_value],
+        "unread_count": sum(1 for item in notifications[:limit_value] if item["unread"]),
     }
 
 

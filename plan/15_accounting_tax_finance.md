@@ -71,7 +71,7 @@ Define the financial operations layer that turns loan, payment, fee, balance, FX
 - Contractual interest cutoff at default.
 - Default/penalty interest accrued, if provided by loan/project agreement.
 - Recovery rounding difference.
-- Write-off.
+- Advisor-approved final default loss recognition.
 - Annual tax information statement generated.
 - Investor account statement generated.
 - Borrower account statement generated.
@@ -98,7 +98,7 @@ The platform must generate a complete annual account statement for each involved
 
 All annual statements and tax summaries must be generated from the same immutable transaction-level ledger used for operational reporting and accounting exports. The tax-relevant summary means income received/credited and costs incurred. Principal movements are separated and shown only for information, reconciliation, and balance explanation, not as income.
 
-For lenders, the tax-relevant summary includes interest received or credited, fees paid, FX costs/fees, potential losses and write-offs, recoveries, secondary-market results, and balance penalties if any. Recovery reporting must separate principal recovered, contractual interest accrued until default date, default/penalty interest after default date if applicable, third-party recovery costs, Garanta recovery fee if charged to the recovery waterfall, penalties/costs, and rounding differences. Deposits, withdrawals, funded principal, repaid principal, outstanding principal, and balance movements are shown as information-only principal/balance movements.
+For lenders, the tax-relevant summary includes interest received or credited, fees paid, FX costs/fees, potential losses after final default resolution where advisor-approved, recoveries, secondary-market results, and balance penalties if any. Recovery reporting must separate principal recovered, contractual interest accrued until default date, default/penalty interest after default date if applicable, third-party recovery costs, Garanta recovery fee if charged to the recovery waterfall, penalties/costs, and rounding differences. Deposits, withdrawals, funded principal, repaid principal, outstanding principal, and balance movements are shown as information-only principal/balance movements.
 
 For borrowers, the tax-relevant summary includes interest paid, Garanta fees including borrower success fee where applicable, administrative costs, FX costs if applicable, penalties, default/penalty interest if applicable, and recovery costs if applicable. Principal received, principal repaid, outstanding principal, drawdown movements, repayment principal, and recovered principal are separated from income/cost items.
 
@@ -201,9 +201,9 @@ Owner: Garanta finance / tax / product.
 Decision:
 The platform stores tax-relevant amounts and makes them available for exports. It does not hardcode VAT, reverse-charge, withholding tax, or other tax obligations at launch unless a later legal/accounting review requires it.
 
-Stored/exportable statement and tax-summary source data includes fees, contractual interest, default/penalty interest if applicable, principal movements, losses/write-offs, gross recoveries, externally deducted legal/recovery costs, third-party recovery costs declared at recovery time, Garanta recovery fee if applied, project recovery waterfall configuration/version, net recoveries received by Garanta, net amount available for waterfall allocation, lender recovery distributions, recovery rounding differences, secondary-market results, FX activity, balance penalties, borrower success fee, lender payment fee if non-zero later, secondary-market maker/taker fees, FX fees, configurable tax categories, tax-code placeholders, and source-country/counterparty metadata where available.
+Stored/exportable statement and tax-summary source data includes fees, contractual interest, default/penalty interest if applicable, principal movements, losses after final default resolution where advisor-approved, gross recoveries, externally deducted legal/recovery costs, third-party recovery costs declared at recovery time, Garanta recovery fee if applied, project recovery waterfall configuration/version, net recoveries received by Garanta, net amount available for waterfall allocation, lender recovery distributions, recovery rounding differences, secondary-market results, FX activity, balance penalties, borrower success fee, lender payment fee if non-zero later, secondary-market maker/taker fees, FX fees, configurable tax categories, tax-code placeholders, and source-country/counterparty metadata where available.
 
-Principal movements are retained for account-statement, reconciliation, and information-only sections. They must not be included in income/cost totals unless a later accountant-approved rule explicitly classifies a specific principal-related loss/recovery/write-off amount as tax-relevant.
+Principal movements are retained for account-statement, reconciliation, and information-only sections. They must not be included in income/cost totals unless a later accountant-approved rule explicitly classifies a specific principal-related loss/recovery/final-resolution amount as tax-relevant.
 
 Rationale:
 The platform should provide complete source data while leaving tax interpretation, VAT/reverse-charge mapping, and filing treatment to Garanta's accountants and the investor's advisors.
@@ -356,7 +356,7 @@ Confirm final accounting account names, Bexio mappings, and tax treatment for FX
 - Balance movements by currency.
 - Currency-exchange activity and fees.
 - Balance ageing penalties, if any.
-- Losses/write-offs.
+- Losses after final default resolution, if advisor-approved.
 - Recoveries.
 - Recovery category split: principal, contractual interest until default date, default/penalty interest after default date if applicable, third-party recovery costs, Garanta recovery fee if applied, other penalties/costs, and rounding differences.
 - Secondary-market results.

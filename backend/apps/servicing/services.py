@@ -10,6 +10,7 @@ from importlib import import_module
 from typing import Any, cast
 
 from django.apps import apps
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Model, Sum
 
@@ -27,10 +28,16 @@ from backend.apps.platform_core.domain.money import (
 from backend.apps.platform_core.domain.time import business_timezone, now_utc
 from backend.apps.platform_core.models import Currency
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
-from backend.apps.platform_core.services.events import DomainEventCommand, record_domain_event
+from backend.apps.platform_core.services.events import (
+    DomainEventCommand,
+    OutboxCommand,
+    enqueue_outbox_message,
+    record_domain_event,
+)
 from backend.apps.servicing.models import (
     BorrowerRepaymentEvent,
     BorrowerRepaymentEventType,
+    InvestorLossRecognitionLine,
     InvestorRecoveryDistributionLine,
     InvestorRepaymentDistributionLine,
     LoanRecoveryEvent,
@@ -62,7 +69,7 @@ LOAN_STATUS_REPAID = "repaid"
 LOAN_STATUS_WRITTEN_OFF = "written_off"
 REPAYMENT_ALLOWED_LOAN_STATUSES = {LOAN_STATUS_FUNDED, LOAN_STATUS_LATE}
 STATUS_SCAN_LOAN_STATUSES = {LOAN_STATUS_FUNDED, LOAN_STATUS_LATE}
-RECOVERY_ALLOWED_LOAN_STATUSES = {LOAN_STATUS_DEFAULTED, LOAN_STATUS_WRITTEN_OFF}
+RECOVERY_ALLOWED_LOAN_STATUSES = {LOAN_STATUS_DEFAULTED}
 LATE_THRESHOLD_DAYS = 5
 DEFAULT_THRESHOLD_DAYS = 16
 PUBLIC_NOTE_LOAN_STATUSES = {
@@ -72,6 +79,41 @@ PUBLIC_NOTE_LOAN_STATUSES = {
     LOAN_STATUS_REPAID,
     LOAN_STATUS_WRITTEN_OFF,
 }
+
+
+def _investor_email_for_user_id(investor_user_id: str) -> str:
+    user_model = apps.get_model("accounts_auth", "User")
+    user = user_model.objects.filter(id=investor_user_id).only("email").first()
+    return str(getattr(user, "email", "")).strip().lower() if user is not None else ""
+
+
+def _enqueue_investor_email(
+    *,
+    investor_user_id: str,
+    topic: str,
+    subject: str,
+    body_text: str,
+    template_key: str,
+    idempotency_key: str,
+    metadata: dict[str, Any],
+) -> None:
+    email = _investor_email_for_user_id(investor_user_id)
+    if not email:
+        return
+    enqueue_outbox_message(
+        OutboxCommand(
+            idempotency_key=idempotency_key,
+            topic=topic,
+            payload={
+                "user_id": investor_user_id,
+                "email": email,
+                "subject": subject,
+                "body_text": body_text,
+                "template_key": template_key,
+                "metadata": metadata,
+            },
+        )
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,6 +155,20 @@ class RecoveryDistributionPlanLine:
     penalties_minor: int
     other_costs_minor: int
     amount_minor: int
+    current_principal_before_minor: int
+    current_principal_after_minor: int
+
+
+@dataclass(frozen=True, slots=True)
+class LossRecognitionPlanLine:
+    holding: Model
+    investor_user_id: str
+    principal_loss_minor: int
+    contractual_interest_loss_minor: int
+    default_interest_loss_minor: int
+    fees_loss_minor: int
+    penalties_loss_minor: int
+    total_loss_minor: int
     current_principal_before_minor: int
     current_principal_after_minor: int
 
@@ -886,6 +942,88 @@ def _recovery_distribution_plan(
     return plan
 
 
+def _loss_recognition_plan(
+    *,
+    holdings: list[Model],
+    principal_loss_minor: int,
+    contractual_interest_loss_minor: int,
+    default_interest_loss_minor: int,
+    fees_loss_minor: int,
+    penalties_loss_minor: int,
+    currency_code: str,
+) -> list[LossRecognitionPlanLine]:
+    if not holdings:
+        raise ServicingValidationError("Loan has no active investor holdings to loss-recognize.")
+    weights = [int(cast(Any, holding).current_principal_minor) for holding in holdings]
+    total_current_principal = sum(weights)
+    if principal_loss_minor != total_current_principal:
+        raise ServicingValidationError(
+            "Written-off principal must equal the remaining active holding principal."
+        )
+    category_allocations = {
+        "principal": allocate_by_weights(Money(principal_loss_minor, currency_code), weights),
+        "contractual_interest": allocate_by_weights(
+            Money(contractual_interest_loss_minor, currency_code),
+            weights,
+        ),
+        "default_interest": allocate_by_weights(
+            Money(default_interest_loss_minor, currency_code),
+            weights,
+        ),
+        "fees": allocate_by_weights(Money(fees_loss_minor, currency_code), weights),
+        "penalties": allocate_by_weights(Money(penalties_loss_minor, currency_code), weights),
+    }
+    plan: list[LossRecognitionPlanLine] = []
+    for index, holding in enumerate(holdings):
+        holding_ref = cast(Any, holding)
+        before = int(holding_ref.current_principal_minor)
+        principal_part = category_allocations["principal"][index].amount_minor
+        contractual_interest_part = category_allocations["contractual_interest"][
+            index
+        ].amount_minor
+        default_interest_part = category_allocations["default_interest"][index].amount_minor
+        fees_part = category_allocations["fees"][index].amount_minor
+        penalties_part = category_allocations["penalties"][index].amount_minor
+        if principal_part != before:
+            raise ServicingValidationError(
+                "Written-off principal allocation must close every active holding."
+            )
+        total = (
+            principal_part
+            + contractual_interest_part
+            + default_interest_part
+            + fees_part
+            + penalties_part
+        )
+        if total <= 0:
+            continue
+        plan.append(
+            LossRecognitionPlanLine(
+                holding=holding,
+                investor_user_id=str(holding_ref.investor_user_id),
+                principal_loss_minor=principal_part,
+                contractual_interest_loss_minor=contractual_interest_part,
+                default_interest_loss_minor=default_interest_part,
+                fees_loss_minor=fees_part,
+                penalties_loss_minor=penalties_part,
+                total_loss_minor=total,
+                current_principal_before_minor=before,
+                current_principal_after_minor=0,
+            )
+        )
+    if sum(line.principal_loss_minor for line in plan) != principal_loss_minor:
+        raise ServicingValidationError("Loss principal allocation does not reconcile.")
+    if sum(line.total_loss_minor for line in plan) != (
+        principal_loss_minor
+        + contractual_interest_loss_minor
+        + default_interest_loss_minor
+        + fees_loss_minor
+        + penalties_loss_minor
+    ):
+        raise ServicingValidationError("Loss recognition plan does not reconcile.")
+    return plan
+
+
 def _actor_has_loan_holding_history(actor: Model, loan_id: str) -> bool:
     holding_model = apps.get_model("holdings", "InvestorLoanHolding")
     return bool(holding_model.objects.filter(loan_id=loan_id, investor_user_id=actor.pk).exists())
@@ -1011,6 +1149,40 @@ def _record_recovery_holding_principal_update(
         metadata={
             "recovery_event_id": str(recovery_event.id),
             "principal_recovered_minor": principal_minor,
+            "current_principal_before_minor": before_minor,
+            "current_principal_after_minor": after_minor,
+        },
+    )
+
+
+def _record_loss_holding_principal_update(
+    *,
+    holding: Model,
+    actor: Model,
+    write_off_event: LoanWriteOffEvent,
+    principal_loss_minor: int,
+    before_minor: int,
+    after_minor: int,
+) -> None:
+    holding_ref = cast(Any, holding)
+    previous_status = str(holding_ref.status)
+    holding_ref.current_principal_minor = after_minor
+    holding_ref.status = "closed" if after_minor == 0 else previous_status
+    holding.save(update_fields=["current_principal_minor", "status", "updated_at"])
+    event_model = apps.get_model("holdings", "InvestorLoanHoldingEvent")
+    event_model.objects.create(
+        holding=holding,
+        loan_id=holding_ref.loan_id,
+        investor_user_id=holding_ref.investor_user_id,
+        event_type="closed" if after_minor == 0 else "principal_updated",
+        actor_user_id=actor.pk,
+        actor_account_type=str(getattr(actor, "account_type", "")),
+        previous_status=previous_status,
+        new_status=str(holding_ref.status),
+        note="Final default loss recognition.",
+        metadata={
+            "write_off_event_id": str(write_off_event.id),
+            "principal_loss_minor": principal_loss_minor,
             "current_principal_before_minor": before_minor,
             "current_principal_after_minor": after_minor,
         },
@@ -1418,6 +1590,34 @@ def record_borrower_repayment(
                 metadata={"line_index": index},
             )
         )
+    for line in distribution_lines:
+        _enqueue_investor_email(
+            investor_user_id=str(line.investor_user_id),
+            topic="email.repayment_distribution_credited",
+            subject=f"{settings.PLATFORM_BRAND_NAME} repayment credited",
+            body_text=(
+                f"Your {settings.PLATFORM_BRAND_NAME} balance has been credited with "
+                f"{line.amount_minor} minor units in {currency.code} for loan {loan_ref.title}.\n\n"
+                f"Principal component: {line.principal_minor} minor units.\n"
+                f"Interest component: {line.interest_minor} minor units.\n"
+                f"Value date: {command.value_date.isoformat()}."
+            ),
+            template_key="servicing.repayment_distribution_credited.v1",
+            idempotency_key=(
+                f"email:repayment-distribution:{repayment_event.id}:{line.investor_user_id}"
+            ),
+            metadata={
+                "repayment_event_id": str(repayment_event.id),
+                "loan_id": str(loan_ref.id),
+                "holding_id": str(line.holding_id),
+                "balance_lot_id": str(line.balance_lot_id),
+                "currency": currency.code,
+                "amount_minor": line.amount_minor,
+                "principal_minor": line.principal_minor,
+                "interest_minor": line.interest_minor,
+                "value_date": command.value_date.isoformat(),
+            },
+        )
     remaining_loan_principal = sum(line.current_principal_after_minor for line in distribution_plan)
     schedule_recalculation = _recalculate_schedule_after_early_repayment(
         loan=loan,
@@ -1577,7 +1777,8 @@ def record_loan_recovery_payment(
     loan_ref = cast(Any, loan)
     if str(loan_ref.status) not in RECOVERY_ALLOWED_LOAN_STATUSES:
         raise ServicingValidationError(
-            "Recovery payments can only be recorded for defaulted or written-off loans."
+            "Recovery payments can only be recorded for defaulted loans "
+            "before final loss recognition."
         )
     currency = _enabled_currency(str(loan_ref.currency_id))
     for label, amount in [
@@ -1753,6 +1954,39 @@ def record_loan_recovery_payment(
                 current_principal_after_minor=plan_line.current_principal_after_minor,
                 metadata={"line_index": index},
             )
+        )
+    for line in distribution_lines:
+        _enqueue_investor_email(
+            investor_user_id=str(line.investor_user_id),
+            topic="email.recovery_distribution_credited",
+            subject=f"{settings.PLATFORM_BRAND_NAME} recovery distribution credited",
+            body_text=(
+                f"Your {settings.PLATFORM_BRAND_NAME} balance has been credited with "
+                f"{line.amount_minor} minor units in {currency.code} from a recovery payment "
+                f"for loan {loan_ref.title}.\n\n"
+                f"Principal recovered: {line.principal_minor} minor units.\n"
+                f"Contractual interest recovered: {line.contractual_interest_minor} minor units.\n"
+                f"Default/penalty interest recovered: {line.default_interest_minor} minor units.\n"
+                f"Penalties and other costs recovered: "
+                f"{line.penalties_minor + line.other_costs_minor} minor units.\n"
+                f"Value date: {command.value_date.isoformat()}."
+            ),
+            template_key="servicing.recovery_distribution_credited.v1",
+            idempotency_key=f"email:recovery-distribution:{recovery_event.id}:{line.investor_user_id}",
+            metadata={
+                "recovery_event_id": str(recovery_event.id),
+                "loan_id": str(loan_ref.id),
+                "holding_id": str(line.holding_id),
+                "balance_lot_id": str(line.balance_lot_id),
+                "currency": currency.code,
+                "amount_minor": line.amount_minor,
+                "principal_minor": line.principal_minor,
+                "contractual_interest_minor": line.contractual_interest_minor,
+                "default_interest_minor": line.default_interest_minor,
+                "penalties_minor": line.penalties_minor,
+                "other_costs_minor": line.other_costs_minor,
+                "value_date": command.value_date.isoformat(),
+            },
         )
     loan_event_model = _loan_event_model()
     loan_event_model.objects.create(
@@ -1950,6 +2184,7 @@ def add_loan_risk_note(command: AddLoanRiskNoteCommand) -> LoanRiskNote:
 
 @transaction.atomic
 def record_loan_write_off(command: RecordLoanWriteOffCommand) -> LoanWriteOffEvent:
+    """Record final default loss recognition and close remaining active holdings."""
     _require_admin_actor(command.actor)
     idempotency_key = _clean_idempotency_key(command.idempotency_key)
     principal_minor = _validate_nonnegative_minor_amount(
@@ -2009,6 +2244,16 @@ def record_loan_write_off(command: RecordLoanWriteOffCommand) -> LoanWriteOffEve
     previous_status = str(loan_ref.status)
     if previous_status != LOAN_STATUS_DEFAULTED:
         raise ServicingValidationError("Only defaulted loans can be written off.")
+    holdings = _active_holdings_for_loan(loan)
+    loss_plan = _loss_recognition_plan(
+        holdings=holdings,
+        principal_loss_minor=principal_minor,
+        contractual_interest_loss_minor=contractual_interest_minor,
+        default_interest_loss_minor=default_interest_minor,
+        fees_loss_minor=fees_minor,
+        penalties_loss_minor=penalties_minor,
+        currency_code=currency.code,
+    )
     written_off_at = now_utc()
     metadata = {
         REQUEST_FINGERPRINT_METADATA_KEY: request_fingerprint,
@@ -2016,6 +2261,7 @@ def record_loan_write_off(command: RecordLoanWriteOffCommand) -> LoanWriteOffEve
         "borrower_id": str(loan_ref.borrower_id),
         "previous_loan_status": previous_status,
         "new_loan_status": LOAN_STATUS_WRITTEN_OFF,
+        "loss_recognition_line_count": len(loss_plan),
         **(command.metadata or {}),
     }
     try:
@@ -2048,6 +2294,33 @@ def record_loan_write_off(command: RecordLoanWriteOffCommand) -> LoanWriteOffEve
         if existing_after_race is None:
             raise
         return existing_after_race
+    loss_lines: list[InvestorLossRecognitionLine] = []
+    for index, line in enumerate(loss_plan):
+        _record_loss_holding_principal_update(
+            holding=line.holding,
+            actor=command.actor,
+            write_off_event=write_off,
+            principal_loss_minor=line.principal_loss_minor,
+            before_minor=line.current_principal_before_minor,
+            after_minor=line.current_principal_after_minor,
+        )
+        loss_lines.append(
+            InvestorLossRecognitionLine.objects.create(
+                write_off_event=write_off,
+                holding=line.holding,
+                investor_user_id=line.investor_user_id,
+                currency=currency,
+                principal_loss_minor=line.principal_loss_minor,
+                contractual_interest_loss_minor=line.contractual_interest_loss_minor,
+                default_interest_loss_minor=line.default_interest_loss_minor,
+                fees_loss_minor=line.fees_loss_minor,
+                penalties_loss_minor=line.penalties_loss_minor,
+                total_loss_minor=line.total_loss_minor,
+                current_principal_before_minor=line.current_principal_before_minor,
+                current_principal_after_minor=line.current_principal_after_minor,
+                metadata={"line_index": index},
+            )
+        )
     loan_ref.status = LOAN_STATUS_WRITTEN_OFF
     loan_ref.updated_by_admin_id = command.actor.pk
     loan.save(update_fields=["status", "updated_by_admin_id", "updated_at"])
@@ -2066,6 +2339,7 @@ def record_loan_write_off(command: RecordLoanWriteOffCommand) -> LoanWriteOffEve
         "new_status": LOAN_STATUS_WRITTEN_OFF,
         "reason": reason,
         "evidence_reference": evidence_reference,
+        "loss_recognition_line_count": len(loss_lines),
     }
     _loan_event_model().objects.create(
         loan=loan,
@@ -2094,6 +2368,15 @@ def record_loan_write_off(command: RecordLoanWriteOffCommand) -> LoanWriteOffEve
             aggregate_id=str(loan_ref.id),
             payload=event_metadata,
             idempotency_key=f"loan:{loan_ref.id}:write-off:{write_off.id}",
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="LoanLossRecognized",
+            aggregate_type="Loan",
+            aggregate_id=str(loan_ref.id),
+            payload=event_metadata,
+            idempotency_key=f"loan:{loan_ref.id}:loss-recognized:{write_off.id}",
         )
     )
     return cast(LoanWriteOffEvent, write_off)

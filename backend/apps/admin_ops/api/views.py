@@ -20,6 +20,8 @@ from backend.apps.admin_ops.api.serializers import (
     AdminTaskUpdateRequestSerializer,
     AuditEventQuerySerializer,
     AuditEventSerializer,
+    ReconciliationBreakTaskSyncRequestSerializer,
+    ReconciliationBreakTaskSyncResponseSerializer,
     serialize_admin_task,
     serialize_admin_task_event,
     serialize_audit_event,
@@ -30,9 +32,11 @@ from backend.apps.admin_ops.services import (
     AdminTaskValidationError,
     CreateAdminTaskCommand,
     GetAdminDashboardCommand,
+    SyncReconciliationBreakTasksCommand,
     UpdateAdminTaskCommand,
     create_admin_task,
     get_admin_operations_dashboard,
+    sync_reconciliation_break_tasks,
     update_admin_task,
 )
 from backend.apps.platform_core.domain.access import actor_ref_for_user, is_admin_actor
@@ -143,6 +147,39 @@ class AdminOperationsDashboardView(APIView):
             )
         )
         return Response(dashboard, status=status.HTTP_200_OK)
+
+
+class ReconciliationBreakTaskSyncView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=ReconciliationBreakTaskSyncRequestSerializer,
+        responses={200: ReconciliationBreakTaskSyncResponseSerializer},
+    )
+    def post(self, request: Request) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = ReconciliationBreakTaskSyncRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            result = sync_reconciliation_break_tasks(
+                SyncReconciliationBreakTasksCommand(
+                    actor=cast(Model, request.user),
+                    limit=data["limit"],
+                )
+            )
+        except AdminTaskAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        return Response(
+            {
+                "created_count": result["created_count"],
+                "existing_count": result["existing_count"],
+                "skipped_count": result["skipped_count"],
+                "tasks": [serialize_admin_task(task) for task in result["tasks"]],
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class AdminTaskDetailView(APIView):

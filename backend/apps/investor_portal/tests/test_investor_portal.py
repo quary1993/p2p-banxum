@@ -13,12 +13,23 @@ from django.test import Client
 from django.utils import timezone
 
 from backend.apps.investor_portal.services import (
+    InvestorDocumentDownloadCommand,
+    InvestorPortalValidationError,
+    download_investor_document,
+    get_deposit_instructions,
     get_investor_activity,
     get_investor_balances,
+    get_investor_documents,
+    get_investor_notifications,
     get_investor_portfolio,
 )
+from backend.apps.platform_core.domain.actors import ActorRef
 from backend.apps.platform_core.domain.time import business_timezone
 from backend.apps.platform_core.models import Currency
+from backend.apps.platform_core.services.settings import (
+    SetPlatformSettingCommand,
+    set_platform_setting,
+)
 
 
 @pytest.fixture
@@ -263,6 +274,49 @@ def _create_secondary_listing_acceptance(investor: Model) -> Model:
             accepted_checkbox_labels=["I accept."],
             data_snapshot={},
             idempotency_key="portal-secondary-listing-acceptance",
+        ),
+    )
+
+
+def _create_registration_acceptance(investor: Model, *, key: str = "portal-acceptance") -> Model:
+    template_model = apps.get_model("documents", "DocumentTemplate")
+    version_model = apps.get_model("documents", "DocumentTemplateVersion")
+    acceptance_model = apps.get_model("documents", "DocumentAcceptanceEvidence")
+    template = template_model.objects.create(
+        category="registration",
+        template_key=key,
+        language="en",
+        name="Registration terms",
+        created_by_superadmin_id=investor.pk,
+    )
+    version = version_model.objects.create(
+        template=template,
+        version_number=1,
+        status="published",
+        title="Registration terms",
+        body="BANXUM registration terms.",
+        checkbox_labels=["I accept the registration terms."],
+        variable_schema={},
+        content_hash="a" * 64,
+        created_by_superadmin_id=investor.pk,
+        published_at=timezone.now(),
+    )
+    template.current_published_version = version
+    template.save(update_fields=["current_published_version"])
+    return cast(
+        Model,
+        acceptance_model.objects.create(
+            user_id=investor.pk,
+            category="registration",
+            template=template,
+            template_version=version,
+            template_version_number=1,
+            template_hash=version.content_hash,
+            context_type="registration",
+            context_id=str(investor.pk),
+            accepted_checkbox_labels=["I accept the registration terms."],
+            data_snapshot={},
+            idempotency_key=key,
         ),
     )
 
@@ -515,3 +569,213 @@ def test_read_history_endpoints_return_self_scoped_payloads(
     assert "seller_user_id" not in secondary_payload["listings"][0]
     assert fx_response.status_code == 200
     assert fx_response.json()["quotes"][0]["source_currency"] == "CHF"
+
+
+@pytest.mark.django_db
+def test_deposit_instructions_are_self_scoped_and_config_driven(investor: Model) -> None:
+    _approve_financial_access(investor)
+    set_platform_setting(
+        SetPlatformSettingCommand(
+            actor=ActorRef.system(),
+            key="payments.deposit_instructions_by_currency",
+            value={
+                "CHF": {
+                    "account_holder_name": "Garanta Finanzgruppe AG",
+                    "iban": "CH9300762011623852957",
+                    "bic": "TESTCHZZ",
+                    "bank_name": "Test Bank CHF",
+                    "collection_account_identifier": "CHF-COLLECTION",
+                    "notes": "CHF only.",
+                }
+            },
+            value_type="json",
+            reason="test",
+        )
+    )
+
+    payload = get_deposit_instructions(actor=investor)
+    chf = next(item for item in payload["instructions"] if item["currency"] == "CHF")
+
+    assert chf["iban"] == "CH9300762011623852957"
+    assert chf["is_configured"] is True
+    assert chf["payment_reference"].startswith("BX-")
+    assert str(investor.pk).replace("-", "").upper() in chf["payment_reference"]
+
+
+@pytest.mark.django_db
+def test_investor_documents_and_acceptance_download_are_self_scoped(
+    investor: Model,
+    other_investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    _approve_financial_access(other_investor)
+    own_acceptance = _create_registration_acceptance(investor, key="portal-own-acceptance")
+    other_acceptance = _create_registration_acceptance(
+        other_investor,
+        key="portal-other-acceptance",
+    )
+
+    listing = get_investor_documents(actor=investor)
+    assert str(own_acceptance.pk) in {item["id"] for item in listing["documents"]}
+    assert str(other_acceptance.pk) not in {item["id"] for item in listing["documents"]}
+
+    artifact = download_investor_document(
+        InvestorDocumentDownloadCommand(
+            actor=investor,
+            document_kind="acceptance_evidence",
+            document_id=str(own_acceptance.pk),
+            output_format="pdf",
+        )
+    )
+    assert artifact["content_type"] == "application/pdf"
+    assert artifact["content_encoding"] == "base64"
+    assert artifact["content_sha256"]
+    with pytest.raises(InvestorPortalValidationError):
+        download_investor_document(
+            InvestorDocumentDownloadCommand(
+                actor=investor,
+                document_kind="acceptance_evidence",
+                document_id=str(other_acceptance.pk),
+                output_format="pdf",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_investor_statement_download_is_self_scoped(
+    admin_user: Model,
+    investor: Model,
+    other_investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    _approve_financial_access(other_investor)
+    _declare_deposit(
+        admin_user=admin_user,
+        investor=investor,
+        amount_minor=1_500_00,
+        value_date=date(2026, 3, 1),
+        idempotency_key="portal-statement-own",
+    )
+    _declare_deposit(
+        admin_user=admin_user,
+        investor=other_investor,
+        amount_minor=9_500_00,
+        value_date=date(2026, 3, 1),
+        idempotency_key="portal-statement-other",
+    )
+
+    artifact = download_investor_document(
+        InvestorDocumentDownloadCommand(
+            actor=investor,
+            document_kind="account_statement",
+            output_format="csv",
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 12, 31),
+        )
+    )
+
+    assert artifact["content_type"].startswith("text/csv")
+    assert str(investor.pk) in artifact["content"]
+    assert str(other_investor.pk) not in artifact["content"]
+    assert "950000" not in artifact["content"]
+
+
+@pytest.mark.django_db
+def test_notifications_redact_sensitive_action_email_body(investor: Model) -> None:
+    _approve_financial_access(investor)
+    outbox_model = apps.get_model("platform_core", "OutboxMessage")
+    record_model = apps.get_model("communications", "EmailDeliveryRecord")
+    outbox = outbox_model.objects.create(
+        topic="email.sensitive_action_code_requested",
+        payload={"user_id": str(investor.pk), "email": cast(Any, investor).email},
+        status="processed",
+        processed_at=timezone.now(),
+        idempotency_key="portal-sensitive-email",
+    )
+    record_model.objects.create(
+        outbox_message=outbox,
+        topic="email.sensitive_action_code_requested",
+        template_key="auth.withdrawal.code.v1",
+        recipient_email=cast(Any, investor).email,
+        subject="Your BANXUM confirmation code",
+        body_text="Your code is 123456",
+        body_html="Your code is 123456",
+        provider="mock",
+        provider_message_id="mock-1",
+        status="sent",
+        attempt_number=1,
+        sent_at=timezone.now(),
+    )
+
+    payload = get_investor_notifications(actor=investor)
+
+    assert payload["notifications"][0]["title"] == "Your BANXUM confirmation code"
+    assert "123456" not in payload["notifications"][0]["body"]
+    assert "not shown in the portal" in payload["notifications"][0]["body"]
+
+
+@pytest.mark.django_db
+def test_notifications_redact_unknown_email_topics_by_default(investor: Model) -> None:
+    _approve_financial_access(investor)
+    outbox_model = apps.get_model("platform_core", "OutboxMessage")
+    record_model = apps.get_model("communications", "EmailDeliveryRecord")
+    outbox = outbox_model.objects.create(
+        topic="email.future_sensitive_notice",
+        payload={"user_id": str(investor.pk), "email": cast(Any, investor).email},
+        status="processed",
+        processed_at=timezone.now(),
+        idempotency_key="portal-unknown-sensitive-email",
+    )
+    record_model.objects.create(
+        outbox_message=outbox,
+        topic="email.future_sensitive_notice",
+        template_key="future.sensitive.v1",
+        recipient_email=cast(Any, investor).email,
+        subject="Sensitive future notice",
+        body_text="Future sensitive value 123456",
+        body_html="Future sensitive value 123456",
+        provider="mock",
+        provider_message_id="mock-unknown",
+        status="sent",
+        attempt_number=1,
+        sent_at=timezone.now(),
+    )
+
+    payload = get_investor_notifications(actor=investor)
+
+    assert payload["notifications"][0]["title"] == "Sensitive future notice"
+    assert "123456" not in payload["notifications"][0]["body"]
+    assert "not shown in the portal" in payload["notifications"][0]["body"]
+
+
+@pytest.mark.django_db
+def test_notifications_show_body_only_for_portal_safe_topics(investor: Model) -> None:
+    _approve_financial_access(investor)
+    outbox_model = apps.get_model("platform_core", "OutboxMessage")
+    record_model = apps.get_model("communications", "EmailDeliveryRecord")
+    outbox = outbox_model.objects.create(
+        topic="email.investor_notice",
+        payload={"user_id": str(investor.pk), "email": cast(Any, investor).email},
+        status="processed",
+        processed_at=timezone.now(),
+        idempotency_key="portal-safe-email",
+    )
+    record_model.objects.create(
+        outbox_message=outbox,
+        topic="email.investor_notice",
+        template_key="investor.notice.v1",
+        recipient_email=cast(Any, investor).email,
+        subject="Investor notice",
+        body_text="Your repayment distribution has been credited.",
+        body_html="Your repayment distribution has been credited.",
+        provider="mock",
+        provider_message_id="mock-safe",
+        status="sent",
+        attempt_number=1,
+        sent_at=timezone.now(),
+    )
+
+    payload = get_investor_notifications(actor=investor)
+
+    assert payload["notifications"][0]["title"] == "Investor notice"
+    assert payload["notifications"][0]["body"] == "Your repayment distribution has been credited."

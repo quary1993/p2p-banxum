@@ -1,0 +1,19 @@
+# BANXUM host-level TLS reverse proxy example.
+#
+# This file is for the server-level reverse proxy, not the frontend container.
+# Keep the BANXUM Compose services bound to 127.0.0.1 and expose only 80/443
+# on the host. Replace the placeholder domains before use.
+#
+# Production and staging should use separate domains/subdomains, separate
+# environment files, separate Compose project names, and separate provider
+# credentials or sandbox/mock provider settings.
+
+banxum.example.com {
+    encode gzip
+    reverse_proxy 127.0.0.1:8082
+}
+
+staging.banxum.example.com {
+    encode gzip
+    reverse_proxy 127.0.0.1:8081
+}

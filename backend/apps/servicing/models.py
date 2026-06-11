@@ -438,10 +438,80 @@ class LoanWriteOffEvent(AppendOnlyModel, TimestampedModel):
                 condition=models.Q(total_written_off_minor__gt=0),
                 name="servicing_write_off_total_positive",
             ),
+            models.UniqueConstraint(
+                fields=["loan"],
+                name="unique_loan_write_off_event",
+            ),
         ]
         indexes = [
             models.Index(fields=["loan", "written_off_at"]),
             models.Index(fields=["borrower_id", "written_off_at"]),
             models.Index(fields=["currency", "written_off_at"]),
             models.Index(fields=["created_by_admin_id", "written_off_at"]),
+        ]
+
+
+class InvestorLossRecognitionLine(AppendOnlyModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    write_off_event = models.ForeignKey(
+        LoanWriteOffEvent,
+        on_delete=models.PROTECT,
+        related_name="loss_recognition_lines",
+    )
+    holding = models.ForeignKey(
+        "holdings.InvestorLoanHolding",
+        on_delete=models.PROTECT,
+        related_name="loss_recognition_lines",
+    )
+    investor_user_id = models.UUIDField()
+    currency = models.ForeignKey(
+        "platform_core.Currency",
+        on_delete=models.PROTECT,
+        related_name="loss_recognition_lines",
+    )
+    principal_loss_minor = models.BigIntegerField(default=0)
+    contractual_interest_loss_minor = models.BigIntegerField(default=0)
+    default_interest_loss_minor = models.BigIntegerField(default=0)
+    fees_loss_minor = models.BigIntegerField(default=0)
+    penalties_loss_minor = models.BigIntegerField(default=0)
+    total_loss_minor = models.BigIntegerField()
+    current_principal_before_minor = models.BigIntegerField()
+    current_principal_after_minor = models.BigIntegerField()
+    metadata = models.JSONField(default=dict, blank=True)
+    occurred_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["write_off_event", "occurred_at", "id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(principal_loss_minor__gte=0)
+                    & models.Q(contractual_interest_loss_minor__gte=0)
+                    & models.Q(default_interest_loss_minor__gte=0)
+                    & models.Q(fees_loss_minor__gte=0)
+                    & models.Q(penalties_loss_minor__gte=0)
+                    & models.Q(current_principal_before_minor__gte=0)
+                    & models.Q(current_principal_after_minor__gte=0)
+                ),
+                name="servicing_loss_line_amounts_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(total_loss_minor__gt=0),
+                name="servicing_loss_line_total_positive",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    total_loss_minor=models.F("principal_loss_minor")
+                    + models.F("contractual_interest_loss_minor")
+                    + models.F("default_interest_loss_minor")
+                    + models.F("fees_loss_minor")
+                    + models.F("penalties_loss_minor")
+                ),
+                name="servicing_loss_line_total_reconciles",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["write_off_event", "investor_user_id"]),
+            models.Index(fields=["holding", "occurred_at"]),
+            models.Index(fields=["investor_user_id", "occurred_at"]),
         ]

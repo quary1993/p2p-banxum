@@ -97,6 +97,31 @@ paths:
               schema:
                 $ref: '#/components/schemas/AdminOperationsDashboard'
           description: ''
+  /api/v1/admin-ops/reconciliation-break-tasks/sync/:
+    post:
+      operationId: v1_admin_ops_reconciliation_break_tasks_sync_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReconciliationBreakTaskSyncRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ReconciliationBreakTaskSyncRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ReconciliationBreakTaskSyncRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconciliationBreakTaskSyncResponse'
+          description: ''
   /api/v1/admin-ops/tasks/:
     get:
       operationId: v1_admin_ops_tasks_list
@@ -536,6 +561,32 @@ paths:
               schema:
                 $ref: '#/components/schemas/NaturalPersonRegistrationResponse'
           description: ''
+  /api/v1/auth/sensitive-action-code/request/:
+    post:
+      operationId: v1_auth_sensitive_action_code_request_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SensitiveActionCodeRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SensitiveActionCodeRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SensitiveActionCodeRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SensitiveActionCodeRequestResponse'
+          description: ''
   /api/v1/documents/acceptances/:
     post:
       operationId: v1_documents_acceptances_create
@@ -561,6 +612,38 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DocumentAcceptanceEvidence'
+          description: ''
+  /api/v1/documents/acceptances/{acceptance_id}/artifact/:
+    post:
+      operationId: v1_documents_acceptances_artifact_create
+      parameters:
+      - in: path
+        name: acceptance_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocumentAcceptanceArtifactRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DocumentAcceptanceArtifactRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DocumentAcceptanceArtifactRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentArtifactResponse'
           description: ''
   /api/v1/documents/admin/templates/versions/:
     get:
@@ -1162,6 +1245,60 @@ paths:
               schema:
                 $ref: '#/components/schemas/InvestorDashboard'
           description: ''
+  /api/v1/investor/portal/deposit-instructions/:
+    get:
+      operationId: v1_investor_portal_deposit_instructions_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorDepositInstructions'
+          description: ''
+  /api/v1/investor/portal/documents/:
+    get:
+      operationId: v1_investor_portal_documents_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorDocuments'
+          description: ''
+  /api/v1/investor/portal/documents/download/:
+    post:
+      operationId: v1_investor_portal_documents_download_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvestorDocumentDownloadRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/InvestorDocumentDownloadRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/InvestorDocumentDownloadRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorDocumentDownloadResponse'
+          description: ''
   /api/v1/investor/portal/fx/:
     get:
       operationId: v1_investor_portal_fx_retrieve
@@ -1183,6 +1320,28 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/FxHistoryPortal'
+          description: ''
+  /api/v1/investor/portal/notifications/:
+    get:
+      operationId: v1_investor_portal_notifications_retrieve
+      parameters:
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 250
+          minimum: 1
+          default: 50
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorNotifications'
           description: ''
   /api/v1/investor/portal/portfolio/:
     get:
@@ -1560,6 +1719,32 @@ paths:
               schema:
                 $ref: '#/components/schemas/InvestorWithdrawalFinalizeResponse'
           description: ''
+  /api/v1/ledger/payout-instructions/:
+    post:
+      operationId: v1_ledger_payout_instructions_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvestorSelfServicePayoutInstructionRegisterRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/InvestorSelfServicePayoutInstructionRegisterRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/InvestorSelfServicePayoutInstructionRegisterRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorPayoutInstructionRegisterResponse'
+          description: ''
   /api/v1/ledger/withdrawal-requests/:
     post:
       operationId: v1_ledger_withdrawal_requests_create
@@ -1900,6 +2085,39 @@ paths:
                 items:
                   $ref: '#/components/schemas/LoanInstallment'
           description: ''
+  /api/v1/marketplace/primary/admin/loans/{loan_id}/cancel-funding/:
+    post:
+      operationId: v1_marketplace_primary_admin_loans_cancel_funding_create
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrimaryLoanCancellationRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PrimaryLoanCancellationRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PrimaryLoanCancellationRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrimaryLoanCancellation'
+          description: ''
   /api/v1/marketplace/primary/admin/loans/{loan_id}/close-funding/:
     post:
       operationId: v1_marketplace_primary_admin_loans_close_funding_create
@@ -1932,6 +2150,31 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PrimaryLoanClose'
+          description: ''
+  /api/v1/marketplace/primary/admin/loans/expiry-scan/:
+    post:
+      operationId: v1_marketplace_primary_admin_loans_expiry_scan_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrimaryLoanExpiryScanRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PrimaryLoanExpiryScanRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PrimaryLoanExpiryScanRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrimaryLoanExpiryScanResponse'
           description: ''
   /api/v1/marketplace/primary/admin/orders/{order_id}/release-balance/:
     post:
@@ -2219,6 +2462,39 @@ paths:
               schema:
                 $ref: '#/components/schemas/SecondaryMarketListing'
           description: ''
+  /api/v1/marketplace/secondary/listings/{listing_id}/cancel/:
+    post:
+      operationId: v1_marketplace_secondary_listings_cancel_create
+      parameters:
+      - in: path
+        name: listing_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SecondaryMarketListingCancelRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SecondaryMarketListingCancelRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SecondaryMarketListingCancelRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecondaryMarketListing'
+          description: ''
   /api/v1/marketplace/secondary/listings/{listing_id}/purchase/:
     post:
       operationId: v1_marketplace_secondary_listings_purchase_create
@@ -2440,7 +2716,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/LoanWriteOffEvent'
+                $ref: '#/components/schemas/LoanWriteOffRecordResponse'
           description: ''
   /api/v1/servicing/loan-risk-notes/:
     get:
@@ -2566,6 +2842,22 @@ components:
       - previous_status
       - reason_code
       - user_id
+    ActionEnum:
+      enum:
+      - withdrawal
+      - bank_account_change
+      - fx
+      - primary_investment
+      - secondary_market_listing
+      - secondary_market_purchase
+      type: string
+      description: |-
+        * `withdrawal` - withdrawal
+        * `bank_account_change` - bank_account_change
+        * `fx` - fx
+        * `primary_investment` - primary_investment
+        * `secondary_market_listing` - secondary_market_listing
+        * `secondary_market_purchase` - secondary_market_purchase
     ActivityEntry:
       type: object
       properties:
@@ -3173,6 +3465,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/BalanceAgeingPenaltyModeTransition'
+        penalty_charges:
+          type: array
+          items:
+            $ref: '#/components/schemas/BalancePenaltyCharge'
         skipped_lot_ids:
           type: array
           items:
@@ -3181,6 +3477,7 @@ components:
       - as_of
       - forced_withdrawal_candidates
       - forced_withdrawal_requests
+      - penalty_charges
       - penalty_mode_transitions
       - reminders_due
       - skipped_lot_ids
@@ -3246,6 +3543,47 @@ components:
       - status
       - withdrawal_deadline_at
       - withdrawn_amount_minor
+    BalancePenaltyCharge:
+      type: object
+      properties:
+        lot_id:
+          type: string
+        investor_user_id:
+          type: string
+        currency:
+          type: string
+        charge_date:
+          type: string
+          format: date
+        amount_minor:
+          type: integer
+        penalty_bps_per_day:
+          type: integer
+        penalty_basis_minor:
+          type: integer
+        available_before_minor:
+          type: integer
+        available_after_minor:
+          type: integer
+        penalized_before_minor:
+          type: integer
+        penalized_after_minor:
+          type: integer
+        journal_entry_id:
+          type: string
+      required:
+      - amount_minor
+      - available_after_minor
+      - available_before_minor
+      - charge_date
+      - currency
+      - investor_user_id
+      - journal_entry_id
+      - lot_id
+      - penalized_after_minor
+      - penalized_before_minor
+      - penalty_basis_minor
+      - penalty_bps_per_day
     BalanceSummary:
       type: object
       properties:
@@ -3984,6 +4322,37 @@ components:
         * `decline` - Decline
         * `request_reverification` - Request re-verification
         * `reopen` - Reopen manual review
+    DepositInstruction:
+      type: object
+      properties:
+        currency:
+          type: string
+        account_holder_name:
+          type: string
+        iban:
+          type: string
+        bic:
+          type: string
+        bank_name:
+          type: string
+        collection_account_identifier:
+          type: string
+        payment_reference:
+          type: string
+        notes:
+          type: string
+        is_configured:
+          type: boolean
+      required:
+      - account_holder_name
+      - bank_name
+      - bic
+      - collection_account_identifier
+      - currency
+      - iban
+      - is_configured
+      - notes
+      - payment_reference
     DiditWebhookResponse:
       type: object
       properties:
@@ -3994,6 +4363,21 @@ components:
       required:
       - idempotent
       - status
+    DocumentAcceptanceArtifactRequest:
+      type: object
+      properties:
+        output_format:
+          allOf:
+          - $ref: '#/components/schemas/DocumentAcceptanceArtifactRequestOutputFormatEnum'
+          default: pdf
+    DocumentAcceptanceArtifactRequestOutputFormatEnum:
+      enum:
+      - pdf
+      - csv
+      type: string
+      description: |-
+        * `pdf` - PDF
+        * `csv` - CSV
     DocumentAcceptanceCreateRequest:
       type: object
       properties:
@@ -4095,6 +4479,41 @@ components:
       - updated_at
       - user_agent
       - user_id
+    DocumentArtifactResponse:
+      type: object
+      properties:
+        rendered_artifact_id:
+          type: string
+          format: uuid
+        content_type:
+          type: string
+        filename:
+          type: string
+        content_encoding:
+          type: string
+        content:
+          type: string
+        content_sha256:
+          type: string
+        manifest: {}
+      required:
+      - content
+      - content_encoding
+      - content_sha256
+      - content_type
+      - filename
+      - manifest
+      - rendered_artifact_id
+    DocumentKindEnum:
+      enum:
+      - acceptance_evidence
+      - account_statement
+      - annual_tax_information
+      type: string
+      description: |-
+        * `acceptance_evidence` - acceptance_evidence
+        * `account_statement` - account_statement
+        * `annual_tax_information` - annual_tax_information
     DocumentTemplate:
       type: object
       properties:
@@ -4673,8 +5092,16 @@ components:
         idempotency_key:
           type: string
           maxLength: 160
+        sensitive_action_code_id:
+          type: string
+          format: uuid
+        sensitive_action_code:
+          type: string
+          maxLength: 32
       required:
       - idempotency_key
+      - sensitive_action_code
+      - sensitive_action_code_id
     FxQuoteIssueRequest:
       type: object
       properties:
@@ -5013,6 +5440,235 @@ components:
       - pending_actions
       - portfolio_summary
       - recent_activity
+    InvestorDepositInstructions:
+      type: object
+      properties:
+        as_of:
+          type: string
+          format: date-time
+        instructions:
+          type: array
+          items:
+            $ref: '#/components/schemas/DepositInstruction'
+        reference_rule:
+          type: string
+      required:
+      - as_of
+      - instructions
+      - reference_rule
+    InvestorDocument:
+      type: object
+      properties:
+        id:
+          type: string
+        document_kind:
+          type: string
+        title:
+          type: string
+        document_type:
+          type: string
+        version:
+          type: string
+        date:
+          type: string
+          format: date-time
+        context_label:
+          type: string
+        output_formats:
+          type: array
+          items:
+            type: string
+        generated_on_request:
+          type: boolean
+        content_hash:
+          type: string
+        period_start:
+          type: string
+          format: date
+        period_end:
+          type: string
+          format: date
+      required:
+      - context_label
+      - date
+      - document_kind
+      - document_type
+      - generated_on_request
+      - id
+      - output_formats
+      - title
+      - version
+    InvestorDocumentDownloadRequest:
+      type: object
+      properties:
+        document_kind:
+          $ref: '#/components/schemas/DocumentKindEnum'
+        document_id:
+          type: string
+        output_format:
+          allOf:
+          - $ref: '#/components/schemas/InvestorDocumentDownloadRequestOutputFormatEnum'
+          default: pdf
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        year:
+          type: integer
+          maximum: 2100
+          minimum: 2000
+      required:
+      - document_kind
+    InvestorDocumentDownloadRequestOutputFormatEnum:
+      enum:
+      - pdf
+      - csv
+      - zip
+      type: string
+      description: |-
+        * `pdf` - pdf
+        * `csv` - csv
+        * `zip` - zip
+    InvestorDocumentDownloadResponse:
+      type: object
+      properties:
+        content_type:
+          type: string
+        filename:
+          type: string
+        content_encoding:
+          type: string
+        content:
+          type: string
+        content_sha256:
+          type: string
+        manifest: {}
+      required:
+      - content
+      - content_encoding
+      - content_sha256
+      - content_type
+      - filename
+      - manifest
+    InvestorDocuments:
+      type: object
+      properties:
+        as_of:
+          type: string
+          format: date-time
+        documents:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvestorDocument'
+        disclaimer:
+          type: string
+      required:
+      - as_of
+      - disclaimer
+      - documents
+    InvestorLossRecognitionLine:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        write_off_event_id:
+          type: string
+          format: uuid
+        holding_id:
+          type: string
+          format: uuid
+        investor_user_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+        principal_loss_minor:
+          type: integer
+        contractual_interest_loss_minor:
+          type: integer
+        default_interest_loss_minor:
+          type: integer
+        fees_loss_minor:
+          type: integer
+        penalties_loss_minor:
+          type: integer
+        total_loss_minor:
+          type: integer
+        current_principal_before_minor:
+          type: integer
+        current_principal_after_minor:
+          type: integer
+        metadata: {}
+        occurred_at:
+          type: string
+          format: date-time
+      required:
+      - contractual_interest_loss_minor
+      - currency
+      - current_principal_after_minor
+      - current_principal_before_minor
+      - default_interest_loss_minor
+      - fees_loss_minor
+      - holding_id
+      - id
+      - investor_user_id
+      - metadata
+      - occurred_at
+      - penalties_loss_minor
+      - principal_loss_minor
+      - total_loss_minor
+      - write_off_event_id
+    InvestorNotification:
+      type: object
+      properties:
+        id:
+          type: string
+        notification_source:
+          type: string
+        topic:
+          type: string
+        status:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        sent_at:
+          type: string
+          format: date-time
+          nullable: true
+        unread:
+          type: boolean
+        metadata: {}
+      required:
+      - body
+      - created_at
+      - id
+      - metadata
+      - notification_source
+      - sent_at
+      - status
+      - title
+      - topic
+      - unread
+    InvestorNotifications:
+      type: object
+      properties:
+        notifications:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvestorNotification'
+        unread_count:
+          type: integer
+      required:
+      - notifications
+      - unread_count
     InvestorPayoutInstruction:
       type: object
       properties:
@@ -5227,6 +5883,32 @@ components:
       - occurred_at
       - principal_minor
       - repayment_event_id
+    InvestorSelfServicePayoutInstructionRegisterRequest:
+      type: object
+      properties:
+        currency:
+          type: string
+          maxLength: 3
+        destination_iban:
+          type: string
+          maxLength: 128
+        destination_account_name:
+          type: string
+          maxLength: 255
+        notes:
+          type: string
+        sensitive_action_code_id:
+          type: string
+          format: uuid
+        sensitive_action_code:
+          type: string
+          maxLength: 32
+      required:
+      - currency
+      - destination_account_name
+      - destination_iban
+      - sensitive_action_code
+      - sensitive_action_code_id
     InvestorWithdrawalCancelRequest:
       type: object
       properties:
@@ -5422,11 +6104,19 @@ components:
         idempotency_key:
           type: string
           maxLength: 160
+        sensitive_action_code_id:
+          type: string
+          format: uuid
+        sensitive_action_code:
+          type: string
+          maxLength: 32
       required:
       - amount_minor
       - currency
       - destination_iban
       - idempotency_key
+      - sensitive_action_code
+      - sensitive_action_code_id
     InvestorWithdrawalRequestCreateResponse:
       type: object
       properties:
@@ -6594,6 +7284,18 @@ components:
       - loan_id
       - reason
       - written_off_principal_minor
+    LoanWriteOffRecordResponse:
+      type: object
+      properties:
+        write_off_event:
+          $ref: '#/components/schemas/LoanWriteOffEvent'
+        loss_recognition_lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvestorLossRecognitionLine'
+      required:
+      - loss_recognition_lines
+      - write_off_event
     MagicLinkConsume:
       type: object
       properties:
@@ -6782,7 +7484,10 @@ components:
       properties:
         user:
           $ref: '#/components/schemas/UserSummary'
+        email_login_sent:
+          type: boolean
       required:
+      - email_login_sent
       - user
     NewStatusEnum:
       enum:
@@ -6810,16 +7515,6 @@ components:
         * `default_update` - Default update
         * `recovery_update` - Recovery update
         * `document_note` - Document note
-    OutputFormatEnum:
-      enum:
-      - csv
-      - pdf
-      - zip
-      type: string
-      description: |-
-        * `csv` - CSV
-        * `pdf` - PDF
-        * `zip` - ZIP evidence package
     PatchedAdminTaskUpdateRequest:
       type: object
       properties:
@@ -7313,9 +8008,17 @@ components:
         idempotency_key:
           type: string
           maxLength: 160
+        sensitive_action_code_id:
+          type: string
+          format: uuid
+        sensitive_action_code:
+          type: string
+          maxLength: 32
       required:
       - document_acceptance_id
       - idempotency_key
+      - sensitive_action_code
+      - sensitive_action_code_id
     PrimaryInvestmentOrderCreateRequest:
       type: object
       properties:
@@ -7338,6 +8041,61 @@ components:
       type: object
       properties:
         reason:
+          type: string
+        idempotency_key:
+          type: string
+          maxLength: 160
+      required:
+      - idempotency_key
+      - reason
+    PrimaryLoanCancellation:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        loan_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+        released_order_count:
+          type: integer
+        closed_not_invested_order_count:
+          type: integer
+        released_principal_minor:
+          type: integer
+        created_by_admin_id:
+          type: string
+          format: uuid
+        cancelled_at:
+          type: string
+          format: date-time
+        reason:
+          type: string
+        investor_message:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - cancelled_at
+      - closed_not_invested_order_count
+      - created_at
+      - created_by_admin_id
+      - currency
+      - id
+      - investor_message
+      - loan_id
+      - reason
+      - released_order_count
+      - released_principal_minor
+    PrimaryLoanCancellationRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+        investor_message:
           type: string
         idempotency_key:
           type: string
@@ -7416,6 +8174,57 @@ components:
       required:
       - idempotency_key
       - reason
+    PrimaryLoanExpiryScanRequest:
+      type: object
+      properties:
+        as_of_date:
+          type: string
+          format: date
+        loan_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        reason:
+          type: string
+        investor_message:
+          type: string
+        idempotency_key:
+          type: string
+          maxLength: 160
+        limit:
+          type: integer
+          maximum: 1000
+          minimum: 1
+          default: 250
+    PrimaryLoanExpiryScanResponse:
+      type: object
+      properties:
+        as_of_date:
+          type: string
+          format: date
+        scanned_count:
+          type: integer
+        cancelled_count:
+          type: integer
+        skipped_count:
+          type: integer
+        cancellations:
+          type: array
+          items:
+            $ref: '#/components/schemas/PrimaryLoanCancellation'
+        skipped:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+      required:
+      - as_of_date
+      - cancellations
+      - cancelled_count
+      - scanned_count
+      - skipped
+      - skipped_count
     PrimaryOrderPortal:
       type: object
       properties:
@@ -7571,6 +8380,32 @@ components:
         * `development` - Development
         * `inventory_trade_finance` - Inventory or trade finance
         * `other` - Other
+    ReconciliationBreakTaskSyncRequest:
+      type: object
+      properties:
+        limit:
+          type: integer
+          maximum: 500
+          minimum: 1
+          default: 100
+    ReconciliationBreakTaskSyncResponse:
+      type: object
+      properties:
+        created_count:
+          type: integer
+        existing_count:
+          type: integer
+        skipped_count:
+          type: integer
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminTask'
+      required:
+      - created_count
+      - existing_count
+      - skipped_count
+      - tasks
     ReconciliationSnapshot:
       type: object
       properties:
@@ -7686,7 +8521,7 @@ components:
           format: date
         output_format:
           allOf:
-          - $ref: '#/components/schemas/OutputFormatEnum'
+          - $ref: '#/components/schemas/ReportGenerateRequestOutputFormatEnum'
           default: csv
         redaction_mode:
           allOf:
@@ -7697,6 +8532,16 @@ components:
           type: string
       required:
       - report_type
+    ReportGenerateRequestOutputFormatEnum:
+      enum:
+      - csv
+      - pdf
+      - zip
+      type: string
+      description: |-
+        * `csv` - CSV
+        * `pdf` - PDF
+        * `zip` - ZIP evidence package
     ReportGenerateResponse:
       type: object
       properties:
@@ -8130,6 +8975,16 @@ components:
           nullable: true
         removal_reason:
           type: string
+        cancelled_by_user_id:
+          type: string
+          format: uuid
+          nullable: true
+        cancelled_at:
+          type: string
+          format: date-time
+          nullable: true
+        cancellation_reason:
+          type: string
         created_by_user_id:
           type: string
           format: uuid
@@ -8147,6 +9002,9 @@ components:
       - approved_at
       - approved_by_admin_id
       - buyer_total_cost_minor
+      - cancellation_reason
+      - cancelled_at
+      - cancelled_by_user_id
       - created_at
       - created_by_user_id
       - currency
@@ -8195,6 +9053,17 @@ components:
       - disclosure_note
       - idempotency_key
       - reason
+    SecondaryMarketListingCancelRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+        idempotency_key:
+          type: string
+          maxLength: 160
+      required:
+      - idempotency_key
+      - reason
     SecondaryMarketListingCreateRequest:
       type: object
       properties:
@@ -8211,6 +9080,12 @@ components:
         idempotency_key:
           type: string
           maxLength: 160
+        sensitive_action_code_id:
+          type: string
+          format: uuid
+        sensitive_action_code:
+          type: string
+          maxLength: 32
         notes:
           type: string
       required:
@@ -8218,6 +9093,8 @@ components:
       - holding_id
       - idempotency_key
       - price_bps
+      - sensitive_action_code
+      - sensitive_action_code_id
     SecondaryMarketListingRejectRequest:
       type: object
       properties:
@@ -8329,9 +9206,17 @@ components:
         idempotency_key:
           type: string
           maxLength: 160
+        sensitive_action_code_id:
+          type: string
+          format: uuid
+        sensitive_action_code:
+          type: string
+          maxLength: 32
       required:
       - document_acceptance_id
       - idempotency_key
+      - sensitive_action_code
+      - sensitive_action_code_id
     SecondaryPurchaseAsBuyerPortal:
       type: object
       properties:
@@ -8437,6 +9322,31 @@ components:
       - seller_holding_id
       - seller_net_proceeds_minor
       - transfer_price_minor
+    SensitiveActionCodeRequest:
+      type: object
+      properties:
+        action:
+          $ref: '#/components/schemas/ActionEnum'
+      required:
+      - action
+    SensitiveActionCodeRequestResponse:
+      type: object
+      properties:
+        code_id:
+          type: string
+          format: uuid
+        action:
+          type: string
+        status:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+      required:
+      - action
+      - code_id
+      - expires_at
+      - status
     UserSummary:
       type: object
       properties:

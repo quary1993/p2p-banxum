@@ -32,13 +32,14 @@ from backend.apps.fx.services import (
     FxAuthorizationError,
     FxValidationError,
     IssueFxQuoteCommand,
-    configured_mock_provider_rate,
+    configured_provider_rate,
     create_fx_delta_report,
     create_fx_realized_settlement_report,
     declare_fx_external_settlement,
     execute_fx_quote,
     issue_fx_quote,
 )
+from backend.apps.platform_core.api.request_meta import client_ip, user_agent
 
 
 def _error_response(exc: Exception) -> Response:
@@ -62,7 +63,7 @@ class FxQuoteIssueView(APIView):
         serializer.is_valid(raise_exception=True)
         data: dict[str, Any] = serializer.validated_data
         try:
-            provider_rate = configured_mock_provider_rate(
+            provider_rate = configured_provider_rate(
                 source_currency=data["source_currency"],
                 target_currency=data["target_currency"],
             )
@@ -98,6 +99,10 @@ class FxQuoteExecuteView(APIView):
                     actor=cast(Model, request.user),
                     quote_id=quote_id,
                     idempotency_key=data["idempotency_key"],
+                    sensitive_action_code_id=str(data["sensitive_action_code_id"]),
+                    sensitive_action_code=data["sensitive_action_code"],
+                    ip_address=client_ip(request),
+                    user_agent=user_agent(request),
                 )
             )
         except (FxAuthorizationError, FxValidationError) as exc:

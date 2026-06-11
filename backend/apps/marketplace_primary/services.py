@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from datetime import date
 from importlib import import_module
 from typing import Any, cast
 
@@ -15,6 +16,7 @@ from backend.apps.marketplace_primary.models import (
     PrimaryInvestmentOrderEvent,
     PrimaryInvestmentOrderEventType,
     PrimaryInvestmentOrderStatus,
+    PrimaryLoanCancellation,
     PrimaryLoanClose,
     PrimaryLoanCloseType,
 )
@@ -29,6 +31,12 @@ from backend.apps.platform_core.models import Currency
 from backend.apps.platform_core.selectors.settings import get_platform_setting_value
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import DomainEventCommand, record_domain_event
+from backend.apps.platform_core.services.sensitive_actions import (
+    PRIMARY_INVESTMENT_ACTION,
+    SensitiveActionVerificationCommand,
+    SensitiveActionVerificationError,
+    verify_sensitive_action_code,
+)
 
 
 class MarketplacePrimaryError(ValueError):
@@ -51,6 +59,7 @@ ALLOCATION_IDEMPOTENCY_METADATA_KEY = "allocation_idempotency_key"
 RELEASE_FINGERPRINT_METADATA_KEY = "release_request_fingerprint"
 RELEASE_IDEMPOTENCY_METADATA_KEY = "release_idempotency_key"
 CLOSE_FINGERPRINT_METADATA_KEY = "close_request_fingerprint"
+CANCEL_FINGERPRINT_METADATA_KEY = "cancel_request_fingerprint"
 ONE_HUNDRED_PERCENT_PPM = 1_000_000
 
 
@@ -69,6 +78,10 @@ class AllocatePrimaryInvestmentOrderCommand:
     order_id: str
     document_acceptance_id: str
     idempotency_key: str
+    sensitive_action_code_id: str = ""
+    sensitive_action_code: str = ""
+    ip_address: str | None = None
+    user_agent: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +101,26 @@ class ClosePrimaryLoanFundingCommand:
     idempotency_key: str
 
 
+@dataclass(frozen=True, slots=True)
+class CancelPrimaryLoanFundingCommand:
+    actor: Model
+    loan_id: str
+    reason: str
+    investor_message: str = ""
+    idempotency_key: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ScanExpiredPrimaryFundingCommand:
+    actor: Model
+    as_of_date: date | None = None
+    loan_ids: tuple[str, ...] = ()
+    reason: str = ""
+    investor_message: str = ""
+    idempotency_key: str = ""
+    limit: int = 250
+
+
 def _clean_required(value: str, label: str) -> str:
     cleaned = value.strip()
     if not cleaned:
@@ -97,6 +130,15 @@ def _clean_required(value: str, label: str) -> str:
 
 def _clean_idempotency_key(value: str) -> str:
     key = _clean_required(value, "Idempotency key")
+    if len(key) > MAX_IDEMPOTENCY_KEY_LENGTH:
+        raise MarketplacePrimaryValidationError(
+            f"Idempotency key cannot exceed {MAX_IDEMPOTENCY_KEY_LENGTH} characters."
+        )
+    return key
+
+
+def _clean_optional_idempotency_key(value: str) -> str:
+    key = value.strip()
     if len(key) > MAX_IDEMPOTENCY_KEY_LENGTH:
         raise MarketplacePrimaryValidationError(
             f"Idempotency key cannot exceed {MAX_IDEMPOTENCY_KEY_LENGTH} characters."
@@ -280,6 +322,26 @@ def _close_request_fingerprint(
     )
 
 
+def _cancel_request_fingerprint(
+    command: CancelPrimaryLoanFundingCommand,
+    *,
+    idempotency_key: str,
+) -> str:
+    return _stable_json_fingerprint(
+        {
+            "loan_id": str(command.loan_id),
+            "reason": command.reason.strip(),
+            "investor_message": command.investor_message.strip(),
+            "idempotency_key": idempotency_key,
+        }
+    )
+
+
+def _child_idempotency_key(kind: str, parent_key: str, child_id: str) -> str:
+    digest = hashlib.sha256(f"{kind}:{parent_key}:{child_id}".encode()).hexdigest()
+    return f"{kind}:{digest}"[:MAX_IDEMPOTENCY_KEY_LENGTH]
+
+
 def _existing_order_for_idempotency(
     idempotency_key: str,
     *,
@@ -314,6 +376,24 @@ def _existing_close_for_idempotency(
             "Idempotency key was already used for a different close request."
         )
     return cast(PrimaryLoanClose, existing)
+
+
+def _existing_cancellation_for_idempotency(
+    idempotency_key: str,
+    *,
+    expected_fingerprint: str,
+) -> PrimaryLoanCancellation | None:
+    existing = PrimaryLoanCancellation.objects.filter(idempotency_key=idempotency_key).first()
+    if existing is None:
+        return None
+    if (
+        cast(dict[str, Any], existing.metadata).get(CANCEL_FINGERPRINT_METADATA_KEY)
+        != expected_fingerprint
+    ):
+        raise MarketplacePrimaryValidationError(
+            "Idempotency key was already used for a different cancellation request."
+        )
+    return cast(PrimaryLoanCancellation, existing)
 
 
 def _record_order_event(
@@ -495,8 +575,62 @@ def create_primary_investment_order(
     return order
 
 
-@transaction.atomic
 def allocate_primary_order_from_balance(
+    command: AllocatePrimaryInvestmentOrderCommand,
+) -> PrimaryInvestmentOrder:
+    _require_investor_financial_access(command.actor)
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    order = (
+        PrimaryInvestmentOrder.objects.filter(
+            id=command.order_id,
+            investor_user_id=command.actor.pk,
+        ).first()
+    )
+    if order is None:
+        raise MarketplacePrimaryValidationError("Primary investment order does not exist.")
+    allocation_fingerprint = _allocation_request_fingerprint(
+        command,
+        order=order,
+        idempotency_key=idempotency_key,
+    )
+    metadata = dict(cast(dict[str, Any], order.metadata))
+    if order.status in {
+        PrimaryInvestmentOrderStatus.BALANCE_ALLOCATED,
+        PrimaryInvestmentOrderStatus.PARTIALLY_ALLOCATED,
+    }:
+        if (
+            metadata.get(ALLOCATION_IDEMPOTENCY_METADATA_KEY) == idempotency_key
+            and metadata.get(ALLOCATION_FINGERPRINT_METADATA_KEY) == allocation_fingerprint
+        ):
+            return order
+        raise MarketplacePrimaryValidationError("Primary investment order is already allocated.")
+    if order.status != PrimaryInvestmentOrderStatus.PENDING:
+        raise MarketplacePrimaryValidationError("Only pending orders can be allocated.")
+    _validate_primary_document_acceptance(
+        acceptance_id=command.document_acceptance_id,
+        actor=command.actor,
+        order=order,
+    )
+
+    try:
+        verify_sensitive_action_code(
+            SensitiveActionVerificationCommand(
+                actor=command.actor,
+                action=PRIMARY_INVESTMENT_ACTION,
+                code_id=command.sensitive_action_code_id,
+                raw_code=command.sensitive_action_code,
+                ip_address=command.ip_address,
+                user_agent=command.user_agent,
+            )
+        )
+    except SensitiveActionVerificationError as exc:
+        raise MarketplacePrimaryValidationError(str(exc)) from exc
+
+    return _allocate_primary_order_from_balance_after_sensitive_code(command)
+
+
+@transaction.atomic
+def _allocate_primary_order_from_balance_after_sensitive_code(
     command: AllocatePrimaryInvestmentOrderCommand,
 ) -> PrimaryInvestmentOrder:
     _require_investor_financial_access(command.actor)
@@ -865,6 +999,47 @@ def _record_loan_funding_closed_event(
     )
 
 
+def _record_loan_funding_cancelled_event(
+    *,
+    loan: Model,
+    actor: Model,
+    previous_status: str,
+    cancellation: PrimaryLoanCancellation,
+    metadata: dict[str, Any],
+) -> None:
+    loan_ref = cast(Any, loan)
+    loan_event_model = _model("loans", "LoanEvent")
+    loan_event_model.objects.create(
+        loan=loan,
+        event_type="funding_cancelled",
+        actor_user_id=actor.pk,
+        actor_account_type=_actor_account_type(actor),
+        previous_status=previous_status,
+        new_status=str(loan_ref.status),
+        note=cancellation.reason,
+        metadata=metadata,
+    )
+    actor_ref = actor_ref_for_user(actor)
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref,
+            action="loan.funding_cancelled",
+            target_type="Loan",
+            target_id=str(loan_ref.id),
+            metadata=metadata,
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="LoanFundingCancelled",
+            aggregate_type="Loan",
+            aggregate_id=str(loan_ref.id),
+            payload=metadata,
+            idempotency_key=f"loan:{loan_ref.id}:funding-cancelled",
+        )
+    )
+
+
 @transaction.atomic
 def close_primary_loan_funding(
     command: ClosePrimaryLoanFundingCommand,
@@ -1123,6 +1298,241 @@ def close_primary_loan_funding(
         )
     )
     return close
+
+
+@transaction.atomic
+def cancel_primary_loan_funding(
+    command: CancelPrimaryLoanFundingCommand,
+) -> PrimaryLoanCancellation:
+    _require_admin_actor(command.actor)
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    reason = _clean_required(command.reason, "Cancellation reason")
+    cancel_fingerprint = _cancel_request_fingerprint(
+        command,
+        idempotency_key=idempotency_key,
+    )
+    existing = _existing_cancellation_for_idempotency(
+        idempotency_key,
+        expected_fingerprint=cancel_fingerprint,
+    )
+    if existing is not None:
+        return existing
+    if PrimaryLoanClose.objects.filter(loan_id=command.loan_id).exists():
+        raise MarketplacePrimaryValidationError("Closed loan funding cannot be cancelled.")
+
+    loan = _loan_for_update(command.loan_id)
+    loan_ref = cast(Any, loan)
+    existing = _existing_cancellation_for_idempotency(
+        idempotency_key,
+        expected_fingerprint=cancel_fingerprint,
+    )
+    if existing is not None:
+        return existing
+    if str(loan_ref.status) == "cancelled":
+        existing_for_loan = PrimaryLoanCancellation.objects.filter(loan_id=command.loan_id).first()
+        if existing_for_loan is not None:
+            raise MarketplacePrimaryValidationError("Loan funding is already cancelled.")
+    if str(loan_ref.status) != "published":
+        raise MarketplacePrimaryValidationError("Only published loans can be cancelled.")
+
+    allocated_orders = _allocated_orders_for_close(str(loan_ref.id))
+    pending_orders = _pending_orders_for_close(str(loan_ref.id))
+    investor_message = command.investor_message.strip()
+    if (allocated_orders or pending_orders) and not investor_message:
+        raise MarketplacePrimaryValidationError(
+            "Investor message is required when cancelling a loan with investor orders."
+        )
+
+    cancelled_at = now_utc()
+    released_order_ids: list[str] = []
+    release_journal_entry_ids: list[str] = []
+    released_principal = 0
+    for order in allocated_orders:
+        released = release_primary_order_balance(
+            ReleasePrimaryInvestmentOrderCommand(
+                actor=command.actor,
+                order_id=str(order.id),
+                reason=reason,
+                idempotency_key=_child_idempotency_key(
+                    "primary-cancel-release",
+                    idempotency_key,
+                    str(order.id),
+                ),
+            )
+        )
+        released_order_ids.append(str(released.id))
+        released_principal += int(released.allocated_amount_minor)
+        if released.release_journal_entry_id:
+            release_journal_entry_ids.append(str(released.release_journal_entry_id))
+
+    closed_not_invested_order_ids: list[str] = []
+    for order in pending_orders:
+        previous_status = str(order.status)
+        order.status = PrimaryInvestmentOrderStatus.CLOSED_NOT_INVESTED
+        order.closed_at = cancelled_at
+        order.closed_by_admin_id = command.actor.pk
+        order.admin_notes = reason
+        order.metadata = {
+            **cast(dict[str, Any], order.metadata),
+            "cancel_idempotency_key": idempotency_key,
+            "closed_reason": "Loan funding cancelled before order allocation.",
+        }
+        order.save(
+            update_fields=[
+                "status",
+                "closed_at",
+                "closed_by_admin_id",
+                "admin_notes",
+                "metadata",
+                "updated_at",
+            ]
+        )
+        closed_not_invested_order_ids.append(str(order.id))
+        _record_order_event(
+            order=order,
+            actor=command.actor,
+            event_type=PrimaryInvestmentOrderEventType.CLOSED_NOT_INVESTED,
+            previous_status=previous_status,
+            new_status=order.status,
+            note=reason,
+            metadata={"reason": "loan_funding_cancelled"},
+        )
+
+    loan.refresh_from_db()
+    loan_ref = cast(Any, loan)
+    if int(loan_ref.committed_principal_minor) != 0:
+        raise MarketplacePrimaryValidationError(
+            "Loan committed principal must be zero after cancellation releases."
+        )
+
+    metadata = {
+        CANCEL_FINGERPRINT_METADATA_KEY: cancel_fingerprint,
+        "loan_id": str(loan_ref.id),
+        "currency": str(loan_ref.currency_id),
+        "released_order_ids": released_order_ids,
+        "release_journal_entry_ids": release_journal_entry_ids,
+        "closed_not_invested_order_ids": closed_not_invested_order_ids,
+        "released_principal_minor": released_principal,
+    }
+    try:
+        cancellation = cast(
+            PrimaryLoanCancellation,
+            PrimaryLoanCancellation.objects.create(
+                loan=cast(Any, loan),
+                currency_id=str(loan_ref.currency_id),
+                released_order_count=len(released_order_ids),
+                closed_not_invested_order_count=len(closed_not_invested_order_ids),
+                released_principal_minor=released_principal,
+                created_by_admin_id=command.actor.pk,
+                cancelled_at=cancelled_at,
+                reason=reason,
+                investor_message=investor_message,
+                metadata=metadata,
+                idempotency_key=idempotency_key,
+            ),
+        )
+    except IntegrityError:
+        existing_after_race = _existing_cancellation_for_idempotency(
+            idempotency_key,
+            expected_fingerprint=cancel_fingerprint,
+        )
+        if existing_after_race is None:
+            raise
+        return existing_after_race
+
+    previous_loan_status = str(loan_ref.status)
+    loan_ref.status = "cancelled"
+    loan_ref.updated_by_admin_id = command.actor.pk
+    loan.save(update_fields=["status", "updated_by_admin_id", "updated_at"])
+    event_metadata = {**metadata, "primary_cancellation_id": str(cancellation.id)}
+    _record_loan_funding_cancelled_event(
+        loan=loan,
+        actor=command.actor,
+        previous_status=previous_loan_status,
+        cancellation=cancellation,
+        metadata=event_metadata,
+    )
+    actor_ref = actor_ref_for_user(command.actor)
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref,
+            action="marketplace_primary.loan_funding_cancelled",
+            target_type="PrimaryLoanCancellation",
+            target_id=str(cancellation.id),
+            metadata=event_metadata,
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="PrimaryLoanFundingCancelled",
+            aggregate_type="PrimaryLoanCancellation",
+            aggregate_id=str(cancellation.id),
+            payload=event_metadata,
+            idempotency_key=f"primary-loan-cancellation:{cancellation.id}:cancelled",
+        )
+    )
+    return cancellation
+
+
+def scan_expired_primary_loan_funding(
+    command: ScanExpiredPrimaryFundingCommand,
+) -> dict[str, Any]:
+    _require_admin_actor(command.actor)
+    as_of_date = command.as_of_date or business_date(now_utc())
+    limit = command.limit
+    if limit < 1 or limit > 1000:
+        raise MarketplacePrimaryValidationError("Scan limit must be between 1 and 1000.")
+    parent_key = _clean_optional_idempotency_key(command.idempotency_key) or (
+        f"primary-expiry-scan:{as_of_date.isoformat()}"
+    )
+    default_reason = f"Funding deadline passed without funding close by {as_of_date.isoformat()}."
+    default_message = (
+        "The campaign funding deadline passed before the loan was funded. "
+        "Any reserved balance has been released to your BANXUM account."
+    )
+    reason = command.reason.strip() or default_reason
+    investor_message = command.investor_message.strip() or default_message
+
+    loan_model = _model("loans", "Loan")
+    query = loan_model.objects.filter(
+        status="published",
+        funding_deadline__lt=as_of_date,
+    ).order_by("funding_deadline", "id")
+    if command.loan_ids:
+        query = query.filter(id__in=command.loan_ids)
+
+    expired_loans = list(query[:limit])
+    cancellations: list[PrimaryLoanCancellation] = []
+    skipped: list[dict[str, str]] = []
+    for loan in expired_loans:
+        loan_id = str(loan.id)
+        try:
+            cancellations.append(
+                cancel_primary_loan_funding(
+                    CancelPrimaryLoanFundingCommand(
+                        actor=command.actor,
+                        loan_id=loan_id,
+                        reason=reason,
+                        investor_message=investor_message,
+                        idempotency_key=_child_idempotency_key(
+                            "primary-expiry-cancel",
+                            parent_key,
+                            loan_id,
+                        ),
+                    )
+                )
+            )
+        except MarketplacePrimaryValidationError as exc:
+            skipped.append({"loan_id": loan_id, "reason": str(exc)})
+
+    return {
+        "as_of_date": as_of_date,
+        "scanned_count": len(expired_loans),
+        "cancelled_count": len(cancellations),
+        "skipped_count": len(skipped),
+        "cancellations": cancellations,
+        "skipped": skipped,
+    }
 
 
 def loan_funding_progress(loan_id: str) -> dict[str, Any]:

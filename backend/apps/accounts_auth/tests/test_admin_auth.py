@@ -3,8 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from django.apps import apps
 from django.contrib.auth.hashers import make_password
-from django.test import Client
+from django.test import Client, override_settings
 
 from backend.apps.accounts_auth.models import (
     AccountStatus,
@@ -170,10 +171,15 @@ def test_regular_admin_cannot_create_admin_user(admin_user: User) -> None:
 
 
 @pytest.mark.django_db
-def test_admin_login_requires_password_then_email_code(admin_user: User) -> None:
-    result = start_admin_login(
-        AdminLoginStartCommand(email=admin_user.email, password="AdminPass123!")
-    )
+@override_settings(COMMUNICATIONS_EMAIL_PROVIDER="mock")
+def test_admin_login_requires_password_then_email_code(
+    admin_user: User,
+    django_capture_on_commit_callbacks: Any,
+) -> None:
+    with django_capture_on_commit_callbacks(execute=True):
+        result = start_admin_login(
+            AdminLoginStartCommand(email=admin_user.email, password="AdminPass123!")
+        )
 
     assert result.code_record.user_id == admin_user.id
     assert result.code_record.action == SensitiveAction.ADMIN_LOGIN
@@ -182,6 +188,10 @@ def test_admin_login_requires_password_then_email_code(admin_user: User) -> None
         idempotency_key=f"sensitive-action-code:{result.code_record.id}",
     )
     assert "code" not in outbox_message.payload
+    EmailDeliveryRecord = apps.get_model("communications", "EmailDeliveryRecord")
+    delivery = EmailDeliveryRecord.objects.get(outbox_message=outbox_message)
+    assert delivery.status == "sent"
+    assert delivery.template_key == "auth.admin_login.code.v1"
     raw_code = delivery_secret_for_sensitive_action_code(result.code_record)
 
     authenticated = confirm_admin_login(

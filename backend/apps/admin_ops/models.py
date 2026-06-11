@@ -94,6 +94,16 @@ class AdminTask(TimestampedModel):
             models.Index(fields=["due_at"]),
             models.Index(fields=["related_object_type", "related_object_id"]),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                condition=models.Q(
+                    task_type=AdminTaskType.PAYMENT_RECONCILIATION,
+                    related_object_type="ReconciliationSnapshot",
+                ),
+                fields=["task_type", "related_object_type", "related_object_id"],
+                name="unique_reconciliation_snapshot_admin_task",
+            )
+        ]
 
     @property
     def is_terminal(self) -> bool:

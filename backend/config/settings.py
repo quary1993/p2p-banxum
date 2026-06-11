@@ -23,6 +23,7 @@ ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.
 
 PLATFORM_BRAND_NAME = env("PLATFORM_BRAND_NAME", default="BANXUM")
 LEGAL_OPERATOR_NAME = env("LEGAL_OPERATOR_NAME", default="Garanta Finanzgruppe AG")
+PUBLIC_APP_BASE_URL = env("PUBLIC_APP_BASE_URL", default="http://localhost:5173")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -53,6 +54,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -105,6 +107,17 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
+STATIC_ROOT = env("DJANGO_STATIC_ROOT", default=str(BASE_DIR / "staticfiles"))
+MEDIA_URL = env("DJANGO_MEDIA_URL", default="media/")
+MEDIA_ROOT = env("DJANGO_MEDIA_ROOT", default=str(BASE_DIR / "media"))
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "accounts_auth.User"
 
@@ -142,6 +155,13 @@ AUTH_SENSITIVE_CODE_COOLDOWN_SECONDS = env.int(
     default=60,
 )
 PHONE_VERIFICATION_PROVIDER = env("PHONE_VERIFICATION_PROVIDER", default="mock")
+TWILIO_ACCOUNT_SID = env("TWILIO_ACCOUNT_SID", default="")
+TWILIO_AUTH_TOKEN = env("TWILIO_AUTH_TOKEN", default="")
+TWILIO_API_KEY_SID = env("TWILIO_API_KEY_SID", default="")
+TWILIO_API_KEY_SECRET = env("TWILIO_API_KEY_SECRET", default="")
+TWILIO_VERIFY_SERVICE_SID = env("TWILIO_VERIFY_SERVICE_SID", default="")
+TWILIO_VERIFY_CHANNEL = env("TWILIO_VERIFY_CHANNEL", default="sms")
+TWILIO_TIMEOUT_SECONDS = env.int("TWILIO_TIMEOUT_SECONDS", default=10)
 AUTH_PHONE_VERIFICATION_TTL_SECONDS = env.int("AUTH_PHONE_VERIFICATION_TTL_SECONDS", default=600)
 AUTH_PHONE_VERIFICATION_MAX_ATTEMPTS = env.int("AUTH_PHONE_VERIFICATION_MAX_ATTEMPTS", default=3)
 AUTH_PHONE_VERIFICATION_COOLDOWN_SECONDS = env.int(
@@ -174,15 +194,50 @@ GARANTA_SUPERADMIN_PASSWORD_HASH = env("GARANTA_SUPERADMIN_PASSWORD_HASH", defau
 GARANTA_SUPERADMIN_FULL_NAME = env("GARANTA_SUPERADMIN_FULL_NAME", default="Env Superadmin")
 GARANTA_SUPERADMIN_ENABLED = env.bool("GARANTA_SUPERADMIN_ENABLED", default=False)
 DIDIT_ENVIRONMENT = env("DIDIT_ENVIRONMENT", default=ENVIRONMENT)
+DIDIT_SESSION_PROVIDER = env("DIDIT_SESSION_PROVIDER", default="mock")
+DIDIT_API_BASE_URL = env("DIDIT_API_BASE_URL", default="https://verification.didit.me")
+DIDIT_API_KEY = env("DIDIT_API_KEY", default="")
+DIDIT_API_TIMEOUT_SECONDS = env.int("DIDIT_API_TIMEOUT_SECONDS", default=10)
 DIDIT_WORKFLOW_ID = env("DIDIT_WORKFLOW_ID", default="didit-natural-person-lender-v1")
 DIDIT_MOCK_VERIFICATION_BASE_URL = env(
     "DIDIT_MOCK_VERIFICATION_BASE_URL",
     default="https://mock.didit.local/verify",
 )
+DIDIT_CALLBACK_URL = env("DIDIT_CALLBACK_URL", default="")
+DIDIT_CALLBACK_METHOD = env("DIDIT_CALLBACK_METHOD", default="both")
+DIDIT_LANGUAGE = env("DIDIT_LANGUAGE", default="en")
 DIDIT_WEBHOOK_SECRET = env("DIDIT_WEBHOOK_SECRET", default="")
 DIDIT_WEBHOOK_REQUIRE_SIGNATURE = env.bool(
     "DIDIT_WEBHOOK_REQUIRE_SIGNATURE",
     default=ENVIRONMENT != "local",
+)
+COMMUNICATIONS_EMAIL_PROVIDER = env("COMMUNICATIONS_EMAIL_PROVIDER", default="mock")
+COMMUNICATIONS_DISPATCH_LIMIT = env.int("COMMUNICATIONS_DISPATCH_LIMIT", default=50)
+COMMUNICATIONS_IMMEDIATE_AUTH_EMAILS = env.bool(
+    "COMMUNICATIONS_IMMEDIATE_AUTH_EMAILS",
+    default=True,
+)
+SCHEDULED_JOBS_ACTOR_EMAIL = env("SCHEDULED_JOBS_ACTOR_EMAIL", default="")
+SCHEDULED_JOBS_RUNNING_TIMEOUT_MINUTES = env.int(
+    "SCHEDULED_JOBS_RUNNING_TIMEOUT_MINUTES",
+    default=120,
+)
+SENDGRID_API_KEY = env("SENDGRID_API_KEY", default="")
+SENDGRID_FROM_EMAIL = env("SENDGRID_FROM_EMAIL", default="notifications@banxum.com")
+SENDGRID_FROM_NAME = env("SENDGRID_FROM_NAME", default=PLATFORM_BRAND_NAME)
+SENDGRID_TIMEOUT_SECONDS = env.int("SENDGRID_TIMEOUT_SECONDS", default=10)
+FX_RATE_PROVIDER = env(
+    "FX_RATE_PROVIDER",
+    default="mock" if ENVIRONMENT == "local" else "yahoo_finance",
+)
+FX_YAHOO_CHART_URL = env(
+    "FX_YAHOO_CHART_URL",
+    default="https://query1.finance.yahoo.com/v8/finance/chart",
+)
+FX_YAHOO_TIMEOUT_SECONDS = env.int("FX_YAHOO_TIMEOUT_SECONDS", default=10)
+FX_YAHOO_USER_AGENT = env(
+    "FX_YAHOO_USER_AGENT",
+    default="BANXUM/1.0 provider-check",
 )
 BALANCE_PENALTY_BPS_PER_DAY = env.int("BALANCE_PENALTY_BPS_PER_DAY", default=100)
 REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")

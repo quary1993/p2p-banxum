@@ -7,3 +7,6 @@ class FxConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "backend.apps.fx"
     verbose_name = "FX"
+
+    def ready(self) -> None:
+        from backend.apps.fx import checks  # noqa: F401

@@ -8,6 +8,7 @@ from backend.apps.accounts_auth.models import (
     AccountAccessEvent,
     AccountAccessReason,
     AccountStatus,
+    SensitiveAction,
     User,
 )
 
@@ -33,6 +34,7 @@ class NaturalPersonRegistrationRequestSerializer(serializers.Serializer[Any]):
 
 class NaturalPersonRegistrationResponseSerializer(serializers.Serializer[Any]):
     user = UserSummarySerializer()
+    email_login_sent = serializers.BooleanField()
 
 
 class MagicLinkRequestSerializer(serializers.Serializer[Any]):
@@ -61,6 +63,26 @@ class AdminLoginStartResponseSerializer(serializers.Serializer[Any]):
 class AdminLoginConfirmRequestSerializer(serializers.Serializer[Any]):
     code_id = serializers.UUIDField()
     code = serializers.RegexField(regex=r"^\d{6}$")
+
+
+class SensitiveActionCodeRequestSerializer(serializers.Serializer[Any]):
+    action = serializers.ChoiceField(
+        choices=[
+            SensitiveAction.WITHDRAWAL,
+            SensitiveAction.BANK_ACCOUNT_CHANGE,
+            SensitiveAction.FX,
+            SensitiveAction.PRIMARY_INVESTMENT,
+            SensitiveAction.SECONDARY_MARKET_LISTING,
+            SensitiveAction.SECONDARY_MARKET_PURCHASE,
+        ]
+    )
+
+
+class SensitiveActionCodeRequestResponseSerializer(serializers.Serializer[Any]):
+    code_id = serializers.UUIDField()
+    action = serializers.CharField()
+    status = serializers.CharField()
+    expires_at = serializers.DateTimeField()
 
 
 class AdminUserCreateRequestSerializer(serializers.Serializer[Any]):

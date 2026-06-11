@@ -11,8 +11,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from backend.apps.documents.api.serializers import (
+    DocumentAcceptanceArtifactRequestSerializer,
     DocumentAcceptanceCreateRequestSerializer,
     DocumentAcceptanceEvidenceSerializer,
+    DocumentArtifactResponseSerializer,
     DocumentCurrentTemplateQuerySerializer,
     DocumentTemplateVersionCreateRequestSerializer,
     DocumentTemplateVersionPublishRequestSerializer,
@@ -20,6 +22,7 @@ from backend.apps.documents.api.serializers import (
     PublicDocumentTemplateVersionSerializer,
     serialize_acceptance,
     serialize_public_template_version,
+    serialize_rendered_artifact,
     serialize_template_version,
 )
 from backend.apps.documents.models import DocumentTemplateVersion
@@ -29,10 +32,12 @@ from backend.apps.documents.services import (
     DocumentAuthorizationError,
     DocumentValidationError,
     PublishDocumentTemplateVersionCommand,
+    RenderDocumentAcceptanceArtifactCommand,
     accept_document_terms,
     create_document_template_version,
     get_current_document_template,
     publish_document_template_version,
+    render_document_acceptance_artifact,
 )
 from backend.apps.platform_core.api.request_meta import client_ip, user_agent
 from backend.apps.platform_core.domain.access import is_superadmin_actor
@@ -199,3 +204,31 @@ class DocumentAcceptanceCreateView(APIView):
         except DocumentValidationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(serialize_acceptance(acceptance), status=status.HTTP_201_CREATED)
+
+
+class DocumentAcceptanceArtifactView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=DocumentAcceptanceArtifactRequestSerializer,
+        responses={200: DocumentArtifactResponseSerializer},
+    )
+    def post(self, request: Request, acceptance_id: str) -> Response:
+        serializer = DocumentAcceptanceArtifactRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            artifact = render_document_acceptance_artifact(
+                RenderDocumentAcceptanceArtifactCommand(
+                    actor=cast(Model, request.user),
+                    acceptance_id=acceptance_id,
+                    output_format=data.get("output_format", "pdf"),
+                    purpose="investor_download",
+                    metadata={"request_path": request.path},
+                )
+            )
+        except DocumentAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except DocumentValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(serialize_rendered_artifact(artifact), status=status.HTTP_200_OK)

@@ -5,6 +5,7 @@ from django.contrib import admin
 from backend.apps.marketplace_primary.models import (
     PrimaryInvestmentOrder,
     PrimaryInvestmentOrderEvent,
+    PrimaryLoanCancellation,
     PrimaryLoanClose,
 )
 
@@ -60,3 +61,19 @@ class PrimaryLoanCloseAdmin(ReadOnlyPrimaryMarketplaceAdmin):
     list_filter = ("close_type", "currency", "closed_at")
     search_fields = ("id", "loan_id", "idempotency_key")
     readonly_fields = tuple(field.name for field in PrimaryLoanClose._meta.fields)
+
+
+@admin.register(PrimaryLoanCancellation)
+class PrimaryLoanCancellationAdmin(ReadOnlyPrimaryMarketplaceAdmin):
+    list_display = (
+        "id",
+        "loan_id",
+        "currency",
+        "released_order_count",
+        "closed_not_invested_order_count",
+        "released_principal_minor",
+        "cancelled_at",
+    )
+    list_filter = ("currency", "cancelled_at")
+    search_fields = ("id", "loan_id", "idempotency_key")
+    readonly_fields = tuple(field.name for field in PrimaryLoanCancellation._meta.fields)

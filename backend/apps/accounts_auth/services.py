@@ -3,11 +3,13 @@ from __future__ import annotations
 import secrets
 from dataclasses import dataclass
 from datetime import timedelta
+from importlib import import_module
 from typing import cast
 
 from django.conf import settings
 from django.contrib.auth.hashers import identify_hasher
 from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ObjectDoesNotExist
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -29,6 +31,11 @@ from backend.apps.accounts_auth.models import (
     SensitiveAction,
     SensitiveActionCode,
     User,
+)
+from backend.apps.accounts_auth.phone_providers import (
+    PhoneProviderError,
+    check_twilio_verify,
+    start_twilio_verify,
 )
 from backend.apps.platform_core.domain.access import (
     actor_ref_for_user,
@@ -76,6 +83,12 @@ class SensitiveActionCodeThrottleError(AccountsAuthError):
 
 
 class PhoneVerificationThrottleError(AccountsAuthError):
+    def __init__(self, message: str, *, retry_after_seconds: int | None = None) -> None:
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
+
+
+class PhoneVerificationProviderError(AccountsAuthError):
     pass
 
 
@@ -110,6 +123,25 @@ MAGIC_LINK_ACCOUNT_TYPES = frozenset(
     }
 )
 INVESTOR_SENSITIVE_ACTION_ACCOUNT_TYPES = MAGIC_LINK_ACCOUNT_TYPES
+TWILIO_VERIFY_PROVIDER = "twilio_verify"
+LOCAL_PHONE_VERIFICATION_PROVIDERS = {"mock", "local"}
+
+
+def _dispatch_auth_email_after_commit(outbox_message_id: int) -> None:
+    if not settings.COMMUNICATIONS_IMMEDIATE_AUTH_EMAILS:
+        return
+
+    def _dispatch() -> None:
+        try:
+            communications = import_module("backend.apps.communications.services")
+            communications.dispatch_email_outbox_message_now(outbox_message_id)
+        except Exception:
+            # The durable outbox remains pending or retryable. The scheduled
+            # dispatcher and monitor own follow-up; login/code issuance must not
+            # fail after the code record has already committed.
+            return
+
+    transaction.on_commit(_dispatch)
 
 
 def actor_for_user(user: User) -> ActorRef:
@@ -155,6 +187,24 @@ def _validate_registration_terms(version: str, terms_hash: str) -> None:
         or terms_hash != settings.REGISTRATION_TERMS_HASH
     ):
         raise InvalidTermsAcceptanceError("Registration terms are not current.")
+
+
+def _user_has_started_kyc(user: User) -> bool:
+    try:
+        kyc_case = user.kyc_verification_case
+    except ObjectDoesNotExist:
+        return False
+    return str(getattr(kyc_case, "status", "")) not in {"", "not_started"}
+
+
+def _can_recover_incomplete_registration(user: User) -> bool:
+    return (
+        user.is_active
+        and user.account_type == AccountType.NATURAL_PERSON_LENDER
+        and user.status == AccountStatus.PENDING_KYC
+        and user.phone_verified_at is None
+        and not _user_has_started_kyc(user)
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,22 +341,43 @@ class BootstrapEnvSuperadminResult:
 def register_natural_person_lender(command: RegisterNaturalPersonCommand) -> User:
     email = normalize_email(command.email)
     _validate_registration_terms(command.terms_version, command.terms_hash)
-    if User.objects.filter(email=email).exists():
+
+    user = User.objects.select_for_update().filter(email=email).first()
+    is_recovered_incomplete_registration = False
+    if user is None:
+        try:
+            with transaction.atomic():
+                user = User.objects.create_user(
+                    email=email,
+                    full_name=command.full_name.strip(),
+                    account_type=AccountType.NATURAL_PERSON_LENDER,
+                    status=AccountStatus.PENDING_KYC,
+                    phone_number=command.phone_number.strip(),
+                    marketing_consent=command.marketing_consent,
+                )
+        except IntegrityError as exc:
+            user = User.objects.select_for_update().filter(email=email).first()
+            if user is None or not _can_recover_incomplete_registration(user):
+                raise DuplicateEmailError("An account already exists for this email.") from exc
+            is_recovered_incomplete_registration = True
+    elif _can_recover_incomplete_registration(user):
+        is_recovered_incomplete_registration = True
+    else:
         raise DuplicateEmailError("An account already exists for this email.")
 
-    try:
-        user = User.objects.create_user(
-            email=email,
-            full_name=command.full_name.strip(),
-            account_type=AccountType.NATURAL_PERSON_LENDER,
-            status=AccountStatus.PENDING_KYC,
-            phone_number=command.phone_number.strip(),
-            marketing_consent=command.marketing_consent,
-        )
-    except IntegrityError as exc:
-        raise DuplicateEmailError("An account already exists for this email.") from exc
+    if is_recovered_incomplete_registration:
+        user.full_name = command.full_name.strip()
+        user.phone_number = command.phone_number.strip()
+        user.marketing_consent = command.marketing_consent
+        user.save(update_fields=["full_name", "phone_number", "marketing_consent"])
+        now = timezone.now()
+        PhoneVerificationChallenge.objects.filter(
+            user=user,
+            status=PhoneVerificationStatus.PENDING,
+            superseded_at__isnull=True,
+        ).update(status=PhoneVerificationStatus.SUPERSEDED, superseded_at=now)
 
-    RegistrationTermsAcceptance.objects.create(
+    terms_acceptance = RegistrationTermsAcceptance.objects.create(
         user=user,
         terms_version=command.terms_version,
         terms_hash=command.terms_hash,
@@ -317,23 +388,36 @@ def register_natural_person_lender(command: RegisterNaturalPersonCommand) -> Use
     record_audit_event(
         AuditCommand(
             actor=actor,
-            action="account.registered",
+            action=(
+                "account.registration_recovered"
+                if is_recovered_incomplete_registration
+                else "account.registered"
+            ),
             target_type="User",
             target_id=str(user.id),
             metadata={
                 "account_type": user.account_type,
                 "terms_version": command.terms_version,
                 "marketing_consent": command.marketing_consent,
+                "incomplete_registration_recovered": is_recovered_incomplete_registration,
             },
         )
     )
     record_domain_event(
         DomainEventCommand(
-            event_type="NaturalPersonLenderRegistered",
+            event_type=(
+                "NaturalPersonLenderRegistrationRecovered"
+                if is_recovered_incomplete_registration
+                else "NaturalPersonLenderRegistered"
+            ),
             aggregate_type="User",
             aggregate_id=str(user.id),
             payload={"email": user.email, "phone_number_present": bool(user.phone_number)},
-            idempotency_key=f"user:{user.id}:registered",
+            idempotency_key=(
+                f"user:{user.id}:registration-recovered:{terms_acceptance.id}"
+                if is_recovered_incomplete_registration
+                else f"user:{user.id}:registered"
+            ),
         )
     )
     return user
@@ -360,7 +444,7 @@ def issue_magic_link(command: MagicLinkRequestCommand) -> MagicLinkIssueResult:
         requested_ip=command.ip_address,
         requested_user_agent=command.user_agent,
     )
-    enqueue_outbox_message(
+    outbox_message = enqueue_outbox_message(
         OutboxCommand(
             idempotency_key=f"magic-link:{token.id}",
             topic="email.magic_link_requested",
@@ -374,6 +458,7 @@ def issue_magic_link(command: MagicLinkRequestCommand) -> MagicLinkIssueResult:
             },
         )
     )
+    _dispatch_auth_email_after_commit(outbox_message.id)
     record_audit_event(
         AuditCommand(
             actor=ActorRef("investor", str(user.id)),
@@ -482,7 +567,7 @@ def issue_sensitive_action_code(
         requested_ip=command.ip_address,
         requested_user_agent=command.user_agent,
     )
-    enqueue_outbox_message(
+    outbox_message = enqueue_outbox_message(
         OutboxCommand(
             idempotency_key=f"sensitive-action-code:{code_record.id}",
             topic="email.sensitive_action_code_requested",
@@ -497,6 +582,7 @@ def issue_sensitive_action_code(
             },
         )
     )
+    _dispatch_auth_email_after_commit(outbox_message.id)
     record_audit_event(
         AuditCommand(
             actor=actor_for_user(command.user),
@@ -536,7 +622,14 @@ def request_phone_verification(
     if latest_active is not None:
         elapsed = now - latest_active.created_at
         if elapsed < timedelta(seconds=cooldown_seconds):
-            raise PhoneVerificationThrottleError("Phone verification requested too recently.")
+            retry_after_seconds = max(
+                1,
+                int((timedelta(seconds=cooldown_seconds) - elapsed).total_seconds()) + 1,
+            )
+            raise PhoneVerificationThrottleError(
+                "Phone verification requested too recently.",
+                retry_after_seconds=retry_after_seconds,
+            )
 
         PhoneVerificationChallenge.objects.filter(
             user=user,
@@ -553,32 +646,55 @@ def request_phone_verification(
     if max_attempts <= 0:
         raise AccountsAuthError("max_attempts must be positive.")
 
-    raw_code = f"{secrets.randbelow(1_000_000):06d}"
+    provider = str(settings.PHONE_VERIFICATION_PROVIDER).strip().lower()
+    if provider in LOCAL_PHONE_VERIFICATION_PROVIDERS:
+        raw_code = f"{secrets.randbelow(1_000_000):06d}"
+        code_digest = digest_secret(raw_code)
+        encrypted_code = encrypt_delivery_secret(raw_code)
+    elif provider == TWILIO_VERIFY_PROVIDER:
+        raw_code = ""
+        code_digest = ""
+        encrypted_code = ""
+    else:
+        raise PhoneVerificationProviderError(
+            f"Unsupported phone verification provider '{provider}'."
+        )
+
     challenge = PhoneVerificationChallenge.objects.create(
         user=user,
         phone_number=user.phone_number,
-        provider=settings.PHONE_VERIFICATION_PROVIDER,
-        code_digest=digest_secret(raw_code),
-        encrypted_code=encrypt_delivery_secret(raw_code),
+        provider=provider,
+        code_digest=code_digest,
+        encrypted_code=encrypted_code,
         expires_at=now + ttl,
         max_attempts=max_attempts,
         requested_ip=command.ip_address,
         requested_user_agent=command.user_agent,
     )
-    enqueue_outbox_message(
-        OutboxCommand(
-            idempotency_key=f"phone-verification:{challenge.id}",
-            topic="sms.phone_verification_requested",
-            payload={
-                "user_id": str(user.id),
-                "phone_number": user.phone_number,
-                "delivery_secret_type": "phone_verification_code",
-                "delivery_secret_ref": str(challenge.id),
-                "secret_redacted": True,
-                "expires_at": challenge.expires_at.isoformat(),
-            },
+    if provider == TWILIO_VERIFY_PROVIDER:
+        try:
+            provider_result = start_twilio_verify(user.phone_number)
+        except PhoneProviderError as exc:
+            raise PhoneVerificationProviderError(
+                "Phone verification provider is unavailable."
+            ) from exc
+        challenge.provider_reference = provider_result.provider_reference
+        challenge.save(update_fields=["provider_reference", "updated_at"])
+    else:
+        enqueue_outbox_message(
+            OutboxCommand(
+                idempotency_key=f"phone-verification:{challenge.id}",
+                topic="sms.phone_verification_requested",
+                payload={
+                    "user_id": str(user.id),
+                    "phone_number": user.phone_number,
+                    "delivery_secret_type": "phone_verification_code",
+                    "delivery_secret_ref": str(challenge.id),
+                    "secret_redacted": True,
+                    "expires_at": challenge.expires_at.isoformat(),
+                },
+            )
         )
-    )
     record_audit_event(
         AuditCommand(
             actor=ActorRef("investor", str(user.id)),
@@ -637,65 +753,89 @@ def confirm_phone_verification(
                 metadata={"reason": "too_many_attempts"},
             )
             failure = TooManyCodeAttemptsError("Phone verification attempt limit exceeded.")
-        elif not secrets.compare_digest(challenge.code_digest, digest_secret(command.raw_code)):
-            challenge.attempts += 1
-            if challenge.attempts >= challenge.max_attempts:
-                challenge.status = PhoneVerificationStatus.FAILED
-                challenge.save(update_fields=["attempts", "status", "updated_at"])
-                _audit_auth_failure(
-                    action="auth.phone_verification_failed",
-                    user_id=str(challenge.user_id),
-                    metadata={"reason": "too_many_attempts"},
-                )
-                failure = TooManyCodeAttemptsError(
-                    "Phone verification attempt limit exceeded."
-                )
+        else:
+            code_is_valid = False
+            provider = str(challenge.provider).strip().lower()
+            if provider == TWILIO_VERIFY_PROVIDER:
+                try:
+                    provider_result = check_twilio_verify(
+                        challenge.phone_number,
+                        command.raw_code,
+                    )
+                except PhoneProviderError:
+                    failure = PhoneVerificationProviderError(
+                        "Phone verification provider is unavailable."
+                    )
+                else:
+                    code_is_valid = provider_result.approved
+                    if provider_result.provider_reference and not challenge.provider_reference:
+                        challenge.provider_reference = provider_result.provider_reference
             else:
-                challenge.save(update_fields=["attempts", "updated_at"])
-                _audit_auth_failure(
-                    action="auth.phone_verification_failed",
-                    user_id=str(challenge.user_id),
-                    metadata={"reason": "invalid_code"},
+                code_is_valid = secrets.compare_digest(
+                    challenge.code_digest,
+                    digest_secret(command.raw_code),
                 )
-                failure = InvalidOrExpiredCodeError(
-                    "Phone verification code is invalid or expired."
+
+            if failure is None and not code_is_valid:
+                challenge.attempts += 1
+                if challenge.attempts >= challenge.max_attempts:
+                    challenge.status = PhoneVerificationStatus.FAILED
+                    challenge.save(update_fields=["attempts", "status", "updated_at"])
+                    _audit_auth_failure(
+                        action="auth.phone_verification_failed",
+                        user_id=str(challenge.user_id),
+                        metadata={"reason": "too_many_attempts", "provider": provider},
+                    )
+                    failure = TooManyCodeAttemptsError(
+                        "Phone verification attempt limit exceeded."
+                    )
+                else:
+                    challenge.save(update_fields=["attempts", "provider_reference", "updated_at"])
+                    _audit_auth_failure(
+                        action="auth.phone_verification_failed",
+                        user_id=str(challenge.user_id),
+                        metadata={"reason": "invalid_code", "provider": provider},
+                    )
+                    failure = InvalidOrExpiredCodeError(
+                        "Phone verification code is invalid or expired."
+                    )
+            elif failure is None:
+                challenge.attempts += 1
+                challenge.status = PhoneVerificationStatus.VERIFIED
+                challenge.verified_at = now
+                challenge.confirmed_ip = command.ip_address
+                challenge.confirmed_user_agent = command.user_agent
+                challenge.save(
+                    update_fields=[
+                        "attempts",
+                        "provider_reference",
+                        "status",
+                        "verified_at",
+                        "confirmed_ip",
+                        "confirmed_user_agent",
+                        "updated_at",
+                    ]
                 )
-        elif failure is None:
-            challenge.attempts += 1
-            challenge.status = PhoneVerificationStatus.VERIFIED
-            challenge.verified_at = now
-            challenge.confirmed_ip = command.ip_address
-            challenge.confirmed_user_agent = command.user_agent
-            challenge.save(
-                update_fields=[
-                    "attempts",
-                    "status",
-                    "verified_at",
-                    "confirmed_ip",
-                    "confirmed_user_agent",
-                    "updated_at",
-                ]
-            )
-            challenge.user.phone_verified_at = now
-            challenge.user.save(update_fields=["phone_verified_at"])
-            record_audit_event(
-                AuditCommand(
-                    actor=ActorRef("investor", str(challenge.user_id)),
-                    action="auth.phone_verified",
-                    target_type="User",
-                    target_id=str(challenge.user_id),
-                    metadata={"challenge_id": str(challenge.id)},
+                challenge.user.phone_verified_at = now
+                challenge.user.save(update_fields=["phone_verified_at"])
+                record_audit_event(
+                    AuditCommand(
+                        actor=ActorRef("investor", str(challenge.user_id)),
+                        action="auth.phone_verified",
+                        target_type="User",
+                        target_id=str(challenge.user_id),
+                        metadata={"challenge_id": str(challenge.id), "provider": provider},
+                    )
                 )
-            )
-            record_domain_event(
-                DomainEventCommand(
-                    event_type="PhoneVerified",
-                    aggregate_type="User",
-                    aggregate_id=str(challenge.user_id),
-                    payload={"challenge_id": str(challenge.id)},
-                    idempotency_key=f"user:{challenge.user_id}:phone-verification:{challenge.id}:verified",
+                record_domain_event(
+                    DomainEventCommand(
+                        event_type="PhoneVerified",
+                        aggregate_type="User",
+                        aggregate_id=str(challenge.user_id),
+                        payload={"challenge_id": str(challenge.id), "provider": provider},
+                        idempotency_key=f"user:{challenge.user_id}:phone-verification:{challenge.id}:verified",
+                    )
                 )
-            )
 
     if failure is not None:
         raise failure
@@ -1126,4 +1266,6 @@ def delivery_secret_for_sensitive_action_code(code_record: SensitiveActionCode) 
 
 
 def delivery_secret_for_phone_verification(challenge: PhoneVerificationChallenge) -> str:
+    if not challenge.encrypted_code:
+        return ""
     return decrypt_delivery_secret(challenge.encrypted_code)

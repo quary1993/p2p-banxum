@@ -6,6 +6,7 @@ from rest_framework import serializers
 
 from backend.apps.documents.models import (
     DocumentAcceptanceEvidence,
+    DocumentArtifactOutputFormat,
     DocumentCategory,
     DocumentTemplate,
     DocumentTemplateVersion,
@@ -123,6 +124,24 @@ class DocumentAcceptanceCreateRequestSerializer(serializers.Serializer[Any]):
     metadata = serializers.JSONField(required=False)
 
 
+class DocumentAcceptanceArtifactRequestSerializer(serializers.Serializer[Any]):
+    output_format = serializers.ChoiceField(
+        choices=DocumentArtifactOutputFormat.choices,
+        required=False,
+        default=DocumentArtifactOutputFormat.PDF,
+    )
+
+
+class DocumentArtifactResponseSerializer(serializers.Serializer[Any]):
+    rendered_artifact_id = serializers.UUIDField()
+    content_type = serializers.CharField()
+    filename = serializers.CharField()
+    content_encoding = serializers.CharField()
+    content = serializers.CharField()
+    content_sha256 = serializers.CharField()
+    manifest = serializers.JSONField()
+
+
 def serialize_template(template: DocumentTemplate) -> dict[str, Any]:
     return dict(DocumentTemplateSerializer(template).data)
 
@@ -137,3 +156,15 @@ def serialize_public_template_version(version: DocumentTemplateVersion) -> dict[
 
 def serialize_acceptance(acceptance: DocumentAcceptanceEvidence) -> dict[str, Any]:
     return dict(DocumentAcceptanceEvidenceSerializer(acceptance).data)
+
+
+def serialize_rendered_artifact(artifact: Any) -> dict[str, Any]:
+    return {
+        "rendered_artifact_id": str(artifact.rendered_artifact.id),
+        "content_type": artifact.content_type,
+        "filename": artifact.filename,
+        "content_encoding": artifact.content_encoding,
+        "content": artifact.content,
+        "content_sha256": artifact.content_sha256,
+        "manifest": artifact.manifest,
+    }

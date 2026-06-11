@@ -6,13 +6,19 @@ from typing import Any
 
 import pytest
 from django.test import Client
+from django.test.utils import override_settings
 
+from backend.apps.accounts_auth.checks import check_phone_verification_provider_config
 from backend.apps.accounts_auth.models import (
     AccountStatus,
     AccountType,
     PhoneVerificationChallenge,
     PhoneVerificationStatus,
     User,
+)
+from backend.apps.accounts_auth.phone_providers import (
+    PhoneVerificationCheckResult,
+    PhoneVerificationStartResult,
 )
 from backend.apps.accounts_auth.services import (
     InvalidOrExpiredCodeError,
@@ -195,8 +201,10 @@ def test_expired_phone_verification_is_rejected(investor: User) -> None:
 def test_phone_verification_request_enforces_cooldown(investor: User) -> None:
     request_phone_verification(PhoneVerificationRequestCommand(user=investor))
 
-    with pytest.raises(PhoneVerificationThrottleError):
+    with pytest.raises(PhoneVerificationThrottleError) as exc:
         request_phone_verification(PhoneVerificationRequestCommand(user=investor))
+    assert exc.value.retry_after_seconds is not None
+    assert exc.value.retry_after_seconds >= 1
 
 
 @pytest.mark.django_db
@@ -229,6 +237,104 @@ def test_phone_verification_reissue_supersedes_prior_active_challenge(
         )
     )
     assert confirmed.status == PhoneVerificationStatus.VERIFIED
+
+
+@pytest.mark.django_db
+@override_settings(PHONE_VERIFICATION_PROVIDER="twilio_verify")
+def test_twilio_phone_verification_request_uses_provider(
+    investor: User,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_start(phone_number: str) -> PhoneVerificationStartResult:
+        assert phone_number == investor.phone_number
+        return PhoneVerificationStartResult(
+            provider_reference="VE123",
+            provider_status="pending",
+        )
+
+    monkeypatch.setattr("backend.apps.accounts_auth.services.start_twilio_verify", fake_start)
+
+    result = request_phone_verification(PhoneVerificationRequestCommand(user=investor))
+
+    assert result.raw_code == ""
+    assert result.challenge.provider == "twilio_verify"
+    assert result.challenge.provider_reference == "VE123"
+    assert result.challenge.code_digest == ""
+    assert result.challenge.encrypted_code == ""
+    assert not OutboxMessage.objects.filter(topic="sms.phone_verification_requested").exists()
+
+
+@pytest.mark.django_db
+@override_settings(PHONE_VERIFICATION_PROVIDER="twilio_verify")
+def test_twilio_phone_verification_confirm_uses_provider(
+    investor: User,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "backend.apps.accounts_auth.services.start_twilio_verify",
+        lambda phone_number: PhoneVerificationStartResult("VE123", "pending"),
+    )
+    monkeypatch.setattr(
+        "backend.apps.accounts_auth.services.check_twilio_verify",
+        lambda phone_number, raw_code: PhoneVerificationCheckResult(
+            approved=raw_code == "123456",
+            provider_status="approved" if raw_code == "123456" else "pending",
+            provider_reference="VE123",
+        ),
+    )
+    result = request_phone_verification(PhoneVerificationRequestCommand(user=investor))
+
+    with pytest.raises(InvalidOrExpiredCodeError):
+        confirm_phone_verification(
+            PhoneVerificationConfirmCommand(
+                user=investor,
+                challenge_id=str(result.challenge.id),
+                raw_code="000000",
+            )
+        )
+
+    confirmed = confirm_phone_verification(
+        PhoneVerificationConfirmCommand(
+            user=investor,
+            challenge_id=str(result.challenge.id),
+            raw_code="123456",
+        )
+    )
+
+    assert confirmed.status == PhoneVerificationStatus.VERIFIED
+    assert confirmed.attempts == 2
+    investor.refresh_from_db()
+    assert investor.phone_verified_at is not None
+
+
+@override_settings(
+    ENVIRONMENT="staging",
+    PHONE_VERIFICATION_PROVIDER="twilio_verify",
+    TWILIO_ACCOUNT_SID="",
+    TWILIO_AUTH_TOKEN="",
+    TWILIO_API_KEY_SID="SK_test_key",
+    TWILIO_API_KEY_SECRET="test-secret",
+    TWILIO_VERIFY_SERVICE_SID="VA_test_service",
+    TWILIO_TIMEOUT_SECONDS=10,
+)
+def test_phone_verification_deploy_check_accepts_twilio_api_key_auth() -> None:
+    assert check_phone_verification_provider_config(None) == []
+
+
+@override_settings(
+    ENVIRONMENT="staging",
+    PHONE_VERIFICATION_PROVIDER="twilio_verify",
+    TWILIO_ACCOUNT_SID="",
+    TWILIO_AUTH_TOKEN="",
+    TWILIO_API_KEY_SID="",
+    TWILIO_API_KEY_SECRET="",
+    TWILIO_VERIFY_SERVICE_SID="VA_test_service",
+    TWILIO_TIMEOUT_SECONDS=10,
+)
+def test_phone_verification_deploy_check_requires_some_twilio_auth() -> None:
+    errors = check_phone_verification_provider_config(None)
+
+    assert {error.id for error in errors} == {"accounts_auth.E002"}
 
 
 @pytest.mark.django_db
@@ -270,6 +376,25 @@ def test_phone_verification_api_flow(client: Client, investor: User) -> None:
 
     assert confirm_response.status_code == 200
     assert confirm_response.json()["user"]["phone_verified"] is True
+
+
+@pytest.mark.django_db
+def test_phone_verification_request_api_returns_validation_error_for_missing_phone(
+    client: Client,
+    investor: User,
+) -> None:
+    investor.phone_number = ""
+    investor.save(update_fields=["phone_number"])
+    client.force_login(investor)
+
+    response = client.post(
+        "/api/v1/auth/phone/request/",
+        data={},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Phone number is required."
 
 
 @pytest.mark.django_db
@@ -348,3 +473,4 @@ def test_phone_verification_api_throttles_repeated_request(
 
     assert first.status_code == 202
     assert second.status_code == 429
+    assert "detail" in second.json()

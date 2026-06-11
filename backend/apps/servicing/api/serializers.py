@@ -6,6 +6,7 @@ from rest_framework import serializers
 
 from backend.apps.servicing.models import (
     BorrowerRepaymentEvent,
+    InvestorLossRecognitionLine,
     InvestorRecoveryDistributionLine,
     InvestorRepaymentDistributionLine,
     LoanRecoveryEvent,
@@ -320,6 +321,29 @@ class LoanWriteOffEventSerializer(serializers.Serializer[Any]):
     updated_at = serializers.DateTimeField()
 
 
+class InvestorLossRecognitionLineSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    write_off_event_id = serializers.UUIDField()
+    holding_id = serializers.UUIDField()
+    investor_user_id = serializers.UUIDField()
+    currency = serializers.CharField(source="currency.code")
+    principal_loss_minor = serializers.IntegerField()
+    contractual_interest_loss_minor = serializers.IntegerField()
+    default_interest_loss_minor = serializers.IntegerField()
+    fees_loss_minor = serializers.IntegerField()
+    penalties_loss_minor = serializers.IntegerField()
+    total_loss_minor = serializers.IntegerField()
+    current_principal_before_minor = serializers.IntegerField()
+    current_principal_after_minor = serializers.IntegerField()
+    metadata = serializers.JSONField()
+    occurred_at = serializers.DateTimeField()
+
+
+class LoanWriteOffRecordResponseSerializer(serializers.Serializer[Any]):
+    write_off_event = LoanWriteOffEventSerializer()
+    loss_recognition_lines = InvestorLossRecognitionLineSerializer(many=True)
+
+
 def serialize_borrower_repayment_event(
     repayment_event: BorrowerRepaymentEvent,
 ) -> dict[str, Any]:
@@ -366,3 +390,7 @@ def serialize_public_risk_note(note: LoanRiskNote) -> dict[str, Any]:
 
 def serialize_write_off_event(write_off: LoanWriteOffEvent) -> dict[str, Any]:
     return dict(LoanWriteOffEventSerializer(write_off).data)
+
+
+def serialize_loss_recognition_line(line: InvestorLossRecognitionLine) -> dict[str, Any]:
+    return dict(InvestorLossRecognitionLineSerializer(line).data)

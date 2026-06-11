@@ -1,7 +1,7 @@
 # Admin TODO: Garanta Business, Legal, Accounting, and Operational Decisions
 
 Status: Working list for Garanta admins, management, legal/compliance advisors, finance, and operations.
-Last updated: 2026-06-04.
+Last updated: 2026-06-06.
 
 This file is for non-technical Garanta stakeholders. It explains what business, legal, accounting, operational, and compliance decisions are still needed.
 
@@ -123,7 +123,7 @@ Engineering can implement the status model, Swiss evidence storage boundary, 10-
 
 ### Recovery Allocation Report Wording and Accounting Mapping
 
-Needed before production recovery/write-off reports are finalized.
+Needed before production recovery/default reports are finalized.
 
 Resolved baseline:
 
@@ -137,7 +137,7 @@ Resolved baseline:
 - Default/penalty interest starts accruing from the official default declaration date instead of regular interest only if provided in the relevant loan/project agreement or project recovery configuration, and it must be calculated and reported separately from normal contractual interest.
 - Amounts recovered after default may include principal, contractual interest accrued until default date, default/penalty interest, third-party recovery costs, Garanta recovery fee, penalties, and costs. These categories must be classified separately in the ledger and lender reports.
 - Lender recovery distributions use currency minor-unit rounding with deterministic calculation. Rounding differences are recorded separately as recovery rounding differences, not silently hidden.
-- Each recovery payment must generate ledger entries, a recovery/write-off report, and a notification to affected lenders.
+- Each recovery payment must generate ledger entries, a recovery/default report, and a notification to affected lenders.
 
 What Garanta/accountant/legal may still refine:
 
@@ -150,42 +150,49 @@ Why this is non-blocking:
 
 Engineering can implement deterministic recovery allocation, interest cutoff, separate recovery categories, reports, ledger entries, and notifications now. Remaining items refine wording and accountant-approved export mapping.
 
-### Write-Off Loss Recognition and Recovery Reconciliation Policy
+### Default Resolution, Loss Recognition, and Recovery Reconciliation Policy
 
-Needed before the future loss-recognition settlement workflow, investor loss reporting, and final write-off/recovery tax statement logic are enabled.
+Needed before production use of the final loss-recognition workflow, investor loss reporting, and final default/recovery tax statement logic.
 
-Current implementation:
+Implemented baseline:
 
-- Write-off records immutable evidence, component amounts, reason, notes, and supporting reference, then moves the loan to `written_off`.
-- Write-off does not currently close investor holdings, reduce holding principal, or post investor loss ledger entries.
-- Recovery payments recorded after default or write-off can reduce current holding principal and credit investors with recovered amounts.
-- This means write-off evidence, remaining holding principal, cumulative recoveries, investor losses, and later tax/reporting treatment must be reconciled by a future loss-recognition workflow.
+- Impaired loans remain in `defaulted` status while Garanta handles collections/recovery and records public/internal notes plus recovery payments in BANXUM.
+- Recovery payments recorded after default can reduce current holding principal and credit investors with recovered amounts.
+- A separate admin-only final default loss-recognition workflow now exists for cases where Garanta, legal, and accounting decide the remaining exposure should be closed.
+- Final loss recognition may be recorded only for a defaulted loan, requires written-off principal to equal remaining active holding principal, creates immutable per-investor loss-recognition lines, closes the active holdings, and moves the loan to `written_off`.
+- This is not automatic and should not be treated as a generic "write off whenever defaulted" button. Garanta must define the operating policy, evidence checklist, approval standard, and investor/tax wording before production use.
+
+Current code boundary:
+
+- The implemented final loss-recognition workflow records exposure closure and per-investor loss evidence. It does not post a bank/cash ledger journal because the investor principal already left investor balance liability when the loan funded.
+- Existing recovery reports remain default/recovery reports. Production write-off/loss reports, PDFs, CSVs, and tax wording require Garanta/accountant/legal approval before launch use.
+- Admin console/runbooks must present final loss recognition as a sensitive, evidence-backed default-resolution action, ideally with maker-checker approval when that governance layer is added.
 
 What Garanta/accountant/legal must decide:
 
-- Whether investors recognize a loss at the write-off date, only when the recovery process is finally closed, or through a two-step model where write-off records an expected loss and later recoveries offset that loss.
-- Whether write-off should immediately close or loss-adjust holdings, or whether holdings remain open until final recovery closure.
+- Whether investors recognize a loss only when the recovery process is finally closed, or through another advisor-approved loss-recognition model.
+- Whether final recovery closure should immediately close or loss-adjust holdings, or whether holdings remain open in a historical/defaulted state until a separate administrative resolution.
 - Which ledger entries are required for investor loss recognition and whether those entries are informational, tax-relevant, or both.
-- How later recoveries of written-off amounts should be reported against earlier write-off/loss evidence.
-- Required investor-facing wording for write-off, later recovery, and any final loss/recovery statement.
+- How later recoveries should be reported against earlier default/loss evidence.
+- Required investor-facing wording for default, recovery, final resolution, and any final loss/recovery statement.
 
 Why this is non-blocking:
 
-The current backend correctly records write-off evidence and recovery distributions without losing money conservation. The final loss-recognition/accounting policy is needed before building the future settlement/reporting workflow that turns write-off evidence into final investor loss treatment.
+The current backend correctly records recovery distributions and final loss-recognition evidence without losing money conservation. The final loss-recognition/accounting policy is still needed before production use and before finalizing settlement reports, PDFs, CSVs, tax statements, and investor wording.
 
 ### Fully Recovered Impaired Loan Terminal Status
 
-Needed before the future recovery-closure workflow, investor portfolio wording for fully recovered defaulted or written-off loans, and final recovery/write-off reports are finalized.
+Needed before the future recovery-closure workflow, investor portfolio wording for fully recovered defaulted loans, and final recovery/default reports are finalized.
 
 Current implementation:
 
 - Recovery payments reduce holding principal where recovered principal is allocated.
-- A loan can remain `defaulted` or `written_off` even if recovery payments reduce all affected holdings to zero.
+- A loan can remain `defaulted` even if recovery payments reduce all affected holdings to zero.
 - The platform does not automatically move such a loan to a separate `recovered`, `resolved`, or `closed after recovery` status.
 
 What Garanta must decide:
 
-- Whether a fully recovered impaired loan should remain in its historical impairment status (`defaulted` or `written_off`) or move to a new terminal status such as `recovered`, `resolved`, or `closed after recovery`.
+- Whether a fully recovered impaired loan should remain in its historical impairment status (`defaulted`) or move to a new terminal status such as `recovered`, `resolved`, or `closed after recovery`.
 - Which status wording investors should see in their portfolio and historical statements.
 - Which status accounting, tax, and recovery reports should use.
 - Whether this transition should happen automatically when all holding principal reaches zero, or manually after admin confirms the legal/recovery file is complete.
@@ -283,7 +290,7 @@ Default lender tax-summary sections:
 - Interest received or credited.
 - Platform/lender fees paid.
 - FX costs and FX fees.
-- Potential losses and write-offs.
+- Potential losses after final default resolution.
 - Recoveries.
 - Secondary-market gains/losses or results.
 - Balance penalties, if any.
@@ -360,11 +367,13 @@ Resolved legal input:
 - FX conversion does not reset the 30/60-day balance-ageing timers.
 - FX target-currency balance entries inherit ageing deadlines from the source balance entries consumed by the exchange.
 - If one FX conversion consumes multiple source balance entries with different deadlines, v1 uses the earliest consumed investment and withdrawal deadlines for the resulting target-currency balance entry, while retaining full lineage to every consumed source entry.
+- At day 60, BANXUM first tries forced withdrawal if a usable verified payout IBAN exists.
+- If forced withdrawal cannot succeed because no usable payout instruction exists or the bank-side return cannot be executed after operational review, the balance moves to penalty/frozen handling.
 - Day-60 balance penalties are env/deployment-configurable. Launch default is 1% simple daily penalty on the overdue source balance, applied by Europe/Zurich calendar day, capped at the remaining overdue source balance, never creating a negative balance, with a terminal `penalty_exhausted` source status if fully consumed.
 
 Why this is non-blocking:
 
-Implementation can proceed using the documented launch assumptions, but production use must wait for legal/compliance approval.
+Implementation can proceed using the documented launch assumptions, but production use of balance penalties and final loss recognition must wait for legal/compliance/accounting approval.
 
 ### Final Legal Templates and Transaction Documents
 
@@ -380,13 +389,15 @@ What Garanta must create and upload:
 - Final legally approved P2P lending risk acknowledgement/risk disclosure document.
 - Primary loan claim assignment template.
 - Secondary-market assignment/reassignment template.
+- Transaction confirmation PDF templates where an investor or borrower needs a downloadable confirmation.
+- CSV layouts where a document/report is expected to be delivered as CSV rather than only as PDF.
 - Partial-funding consent language.
 - Listing-change notification wording.
 - Checkbox labels and acknowledgement text for every acceptance flow.
 
 Why this is non-blocking:
 
-The documents/template module can be implemented with placeholder templates and versioning. Final approved legal content can be uploaded later through the superadmin template UI.
+The documents/template module now supports placeholder templates, versioning, clickwrap evidence, and generic PDF/CSV evidence generation. Garanta will provide the final approved templates. PDFs and CSVs, where applicable, are required for launch before real transactions or production statements are enabled; clickwrap plus email confirmation alone is not the launch document-delivery model.
 
 ### Jurisdiction and Cross-Border Policy
 
@@ -512,13 +523,13 @@ What Garanta must provide:
 - Document retention periods by document type, if Garanta wants something more specific than launch indefinite retention.
 - Whether generated transaction PDFs are sent as email attachments or delivered by secure link.
 - Email/file size limits, if any.
-- Whether regulator/auditor evidence packages must include materialized PDFs or whether reproducible generation from stored template/data is enough.
+- Whether regulator/auditor evidence packages must include materialized PDFs in object storage or whether reproducible generation from stored template/data plus immutable checksum/manifest/renderer-version evidence is enough.
 - Whether superadmin template publication requires offline legal approval evidence.
 - Template rollback process: who can roll back, when, and what evidence is recorded.
 
 Why this is non-blocking:
 
-The document module can implement versioned templates, reproducible PDFs, and secure downloads with defaults. These decisions refine production operations and legal evidence handling.
+The document module now implements versioned templates, reproducible PDF/CSV evidence artifacts, immutable rendered-artifact checksum/manifest/renderer-version metadata, and secure downloads with defaults. These decisions refine production operations, delivery mechanics, and legal evidence handling.
 
 ### Finance Corrections, Restatements, and Optional Fee Policies
 

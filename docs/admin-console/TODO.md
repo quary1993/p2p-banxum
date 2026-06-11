@@ -71,3 +71,79 @@ Each entry should include:
 - Current first-version behavior: backend-only dashboard API is available at `/api/v1/admin-ops/dashboard/`; it returns summary counters, currency-level operational buckets, and short queues for tasks, KYC review, bank-operation exceptions, withdrawals, balance ageing, funding loans, servicing due items, risk loans, secondary-market approvals, unsettled FX, failed email outbox messages, and reconciliation breaks.
 - Required admin-console improvement: Codex should implement the full dashboard screen using this API, including dense KPI cards, currency bucket table, queue tabs, severity/status badges, due/overdue states, drill-through links to the owning operational screen, refresh controls, empty/error/loading states, and a compact responsive layout suitable for daily finance/compliance operations.
 - Priority: important.
+
+## 2026-06-05: Admin Shell And Daily Operations Dashboard
+
+- Screen or component: `/admin` console shell, admin login entry, daily operations dashboard, queue detail drawer, currency operations table.
+- Current first-version behavior: implemented a Codex-owned admin console route using the generated admin dashboard API. In preview/test mode it uses isolated dummy admin operations data; in live mode it fetches `/api/v1/admin-ops/dashboard/`. The shell includes dense left navigation, top status bar, KPI cards, queue selector, queue table with status/priority/due indicators, item detail drawer with metadata, refresh/error/loading/empty states, and currency-level operation summaries. Admin email/password plus email-code login UI is present and uses the generated admin auth mutations outside preview mode.
+- Required admin-console improvement: implement module-specific drill-through workflows from each queue item, including task detail/update, KYC manual decision forms, bank-operation reconciliation screens, withdrawal finalization, ageing scan review, loan close/servicing/risk note actions, secondary-market approval, FX settlement declaration, failed-email handling, reconciliation snapshot investigation, audit timeline display, and permission-specific controls for superadmin-only surfaces. Add explicit admin role/permission labels when the backend exposes finer-grained roles.
+- Priority: important.
+
+## 2026-06-05: Admin Operations Task Queue UI
+
+- Screen or component: `/admin` Tasks navigation item, operational task table, task filters, create-task modal, task detail/update drawer, task event history.
+- Current first-version behavior: implemented the task queue with generated admin task list/create/patch/event APIs in live mode and isolated local preview updates in dummy mode. Admins can filter by status, priority, type and text; create internal tasks; inspect task metadata; update title/type/status/priority/due date/notes/completion note; use quick status actions; and view append-only task lifecycle events returned by the backend. Preview/test mode includes dummy tasks and event history without backend calls.
+- Required admin-console improvement: add assignment controls once admin-user search/listing is exposed, richer saved task views, SLA color rules based on backend-provided current time, related-object deep links to each owning module screen, event metadata expansion, and bulk task operations if operations volume requires it.
+- Priority: important.
+
+## 2026-06-05: Admin Module Completion First Version
+
+- Screen or component: `/admin` Compliance, Finance ops, Loans, Reports, and Superadmin settings navigation items.
+- Current first-version behavior: implemented module-owned operational panels using the generated backend API client. Compliance shows the KYC manual-review queue, AML decision form, and account-access controls. Finance ops includes lender deposit declaration, payout IBAN registration, balance lookup, ageing scan, reconciliation snapshot, withdrawal finalize/cancel, borrower disbursement, FX delta/realized reports, and FX external settlement declaration. Loans includes borrower and loan tables, borrower creation, loan draft creation, publish/close funding/release order actions, servicing repayment/status/risk-note/recovery actions, and secondary-market approval/reject/remove forms. Reports includes report generation and audit-event search. Superadmin settings includes document template version listing, template create/publish, admin-user creation, and account-access controls. Preview mode uses dummy data and local action confirmations; live mode posts only through generated API hooks.
+- Required admin-console improvement: replace ID-only action inputs with deep links and prefilled module context from dashboard/task rows once backend list/detail APIs expose the needed records. Add admin-user search/listing for assignment and access controls; evidence-file upload widgets for payment/servicing actions once storage endpoints are exposed; document acceptance evidence search; borrower document linking and investor-disclosure preview panels; report download helpers for base64 CSV/PDF/ZIP responses; richer validation for integer minor-unit fields; and permission labels if Garanta later adds more granular compliance/finance roles beyond admin/superadmin.
+- Priority: important.
+
+## 2026-06-05: Admin Console Audit Follow-Ups
+
+- Screen or component: admin data tables on Compliance, Loans, Reports and other dense module screens.
+- Current first-version behavior: added CSS containment so cards inside admin grids can shrink and wide tables scroll within their own table wrapper instead of causing page-level horizontal overflow on narrow screens.
+- Required admin-console improvement: before launch, run a dedicated mobile/tablet pass for the admin console and decide whether the densest tables should remain horizontal-scroll tables or become stacked row cards below the mobile breakpoint. Admin is desktop-primary, so this is not blocking once page-level overflow is contained.
+- Priority: nice-to-have.
+
+- Screen or component: `/admin` route access UX.
+- Current first-version behavior: live `/admin` renders the admin login flow, and all admin data/actions are backend-enforced through admin-only endpoints. There is no separate frontend role redirect because the SPA does not yet have a current-user role/session bootstrap endpoint for pre-routing.
+- Required admin-console improvement: when a current-user/session endpoint exposes account type and admin status, add a route guard that redirects non-admin authenticated users away from `/admin` and shows a concise unauthorized state. This is defense-in-depth and UX polish, not the security boundary.
+- Priority: nice-to-have.
+
+- Screen or component: high-impact admin mutations, including admin-user creation, document-template publication, borrower disbursement, recovery, and FX settlement declaration.
+- Current first-version behavior: forms are backend-gated, CSRF-safe, idempotent, and audited, but they submit directly from the form.
+- Required admin-console improvement: add dedicated confirmation dialogs with operation summaries and typed confirmation phrases for irreversible, cash-moving, or legal-evidence mutations. Use module-specific copy rather than native browser confirm dialogs.
+- Priority: important.
+
+## 2026-06-05: Admin Console Drill-Through And Evidence Operations
+
+- Screen or component: Compliance manual-review queue, Loans/Borrowers operations, primary-market and servicing actions.
+- Current first-version behavior: KYC, borrower, and loan tables now support row selection and pass selected context into related action forms. Selected borrower/loan/case context is shown in compact context bars. Funding close, order balance release, recovery, secondary-market approval/rejection/removal, and template publication now use dedicated confirmation dialogs with operation summaries before submission.
+- Required admin-console improvement: continue replacing ID-only inputs with backend-backed search/select controls once list/detail endpoints expose the required records, especially investor/user search, withdrawal request list/detail, primary-order list/detail, secondary listing search, and stored-file/evidence selection.
+- Priority: important.
+
+- Screen or component: Reports panel.
+- Current first-version behavior: live generated report responses now expose artifact metadata, checksum, manifest, content preview, and a download button that handles plain-text and base64 CSV/PDF/ZIP responses. Preview mode still avoids generating dummy report artifacts.
+- Required admin-console improvement: add saved report presets, report history browsing, object-storage artifact links once report persistence is implemented, and clearer superadmin-only labels for restricted KYC/audit/tax/full-export reports.
+- Priority: important.
+
+- Screen or component: high-impact cash-moving/legal-evidence forms.
+- Current first-version behavior: confirmation dialogs cover several high-impact direct actions, but form-submit actions such as borrower disbursement, lender deposit declaration, withdrawal finalization/cancellation, FX settlement declaration, recovery fee/cost variants, admin-user creation, and account closure still rely on form review plus backend validation.
+- Required admin-console improvement: extend the confirmation-dialog pattern to every irreversible, cash-moving, account-access, or legal-evidence mutation, preferably with backend-provided operation summaries where available.
+- Priority: important.
+
+## 2026-06-06: Reconciliation Break Task Sync
+
+- Screen or component: admin daily dashboard reconciliation-breaks queue and operational task queue.
+- Current first-version behavior: added a backend/API sync action that scans reconciliation snapshots with non-zero reconciliation differences, account-sign anomalies, or investor balance lot-vs-liability integrity breaks and creates idempotent `payment_reconciliation` admin tasks. The admin dashboard shows a `Create tasks` action when the reconciliation-breaks queue is selected; live mode posts to the generated sync endpoint and preview mode shows local explanatory feedback.
+- Required admin-console improvement: add drill-through from each reconciliation-break task to the underlying snapshot, show the snapshot's detailed sign/investor-integrity metadata in a structured investigation panel, allow admins to mark the break as explained/corrected with evidence references, and add backend-backed saved views for unresolved reconciliation exceptions.
+- Priority: important.
+
+## 2026-06-06: Primary Campaign Cancellation Action
+
+- Screen or component: Loans panel, primary-market loan detail/actions for published campaigns.
+- Current first-version behavior: the Loans panel exposes manual funding cancellation and campaign-expiry scan actions through generated API hooks. Manual cancellation requires a reason, includes an investor message field, and uses a danger confirmation dialog that explains balance-reservation release and immutable evidence. The expiry scan can evaluate the selected loan or all expired published campaigns by as-of date and calls the backend cancellation primitive. Selected loan context shows status, funding deadline, committed principal, and total principal.
+- Required admin-console improvement: replace the current selected-loan-only context with a dedicated published-campaign detail drawer showing pending/allocated order counts, projected released principal, affected investor/order rows, and direct links to cancellation evidence, released order events, restored balance lots, and loan audit events. Add clearer post-action summaries from the cancellation/scan response, especially when multiple campaigns are cancelled or skipped.
+- Priority: important.
+
+## 2026-06-06: Remove Operational Write-Off From V1 Admin UX
+
+- Screen or component: Loans panel, servicing/risk actions.
+- Current first-version behavior: write-off has been removed from the functional v1 admin console. The Loans panel exposes servicing status scans, risk notes, and recovery-payment recording, while defaulted loans remain in default/recovery handling until Garanta defines a final resolution/loss-recognition policy.
+- Required admin-console improvement: keep write-off hidden from launch-facing admin workflows. Any future final loss-recognition or recovery-closure action must be designed as a separate advisor-approved resolution workflow, not as a generic write-off button.
+- Priority: blocking polish.

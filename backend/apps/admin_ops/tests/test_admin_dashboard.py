@@ -6,19 +6,33 @@ from typing import Any, cast
 
 import pytest
 from django.apps import apps
+from django.db import IntegrityError, transaction
 from django.db.models import Model
 from django.test import Client
 from django.utils import timezone
 
-from backend.apps.admin_ops.models import AdminTaskPriority, AdminTaskType
+from backend.apps.admin_ops import services as admin_ops_services
+from backend.apps.admin_ops.models import (
+    AdminTask,
+    AdminTaskPriority,
+    AdminTaskStatus,
+    AdminTaskType,
+)
 from backend.apps.admin_ops.services import (
     CreateAdminTaskCommand,
     GetAdminDashboardCommand,
+    SyncReconciliationBreakTasksCommand,
     create_admin_task,
     get_admin_operations_dashboard,
+    sync_reconciliation_break_tasks,
 )
 from backend.apps.admin_ops.tests.factories import create_user
-from backend.apps.platform_core.models import Currency, OutboxMessage
+from backend.apps.platform_core.models import (
+    AuditEvent,
+    Currency,
+    DomainEvent,
+    OutboxMessage,
+)
 
 
 @pytest.fixture
@@ -177,6 +191,27 @@ def _forced_withdrawal_request(admin_user: Model, investor: Model) -> None:
     )
 
 
+def _reconciliation_snapshot(
+    admin_user: Model,
+    *,
+    difference_minor: int = 0,
+    metadata: dict[str, Any] | None = None,
+) -> Model:
+    reconciliation_model = apps.get_model("ledger", "ReconciliationSnapshot")
+    return cast(
+        Model,
+        reconciliation_model.objects.create(
+            currency=Currency.objects.get(code="CHF"),
+            as_of_date=timezone.localdate(),
+            bank_stated_balance_minor=999_00,
+            investor_balance_liability_minor=1_000_00,
+            reconciliation_difference_minor=difference_minor,
+            created_by_admin_id=admin_user.pk,
+            metadata=metadata or {},
+        ),
+    )
+
+
 @pytest.mark.django_db
 def test_admin_dashboard_aggregates_daily_operations(
     admin_user: Model,
@@ -321,3 +356,150 @@ def test_admin_dashboard_api_is_admin_only(
     assert body["queue_limit"] == 3
     assert "summary" in body
     assert "queues" in body
+
+
+@pytest.mark.django_db
+def test_reconciliation_break_task_sync_creates_idempotent_tasks(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    clean_snapshot = _reconciliation_snapshot(admin_user)
+    diff_snapshot = _reconciliation_snapshot(admin_user, difference_minor=-1_00)
+    integrity_snapshot = _reconciliation_snapshot(
+        admin_user,
+        metadata={
+            "account_sign_anomalies": [
+                {"account_type": "withdrawal_payable", "credit_balance_minor": -10_00}
+            ],
+            "investor_balance_integrity_breaks": [
+                {
+                    "investor_user_id": str(investor.pk),
+                    "currency": "CHF",
+                    "lot_available_minor": 1_000_00,
+                    "liability_posting_minor": 990_00,
+                    "difference_minor": 10_00,
+                }
+            ],
+        },
+    )
+
+    result = sync_reconciliation_break_tasks(
+        SyncReconciliationBreakTasksCommand(actor=admin_user, limit=10)
+    )
+    rerun = sync_reconciliation_break_tasks(
+        SyncReconciliationBreakTasksCommand(actor=admin_user, limit=10)
+    )
+
+    assert result["created_count"] == 2
+    assert result["existing_count"] == 0
+    assert result["skipped_count"] == 1
+    assert rerun["created_count"] == 0
+    assert rerun["existing_count"] == 2
+    assert rerun["skipped_count"] == 1
+    assert AdminTask.objects.count() == 2
+    assert not AdminTask.objects.filter(related_object_id=str(clean_snapshot.pk)).exists()
+    diff_task = AdminTask.objects.get(related_object_id=str(diff_snapshot.pk))
+    integrity_task = AdminTask.objects.get(related_object_id=str(integrity_snapshot.pk))
+    assert diff_task.task_type == AdminTaskType.PAYMENT_RECONCILIATION
+    assert diff_task.priority == AdminTaskPriority.HIGH
+    assert diff_task.status == AdminTaskStatus.OPEN
+    assert diff_task.due_at is not None
+    assert "reconciliation_difference" in diff_task.notes
+    assert integrity_task.priority == AdminTaskPriority.URGENT
+    assert "investor_balance_integrity_breaks" in integrity_task.notes
+    assert AuditEvent.objects.filter(
+        action="admin_ops.reconciliation_break_tasks_synced",
+    ).count() == 2
+    assert DomainEvent.objects.filter(event_type="ReconciliationBreakTasksSynced").count() == 2
+
+
+@pytest.mark.django_db
+def test_reconciliation_break_task_unique_constraint_blocks_duplicates(
+    admin_user: Model,
+) -> None:
+    snapshot = _reconciliation_snapshot(admin_user, difference_minor=50_00)
+    create_admin_task(
+        CreateAdminTaskCommand(
+            actor=admin_user,
+            task_type=AdminTaskType.PAYMENT_RECONCILIATION,
+            title="Investigate CHF reconciliation break",
+            priority=AdminTaskPriority.HIGH,
+            related_object_type="ReconciliationSnapshot",
+            related_object_id=str(snapshot.pk),
+        )
+    )
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        AdminTask.objects.create(
+            task_type=AdminTaskType.PAYMENT_RECONCILIATION,
+            title="Duplicate reconciliation break",
+            priority=AdminTaskPriority.HIGH,
+            created_by=cast(Any, admin_user),
+            related_object_type="ReconciliationSnapshot",
+            related_object_id=str(snapshot.pk),
+        )
+
+
+@pytest.mark.django_db
+def test_reconciliation_break_task_sync_recovers_from_concurrent_create(
+    admin_user: Model,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    snapshot = _reconciliation_snapshot(admin_user, difference_minor=50_00)
+
+    def create_from_overlapping_sync(command: CreateAdminTaskCommand) -> AdminTask:
+        AdminTask.objects.create(
+            task_type=AdminTaskType.PAYMENT_RECONCILIATION,
+            title="Created by overlapping reconciliation sync",
+            priority=AdminTaskPriority.HIGH,
+            created_by=cast(Any, command.actor),
+            due_at=timezone.now(),
+            notes="Created by a concurrent admin sync.",
+            related_object_type="ReconciliationSnapshot",
+            related_object_id=str(snapshot.pk),
+        )
+        raise IntegrityError("duplicate reconciliation task")
+
+    monkeypatch.setattr(
+        admin_ops_services,
+        "create_admin_task",
+        create_from_overlapping_sync,
+    )
+
+    result = sync_reconciliation_break_tasks(
+        SyncReconciliationBreakTasksCommand(actor=admin_user, limit=10)
+    )
+
+    assert result["created_count"] == 0
+    assert result["existing_count"] == 1
+    assert result["skipped_count"] == 0
+    assert result["tasks"][0].related_object_id == str(snapshot.pk)
+    assert AdminTask.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_reconciliation_break_task_sync_api_is_admin_only(
+    client: Client,
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _reconciliation_snapshot(admin_user, difference_minor=50_00)
+
+    client.force_login(cast(Any, investor))
+    forbidden = client.post(
+        "/api/v1/admin-ops/reconciliation-break-tasks/sync/",
+        data={"limit": 10},
+        content_type="application/json",
+    )
+
+    client.force_login(cast(Any, admin_user))
+    response = client.post(
+        "/api/v1/admin-ops/reconciliation-break-tasks/sync/",
+        data={"limit": 10},
+        content_type="application/json",
+    )
+
+    assert forbidden.status_code == 403
+    assert response.status_code == 200
+    assert response.json()["created_count"] == 1
+    assert response.json()["tasks"][0]["related_object_type"] == "ReconciliationSnapshot"

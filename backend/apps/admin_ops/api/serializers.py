@@ -125,6 +125,17 @@ class AdminDashboardQuerySerializer(serializers.Serializer[Any]):
     limit = serializers.IntegerField(required=False, min_value=1, max_value=50, default=10)
 
 
+class ReconciliationBreakTaskSyncRequestSerializer(serializers.Serializer[Any]):
+    limit = serializers.IntegerField(required=False, min_value=1, max_value=500, default=100)
+
+
+class ReconciliationBreakTaskSyncResponseSerializer(serializers.Serializer[Any]):
+    created_count = serializers.IntegerField()
+    existing_count = serializers.IntegerField()
+    skipped_count = serializers.IntegerField()
+    tasks = AdminTaskSerializer(many=True)
+
+
 class AdminDashboardQueueItemSerializer(serializers.Serializer[Any]):
     kind = serializers.CharField()
     id = serializers.CharField()

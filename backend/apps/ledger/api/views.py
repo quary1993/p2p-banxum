@@ -19,6 +19,7 @@ from backend.apps.ledger.api.serializers import (
     InvestorBalanceSummarySerializer,
     InvestorPayoutInstructionRegisterRequestSerializer,
     InvestorPayoutInstructionRegisterResponseSerializer,
+    InvestorSelfServicePayoutInstructionRegisterRequestSerializer,
     InvestorWithdrawalCancelRequestSerializer,
     InvestorWithdrawalCancelResponseSerializer,
     InvestorWithdrawalFinalizeRequestSerializer,
@@ -47,6 +48,7 @@ from backend.apps.ledger.services import (
     LedgerAuthorizationError,
     LedgerValidationError,
     RegisterInvestorPayoutInstructionCommand,
+    RegisterInvestorSelfServicePayoutInstructionCommand,
     RequestInvestorWithdrawalCommand,
     RunBalanceAgeingScanCommand,
     cancel_investor_withdrawal,
@@ -55,10 +57,12 @@ from backend.apps.ledger.services import (
     finalize_borrower_disbursement,
     finalize_investor_withdrawal,
     register_investor_payout_instruction,
+    register_investor_self_service_payout_instruction,
     request_investor_withdrawal,
     run_balance_ageing_scan,
     summarize_investor_balance,
 )
+from backend.apps.platform_core.api.request_meta import client_ip, user_agent
 from backend.apps.platform_core.domain.access import is_admin_actor
 
 
@@ -151,6 +155,43 @@ class InvestorPayoutInstructionRegisterView(APIView):
         )
 
 
+class InvestorSelfServicePayoutInstructionRegisterView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=InvestorSelfServicePayoutInstructionRegisterRequestSerializer,
+        responses={201: InvestorPayoutInstructionRegisterResponseSerializer},
+    )
+    def post(self, request: Request) -> Response:
+        serializer = InvestorSelfServicePayoutInstructionRegisterRequestSerializer(
+            data=request.data
+        )
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            payout_instruction = register_investor_self_service_payout_instruction(
+                RegisterInvestorSelfServicePayoutInstructionCommand(
+                    actor=cast(Model, request.user),
+                    currency=data["currency"],
+                    destination_iban=data["destination_iban"],
+                    destination_account_name=data["destination_account_name"],
+                    notes=data.get("notes", ""),
+                    sensitive_action_code_id=str(data["sensitive_action_code_id"]),
+                    sensitive_action_code=data["sensitive_action_code"],
+                    ip_address=client_ip(request),
+                    user_agent=user_agent(request),
+                )
+            )
+        except LedgerAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except LedgerValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {"payout_instruction": serialize_payout_instruction(payout_instruction)},
+            status=status.HTTP_201_CREATED,
+        )
+
+
 class InvestorBalanceSummaryView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -195,6 +236,10 @@ class InvestorWithdrawalRequestCreateView(APIView):
                     destination_account_name=data.get("destination_account_name", ""),
                     notes=data.get("notes", ""),
                     idempotency_key=data["idempotency_key"],
+                    sensitive_action_code_id=str(data["sensitive_action_code_id"]),
+                    sensitive_action_code=data["sensitive_action_code"],
+                    ip_address=client_ip(request),
+                    user_agent=user_agent(request),
                 )
             )
             summary = summarize_investor_balance(

@@ -1,10 +1,11 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { expect, test } from "vitest";
 
 import { App } from "./App";
 
-function renderApp() {
+function renderApp(path = "/") {
+  window.history.pushState({}, "", path);
   const queryClient = new QueryClient();
 
   return render(
@@ -14,11 +15,116 @@ function renderApp() {
   );
 }
 
-test("renders the BANXUM scaffold shell", () => {
+test("renders the BANXUM public investor preview", () => {
   renderApp();
 
-  expect(screen.getByRole("heading", { name: "BANXUM" })).toBeInTheDocument();
-  expect(screen.getByText("Garanta Finanzgruppe AG")).toBeInTheDocument();
-  expect(screen.getByText("Agent-ready scaffold")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Admin portal" })).toBeInTheDocument();
+  expect(screen.getByText("BANXUM")).toBeInTheDocument();
+  expect(screen.getByText("by Garanta Finanzgruppe AG")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Open loan opportunities" })).toBeInTheDocument();
+  expect(screen.getByText("Preview mode.")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Register" })).toBeInTheDocument();
+});
+
+test("fixture-backed authenticated portal is visibly marked as preview data", () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+
+  expect(screen.getByRole("heading", { name: "Welcome back, Lukas" })).toBeInTheDocument();
+  expect(screen.getByText("Preview data")).toBeInTheDocument();
+  expect(screen.getByText(/not real account data/i)).toBeInTheDocument();
+});
+
+test("day-60 frozen state keeps read-only access visible and blocks money actions", () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  fireEvent.change(screen.getByDisplayValue("Active investor"), {
+    target: { value: "frozen" }
+  });
+
+  expect(screen.getByText(/Financial actions are frozen/i)).toBeInTheDocument();
+  expect(screen.getByText(/portfolio, documents, statements and notices remain available/i)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Add payout IBAN" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Documents" })).toBeInTheDocument();
+});
+
+test("registration KYC handoff reflects Didit plus Garanta evidence retention", () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Register" }));
+  fireEvent.click(screen.getByText("I accept the platform terms and registration documents."));
+  fireEvent.click(screen.getByText("I acknowledge the generic P2P lending risk disclosure."));
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  fireEvent.change(screen.getByPlaceholderText("000000"), {
+    target: { value: "123456" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Verify phone" }));
+
+  expect(screen.getByRole("heading", { name: "Identity verification" })).toBeInTheDocument();
+  expect(screen.getByText(/Didit for identity capture and verification/i)).toBeInTheDocument();
+  expect(screen.getByText(/retains the required compliance evidence/i)).toBeInTheDocument();
+  expect(screen.queryByText(/does not store your identity documents/i)).not.toBeInTheDocument();
+});
+
+test("renders the admin operations dashboard in preview mode", () => {
+  renderApp("/admin");
+
+  expect(screen.getByRole("heading", { name: "Admin operations" })).toBeInTheDocument();
+  expect(screen.getByText("Preview admin data")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Reconciliation breaks/i })).toBeInTheDocument();
+  expect(screen.getByText("Currency operations")).toBeInTheDocument();
+});
+
+test("admin task queue renders and updates a preview task", () => {
+  renderApp("/admin");
+
+  fireEvent.click(screen.getByRole("button", { name: "Tasks" }));
+
+  expect(screen.getByText("Operational task queue")).toBeInTheDocument();
+  expect(screen.getByText("Resolve unmatched CHF lender deposit reference")).toBeInTheDocument();
+
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Resolve unmatched CHF lender deposit reference Payment Reconciliation"
+    })
+  );
+  expect(screen.getByText("Task event history")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Mark in progress" }));
+  expect(screen.getAllByText("In Progress").length).toBeGreaterThan(0);
+});
+
+test("admin module navigation renders operational panels", () => {
+  renderApp("/admin");
+
+  fireEvent.click(screen.getByRole("button", { name: "Compliance" }));
+  expect(screen.getByRole("heading", { name: "KYC manual review" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Record AML decision" })).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Finance ops" }));
+  expect(screen.getByRole("heading", { name: "Lender deposit" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "FX settlement" })).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Loans" }));
+  expect(screen.getByRole("heading", { name: "Borrowers" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Servicing and recovery" })).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Reports" }));
+  expect(screen.getByRole("heading", { name: "Report generation" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Audit event search" })).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Superadmin settings" }));
+  expect(screen.getByRole("heading", { name: "Document templates" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Create admin user" })).toBeInTheDocument();
 });

@@ -27,6 +27,29 @@ DEFAULT_PLATFORM_SETTINGS = (
         "Legal operator/contracting entity.",
     ),
     SettingDefinition("platform.support_email", "", "string", "Support mailbox."),
+    SettingDefinition(
+        "payments.deposit_instructions_by_currency",
+        {
+            "CHF": {
+                "account_holder_name": "Garanta Finanzgruppe AG",
+                "iban": "",
+                "bic": "",
+                "bank_name": "",
+                "collection_account_identifier": "CHF-COLLECTION",
+                "notes": "Configure the live CHF collection account before launch.",
+            },
+            "EUR": {
+                "account_holder_name": "Garanta Finanzgruppe AG",
+                "iban": "",
+                "bic": "",
+                "bank_name": "",
+                "collection_account_identifier": "EUR-COLLECTION",
+                "notes": "Configure the live EUR collection account before launch.",
+            },
+        },
+        "json",
+        "Investor-facing lender-deposit bank instructions by currency.",
+    ),
     SettingDefinition("currencies.enabled", ["CHF", "EUR"], "json", "Enabled balance currencies."),
     SettingDefinition(
         "investment.minimum_by_currency",
@@ -67,6 +90,12 @@ DEFAULT_PLATFORM_SETTINGS = (
         {"CHF/EUR": "1.050000", "EUR/CHF": "0.952381"},
         "json",
         "Local/mock FX provider rates used until the production provider is configured.",
+    ),
+    SettingDefinition(
+        "fx.yahoo_symbols",
+        {"CHF/EUR": "CHFEUR=X", "EUR/CHF": "EURCHF=X"},
+        "json",
+        "Yahoo Finance chart symbols by enabled FX pair.",
     ),
     SettingDefinition(
         "balance.reminder_days",

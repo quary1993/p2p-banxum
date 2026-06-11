@@ -1,12 +1,12 @@
 # Risk Monitoring, Collections, and Recoveries
 
-Status: Draft. Updated with servicing, configurable recovery waterfall/reporting, and non-standard secondary-market listing decisions on 2026-06-01.
+Status: Draft. Updated with servicing, configurable recovery waterfall/reporting, non-standard secondary-market listing decisions, and final default loss-recognition handling on 2026-06-06.
 
 ## Purpose
 
-Define post-origination risk monitoring, arrears/default status handling, Garanta-owned offline collections/recovery operations, recovered-payment recording, write-offs, and investor communication for impaired loans.
+Define post-origination risk monitoring, arrears/default status handling, Garanta-owned offline collections/recovery operations, recovered-payment recording, final default-resolution evidence, and investor communication for impaired loans.
 
-In this module, "collections" means Garanta's operational follow-up after a borrower misses, delays, partially pays, or defaults on a repayment. Borrowers do not have a portal, so borrower contact, negotiation, legal notices, and collateral enforcement are handled offline. The platform records status, notes, documents, recovery events, write-offs, and investor-facing updates.
+In this module, "collections" means Garanta's operational follow-up after a borrower misses, delays, partially pays, or defaults on a repayment. Borrowers do not have a portal, so borrower contact, negotiation, legal notices, and collateral enforcement are handled offline. The platform records status, notes, documents, recovery events, final-resolution evidence when later defined, and investor-facing updates.
 
 ## Scope
 
@@ -19,7 +19,7 @@ In this module, "collections" means Garanta's operational follow-up after a borr
 - Operational loan changes and recovery events.
 - Default declaration.
 - Generic recovery/legal evidence tracking.
-- Write-off and recoveries allocation.
+- Default resolution and recovery allocation.
 - Investor status display and investor notifications.
 
 Out of launch scope:
@@ -149,7 +149,7 @@ If a payment/installment is recorded for a defaulted loan, admin must be prompte
 Externally deducted legal/recovery costs are reported separately as recovery-cost metadata/cost classification linked to the project, not silently netted away. Costs or recovery fees deducted from funds received reduce the amount available for waterfall allocation and must be ledgered separately.
 
 Rationale:
-Recovery cost treatment depends on the case, legal process, contract, and evidence available. The platform must still preserve a gross-to-net recovery trail so lender reports, write-off reports, and accounting exports explain why the net distribution differs from the gross recovered amount.
+Recovery cost treatment depends on the case, legal process, contract, and evidence available. The platform must still preserve a gross-to-net recovery trail so lender reports, default/recovery reports, and accounting exports explain why the net distribution differs from the gross recovered amount.
 
 Impacted modules:
 - Loan Servicing and Repayments.
@@ -191,7 +191,7 @@ Amounts recovered after default may include:
 - Penalties.
 - Costs.
 
-These categories must be classified separately in the ledger, recovery/write-off report, and lender reports. The allocation must not merge normal contractual interest, default/penalty interest, principal, penalties, or costs into a single generic recovery amount.
+These categories must be classified separately in the ledger, default/recovery report, and lender reports. The allocation must not merge normal contractual interest, default/penalty interest, principal, penalties, or costs into a single generic recovery amount.
 
 Normal contractual interest stops accruing on the official default declaration date. Default/penalty interest starts accruing from that date only if the relevant loan/project agreement provides for it. Default/penalty interest is calculated and reported separately from normal contractual interest.
 
@@ -230,17 +230,19 @@ Impacted modules:
 Follow-ups:
 Consider collateral-specific recovery workflows in a later version if operational volume requires it.
 
-### RISK-DEC-008: Admin Can Mark Default, Write-Off, Recovered, and Closed
+### RISK-DEC-008: Final Default Resolution and Loss Recognition
 
 Status: Accepted.
-Date: 2026-05-16.
+Date: 2026-05-16. Updated 2026-06-06.
 Owner: Garanta operations.
 
 Decision:
-Admin can mark loans as defaulted, written off, recovered, or closed where the workflow permits. Write-off can be recorded directly by admin with reason, notes, and document upload. No separate approval workflow is required in v1.
+Admin can mark or confirm loans as defaulted where the workflow permits and can record risk notes, public notes, uploaded evidence, and recovery payments. Defaulted loans remain in `defaulted` status while Garanta handles recovery/resolution and records recovery evidence in the platform.
+
+Final loss recognition is a separate admin-only default-resolution workflow, not a generic default-management shortcut. It may be used only after Garanta/legal/accounting decide the remaining exposure should be closed. The workflow requires a defaulted loan, written-off principal equal to remaining active holding principal, immutable per-investor loss-recognition lines, active-holding closure, terminal `written_off` loan status, and downloadable/reportable evidence.
 
 Rationale:
-Launch operations do not require two sets of eyes, and admin is already the operational role responsible for loan handling.
+The legal/accounting treatment of final impairment is sensitive and case-specific. Defaulted loans should stay in default/recovery handling until the final-resolution evidence, approvals, and investor/tax treatment are clear. When final loss recognition is used, it must be explicit, auditable, and linked to investor-level loss evidence rather than implied by a generic status change.
 
 Impacted modules:
 - Admin and Operations Portal.
@@ -248,9 +250,9 @@ Impacted modules:
 - Security, Privacy, and Auditability.
 
 Follow-ups:
-Design the workflow so maker-checker approval can be enabled later for sensitive status changes.
+Define the production operating policy, evidence checklist, investor wording, report/PDF/CSV wording, and approval standard for using final loss recognition. Design the workflow so maker-checker approval can be enabled later for sensitive status changes.
 
-The backend recovery-payment foundation does not automatically move a fully recovered impaired loan to a separate `recovered` or `resolved` terminal status. Garanta must decide whether a loan should remain in its historical impairment status (`defaulted` or `written_off`) or move to a new terminal status after recoveries reduce all holding principal to zero. This decision affects investor portfolio wording, recovery/write-off reports, tax statements, and accounting exports.
+The backend recovery-payment foundation does not automatically move a fully recovered impaired loan to a separate `recovered` or `resolved` terminal status. Garanta must decide whether a loan should remain in its historical impairment status (`defaulted`) or move to a new terminal status after recoveries reduce all holding principal to zero. This decision affects investor portfolio wording, recovery/default-resolution reports, tax statements, and accounting exports.
 
 ### RISK-DEC-009: Track Actual Recoveries Only
 
@@ -309,11 +311,11 @@ Launch reporting for this module should include:
 - Default list.
 - Investor exposure by defaulted loan.
 - Action log.
-- Write-off report.
+- Default-resolution/loss-recognition report only after Garanta finalizes the recovery-closure policy.
 - Recovery payment report showing gross recovered amount, externally deducted legal/recovery costs, third-party recovery costs declared at recovery time, Garanta recovery fee decision/amount, net amount received by Garanta, net amount available for waterfall allocation, recovery category split, lender allocations, and recovery rounding differences.
 - Recovery waterfall report showing third-party recovery costs, whether the Garanta percentage recovery fee was applied, recovery fee amount, default/penalty interest percentage, waterfall category allocation, and lender distributions.
 
-The action log covers platform actions, status changes, notes, document uploads, public notes, bulk investor emails, recovery events, and write-off events. It does not require structured borrower contact tracking.
+The action log covers platform actions, status changes, notes, document uploads, public notes, bulk investor emails, recovery events, and final-resolution events when later defined. It does not require structured borrower contact tracking.
 
 Rationale:
 These reports cover the launch needs for operations, investor exposure review, auditability, and finance follow-up.
@@ -342,9 +344,9 @@ Future monitoring signals may include covenant breach, expired insurance/collate
 4. Admin handles offline follow-up if needed.
 5. Admin may add internal notes/documents, public investor notes, or send bulk investor email when something material changes.
 6. System automatically changes loan status to `Defaulted` on day 16 after due date if unpaid, using Europe/Zurich calendar days.
-7. Admin records any generic recovery/legal event, recovered payment, operational event, or write-off.
+7. Admin records any generic recovery/legal event, recovered payment, or operational event.
 8. If recovered funds are available for lenders, admin records the recovered amount and the system calculates lender distributions as investor balance credits.
-9. Admin closes the loan as recovered, written off, repaid, or otherwise closed according to the workflow and evidence. The exact terminal status for a fully recovered defaulted/written-off loan is a Garanta policy decision tracked in `admin_todo_garanta.md`.
+9. A defaulted loan remains defaulted until Garanta defines a final recovered/resolved/loss-recognition workflow. The exact terminal status for a fully recovered defaulted loan is a Garanta policy decision tracked in `admin_todo_garanta.md`.
 
 ## Data Requirements
 
@@ -374,7 +376,7 @@ Loan risk/recovery records may include:
 - Attached evidence.
 - Lender distribution calculation based on current principal balance per holding at recovery event time.
 - Recovery rounding difference.
-- Write-off reason.
+- Final default-resolution reason, only after that workflow is defined.
 - Admin user and timestamp.
 
 Detailed borrower contact history, promises to pay, contact methods, and notice templates are not required in v1.
@@ -392,8 +394,8 @@ Detailed borrower contact history, promises to pay, contact methods, and notice 
 ## Controls
 
 - Automatic late/default status changes must be auditable.
-- Manual status changes and write-offs must require reason/notes and be auditable.
-- Write-off can be performed by admin in v1 with note/document evidence.
+- Manual default/status changes must require reason/notes and be auditable.
+- Final loss recognition can be performed only through the dedicated default-resolution workflow, requires advisor-approved operating policy before production use, and must close remaining active holdings with immutable investor-level loss evidence.
 - Admin can close a defaulted loan and input recovered amount plus notes/observations.
 - Recovery records must preserve gross recovered amount, externally deducted legal/recovery costs, third-party recovery costs declared at recovery time, Garanta recovery fee decision/amount, net amount received by Garanta, net amount available for waterfall allocation, and net amount distributed to lenders.
 - Recovery payments must apply the project-specific recovery waterfall. If no project-specific waterfall overrides exist, the default order is external recovery/legal costs, platform-approved recovery costs including applied Garanta recovery fee, principal, contractual interest accrued until default, default/penalty interest, and other penalties/costs.
@@ -402,11 +404,11 @@ Detailed borrower contact history, promises to pay, contact methods, and notice 
 - Contractual interest stops accruing on the official default declaration date.
 - Default/penalty interest starts accruing from the official default declaration date only if provided in the relevant loan/project agreement or configured project waterfall. It accrues instead of regular contractual interest from default time and is reported separately.
 - Recovery distribution rounding differences must be recorded separately.
-- Each recovery payment must generate ledger entries, a recovery/write-off report, and affected-lender notifications.
+- Each recovery payment must generate ledger entries, a default/recovery report, and affected-lender notifications.
 - Investor communications are event-driven and should be timely and consistent.
 - Direct free-form restructuring is out of scope at launch; operational loan changes must follow defined servicing events and document/notification requirements.
 - Recoveries are allocated according to contract.
-- No separate write-off approval is required in v1, but the workflow should be designed so approvals can be added later.
+- The future final-resolution workflow should be designed so approvals can be added later.
 - Sensitive cases are access-controlled.
 
 ## Dependencies
@@ -427,7 +429,7 @@ Detailed borrower contact history, promises to pay, contact methods, and notice 
 6. Answered by RISK-DEC-004: investor updates are event-driven when something material changes.
 7. Updated by RISK-DEC-005 and RISK-DEC-006: recovery records show gross recovered amount, externally deducted legal/recovery costs, third-party recovery costs declared at recovery time, optional Garanta percentage recovery fee, net amount received by Garanta, waterfall allocation, category split, lender allocation based on current principal balance unless project-specific allocation overrides exist, and separate rounding differences.
 8. Answered by RISK-DEC-007: v1 recovery fields are generic, not collateral-specific.
-9. Answered by RISK-DEC-008: admin can mark default/write-off/recovered/closed with notes/documents; no separate approval in v1.
+9. Updated by RISK-DEC-008: admin can mark/confirm default, record notes/documents/recovery payments, and record final default loss recognition only through the dedicated advisor-policy-controlled workflow.
 10. Answered by RISK-DEC-009: track actual recovered payments only.
 11. Answered by RISK-DEC-010: defaulted and other non-standard loans remain visible in portfolio; holdings may be sold on the secondary market only after admin-approved listing publication, clear disclosure, and additional buyer acknowledgement.
-12. Updated by RISK-DEC-011: launch reports are default list, investor exposure by defaulted loan, action log, write-off report, and recovery payment/waterfall report with gross-to-net, third-party costs, recovery fee, category split, lender allocation, and rounding difference fields.
+12. Updated by RISK-DEC-011: launch reports are default list, investor exposure by defaulted loan, action log, recovery payment/waterfall report with gross-to-net, third-party costs, recovery fee, category split, lender allocation, and rounding difference fields, and final loss-recognition evidence/reporting once Garanta approves the production wording and use policy.

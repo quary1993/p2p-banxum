@@ -6,6 +6,7 @@ from backend.apps.documents.api.views import (
     AdminDocumentTemplateVersionListCreateView,
     AdminDocumentTemplateVersionPublishView,
     CurrentDocumentTemplateView,
+    DocumentAcceptanceArtifactView,
     DocumentAcceptanceCreateView,
 )
 
@@ -29,5 +30,10 @@ urlpatterns = [
         "acceptances/",
         DocumentAcceptanceCreateView.as_view(),
         name="document-acceptance-create",
+    ),
+    path(
+        "acceptances/<uuid:acceptance_id>/artifact/",
+        DocumentAcceptanceArtifactView.as_view(),
+        name="document-acceptance-artifact",
     ),
 ]

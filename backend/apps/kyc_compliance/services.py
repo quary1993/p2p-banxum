@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any, cast
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -94,6 +98,10 @@ class KycManualReviewError(KycComplianceError):
     pass
 
 
+class DiditApiError(KycComplianceError):
+    pass
+
+
 @dataclass(frozen=True, slots=True)
 class CreateKycSessionCommand:
     user: Model
@@ -107,6 +115,14 @@ class KycSessionResult:
     case: KycVerificationCase
     session: KycProviderSession | None = None
     already_approved: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class DiditHostedSession:
+    provider_session_id: str
+    verification_url: str
+    provider_status: str
+    provider_payload: dict[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,8 +174,194 @@ def _provider_environment() -> str:
     return str(settings.DIDIT_ENVIRONMENT)
 
 
+def _didit_session_provider() -> str:
+    return str(settings.DIDIT_SESSION_PROVIDER).strip().lower()
+
+
+def _didit_api_base_url() -> str:
+    return str(settings.DIDIT_API_BASE_URL).strip().rstrip("/")
+
+
 def _workflow_id(override: str | None = None) -> str:
     return override or str(settings.DIDIT_WORKFLOW_ID)
+
+
+def _validate_api_session_config(workflow_id: str) -> None:
+    if not str(settings.DIDIT_API_KEY).strip():
+        raise DiditApiError("DIDIT_API_KEY is required when Didit API session mode is enabled.")
+    if not workflow_id or workflow_id == "didit-natural-person-lender-v1":
+        raise DiditApiError("A real DIDIT_WORKFLOW_ID is required for Didit API session mode.")
+    if not _didit_api_base_url():
+        raise DiditApiError("DIDIT_API_BASE_URL is required for Didit API session mode.")
+
+
+def _user_contact_details(user: Model) -> dict[str, Any]:
+    contact_details: dict[str, Any] = {}
+    email = str(getattr(user, "email", "")).strip()
+    phone = str(getattr(user, "phone_number", "")).strip()
+    if email:
+        contact_details["email"] = email
+        contact_details["email_lang"] = str(settings.DIDIT_LANGUAGE)
+        contact_details["send_notification_emails"] = False
+    if phone:
+        contact_details["phone"] = phone
+    return contact_details
+
+
+def _user_expected_details(user: Model) -> dict[str, Any]:
+    full_name = str(getattr(user, "full_name", "")).strip()
+    if not full_name:
+        return {}
+    parts = full_name.split()
+    if len(parts) == 1:
+        return {"first_name": parts[0]}
+    return {"first_name": parts[0], "last_name": " ".join(parts[1:])}
+
+
+def _didit_session_request_payload(
+    *,
+    user: Model,
+    workflow_id: str,
+    vendor_data: str,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "workflow_id": workflow_id,
+        "vendor_data": vendor_data,
+        "metadata": {
+            "platform": str(settings.PLATFORM_BRAND_NAME),
+            "operator": str(settings.LEGAL_OPERATOR_NAME),
+            "subject_reference": vendor_data,
+            "user_id": str(user.pk),
+        },
+        "language": str(settings.DIDIT_LANGUAGE),
+    }
+    callback_url = str(settings.DIDIT_CALLBACK_URL).strip()
+    if callback_url:
+        payload["callback"] = callback_url
+        payload["callback_method"] = str(settings.DIDIT_CALLBACK_METHOD)
+    contact_details = _user_contact_details(user)
+    if contact_details:
+        payload["contact_details"] = contact_details
+    expected_details = _user_expected_details(user)
+    if expected_details:
+        payload["expected_details"] = expected_details
+    return payload
+
+
+def _safe_didit_session_payload(response_payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "mode": "api",
+        "session_kind": response_payload.get("session_kind", ""),
+        "session_number": response_payload.get("session_number"),
+        "workflow_id": response_payload.get("workflow_id", ""),
+        "workflow_version": response_payload.get("workflow_version"),
+        "status": response_payload.get("status", ""),
+        "vendor_data": response_payload.get("vendor_data", ""),
+        "metadata": response_payload.get("metadata", {}),
+        "session_token_present": bool(response_payload.get("session_token")),
+    }
+
+
+def _create_didit_api_session(
+    *,
+    user: Model,
+    workflow_id: str,
+    vendor_data: str,
+) -> DiditHostedSession:
+    _validate_api_session_config(workflow_id)
+    body = json.dumps(
+        _didit_session_request_payload(
+            user=user,
+            workflow_id=workflow_id,
+            vendor_data=vendor_data,
+        )
+    ).encode("utf-8")
+    request = Request(
+        f"{_didit_api_base_url()}/v3/session/",
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "x-api-key": str(settings.DIDIT_API_KEY),
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(  # noqa: S310 - Didit base URL is environment-configured and validated.
+            request,
+            timeout=int(settings.DIDIT_API_TIMEOUT_SECONDS),
+        ) as response:
+            response_body = response.read()
+    except HTTPError as exc:
+        safe_body = exc.read(2048).decode("utf-8", errors="replace")
+        raise DiditApiError(
+            f"Didit session creation failed with HTTP {exc.code}: {safe_body}"
+        ) from exc
+    except URLError as exc:
+        raise DiditApiError(f"Didit session creation failed: {exc.reason}") from exc
+    except TimeoutError as exc:
+        raise DiditApiError("Didit session creation timed out.") from exc
+
+    try:
+        payload = json.loads(response_body.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise DiditApiError("Didit session creation returned invalid JSON.") from exc
+    if not isinstance(payload, dict):
+        raise DiditApiError("Didit session creation returned an unexpected payload.")
+
+    provider_session_id = str(payload.get("session_id", "")).strip()
+    verification_url = str(payload.get("url", "")).strip()
+    if not provider_session_id or not verification_url:
+        raise DiditApiError("Didit session creation did not return session_id and url.")
+    return DiditHostedSession(
+        provider_session_id=provider_session_id,
+        verification_url=verification_url,
+        provider_status=str(payload.get("status", "Not Started")),
+        provider_payload=_safe_didit_session_payload(payload),
+    )
+
+
+def _create_mock_didit_session(
+    *,
+    user: Model,
+    workflow_id: str,
+    vendor_data: str,
+) -> DiditHostedSession:
+    provider_session_id = f"didit_mock_{uuid.uuid4()}"
+    return DiditHostedSession(
+        provider_session_id=provider_session_id,
+        verification_url=(
+            f"{settings.DIDIT_MOCK_VERIFICATION_BASE_URL.rstrip('/')}/{provider_session_id}"
+        ),
+        provider_status="pending",
+        provider_payload={
+            "mode": "mock",
+            "user_id": str(user.pk),
+            "email_present": bool(getattr(user, "email", "")),
+        },
+    )
+
+
+def _create_provider_session(
+    *,
+    user: Model,
+    workflow_id: str,
+    vendor_data: str,
+) -> DiditHostedSession:
+    provider = _didit_session_provider()
+    if provider in {"api", "didit", "live"}:
+        return _create_didit_api_session(
+            user=user,
+            workflow_id=workflow_id,
+            vendor_data=vendor_data,
+        )
+    if provider == "mock":
+        return _create_mock_didit_session(
+            user=user,
+            workflow_id=workflow_id,
+            vendor_data=vendor_data,
+        )
+    raise DiditApiError(f"Unsupported DIDIT_SESSION_PROVIDER: {provider}")
 
 
 def get_or_create_user_kyc_case(user: Model) -> KycVerificationCase:
@@ -200,32 +402,36 @@ def create_kyc_session(command: CreateKycSessionCommand) -> KycSessionResult:
         if existing is not None:
             return KycSessionResult(case=case, session=existing)
 
-    now = timezone.now()
-    provider_session_id = f"didit_mock_{uuid.uuid4()}"
     workflow_id = _workflow_id(command.workflow_id)
-    verification_url = (
-        f"{settings.DIDIT_MOCK_VERIFICATION_BASE_URL.rstrip('/')}/{provider_session_id}"
-    )
     vendor_data = vendor_data_for_user(command.user)
+    hosted_session = _create_provider_session(
+        user=command.user,
+        workflow_id=workflow_id,
+        vendor_data=vendor_data,
+    )
+
+    existing_provider_session = KycProviderSession.objects.filter(
+        provider_session_id=hosted_session.provider_session_id
+    ).first()
+    if existing_provider_session is not None:
+        return KycSessionResult(case=case, session=existing_provider_session)
+
+    now = timezone.now()
     session = KycProviderSession.objects.create(
         case=case,
         provider_environment=_provider_environment(),
         workflow_id=workflow_id,
-        provider_session_id=provider_session_id,
-        verification_url=verification_url,
+        provider_session_id=hosted_session.provider_session_id,
+        verification_url=hosted_session.verification_url,
         vendor_data=vendor_data,
         expires_at=now + command.ttl,
-        provider_payload={
-            "mode": "mock",
-            "user_id": str(command.user.pk),
-            "email_present": bool(getattr(command.user, "email", "")),
-        },
+        provider_payload=hosted_session.provider_payload,
     )
     case.status = KycStatus.PENDING
     case.provider_environment = session.provider_environment
     case.workflow_id = workflow_id
     case.vendor_data = vendor_data
-    case.provider_session_id = provider_session_id
+    case.provider_session_id = hosted_session.provider_session_id
     case.manual_review_required = False
     case.blocking_reason = ""
     case.save(
@@ -247,7 +453,12 @@ def create_kyc_session(command: CreateKycSessionCommand) -> KycSessionResult:
             action="kyc.session_created",
             target_type="KycVerificationCase",
             target_id=str(case.id),
-            metadata={"provider": "didit", "provider_session_id": provider_session_id},
+            metadata={
+                "provider": "didit",
+                "provider_session_id": hosted_session.provider_session_id,
+                "provider_mode": hosted_session.provider_payload.get("mode", ""),
+                "provider_status": hosted_session.provider_status,
+            },
         )
     )
     record_domain_event(
@@ -255,7 +466,11 @@ def create_kyc_session(command: CreateKycSessionCommand) -> KycSessionResult:
             event_type="KycSessionCreated",
             aggregate_type="KycVerificationCase",
             aggregate_id=str(case.id),
-            payload={"user_id": user_id, "provider_session_id": provider_session_id},
+            payload={
+                "user_id": user_id,
+                "provider_session_id": hosted_session.provider_session_id,
+                "provider_mode": hosted_session.provider_payload.get("mode", ""),
+            },
             idempotency_key=f"kyc:{case.id}:session:{session.id}:created",
         )
     )
@@ -294,6 +509,7 @@ def normalize_didit_status(
         "queued",
         "processing",
         "pending",
+        "awaiting_user",
     }:
         return KycStatus.PENDING
     if status in {"approved", "verified", "clear", "completed", "success"}:
@@ -313,6 +529,7 @@ def normalize_didit_status(
         return KycStatus.EXPIRED
     if status in {
         "kyc_expired",
+        "resubmitted",
         "reverification_required",
         "re_verification_required",
         "recheck_required",
@@ -386,19 +603,20 @@ def process_didit_event(command: ProviderKycEventCommand) -> ProviderKycEventRes
     )
     now = timezone.now()
     try:
-        event = KycProviderEvent.objects.create(
-            case=case,
-            session=session,
-            provider_environment=_provider_environment(),
-            provider_event_id=command.provider_event_id,
-            provider_event_type=command.provider_event_type,
-            provider_status=command.provider_status,
-            normalized_status=normalized_status,
-            provider_session_id=command.provider_session_id,
-            vendor_data=command.vendor_data,
-            raw_payload=command.raw_payload,
-            processed_at=now,
-        )
+        with transaction.atomic():
+            event = KycProviderEvent.objects.create(
+                case=case,
+                session=session,
+                provider_environment=_provider_environment(),
+                provider_event_id=command.provider_event_id,
+                provider_event_type=command.provider_event_type,
+                provider_status=command.provider_status,
+                normalized_status=normalized_status,
+                provider_session_id=command.provider_session_id,
+                vendor_data=command.vendor_data,
+                raw_payload=command.raw_payload,
+                processed_at=now,
+            )
     except IntegrityError:
         existing = KycProviderEvent.objects.get(provider_event_id=command.provider_event_id)
         return ProviderKycEventResult(event=existing, case=existing.case, idempotent=True)
@@ -570,7 +788,87 @@ def user_can_access_financial_features(user: Model) -> bool:
     return platform_user_can_access_financial_features(user)
 
 
-def verify_didit_webhook_signature(*, raw_body: bytes, signature: str) -> bool:
+def _shorten_whole_floats(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _shorten_whole_floats(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_shorten_whole_floats(item) for item in value]
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
+
+
+def _timestamp_is_fresh(timestamp: str) -> bool:
+    try:
+        timestamp_int = int(timestamp)
+    except (TypeError, ValueError):
+        return False
+    return abs(int(time.time()) - timestamp_int) <= 300
+
+
+def _compare_digest(signature: str, digest: str) -> bool:
+    return hmac.compare_digest(signature, digest) or hmac.compare_digest(
+        signature,
+        f"sha256={digest}",
+    )
+
+
+def _verify_didit_signature_v2(
+    *,
+    payload: dict[str, Any],
+    signature: str,
+    timestamp: str,
+    secret: str,
+) -> bool:
+    if not signature or not timestamp or not _timestamp_is_fresh(timestamp):
+        return False
+    canonical = json.dumps(
+        _shorten_whole_floats(payload),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    digest = hmac.new(secret.encode("utf-8"), canonical.encode("utf-8"), hashlib.sha256).hexdigest()
+    return _compare_digest(signature, digest)
+
+
+def _verify_didit_signature_simple(
+    *,
+    payload: dict[str, Any],
+    signature: str,
+    timestamp: str,
+    secret: str,
+) -> bool:
+    if not signature or not timestamp or not _timestamp_is_fresh(timestamp):
+        return False
+    canonical = ":".join(
+        [
+            str(payload.get("timestamp", "")),
+            str(payload.get("session_id", "")),
+            str(payload.get("status", "")),
+            str(payload.get("webhook_type", "")),
+        ]
+    )
+    digest = hmac.new(secret.encode("utf-8"), canonical.encode("utf-8"), hashlib.sha256).hexdigest()
+    return _compare_digest(signature, digest)
+
+
+def _verify_didit_raw_signature(*, raw_body: bytes, signature: str, secret: str) -> bool:
+    if not signature:
+        return False
+    digest = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+    return _compare_digest(signature, digest)
+
+
+def verify_didit_webhook_signature(
+    *,
+    raw_body: bytes,
+    signature: str = "",
+    payload: dict[str, Any] | None = None,
+    signature_v2: str = "",
+    signature_simple: str = "",
+    timestamp: str = "",
+) -> bool:
     secret = str(settings.DIDIT_WEBHOOK_SECRET)
     signature_required = (
         bool(settings.DIDIT_WEBHOOK_REQUIRE_SIGNATURE)
@@ -578,10 +876,23 @@ def verify_didit_webhook_signature(*, raw_body: bytes, signature: str) -> bool:
     )
     if not signature_required:
         return True
-    if not secret or not signature:
+    if not secret:
         return False
-    digest = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(signature, digest) or hmac.compare_digest(
-        signature,
-        f"sha256={digest}",
+    if payload is not None and _verify_didit_signature_v2(
+        payload=payload,
+        signature=signature_v2,
+        timestamp=timestamp,
+        secret=secret,
+    ):
+        return True
+    if _verify_didit_raw_signature(raw_body=raw_body, signature=signature, secret=secret):
+        return True
+    return bool(
+        payload is not None
+        and _verify_didit_signature_simple(
+            payload=payload,
+            signature=signature_simple,
+            timestamp=timestamp,
+            secret=secret,
+        )
     )

@@ -38,6 +38,7 @@ from backend.apps.ledger.services import (
     PostingCommand,
     PostJournalEntryCommand,
     RegisterInvestorPayoutInstructionCommand,
+    RegisterInvestorSelfServicePayoutInstructionCommand,
     RequestInvestorWithdrawalCommand,
     RunBalanceAgeingScanCommand,
     cancel_investor_withdrawal,
@@ -50,13 +51,18 @@ from backend.apps.ledger.services import (
     plan_investment_balance_consumption,
     post_journal_entry,
     register_investor_payout_instruction,
+    register_investor_self_service_payout_instruction,
     request_investor_withdrawal,
     run_balance_ageing_scan,
     summarize_investor_balance,
 )
 from backend.apps.platform_core.domain.time import business_timezone
-from backend.apps.platform_core.models import AuditEvent, Currency, DomainEvent
+from backend.apps.platform_core.models import AuditEvent, Currency, DomainEvent, OutboxMessage
 from backend.apps.platform_core.models.base import AppendOnlyViolation
+from backend.apps.platform_core.tests.factories import (
+    SensitiveActionCodePayload,
+    issue_sensitive_action_test_code,
+)
 
 
 @pytest.fixture
@@ -110,6 +116,14 @@ def _approve_financial_access(investor: Model) -> None:
             "decision_at": now,
         },
     )
+
+
+def _sensitive_code_payload(user: Model, action: str) -> SensitiveActionCodePayload:
+    code = issue_sensitive_action_test_code(user, action)
+    return {
+        "sensitive_action_code_id": code.code_id,
+        "sensitive_action_code": code.raw_code,
+    }
 
 
 def _deposit_command(
@@ -695,6 +709,62 @@ def test_register_payout_instruction_replaces_prior_active_instruction(
 
 
 @pytest.mark.django_db
+def test_investor_self_service_payout_instruction_requires_bank_change_code(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    first = register_investor_payout_instruction(
+        RegisterInvestorPayoutInstructionCommand(
+            actor=admin_user,
+            investor_user_id=str(investor.pk),
+            currency="CHF",
+            destination_iban="CH9300762011623852957",
+            destination_account_name="Ledger Investor",
+        )
+    )
+
+    instruction = register_investor_self_service_payout_instruction(
+        RegisterInvestorSelfServicePayoutInstructionCommand(
+            actor=investor,
+            currency="CHF",
+            destination_iban="CH5604835012345678009",
+            destination_account_name="Ledger Investor Updated",
+            notes="Submitted by investor.",
+            **_sensitive_code_payload(investor, "bank_account_change"),
+        )
+    )
+    first.refresh_from_db()
+
+    assert first.status == "disabled"
+    assert instruction.status == "active"
+    assert instruction.investor_user_id == investor.pk
+    assert instruction.is_verified_usable is False
+    assert instruction.verified_by_admin_id is None
+    assert instruction.verified_at is None
+    assert instruction.created_by_admin_id == investor.pk
+    assert instruction.metadata["submitted_by"] == "investor_self_service"
+    assert instruction.metadata["requires_admin_verification"] is True
+
+
+@pytest.mark.django_db
+def test_investor_self_service_payout_instruction_rejects_wrong_action_code(
+    investor: Model,
+) -> None:
+    with pytest.raises(LedgerValidationError, match="invalid or expired"):
+        register_investor_self_service_payout_instruction(
+            RegisterInvestorSelfServicePayoutInstructionCommand(
+                actor=investor,
+                currency="CHF",
+                destination_iban="CH5604835012345678009",
+                destination_account_name="Ledger Investor Updated",
+                **_sensitive_code_payload(investor, "withdrawal"),
+            )
+        )
+
+    assert InvestorPayoutInstruction.objects.count() == 0
+
+
+@pytest.mark.django_db
 def test_balance_ageing_scan_records_reminder_due(
     admin_user: Model,
     investor: Model,
@@ -729,6 +799,13 @@ def test_balance_ageing_scan_records_reminder_due(
             action="ledger.balance_ageing_reminder_due",
             target_id=str(deposit.balance_lot.id),
         ).count()
+        == 1
+    )
+    reminder_email = OutboxMessage.objects.get(topic="email.balance_ageing_reminder")
+    assert reminder_email.payload["user_id"] == str(investor.pk)
+    assert reminder_email.payload["metadata"]["day"] == 25
+    assert (
+        OutboxMessage.objects.filter(topic="email.balance_ageing_reminder").count()
         == 1
     )
 
@@ -858,13 +935,40 @@ def test_balance_ageing_scan_enables_penalty_mode_when_no_iban_exists(
     )
 
     assert result.penalty_mode_transitions[0].lot_id == str(deposit.balance_lot.id)
+    assert result.penalty_charges[0].lot_id == str(deposit.balance_lot.id)
+    assert result.penalty_charges[0].amount_minor == 1_00
+    assert result.penalty_charges[0].penalty_basis_minor == 100_00
     assert lot.status == BalanceLotStatus.PENALTY_MODE
-    assert lot.available_amount_minor == 100_00
-    assert lot.lineage[-1]["event"] == "penalty_mode_enabled"
-    assert lot.lineage[-1]["penalty_bps_per_day"] == 100
-    assert summary.penalty_mode_minor == 100_00
+    assert lot.available_amount_minor == 99_00
+    assert lot.penalized_amount_minor == 1_00
+    assert lot.lineage[-2]["event"] == "penalty_mode_enabled"
+    assert lot.lineage[-2]["penalty_bps_per_day"] == 100
+    assert lot.lineage[-2]["penalty_basis_minor"] == 100_00
+    assert lot.lineage[-1]["event"] == "balance_penalty_charged"
+    assert summary.penalty_mode_minor == 99_00
     assert rerun.penalty_mode_transitions == []
+    assert rerun.penalty_charges == []
     assert rerun.skipped_lot_ids == [str(deposit.balance_lot.id)]
+    snapshot = create_reconciliation_snapshot(
+        CreateReconciliationSnapshotCommand(
+            actor=admin_user,
+            currency="CHF",
+            as_of_date=date(2026, 3, 2),
+            bank_stated_balance_minor=100_00,
+        )
+    )
+    assert snapshot.reconciliation_difference_minor == 0
+    assert snapshot.investor_balance_liability_minor == 99_00
+    assert snapshot.garanta_accrued_revenue_minor == 1_00
+    assert snapshot.metadata["platform_fee_revenue_minor"] == 1_00
+    postings = {
+        (posting.account.account_type, posting.side, posting.amount_minor)
+        for posting in LedgerJournalEntry.objects.get(
+            event_type="balance_penalty_charged"
+        ).postings.select_related("account")
+    }
+    assert (LedgerAccountType.INVESTOR_BALANCE_LIABILITY, "debit", 1_00) in postings
+    assert (LedgerAccountType.PLATFORM_FEE_REVENUE, "credit", 1_00) in postings
     assert (
         DomainEvent.objects.filter(
             event_type="BalancePenaltyModeEnabled",
@@ -872,6 +976,100 @@ def test_balance_ageing_scan_enables_penalty_mode_when_no_iban_exists(
         ).count()
         == 1
     )
+    assert (
+        DomainEvent.objects.filter(
+            event_type="BalancePenaltyCharged",
+            aggregate_id=str(deposit.balance_lot.id),
+        ).count()
+        == 1
+    )
+
+
+@pytest.mark.django_db
+def test_balance_ageing_penalty_charges_once_per_business_day(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    deposit = declare_lender_deposit(_deposit_command(admin_user, investor))
+    first = run_balance_ageing_scan(
+        RunBalanceAgeingScanCommand(
+            actor=admin_user,
+            as_of=_received_at(date(2026, 3, 2)),
+        )
+    )
+    second = run_balance_ageing_scan(
+        RunBalanceAgeingScanCommand(
+            actor=admin_user,
+            as_of=_received_at(date(2026, 3, 3)),
+        )
+    )
+    lot = InvestorBalanceLot.objects.get(id=deposit.balance_lot.id)
+
+    assert first.penalty_charges[0].amount_minor == 1_00
+    assert second.penalty_charges[0].amount_minor == 1_00
+    assert lot.status == BalanceLotStatus.PENALTY_MODE
+    assert lot.available_amount_minor == 98_00
+    assert lot.penalized_amount_minor == 2_00
+    assert (
+        LedgerJournalEntry.objects.filter(event_type="balance_penalty_charged").count()
+        == 2
+    )
+
+
+@pytest.mark.django_db
+def test_balance_ageing_penalty_lineage_guard_skips_duplicate_same_day_charge(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    deposit = declare_lender_deposit(_deposit_command(admin_user, investor))
+    lot = InvestorBalanceLot.objects.get(id=deposit.balance_lot.id)
+    lot.status = BalanceLotStatus.PENALTY_MODE
+    lot.available_amount_minor = 99_00
+    lot.penalized_amount_minor = 1_00
+    lot.lineage = [
+        *cast(list[dict[str, Any]], lot.lineage),
+        {
+            "event": "penalty_mode_enabled",
+            "as_of": _received_at(date(2026, 3, 2)).isoformat(),
+            "penalty_bps_per_day": 100,
+            "penalty_basis_minor": 100_00,
+            "reason": "Test setup.",
+        },
+        {
+            "event": "balance_penalty_charged",
+            "charge_date": "2026-03-02",
+            "amount_minor": 1_00,
+            "penalty_bps_per_day": 100,
+            "penalty_basis_minor": 100_00,
+            "available_before_minor": 100_00,
+            "available_after_minor": 99_00,
+            "penalized_before_minor": 0,
+            "penalized_after_minor": 1_00,
+        },
+    ]
+    lot.save(
+        update_fields=[
+            "status",
+            "available_amount_minor",
+            "penalized_amount_minor",
+            "lineage",
+            "updated_at",
+        ]
+    )
+
+    with mock.patch("backend.apps.ledger.services.post_journal_entry") as post_journal:
+        result = run_balance_ageing_scan(
+            RunBalanceAgeingScanCommand(
+                actor=admin_user,
+                as_of=_received_at(date(2026, 3, 2)),
+            )
+        )
+
+    lot.refresh_from_db()
+    assert result.penalty_charges == []
+    assert lot.available_amount_minor == 99_00
+    assert lot.penalized_amount_minor == 1_00
+    post_journal.assert_not_called()
 
 
 @pytest.mark.django_db
@@ -906,6 +1104,33 @@ def test_payout_instruction_and_balance_ageing_scan_api(
 
 
 @pytest.mark.django_db
+def test_investor_self_service_payout_instruction_api_creates_unverified_instruction(
+    client: Client,
+    investor: Model,
+) -> None:
+    client.force_login(cast(Any, investor))
+
+    response = client.post(
+        "/api/v1/ledger/payout-instructions/",
+        data={
+            "currency": "CHF",
+            "destination_iban": "CH5604835012345678009",
+            "destination_account_name": "Ledger Investor Updated",
+            **_sensitive_code_payload(investor, "bank_account_change"),
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    payload = response.json()["payout_instruction"]
+    assert payload["investor_user_id"] == str(investor.pk)
+    assert payload["destination_iban"] == "CH5604835012345678009"
+    assert payload["is_verified_usable"] is False
+    assert payload["verified_by_admin_id"] is None
+    assert payload["verified_at"] is None
+
+
+@pytest.mark.django_db
 def test_withdrawal_request_requires_financial_access(
     client: Client,
     admin_user: Model,
@@ -922,6 +1147,7 @@ def test_withdrawal_request_requires_financial_access(
             "destination_iban": "CH9300762011623852957",
             "destination_account_name": "Ledger Investor",
             "idempotency_key": "withdrawal-no-kyc",
+            **_sensitive_code_payload(investor, "withdrawal"),
         },
         content_type="application/json",
     )
@@ -947,6 +1173,7 @@ def test_withdrawal_request_moves_balance_to_withdrawal_payable(
             destination_account_name="Ledger Investor",
             notes="User requested withdrawal.",
             idempotency_key="withdrawal-request-1",
+            **_sensitive_code_payload(investor, "withdrawal"),
         )
     )
     lot = InvestorBalanceLot.objects.get(investor_user_id=investor.pk)
@@ -994,6 +1221,83 @@ def test_withdrawal_request_moves_balance_to_withdrawal_payable(
 
 
 @pytest.mark.django_db
+def test_withdrawal_request_requires_sensitive_action_code(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    declare_lender_deposit(_deposit_command(admin_user, investor))
+
+    with pytest.raises(LedgerValidationError, match="Sensitive-action email code"):
+        request_investor_withdrawal(
+            RequestInvestorWithdrawalCommand(
+                actor=investor,
+                amount_minor=60_00,
+                currency="CHF",
+                destination_iban="CH9300762011623852957",
+                idempotency_key="withdrawal-missing-sensitive-code",
+            )
+        )
+
+    assert InvestorWithdrawalRequest.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_withdrawal_wrong_sensitive_code_attempts_persist_through_endpoint(
+    client: Client,
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    declare_lender_deposit(_deposit_command(admin_user, investor))
+    code_payload = _sensitive_code_payload(investor, "withdrawal")
+    wrong_code = (
+        "000000"
+        if code_payload["sensitive_action_code"] != "000000"
+        else "111111"
+    )
+    client.force_login(cast(Any, investor))
+    sensitive_code_model = apps.get_model("accounts_auth", "SensitiveActionCode")
+
+    def post_with_code(raw_code: str, attempt: int) -> Any:
+        return client.post(
+            "/api/v1/ledger/withdrawal-requests/",
+            data={
+                "amount_minor": 60_00,
+                "currency": "CHF",
+                "destination_iban": "CH9300762011623852957",
+                "destination_account_name": "Ledger Investor",
+                "idempotency_key": f"withdrawal-bruteforce-{attempt}",
+                "sensitive_action_code_id": code_payload["sensitive_action_code_id"],
+                "sensitive_action_code": raw_code,
+            },
+            content_type="application/json",
+        )
+
+    first = post_with_code(wrong_code, 1)
+    code_record = sensitive_code_model.objects.get(
+        id=code_payload["sensitive_action_code_id"]
+    )
+    second = post_with_code(wrong_code, 2)
+    code_record.refresh_from_db()
+    third = post_with_code(wrong_code, 3)
+    code_record.refresh_from_db()
+    fourth = post_with_code(code_payload["sensitive_action_code"], 4)
+    code_record.refresh_from_db()
+
+    assert first.status_code == 400
+    assert first.json()["detail"] == "Sensitive-action code is invalid or expired."
+    assert second.status_code == 400
+    assert third.status_code == 400
+    assert third.json()["detail"] == "Sensitive-action code attempt limit exceeded."
+    assert fourth.status_code == 400
+    assert fourth.json()["detail"] == "Sensitive-action code attempt limit exceeded."
+    assert code_record.attempts == code_record.max_attempts
+    assert code_record.consumed_at is None
+    assert InvestorWithdrawalRequest.objects.count() == 0
+
+
+@pytest.mark.django_db
 def test_withdrawal_request_idempotency_rejects_different_payload(
     admin_user: Model,
     investor: Model,
@@ -1007,6 +1311,7 @@ def test_withdrawal_request_idempotency_rejects_different_payload(
             currency="CHF",
             destination_iban="CH9300762011623852957",
             idempotency_key="withdrawal-mismatch",
+            **_sensitive_code_payload(investor, "withdrawal"),
         )
     )
 
@@ -1018,6 +1323,7 @@ def test_withdrawal_request_idempotency_rejects_different_payload(
                 currency="CHF",
                 destination_iban="CH9300762011623852957",
                 idempotency_key="withdrawal-mismatch",
+                **_sensitive_code_payload(investor, "withdrawal"),
             )
         )
 
@@ -1039,6 +1345,7 @@ def test_admin_finalizes_withdrawal_and_reconciliation_reflects_cash_out(
             destination_iban="CH9300762011623852957",
             destination_account_name="Ledger Investor",
             idempotency_key="withdrawal-finalize",
+            **_sensitive_code_payload(investor, "withdrawal"),
         )
     )
 
@@ -1370,6 +1677,7 @@ def test_admin_cancels_requested_withdrawal_and_restores_balance(
             destination_iban="CH9300762011623852957",
             destination_account_name="Ledger Investor",
             idempotency_key="withdrawal-cancel",
+            **_sensitive_code_payload(investor, "withdrawal"),
         )
     )
 
@@ -1452,6 +1760,7 @@ def test_withdrawal_cancellation_restores_penalty_mode_lot_status(
             currency="CHF",
             destination_iban="CH9300762011623852957",
             idempotency_key="withdrawal-cancel-penalty-mode",
+            **_sensitive_code_payload(investor, "withdrawal"),
         )
     )
 
@@ -1481,6 +1790,7 @@ def test_finalized_withdrawal_cannot_be_cancelled(admin_user: Model, investor: M
             currency="CHF",
             destination_iban="CH9300762011623852957",
             idempotency_key="withdrawal-finalized-no-cancel",
+            **_sensitive_code_payload(investor, "withdrawal"),
         )
     )
     finalize_investor_withdrawal(
@@ -1523,6 +1833,7 @@ def test_withdrawal_request_and_finalization_api(
             "destination_iban": "CH9300762011623852957",
             "destination_account_name": "Ledger Investor",
             "idempotency_key": "withdrawal-api",
+            **_sensitive_code_payload(investor, "withdrawal"),
         },
         content_type="application/json",
     )
@@ -1603,6 +1914,7 @@ def test_withdrawal_cancellation_api(
             "destination_iban": "CH9300762011623852957",
             "destination_account_name": "Ledger Investor",
             "idempotency_key": "withdrawal-cancel-api",
+            **_sensitive_code_payload(investor, "withdrawal"),
         },
         content_type="application/json",
     )

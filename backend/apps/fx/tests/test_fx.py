@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta
+import json
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from importlib import import_module
 from typing import Any, cast
@@ -30,6 +31,7 @@ from backend.apps.fx.services import (
     IssueFxQuoteCommand,
     ProviderRate,
     configured_mock_provider_rate,
+    configured_provider_rate,
     create_fx_delta_report,
     create_fx_realized_settlement_report,
     declare_fx_external_settlement,
@@ -39,6 +41,10 @@ from backend.apps.fx.services import (
 from backend.apps.platform_core.domain.time import business_timezone
 from backend.apps.platform_core.models import AuditEvent, DomainEvent
 from backend.apps.platform_core.models.base import AppendOnlyViolation
+from backend.apps.platform_core.tests.factories import (
+    SensitiveActionCodePayload,
+    issue_sensitive_action_test_code,
+)
 
 
 @pytest.fixture
@@ -120,6 +126,14 @@ def _approve_financial_access(investor: Model) -> None:
             "decision_at": now,
         },
     )
+
+
+def _sensitive_code_payload(user: Model, action: str) -> SensitiveActionCodePayload:
+    code = issue_sensitive_action_test_code(user, action)
+    return {
+        "sensitive_action_code_id": code.code_id,
+        "sensitive_action_code": code.raw_code,
+    }
 
 
 def _deposit(
@@ -305,6 +319,7 @@ def test_execute_fx_quote_consumes_source_lots_and_inherits_earliest_deadlines(
             quote_id=str(quote.id),
             idempotency_key="fx-execute-quote",
             as_of=as_of,
+            **_sensitive_code_payload(investor, "fx"),
         )
     )
     idempotent = execute_fx_quote(
@@ -313,6 +328,7 @@ def test_execute_fx_quote_consumes_source_lots_and_inherits_earliest_deadlines(
             quote_id=str(quote.id),
             idempotency_key="fx-execute-quote",
             as_of=as_of,
+            **_sensitive_code_payload(investor, "fx"),
         )
     )
     first_lot.refresh_from_db()
@@ -375,6 +391,29 @@ def test_execute_fx_quote_consumes_source_lots_and_inherits_earliest_deadlines(
 
 
 @pytest.mark.django_db
+def test_execute_fx_quote_requires_sensitive_action_code(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    _deposit(admin_user, investor, amount_minor=10_000_00)
+    as_of = _as_of()
+    quote = issue_fx_quote(_quote_command(investor, idempotency_key="fx-missing-code", as_of=as_of))
+
+    with pytest.raises(FxValidationError, match="Sensitive-action email code"):
+        execute_fx_quote(
+            ExecuteFxQuoteCommand(
+                actor=investor,
+                quote_id=str(quote.id),
+                idempotency_key="fx-missing-code-execute",
+                as_of=as_of,
+            )
+        )
+
+    assert FxExchange.objects.count() == 0
+
+
+@pytest.mark.django_db
 def test_reconciliation_identity_includes_fx_clearing_and_fee_revenue(
     admin_user: Model,
     investor: Model,
@@ -401,6 +440,7 @@ def test_reconciliation_identity_includes_fx_clearing_and_fee_revenue(
             quote_id=str(quote.id),
             idempotency_key="fx-reconciliation-execute",
             as_of=as_of,
+            **_sensitive_code_payload(investor, "fx"),
         )
     )
 
@@ -456,6 +496,7 @@ def test_declare_fx_external_settlement_posts_cash_and_reports_realized_residual
             quote_id=str(quote.id),
             idempotency_key="fx-external-settlement-execute",
             as_of=as_of,
+            **_sensitive_code_payload(investor, "fx"),
         )
     )
 
@@ -631,6 +672,7 @@ def test_execute_fx_quote_rejects_expired_quote(
                 quote_id=str(quote.id),
                 idempotency_key="fx-expired-execute",
                 as_of=as_of + timedelta(seconds=61),
+                **_sensitive_code_payload(investor, "fx"),
             )
         )
 
@@ -659,6 +701,7 @@ def test_fx_daily_limit_is_per_investor_and_idempotent_replay_still_returns_exis
             quote_id=str(quote.id),
             idempotency_key="fx-limit-execute",
             as_of=as_of,
+            **_sensitive_code_payload(investor, "fx"),
         )
     )
     replay = issue_fx_quote(
@@ -730,6 +773,7 @@ def test_fx_delta_report_aggregates_external_settlement_requirements(
             quote_id=str(quote.id),
             idempotency_key="fx-delta-execute",
             as_of=as_of,
+            **_sensitive_code_payload(investor, "fx"),
         )
     )
 
@@ -788,7 +832,10 @@ def test_fx_api_quote_execute_and_admin_delta_report(
     quote_payload = quote_response.json()
     execute_response = client.post(
         f"/api/v1/fx/quotes/{quote_payload['id']}/execute/",
-        data={"idempotency_key": "fx-api-execute"},
+        data={
+            "idempotency_key": "fx-api-execute",
+            **_sensitive_code_payload(investor, "fx"),
+        },
         content_type="application/json",
     )
     client.logout()
@@ -855,6 +902,7 @@ def test_fx_append_only_records_have_app_and_db_guards(
             quote_id=str(quote.id),
             idempotency_key="fx-append-execute",
             as_of=as_of,
+            **_sensitive_code_payload(investor, "fx"),
         )
     )
     settlement = declare_fx_external_settlement(
@@ -912,11 +960,74 @@ def test_fx_append_only_records_have_app_and_db_guards(
         with pytest.raises(DatabaseError) as delete_error, transaction.atomic():
             with connection.cursor() as cursor:
                 cursor.execute(f"DELETE FROM {table} WHERE id = %s", [db_record_id])
-        assert "append-only" in str(delete_error.value)
+    assert "append-only" in str(delete_error.value)
+
+
+class _FakeYahooResponse:
+    status = 200
+
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self._payload = payload
+
+    def __enter__(self) -> _FakeYahooResponse:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return json.dumps(self._payload).encode("utf-8")
+
+
+@pytest.mark.django_db
+def test_yahoo_finance_provider_rate_parses_chart_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed_timestamp = int(datetime(2026, 1, 10, 10, tzinfo=UTC).timestamp())
+    payload = {
+        "chart": {
+            "result": [
+                {
+                    "meta": {
+                        "symbol": "CHFEUR=X",
+                        "regularMarketPrice": 1.071234,
+                        "regularMarketTime": observed_timestamp,
+                        "previousClose": 1.061234,
+                    },
+                    "timestamp": [observed_timestamp],
+                    "indicators": {"quote": [{"close": [1.071234]}]},
+                }
+            ],
+            "error": None,
+        }
+    }
+
+    def fake_urlopen(request: Any, timeout: int) -> _FakeYahooResponse:
+        assert "CHFEUR=X" in request.full_url
+        assert timeout == 10
+        return _FakeYahooResponse(payload)
+
+    monkeypatch.setattr("backend.apps.fx.services.urllib.request.urlopen", fake_urlopen)
+
+    with override_settings(FX_RATE_PROVIDER="yahoo_finance"):
+        provider_rate = configured_provider_rate(source_currency="CHF", target_currency="EUR")
+
+    assert provider_rate.provider == "yahoo_finance"
+    assert provider_rate.rate == Decimal("1.071234")
+    assert provider_rate.previous_day_average_rate == Decimal("1.061234")
+    assert provider_rate.observed_at.timestamp() == observed_timestamp
+    assert provider_rate.provider_quote_id == f"yahoo:CHFEUR=X:{observed_timestamp}"
+    assert provider_rate.raw_payload_reference.startswith("sha256:")
 
 
 @pytest.mark.django_db
 @override_settings(IS_PRODUCTION=True)
 def test_mock_fx_provider_is_blocked_in_production() -> None:
+    with pytest.raises(FxValidationError, match="Mock FX provider"):
+        configured_mock_provider_rate(source_currency="CHF", target_currency="EUR")
+
+
+@override_settings(ENVIRONMENT="staging", IS_PRODUCTION=False)
+def test_mock_fx_provider_is_blocked_outside_local_test_environments() -> None:
     with pytest.raises(FxValidationError, match="Mock FX provider"):
         configured_mock_provider_rate(source_currency="CHF", target_currency="EUR")

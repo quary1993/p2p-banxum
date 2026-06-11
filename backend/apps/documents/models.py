@@ -24,6 +24,19 @@ class DocumentEventType(models.TextChoices):
     VERSION_CREATED = "version_created", "Version created"
     VERSION_PUBLISHED = "version_published", "Version published"
     ACCEPTED = "accepted", "Accepted"
+    ARTIFACT_RENDERED = "artifact_rendered", "Artifact rendered"
+
+
+class DocumentArtifactOutputFormat(models.TextChoices):
+    PDF = "pdf", "PDF"
+    CSV = "csv", "CSV"
+
+
+class DocumentArtifactPurpose(models.TextChoices):
+    INVESTOR_DOWNLOAD = "investor_download", "Investor download"
+    ADMIN_DOWNLOAD = "admin_download", "Admin download"
+    EMAIL_DELIVERY = "email_delivery", "Email delivery"
+    EVIDENCE_EXPORT = "evidence_export", "Evidence export"
 
 
 class DocumentTemplate(TimestampedModel):
@@ -128,6 +141,62 @@ class DocumentAcceptanceEvidence(AppendOnlyModel, TimestampedModel):
             models.Index(fields=["user_id", "category", "accepted_at"]),
             models.Index(fields=["context_type", "context_id"]),
             models.Index(fields=["template_version"]),
+        ]
+
+
+class DocumentRenderedArtifact(AppendOnlyModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    acceptance = models.ForeignKey(
+        DocumentAcceptanceEvidence,
+        on_delete=models.PROTECT,
+        related_name="rendered_artifacts",
+    )
+    template = models.ForeignKey(
+        DocumentTemplate,
+        on_delete=models.PROTECT,
+        related_name="rendered_artifacts",
+    )
+    template_version = models.ForeignKey(
+        DocumentTemplateVersion,
+        on_delete=models.PROTECT,
+        related_name="rendered_artifacts",
+    )
+    user_id = models.UUIDField()
+    actor_user_id = models.UUIDField()
+    actor_account_type = models.CharField(max_length=64)
+    output_format = models.CharField(max_length=16, choices=DocumentArtifactOutputFormat.choices)
+    purpose = models.CharField(
+        max_length=64,
+        choices=DocumentArtifactPurpose.choices,
+        default=DocumentArtifactPurpose.INVESTOR_DOWNLOAD,
+    )
+    content_type = models.CharField(max_length=128)
+    content_encoding = models.CharField(max_length=32)
+    filename = models.CharField(max_length=255)
+    content_sha256 = models.CharField(max_length=64)
+    manifest = models.JSONField(default=dict, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    rendered_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-rendered_at", "-id"]
+        indexes = [
+            models.Index(
+                fields=["acceptance", "rendered_at"],
+                name="documents_d_accept_2469d9_idx",
+            ),
+            models.Index(
+                fields=["user_id", "rendered_at"],
+                name="documents_d_user_id_4467dd_idx",
+            ),
+            models.Index(
+                fields=["content_sha256"],
+                name="documents_d_content_413215_idx",
+            ),
+            models.Index(
+                fields=["purpose", "rendered_at"],
+                name="documents_d_purpose_82a1f2_idx",
+            ),
         ]
 
 

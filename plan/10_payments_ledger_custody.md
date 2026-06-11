@@ -444,7 +444,10 @@ Rationale:
 Investors need multi-currency balance support, and the platform needs transparent, configurable FX pricing.
 
 Follow-ups:
-Validate Yahoo Finance API licensing/terms of use, define polling interval, configure min/max pair bounds, define failed-rate fallback behavior, and finalize disclosure wording.
+Validate Yahoo Finance API licensing/terms of use, define polling interval, configure min/max pair bounds, define failed-rate fallback behavior, decide weekend/holiday executable-quote behavior, and finalize disclosure wording.
+
+Implementation status:
+The executable-quote backend now includes a Yahoo Finance chart adapter for configured pair symbols and rejects mock FX rates outside local/test environments through deploy checks. The adapter derives the executable rate, timestamp, and previous-day reference from Yahoo payload fields, then applies the platform's freshness, pair-bound, and same-provider previous-day deviation checks. Provider security review is closed for the current adapter: the URL is built from configured pair symbols, provider calls use bounded timeouts, malformed/error/stale data fails closed, and production deploys cannot use mock rates. Live Yahoo terms/reliability validation, display-only polling, and weekend/holiday policy remain launch-provider tasks. Current behavior with the default 300-second freshness window is fail-closed when Yahoo's latest tick is stale, including weekends and market holidays; if Garanta wants weekend FX, that must be an explicit policy change with disclosure or an explicit off-hours disablement rule, not a silent freshness-window increase.
 
 ### PAY-DEC-019: Ledger Entry Direction and Received Timestamp
 
@@ -671,7 +674,7 @@ Confirm final accounting labels and Bexio account mapping for realized FX gain/l
 - Operational statuses and accounting entries are separate but linked.
 - Reconciliation runs daily at minimum.
 - Bank-stated balances must reconcile to ledger-stated investor balances, Garanta-owned accrued revenue held in collection accounts, suspense/unmatched cash, and explicit pending/exception balances by currency.
-- Fees, taxes, principal, contractual interest, default/penalty interest, future/inactive late fees if enabled later, refunds, penalties, recovery costs, currency-exchange fees, recovery rounding differences, and write-offs are separate accounts/categories.
+- Fees, taxes, principal, contractual interest, default/penalty interest, future/inactive late fees if enabled later, refunds, penalties, recovery costs, currency-exchange fees, recovery rounding differences, and advisor-approved loss-recognition events are separate accounts/categories.
 - Client-money/settlement flows are not Garanta revenue. This includes lender principal, borrower repayments, interest distributed to lenders, deposits, withdrawals, and recovery distributions.
 - Garanta revenue/P&L-relevant items are ledgered separately, including Garanta fees, borrower success fees, secondary-market fees, FX margin/fees, penalties/handling fees if activated, and operating costs.
 - Garanta accrued commissions/revenue held in collection accounts remain separately reportable until transferred out through a `garanta_out` bank operation.
@@ -704,7 +707,7 @@ Examples:
 - Recovery fee revenue.
 - Third-party recovery cost category.
 - Balance ageing penalty revenue or penalty payable treatment, subject to accounting/legal review.
-- Write-off/loss account.
+- Loss-recognition account, only for future advisor-approved default-resolution workflows.
 - Recovery gross amount memo/reporting category.
 - Externally deducted legal/recovery cost category.
 - Net recovery received clearing.
@@ -764,7 +767,7 @@ Examples:
 8. System separately classifies principal, contractual interest accrued until default, default/penalty interest after default if applicable, other penalties/costs, third-party recovery costs, Garanta recovery fee, and recovery rounding difference.
 9. Lender distribution lines are rounded half-up to the currency minor unit, and any difference between distributable lender recovery amount and rounded lender distributions is recorded separately as a recovery rounding difference.
 10. Ledger posts recovery receipt, third-party cost classification, recovery fee revenue where applied, investor balance credits, category splits, and rounding difference entries.
-11. System generates a recovery/write-off report and affected-lender notification.
+11. System generates a default/recovery report and affected-lender notification.
 
 ### Secondary-Market Settlement
 
@@ -915,7 +918,7 @@ Examples:
 19. Answered by PAY-DEC-019: all money movements are ledgered with `in`/`out` direction and source-level received timestamps.
 20. Answered by PAY-DEC-020: admin can query FX deltas by day/period and record external FX execution.
 21. Answered by PAY-DEC-021: balance source entries are consumed FIFO; entries older than 30 days cannot be invested/reinvested and are withdraw-only. Balance-funded primary-market orders are blocked if the loan funding deadline exceeds the consumed source entries' remaining 30-day investment window. FX conversion does not reset ageing or restore investment eligibility; target-currency entries inherit deadlines from consumed source entries, using the earliest consumed investment and withdrawal deadlines when multiple source entries are consumed in one exchange.
-22. Answered by PAY-DEC-022: day-60 funds trigger forced withdrawal if usable IBAN is known; otherwise penalty mode freezes financial actions until usable IBAN is declared while preserving read-only access. Withdrawals are final in-platform once admin records execution; later bank failures/returns are handled offline.
+22. Answered by PAY-DEC-022: day-60 funds trigger forced withdrawal if usable IBAN is known. If forced withdrawal cannot succeed because no usable payout path exists or bank-side return cannot be executed after operational review, penalty mode freezes financial actions until usable IBAN is declared while preserving read-only access. Withdrawals are final in-platform once admin records execution; later bank failures/returns are handled offline.
 23. Answered by PAY-DEC-023: deposits and installment payments use bank value date; secondary-market and FX events use internal transaction timestamp.
 24. Answered by PAY-DEC-024/PAY-DEC-027: investor FX settles instantly in platform balances; admin settles external FX at end of day or next morning using delta reports and records final realized sold/bought amounts from which the platform infers actual execution rate including fees/costs.
 25. Answered by PAY-DEC-026: all launch external bank movements are admin-declared bank operations using lender deposit, lender withdrawal, borrower loan disbursement, borrower repayment, Garanta out, Garanta in, and currency-exchange external settlement types.

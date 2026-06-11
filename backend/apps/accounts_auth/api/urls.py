@@ -13,6 +13,7 @@ from backend.apps.accounts_auth.api.views import (
     NaturalPersonRegistrationView,
     PhoneVerificationConfirmView,
     PhoneVerificationRequestView,
+    SensitiveActionCodeRequestView,
 )
 
 urlpatterns = [
@@ -29,5 +30,10 @@ urlpatterns = [
     ),
     path("phone/request/", PhoneVerificationRequestView.as_view(), name="auth-phone-request"),
     path("phone/confirm/", PhoneVerificationConfirmView.as_view(), name="auth-phone-confirm"),
+    path(
+        "sensitive-action-code/request/",
+        SensitiveActionCodeRequestView.as_view(),
+        name="auth-sensitive-action-code-request",
+    ),
     path("me/", CurrentUserView.as_view(), name="auth-me"),
 ]

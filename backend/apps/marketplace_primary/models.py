@@ -181,3 +181,40 @@ class PrimaryLoanClose(AppendOnlyModel, TimestampedModel):
             models.Index(fields=["currency", "closed_at"]),
             models.Index(fields=["created_by_admin_id", "closed_at"]),
         ]
+
+
+class PrimaryLoanCancellation(AppendOnlyModel, TimestampedModel):
+    loan = models.ForeignKey(
+        "loans.Loan",
+        on_delete=models.PROTECT,
+        related_name="primary_market_cancellations",
+    )
+    currency = models.ForeignKey(
+        "platform_core.Currency",
+        on_delete=models.PROTECT,
+        related_name="primary_market_cancellations",
+    )
+    released_order_count = models.PositiveIntegerField(default=0)
+    closed_not_invested_order_count = models.PositiveIntegerField(default=0)
+    released_principal_minor = models.BigIntegerField(default=0)
+    created_by_admin_id = models.UUIDField()
+    cancelled_at = models.DateTimeField()
+    reason = models.TextField()
+    investor_message = models.TextField(blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    idempotency_key = models.CharField(max_length=160, unique=True)
+
+    class Meta:
+        ordering = ["-cancelled_at", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(released_principal_minor__gte=0),
+                name="primary_cancel_released_principal_nonnegative",
+            ),
+            models.UniqueConstraint(fields=["loan"], name="unique_primary_cancellation_per_loan"),
+        ]
+        indexes = [
+            models.Index(fields=["loan", "cancelled_at"]),
+            models.Index(fields=["currency", "cancelled_at"]),
+            models.Index(fields=["created_by_admin_id", "cancelled_at"]),
+        ]

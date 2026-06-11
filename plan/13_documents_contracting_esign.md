@@ -223,6 +223,9 @@ Impacted modules:
 Follow-ups:
 Define email attachment versus secure-link delivery and file-size limits.
 
+Implementation status:
+Generic acceptance-document download is implemented for PDF and CSV. Each render is regenerated from immutable template version plus acceptance data snapshot, returns a checksum/manifest, records the renderer version used for byte-level traceability, and stores append-only rendered-artifact metadata without storing the generated file bytes as the source of truth. Production still requires Garanta-approved template content before real transactions.
+
 ### DOC-DEC-008: Regenerate PDFs From Templates, Generate at Transaction Time
 
 Status: Accepted.
@@ -233,6 +236,8 @@ Decision:
 Generated PDFs are regenerated on the fly from templates and the stored transaction data snapshot. At primary investment time and secondary-market purchase time, the platform generates the relevant PDFs and sends them to the investor by email.
 
 The primary record is the acceptance event, template version, and data snapshot. Generated PDF files do not need to be stored permanently as the source of truth, though delivery metadata and any generated/sent artifact references should be auditable.
+
+Generated PDFs and CSVs, where applicable, are required for launch. Clickwrap evidence plus an email confirmation alone is not sufficient as the production document-delivery model; the platform must provide downloadable generated artifacts for accepted/generated documents, statements, tax information, and transfer/assignment evidence where applicable.
 
 Rationale:
 Regeneration avoids storing redundant generated files while preserving reproducibility through template versions and immutable transaction data snapshots.
@@ -245,6 +250,9 @@ Impacted modules:
 
 Follow-ups:
 Define whether regulator/auditor exports require materialized PDFs to be generated and stored in evidence packages.
+
+Implementation status:
+Generic template-driven acceptance evidence PDFs and CSVs are implemented. The renderer replaces approved template variables from the stored acceptance data snapshot, rejects missing template variables instead of silently emitting incomplete legal documents, neutralizes CSV formula cells, records append-only `DocumentRenderedArtifact` metadata with checksum/manifest and renderer version, and exposes a self/admin-scoped artifact API. Production layout polish and final legal wording remain separate tasks; the current renderer is a deterministic backend artifact generator, not the final WeasyPrint visual template engine.
 
 ### DOC-DEC-009: Template Change Definition
 
@@ -337,7 +345,7 @@ Draft the four template groups, exact checkbox labels, exact acknowledgement wor
 - Secondary-market buyer terms must disclose that accrued interest up to settlement belongs to the seller and future interest after settlement belongs to the buyer.
 - Non-standard secondary-market listing documents and buyer acceptance flows must include the admin disclosure note and additional buyer risk acknowledgement for late, overdue, restructured, under-observation, default, recovery, legal-enforcement, payment-incident, or otherwise non-performing/non-standard holdings.
 - Registration-time terms must disclose the balance model, allowed currencies, FX service, the rule that FX conversion does not reset 30/60-day balance-ageing timers, target-currency deadline inheritance from consumed source balances, balance ageing rules, FIFO consumption, withdrawal/reinvestment deadlines, day-60 forced-withdrawal/penalty rule, missing-IBAN financial-action freeze with read-only access preserved, and the regulatory non-extendability of the 60-day holding limit.
-- Annual lender tax information statement templates must support calendar-year output for all investors and include interest received/credited, fees paid, FX costs/fees, potential losses/write-offs, recoveries, recovery category split, secondary-market results, balance penalties if any, and information-only principal/balance movements.
+- Annual lender tax information statement templates must support calendar-year output for all investors and include interest received/credited, fees paid, FX costs/fees, potential losses after final default resolution where advisor-approved, recoveries, recovery category split, secondary-market results, balance penalties if any, and information-only principal/balance movements.
 - Borrower account statement and annual tax information statement templates must support admin-generated PDF and CSV outputs because borrowers have no portal. Tax summaries include interest paid, Garanta fees, administrative costs, FX costs, contractual/default/penalty interest where applicable, penalties/recovery costs where applicable, and information-only principal received/repaid/recovered/outstanding sections.
 - Garanta internal annual tax information report templates must extract platform revenue and platform costs while keeping client-money/settlement movements separate from Garanta income and costs.
 - Annual tax information statement templates must state that they are informational only and not tax advice, and that final tax treatment remains the responsibility of each party.

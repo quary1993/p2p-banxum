@@ -16,23 +16,32 @@ from backend.apps.marketplace_primary.models import (
     PrimaryInvestmentOrder,
     PrimaryInvestmentOrderEvent,
     PrimaryInvestmentOrderStatus,
+    PrimaryLoanCancellation,
     PrimaryLoanClose,
     PrimaryLoanCloseType,
 )
 from backend.apps.marketplace_primary.services import (
     AllocatePrimaryInvestmentOrderCommand,
+    CancelPrimaryLoanFundingCommand,
     ClosePrimaryLoanFundingCommand,
     CreatePrimaryInvestmentOrderCommand,
     MarketplacePrimaryAuthorizationError,
     MarketplacePrimaryValidationError,
     ReleasePrimaryInvestmentOrderCommand,
+    ScanExpiredPrimaryFundingCommand,
     allocate_primary_order_from_balance,
+    cancel_primary_loan_funding,
     close_primary_loan_funding,
     create_primary_investment_order,
     release_primary_order_balance,
+    scan_expired_primary_loan_funding,
 )
 from backend.apps.platform_core.models import AuditEvent, Currency, DomainEvent
 from backend.apps.platform_core.models.base import AppendOnlyViolation
+from backend.apps.platform_core.tests.factories import (
+    SensitiveActionCodePayload,
+    issue_sensitive_action_test_code,
+)
 
 
 @pytest.fixture
@@ -82,6 +91,14 @@ def _approve_financial_access(investor: Model) -> None:
             "decision_at": now,
         },
     )
+
+
+def _sensitive_code_payload(user: Model, action: str) -> SensitiveActionCodePayload:
+    code = issue_sensitive_action_test_code(user, action)
+    return {
+        "sensitive_action_code_id": code.code_id,
+        "sensitive_action_code": code.raw_code,
+    }
 
 
 def _create_borrower(admin_user: Model) -> Model:
@@ -260,6 +277,7 @@ def _create_and_allocate_order(
             order_id=str(order.id),
             document_acceptance_id=str(acceptance.pk),
             idempotency_key=f"{idempotency_prefix}-allocate",
+            **_sensitive_code_payload(investor, "primary_investment"),
         )
     )
 
@@ -332,6 +350,7 @@ def test_balance_allocation_reserves_lots_and_updates_loan_commitment(
             order_id=str(order.id),
             document_acceptance_id=str(acceptance.pk),
             idempotency_key="market-allocate-1",
+            **_sensitive_code_payload(investor, "primary_investment"),
         )
     )
     deposit.balance_lot.refresh_from_db()
@@ -346,6 +365,44 @@ def test_balance_allocation_reserves_lots_and_updates_loan_commitment(
     assert cast(Any, loan).committed_principal_minor == 25_000_00
     assert AuditEvent.objects.filter(action="marketplace_primary.order_balance_allocated").exists()
     assert DomainEvent.objects.filter(event_type="PrimaryInvestmentOrderBalanceAllocated").exists()
+
+
+@pytest.mark.django_db
+def test_balance_allocation_requires_sensitive_action_code(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user)
+    _declare_deposit(admin_user, investor)
+    order = create_primary_investment_order(
+        CreatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            loan_id=str(loan.pk),
+            amount_minor=25_000_00,
+            idempotency_key="market-order-missing-sensitive-code",
+        )
+    )
+    acceptance = _create_primary_acceptance(
+        investor,
+        order_id=str(order.id),
+        idempotency_key="market-accept-missing-sensitive-code",
+    )
+
+    with pytest.raises(MarketplacePrimaryValidationError, match="Sensitive-action email code"):
+        allocate_primary_order_from_balance(
+            AllocatePrimaryInvestmentOrderCommand(
+                actor=investor,
+                order_id=str(order.id),
+                document_acceptance_id=str(acceptance.pk),
+                idempotency_key="market-allocate-missing-sensitive-code",
+            )
+        )
+
+    order.refresh_from_db()
+    loan.refresh_from_db()
+    assert order.status == PrimaryInvestmentOrderStatus.PENDING
+    assert cast(Any, loan).committed_principal_minor == 0
 
 
 @pytest.mark.django_db
@@ -369,6 +426,7 @@ def test_balance_allocation_is_idempotent_and_rejects_conflicting_replay(
         order_id=str(order.id),
         idempotency_key="market-accept-idempotent-allocate",
     )
+    allocation_code = _sensitive_code_payload(investor, "primary_investment")
 
     first = allocate_primary_order_from_balance(
         AllocatePrimaryInvestmentOrderCommand(
@@ -376,6 +434,7 @@ def test_balance_allocation_is_idempotent_and_rejects_conflicting_replay(
             order_id=str(order.id),
             document_acceptance_id=str(acceptance.pk),
             idempotency_key="market-allocate-idempotent",
+            **allocation_code,
         )
     )
     second = allocate_primary_order_from_balance(
@@ -384,6 +443,7 @@ def test_balance_allocation_is_idempotent_and_rejects_conflicting_replay(
             order_id=str(order.id),
             document_acceptance_id=str(acceptance.pk),
             idempotency_key="market-allocate-idempotent",
+            **allocation_code,
         )
     )
 
@@ -396,6 +456,7 @@ def test_balance_allocation_is_idempotent_and_rejects_conflicting_replay(
                 order_id=str(order.id),
                 document_acceptance_id=str(acceptance.pk),
                 idempotency_key="market-allocate-conflict",
+                **allocation_code,
             )
         )
 
@@ -435,6 +496,7 @@ def test_balance_allocation_blocks_lots_that_expire_before_funding_deadline(
                 order_id=str(order.id),
                 document_acceptance_id=str(acceptance.pk),
                 idempotency_key="market-allocate-expiring",
+                **_sensitive_code_payload(investor, "primary_investment"),
             )
         )
 
@@ -469,6 +531,7 @@ def test_allocation_accepts_subminimum_final_capacity_fill(
             order_id=str(order.id),
             document_acceptance_id=str(acceptance.pk),
             idempotency_key="market-allocate-final-fill",
+            **_sensitive_code_payload(investor, "primary_investment"),
         )
     )
 
@@ -506,6 +569,7 @@ def test_allocation_uses_remaining_capacity_and_leaves_excess_balance_available(
             order_id=str(order.id),
             document_acceptance_id=str(acceptance.pk),
             idempotency_key="market-allocate-partial",
+            **_sensitive_code_payload(investor, "primary_investment"),
         )
     )
     deposit.balance_lot.refresh_from_db()
@@ -544,6 +608,7 @@ def test_allocation_requires_bound_current_acceptance_and_owner(
             idempotency_key="market-order-acceptance-negative",
         )
     )
+    allocation_code = _sensitive_code_payload(investor, "primary_investment")
 
     wrong_category = _create_primary_acceptance(
         investor,
@@ -558,6 +623,7 @@ def test_allocation_requires_bound_current_acceptance_and_owner(
                 order_id=str(order.id),
                 document_acceptance_id=str(wrong_category.pk),
                 idempotency_key="market-allocate-wrong-category",
+                **allocation_code,
             )
         )
 
@@ -574,6 +640,7 @@ def test_allocation_requires_bound_current_acceptance_and_owner(
                 order_id=str(order.id),
                 document_acceptance_id=str(wrong_context.pk),
                 idempotency_key="market-allocate-wrong-context",
+                **allocation_code,
             )
         )
 
@@ -589,6 +656,7 @@ def test_allocation_requires_bound_current_acceptance_and_owner(
                 order_id=str(order.id),
                 document_acceptance_id=str(other_acceptance.pk),
                 idempotency_key="market-allocate-other-user-acceptance",
+                **allocation_code,
             )
         )
 
@@ -605,6 +673,7 @@ def test_allocation_requires_bound_current_acceptance_and_owner(
                 order_id=str(order.id),
                 document_acceptance_id=str(stale_acceptance.pk),
                 idempotency_key="market-allocate-stale-acceptance",
+                **allocation_code,
             )
         )
 
@@ -648,6 +717,7 @@ def test_allocation_blocks_other_investor_order_access(
                 order_id=str(order.id),
                 document_acceptance_id=str(other_acceptance.pk),
                 idempotency_key="market-allocate-idor",
+                **_sensitive_code_payload(other_investor, "primary_investment"),
             )
         )
 
@@ -681,6 +751,7 @@ def test_allocation_closes_not_invested_when_no_capacity_remains(
             order_id=str(order.id),
             document_acceptance_id=str(acceptance.pk),
             idempotency_key="market-allocate-no-capacity",
+            **_sensitive_code_payload(investor, "primary_investment"),
         )
     )
 
@@ -715,6 +786,7 @@ def test_admin_release_restores_lots_and_loan_commitment(
             order_id=str(order.id),
             document_acceptance_id=str(acceptance.pk),
             idempotency_key="market-allocate-release",
+            **_sensitive_code_payload(investor, "primary_investment"),
         )
     )
 
@@ -764,6 +836,7 @@ def test_admin_release_is_idempotent_and_rejects_double_release(
             order_id=str(order.id),
             document_acceptance_id=str(acceptance.pk),
             idempotency_key="market-allocate-double-release",
+            **_sensitive_code_payload(investor, "primary_investment"),
         )
     )
 
@@ -824,6 +897,7 @@ def test_release_fails_loud_on_committed_principal_underflow(
             order_id=str(order.id),
             document_acceptance_id=str(acceptance.pk),
             idempotency_key="market-allocate-underflow",
+            **_sensitive_code_payload(investor, "primary_investment"),
         )
     )
     cast(Any, loan).committed_principal_minor = 1_00
@@ -1241,6 +1315,279 @@ def test_close_requires_admin_allocated_orders_and_borrower_clearance(
 
 
 @pytest.mark.django_db
+def test_cancel_funding_releases_allocations_closes_pending_and_cancels_loan(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user, principal_minor=30_000_00)
+    deposit = _declare_deposit(
+        admin_user,
+        investor,
+        amount_minor=25_000_00,
+        idempotency_key="cancel-deposit",
+    )
+    pending_order = create_primary_investment_order(
+        CreatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            loan_id=str(loan.pk),
+            amount_minor=1_000_00,
+            idempotency_key="cancel-pending-order",
+        )
+    )
+    allocated_order = _create_and_allocate_order(
+        investor=investor,
+        loan=loan,
+        amount_minor=20_000_00,
+        idempotency_prefix="market-cancel-allocated",
+    )
+
+    cancellation = cancel_primary_loan_funding(
+        CancelPrimaryLoanFundingCommand(
+            actor=admin_user,
+            loan_id=str(loan.pk),
+            reason="Campaign expired below target.",
+            investor_message=(
+                "The campaign expired below target and your reserved balance was released."
+            ),
+            idempotency_key="market-cancel-funding",
+        )
+    )
+    loan.refresh_from_db()
+    allocated_order.refresh_from_db()
+    pending_order.refresh_from_db()
+    deposit.balance_lot.refresh_from_db()
+
+    assert cast(Any, loan).status == "cancelled"
+    assert cast(Any, loan).committed_principal_minor == 0
+    assert cancellation.released_order_count == 1
+    assert cancellation.closed_not_invested_order_count == 1
+    assert cancellation.released_principal_minor == 20_000_00
+    assert cancellation.investor_message
+    assert allocated_order.status == PrimaryInvestmentOrderStatus.BALANCE_RELEASED
+    assert allocated_order.release_journal_entry_id is not None
+    assert pending_order.status == PrimaryInvestmentOrderStatus.CLOSED_NOT_INVESTED
+    assert deposit.balance_lot.available_amount_minor == 25_000_00
+    assert deposit.balance_lot.invested_amount_minor == 0
+    assert AuditEvent.objects.filter(action="marketplace_primary.loan_funding_cancelled").exists()
+    assert AuditEvent.objects.filter(action="loan.funding_cancelled").exists()
+    assert DomainEvent.objects.filter(event_type="PrimaryLoanFundingCancelled").exists()
+    assert DomainEvent.objects.filter(event_type="LoanFundingCancelled").exists()
+
+    with pytest.raises(MarketplacePrimaryValidationError, match="Only published"):
+        close_primary_loan_funding(
+            ClosePrimaryLoanFundingCommand(
+                actor=admin_user,
+                loan_id=str(loan.pk),
+                reason="Cannot close a cancelled campaign.",
+                investor_message="Cannot close.",
+                idempotency_key="market-cancel-then-close",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_cancel_funding_requires_investor_message_when_orders_exist(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user, principal_minor=30_000_00)
+    create_primary_investment_order(
+        CreatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            loan_id=str(loan.pk),
+            amount_minor=1_000_00,
+            idempotency_key="cancel-message-pending-order",
+        )
+    )
+
+    with pytest.raises(MarketplacePrimaryValidationError, match="Investor message"):
+        cancel_primary_loan_funding(
+            CancelPrimaryLoanFundingCommand(
+                actor=admin_user,
+                loan_id=str(loan.pk),
+                reason="Campaign expired below target.",
+                idempotency_key="market-cancel-missing-message",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_cancel_funding_is_idempotent_and_rejects_conflicting_replay(
+    admin_user: Model,
+) -> None:
+    loan = _create_published_loan(admin_user, principal_minor=30_000_00)
+
+    first = cancel_primary_loan_funding(
+        CancelPrimaryLoanFundingCommand(
+            actor=admin_user,
+            loan_id=str(loan.pk),
+            reason="Campaign expired without orders.",
+            idempotency_key="market-cancel-idem",
+        )
+    )
+    second = cancel_primary_loan_funding(
+        CancelPrimaryLoanFundingCommand(
+            actor=admin_user,
+            loan_id=str(loan.pk),
+            reason="Campaign expired without orders.",
+            idempotency_key="market-cancel-idem",
+        )
+    )
+
+    assert second.id == first.id
+    assert PrimaryLoanCancellation.objects.count() == 1
+    with pytest.raises(MarketplacePrimaryValidationError, match="different cancellation request"):
+        cancel_primary_loan_funding(
+            CancelPrimaryLoanFundingCommand(
+                actor=admin_user,
+                loan_id=str(loan.pk),
+                reason="Different cancellation reason.",
+                idempotency_key="market-cancel-idem",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_cancel_funding_rejects_closed_or_non_admin(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user, principal_minor=10_000_00)
+
+    with pytest.raises(MarketplacePrimaryAuthorizationError):
+        cancel_primary_loan_funding(
+            CancelPrimaryLoanFundingCommand(
+                actor=investor,
+                loan_id=str(loan.pk),
+                reason="Investor cannot cancel.",
+                idempotency_key="market-cancel-non-admin",
+            )
+        )
+
+    _declare_deposit(admin_user, investor, amount_minor=10_000_00, idempotency_key="close-cancel")
+    _create_and_allocate_order(
+        investor=investor,
+        loan=loan,
+        amount_minor=10_000_00,
+        idempotency_prefix="market-close-before-cancel",
+    )
+    close_primary_loan_funding(
+        ClosePrimaryLoanFundingCommand(
+            actor=admin_user,
+            loan_id=str(loan.pk),
+            reason="Funding target reached.",
+            investor_message="Funding target reached.",
+            idempotency_key="market-close-before-cancel",
+        )
+    )
+
+    with pytest.raises(MarketplacePrimaryValidationError, match="Closed loan funding"):
+        cancel_primary_loan_funding(
+            CancelPrimaryLoanFundingCommand(
+                actor=admin_user,
+                loan_id=str(loan.pk),
+                reason="Cannot cancel after close.",
+                idempotency_key="market-cancel-after-close",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_expiry_scan_cancels_only_expired_published_campaigns(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    expired_allocated = _create_published_loan(
+        admin_user,
+        principal_minor=10_000_00,
+        funding_deadline=date(2030, 1, 10),
+    )
+    expired_pending = _create_published_loan(
+        admin_user,
+        principal_minor=10_000_00,
+        funding_deadline=date(2030, 1, 10),
+    )
+    deadline_today = _create_published_loan(
+        admin_user,
+        principal_minor=10_000_00,
+        funding_deadline=date(2030, 1, 11),
+    )
+    _declare_deposit(
+        admin_user,
+        investor,
+        amount_minor=10_000_00,
+        value_date=date(2029, 12, 15),
+        idempotency_key="expiry-scan-deposit",
+    )
+    allocated_order = _create_and_allocate_order(
+        investor=investor,
+        loan=expired_allocated,
+        amount_minor=5_000_00,
+        idempotency_prefix="expiry-scan-allocated",
+    )
+    pending_order = create_primary_investment_order(
+        CreatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            loan_id=str(expired_pending.pk),
+            amount_minor=1_000_00,
+            idempotency_key="expiry-scan-pending",
+        )
+    )
+
+    result = scan_expired_primary_loan_funding(
+        ScanExpiredPrimaryFundingCommand(
+            actor=admin_user,
+            as_of_date=date(2030, 1, 11),
+        )
+    )
+    expired_allocated.refresh_from_db()
+    expired_pending.refresh_from_db()
+    deadline_today.refresh_from_db()
+    allocated_order.refresh_from_db()
+    pending_order.refresh_from_db()
+
+    assert result["scanned_count"] == 2
+    assert result["cancelled_count"] == 2
+    assert result["skipped_count"] == 0
+    assert cast(Any, expired_allocated).status == "cancelled"
+    assert cast(Any, expired_pending).status == "cancelled"
+    assert cast(Any, deadline_today).status == "published"
+    assert allocated_order.status == PrimaryInvestmentOrderStatus.BALANCE_RELEASED
+    assert pending_order.status == PrimaryInvestmentOrderStatus.CLOSED_NOT_INVESTED
+    assert PrimaryLoanCancellation.objects.count() == 2
+
+    rerun = scan_expired_primary_loan_funding(
+        ScanExpiredPrimaryFundingCommand(
+            actor=admin_user,
+            as_of_date=date(2030, 1, 11),
+        )
+    )
+    assert rerun["scanned_count"] == 0
+    assert PrimaryLoanCancellation.objects.count() == 2
+
+
+@pytest.mark.django_db
+def test_expiry_scan_rejects_non_admin(admin_user: Model, investor: Model) -> None:
+    _approve_financial_access(investor)
+    _create_published_loan(
+        admin_user,
+        funding_deadline=date(2030, 1, 10),
+    )
+
+    with pytest.raises(MarketplacePrimaryAuthorizationError):
+        scan_expired_primary_loan_funding(
+            ScanExpiredPrimaryFundingCommand(
+                actor=investor,
+                as_of_date=date(2030, 1, 11),
+            )
+        )
+
+
+@pytest.mark.django_db
 def test_primary_close_and_holding_events_have_append_only_guards(
     admin_user: Model,
     investor: Model,
@@ -1290,6 +1637,35 @@ def test_primary_close_and_holding_events_have_append_only_guards(
             cursor.execute(
                 "UPDATE holdings_investorloanholdingevent SET note = %s WHERE id = %s",
                 ["mutated", holding_event.id],
+            )
+
+
+@pytest.mark.django_db
+def test_primary_cancellation_has_append_only_guards(
+    admin_user: Model,
+) -> None:
+    loan = _create_published_loan(admin_user, principal_minor=10_000_00)
+    cancellation = cancel_primary_loan_funding(
+        CancelPrimaryLoanFundingCommand(
+            actor=admin_user,
+            loan_id=str(loan.pk),
+            reason="Campaign expired without orders.",
+            idempotency_key="market-cancel-guard",
+        )
+    )
+
+    with pytest.raises(AppendOnlyViolation):
+        cancellation.save()
+    with pytest.raises(AppendOnlyViolation):
+        cancellation.delete()
+    with pytest.raises(AppendOnlyViolation):
+        PrimaryLoanCancellation.objects.filter(id=cancellation.id).update(reason="mutated")
+    with pytest.raises(DatabaseError), transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE marketplace_primary_primaryloancancellation "
+                "SET reason = %s WHERE id = %s",
+                ["mutated", cancellation.id],
             )
 
 
@@ -1368,6 +1744,7 @@ def test_primary_marketplace_api_flow(
         data={
             "document_acceptance_id": str(acceptance.pk),
             "idempotency_key": "api-market-allocate-1",
+            **_sensitive_code_payload(investor, "primary_investment"),
         },
         content_type="application/json",
     )
@@ -1397,3 +1774,77 @@ def test_primary_marketplace_api_flow(
     assert close_response.status_code == 200
     assert close_response.json()["close_type"] == PrimaryLoanCloseType.PARTIAL
     assert close_response.json()["accepted_principal_minor"] == 10_000_00
+
+
+@pytest.mark.django_db
+def test_primary_loan_cancel_api_is_admin_only(
+    client: Client,
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user)
+
+    client.force_login(cast(Any, investor))
+    forbidden = client.post(
+        f"/api/v1/marketplace/primary/admin/loans/{loan.pk}/cancel-funding/",
+        data={
+            "reason": "Campaign expired.",
+            "investor_message": "The campaign expired.",
+            "idempotency_key": "api-market-cancel-forbidden",
+        },
+        content_type="application/json",
+    )
+
+    client.force_login(cast(Any, admin_user))
+    response = client.post(
+        f"/api/v1/marketplace/primary/admin/loans/{loan.pk}/cancel-funding/",
+        data={
+            "reason": "Campaign expired without sufficient funding.",
+            "investor_message": "The campaign expired without sufficient funding.",
+            "idempotency_key": "api-market-cancel-ok",
+        },
+        content_type="application/json",
+    )
+
+    loan.refresh_from_db()
+    assert forbidden.status_code == 403
+    assert response.status_code == 200
+    assert response.json()["released_order_count"] == 0
+    assert response.json()["closed_not_invested_order_count"] == 0
+    assert cast(Any, loan).status == "cancelled"
+
+
+@pytest.mark.django_db
+def test_primary_loan_expiry_scan_api_is_admin_only(
+    client: Client,
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user, funding_deadline=date(2030, 1, 10))
+
+    client.force_login(cast(Any, investor))
+    forbidden = client.post(
+        "/api/v1/marketplace/primary/admin/loans/expiry-scan/",
+        data={"as_of_date": "2030-01-11"},
+        content_type="application/json",
+    )
+
+    client.force_login(cast(Any, admin_user))
+    response = client.post(
+        "/api/v1/marketplace/primary/admin/loans/expiry-scan/",
+        data={
+            "as_of_date": "2030-01-11",
+            "loan_ids": [str(loan.pk)],
+            "idempotency_key": "api-market-expiry-scan",
+        },
+        content_type="application/json",
+    )
+
+    loan.refresh_from_db()
+    assert forbidden.status_code == 403
+    assert response.status_code == 200
+    assert response.json()["cancelled_count"] == 1
+    assert response.json()["cancellations"][0]["loan_id"] == str(loan.pk)
+    assert cast(Any, loan).status == "cancelled"

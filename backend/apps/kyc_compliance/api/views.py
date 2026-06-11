@@ -29,6 +29,7 @@ from backend.apps.kyc_compliance.models import (
 )
 from backend.apps.kyc_compliance.services import (
     CreateKycSessionCommand,
+    DiditApiError,
     KycManualReviewError,
     KycWebhookMatchError,
     KycWebhookSignatureError,
@@ -63,7 +64,10 @@ class KycSessionCreateView(APIView):
 
     @extend_schema(request=None, responses={202: KycSessionResponseSerializer})
     def post(self, request: Request) -> Response:
-        result = create_kyc_session(CreateKycSessionCommand(user=cast(Model, request.user)))
+        try:
+            result = create_kyc_session(CreateKycSessionCommand(user=cast(Model, request.user)))
+        except DiditApiError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         return Response(
             {
                 "status": result.case.status,
@@ -152,13 +156,83 @@ def _payload_vendor_data(payload: dict[str, Any]) -> str:
     return _payload_value(payload, "vendor_data", "vendorData")
 
 
+def _decision_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    decision = payload.get("decision")
+    if isinstance(decision, dict):
+        return decision
+    return {}
+
+
+def _nested_payload_value(payload: dict[str, Any], *keys: str) -> str:
+    decision = _decision_payload(payload)
+    for key in keys:
+        value = payload.get(key)
+        if value is None:
+            value = decision.get(key)
+        if value is not None:
+            return str(value)
+    return ""
+
+
+def _first_decision_item_value(
+    payload: dict[str, Any],
+    collection_key: str,
+    *keys: str,
+) -> str:
+    collection = _decision_payload(payload).get(collection_key)
+    if not isinstance(collection, list):
+        return ""
+    for item in collection:
+        if not isinstance(item, dict):
+            continue
+        for key in keys:
+            value = item.get(key)
+            if value is not None:
+                return str(value)
+    return ""
+
+
+def _iter_text_values(value: Any) -> list[str]:
+    if isinstance(value, dict):
+        values: list[str] = []
+        for key, item in value.items():
+            values.append(str(key))
+            values.extend(_iter_text_values(item))
+        return values
+    if isinstance(value, list):
+        values = []
+        for item in value:
+            values.extend(_iter_text_values(item))
+        return values
+    if isinstance(value, str):
+        return [value]
+    return []
+
+
 def _payload_flags(payload: dict[str, Any]) -> list[str]:
     value = payload.get("detected_flags", payload.get("flags", []))
+    flags: set[str] = set()
     if isinstance(value, list):
-        return [str(item) for item in value]
+        flags.update(str(item) for item in value)
     if isinstance(value, str) and value:
-        return [item.strip() for item in value.split(",") if item.strip()]
-    return []
+        flags.update(item.strip() for item in value.split(",") if item.strip())
+
+    decision = _decision_payload(payload)
+    for collection_key in ("aml_screenings", "reviews", "id_verifications"):
+        collection = decision.get(collection_key)
+        if not isinstance(collection, list):
+            continue
+        for item in collection:
+            text = " ".join(_iter_text_values(item)).lower() if isinstance(item, dict) else ""
+            if "sanction" in text:
+                flags.add("sanctions")
+            if "pep" in text:
+                flags.add("pep")
+            if "adverse" in text and "media" in text:
+                flags.add("adverse_media")
+            if "fraud" in text:
+                flags.add("identity_fraud")
+    return sorted(flags)
 
 
 def _provider_event_command(payload: dict[str, Any]) -> ProviderKycEventCommand:
@@ -173,15 +247,40 @@ def _provider_event_command(payload: dict[str, Any]) -> ProviderKycEventCommand:
         raise KycWebhookMatchError("Didit webhook is missing a provider event ID.")
     return ProviderKycEventCommand(
         provider_event_id=provider_event_id,
-        provider_event_type=_payload_value(payload, "event_type", "type") or "verification.updated",
+        provider_event_type=(
+            _payload_value(payload, "provider_event_type", "event_type", "webhook_type", "type")
+            or "verification.updated"
+        ),
         provider_status=_payload_value(payload, "provider_status", "status", "verification_status"),
         provider_session_id=provider_session_id,
         vendor_data=_payload_vendor_data(payload),
-        verification_id=_payload_value(payload, "verification_id", "verificationId"),
-        report_id=_payload_value(payload, "report_id", "reportId"),
-        aml_screening_id=_payload_value(payload, "aml_screening_id", "amlScreeningId"),
-        provider_subject_id=_payload_value(payload, "provider_subject_id", "subject_id"),
-        risk_classification=_payload_value(payload, "risk_classification", "risk"),
+        verification_id=_payload_value(payload, "verification_id", "verificationId", "session_id"),
+        report_id=_payload_value(payload, "report_id", "reportId", "pdf_report_id"),
+        aml_screening_id=(
+            _payload_value(payload, "aml_screening_id", "amlScreeningId")
+            or _first_decision_item_value(
+                payload,
+                "aml_screenings",
+                "id",
+                "screening_id",
+                "node_id",
+            )
+        ),
+        provider_subject_id=_payload_value(
+            payload,
+            "provider_subject_id",
+            "subject_id",
+            "vendor_user_id",
+            "vendor_business_id",
+            "user_id",
+        ),
+        risk_classification=_nested_payload_value(
+            payload,
+            "risk_classification",
+            "risk",
+            "risk_level",
+            "severity",
+        ),
         detected_flags=_payload_flags(payload),
         raw_payload=payload,
     )
@@ -194,11 +293,25 @@ class DiditWebhookView(APIView):
     @extend_schema(request=None, responses={202: DiditWebhookResponseSerializer})
     def post(self, request: Request) -> Response:
         raw_body = request._request.body  # noqa: SLF001
-        signature = str(request.META.get("HTTP_X_DIDIT_SIGNATURE", ""))
-        if not verify_didit_webhook_signature(raw_body=raw_body, signature=signature):
-            raise KycWebhookSignatureError("Didit webhook signature is invalid.")
-
         payload = request.data
+        if not isinstance(payload, dict):
+            return Response(
+                {"detail": "Didit webhook payload must be a JSON object."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        signature = str(
+            request.META.get("HTTP_X_SIGNATURE", "")
+            or request.META.get("HTTP_X_DIDIT_SIGNATURE", "")
+        )
+        if not verify_didit_webhook_signature(
+            raw_body=raw_body,
+            signature=signature,
+            payload=payload,
+            signature_v2=str(request.META.get("HTTP_X_SIGNATURE_V2", "")),
+            signature_simple=str(request.META.get("HTTP_X_SIGNATURE_SIMPLE", "")),
+            timestamp=str(request.META.get("HTTP_X_TIMESTAMP", "")),
+        ):
+            raise KycWebhookSignatureError("Didit webhook signature is invalid.")
         try:
             result = process_didit_event(_provider_event_command(payload))
         except KycWebhookMatchError as exc:

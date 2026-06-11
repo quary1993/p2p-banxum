@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from typing import Any, cast
 
 import pytest
@@ -14,6 +15,7 @@ from backend.apps.documents.models import (
     DocumentAcceptanceEvidence,
     DocumentCategory,
     DocumentEvent,
+    DocumentRenderedArtifact,
     DocumentTemplateVersion,
     DocumentTemplateVersionStatus,
 )
@@ -23,10 +25,12 @@ from backend.apps.documents.services import (
     DocumentAuthorizationError,
     DocumentValidationError,
     PublishDocumentTemplateVersionCommand,
+    RenderDocumentAcceptanceArtifactCommand,
     accept_document_terms,
     create_document_template_version,
     get_current_document_template,
     publish_document_template_version,
+    render_document_acceptance_artifact,
 )
 from backend.apps.platform_core.models import AuditEvent, DomainEvent
 from backend.apps.platform_core.models.base import AppendOnlyViolation
@@ -114,6 +118,38 @@ def _template_command(
         ],
         publish_now=publish_now,
         legal_review_reference="legal-review-placeholder",
+    )
+
+
+def _accepted_primary_document(
+    *,
+    superadmin_user: Model,
+    investor: Model,
+    idempotency_key: str = "accept-primary-render",
+    body: str = (
+        "Lender {{user.full_name}} invests in {{loan.title}} through {{platform.name}}. "
+        "Operator: {{operator.name}}."
+    ),
+    loan_title: str = "Zurich Bakery Expansion",
+) -> DocumentAcceptanceEvidence:
+    _approve_financial_access(investor)
+    version = create_document_template_version(
+        _template_command(
+            superadmin_user,
+            body=body,
+        )
+    )
+    return accept_document_terms(
+        AcceptDocumentTermsCommand(
+            actor=investor,
+            category=DocumentCategory.PRIMARY_MARKET_INVESTMENT,
+            expected_template_version_id=str(version.id),
+            accepted_checkbox_labels=list(cast(list[str], version.checkbox_labels)),
+            context_type="primary_order",
+            context_id="order-render",
+            data_snapshot={"loan": {"title": loan_title}},
+            idempotency_key=idempotency_key,
+        )
     )
 
 
@@ -477,6 +513,186 @@ def test_document_template_and_acceptance_api(
 
 
 @pytest.mark.django_db
+def test_acceptance_snapshot_includes_server_owned_brand_operator_and_user(
+    superadmin_user: Model,
+    investor: Model,
+) -> None:
+    acceptance = _accepted_primary_document(
+        superadmin_user=superadmin_user,
+        investor=investor,
+        idempotency_key="accept-server-owned-snapshot",
+    )
+
+    assert acceptance.data_snapshot["platform"]["name"] == "BANXUM"
+    assert acceptance.data_snapshot["operator"]["name"] == "Garanta Finanzgruppe AG"
+    assert acceptance.data_snapshot["user"]["id"] == str(investor.pk)
+    assert acceptance.data_snapshot["user"]["email"] == "docs-investor@example.test"
+    assert acceptance.data_snapshot["user"]["full_name"] == "Docs Investor"
+
+
+@pytest.mark.django_db
+def test_render_acceptance_pdf_is_template_driven_and_records_artifact(
+    superadmin_user: Model,
+    investor: Model,
+) -> None:
+    acceptance = _accepted_primary_document(
+        superadmin_user=superadmin_user,
+        investor=investor,
+        idempotency_key="accept-render-pdf",
+    )
+
+    artifact = render_document_acceptance_artifact(
+        RenderDocumentAcceptanceArtifactCommand(
+            actor=investor,
+            acceptance_id=str(acceptance.id),
+            output_format="pdf",
+        )
+    )
+    rerendered = render_document_acceptance_artifact(
+        RenderDocumentAcceptanceArtifactCommand(
+            actor=investor,
+            acceptance_id=str(acceptance.id),
+            output_format="pdf",
+        )
+    )
+    pdf_bytes = base64.b64decode(artifact.content.encode("ascii"))
+
+    assert artifact.content_type == "application/pdf"
+    assert artifact.content_encoding == "base64"
+    assert pdf_bytes.startswith(b"%PDF-1.4")
+    assert artifact.content_sha256 == rerendered.content_sha256
+    assert artifact.manifest["source_of_truth"] == "template_version_and_acceptance_snapshot"
+    assert artifact.manifest["legal_content_status"] == (
+        "template_content_must_be_approved_before_production_use"
+    )
+    assert artifact.manifest["renderer_version"] == "document-artifact-renderer-v1"
+    assert DocumentRenderedArtifact.objects.filter(
+        acceptance=acceptance,
+        content_sha256=artifact.content_sha256,
+    ).count() == 2
+    assert DocumentEvent.objects.filter(event_type="artifact_rendered").count() == 2
+    assert DomainEvent.objects.filter(event_type="DocumentArtifactRendered").count() == 2
+    assert AuditEvent.objects.filter(action="document.artifact_rendered").count() == 2
+
+
+@pytest.mark.django_db
+def test_render_acceptance_csv_neutralizes_formula_cells(
+    superadmin_user: Model,
+    investor: Model,
+) -> None:
+    acceptance = _accepted_primary_document(
+        superadmin_user=superadmin_user,
+        investor=investor,
+        idempotency_key="accept-render-csv",
+        body="{{loan.title}}",
+        loan_title="=HYPERLINK(\"https://evil.example\")",
+    )
+
+    artifact = render_document_acceptance_artifact(
+        RenderDocumentAcceptanceArtifactCommand(
+            actor=investor,
+            acceptance_id=str(acceptance.id),
+            output_format="csv",
+        )
+    )
+
+    assert artifact.content_type == "text/csv; charset=utf-8"
+    assert "rendered_body" in artifact.content
+    assert "'=HYPERLINK" in artifact.content
+
+
+@pytest.mark.django_db
+def test_render_acceptance_rejects_missing_template_variable(
+    superadmin_user: Model,
+    investor: Model,
+) -> None:
+    acceptance = _accepted_primary_document(
+        superadmin_user=superadmin_user,
+        investor=investor,
+        idempotency_key="accept-render-missing-variable",
+        body="Missing {{loan.not_present}}.",
+    )
+
+    with pytest.raises(DocumentValidationError, match="loan.not_present"):
+        render_document_acceptance_artifact(
+            RenderDocumentAcceptanceArtifactCommand(
+                actor=investor,
+                acceptance_id=str(acceptance.id),
+                output_format="pdf",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_render_acceptance_is_owner_or_admin_scoped(
+    superadmin_user: Model,
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    acceptance = _accepted_primary_document(
+        superadmin_user=superadmin_user,
+        investor=investor,
+        idempotency_key="accept-render-owner-scoped",
+    )
+    user_model: Any = get_user_model()
+    other = cast(
+        Model,
+        user_model.objects.create_user(
+            email="other-docs-investor@example.test",
+            full_name="Other Investor",
+            account_type="natural_person_lender",
+            status="active",
+        ),
+    )
+
+    with pytest.raises(DocumentAuthorizationError):
+        render_document_acceptance_artifact(
+            RenderDocumentAcceptanceArtifactCommand(
+                actor=other,
+                acceptance_id=str(acceptance.id),
+                output_format="pdf",
+            )
+        )
+
+    admin_artifact = render_document_acceptance_artifact(
+        RenderDocumentAcceptanceArtifactCommand(
+            actor=admin_user,
+            acceptance_id=str(acceptance.id),
+            output_format="csv",
+            purpose="admin_download",
+        )
+    )
+    assert admin_artifact.rendered_artifact.purpose == "admin_download"
+
+
+@pytest.mark.django_db
+def test_document_acceptance_artifact_api(
+    client: Client,
+    superadmin_user: Model,
+    investor: Model,
+) -> None:
+    acceptance = _accepted_primary_document(
+        superadmin_user=superadmin_user,
+        investor=investor,
+        idempotency_key="accept-render-api",
+    )
+    client.force_login(cast(Any, investor))
+
+    response = client.post(
+        f"/api/v1/documents/acceptances/{acceptance.id}/artifact/",
+        data={"output_format": "pdf"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["content_type"] == "application/pdf"
+    assert payload["content_encoding"] == "base64"
+    assert payload["content_sha256"] == payload["manifest"]["content_sha256"]
+    assert DocumentRenderedArtifact.objects.filter(id=payload["rendered_artifact_id"]).exists()
+
+
+@pytest.mark.django_db
 def test_document_acceptance_api_rejects_missing_required_checkbox(
     client: Client,
     superadmin_user: Model,
@@ -518,13 +734,22 @@ def test_document_append_only_records_have_app_and_db_guards(
             accepted_checkbox_labels=list(cast(list[str], version.checkbox_labels)),
             context_type="primary_order",
             context_id="order-append-only",
+            data_snapshot={"loan": {"title": "Append-only test loan"}},
             idempotency_key="accept-append-only",
         )
     )
     event = DocumentEvent.objects.get(event_type="accepted")
+    artifact = render_document_acceptance_artifact(
+        RenderDocumentAcceptanceArtifactCommand(
+            actor=investor,
+            acceptance_id=str(acceptance.id),
+            output_format="pdf",
+        )
+    ).rendered_artifact
     guarded_records = [
         (version, DocumentTemplateVersion, "documents_documenttemplateversion"),
         (acceptance, DocumentAcceptanceEvidence, "documents_documentacceptanceevidence"),
+        (artifact, DocumentRenderedArtifact, "documents_documentrenderedartifact"),
         (event, DocumentEvent, "documents_documentevent"),
     ]
 

@@ -7,6 +7,7 @@ from backend.apps.ledger.api.views import (
     BorrowerDisbursementFinalizeView,
     InvestorBalanceSummaryView,
     InvestorPayoutInstructionRegisterView,
+    InvestorSelfServicePayoutInstructionRegisterView,
     InvestorWithdrawalCancelView,
     InvestorWithdrawalFinalizeView,
     InvestorWithdrawalRequestCreateView,
@@ -24,6 +25,11 @@ urlpatterns = [
         "admin/payout-instructions/",
         InvestorPayoutInstructionRegisterView.as_view(),
         name="ledger-investor-payout-instruction-register",
+    ),
+    path(
+        "payout-instructions/",
+        InvestorSelfServicePayoutInstructionRegisterView.as_view(),
+        name="ledger-investor-self-service-payout-instruction-register",
     ),
     path(
         "admin/investor-balance-summary/",

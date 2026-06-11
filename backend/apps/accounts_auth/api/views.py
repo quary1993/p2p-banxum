@@ -27,6 +27,8 @@ from backend.apps.accounts_auth.api.serializers import (
     PhoneVerificationConfirmRequestSerializer,
     PhoneVerificationConfirmResponseSerializer,
     PhoneVerificationRequestResponseSerializer,
+    SensitiveActionCodeRequestResponseSerializer,
+    SensitiveActionCodeRequestSerializer,
     serialize_account_access_event,
     serialize_user,
 )
@@ -38,9 +40,15 @@ from backend.apps.accounts_auth.api.throttles import (
     PhoneVerificationConfirmThrottle,
     PhoneVerificationRequestThrottle,
 )
-from backend.apps.accounts_auth.models import AccountAccessReason, AccountStatus, User
+from backend.apps.accounts_auth.models import (
+    AccountAccessReason,
+    AccountStatus,
+    SensitiveAction,
+    User,
+)
 from backend.apps.accounts_auth.services import (
     AccountAccessControlError,
+    AccountsAuthError,
     AdminAuthorizationError,
     AdminLoginConfirmCommand,
     AdminLoginInvalidCredentialsError,
@@ -56,9 +64,11 @@ from backend.apps.accounts_auth.services import (
     MagicLinkRequestCommand,
     PhoneAlreadyVerifiedError,
     PhoneVerificationConfirmCommand,
+    PhoneVerificationProviderError,
     PhoneVerificationRequestCommand,
     PhoneVerificationThrottleError,
     RegisterNaturalPersonCommand,
+    SensitiveActionCodeCommand,
     SensitiveActionCodeThrottleError,
     TooManyCodeAttemptsError,
     change_account_access,
@@ -67,6 +77,7 @@ from backend.apps.accounts_auth.services import (
     consume_magic_link,
     create_admin_user,
     issue_magic_link,
+    issue_sensitive_action_code,
     register_natural_person_lender,
     request_phone_verification,
     start_admin_login,
@@ -103,7 +114,26 @@ class NaturalPersonRegistrationView(APIView):
             return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
         except InvalidTermsAcceptanceError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response({"user": serialize_user(user)}, status=status.HTTP_201_CREATED)
+
+        # Issue the first sign-in magic link as part of registration so the
+        # client does not need a second request that can race the per-IP/email
+        # magic-link throttle. Registration must still succeed if issuance
+        # fails; the client can fall back to the explicit resend endpoint.
+        email_login_sent = True
+        try:
+            issue_magic_link(
+                MagicLinkRequestCommand(
+                    email=user.email,
+                    ip_address=client_ip(request),
+                    user_agent=user_agent(request),
+                )
+            )
+        except AccountsAuthError:
+            email_login_sent = False
+        return Response(
+            {"user": serialize_user(user), "email_login_sent": email_login_sent},
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class MagicLinkRequestView(APIView):
@@ -232,6 +262,42 @@ class AdminLoginConfirmView(APIView):
         return Response({"user": serialize_user(user)})
 
 
+class SensitiveActionCodeRequestView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=SensitiveActionCodeRequestSerializer,
+        responses={202: SensitiveActionCodeRequestResponseSerializer},
+    )
+    def post(self, request: Request) -> Response:
+        serializer = SensitiveActionCodeRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            result = issue_sensitive_action_code(
+                SensitiveActionCodeCommand(
+                    user=cast(User, request.user),
+                    action=SensitiveAction(data["action"]),
+                    ip_address=client_ip(request),
+                    user_agent=user_agent(request),
+                )
+            )
+        except SensitiveActionCodeThrottleError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        except InvalidOrExpiredCodeError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(
+            {
+                "code_id": str(result.code_record.id),
+                "action": result.code_record.action,
+                "status": "code_sent",
+                "expires_at": result.code_record.expires_at.isoformat(),
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
 class AdminUserCreateView(APIView):
     permission_classes = [IsAuthenticated, IsSuperAdminUser]
 
@@ -334,8 +400,15 @@ class PhoneVerificationRequestView(APIView):
                 status=status.HTTP_200_OK,
             )
         except PhoneVerificationThrottleError as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            payload: dict[str, Any] = {"detail": str(exc)}
+            if exc.retry_after_seconds is not None:
+                payload["retry_after_seconds"] = exc.retry_after_seconds
+            return Response(payload, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        except PhoneVerificationProviderError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         except InvalidOrExpiredCodeError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except AccountsAuthError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(
@@ -375,6 +448,10 @@ class PhoneVerificationConfirmView(APIView):
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except TooManyCodeAttemptsError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        except PhoneVerificationProviderError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except AccountsAuthError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         user = User.objects.get(id=cast(User, request.user).id)
         return Response({"user": serialize_user(user)})

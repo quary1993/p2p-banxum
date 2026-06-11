@@ -192,6 +192,17 @@ class InvestorPayoutInstructionRegisterResponseSerializer(serializers.Serializer
     payout_instruction = InvestorPayoutInstructionSerializer()
 
 
+class InvestorSelfServicePayoutInstructionRegisterRequestSerializer(
+    serializers.Serializer[Any]
+):
+    currency = serializers.CharField(max_length=3)
+    destination_iban = serializers.CharField(max_length=128)
+    destination_account_name = serializers.CharField(max_length=255)
+    notes = serializers.CharField(required=False, allow_blank=True)
+    sensitive_action_code_id = serializers.UUIDField()
+    sensitive_action_code = serializers.CharField(max_length=32, trim_whitespace=True)
+
+
 class InvestorBalanceSummaryQuerySerializer(serializers.Serializer[Any]):
     investor_user_id = serializers.UUIDField()
     currency = serializers.CharField(max_length=3)
@@ -219,6 +230,8 @@ class InvestorWithdrawalRequestCreateRequestSerializer(serializers.Serializer[An
     )
     notes = serializers.CharField(required=False, allow_blank=True)
     idempotency_key = serializers.CharField(max_length=160)
+    sensitive_action_code_id = serializers.UUIDField()
+    sensitive_action_code = serializers.CharField(max_length=32, trim_whitespace=True)
 
 
 class InvestorWithdrawalRequestCreateResponseSerializer(serializers.Serializer[Any]):
@@ -306,12 +319,28 @@ class BalanceAgeingPenaltyModeTransitionSerializer(serializers.Serializer[Any]):
     days_overdue = serializers.IntegerField()
 
 
+class BalancePenaltyChargeSerializer(serializers.Serializer[Any]):
+    lot_id = serializers.CharField()
+    investor_user_id = serializers.CharField()
+    currency = serializers.CharField()
+    charge_date = serializers.DateField()
+    amount_minor = serializers.IntegerField()
+    penalty_bps_per_day = serializers.IntegerField()
+    penalty_basis_minor = serializers.IntegerField()
+    available_before_minor = serializers.IntegerField()
+    available_after_minor = serializers.IntegerField()
+    penalized_before_minor = serializers.IntegerField()
+    penalized_after_minor = serializers.IntegerField()
+    journal_entry_id = serializers.CharField()
+
+
 class BalanceAgeingScanResponseSerializer(serializers.Serializer[Any]):
     as_of = serializers.DateTimeField()
     reminders_due = BalanceAgeingReminderDueSerializer(many=True)
     forced_withdrawal_candidates = BalanceAgeingForcedWithdrawalCandidateSerializer(many=True)
     forced_withdrawal_requests = InvestorWithdrawalRequestSerializer(many=True)
     penalty_mode_transitions = BalanceAgeingPenaltyModeTransitionSerializer(many=True)
+    penalty_charges = BalancePenaltyChargeSerializer(many=True)
     skipped_lot_ids = serializers.ListField(child=serializers.CharField())
 
 
@@ -384,6 +413,7 @@ def serialize_balance_ageing_scan_result(result: BalanceAgeingScanResult) -> dic
         "penalty_mode_transitions": [
             _dataclass_payload(transition) for transition in result.penalty_mode_transitions
         ],
+        "penalty_charges": [_dataclass_payload(charge) for charge in result.penalty_charges],
         "skipped_lot_ids": result.skipped_lot_ids,
     }
     return dict(BalanceAgeingScanResponseSerializer(payload).data)

@@ -4,7 +4,11 @@ from typing import Any
 
 from rest_framework import serializers
 
-from backend.apps.marketplace_primary.models import PrimaryInvestmentOrder, PrimaryLoanClose
+from backend.apps.marketplace_primary.models import (
+    PrimaryInvestmentOrder,
+    PrimaryLoanCancellation,
+    PrimaryLoanClose,
+)
 
 
 class MarketplaceLoanPreviewSerializer(serializers.Serializer[Any]):
@@ -69,6 +73,8 @@ class PrimaryInvestmentOrderCreateRequestSerializer(serializers.Serializer[Any])
 class PrimaryInvestmentOrderAllocateRequestSerializer(serializers.Serializer[Any]):
     document_acceptance_id = serializers.UUIDField()
     idempotency_key = serializers.CharField(max_length=160)
+    sensitive_action_code_id = serializers.UUIDField()
+    sensitive_action_code = serializers.CharField(max_length=32, trim_whitespace=True)
 
 
 class PrimaryInvestmentOrderReleaseRequestSerializer(serializers.Serializer[Any]):
@@ -101,6 +107,48 @@ class PrimaryLoanCloseRequestSerializer(serializers.Serializer[Any]):
     idempotency_key = serializers.CharField(max_length=160)
 
 
+class PrimaryLoanCancellationSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    loan_id = serializers.UUIDField()
+    currency = serializers.CharField(source="currency.code")
+    released_order_count = serializers.IntegerField()
+    closed_not_invested_order_count = serializers.IntegerField()
+    released_principal_minor = serializers.IntegerField()
+    created_by_admin_id = serializers.UUIDField()
+    cancelled_at = serializers.DateTimeField()
+    reason = serializers.CharField()
+    investor_message = serializers.CharField()
+    created_at = serializers.DateTimeField()
+
+
+class PrimaryLoanCancellationRequestSerializer(serializers.Serializer[Any]):
+    reason = serializers.CharField()
+    investor_message = serializers.CharField(required=False, allow_blank=True)
+    idempotency_key = serializers.CharField(max_length=160)
+
+
+class PrimaryLoanExpiryScanRequestSerializer(serializers.Serializer[Any]):
+    as_of_date = serializers.DateField(required=False)
+    loan_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        allow_empty=True,
+    )
+    reason = serializers.CharField(required=False, allow_blank=True)
+    investor_message = serializers.CharField(required=False, allow_blank=True)
+    idempotency_key = serializers.CharField(max_length=160, required=False, allow_blank=True)
+    limit = serializers.IntegerField(required=False, min_value=1, max_value=1000, default=250)
+
+
+class PrimaryLoanExpiryScanResponseSerializer(serializers.Serializer[Any]):
+    as_of_date = serializers.DateField()
+    scanned_count = serializers.IntegerField()
+    cancelled_count = serializers.IntegerField()
+    skipped_count = serializers.IntegerField()
+    cancellations = PrimaryLoanCancellationSerializer(many=True)
+    skipped = serializers.ListField(child=serializers.DictField())
+
+
 class PublicMarketplaceLoanListQuerySerializer(serializers.Serializer[Any]):
     limit = serializers.IntegerField(required=False, min_value=1, max_value=250, default=100)
 
@@ -111,3 +159,21 @@ def serialize_primary_order(order: PrimaryInvestmentOrder) -> dict[str, Any]:
 
 def serialize_primary_loan_close(close: PrimaryLoanClose) -> dict[str, Any]:
     return dict(PrimaryLoanCloseSerializer(close).data)
+
+
+def serialize_primary_loan_cancellation(
+    cancellation: PrimaryLoanCancellation,
+) -> dict[str, Any]:
+    return dict(PrimaryLoanCancellationSerializer(cancellation).data)
+
+
+def serialize_primary_expiry_scan_result(result: dict[str, Any]) -> dict[str, Any]:
+    as_of_date = result["as_of_date"]
+    return {
+        **result,
+        "as_of_date": as_of_date.isoformat() if hasattr(as_of_date, "isoformat") else as_of_date,
+        "cancellations": [
+            serialize_primary_loan_cancellation(cancellation)
+            for cancellation in result["cancellations"]
+        ],
+    }

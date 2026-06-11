@@ -68,6 +68,87 @@ class InvestorBalancePortalSerializer(serializers.Serializer[Any]):
     has_penalty_mode_balance = serializers.BooleanField()
 
 
+class DepositInstructionSerializer(serializers.Serializer[Any]):
+    currency = serializers.CharField()
+    account_holder_name = serializers.CharField(allow_blank=True)
+    iban = serializers.CharField(allow_blank=True)
+    bic = serializers.CharField(allow_blank=True)
+    bank_name = serializers.CharField(allow_blank=True)
+    collection_account_identifier = serializers.CharField()
+    payment_reference = serializers.CharField()
+    notes = serializers.CharField(allow_blank=True)
+    is_configured = serializers.BooleanField()
+
+
+class InvestorDepositInstructionsSerializer(serializers.Serializer[Any]):
+    as_of = serializers.DateTimeField()
+    instructions = DepositInstructionSerializer(many=True)
+    reference_rule = serializers.CharField()
+
+
+class InvestorDocumentSerializer(serializers.Serializer[Any]):
+    id = serializers.CharField()
+    document_kind = serializers.CharField()
+    title = serializers.CharField()
+    document_type = serializers.CharField()
+    version = serializers.CharField()
+    date = serializers.DateTimeField()
+    context_label = serializers.CharField()
+    output_formats = serializers.ListField(child=serializers.CharField())
+    generated_on_request = serializers.BooleanField()
+    content_hash = serializers.CharField(required=False)
+    period_start = serializers.DateField(required=False)
+    period_end = serializers.DateField(required=False)
+
+
+class InvestorDocumentsSerializer(serializers.Serializer[Any]):
+    as_of = serializers.DateTimeField()
+    documents = InvestorDocumentSerializer(many=True)
+    disclaimer = serializers.CharField()
+
+
+class InvestorDocumentDownloadRequestSerializer(serializers.Serializer[Any]):
+    document_kind = serializers.ChoiceField(
+        choices=["acceptance_evidence", "account_statement", "annual_tax_information"]
+    )
+    document_id = serializers.CharField(required=False, allow_blank=True)
+    output_format = serializers.ChoiceField(
+        choices=["pdf", "csv", "zip"],
+        required=False,
+        default="pdf",
+    )
+    start_date = serializers.DateField(required=False)
+    end_date = serializers.DateField(required=False)
+    year = serializers.IntegerField(required=False, min_value=2000, max_value=2100)
+
+
+class InvestorDocumentDownloadResponseSerializer(serializers.Serializer[Any]):
+    content_type = serializers.CharField()
+    filename = serializers.CharField()
+    content_encoding = serializers.CharField()
+    content = serializers.CharField()
+    content_sha256 = serializers.CharField()
+    manifest = serializers.JSONField()
+
+
+class InvestorNotificationSerializer(serializers.Serializer[Any]):
+    id = serializers.CharField()
+    notification_source = serializers.CharField()
+    topic = serializers.CharField()
+    status = serializers.CharField()
+    title = serializers.CharField()
+    body = serializers.CharField()
+    created_at = serializers.DateTimeField()
+    sent_at = serializers.DateTimeField(allow_null=True)
+    unread = serializers.BooleanField()
+    metadata = serializers.JSONField()
+
+
+class InvestorNotificationsSerializer(serializers.Serializer[Any]):
+    notifications = InvestorNotificationSerializer(many=True)
+    unread_count = serializers.IntegerField()
+
+
 class AmountByCurrencySerializer(serializers.Serializer[Any]):
     currency = serializers.CharField()
     amount_minor = serializers.IntegerField()

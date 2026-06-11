@@ -15,6 +15,11 @@ from backend.apps.investor_portal.api.serializers import (
     InvestorActivitySerializer,
     InvestorBalancePortalSerializer,
     InvestorDashboardSerializer,
+    InvestorDepositInstructionsSerializer,
+    InvestorDocumentDownloadRequestSerializer,
+    InvestorDocumentDownloadResponseSerializer,
+    InvestorDocumentsSerializer,
+    InvestorNotificationsSerializer,
     InvestorPortfolioSerializer,
     PortalLimitQuerySerializer,
     PortfolioQuerySerializer,
@@ -22,12 +27,17 @@ from backend.apps.investor_portal.api.serializers import (
     SecondaryMarketActivityPortalSerializer,
 )
 from backend.apps.investor_portal.services import (
+    InvestorDocumentDownloadCommand,
     InvestorPortalAuthorizationError,
     InvestorPortalValidationError,
+    download_investor_document,
+    get_deposit_instructions,
     get_fx_history,
     get_investor_activity,
     get_investor_balances,
     get_investor_dashboard,
+    get_investor_documents,
+    get_investor_notifications,
     get_investor_portfolio,
     get_primary_orders,
     get_secondary_market_activity,
@@ -62,6 +72,79 @@ class InvestorBalancesView(APIView):
     def get(self, request: Request) -> Response:
         try:
             payload = get_investor_balances(actor=cast(Model, request.user))
+        except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
+            return _error_response(exc)
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class InvestorDepositInstructionsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: InvestorDepositInstructionsSerializer})
+    def get(self, request: Request) -> Response:
+        try:
+            payload = get_deposit_instructions(actor=cast(Model, request.user))
+        except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
+            return _error_response(exc)
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class InvestorDocumentsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: InvestorDocumentsSerializer})
+    def get(self, request: Request) -> Response:
+        try:
+            payload = get_investor_documents(actor=cast(Model, request.user))
+        except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
+            return _error_response(exc)
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class InvestorDocumentDownloadView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=InvestorDocumentDownloadRequestSerializer,
+        responses={200: InvestorDocumentDownloadResponseSerializer},
+    )
+    def post(self, request: Request) -> Response:
+        serializer = InvestorDocumentDownloadRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            payload = download_investor_document(
+                InvestorDocumentDownloadCommand(
+                    actor=cast(Model, request.user),
+                    document_kind=data["document_kind"],
+                    document_id=data.get("document_id", ""),
+                    output_format=data.get("output_format", "pdf"),
+                    start_date=data.get("start_date"),
+                    end_date=data.get("end_date"),
+                    year=data.get("year"),
+                )
+            )
+        except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
+            return _error_response(exc)
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class InvestorNotificationsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        parameters=[PortalLimitQuerySerializer],
+        responses={200: InvestorNotificationsSerializer},
+    )
+    def get(self, request: Request) -> Response:
+        serializer = PortalLimitQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            payload = get_investor_notifications(
+                actor=cast(Model, request.user),
+                limit=data["limit"],
+            )
         except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
             return _error_response(exc)
         return Response(payload, status=status.HTTP_200_OK)

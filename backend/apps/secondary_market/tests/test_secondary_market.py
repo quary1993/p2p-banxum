@@ -13,8 +13,12 @@ from django.db.models import Model
 from django.test import Client
 from django.utils import timezone
 
-from backend.apps.platform_core.models import AuditEvent, Currency, DomainEvent
+from backend.apps.platform_core.models import AuditEvent, Currency, DomainEvent, OutboxMessage
 from backend.apps.platform_core.models.base import AppendOnlyViolation
+from backend.apps.platform_core.tests.factories import (
+    SensitiveActionCodePayload,
+    issue_sensitive_action_test_code,
+)
 from backend.apps.secondary_market.models import (
     SecondaryMarketListingEvent,
     SecondaryMarketListingEventType,
@@ -23,12 +27,14 @@ from backend.apps.secondary_market.models import (
 )
 from backend.apps.secondary_market.services import (
     ApproveSecondaryMarketListingCommand,
+    CancelSecondaryMarketListingCommand,
     CreateSecondaryMarketListingCommand,
     PurchaseSecondaryMarketListingCommand,
     RejectSecondaryMarketListingCommand,
     SecondaryMarketAuthorizationError,
     SecondaryMarketValidationError,
     approve_secondary_market_listing,
+    cancel_secondary_market_listing,
     create_secondary_market_listing,
     list_active_secondary_market_listings,
     purchase_secondary_market_listing,
@@ -106,6 +112,14 @@ def _approve_financial_access(investor: Model) -> None:
             "decision_at": now,
         },
     )
+
+
+def _sensitive_code_payload(user: Model, action: str) -> SensitiveActionCodePayload:
+    code = issue_sensitive_action_test_code(user, action)
+    return {
+        "sensitive_action_code_id": code.code_id,
+        "sensitive_action_code": code.raw_code,
+    }
 
 
 def _create_borrower(admin_user: Model) -> Model:
@@ -336,6 +350,7 @@ def test_create_performing_listing_auto_publishes_and_calculates_pricing(
     loan = _create_funded_loan(admin_user)
     holding = _create_holding(admin_user, investor, loan)
     acceptance = _create_listing_acceptance(investor, holding)
+    listing_code = _sensitive_code_payload(investor, "secondary_market_listing")
 
     listing = create_secondary_market_listing(
         CreateSecondaryMarketListingCommand(
@@ -345,6 +360,7 @@ def test_create_performing_listing_auto_publishes_and_calculates_pricing(
             document_acceptance_id=str(acceptance.pk),
             idempotency_key="secondary-listing-create-1",
             notes="Sell full holding.",
+            **listing_code,
         )
     )
 
@@ -365,6 +381,9 @@ def test_create_performing_listing_auto_publishes_and_calculates_pricing(
     assert listing.risk_acknowledgement_required is False
     assert listing.listed_at is not None
     assert listing.metadata["accrual_day_count"] == "ACT/365"
+    listing_email = OutboxMessage.objects.get(topic="email.secondary_market_listing_status")
+    assert listing_email.payload["user_id"] == str(investor.pk)
+    assert listing_email.payload["metadata"]["loan_id"] == str(loan.pk)
 
     replay = create_secondary_market_listing(
         CreateSecondaryMarketListingCommand(
@@ -374,6 +393,7 @@ def test_create_performing_listing_auto_publishes_and_calculates_pricing(
             document_acceptance_id=str(acceptance.pk),
             idempotency_key="secondary-listing-create-1",
             notes="Sell full holding.",
+            **listing_code,
         )
     )
     assert replay.id == listing.id
@@ -386,12 +406,119 @@ def test_create_performing_listing_auto_publishes_and_calculates_pricing(
                 price_bps=9600,
                 document_acceptance_id=str(acceptance.pk),
                 idempotency_key="secondary-listing-create-duplicate",
+                **listing_code,
             )
         )
 
     assert SecondaryMarketListingEvent.objects.filter(listing=listing).count() == 2
     assert AuditEvent.objects.filter(action="secondary_market.listing_created").exists()
     assert DomainEvent.objects.filter(event_type="SecondaryMarketListingCreated").exists()
+
+
+@pytest.mark.django_db
+def test_seller_can_cancel_open_listing_and_relist_holding(
+    admin_user: Model,
+    investor: Model,
+    other_investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    _approve_financial_access(other_investor)
+    loan = _create_funded_loan(admin_user)
+    holding = _create_holding(admin_user, investor, loan)
+    acceptance = _create_listing_acceptance(investor, holding)
+    listing = create_secondary_market_listing(
+        CreateSecondaryMarketListingCommand(
+            actor=investor,
+            holding_id=str(cast(Any, holding).id),
+            price_bps=9500,
+            document_acceptance_id=str(acceptance.pk),
+            idempotency_key="secondary-cancel-listing",
+            **_sensitive_code_payload(investor, "secondary_market_listing"),
+        )
+    )
+
+    cancelled = cancel_secondary_market_listing(
+        CancelSecondaryMarketListingCommand(
+            actor=investor,
+            listing_id=str(listing.id),
+            reason="Seller changed liquidity plan.",
+            idempotency_key="secondary-cancel-listing-ok",
+        )
+    )
+    replay = cancel_secondary_market_listing(
+        CancelSecondaryMarketListingCommand(
+            actor=investor,
+            listing_id=str(listing.id),
+            reason="Seller changed liquidity plan.",
+            idempotency_key="secondary-cancel-listing-ok",
+        )
+    )
+    listing.refresh_from_db()
+
+    assert replay.id == cancelled.id
+    assert listing.status == SecondaryMarketListingStatus.CANCELLED
+    assert listing.cancelled_by_user_id == investor.pk
+    assert listing.cancellation_reason == "Seller changed liquidity plan."
+    assert SecondaryMarketListingEvent.objects.filter(
+        listing=listing,
+        event_type=SecondaryMarketListingEventType.CANCELLED,
+    ).exists()
+    assert AuditEvent.objects.filter(action="secondary_market.listing_cancelled").exists()
+    assert DomainEvent.objects.filter(event_type="SecondaryMarketListingCancelled").exists()
+    with pytest.raises(SecondaryMarketValidationError, match="does not exist"):
+        cancel_secondary_market_listing(
+            CancelSecondaryMarketListingCommand(
+                actor=other_investor,
+                listing_id=str(listing.id),
+                reason="Not seller.",
+                idempotency_key="secondary-cancel-listing-other",
+            )
+        )
+
+    relist_acceptance = _create_listing_acceptance(
+        investor,
+        holding,
+        idempotency_key="secondary-relist-after-cancel-accept",
+    )
+    relisted = create_secondary_market_listing(
+        CreateSecondaryMarketListingCommand(
+            actor=investor,
+            holding_id=str(cast(Any, holding).id),
+            price_bps=9600,
+            document_acceptance_id=str(relist_acceptance.pk),
+            idempotency_key="secondary-relist-after-cancel",
+            **_sensitive_code_payload(investor, "secondary_market_listing"),
+        )
+    )
+    assert relisted.status == SecondaryMarketListingStatus.ACTIVE
+
+
+@pytest.mark.django_db
+def test_create_listing_requires_sensitive_action_code(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_funded_loan(admin_user)
+    holding = _create_holding(admin_user, investor, loan)
+    acceptance = _create_listing_acceptance(
+        investor,
+        holding,
+        idempotency_key="secondary-listing-missing-code-accept",
+    )
+
+    with pytest.raises(SecondaryMarketValidationError, match="Sensitive-action email code"):
+        create_secondary_market_listing(
+            CreateSecondaryMarketListingCommand(
+                actor=investor,
+                holding_id=str(cast(Any, holding).id),
+                price_bps=9500,
+                document_acceptance_id=str(acceptance.pk),
+                idempotency_key="secondary-listing-missing-code",
+            )
+        )
+
+    assert SecondaryMarketListingEvent.objects.count() == 0
 
 
 @pytest.mark.django_db
@@ -412,6 +539,7 @@ def test_nonstandard_listing_requires_admin_approval_and_disclosure(
             price_bps=9000,
             document_acceptance_id=str(acceptance.pk),
             idempotency_key="secondary-listing-late",
+            **_sensitive_code_payload(investor, "secondary_market_listing"),
         )
     )
 
@@ -466,6 +594,7 @@ def test_active_browse_excludes_listing_when_current_loan_status_changed(
             price_bps=9500,
             document_acceptance_id=str(acceptance.pk),
             idempotency_key="secondary-listing-stale-status",
+            **_sensitive_code_payload(investor, "secondary_market_listing"),
         )
     )
     assert list_active_secondary_market_listings(actor=investor) == [listing]
@@ -493,6 +622,7 @@ def test_admin_can_reject_nonstandard_listing(
             price_bps=8000,
             document_acceptance_id=str(acceptance.pk),
             idempotency_key="secondary-listing-default",
+            **_sensitive_code_payload(investor, "secondary_market_listing"),
         )
     )
 
@@ -523,6 +653,7 @@ def test_listing_terms_acceptance_must_match_category_context_owner_and_current_
     _approve_financial_access(other_investor)
     loan = _create_funded_loan(admin_user)
     holding = _create_holding(admin_user, investor, loan)
+    listing_code = _sensitive_code_payload(investor, "secondary_market_listing")
     wrong_category = _create_listing_acceptance(
         investor,
         holding,
@@ -537,6 +668,7 @@ def test_listing_terms_acceptance_must_match_category_context_owner_and_current_
                 price_bps=9500,
                 document_acceptance_id=str(wrong_category.pk),
                 idempotency_key="secondary-wrong-category-listing",
+                **listing_code,
             )
         )
 
@@ -554,6 +686,7 @@ def test_listing_terms_acceptance_must_match_category_context_owner_and_current_
                 price_bps=9500,
                 document_acceptance_id=str(wrong_context.pk),
                 idempotency_key="secondary-wrong-context-listing",
+                **listing_code,
             )
         )
 
@@ -570,6 +703,7 @@ def test_listing_terms_acceptance_must_match_category_context_owner_and_current_
                 price_bps=9500,
                 document_acceptance_id=str(other_owner_acceptance.pk),
                 idempotency_key="secondary-other-owner-listing",
+                **listing_code,
             )
         )
 
@@ -587,6 +721,7 @@ def test_listing_terms_acceptance_must_match_category_context_owner_and_current_
                 price_bps=9500,
                 document_acceptance_id=str(stale.pk),
                 idempotency_key="secondary-stale-listing",
+                **listing_code,
             )
         )
 
@@ -611,6 +746,7 @@ def test_non_owner_and_non_financial_actor_cannot_list(
                 price_bps=9500,
                 document_acceptance_id=str(acceptance.pk),
                 idempotency_key="secondary-non-owner",
+                **_sensitive_code_payload(other_investor, "secondary_market_listing"),
             )
         )
 
@@ -632,6 +768,8 @@ def test_non_owner_and_non_financial_actor_cannot_list(
                 price_bps=9500,
                 document_acceptance_id=str(acceptance.pk),
                 idempotency_key="secondary-blocked",
+                sensitive_action_code_id="00000000-0000-0000-0000-000000000000",
+                sensitive_action_code="000000",
             )
         )
 
@@ -656,6 +794,7 @@ def test_secondary_market_api_create_list_and_approve(
             "price_bps": 9000,
             "document_acceptance_id": str(acceptance.pk),
             "idempotency_key": "secondary-api-create",
+            **_sensitive_code_payload(investor, "secondary_market_listing"),
         },
         content_type="application/json",
     )
@@ -710,6 +849,57 @@ def test_secondary_market_api_create_list_and_approve(
 
 
 @pytest.mark.django_db
+def test_secondary_market_api_seller_cancel_is_owner_only(
+    admin_user: Model,
+    investor: Model,
+    other_investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    _approve_financial_access(other_investor)
+    loan = _create_funded_loan(admin_user)
+    holding = _create_holding(admin_user, investor, loan)
+    acceptance = _create_listing_acceptance(investor, holding)
+    listing = create_secondary_market_listing(
+        CreateSecondaryMarketListingCommand(
+            actor=investor,
+            holding_id=str(cast(Any, holding).id),
+            price_bps=9500,
+            document_acceptance_id=str(acceptance.pk),
+            idempotency_key="secondary-api-cancel-listing",
+            **_sensitive_code_payload(investor, "secondary_market_listing"),
+        )
+    )
+    client = Client()
+
+    client.force_login(cast(Any, other_investor))
+    forbidden = client.post(
+        f"/api/v1/marketplace/secondary/listings/{listing.id}/cancel/",
+        {
+            "reason": "Not the seller.",
+            "idempotency_key": "secondary-api-cancel-forbidden",
+        },
+        content_type="application/json",
+    )
+
+    client.force_login(cast(Any, investor))
+    response = client.post(
+        f"/api/v1/marketplace/secondary/listings/{listing.id}/cancel/",
+        {
+            "reason": "Seller changed liquidity plan.",
+            "idempotency_key": "secondary-api-cancel-ok",
+        },
+        content_type="application/json",
+    )
+
+    listing.refresh_from_db()
+    assert forbidden.status_code == 400
+    assert response.status_code == 200
+    assert response.json()["status"] == "cancelled"
+    assert response.json()["cancellation_reason"] == "Seller changed liquidity plan."
+    assert listing.status == SecondaryMarketListingStatus.CANCELLED
+
+
+@pytest.mark.django_db
 def test_purchase_listing_settles_ledger_transfers_holding_and_is_idempotent(
     admin_user: Model,
     investor: Model,
@@ -727,6 +917,7 @@ def test_purchase_listing_settles_ledger_transfers_holding_and_is_idempotent(
             price_bps=9500,
             document_acceptance_id=str(listing_acceptance.pk),
             idempotency_key="secondary-purchase-listing",
+            **_sensitive_code_payload(investor, "secondary_market_listing"),
         )
     )
     deposit = _declare_deposit(
@@ -736,6 +927,7 @@ def test_purchase_listing_settles_ledger_transfers_holding_and_is_idempotent(
         idempotency_key="secondary-purchase-buyer-deposit",
     )
     purchase_acceptance = _create_purchase_acceptance(other_investor, listing)
+    purchase_code = _sensitive_code_payload(other_investor, "secondary_market_purchase")
 
     purchase = purchase_secondary_market_listing(
         PurchaseSecondaryMarketListingCommand(
@@ -743,6 +935,7 @@ def test_purchase_listing_settles_ledger_transfers_holding_and_is_idempotent(
             listing_id=str(listing.id),
             document_acceptance_id=str(purchase_acceptance.pk),
             idempotency_key="secondary-purchase-1",
+            **purchase_code,
         )
     )
 
@@ -780,6 +973,14 @@ def test_purchase_listing_settles_ledger_transfers_holding_and_is_idempotent(
     assert postings[("investor_balance_liability", str(other_investor.pk), "debit")] == 962_057
     assert postings[("investor_balance_liability", str(investor.pk), "credit")] == 952_557
     assert postings[("platform_fee_revenue", "platform", "credit")] == 9_500
+    purchase_emails = OutboxMessage.objects.filter(
+        topic="email.secondary_market_purchase_confirmation"
+    ).order_by("idempotency_key")
+    assert purchase_emails.count() == 2
+    assert {message.payload["user_id"] for message in purchase_emails} == {
+        str(investor.pk),
+        str(other_investor.pk),
+    }
 
     replay = purchase_secondary_market_listing(
         PurchaseSecondaryMarketListingCommand(
@@ -787,16 +988,71 @@ def test_purchase_listing_settles_ledger_transfers_holding_and_is_idempotent(
             listing_id=str(listing.id),
             document_acceptance_id=str(purchase_acceptance.pk),
             idempotency_key="secondary-purchase-1",
+            **purchase_code,
         )
     )
     assert replay.id == purchase.id
     assert SecondaryMarketPurchase.objects.count() == 1
+    assert (
+        OutboxMessage.objects.filter(topic="email.secondary_market_purchase_confirmation").count()
+        == 2
+    )
     assert SecondaryMarketListingEvent.objects.filter(
         listing=listing,
         event_type=SecondaryMarketListingEventType.SOLD,
     ).exists()
     assert AuditEvent.objects.filter(action="secondary_market.purchase_completed").exists()
     assert DomainEvent.objects.filter(event_type="SecondaryMarketPurchaseCompleted").exists()
+
+
+@pytest.mark.django_db
+def test_purchase_listing_requires_sensitive_action_code(
+    admin_user: Model,
+    investor: Model,
+    other_investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    _approve_financial_access(other_investor)
+    loan = _create_funded_loan(admin_user)
+    seller_holding = _create_holding(admin_user, investor, loan)
+    listing_acceptance = _create_listing_acceptance(
+        investor,
+        seller_holding,
+        idempotency_key="secondary-purchase-missing-code-listing-accept",
+    )
+    listing = create_secondary_market_listing(
+        CreateSecondaryMarketListingCommand(
+            actor=investor,
+            holding_id=str(cast(Any, seller_holding).id),
+            price_bps=9500,
+            document_acceptance_id=str(listing_acceptance.pk),
+            idempotency_key="secondary-purchase-missing-code-listing",
+            **_sensitive_code_payload(investor, "secondary_market_listing"),
+        )
+    )
+    _declare_deposit(
+        admin_user,
+        other_investor,
+        amount_minor=20_000_00,
+        idempotency_key="secondary-purchase-missing-code-deposit",
+    )
+    purchase_acceptance = _create_purchase_acceptance(
+        other_investor,
+        listing,
+        idempotency_key="secondary-purchase-missing-code-accept",
+    )
+
+    with pytest.raises(SecondaryMarketValidationError, match="Sensitive-action email code"):
+        purchase_secondary_market_listing(
+            PurchaseSecondaryMarketListingCommand(
+                actor=other_investor,
+                listing_id=str(listing.id),
+                document_acceptance_id=str(purchase_acceptance.pk),
+                idempotency_key="secondary-purchase-missing-code",
+            )
+        )
+
+    assert SecondaryMarketPurchase.objects.count() == 0
 
 
 @pytest.mark.django_db
@@ -817,12 +1073,17 @@ def test_purchase_requires_current_terms_and_rejects_own_or_stale_listing(
             price_bps=9500,
             document_acceptance_id=str(listing_acceptance.pk),
             idempotency_key="secondary-purchase-negative-listing",
+            **_sensitive_code_payload(investor, "secondary_market_listing"),
         )
     )
     _declare_deposit(
         admin_user,
         other_investor,
         idempotency_key="secondary-purchase-negative-deposit",
+    )
+    other_purchase_code = _sensitive_code_payload(
+        other_investor,
+        "secondary_market_purchase",
     )
     wrong_context = _create_purchase_acceptance(
         other_investor,
@@ -837,6 +1098,7 @@ def test_purchase_requires_current_terms_and_rejects_own_or_stale_listing(
                 listing_id=str(listing.id),
                 document_acceptance_id=str(wrong_context.pk),
                 idempotency_key="secondary-purchase-wrong-context-key",
+                **other_purchase_code,
             )
         )
 
@@ -852,6 +1114,7 @@ def test_purchase_requires_current_terms_and_rejects_own_or_stale_listing(
                 listing_id=str(listing.id),
                 document_acceptance_id=str(own_acceptance.pk),
                 idempotency_key="secondary-purchase-own-listing",
+                **_sensitive_code_payload(investor, "secondary_market_purchase"),
             )
         )
 
@@ -868,6 +1131,7 @@ def test_purchase_requires_current_terms_and_rejects_own_or_stale_listing(
                 listing_id=str(listing.id),
                 document_acceptance_id=str(stale_acceptance.pk),
                 idempotency_key="secondary-purchase-stale-terms",
+                **other_purchase_code,
             )
         )
 
@@ -885,6 +1149,7 @@ def test_purchase_requires_current_terms_and_rejects_own_or_stale_listing(
                 listing_id=str(listing.id),
                 document_acceptance_id=str(fresh_acceptance.pk),
                 idempotency_key="secondary-purchase-stale-status",
+                **other_purchase_code,
             )
         )
 
@@ -908,6 +1173,7 @@ def test_nonstandard_purchase_requires_buyer_risk_acknowledgement(
             price_bps=9000,
             document_acceptance_id=str(listing_acceptance.pk),
             idempotency_key="secondary-purchase-late-listing",
+            **_sensitive_code_payload(investor, "secondary_market_listing"),
         )
     )
     listing = approve_secondary_market_listing(
@@ -925,6 +1191,7 @@ def test_nonstandard_purchase_requires_buyer_risk_acknowledgement(
         idempotency_key="secondary-purchase-late-deposit",
     )
     purchase_acceptance = _create_purchase_acceptance(other_investor, listing)
+    purchase_code = _sensitive_code_payload(other_investor, "secondary_market_purchase")
 
     with pytest.raises(SecondaryMarketValidationError, match="acknowledge"):
         purchase_secondary_market_listing(
@@ -933,6 +1200,7 @@ def test_nonstandard_purchase_requires_buyer_risk_acknowledgement(
                 listing_id=str(listing.id),
                 document_acceptance_id=str(purchase_acceptance.pk),
                 idempotency_key="secondary-purchase-late-no-ack",
+                **purchase_code,
             )
         )
 
@@ -943,6 +1211,7 @@ def test_nonstandard_purchase_requires_buyer_risk_acknowledgement(
             document_acceptance_id=str(purchase_acceptance.pk),
             risk_acknowledgement_accepted=True,
             idempotency_key="secondary-purchase-late-with-ack",
+            **purchase_code,
         )
     )
     assert purchase.risk_acknowledgement_accepted is True
@@ -968,6 +1237,7 @@ def test_secondary_market_api_purchase_response_hides_seller_economics(
             price_bps=9500,
             document_acceptance_id=str(listing_acceptance.pk),
             idempotency_key="secondary-api-purchase-listing",
+            **_sensitive_code_payload(investor, "secondary_market_listing"),
         )
     )
     _declare_deposit(
@@ -984,6 +1254,7 @@ def test_secondary_market_api_purchase_response_hides_seller_economics(
         {
             "document_acceptance_id": str(purchase_acceptance.pk),
             "idempotency_key": "secondary-api-purchase",
+            **_sensitive_code_payload(other_investor, "secondary_market_purchase"),
         },
         content_type="application/json",
     )
@@ -1024,6 +1295,7 @@ def test_secondary_market_listing_event_has_app_and_db_append_only_guards(
             price_bps=9500,
             document_acceptance_id=str(acceptance.pk),
             idempotency_key="secondary-event-guard",
+            **_sensitive_code_payload(investor, "secondary_market_listing"),
         )
     )
     event = SecondaryMarketListingEvent.objects.filter(listing=listing).first()
@@ -1065,6 +1337,7 @@ def test_secondary_market_purchase_has_app_and_db_append_only_guards(
             price_bps=9500,
             document_acceptance_id=str(listing_acceptance.pk),
             idempotency_key="secondary-purchase-guard-listing",
+            **_sensitive_code_payload(investor, "secondary_market_listing"),
         )
     )
     _declare_deposit(
@@ -1079,6 +1352,7 @@ def test_secondary_market_purchase_has_app_and_db_append_only_guards(
             listing_id=str(listing.id),
             document_acceptance_id=str(purchase_acceptance.pk),
             idempotency_key="secondary-purchase-guard",
+            **_sensitive_code_payload(other_investor, "secondary_market_purchase"),
         )
     )
 

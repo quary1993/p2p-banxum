@@ -21,12 +21,13 @@ from backend.apps.servicing.api.serializers import (
     LoanRiskNoteSerializer,
     LoanServicingStatusScanRequestSerializer,
     LoanServicingStatusScanResponseSerializer,
-    LoanWriteOffEventSerializer,
     LoanWriteOffRecordRequestSerializer,
+    LoanWriteOffRecordResponseSerializer,
     PublicLoanRiskNoteListQuerySerializer,
     PublicLoanRiskNoteSerializer,
     serialize_borrower_repayment_event,
     serialize_distribution_line,
+    serialize_loss_recognition_line,
     serialize_public_risk_note,
     serialize_recovery_distribution_line,
     serialize_recovery_event,
@@ -231,7 +232,7 @@ class LoanWriteOffRecordView(APIView):
 
     @extend_schema(
         request=LoanWriteOffRecordRequestSerializer,
-        responses={201: LoanWriteOffEventSerializer},
+        responses={201: LoanWriteOffRecordResponseSerializer},
     )
     def post(self, request: Request) -> Response:
         if not is_admin_actor(request.user):
@@ -245,18 +246,20 @@ class LoanWriteOffRecordView(APIView):
                     actor=cast(Model, request.user),
                     loan_id=str(data["loan_id"]),
                     written_off_principal_minor=data["written_off_principal_minor"],
-                    written_off_contractual_interest_minor=data[
-                        "written_off_contractual_interest_minor"
-                    ],
-                    written_off_default_interest_minor=data[
-                        "written_off_default_interest_minor"
-                    ],
-                    written_off_fees_minor=data["written_off_fees_minor"],
-                    written_off_penalties_minor=data["written_off_penalties_minor"],
+                    written_off_contractual_interest_minor=data.get(
+                        "written_off_contractual_interest_minor",
+                        0,
+                    ),
+                    written_off_default_interest_minor=data.get(
+                        "written_off_default_interest_minor",
+                        0,
+                    ),
+                    written_off_fees_minor=data.get("written_off_fees_minor", 0),
+                    written_off_penalties_minor=data.get("written_off_penalties_minor", 0),
                     reason=data["reason"],
                     notes=data.get("notes", ""),
                     evidence_reference=data.get("evidence_reference", ""),
-                    metadata=data.get("metadata", {}),
+                    metadata=data.get("metadata"),
                     idempotency_key=data["idempotency_key"],
                 )
             )
@@ -264,7 +267,19 @@ class LoanWriteOffRecordView(APIView):
             return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
         except ServicingValidationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(serialize_write_off_event(write_off), status=status.HTTP_201_CREATED)
+        return Response(
+            {
+                "write_off_event": serialize_write_off_event(write_off),
+                "loss_recognition_lines": [
+                    serialize_loss_recognition_line(line)
+                    for line in write_off.loss_recognition_lines.select_related(
+                        "holding",
+                        "currency",
+                    ).order_by("occurred_at", "id")
+                ],
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class LoanRecoveryPaymentRecordView(APIView):

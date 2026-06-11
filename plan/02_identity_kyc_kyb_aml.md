@@ -26,6 +26,13 @@ Didit documentation also describes workflow features including ID verification, 
 
 Didit may provide ongoing AML monitoring depending on the selected plan/workflow. In v1, Garanta does not build in-platform ongoing-monitoring automation. Didit handles ongoing monitoring on the provider side where enabled, and Garanta handles any resulting operational actions manually/off-platform.
 
+Implementation status:
+
+- The backend supports local mock KYC sessions and real Didit hosted-session creation through `DIDIT_SESSION_PROVIDER=api`, using the configured API key, workflow ID, callback URL, and user contact metadata.
+- The Didit webhook receiver verifies configured V3 signatures/freshness before provider statuses can affect internal KYC state, and non-local deploy checks require webhook signature enforcement.
+- The local ignored Didit credentials/workflow were validated once with a real hosted-session creation and local signature verification. Full webhook delivery, report/download artifact capture, workflow-specific status vocabulary, and sandbox test-user scenarios still require a reachable staging/production domain and live Didit console delivery testing.
+- Ongoing AML monitoring alerts remain provider-side/off-platform in v1; Garanta records resulting account restrictions, locks, closures, or manual review decisions in BANXUM admin workflows where needed.
+
 Source notes checked on 2026-05-15:
 
 - Didit API overview: https://docs.didit.me/api-reference/overview

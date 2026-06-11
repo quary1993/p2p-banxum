@@ -10,9 +10,11 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from backend.apps.platform_core.api.request_meta import client_ip, user_agent
 from backend.apps.secondary_market.api.serializers import (
     SecondaryMarketBuyerListingSerializer,
     SecondaryMarketListingApproveRequestSerializer,
+    SecondaryMarketListingCancelRequestSerializer,
     SecondaryMarketListingCreateRequestSerializer,
     SecondaryMarketListingListQuerySerializer,
     SecondaryMarketListingRejectRequestSerializer,
@@ -26,6 +28,7 @@ from backend.apps.secondary_market.api.serializers import (
 )
 from backend.apps.secondary_market.services import (
     ApproveSecondaryMarketListingCommand,
+    CancelSecondaryMarketListingCommand,
     CreateSecondaryMarketListingCommand,
     PurchaseSecondaryMarketListingCommand,
     RejectSecondaryMarketListingCommand,
@@ -33,6 +36,7 @@ from backend.apps.secondary_market.services import (
     SecondaryMarketAuthorizationError,
     SecondaryMarketValidationError,
     approve_secondary_market_listing,
+    cancel_secondary_market_listing,
     create_secondary_market_listing,
     list_active_secondary_market_listings,
     purchase_secondary_market_listing,
@@ -89,7 +93,11 @@ class SecondaryMarketListingListCreateView(APIView):
                     price_bps=data["price_bps"],
                     document_acceptance_id=str(data["document_acceptance_id"]),
                     idempotency_key=data["idempotency_key"],
+                    sensitive_action_code_id=str(data["sensitive_action_code_id"]),
+                    sensitive_action_code=data["sensitive_action_code"],
                     notes=data.get("notes", ""),
+                    ip_address=client_ip(request),
+                    user_agent=user_agent(request),
                 )
             )
         except (SecondaryMarketAuthorizationError, SecondaryMarketValidationError) as exc:
@@ -173,6 +181,31 @@ class SecondaryMarketListingRemoveView(APIView):
         return Response(serialize_secondary_listing(listing), status=status.HTTP_200_OK)
 
 
+class SecondaryMarketListingCancelView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=SecondaryMarketListingCancelRequestSerializer,
+        responses={200: SecondaryMarketListingSerializer},
+    )
+    def post(self, request: Request, listing_id: str) -> Response:
+        serializer = SecondaryMarketListingCancelRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            listing = cancel_secondary_market_listing(
+                CancelSecondaryMarketListingCommand(
+                    actor=cast(Model, request.user),
+                    listing_id=listing_id,
+                    reason=data["reason"],
+                    idempotency_key=data["idempotency_key"],
+                )
+            )
+        except (SecondaryMarketAuthorizationError, SecondaryMarketValidationError) as exc:
+            return _error_response(exc)
+        return Response(serialize_secondary_listing(listing), status=status.HTTP_200_OK)
+
+
 class SecondaryMarketListingPurchaseView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -192,6 +225,10 @@ class SecondaryMarketListingPurchaseView(APIView):
                     document_acceptance_id=str(data["document_acceptance_id"]),
                     risk_acknowledgement_accepted=data["risk_acknowledgement_accepted"],
                     idempotency_key=data["idempotency_key"],
+                    sensitive_action_code_id=str(data["sensitive_action_code_id"]),
+                    sensitive_action_code=data["sensitive_action_code"],
+                    ip_address=client_ip(request),
+                    user_agent=user_agent(request),
                 )
             )
         except (SecondaryMarketAuthorizationError, SecondaryMarketValidationError) as exc:
