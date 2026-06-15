@@ -173,6 +173,7 @@ const statusMap: Record<string, { tone: Tone; label: string }> = {
   available: { tone: "ok", label: "Available" },
   funded: { tone: "neutral", label: "Funded" },
   open: { tone: "accent", label: "Open" },
+  published: { tone: "accent", label: "Open" },
   performing: { tone: "ok", label: "Performing" },
   late: { tone: "warn", label: "Late" },
   defaulted: { tone: "bad", label: "Default" },

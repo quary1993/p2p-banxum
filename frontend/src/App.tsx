@@ -415,6 +415,10 @@ function fundingPercent(loan: Pick<MarketplaceLoanPreview, "principal_minor" | "
   return Math.round((loan.committed_principal_minor / loan.principal_minor) * 100);
 }
 
+function isOpenMarketplaceLoan(loan: Pick<MarketplaceLoanPreview, "status" | "remaining_capacity_minor">) {
+  return ["open", "published"].includes(loan.status) && loan.remaining_capacity_minor > 0;
+}
+
 function statusTone(status: string) {
   if (["funded", "performing", "active", "approved"].includes(status)) return "ok" as const;
   if (["late", "overdue", "pending", "pending_allocation", "partially_allocated"].includes(status)) return "warn" as const;
@@ -1454,7 +1458,7 @@ function Dashboard({ demoState, setRoute }: { demoState: DemoAccountState; setRo
   }
   if (!dashboard || !balances) return <ScreenLoading title="Dashboard" />;
 
-  const openLoans = loans.filter((loan) => loan.status === "open").slice(0, 4);
+  const openLoans = loans.filter(isOpenMarketplaceLoan).slice(0, 4);
   const firstName = displayProfile().name.split(" ")[0] || "Investor";
 
   return (
@@ -1636,7 +1640,7 @@ function MarketplaceScreen({
   const filtered = loans.filter((loan) => {
     const matchesSearch = `${loan.loan_id} ${loan.title}`.toLowerCase().includes(query.toLowerCase());
     const matchesCurrency = currency === "all" || loan.currency === currency;
-    const matchesAvailability = availability === "all" || loan.status === "open";
+    const matchesAvailability = availability === "all" || isOpenMarketplaceLoan(loan);
     return matchesSearch && matchesCurrency && matchesAvailability;
   });
 

@@ -67,6 +67,26 @@ test("fixture-backed authenticated portal is visibly marked as preview data", ()
   expect(screen.getByText(/not real account data/i)).toBeInTheDocument();
 });
 
+test("published primary-market loans appear in dashboard and marketplace open views", () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+
+  expect(screen.getByRole("heading", { name: "Open opportunities" })).toBeInTheDocument();
+  expect(screen.getByText("Helvetia Logistik AG")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Marketplace" }));
+
+  expect(screen.getByText("4 loans")).toBeInTheDocument();
+  expect(screen.getByText("Helvetia Logistik AG")).toBeInTheDocument();
+  expect(screen.getAllByText("Open").length).toBeGreaterThan(0);
+});
+
 test("day-60 frozen state keeps read-only access visible and blocks money actions", () => {
   renderApp();
 
