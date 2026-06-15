@@ -45,9 +45,10 @@ const queryDefaults = {
   staleTime: 0
 };
 
-function previewQuery<T>(fixture: T) {
+function previewQuery<T>(fixture: T, enabled = true) {
   return {
     ...queryDefaults,
+    enabled: !isFixturePreview && enabled,
     // Preview fixtures are review-only placeholder data. Do not switch this to
     // initialData; live mode must fetch immediately and never cache dummy values.
     placeholderData: isFixturePreview ? fixture : undefined
@@ -116,69 +117,69 @@ const notificationsFixture: InvestorNotifications = {
   unread_count: portalFixture.notifications.filter((notification) => notification.unread).length
 };
 
-export function useDashboardData() {
+export function useDashboardData(enabled = true) {
   return useV1InvestorPortalDashboardRetrieve({
-    query: previewQuery(dashboardFixture)
+    query: previewQuery(dashboardFixture, enabled)
   });
 }
 
-export function useBalancesData() {
+export function useBalancesData(enabled = true) {
   return useV1InvestorPortalBalancesRetrieve({
-    query: previewQuery(balancesFixture)
+    query: previewQuery(balancesFixture, enabled)
   });
 }
 
-export function useDepositInstructionsData() {
+export function useDepositInstructionsData(enabled = true) {
   return useV1InvestorPortalDepositInstructionsRetrieve({
-    query: previewQuery(depositInstructionsFixture)
+    query: previewQuery(depositInstructionsFixture, enabled)
   });
 }
 
-export function useDocumentsData() {
+export function useDocumentsData(enabled = true) {
   return useV1InvestorPortalDocumentsRetrieve({
-    query: previewQuery(documentsFixture)
+    query: previewQuery(documentsFixture, enabled)
   });
 }
 
-export function useNotificationsData(limit = 50) {
+export function useNotificationsData(limit = 50, enabled = true) {
   return useV1InvestorPortalNotificationsRetrieve(
     { limit },
-    { query: previewQuery(notificationsFixture) }
+    { query: previewQuery(notificationsFixture, enabled) }
   );
 }
 
-export function usePortfolioData(includeInactive = true) {
+export function usePortfolioData(includeInactive = true, enabled = true) {
   return useV1InvestorPortalPortfolioRetrieve(
     { include_inactive: includeInactive },
-    { query: previewQuery(portfolioFixture) }
+    { query: previewQuery(portfolioFixture, enabled) }
   );
 }
 
-export function useActivityData(limit = 50) {
+export function useActivityData(limit = 50, enabled = true) {
   return useV1InvestorPortalActivityRetrieve(
     { limit },
-    { query: previewQuery(activityFixture) }
+    { query: previewQuery(activityFixture, enabled) }
   );
 }
 
-export function usePrimaryOrdersData(limit = 50) {
+export function usePrimaryOrdersData(limit = 50, enabled = true) {
   return useV1InvestorPortalPrimaryOrdersRetrieve(
     { limit },
-    { query: previewQuery(primaryOrdersFixture) }
+    { query: previewQuery(primaryOrdersFixture, enabled) }
   );
 }
 
-export function useSecondaryActivityData(limit = 50) {
+export function useSecondaryActivityData(limit = 50, enabled = true) {
   return useV1InvestorPortalSecondaryMarketRetrieve(
     { limit },
-    { query: previewQuery(secondaryActivityFixture) }
+    { query: previewQuery(secondaryActivityFixture, enabled) }
   );
 }
 
-export function useFxData(limit = 50) {
+export function useFxData(limit = 50, enabled = true) {
   return useV1InvestorPortalFxRetrieve(
     { limit },
-    { query: previewQuery(fxFixture) }
+    { query: previewQuery(fxFixture, enabled) }
   );
 }
 

@@ -1265,8 +1265,24 @@ function InvestorShell({
 }) {
   const [navOpen, setNavOpen] = useState(false);
   const [investLoan, setInvestLoan] = useState<MarketplaceLoanDetail | null>(null);
-  const balances = useBalancesData().data ?? { summaries: [], lots: [] };
-  const notifications = useNotificationsData(20).data;
+  const kycGateQuery = useV1KycStatusRetrieve({
+    query: {
+      enabled: !isFixturePreview,
+      retry: false,
+      staleTime: 0,
+      refetchInterval: (query) => {
+        const data = query.state.data;
+        if (!data?.financial_access_allowed && (data?.status === "not_started" || data?.status === "pending")) {
+          return 4000;
+        }
+        return false;
+      }
+    }
+  });
+  const financialAccessAllowed =
+    isFixturePreview || kycGateQuery.data?.financial_access_allowed === true;
+  const balances = useBalancesData(financialAccessAllowed).data ?? { summaries: [], lots: [] };
+  const notifications = useNotificationsData(20, financialAccessAllowed).data;
   const profile = displayProfile();
 
   const screen = (() => {
@@ -1307,8 +1323,16 @@ function InvestorShell({
     }
   })();
 
+  const gatedScreen =
+    !isFixturePreview && !financialAccessAllowed
+      ? kycGateQuery.isPending && !kycGateQuery.data
+        ? <ScreenLoading title="Verification" />
+        : <KycStatusScreen setRoute={setRoute} />
+      : screen;
+
   const overdueCount = balances.lots.filter((lot) => lot.bucket === "overdue" || lot.bucket === "penalty").length;
-  const activeRoute = route.name === "loan" ? "market" : route.name;
+  const displayRouteName = !financialAccessAllowed && !isFixturePreview ? "kyc" : route.name;
+  const activeRoute = displayRouteName === "loan" ? "market" : displayRouteName;
 
   return (
     <div className="app">
@@ -1363,7 +1387,7 @@ function InvestorShell({
           <button aria-label="Menu" className="icon-btn menu-btn" onClick={() => setNavOpen((open) => !open)} type="button">
             <Icon name="menu" size={18} />
           </button>
-          <div className="crumbs"><b>{routeTitles[route.name]}</b></div>
+          <div className="crumbs"><b>{routeTitles[displayRouteName]}</b></div>
           <div className="bal-pills">
             {balances.summaries.map((summary) => (
               <div className={`bal-pill ${summary.overdue_minor > 0 || summary.penalty_mode_minor > 0 ? "flag" : ""}`} key={summary.currency}>
@@ -1400,7 +1424,7 @@ function InvestorShell({
             </Banner>
           </div>
         ) : null}
-        {screen}
+        {gatedScreen}
       </div>
       {investLoan ? <InvestModal loan={investLoan} onClose={() => setInvestLoan(null)} /> : null}
     </div>
@@ -3130,7 +3154,20 @@ function KycStatusScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) 
   const sessionMutation = useV1KycSessionCreate();
   const [error, setError] = useState("");
   const kycStatus = isFixturePreview ? "manual_review" : statusQuery.data?.status;
-  const kycInCapture = kycStatus === "not_started" || kycStatus === "pending";
+  const isApproved = kycStatus === "approved";
+  const isWaitingForProvider = kycStatus === "pending";
+  const canStartKyc =
+    !isFixturePreview &&
+    (kycStatus === "not_started" ||
+      kycStatus === "expired" ||
+      kycStatus === "reverification_required");
+
+  useEffect(() => {
+    if (!isFixturePreview && statusQuery.data?.financial_access_allowed) {
+      goTo(setRoute, "dashboard");
+    }
+  }, [setRoute, statusQuery.data?.financial_access_allowed]);
+
   const startKyc = () => {
     setError("");
     if (isFixturePreview) return;
@@ -3143,36 +3180,43 @@ function KycStatusScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) 
       onError: (mutationError) => setError(apiErrorMessage(mutationError))
     });
   };
+  const bannerTitle = isApproved
+    ? "Verification approved"
+    : canStartKyc
+      ? "Identity verification required"
+      : isWaitingForProvider
+        ? "Waiting for verification result"
+        : "Manual review";
+  const bannerMessage = isApproved
+    ? "Financial access is available if phone verification and account status are also valid."
+    : canStartKyc
+      ? "Start identity verification with Didit. After you finish capture, this page will wait for the provider and compliance result."
+      : isWaitingForProvider
+        ? `Your identity capture has been submitted. We are waiting for Didit and ${operatorName} compliance to confirm the result. This page updates automatically. If it remains here for more than a few minutes, contact ${supportEmail}.`
+        : `Your case is being reviewed by ${operatorName}. Financial actions remain locked until KYC is approved. Contact ${supportEmail} if this takes longer than expected.`;
+
+  if (!isFixturePreview && statusQuery.isPending && !statusQuery.data) {
+    return <ScreenLoading title="Verification" />;
+  }
 
   return (
     <main className="content narrow">
       <div className="page-head"><div><h1>Verification</h1><div className="ph-sub">KYC provider handoff and Garanta compliance status.</div></div></div>
       <Card padded>
-        <KycTimeline current={kycStatus === "approved" ? "approved" : kycStatus === "not_started" ? "pending" : "manual_review"} />
+        <KycTimeline current={isApproved ? "approved" : kycStatus === "not_started" ? "pending" : "manual_review"} />
         {statusQuery.isError && !isFixturePreview ? <Banner tone="bad" title="Could not load KYC status">Retry after signing in or when the API connection is restored.</Banner> : null}
-        <Banner
-          tone={kycStatus === "approved" ? "ok" : "info"}
-          title={
-            kycStatus === "approved"
-              ? "Verification approved"
-              : kycInCapture
-                ? "Verification in progress"
-                : "Manual review"
-          }
-        >
-          {kycStatus === "approved"
-            ? "Financial access is available if phone verification and account status are also valid."
-            : kycInCapture
-              ? "Finish identity capture with Didit on this or another device. This page updates automatically once the result arrives."
-              : "Your case is being reviewed. Financial actions remain locked until KYC is approved."}
+        <Banner tone={isApproved ? "ok" : "info"} title={bannerTitle}>
+          {bannerMessage}
         </Banner>
-        {!isFixturePreview && kycStatus !== "approved" ? (
+        {canStartKyc ? (
           <Button disabled={sessionMutation.isPending} style={{ marginTop: 16 }} variant="ghost" onClick={startKyc}>
-            {sessionMutation.isPending ? "Starting Didit..." : "Start or resume Didit verification"}
+            {sessionMutation.isPending ? "Starting Didit..." : "Start Didit verification"}
           </Button>
         ) : null}
         {error ? <Banner tone="bad" title="Could not start KYC">{error}</Banner> : null}
-        <Button style={{ marginTop: 16 }} variant="primary" onClick={() => goTo(setRoute, "dashboard")}>Back to dashboard</Button>
+        {statusQuery.data?.financial_access_allowed || isFixturePreview ? (
+          <Button style={{ marginTop: 16 }} variant="primary" onClick={() => goTo(setRoute, "dashboard")}>Back to dashboard</Button>
+        ) : null}
       </Card>
     </main>
   );

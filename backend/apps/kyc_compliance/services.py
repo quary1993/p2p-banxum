@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any, cast
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from django.conf import settings
@@ -262,6 +263,176 @@ def _safe_didit_session_payload(response_payload: dict[str, Any]) -> dict[str, A
     }
 
 
+def _safe_json_hash(payload: dict[str, Any]) -> str:
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    ).hexdigest()
+
+
+def _payload_value(payload: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = payload.get(key)
+        if value is not None:
+            return str(value)
+    return ""
+
+
+def _decision_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    decision = payload.get("decision")
+    if isinstance(decision, dict):
+        return decision
+    return {}
+
+
+def _payload_vendor_data(payload: dict[str, Any]) -> str:
+    metadata = payload.get("metadata")
+    if isinstance(metadata, dict):
+        for key in ("vendor_data", "vendorData", "subject_reference"):
+            value = metadata.get(key)
+            if value is not None:
+                return str(value)
+    return _payload_value(payload, "vendor_data", "vendorData")
+
+
+def _nested_payload_value(payload: dict[str, Any], *keys: str) -> str:
+    decision = _decision_payload(payload)
+    for key in keys:
+        value = payload.get(key)
+        if value is None:
+            value = decision.get(key)
+        if value is not None:
+            return str(value)
+    return ""
+
+
+def _first_decision_item_value(
+    payload: dict[str, Any],
+    collection_key: str,
+    *keys: str,
+) -> str:
+    collection = payload.get(collection_key)
+    if not isinstance(collection, list):
+        collection = _decision_payload(payload).get(collection_key)
+    if not isinstance(collection, list):
+        return ""
+    for item in collection:
+        if not isinstance(item, dict):
+            continue
+        for key in keys:
+            value = item.get(key)
+            if value is not None:
+                return str(value)
+    return ""
+
+
+def _iter_text_values(value: Any) -> list[str]:
+    if isinstance(value, dict):
+        values: list[str] = []
+        for key, item in value.items():
+            values.append(str(key))
+            values.extend(_iter_text_values(item))
+        return values
+    if isinstance(value, list):
+        values = []
+        for item in value:
+            values.extend(_iter_text_values(item))
+        return values
+    if isinstance(value, str):
+        return [value]
+    return []
+
+
+def _payload_flags(payload: dict[str, Any]) -> list[str]:
+    value = payload.get("detected_flags", payload.get("flags", []))
+    flags: set[str] = set()
+    if isinstance(value, list):
+        flags.update(str(item) for item in value)
+    if isinstance(value, str) and value:
+        flags.update(item.strip() for item in value.split(",") if item.strip())
+
+    decision = _decision_payload(payload)
+    for collection_key in ("aml_screenings", "reviews", "id_verifications"):
+        collection = payload.get(collection_key)
+        if not isinstance(collection, list):
+            collection = decision.get(collection_key)
+        if not isinstance(collection, list):
+            continue
+        for item in collection:
+            text = " ".join(_iter_text_values(item)).lower() if isinstance(item, dict) else ""
+            if "sanction" in text:
+                flags.add("sanctions")
+            if "pep" in text:
+                flags.add("pep")
+            if "adverse" in text and "media" in text:
+                flags.add("adverse_media")
+            if "fraud" in text:
+                flags.add("identity_fraud")
+    return sorted(flags)
+
+
+def provider_event_command_from_payload(
+    payload: dict[str, Any],
+    *,
+    provider_event_id_fallback: str = "",
+) -> ProviderKycEventCommand:
+    provider_event_id = (
+        _payload_value(payload, "provider_event_id", "event_id", "id")
+        or provider_event_id_fallback
+    )
+    provider_session_id = _payload_value(
+        payload,
+        "provider_session_id",
+        "session_id",
+        "sessionId",
+    )
+    if not provider_event_id:
+        raise KycWebhookMatchError("Didit webhook is missing a provider event ID.")
+    return ProviderKycEventCommand(
+        provider_event_id=provider_event_id,
+        provider_event_type=(
+            _payload_value(payload, "provider_event_type", "event_type", "webhook_type", "type")
+            or "verification.updated"
+        ),
+        provider_status=_nested_payload_value(
+            payload,
+            "provider_status",
+            "status",
+            "verification_status",
+        ),
+        provider_session_id=provider_session_id,
+        vendor_data=_payload_vendor_data(payload),
+        verification_id=_payload_value(payload, "verification_id", "verificationId", "session_id"),
+        report_id=_payload_value(payload, "report_id", "reportId", "pdf_report_id"),
+        aml_screening_id=(
+            _payload_value(payload, "aml_screening_id", "amlScreeningId")
+            or _first_decision_item_value(
+                payload,
+                "aml_screenings",
+                "id",
+                "screening_id",
+                "node_id",
+            )
+        ),
+        provider_subject_id=_payload_value(
+            payload,
+            "provider_subject_id",
+            "subject_id",
+            "vendor_user_id",
+            "vendor_business_id",
+            "user_id",
+        ),
+        risk_classification=_nested_payload_value(
+            payload,
+            "risk_classification",
+            "risk",
+            "risk_level",
+            "severity",
+        ),
+        detected_flags=_payload_flags(payload),
+        raw_payload=payload,
+    )
+
+
 def _create_didit_api_session(
     *,
     user: Model,
@@ -319,6 +490,121 @@ def _create_didit_api_session(
         provider_status=str(payload.get("status", "Not Started")),
         provider_payload=_safe_didit_session_payload(payload),
     )
+
+
+def _retrieve_didit_session_decision(session: KycProviderSession) -> dict[str, Any]:
+    _validate_api_session_config(session.workflow_id or _workflow_id())
+    provider_session_id = str(session.provider_session_id).strip()
+    if not provider_session_id:
+        raise DiditApiError("Didit status polling requires a provider session ID.")
+    request = Request(
+        f"{_didit_api_base_url()}/v3/session/{quote(provider_session_id, safe='')}/decision/",
+        headers={
+            "Accept": "application/json",
+            "x-api-key": str(settings.DIDIT_API_KEY),
+        },
+        method="GET",
+    )
+    try:
+        with urlopen(  # noqa: S310 - Didit base URL is environment-configured and validated.
+            request,
+            timeout=int(settings.DIDIT_API_TIMEOUT_SECONDS),
+        ) as response:
+            response_body = response.read()
+    except HTTPError as exc:
+        safe_body = exc.read(2048).decode("utf-8", errors="replace")
+        raise DiditApiError(
+            f"Didit session decision retrieval failed with HTTP {exc.code}: {safe_body}"
+        ) from exc
+    except URLError as exc:
+        raise DiditApiError(f"Didit session decision retrieval failed: {exc.reason}") from exc
+    except TimeoutError as exc:
+        raise DiditApiError("Didit session decision retrieval timed out.") from exc
+
+    try:
+        payload = json.loads(response_body.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise DiditApiError("Didit session decision retrieval returned invalid JSON.") from exc
+    if not isinstance(payload, dict):
+        raise DiditApiError("Didit session decision retrieval returned an unexpected payload.")
+    return payload
+
+
+def _can_poll_didit_session(case: KycVerificationCase, session: KycProviderSession) -> bool:
+    if case.status not in {KycStatus.NOT_STARTED, KycStatus.PENDING}:
+        return False
+    payload = session.provider_payload if isinstance(session.provider_payload, dict) else {}
+    provider_mode = str(payload.get("mode", "")).strip().lower()
+    return provider_mode == "api" or _didit_session_provider() in {"api", "didit", "live"}
+
+
+def _decision_poll_payload(
+    *,
+    session: KycProviderSession,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    enriched_payload = dict(payload)
+    enriched_payload.setdefault("provider_event_type", "verification.polled")
+    enriched_payload.setdefault("session_id", session.provider_session_id)
+    enriched_payload.setdefault("provider_session_id", session.provider_session_id)
+    enriched_payload.setdefault("vendor_data", session.vendor_data)
+    return enriched_payload
+
+
+def _record_decision_poll(
+    *,
+    session: KycProviderSession,
+    payload: dict[str, Any],
+    normalized_status: KycStatus,
+) -> None:
+    provider_payload = dict(session.provider_payload or {})
+    provider_payload.update(
+        {
+            "last_decision_poll_at": timezone.now().isoformat(),
+            "last_decision_payload_hash": _safe_json_hash(payload),
+            "last_polled_status": normalized_status,
+        }
+    )
+    session.provider_payload = provider_payload
+    session.save(update_fields=["provider_payload", "updated_at"])
+
+
+def refresh_user_kyc_status_from_provider(
+    user: Model,
+) -> tuple[KycVerificationCase | None, KycProviderSession | None]:
+    case = KycVerificationCase.objects.filter(user_id=user.pk).first()
+    if case is None:
+        return None, None
+    session = KycProviderSession.objects.filter(case=case).order_by("-created_at").first()
+    if session is None or not _can_poll_didit_session(case, session):
+        return case, session
+
+    payload = _decision_poll_payload(
+        session=session,
+        payload=_retrieve_didit_session_decision(session),
+    )
+    command = provider_event_command_from_payload(
+        payload,
+        provider_event_id_fallback=f"didit-poll:{_safe_json_hash(payload)[:48]}",
+    )
+    normalized_status = normalize_didit_status(
+        provider_status=command.provider_status,
+        detected_flags=command.detected_flags,
+        risk_classification=command.risk_classification,
+    )
+    _record_decision_poll(session=session, payload=payload, normalized_status=normalized_status)
+
+    if normalized_status == KycStatus.PENDING and case.status == KycStatus.PENDING:
+        return case, session
+
+    result = process_didit_event(command)
+    result.case.refresh_from_db()
+    refreshed_session = (
+        KycProviderSession.objects.filter(id=session.id).first()
+        if session.id is not None
+        else session
+    )
+    return result.case, refreshed_session
 
 
 def _create_mock_didit_session(
