@@ -374,6 +374,75 @@ def test_kyc_status_api_polls_live_didit_and_unlocks_lender(
 
 
 @pytest.mark.django_db
+def test_kyc_status_api_polls_older_approved_session_when_latest_is_not_started(
+    client: Client,
+    settings: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = create_lender(email="didit-older-approved@example.test")
+    mark_phone_verified(user)
+    settings.DIDIT_SESSION_PROVIDER = "api"
+    settings.DIDIT_API_KEY = "test-api-key"
+    settings.DIDIT_WORKFLOW_ID = "11111111-2222-3333-4444-555555555555"
+    session_ids = iter(["didit-approved-session", "didit-not-started-session"])
+
+    def fake_create_didit_api_session(
+        *,
+        user: Model,
+        workflow_id: str,
+        vendor_data: str,
+    ) -> DiditHostedSession:
+        provider_session_id = next(session_ids)
+        return DiditHostedSession(
+            provider_session_id=provider_session_id,
+            verification_url=f"https://verify.didit.me/session/{provider_session_id}",
+            provider_status="Not Started",
+            provider_payload={
+                "mode": "api",
+                "status": "Not Started",
+                "session_token_present": True,
+            },
+        )
+
+    def fake_retrieve_didit_session_decision(session: KycProviderSession) -> dict[str, Any]:
+        provider_status = (
+            "Approved"
+            if session.provider_session_id == "didit-approved-session"
+            else "Not Started"
+        )
+        return {
+            "session_id": session.provider_session_id,
+            "status": provider_status,
+            "vendor_data": f"user:{user.pk}",
+        }
+
+    monkeypatch.setattr(
+        "backend.apps.kyc_compliance.services._create_didit_api_session",
+        fake_create_didit_api_session,
+    )
+    monkeypatch.setattr(
+        "backend.apps.kyc_compliance.services._retrieve_didit_session_decision",
+        fake_retrieve_didit_session_decision,
+    )
+    create_kyc_session(CreateKycSessionCommand(user=user))
+    create_kyc_session(CreateKycSessionCommand(user=user, force_new=True))
+    client.force_login(cast(Any, user))
+
+    response = client.get("/api/v1/kyc/status/")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == KycStatus.APPROVED
+    assert response.json()["financial_access_allowed"] is True
+    assert KycProviderEvent.objects.filter(
+        provider_session_id="didit-approved-session",
+        normalized_status=KycStatus.APPROVED,
+    ).exists()
+    assert KycProviderSession.objects.get(
+        provider_session_id="didit-not-started-session"
+    ).provider_payload["last_polled_status"] == KycStatus.PENDING
+
+
+@pytest.mark.django_db
 def test_didit_webhook_requires_valid_signature_when_configured(
     client: Client,
     settings: Any,

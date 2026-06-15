@@ -575,36 +575,41 @@ def refresh_user_kyc_status_from_provider(
     case = KycVerificationCase.objects.filter(user_id=user.pk).first()
     if case is None:
         return None, None
-    session = KycProviderSession.objects.filter(case=case).order_by("-created_at").first()
-    if session is None or not _can_poll_didit_session(case, session):
-        return case, session
+    sessions = list(KycProviderSession.objects.filter(case=case).order_by("-created_at")[:10])
+    latest_session = sessions[0] if sessions else None
+    if not sessions:
+        return case, None
 
-    payload = _decision_poll_payload(
-        session=session,
-        payload=_retrieve_didit_session_decision(session),
-    )
-    command = provider_event_command_from_payload(
-        payload,
-        provider_event_id_fallback=f"didit-poll:{_safe_json_hash(payload)[:48]}",
-    )
-    normalized_status = normalize_didit_status(
-        provider_status=command.provider_status,
-        detected_flags=command.detected_flags,
-        risk_classification=command.risk_classification,
-    )
-    _record_decision_poll(session=session, payload=payload, normalized_status=normalized_status)
+    for session in sessions:
+        if not _can_poll_didit_session(case, session):
+            continue
+        payload = _decision_poll_payload(
+            session=session,
+            payload=_retrieve_didit_session_decision(session),
+        )
+        command = provider_event_command_from_payload(
+            payload,
+            provider_event_id_fallback=f"didit-poll:{_safe_json_hash(payload)[:48]}",
+        )
+        normalized_status = normalize_didit_status(
+            provider_status=command.provider_status,
+            detected_flags=command.detected_flags,
+            risk_classification=command.risk_classification,
+        )
+        _record_decision_poll(session=session, payload=payload, normalized_status=normalized_status)
+        if normalized_status == KycStatus.PENDING:
+            continue
 
-    if normalized_status == KycStatus.PENDING and case.status == KycStatus.PENDING:
-        return case, session
+        result = process_didit_event(command)
+        result.case.refresh_from_db()
+        refreshed_session = (
+            KycProviderSession.objects.filter(id=session.id).first()
+            if session.id is not None
+            else session
+        )
+        return result.case, refreshed_session
 
-    result = process_didit_event(command)
-    result.case.refresh_from_db()
-    refreshed_session = (
-        KycProviderSession.objects.filter(id=session.id).first()
-        if session.id is not None
-        else session
-    )
-    return result.case, refreshed_session
+    return case, latest_session
 
 
 def _create_mock_didit_session(
