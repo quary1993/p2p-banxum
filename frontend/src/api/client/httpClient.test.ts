@@ -74,6 +74,18 @@ describe("httpClient", () => {
     } satisfies Partial<ApiClientError>);
   });
 
+  test("returns undefined for successful empty responses", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 202 })));
+
+    await expect(
+      httpClient<void>({
+        url: "/api/v1/auth/magic-link/request/",
+        method: "POST",
+        data: { email: "investor@example.test" }
+      })
+    ).resolves.toBeUndefined();
+  });
+
   test("normalizes field validation errors", async () => {
     vi.stubGlobal(
       "fetch",

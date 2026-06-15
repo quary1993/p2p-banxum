@@ -116,5 +116,13 @@ export const httpClient = async <T>({
     return undefined as T;
   }
 
-  return (await response.json()) as T;
+  const responseText = await response.text();
+  if (!responseText) {
+    return undefined as T;
+  }
+  const responseContentType = response.headers.get("Content-Type") ?? "";
+  if (responseContentType.toLowerCase().includes("application/json")) {
+    return JSON.parse(responseText) as T;
+  }
+  return responseText as T;
 };
