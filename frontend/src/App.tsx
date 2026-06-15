@@ -7,6 +7,7 @@ import {
   DocumentKindEnum,
   InvestorDocumentDownloadRequestOutputFormatEnum,
   useV1AuthMeRetrieve,
+  useV1AuthLogoutCreate,
   useV1AuthMagicLinkConsumeCreate,
   useV1AuthMagicLinkRequestCreate,
   useV1AuthPhoneConfirmCreate,
@@ -431,6 +432,12 @@ function goTo(setRoute: (route: AppRoute) => void, name: RouteName, params?: Rec
   writeStoredObject(appRouteStorageKey, nextRoute);
   setRoute(nextRoute);
   window.scrollTo({ top: 0, behavior: "instant" });
+}
+
+function clearPortalSessionState(queryClient: ReturnType<typeof useQueryClient>) {
+  queryClient.clear();
+  removeStoredObject(loginFlowStorageKey);
+  removeStoredObject(registerFlowStorageKey);
 }
 
 export function App() {
@@ -1267,8 +1274,18 @@ function InvestorShell({
   demoState: DemoAccountState;
   setDemoState: (state: DemoAccountState) => void;
 }) {
+  const queryClient = useQueryClient();
   const [navOpen, setNavOpen] = useState(false);
   const [investLoan, setInvestLoan] = useState<MarketplaceLoanDetail | null>(null);
+  const finishLogout = () => {
+    clearPortalSessionState(queryClient);
+    goTo(setRoute, "public");
+    setNavOpen(false);
+    setInvestLoan(null);
+  };
+  const logoutMutation = useV1AuthLogoutCreate({
+    mutation: { onSettled: finishLogout }
+  });
   const kycGateQuery = useV1KycStatusRetrieve({
     query: {
       enabled: !isFixturePreview,
@@ -1382,8 +1399,24 @@ function InvestorShell({
               <div className="col-strong" style={{ fontSize: 12.5 }}>{profile.name}</div>
               <div className="muted" style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{profile.email}</div>
             </div>
-            <Icon className="faint" name="logout" size={15} />
+            <Icon className="faint" name="settings" size={15} />
           </div>
+          <Button
+            block
+            disabled={logoutMutation.isPending}
+            icon="logout"
+            onClick={() => {
+              if (isFixturePreview) {
+                finishLogout();
+                return;
+              }
+              logoutMutation.mutate();
+            }}
+            size="sm"
+            variant="ghost"
+          >
+            {logoutMutation.isPending ? "Signing out..." : "Sign out"}
+          </Button>
         </div>
       </aside>
       <div className="main">

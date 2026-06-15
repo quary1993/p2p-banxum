@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import type {
   AdminDashboardQueueItem,
@@ -7,6 +8,7 @@ import {
   useV1AuthMeRetrieve,
   useV1AuthAdminLoginConfirmCreate,
   useV1AuthAdminLoginStartCreate,
+  useV1AuthLogoutCreate,
   useV1AdminOpsReconciliationBreakTasksSyncCreate
 } from "../api/generated/banxumApi";
 import { isFixturePreview } from "../investorPortal/data";
@@ -222,9 +224,17 @@ function isAdminPortalUser(user: { account_type?: string; status?: string } | un
 }
 
 export function AdminApp() {
+  const queryClient = useQueryClient();
   const [localAuthState, setLocalAuthState] = useState<"unknown" | "authenticated" | "signed_out">(
     isFixturePreview ? "authenticated" : "unknown"
   );
+  const finishLogout = () => {
+    queryClient.clear();
+    setLocalAuthState(isFixturePreview ? "authenticated" : "signed_out");
+  };
+  const logoutMutation = useV1AuthLogoutCreate({
+    mutation: { onSettled: finishLogout }
+  });
   const sessionQuery = useV1AuthMeRetrieve({
     query: {
       enabled: !isFixturePreview && localAuthState !== "signed_out",
@@ -266,7 +276,18 @@ export function AdminApp() {
     );
   }
 
-  return <AdminShell onLogout={() => setLocalAuthState(isFixturePreview ? "authenticated" : "signed_out")} />;
+  return (
+    <AdminShell
+      isLoggingOut={logoutMutation.isPending}
+      onLogout={() => {
+        if (isFixturePreview) {
+          finishLogout();
+          return;
+        }
+        logoutMutation.mutate();
+      }}
+    />
+  );
 }
 
 function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
@@ -398,7 +419,13 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
   );
 }
 
-function AdminShell({ onLogout }: { onLogout: () => void }) {
+function AdminShell({
+  isLoggingOut,
+  onLogout
+}: {
+  isLoggingOut: boolean;
+  onLogout: () => void;
+}) {
   const [selectedNav, setSelectedNav] = useState("dashboard");
 
   return (
@@ -427,8 +454,8 @@ function AdminShell({ onLogout }: { onLogout: () => void }) {
         </nav>
         <div className="admin-sidebar-foot">
           <Chip dot={false} tone="ok">Admin session</Chip>
-          <Button icon="logout" onClick={onLogout} size="sm" variant="ghost">
-            Sign out
+          <Button disabled={isLoggingOut} icon="logout" onClick={onLogout} size="sm" variant="ghost">
+            {isLoggingOut ? "Signing out..." : "Sign out"}
           </Button>
         </div>
       </aside>

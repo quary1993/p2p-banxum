@@ -5487,6 +5487,63 @@ const {mutation: mutationOptions} = options ?
       return useMutation(mutationOptions, queryClient);
     }
 
+export const v1AuthLogoutCreate = (
+
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<void>(
+      {url: `/api/v1/auth/logout/`, method: 'POST', signal
+    },
+      );
+    }
+
+
+
+export const getV1AuthLogoutCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthLogoutCreate>>, TError,void, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthLogoutCreate>>, TError,void, TContext> => {
+
+const mutationKey = ['v1AuthLogoutCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthLogoutCreate>>, void> = () => {
+
+
+          return  v1AuthLogoutCreate()
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthLogoutCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthLogoutCreate>>>
+
+    export type V1AuthLogoutCreateMutationError = unknown
+
+    export const useV1AuthLogoutCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthLogoutCreate>>, TError,void, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthLogoutCreate>>,
+        TError,
+        void,
+        TContext
+      > => {
+
+      const mutationOptions = getV1AuthLogoutCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+
 export const v1AuthMagicLinkConsumeCreate = (
     magicLinkConsume: MagicLinkConsume,
  signal?: AbortSignal
@@ -11796,6 +11853,16 @@ export const getV1AuthAdminUsersAccessCreateMockHandler = (overrideResponse?: Ac
   }, options)
 }
 
+export const getV1AuthLogoutCreateMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/auth/logout/', async (info) => {await delay(1000);
+  if (typeof overrideResponse === 'function') {await overrideResponse(info); }
+    return new HttpResponse(null,
+      { status: 204,
+
+      })
+  }, options)
+}
+
 export const getV1AuthMagicLinkConsumeCreateMockHandler = (overrideResponse?: AuthenticatedUserResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AuthenticatedUserResponse> | AuthenticatedUserResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/auth/magic-link/consume/', async (info) => {await delay(1000);
 
@@ -12811,6 +12878,7 @@ export const getBanxumApiMock = () => [
   getV1AuthAdminLoginStartCreateMockHandler(),
   getV1AuthAdminUsersCreateMockHandler(),
   getV1AuthAdminUsersAccessCreateMockHandler(),
+  getV1AuthLogoutCreateMockHandler(),
   getV1AuthMagicLinkConsumeCreateMockHandler(),
   getV1AuthMagicLinkRequestCreateMockHandler(),
   getV1AuthMeRetrieveMockHandler(),

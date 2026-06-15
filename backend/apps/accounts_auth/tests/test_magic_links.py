@@ -134,3 +134,17 @@ def test_magic_link_consume_api_logs_in_session(client: Client, investor: User) 
 
     assert me_response.status_code == 200
     assert me_response.json()["user"]["email"] == investor.email
+
+    logout_response = client.post("/api/v1/auth/logout/")
+
+    assert logout_response.status_code == 204
+    assert client.get("/api/v1/auth/me/").status_code == 403
+
+
+@pytest.mark.django_db
+def test_logout_api_is_idempotent_for_anonymous_session(client: Client) -> None:
+    first_response = client.post("/api/v1/auth/logout/")
+    second_response = client.post("/api/v1/auth/logout/")
+
+    assert first_response.status_code == 204
+    assert second_response.status_code == 204

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from django.contrib.auth import login
+from django.contrib.auth import login, logout
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -372,6 +372,15 @@ class CurrentUserView(APIView):
     @extend_schema(responses={200: AuthenticatedUserResponseSerializer})
     def get(self, request: Request) -> Response:
         return Response({"user": serialize_user(cast(User, request.user))})
+
+
+class LogoutView(APIView):
+    permission_classes: list[type] = []
+
+    @extend_schema(request=None, responses={204: None})
+    def post(self, request: Request) -> Response:
+        logout(request._request)  # noqa: SLF001
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class PhoneVerificationRequestView(APIView):

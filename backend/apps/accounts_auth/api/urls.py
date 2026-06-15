@@ -8,6 +8,7 @@ from backend.apps.accounts_auth.api.views import (
     AdminLoginStartView,
     AdminUserCreateView,
     CurrentUserView,
+    LogoutView,
     MagicLinkConsumeView,
     MagicLinkRequestView,
     NaturalPersonRegistrationView,
@@ -36,4 +37,5 @@ urlpatterns = [
         name="auth-sensitive-action-code-request",
     ),
     path("me/", CurrentUserView.as_view(), name="auth-me"),
+    path("logout/", LogoutView.as_view(), name="auth-logout"),
 ]
