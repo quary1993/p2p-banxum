@@ -42,7 +42,8 @@ import type {
   PrimaryOrderPortal,
   PublicDocumentTemplateVersion,
   SecondaryListingPortal,
-  SecondaryMarketBuyerListing
+  SecondaryMarketBuyerListing,
+  UserSummary
 } from "./api/generated/banxumApi";
 import {
   useActivityData,
@@ -61,6 +62,7 @@ import {
   isFixturePreview
 } from "./investorPortal/data";
 import { portalFixture } from "./investorPortal/fixtures";
+import { onboardingStepForUser } from "./onboarding";
 import {
   formatDate,
   formatDateTime,
@@ -119,6 +121,23 @@ function previewHint(text: string) {
 const loginFlowStorageKey = "banxum:login-flow:v1";
 const registerFlowStorageKey = "banxum:register-flow:v2";
 const appRouteStorageKey = "banxum:app-route:v1";
+
+type RegisterFlowState = {
+  step: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phoneCountryCode: string;
+  phoneNationalNumber: string;
+  residenceCountry: string;
+  terms: boolean;
+  risk: boolean;
+  marketing: boolean;
+  emailLoginSent: boolean;
+  emailCooldownUntil: number;
+  phoneChallengeId: string | null;
+  phoneCooldownUntil: number;
+};
 
 type RegistrationCountry = {
   name: string;
@@ -212,6 +231,62 @@ function e164PhoneNumber(callingCode: string, nationalNumber: string) {
 
 function normalizedEmail(value: string) {
   return value.trim().toLowerCase();
+}
+
+function defaultRegisterFlowState(): RegisterFlowState {
+  return {
+    step: 0,
+    firstName: isFixturePreview ? "Lukas" : "",
+    lastName: isFixturePreview ? "Brunner" : "",
+    email: isFixturePreview ? portalFixture.profile.email : "",
+    phoneCountryCode: "+41",
+    phoneNationalNumber: isFixturePreview ? "79 000 00 00" : "",
+    residenceCountry: "Switzerland",
+    terms: false,
+    risk: false,
+    marketing: false,
+    emailLoginSent: false,
+    emailCooldownUntil: 0,
+    phoneChallengeId: null,
+    phoneCooldownUntil: 0
+  };
+}
+
+function splitDisplayName(fullName: string) {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { firstName: "", lastName: "" };
+  if (parts.length === 1) return { firstName: parts[0], lastName: "" };
+  return { firstName: parts[0], lastName: parts.slice(1).join(" ") };
+}
+
+function resumedRegisterStateForUser(user: UserSummary): RegisterFlowState | null {
+  const nextStep = onboardingStepForUser(user);
+  if (nextStep === null) return null;
+
+  const fallback = defaultRegisterFlowState();
+  const stored = readStoredObject<RegisterFlowState>(registerFlowStorageKey, fallback);
+  const storedMatchesUser = normalizedEmail(stored.email) === normalizedEmail(user.email);
+  const nameParts = splitDisplayName(user.full_name);
+  return {
+    ...fallback,
+    ...(storedMatchesUser ? stored : {}),
+    step: nextStep,
+    firstName: storedMatchesUser && stored.firstName ? stored.firstName : nameParts.firstName,
+    lastName: storedMatchesUser && stored.lastName ? stored.lastName : nameParts.lastName,
+    email: user.email,
+    marketing: user.marketing_consent,
+    emailLoginSent: true,
+    phoneChallengeId: null,
+    phoneCooldownUntil: 0
+  };
+}
+
+function resumeOnboardingForUser(user: UserSummary, setRoute: (route: AppRoute) => void) {
+  const registerState = resumedRegisterStateForUser(user);
+  if (!registerState) return false;
+  writeStoredObject(registerFlowStorageKey, registerState);
+  goTo(setRoute, "register");
+  return true;
 }
 
 function retryAfterSeconds(error: unknown) {
@@ -574,23 +649,8 @@ function LoginFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
         onSuccess: (response) => {
           removeStoredObject(loginFlowStorageKey);
           window.history.replaceState({}, "", "/");
-          const pendingRegistration = readStoredObject<Partial<RegisterFlowState>>(
-            registerFlowStorageKey,
-            {}
-          );
-          if (
-            pendingRegistration.email &&
-            pendingRegistration.step === 1 &&
-            normalizedEmail(pendingRegistration.email) === normalizedEmail(response.user.email) &&
-            !response.user.phone_verified
-          ) {
-            writeStoredObject(registerFlowStorageKey, {
-              ...pendingRegistration,
-              step: 1
-            });
-            goTo(setRoute, "register");
-            return;
-          }
+          if (resumeOnboardingForUser(response.user, setRoute)) return;
+          removeStoredObject(registerFlowStorageKey);
           goTo(setRoute, "dashboard");
         },
         onError: (mutationError) => setError(apiErrorMessage(mutationError))
@@ -727,40 +787,8 @@ function KycReturnScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) 
   );
 }
 
-type RegisterFlowState = {
-  step: number;
-  firstName: string;
-  lastName: string;
-  email: string;
-  phoneCountryCode: string;
-  phoneNationalNumber: string;
-  residenceCountry: string;
-  terms: boolean;
-  risk: boolean;
-  marketing: boolean;
-  emailLoginSent: boolean;
-  emailCooldownUntil: number;
-  phoneChallengeId: string | null;
-  phoneCooldownUntil: number;
-};
-
 function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
-  const defaultRegisterState: RegisterFlowState = {
-    step: 0,
-    firstName: isFixturePreview ? "Lukas" : "",
-    lastName: isFixturePreview ? "Brunner" : "",
-    email: isFixturePreview ? portalFixture.profile.email : "",
-    phoneCountryCode: "+41",
-    phoneNationalNumber: isFixturePreview ? "79 000 00 00" : "",
-    residenceCountry: "Switzerland",
-    terms: false,
-    risk: false,
-    marketing: false,
-    emailLoginSent: false,
-    emailCooldownUntil: 0,
-    phoneChallengeId: null,
-    phoneCooldownUntil: 0
-  };
+  const defaultRegisterState = defaultRegisterFlowState();
   const [initialRegisterState] = useState(() =>
     readStoredObject<RegisterFlowState>(registerFlowStorageKey, defaultRegisterState)
   );
@@ -796,6 +824,7 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
   const [nowMs, setNowMs] = useState(Date.now());
   const kycSessionMutation = useV1KycSessionCreate();
   const phoneNumber = e164PhoneNumber(phoneCountryCode, phoneNationalNumber);
+  const phoneNumberLabel = phoneNumber || "your registered mobile number";
   const phoneCooldownSeconds = Math.max(0, Math.ceil((phoneCooldownUntil - nowMs) / 1000));
   const phoneRequestDisabled = phoneRequestMutation.isPending || phoneCooldownSeconds > 0;
   const emailCooldownSeconds = Math.max(0, Math.ceil((emailCooldownUntil - nowMs) / 1000));
@@ -942,6 +971,7 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
       {
         onSuccess: (response) => {
           setStep(1);
+          setPhoneCode("");
           setPhoneChallengeId(null);
           setPhoneCooldownUntil(0);
           setEmailLoginSent(response.email_login_sent);
@@ -1151,7 +1181,7 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
               <>
                 <h2 style={{ fontSize: 19, marginBottom: 4 }}>Verify your phone</h2>
                 <p className="muted" style={{ fontSize: 13, marginBottom: 18 }}>
-                  Request an SMS code for {phoneNumber}. Phone verification is required before
+                  Request an SMS code for {phoneNumberLabel}. Phone verification is required before
                   financial access.
                 </p>
                 <div className="sms-code-row">

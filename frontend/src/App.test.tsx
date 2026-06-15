@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { expect, test } from "vitest";
 
 import { App } from "./App";
+import { onboardingStepForUser } from "./onboarding";
 
 function renderApp(path = "/") {
   window.history.pushState({}, "", path);
@@ -23,6 +24,32 @@ test("renders the BANXUM public investor preview", () => {
   expect(screen.getByRole("heading", { name: "Open loan opportunities" })).toBeInTheDocument();
   expect(screen.getByText("Preview mode.")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Register" })).toBeInTheDocument();
+});
+
+test("login resume sends incomplete accounts back to onboarding", () => {
+  expect(
+    onboardingStepForUser({
+      account_type: "natural_person_lender",
+      status: "pending_kyc",
+      phone_verified: false
+    })
+  ).toBe(1);
+
+  expect(
+    onboardingStepForUser({
+      account_type: "natural_person_lender",
+      status: "pending_kyc",
+      phone_verified: true
+    })
+  ).toBe(2);
+
+  expect(
+    onboardingStepForUser({
+      account_type: "natural_person_lender",
+      status: "active",
+      phone_verified: true
+    })
+  ).toBeNull();
 });
 
 test("fixture-backed authenticated portal is visibly marked as preview data", () => {
