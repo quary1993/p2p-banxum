@@ -209,6 +209,47 @@ function TextInput({
   );
 }
 
+function minorUnitPreview(value: string, currency: string) {
+  const trimmed = value.trim();
+  const normalizedCurrency = currency.trim().toUpperCase() || "CHF";
+  if (!trimmed) return `Formatted amount: ${normalizedCurrency} -`;
+  if (!/^-?\d+$/.test(trimmed)) return "Enter whole minor units only.";
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isSafeInteger(parsed)) return "Amount is outside the safe display range.";
+  return `Formatted amount: ${normalizedCurrency} ${formatMoneyMinor(parsed, normalizedCurrency)}`;
+}
+
+function MoneyMinorInput({
+  label,
+  value,
+  onChange,
+  currency,
+  required = false,
+  hint,
+  placeholder
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  currency: string;
+  required?: boolean;
+  hint?: string;
+  placeholder?: string;
+}) {
+  const helper = [minorUnitPreview(value, currency), hint].filter(Boolean).join(" ");
+  return (
+    <Field hint={helper} label={label}>
+      <input
+        inputMode="numeric"
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        required={required}
+        value={value}
+      />
+    </Field>
+  );
+}
+
 function lookupDisplay(option: AdminLookupResult) {
   return `${option.label}${option.meta ? ` - ${option.meta}` : ""} (${option.id})`;
 }
@@ -1065,7 +1106,7 @@ function DepositForm() {
             required
             value={investorUserId}
           />
-          <TextInput label="Amount minor units" onChange={setAmountMinor} required value={amountMinor} />
+          <MoneyMinorInput currency={currency} label="Amount minor units" onChange={setAmountMinor} required value={amountMinor} />
           <TextInput label="Currency" onChange={setCurrency} required value={currency} />
           <TextInput label="Booking date" onChange={setBookingDate} required type="date" value={bookingDate} />
           <TextInput label="Value date" onChange={setValueDate} required type="date" value={valueDate} />
@@ -1271,8 +1312,8 @@ function ReconciliationSnapshotForm() {
         <FieldGrid>
           <TextInput label="Currency" onChange={setCurrency} required value={currency} />
           <TextInput label="As-of date" onChange={setAsOfDate} required type="date" value={asOfDate} />
-          <TextInput label="Bank stated balance minor" onChange={setBankBalance} required value={bankBalance} />
-          <TextInput label="Pending exceptions minor" onChange={setPendingException} value={pendingException} />
+          <MoneyMinorInput currency={currency} label="Bank stated balance minor" onChange={setBankBalance} required value={bankBalance} />
+          <MoneyMinorInput currency={currency} label="Pending exceptions minor" onChange={setPendingException} value={pendingException} />
         </FieldGrid>
         <TextAreaInput label="Notes" onChange={setNotes} value={notes} />
         <ActionFooter mutation={mutation} previewMessage={preview} successMessage={success} submitLabel="Create snapshot" />
@@ -1417,7 +1458,7 @@ function BorrowerDisbursementForm() {
             required
             value={borrowerId}
           />
-          <TextInput label="Amount minor units" onChange={setAmountMinor} required value={amountMinor} />
+          <MoneyMinorInput currency={currency} label="Amount minor units" onChange={setAmountMinor} required value={amountMinor} />
           <TextInput label="Currency" onChange={setCurrency} required value={currency} />
           <TextInput label="Booking date" onChange={setBookingDate} required type="date" value={bookingDate} />
           <TextInput label="Value date" onChange={setValueDate} required type="date" value={valueDate} />
@@ -1478,8 +1519,8 @@ function FxAdminOps() {
           <TextInput label="End date" onChange={setEndDate} required type="date" value={endDate} />
           <TextInput label="Sold currency" onChange={setSoldCurrency} required value={soldCurrency} />
           <TextInput label="Bought currency" onChange={setBoughtCurrency} required value={boughtCurrency} />
-          <TextInput label="Sold amount minor" onChange={setSoldAmount} required value={soldAmount} />
-          <TextInput label="Bought amount minor" onChange={setBoughtAmount} required value={boughtAmount} />
+          <MoneyMinorInput currency={soldCurrency} label="Sold amount minor" onChange={setSoldAmount} required value={soldAmount} />
+          <MoneyMinorInput currency={boughtCurrency} label="Bought amount minor" onChange={setBoughtAmount} required value={boughtAmount} />
         </FieldGrid>
         <div className="row gap-8 wrap">
           <Button onClick={() => { setLoadReports(true); refetchLive(deltaQuery.refetch); refetchLive(realizedQuery.refetch); }} type="button">
@@ -1635,7 +1676,11 @@ export function LoansPanel() {
           defaultLoanStatus={selectedLoan?.status ?? ""}
           defaultLoanTitle={selectedLoan?.title ?? ""}
         />
-        <ServicingOpsForm defaultLoanId={selectedLoan?.id ?? ""} defaultLoanTitle={selectedLoan?.title ?? ""} />
+        <ServicingOpsForm
+          defaultLoanCurrency={selectedLoan?.currency ?? "CHF"}
+          defaultLoanId={selectedLoan?.id ?? ""}
+          defaultLoanTitle={selectedLoan?.title ?? ""}
+        />
         <SecondaryMarketAdminForm />
       </section>
     </div>
@@ -1687,7 +1732,7 @@ function BorrowerCreateForm() {
           <SelectInput label="KYB status" onChange={setKybStatus} options={Object.values(BorrowerKybStatusEnum)} value={kybStatus} />
           <TextInput label="Country" onChange={setCountry} value={country} />
           <TextInput label="Financials currency" onChange={setFinancialsCurrency} value={financialsCurrency} />
-          <TextInput label="Assets minor units" onChange={setAssets} value={assets} />
+          <MoneyMinorInput currency={financialsCurrency} label="Assets minor units" onChange={setAssets} value={assets} />
         </FieldGrid>
         <TextAreaInput label="Admin note" onChange={setNote} value={note} />
         <ActionFooter mutation={mutation} previewMessage={preview} successMessage={success} submitLabel="Create borrower" />
@@ -1765,14 +1810,14 @@ function LoanCreateForm({ defaultBorrowerId }: { defaultBorrowerId: string }) {
             value={borrowerId}
           />
           <TextInput label="Title" onChange={setTitle} required value={title} />
-          <TextInput label="Principal minor units" onChange={setPrincipal} required value={principal} />
+          <MoneyMinorInput currency={currency} label="Principal minor units" onChange={setPrincipal} required value={principal} />
           <TextInput label="Currency" onChange={setCurrency} required value={currency} />
           <TextInput label="Interest bps" onChange={setRateBps} required value={rateBps} />
           <TextInput label="Term months" onChange={setTermMonths} required value={termMonths} />
           <SelectInput label="Purpose" onChange={setPurpose} options={Object.values(PurposeEnum)} value={purpose} />
           <SelectInput label="Repayment type" onChange={setRepaymentType} options={Object.values(RepaymentTypeEnum)} value={repaymentType} />
           <SelectInput label="Collateral type" onChange={setCollateralType} options={Object.values(CollateralTypeEnum)} value={collateralType} />
-          <TextInput label="Collateral value minor" onChange={setCollateralValue} required value={collateralValue} />
+          <MoneyMinorInput currency={currency} label="Collateral value minor" onChange={setCollateralValue} required value={collateralValue} />
           <SelectInput label="Risk rating" onChange={setRiskRating} options={Object.values(RiskRatingEnum)} value={riskRating} />
           <TextInput label="Funding deadline" onChange={setFundingDeadline} type="date" value={fundingDeadline} />
           <TextInput label="First payment date" onChange={setFirstPaymentDate} type="date" value={firstPaymentDate} />
@@ -2045,9 +2090,11 @@ function LoanPublishCloseForm({
 }
 
 function ServicingOpsForm({
+  defaultLoanCurrency,
   defaultLoanId,
   defaultLoanTitle
 }: {
+  defaultLoanCurrency: string;
   defaultLoanId: string;
   defaultLoanTitle: string;
 }) {
@@ -2153,7 +2200,7 @@ function ServicingOpsForm({
             required
             value={loanId}
           />
-          <TextInput label="Amount minor units" onChange={setAmountMinor} value={amountMinor} />
+          <MoneyMinorInput currency={defaultLoanCurrency} label="Amount minor units" onChange={setAmountMinor} value={amountMinor} />
           <TextInput label="Booking date" onChange={setBookingDate} type="date" value={bookingDate} />
           <TextInput label="Value date" onChange={setValueDate} type="date" value={valueDate} />
           <TextInput label="Payer name" onChange={setPayerName} value={payerName} />
@@ -2169,7 +2216,7 @@ function ServicingOpsForm({
         <TextAreaInput label="Risk note body" onChange={setRiskBody} value={riskBody} />
         <div className="row gap-8 wrap">
           <Button disabled={riskNote.isPending} onClick={submitRiskNote}>Publish public note</Button>
-          <TextInput label="Recovery gross minor" onChange={setRecoveryGross} value={recoveryGross} />
+          <MoneyMinorInput currency={defaultLoanCurrency} label="Recovery gross minor" onChange={setRecoveryGross} value={recoveryGross} />
           <OperationConfirmButton
             confirmLabel="Record recovery"
             description="Recording a recovery credits affected investor balance lots, applies the recovery waterfall, and reduces current holding principal according to backend allocation rules."
