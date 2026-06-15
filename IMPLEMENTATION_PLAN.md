@@ -162,7 +162,7 @@ These are not questions that stop implementation. They are external inputs neede
 - Bank/payment partner.
 - CHF and EUR collection IBANs.
 - Statement export format and evidence requirements. The implementation baseline is manual bank-operation declaration with generic evidence attachment; bank-specific statement layouts can be configured later.
-- Bank-compatible payment reference format. The planning assumption allows lender ID or a derived stable code, but this must be verified with the bank.
+- Bank-specific statement import/export labels and evidence requirements. The implemented human-facing deposit reference is `BX-{currency}-{investor_reference}`, where `investor_reference` is a short platform-generated lender reference; if the bank later requires a structured-reference format, map that short reference into the bank-specific field rather than using long UUIDs.
 - Fallback rule for missing or corrected bank value dates.
 
 ### Accounting and Tax

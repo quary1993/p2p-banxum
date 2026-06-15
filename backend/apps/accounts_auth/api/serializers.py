@@ -17,6 +17,7 @@ class UserSummarySerializer(serializers.Serializer[Any]):
     id = serializers.UUIDField()
     email = serializers.EmailField()
     full_name = serializers.CharField()
+    investor_reference = serializers.CharField(allow_null=True)
     account_type = serializers.CharField()
     status = serializers.CharField()
     phone_verified = serializers.BooleanField(source="is_phone_verified")

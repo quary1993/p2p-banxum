@@ -86,9 +86,8 @@ def _bounded_limit(limit: int | None, *, default: int = 50, maximum: int = 250) 
     return min(limit, maximum)
 
 
-def _investor_payment_reference(*, investor_user_id: str, currency: str) -> str:
-    compact_id = investor_user_id.replace("-", "").upper()
-    return f"BX-{compact_id}-{currency}"
+def _investor_payment_reference(*, investor_reference: str, currency: str) -> str:
+    return f"BX-{currency}-{investor_reference}"
 
 
 def _enabled_currencies() -> list[Any]:
@@ -274,7 +273,10 @@ def get_investor_balances(*, actor: Model, as_of: datetime | None = None) -> dic
 
 
 def get_deposit_instructions(*, actor: Model) -> dict[str, Any]:
-    investor_user_id = _require_financial_access(actor)
+    _require_financial_access(actor)
+    investor_reference = str(getattr(actor, "investor_reference", "") or "").strip()
+    if not investor_reference:
+        raise InvestorPortalValidationError("Investor payment reference is not configured.")
     configured = get_platform_setting_value("payments.deposit_instructions_by_currency", {}) or {}
     instructions: list[dict[str, Any]] = []
     for currency in _enabled_currencies():
@@ -298,7 +300,7 @@ def get_deposit_instructions(*, actor: Model) -> dict[str, Any]:
                 "bank_name": bank_name,
                 "collection_account_identifier": collection_identifier,
                 "payment_reference": _investor_payment_reference(
-                    investor_user_id=investor_user_id,
+                    investor_reference=investor_reference,
                     currency=currency_code,
                 ),
                 "notes": str(details.get("notes", "")).strip(),

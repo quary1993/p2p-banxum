@@ -3,6 +3,7 @@ import type {
   AdminTask,
   AdminTaskCreateRequest,
   AdminTaskEvent,
+  AdminLookupResult,
   AdminTaskPriorityEnum,
   AdminTaskStatusEnum,
   AdminTaskTypeEnum,
@@ -29,11 +30,38 @@ import {
   type Tone
 } from "../investorPortal/ui";
 import { adminTaskEventsFixture, adminTasksFixture } from "./adminFixtures";
-import { useAdminTaskEventsData, useAdminTasksData } from "./data";
+import {
+  useAdminBorrowerLookupData,
+  useAdminDocumentTemplateVersionLookupData,
+  useAdminInvestorLookupData,
+  useAdminKycCaseLookupData,
+  useAdminLoanLookupData,
+  useAdminPrimaryOrderLookupData,
+  useAdminSecondaryListingLookupData,
+  useAdminTaskEventsData,
+  useAdminTasksData,
+  useAdminUserLookupData,
+  useAdminWithdrawalLookupData
+} from "./data";
 
 const taskTypeOptions = Object.values(TaskType);
 const taskStatusOptions = Object.values(TaskStatus);
 const taskPriorityOptions = Object.values(TaskPriority);
+const relatedObjectTypeOptions = [
+  "",
+  "User",
+  "Investor",
+  "BorrowerEntity",
+  "Loan",
+  "KycVerificationCase",
+  "InvestorWithdrawalRequest",
+  "PrimaryInvestmentOrder",
+  "SecondaryMarketListing",
+  "DocumentTemplateVersion",
+  "ReconciliationSnapshot",
+  "BankOperation",
+  "OutboxMessage"
+] as const;
 
 type TaskFilters = {
   status: "" | AdminTaskStatusEnum;
@@ -78,6 +106,86 @@ function dueLocalValue(value: string | null | undefined) {
 
 function localValueToIso(value: string) {
   return value ? new Date(value).toISOString() : null;
+}
+
+function lookupDisplay(option: AdminLookupResult) {
+  return `${option.label}${option.meta ? ` - ${option.meta}` : ""} (${option.id})`;
+}
+
+function RelatedObjectLookupInput({
+  relatedObjectType,
+  relatedObjectId,
+  onRelatedObjectId,
+  query,
+  onQuery
+}: {
+  relatedObjectType: string;
+  relatedObjectId: string;
+  onRelatedObjectId: (value: string) => void;
+  query: string;
+  onQuery: (value: string) => void;
+}) {
+  const userLookup = useAdminUserLookupData({ q: query, limit: 20 }, relatedObjectType === "User");
+  const investorLookup = useAdminInvestorLookupData({ q: query, limit: 20 }, relatedObjectType === "Investor");
+  const borrowerLookup = useAdminBorrowerLookupData({ q: query, limit: 20 }, relatedObjectType === "BorrowerEntity");
+  const loanLookup = useAdminLoanLookupData({ q: query, limit: 20 }, relatedObjectType === "Loan");
+  const kycLookup = useAdminKycCaseLookupData({ q: query, limit: 20 }, relatedObjectType === "KycVerificationCase");
+  const withdrawalLookup = useAdminWithdrawalLookupData({ q: query, limit: 20 }, relatedObjectType === "InvestorWithdrawalRequest");
+  const orderLookup = useAdminPrimaryOrderLookupData({ q: query, limit: 20 }, relatedObjectType === "PrimaryInvestmentOrder");
+  const listingLookup = useAdminSecondaryListingLookupData({ q: query, limit: 20 }, relatedObjectType === "SecondaryMarketListing");
+  const documentLookup = useAdminDocumentTemplateVersionLookupData({ q: query, limit: 20 }, relatedObjectType === "DocumentTemplateVersion");
+  const byType: Record<string, { data?: AdminLookupResult[]; isFetching?: boolean; error?: unknown }> = {
+    User: userLookup,
+    Investor: investorLookup,
+    BorrowerEntity: borrowerLookup,
+    Loan: loanLookup,
+    KycVerificationCase: kycLookup,
+    InvestorWithdrawalRequest: withdrawalLookup,
+    PrimaryInvestmentOrder: orderLookup,
+    SecondaryMarketListing: listingLookup,
+    DocumentTemplateVersion: documentLookup
+  };
+  const lookup = byType[relatedObjectType];
+  const options = lookup?.data ?? [];
+  const listId = `related-object-${relatedObjectType || "manual"}`;
+  const value = query || relatedObjectId;
+
+  function handleChange(rawValue: string) {
+    const matched = options.find((option) => option.id === rawValue || lookupDisplay(option) === rawValue);
+    if (matched) {
+      onRelatedObjectId(matched.id);
+      onQuery(lookupDisplay(matched));
+      return;
+    }
+    onQuery(rawValue);
+    onRelatedObjectId(rawValue);
+  }
+
+  return (
+    <Field
+      hint={
+        lookup
+          ? `${relatedObjectId ? `Selected ID: ${relatedObjectId}. ` : ""}Type at least 3 characters to search.`
+          : "Manual ID entry for object types without a lookup."
+      }
+      label="Related object"
+    >
+      <input
+        list={listId}
+        maxLength={128}
+        onChange={(event) => handleChange(event.target.value)}
+        placeholder={lookup ? "Search by name, email, title, reference, or UUID" : "Internal identifier"}
+        value={value}
+      />
+      <datalist id={listId}>
+        {options.map((option) => (
+          <option key={option.id} value={lookupDisplay(option)} />
+        ))}
+      </datalist>
+      {lookup?.error ? <span className="field-error">{errorMessage(lookup.error)}</span> : null}
+      {lookup?.isFetching ? <span className="field-help">Searching...</span> : null}
+    </Field>
+  );
 }
 
 function isTerminalStatus(status: string) {
@@ -414,6 +522,7 @@ function CreateTaskModal({
   const [notes, setNotes] = useState("");
   const [relatedObjectType, setRelatedObjectType] = useState("");
   const [relatedObjectId, setRelatedObjectId] = useState("");
+  const [relatedObjectQuery, setRelatedObjectQuery] = useState("");
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -478,21 +587,28 @@ function CreateTaskModal({
         </div>
         <div className="grid grid-2">
           <Field label="Related object type">
-            <input
-              maxLength={128}
-              onChange={(event) => setRelatedObjectType(event.target.value)}
-              placeholder="loan, bank_operation, kyc_case"
+            <select
+              onChange={(event) => {
+                setRelatedObjectType(event.target.value);
+                setRelatedObjectId("");
+                setRelatedObjectQuery("");
+              }}
               value={relatedObjectType}
-            />
+            >
+              {relatedObjectTypeOptions.map((option) => (
+                <option key={option || "none"} value={option}>
+                  {option || "None / manual"}
+                </option>
+              ))}
+            </select>
           </Field>
-          <Field label="Related object id">
-            <input
-              maxLength={128}
-              onChange={(event) => setRelatedObjectId(event.target.value)}
-              placeholder="Internal identifier"
-              value={relatedObjectId}
-            />
-          </Field>
+          <RelatedObjectLookupInput
+            onQuery={setRelatedObjectQuery}
+            onRelatedObjectId={setRelatedObjectId}
+            query={relatedObjectQuery}
+            relatedObjectId={relatedObjectId}
+            relatedObjectType={relatedObjectType}
+          />
         </div>
         <Field label="Notes">
           <textarea

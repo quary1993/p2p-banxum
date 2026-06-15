@@ -119,6 +119,24 @@ class AuditEventQuerySerializer(serializers.Serializer[Any]):
     limit = serializers.IntegerField(required=False, min_value=1, max_value=250, default=100)
 
 
+class AdminLookupQuerySerializer(serializers.Serializer[Any]):
+    q = serializers.CharField(required=False, allow_blank=True, max_length=128)
+    status = serializers.CharField(required=False, allow_blank=True, max_length=64)
+    account_type = serializers.CharField(required=False, allow_blank=True, max_length=64)
+    borrower_id = serializers.UUIDField(required=False)
+    category = serializers.CharField(required=False, allow_blank=True, max_length=64)
+    iban = serializers.CharField(required=False, allow_blank=True, max_length=64)
+    limit = serializers.IntegerField(required=False, min_value=1, max_value=50, default=20)
+
+
+class AdminLookupResultSerializer(serializers.Serializer[Any]):
+    id = serializers.CharField()
+    kind = serializers.CharField()
+    label = serializers.CharField()  # type: ignore[assignment]
+    meta = serializers.CharField(allow_blank=True)
+    payload = serializers.JSONField()
+
+
 class AdminDashboardQuerySerializer(serializers.Serializer[Any]):
     as_of = serializers.DateTimeField(required=False)
     due_window_days = serializers.IntegerField(required=False, min_value=0, max_value=60, default=7)

@@ -97,6 +97,492 @@ paths:
               schema:
                 $ref: '#/components/schemas/AdminOperationsDashboard'
           description: ''
+  /api/v1/admin-ops/lookups/borrowers/:
+    get:
+      operationId: v1_admin_ops_lookups_borrowers_list
+      parameters:
+      - in: query
+        name: account_type
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: borrower_id
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: category
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: iban
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 50
+          minimum: 1
+          default: 20
+      - in: query
+        name: q
+        schema:
+          type: string
+          maxLength: 128
+      - in: query
+        name: status
+        schema:
+          type: string
+          maxLength: 64
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminLookupResult'
+          description: ''
+  /api/v1/admin-ops/lookups/document-template-versions/:
+    get:
+      operationId: v1_admin_ops_lookups_document_template_versions_list
+      parameters:
+      - in: query
+        name: account_type
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: borrower_id
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: category
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: iban
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 50
+          minimum: 1
+          default: 20
+      - in: query
+        name: q
+        schema:
+          type: string
+          maxLength: 128
+      - in: query
+        name: status
+        schema:
+          type: string
+          maxLength: 64
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminLookupResult'
+          description: ''
+  /api/v1/admin-ops/lookups/investors/:
+    get:
+      operationId: v1_admin_ops_lookups_investors_list
+      parameters:
+      - in: query
+        name: account_type
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: borrower_id
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: category
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: iban
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 50
+          minimum: 1
+          default: 20
+      - in: query
+        name: q
+        schema:
+          type: string
+          maxLength: 128
+      - in: query
+        name: status
+        schema:
+          type: string
+          maxLength: 64
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminLookupResult'
+          description: ''
+  /api/v1/admin-ops/lookups/kyc-cases/:
+    get:
+      operationId: v1_admin_ops_lookups_kyc_cases_list
+      parameters:
+      - in: query
+        name: account_type
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: borrower_id
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: category
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: iban
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 50
+          minimum: 1
+          default: 20
+      - in: query
+        name: q
+        schema:
+          type: string
+          maxLength: 128
+      - in: query
+        name: status
+        schema:
+          type: string
+          maxLength: 64
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminLookupResult'
+          description: ''
+  /api/v1/admin-ops/lookups/loans/:
+    get:
+      operationId: v1_admin_ops_lookups_loans_list
+      parameters:
+      - in: query
+        name: account_type
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: borrower_id
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: category
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: iban
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 50
+          minimum: 1
+          default: 20
+      - in: query
+        name: q
+        schema:
+          type: string
+          maxLength: 128
+      - in: query
+        name: status
+        schema:
+          type: string
+          maxLength: 64
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminLookupResult'
+          description: ''
+  /api/v1/admin-ops/lookups/primary-orders/:
+    get:
+      operationId: v1_admin_ops_lookups_primary_orders_list
+      parameters:
+      - in: query
+        name: account_type
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: borrower_id
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: category
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: iban
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 50
+          minimum: 1
+          default: 20
+      - in: query
+        name: q
+        schema:
+          type: string
+          maxLength: 128
+      - in: query
+        name: status
+        schema:
+          type: string
+          maxLength: 64
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminLookupResult'
+          description: ''
+  /api/v1/admin-ops/lookups/secondary-listings/:
+    get:
+      operationId: v1_admin_ops_lookups_secondary_listings_list
+      parameters:
+      - in: query
+        name: account_type
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: borrower_id
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: category
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: iban
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 50
+          minimum: 1
+          default: 20
+      - in: query
+        name: q
+        schema:
+          type: string
+          maxLength: 128
+      - in: query
+        name: status
+        schema:
+          type: string
+          maxLength: 64
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminLookupResult'
+          description: ''
+  /api/v1/admin-ops/lookups/users/:
+    get:
+      operationId: v1_admin_ops_lookups_users_list
+      parameters:
+      - in: query
+        name: account_type
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: borrower_id
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: category
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: iban
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 50
+          minimum: 1
+          default: 20
+      - in: query
+        name: q
+        schema:
+          type: string
+          maxLength: 128
+      - in: query
+        name: status
+        schema:
+          type: string
+          maxLength: 64
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminLookupResult'
+          description: ''
+  /api/v1/admin-ops/lookups/withdrawal-requests/:
+    get:
+      operationId: v1_admin_ops_lookups_withdrawal_requests_list
+      parameters:
+      - in: query
+        name: account_type
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: borrower_id
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: category
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: iban
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 50
+          minimum: 1
+          default: 20
+      - in: query
+        name: q
+        schema:
+          type: string
+          maxLength: 128
+      - in: query
+        name: status
+        schema:
+          type: string
+          maxLength: 64
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminLookupResult'
+          description: ''
   /api/v1/admin-ops/reconciliation-break-tasks/sync/:
     post:
       operationId: v1_admin_ops_reconciliation_break_tasks_sync_create
@@ -3092,6 +3578,24 @@ components:
       - code_id
       - expires_at
       - status
+    AdminLookupResult:
+      type: object
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+        label:
+          type: string
+        meta:
+          type: string
+        payload: {}
+      required:
+      - id
+      - kind
+      - label
+      - meta
+      - payload
     AdminOperationsDashboard:
       type: object
       properties:
@@ -9358,6 +9862,9 @@ components:
           format: email
         full_name:
           type: string
+        investor_reference:
+          type: string
+          nullable: true
         account_type:
           type: string
         status:
@@ -9371,6 +9878,7 @@ components:
       - email
       - full_name
       - id
+      - investor_reference
       - marketing_consent
       - phone_verified
       - status

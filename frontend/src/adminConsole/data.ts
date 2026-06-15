@@ -1,6 +1,15 @@
 import {
   useV1AdminOpsAuditEventsList,
   useV1AdminOpsDashboardRetrieve,
+  useV1AdminOpsLookupsBorrowersList,
+  useV1AdminOpsLookupsDocumentTemplateVersionsList,
+  useV1AdminOpsLookupsInvestorsList,
+  useV1AdminOpsLookupsKycCasesList,
+  useV1AdminOpsLookupsLoansList,
+  useV1AdminOpsLookupsPrimaryOrdersList,
+  useV1AdminOpsLookupsSecondaryListingsList,
+  useV1AdminOpsLookupsUsersList,
+  useV1AdminOpsLookupsWithdrawalRequestsList,
   useV1AdminOpsTasksEventsList,
   useV1AdminOpsTasksList,
   useV1DocumentsAdminTemplatesVersionsList,
@@ -11,9 +20,19 @@ import {
   useV1LedgerAdminInvestorBalanceSummaryRetrieve,
   useV1LoansAdminLoansList,
   useV1ServicingAdminRiskNotesList,
+  type AdminLookupResult,
   type V1AdminOpsAuditEventsListParams,
   type V1AdminOpsTasksListParams,
   type V1AdminOpsDashboardRetrieveParams,
+  type V1AdminOpsLookupsBorrowersListParams,
+  type V1AdminOpsLookupsDocumentTemplateVersionsListParams,
+  type V1AdminOpsLookupsInvestorsListParams,
+  type V1AdminOpsLookupsKycCasesListParams,
+  type V1AdminOpsLookupsLoansListParams,
+  type V1AdminOpsLookupsPrimaryOrdersListParams,
+  type V1AdminOpsLookupsSecondaryListingsListParams,
+  type V1AdminOpsLookupsUsersListParams,
+  type V1AdminOpsLookupsWithdrawalRequestsListParams,
   type V1DocumentsAdminTemplatesVersionsListParams,
   type V1EntitiesAdminBorrowersListParams,
   type V1FxAdminDeltaReportRetrieveParams,
@@ -49,6 +68,14 @@ export function adminPreviewQuery<T>(fixture: T) {
   };
 }
 
+const emptyLookupFixture: AdminLookupResult[] = [];
+
+function lookupEnabled(params: { q?: string; iban?: string } | undefined, enabled = true) {
+  const qReady = (params?.q ?? "").trim().length >= 3;
+  const ibanReady = (params?.iban ?? "").replace(/\s/g, "").length >= 3;
+  return enabled && !isFixturePreview && (qReady || ibanReady);
+}
+
 export function useAdminOperationsDashboardData(
   params: V1AdminOpsDashboardRetrieveParams = { due_window_days: 7, limit: 12 }
 ) {
@@ -69,6 +96,90 @@ export function useAdminTaskEventsData(taskId: string | null) {
     query: {
       ...adminPreviewQuery(fixture),
       enabled: !isFixturePreview && Boolean(taskId)
+    }
+  });
+}
+
+export function useAdminUserLookupData(params: V1AdminOpsLookupsUsersListParams, enabled = true) {
+  return useV1AdminOpsLookupsUsersList(params, {
+    query: {
+      ...adminPreviewQuery(emptyLookupFixture),
+      enabled: lookupEnabled(params, enabled)
+    }
+  });
+}
+
+export function useAdminInvestorLookupData(params: V1AdminOpsLookupsInvestorsListParams, enabled = true) {
+  return useV1AdminOpsLookupsInvestorsList(params, {
+    query: {
+      ...adminPreviewQuery(emptyLookupFixture),
+      enabled: lookupEnabled(params, enabled)
+    }
+  });
+}
+
+export function useAdminBorrowerLookupData(params: V1AdminOpsLookupsBorrowersListParams, enabled = true) {
+  return useV1AdminOpsLookupsBorrowersList(params, {
+    query: {
+      ...adminPreviewQuery(emptyLookupFixture),
+      enabled: lookupEnabled(params, enabled)
+    }
+  });
+}
+
+export function useAdminLoanLookupData(params: V1AdminOpsLookupsLoansListParams, enabled = true) {
+  return useV1AdminOpsLookupsLoansList(params, {
+    query: {
+      ...adminPreviewQuery(emptyLookupFixture),
+      enabled: lookupEnabled(params, enabled) || (!isFixturePreview && enabled && Boolean(params.borrower_id))
+    }
+  });
+}
+
+export function useAdminKycCaseLookupData(params: V1AdminOpsLookupsKycCasesListParams, enabled = true) {
+  return useV1AdminOpsLookupsKycCasesList(params, {
+    query: {
+      ...adminPreviewQuery(emptyLookupFixture),
+      enabled: lookupEnabled(params, enabled)
+    }
+  });
+}
+
+export function useAdminWithdrawalLookupData(params: V1AdminOpsLookupsWithdrawalRequestsListParams, enabled = true) {
+  return useV1AdminOpsLookupsWithdrawalRequestsList(params, {
+    query: {
+      ...adminPreviewQuery(emptyLookupFixture),
+      enabled: lookupEnabled(params, enabled)
+    }
+  });
+}
+
+export function useAdminPrimaryOrderLookupData(params: V1AdminOpsLookupsPrimaryOrdersListParams, enabled = true) {
+  return useV1AdminOpsLookupsPrimaryOrdersList(params, {
+    query: {
+      ...adminPreviewQuery(emptyLookupFixture),
+      enabled: lookupEnabled(params, enabled)
+    }
+  });
+}
+
+export function useAdminSecondaryListingLookupData(params: V1AdminOpsLookupsSecondaryListingsListParams, enabled = true) {
+  return useV1AdminOpsLookupsSecondaryListingsList(params, {
+    query: {
+      ...adminPreviewQuery(emptyLookupFixture),
+      enabled: lookupEnabled(params, enabled)
+    }
+  });
+}
+
+export function useAdminDocumentTemplateVersionLookupData(
+  params: V1AdminOpsLookupsDocumentTemplateVersionsListParams,
+  enabled = true
+) {
+  return useV1AdminOpsLookupsDocumentTemplateVersionsList(params, {
+    query: {
+      ...adminPreviewQuery(emptyLookupFixture),
+      enabled: lookupEnabled(params, enabled) || (!isFixturePreview && enabled && Boolean(params.category))
     }
   });
 }

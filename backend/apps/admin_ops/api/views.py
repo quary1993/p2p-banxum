@@ -10,8 +10,11 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from backend.apps.admin_ops import lookups
 from backend.apps.admin_ops.api.serializers import (
     AdminDashboardQuerySerializer,
+    AdminLookupQuerySerializer,
+    AdminLookupResultSerializer,
     AdminOperationsDashboardSerializer,
     AdminTaskCreateRequestSerializer,
     AdminTaskEventSerializer,
@@ -71,6 +74,16 @@ def _audit_search_filters(data: dict[str, Any]) -> dict[str, str | int]:
         if value is not None and value != "":
             filters[key] = value if isinstance(value, int) else str(value)
     return filters
+
+
+def _lookup_query_data(request: Request) -> dict[str, Any]:
+    serializer = AdminLookupQuerySerializer(data=request.query_params)
+    serializer.is_valid(raise_exception=True)
+    return cast(dict[str, Any], serializer.validated_data)
+
+
+def _lookup_response(results: list[dict[str, Any]]) -> Response:
+    return Response(AdminLookupResultSerializer(results, many=True).data, status=status.HTTP_200_OK)
 
 
 class AdminTaskListCreateView(APIView):
@@ -147,6 +160,189 @@ class AdminOperationsDashboardView(APIView):
             )
         )
         return Response(dashboard, status=status.HTTP_200_OK)
+
+
+class AdminUserLookupView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        parameters=[AdminLookupQuerySerializer],
+        responses={200: AdminLookupResultSerializer(many=True)},
+    )
+    def get(self, request: Request) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        data = _lookup_query_data(request)
+        return _lookup_response(
+            lookups.lookup_users(
+                query=str(data.get("q", "")),
+                account_type=str(data.get("account_type", "")),
+                status=str(data.get("status", "")),
+                limit=cast(int, data.get("limit", 20)),
+            )
+        )
+
+
+class AdminInvestorLookupView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        parameters=[AdminLookupQuerySerializer],
+        responses={200: AdminLookupResultSerializer(many=True)},
+    )
+    def get(self, request: Request) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        data = _lookup_query_data(request)
+        return _lookup_response(
+            lookups.lookup_investors(
+                query=str(data.get("q", "")),
+                iban=str(data.get("iban", "")),
+                status=str(data.get("status", "")),
+                limit=cast(int, data.get("limit", 20)),
+            )
+        )
+
+
+class AdminBorrowerLookupView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        parameters=[AdminLookupQuerySerializer],
+        responses={200: AdminLookupResultSerializer(many=True)},
+    )
+    def get(self, request: Request) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        data = _lookup_query_data(request)
+        return _lookup_response(
+            lookups.lookup_borrowers(
+                query=str(data.get("q", "")),
+                status=str(data.get("status", "")),
+                limit=cast(int, data.get("limit", 20)),
+            )
+        )
+
+
+class AdminLoanLookupView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        parameters=[AdminLookupQuerySerializer],
+        responses={200: AdminLookupResultSerializer(many=True)},
+    )
+    def get(self, request: Request) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        data = _lookup_query_data(request)
+        return _lookup_response(
+            lookups.lookup_loans(
+                query=str(data.get("q", "")),
+                status=str(data.get("status", "")),
+                borrower_id=str(data.get("borrower_id", "")),
+                limit=cast(int, data.get("limit", 20)),
+            )
+        )
+
+
+class AdminKycCaseLookupView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        parameters=[AdminLookupQuerySerializer],
+        responses={200: AdminLookupResultSerializer(many=True)},
+    )
+    def get(self, request: Request) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        data = _lookup_query_data(request)
+        return _lookup_response(
+            lookups.lookup_kyc_cases(
+                query=str(data.get("q", "")),
+                status=str(data.get("status", "")),
+                limit=cast(int, data.get("limit", 20)),
+            )
+        )
+
+
+class AdminWithdrawalLookupView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        parameters=[AdminLookupQuerySerializer],
+        responses={200: AdminLookupResultSerializer(many=True)},
+    )
+    def get(self, request: Request) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        data = _lookup_query_data(request)
+        return _lookup_response(
+            lookups.lookup_withdrawals(
+                query=str(data.get("q", "")),
+                status=str(data.get("status", "")),
+                limit=cast(int, data.get("limit", 20)),
+            )
+        )
+
+
+class AdminPrimaryOrderLookupView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        parameters=[AdminLookupQuerySerializer],
+        responses={200: AdminLookupResultSerializer(many=True)},
+    )
+    def get(self, request: Request) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        data = _lookup_query_data(request)
+        return _lookup_response(
+            lookups.lookup_primary_orders(
+                query=str(data.get("q", "")),
+                status=str(data.get("status", "")),
+                limit=cast(int, data.get("limit", 20)),
+            )
+        )
+
+
+class AdminSecondaryListingLookupView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        parameters=[AdminLookupQuerySerializer],
+        responses={200: AdminLookupResultSerializer(many=True)},
+    )
+    def get(self, request: Request) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        data = _lookup_query_data(request)
+        return _lookup_response(
+            lookups.lookup_secondary_listings(
+                query=str(data.get("q", "")),
+                status=str(data.get("status", "")),
+                limit=cast(int, data.get("limit", 20)),
+            )
+        )
+
+
+class AdminDocumentTemplateVersionLookupView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        parameters=[AdminLookupQuerySerializer],
+        responses={200: AdminLookupResultSerializer(many=True)},
+    )
+    def get(self, request: Request) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        data = _lookup_query_data(request)
+        return _lookup_response(
+            lookups.lookup_document_template_versions(
+                query=str(data.get("q", "")),
+                category=str(data.get("category", "")),
+                limit=cast(int, data.get("limit", 20)),
+            )
+        )
 
 
 class ReconciliationBreakTaskSyncView(APIView):

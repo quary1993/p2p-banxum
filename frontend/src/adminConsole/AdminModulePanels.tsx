@@ -47,8 +47,8 @@ import {
   useV1ServicingAdminStatusScanCreate,
   type AccountAccessChangeRequest,
   type AccountAccessChangeRequestReasonCodeEnum as AccountAccessReasonCode,
+  type AdminLookupResult,
   type AdminUserCreateRequest,
-  type BorrowerEntity,
   type BalanceAgeingScanRequest,
   type BorrowerDisbursementFinalizeRequest,
   type BorrowerEntityCreateRequest,
@@ -66,7 +66,6 @@ import {
   type KycManualReviewDecisionRequest,
   type KycManualReviewDecisionRequestReasonCodeEnum as KycReasonCode,
   type LenderDepositDeclareRequest,
-  type Loan,
   type LoanCreateRequest,
   type LoanRecoveryPaymentRecordRequest,
   type LoanRiskNoteCreateRequest,
@@ -96,6 +95,15 @@ import { Banner, Button, Card, Chip, Empty, Field, Modal, Money, type Tone } fro
 import { adminFormDefaults } from "./adminFixtures";
 import {
   useAuditEventsData,
+  useAdminBorrowerLookupData,
+  useAdminDocumentTemplateVersionLookupData,
+  useAdminInvestorLookupData,
+  useAdminKycCaseLookupData,
+  useAdminLoanLookupData,
+  useAdminPrimaryOrderLookupData,
+  useAdminSecondaryListingLookupData,
+  useAdminUserLookupData,
+  useAdminWithdrawalLookupData,
   useBorrowersData,
   useDocumentTemplateVersionsData,
   useFxDeltaReportData,
@@ -201,75 +209,402 @@ function TextInput({
   );
 }
 
-type SearchableIdOption = {
-  id: string;
-  label: string;
-  meta?: string;
-};
+function lookupDisplay(option: AdminLookupResult) {
+  return `${option.label}${option.meta ? ` - ${option.meta}` : ""} (${option.id})`;
+}
 
-function SearchableIdInput({
+function payloadRecord(option: AdminLookupResult | null | undefined) {
+  if (!option || typeof option.payload !== "object" || option.payload === null) return {};
+  return option.payload as Record<string, unknown>;
+}
+
+function payloadString(option: AdminLookupResult | null | undefined, key: string) {
+  const value = payloadRecord(option)[key];
+  return typeof value === "string" ? value : "";
+}
+
+function AdminLookupInput({
   label,
   value,
   onChange,
+  query,
+  onQueryChange,
   options,
+  loading,
+  error,
   required = false,
   placeholder,
-  hint
+  hint,
+  minLength = 3,
+  onSelect
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
-  options: SearchableIdOption[];
+  query: string;
+  onQueryChange: (value: string) => void;
+  options: AdminLookupResult[];
+  loading?: boolean;
+  error?: unknown;
   required?: boolean;
   placeholder?: string;
   hint?: string;
+  minLength?: number;
+  onSelect?: (option: AdminLookupResult) => void;
 }) {
   const listId = useId();
-  const selected = options.find((option) => option.id === value);
-  const optionDisplay = (option: SearchableIdOption) =>
-    `${option.label}${option.meta ? ` - ${option.meta}` : ""} (${option.id})`;
-  const inputValue = selected ? optionDisplay(selected) : value;
-  const handleChange = (rawValue: string) => {
+  const selected = options.find((option) => option.id === value) ?? null;
+  const displayValue = query || (selected ? lookupDisplay(selected) : value);
+  const helper = [
+    value ? `Selected ID: ${value}` : hint || `Type at least ${minLength} characters to search.`,
+    loading ? "Searching..." : "",
+    error ? errorMessage(error) : ""
+  ].filter(Boolean).join(" ");
+
+  function handleChange(rawValue: string) {
     const matched = options.find(
-      (option) => option.id === rawValue || optionDisplay(option) === rawValue
+      (option) => option.id === rawValue || lookupDisplay(option) === rawValue
     );
-    onChange(matched?.id ?? rawValue);
-  };
+    if (matched) {
+      onChange(matched.id);
+      onQueryChange(lookupDisplay(matched));
+      onSelect?.(matched);
+      return;
+    }
+    onQueryChange(rawValue);
+    onChange(rawValue);
+  }
+
   return (
-    <Field
-      hint={selected ? `Selected ID: ${selected.id}` : hint}
-      label={label}
-    >
+    <Field hint={helper} label={label}>
       <input
         list={listId}
         onChange={(event) => handleChange(event.target.value)}
         placeholder={placeholder}
         required={required}
-        value={inputValue}
+        value={displayValue}
       />
       <datalist id={listId}>
         {options.map((option) => (
-          <option key={option.id} value={optionDisplay(option)} />
+          <option key={option.id} value={lookupDisplay(option)} />
         ))}
       </datalist>
     </Field>
   );
 }
 
-function borrowerIdOptions(borrowers: BorrowerEntity[]): SearchableIdOption[] {
-  return borrowers.map((borrower) => ({
-    id: borrower.id,
-    label: borrower.legal_name,
-    meta: `${borrower.country || "country n/a"} / ${labelize(borrower.kyb_status)}`
-  }));
+function InvestorLookupInput({
+  label = "Investor",
+  value,
+  onChange,
+  query,
+  onQueryChange,
+  iban = "",
+  status,
+  required = false,
+  placeholder,
+  hint,
+  onSelect,
+  onResults
+}: {
+  label?: string;
+  value: string;
+  onChange: (value: string) => void;
+  query: string;
+  onQueryChange: (value: string) => void;
+  iban?: string;
+  status?: string;
+  required?: boolean;
+  placeholder?: string;
+  hint?: string;
+  onSelect?: (option: AdminLookupResult) => void;
+  onResults?: (options: AdminLookupResult[]) => void;
+}) {
+  const lookup = useAdminInvestorLookupData({ q: query, iban, status, limit: 20 });
+  useEffect(() => {
+    onResults?.(lookup.data ?? []);
+  }, [lookup.data, onResults]);
+  return (
+    <AdminLookupInput
+      error={lookup.error}
+      hint={hint || "Search by investor reference, full name, email, UUID, or matching payout IBAN."}
+      label={label}
+      loading={lookup.isFetching}
+      onChange={onChange}
+      onQueryChange={onQueryChange}
+      onSelect={onSelect}
+      options={lookup.data ?? []}
+      placeholder={placeholder || "Reference, name, email, UUID, or IBAN"}
+      query={query}
+      required={required}
+      value={value}
+    />
+  );
 }
 
-function loanIdOptions(loans: Loan[]): SearchableIdOption[] {
-  return loans.map((loan) => ({
-    id: loan.id,
-    label: loan.title,
-    meta: `${labelize(loan.status)} / ${loan.currency} ${formatMoneyMinor(loan.principal_minor, loan.currency)}`
-  }));
+function UserLookupInput({
+  value,
+  onChange,
+  query,
+  onQueryChange,
+  required = false,
+  label = "User"
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  query: string;
+  onQueryChange: (value: string) => void;
+  required?: boolean;
+  label?: string;
+}) {
+  const lookup = useAdminUserLookupData({ q: query, limit: 20 });
+  return (
+    <AdminLookupInput
+      error={lookup.error}
+      hint="Search by UUID, full name, email, or investor reference."
+      label={label}
+      loading={lookup.isFetching}
+      onChange={onChange}
+      onQueryChange={onQueryChange}
+      options={lookup.data ?? []}
+      placeholder="Name, email, reference, or UUID"
+      query={query}
+      required={required}
+      value={value}
+    />
+  );
+}
+
+function BorrowerLookupInput({
+  value,
+  onChange,
+  query,
+  onQueryChange,
+  required = false,
+  onSelect
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  query: string;
+  onQueryChange: (value: string) => void;
+  required?: boolean;
+  onSelect?: (option: AdminLookupResult) => void;
+}) {
+  const lookup = useAdminBorrowerLookupData({ q: query, limit: 20 });
+  return (
+    <AdminLookupInput
+      error={lookup.error}
+      hint="Search by borrower legal name, registration number, country, KYB status, or UUID."
+      label="Borrower"
+      loading={lookup.isFetching}
+      onChange={onChange}
+      onQueryChange={onQueryChange}
+      onSelect={onSelect}
+      options={lookup.data ?? []}
+      placeholder="Borrower name, registration, or UUID"
+      query={query}
+      required={required}
+      value={value}
+    />
+  );
+}
+
+function LoanLookupInput({
+  value,
+  onChange,
+  query,
+  onQueryChange,
+  required = false,
+  status,
+  borrowerId,
+  onSelect
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  query: string;
+  onQueryChange: (value: string) => void;
+  required?: boolean;
+  status?: string;
+  borrowerId?: string;
+  onSelect?: (option: AdminLookupResult) => void;
+}) {
+  const lookup = useAdminLoanLookupData({ q: query, status, borrower_id: borrowerId, limit: 20 });
+  return (
+    <AdminLookupInput
+      error={lookup.error}
+      hint="Search by loan title, borrower name, status, or UUID."
+      label="Loan"
+      loading={lookup.isFetching}
+      onChange={onChange}
+      onQueryChange={onQueryChange}
+      onSelect={onSelect}
+      options={lookup.data ?? []}
+      placeholder="Loan title, borrower, status, or UUID"
+      query={query}
+      required={required}
+      value={value}
+    />
+  );
+}
+
+function KycCaseLookupInput({
+  value,
+  onChange,
+  query,
+  onQueryChange,
+  required = false
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  query: string;
+  onQueryChange: (value: string) => void;
+  required?: boolean;
+}) {
+  const lookup = useAdminKycCaseLookupData({ q: query, limit: 20 });
+  return (
+    <AdminLookupInput
+      error={lookup.error}
+      hint="Search by person name, email, investor reference, subject reference, Didit session, or case UUID."
+      label="KYC case"
+      loading={lookup.isFetching}
+      onChange={onChange}
+      onQueryChange={onQueryChange}
+      options={lookup.data ?? []}
+      placeholder="Name, email, Didit session, reference, or UUID"
+      query={query}
+      required={required}
+      value={value}
+    />
+  );
+}
+
+function WithdrawalLookupInput({
+  value,
+  onChange,
+  query,
+  onQueryChange,
+  required = false,
+  onSelect
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  query: string;
+  onQueryChange: (value: string) => void;
+  required?: boolean;
+  onSelect?: (option: AdminLookupResult) => void;
+}) {
+  const lookup = useAdminWithdrawalLookupData({ q: query, status: "requested", limit: 20 });
+  return (
+    <AdminLookupInput
+      error={lookup.error}
+      hint="Search by lender name, email, reference, withdrawal UUID, or IBAN suffix."
+      label="Requested withdrawal"
+      loading={lookup.isFetching}
+      onChange={onChange}
+      onQueryChange={onQueryChange}
+      onSelect={onSelect}
+      options={lookup.data ?? []}
+      placeholder="Lender, amount context, date, IBAN suffix, or UUID"
+      query={query}
+      required={required}
+      value={value}
+    />
+  );
+}
+
+function PrimaryOrderLookupInput({
+  value,
+  onChange,
+  query,
+  onQueryChange,
+  required = false
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  query: string;
+  onQueryChange: (value: string) => void;
+  required?: boolean;
+}) {
+  const lookup = useAdminPrimaryOrderLookupData({ q: query, limit: 20 });
+  return (
+    <AdminLookupInput
+      error={lookup.error}
+      hint="Search by investor name, email, reference, loan title, or order UUID."
+      label="Primary order"
+      loading={lookup.isFetching}
+      onChange={onChange}
+      onQueryChange={onQueryChange}
+      options={lookup.data ?? []}
+      placeholder="Investor, loan title, or order UUID"
+      query={query}
+      required={required}
+      value={value}
+    />
+  );
+}
+
+function SecondaryListingLookupInput({
+  value,
+  onChange,
+  query,
+  onQueryChange,
+  required = false
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  query: string;
+  onQueryChange: (value: string) => void;
+  required?: boolean;
+}) {
+  const lookup = useAdminSecondaryListingLookupData({ q: query, limit: 20 });
+  return (
+    <AdminLookupInput
+      error={lookup.error}
+      hint="Search by loan title, seller name/email/reference, or listing UUID."
+      label="Secondary listing"
+      loading={lookup.isFetching}
+      onChange={onChange}
+      onQueryChange={onQueryChange}
+      options={lookup.data ?? []}
+      placeholder="Loan, seller, or listing UUID"
+      query={query}
+      required={required}
+      value={value}
+    />
+  );
+}
+
+function TemplateVersionLookupInput({
+  value,
+  onChange,
+  query,
+  onQueryChange,
+  category,
+  required = false
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  query: string;
+  onQueryChange: (value: string) => void;
+  category?: string;
+  required?: boolean;
+}) {
+  const lookup = useAdminDocumentTemplateVersionLookupData({ q: query, category, limit: 20 });
+  return (
+    <AdminLookupInput
+      error={lookup.error}
+      hint="Search by title, template key, legal review reference, or version UUID."
+      label="Template version"
+      loading={lookup.isFetching}
+      onChange={onChange}
+      onQueryChange={onQueryChange}
+      options={lookup.data ?? []}
+      placeholder="Template title, key, legal ref, or UUID"
+      query={query}
+      required={required}
+      value={value}
+    />
+  );
 }
 
 function SelectInput<T extends string>({
@@ -537,6 +872,7 @@ export function CompliancePanel() {
 
 function ManualKycDecisionForm({ defaultCaseId }: { defaultCaseId: string }) {
   const [caseId, setCaseId] = useState(defaultCaseId);
+  const [caseQuery, setCaseQuery] = useState(defaultCaseId);
   const [decision, setDecision] = useState<KycDecision>(DecisionEnum.approve);
   const [reasonCode, setReasonCode] = useState<KycReasonCode>(KycManualReviewDecisionRequestReasonCodeEnum.pep_review);
   const [note, setNote] = useState("");
@@ -551,6 +887,7 @@ function ManualKycDecisionForm({ defaultCaseId }: { defaultCaseId: string }) {
 
   useEffect(() => {
     setCaseId(defaultCaseId);
+    setCaseQuery(defaultCaseId);
   }, [defaultCaseId]);
 
   function submit(event: FormEvent) {
@@ -568,7 +905,13 @@ function ManualKycDecisionForm({ defaultCaseId }: { defaultCaseId: string }) {
       <h2>Record AML decision</h2>
       <p>Use only after provider evidence has been reviewed. The backend enforces allowed status transitions.</p>
       <form className="admin-action-form" onSubmit={submit}>
-        <TextInput label="KYC case ID" onChange={setCaseId} required value={caseId} />
+        <KycCaseLookupInput
+          onChange={setCaseId}
+          onQueryChange={setCaseQuery}
+          query={caseQuery}
+          required
+          value={caseId}
+        />
         <FieldGrid>
           <SelectInput label="Decision" onChange={setDecision} options={Object.values(DecisionEnum)} value={decision} />
           <SelectInput label="Reason code" onChange={setReasonCode} options={Object.values(KycManualReviewDecisionRequestReasonCodeEnum)} value={reasonCode} />
@@ -583,6 +926,7 @@ function ManualKycDecisionForm({ defaultCaseId }: { defaultCaseId: string }) {
 
 function AccountAccessForm() {
   const [userId, setUserId] = useState("");
+  const [userQuery, setUserQuery] = useState("");
   const [newStatus, setNewStatus] = useState<AccountNewStatus>(NewStatusEnum.restricted);
   const [reasonCode, setReasonCode] = useState<AccountAccessReasonCode>(AccountAccessChangeRequestReasonCodeEnum.compliance_hold);
   const [note, setNote] = useState("");
@@ -618,7 +962,14 @@ function AccountAccessForm() {
       />
       <form className="admin-action-form" onSubmit={submit}>
         <FieldGrid>
-          <TextInput label="User ID" onChange={setUserId} required value={userId} />
+          <UserLookupInput
+            label="User account"
+            onChange={setUserId}
+            onQueryChange={setUserQuery}
+            query={userQuery}
+            required
+            value={userId}
+          />
           <SelectInput label="New account status" onChange={setNewStatus} options={Object.values(NewStatusEnum)} value={newStatus} />
           <SelectInput label="Reason code" onChange={setReasonCode} options={Object.values(AccountAccessChangeRequestReasonCodeEnum)} value={reasonCode} />
         </FieldGrid>
@@ -635,13 +986,6 @@ function AccountAccessForm() {
 }
 
 export function FinanceOpsPanel() {
-  const borrowersQuery = useBorrowersData({ limit: 100 });
-  const loansQuery = useLoansData({ limit: 100 });
-  const borrowers = useMemo(() => borrowersQuery.data ?? [], [borrowersQuery.data]);
-  const loans = useMemo(() => loansQuery.data ?? [], [loansQuery.data]);
-  const borrowerOptions = useMemo(() => borrowerIdOptions(borrowers), [borrowers]);
-  const loanOptions = useMemo(() => loanIdOptions(loans), [loans]);
-
   return (
     <div className="admin-content">
       <PreviewNotice>Finance forms use dummy IDs in preview. Live submissions post to the ledger, FX and reconciliation services.</PreviewNotice>
@@ -652,7 +996,7 @@ export function FinanceOpsPanel() {
         <BalanceAgeingScanForm />
         <ReconciliationSnapshotForm />
         <WithdrawalOpsForm />
-        <BorrowerDisbursementForm borrowerOptions={borrowerOptions} loanOptions={loanOptions} loans={loans} />
+        <BorrowerDisbursementForm />
         <FxAdminOps />
       </section>
     </div>
@@ -661,6 +1005,7 @@ export function FinanceOpsPanel() {
 
 function DepositForm() {
   const [investorUserId, setInvestorUserId] = useState(adminFormDefaults.investorUserId);
+  const [investorQuery, setInvestorQuery] = useState(adminFormDefaults.investorUserId);
   const [amountMinor, setAmountMinor] = useState("2500000");
   const [currency, setCurrency] = useState("CHF");
   const [bookingDate, setBookingDate] = useState(today);
@@ -673,6 +1018,17 @@ function DepositForm() {
   const mutation = useV1LedgerAdminLenderDepositsCreate({
     mutation: { onSuccess: () => setSuccess("Deposit was declared, ledgered, and added to investor balance lots.") }
   });
+
+  function updatePaymentReference(value: string) {
+    setPaymentReference(value);
+    const compactReference = value.toUpperCase().match(/L[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{8,9}/)?.[0];
+    if (compactReference && !investorUserId) setInvestorQuery(compactReference);
+  }
+
+  function updatePayerName(value: string) {
+    setPayerName(value);
+    if (!investorUserId && !investorQuery && value.trim().length >= 3) setInvestorQuery(value);
+  }
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -700,7 +1056,15 @@ function DepositForm() {
       <p>Declare a matched incoming bank transfer and credit the investor liability ledger.</p>
       <form className="admin-action-form" onSubmit={submit}>
         <FieldGrid>
-          <TextInput label="Investor user ID" onChange={setInvestorUserId} required value={investorUserId} />
+          <InvestorLookupInput
+            hint="Paste the bank-statement reference first when available. If omitted, search by payer first name/surname or email."
+            label="Investor from bank reference"
+            onChange={setInvestorUserId}
+            onQueryChange={setInvestorQuery}
+            query={investorQuery}
+            required
+            value={investorUserId}
+          />
           <TextInput label="Amount minor units" onChange={setAmountMinor} required value={amountMinor} />
           <TextInput label="Currency" onChange={setCurrency} required value={currency} />
           <TextInput label="Booking date" onChange={setBookingDate} required type="date" value={bookingDate} />
@@ -708,8 +1072,8 @@ function DepositForm() {
           <TextInput label="Collection account" onChange={setCollectionAccount} required value={collectionAccount} />
         </FieldGrid>
         <FieldGrid>
-          <TextInput label="Payer name" onChange={setPayerName} value={payerName} />
-          <TextInput label="Payment reference" onChange={setPaymentReference} value={paymentReference} />
+          <TextInput label="Payer name" onChange={updatePayerName} value={payerName} />
+          <TextInput label="Payment reference" onChange={updatePaymentReference} value={paymentReference} />
         </FieldGrid>
         <ActionFooter mutation={mutation} previewMessage={preview} successMessage={success} submitLabel="Declare deposit" />
       </form>
@@ -719,6 +1083,8 @@ function DepositForm() {
 
 function PayoutInstructionForm() {
   const [investorUserId, setInvestorUserId] = useState(adminFormDefaults.investorUserId);
+  const [investorQuery, setInvestorQuery] = useState(adminFormDefaults.investorUserId);
+  const [investorMatches, setInvestorMatches] = useState<AdminLookupResult[]>([]);
   const [currency, setCurrency] = useState("CHF");
   const [iban, setIban] = useState(adminFormDefaults.payoutIban);
   const [name, setName] = useState(adminFormDefaults.payoutAccountName);
@@ -729,6 +1095,10 @@ function PayoutInstructionForm() {
   const mutation = useV1LedgerAdminPayoutInstructionsCreate({
     mutation: { onSuccess: () => setSuccess("Payout instruction was registered and superseded the prior active instruction.") }
   });
+
+  const ibanCollisionCount = investorMatches.filter(
+    (option) => payloadString(option, "matched_iban_suffix")
+  ).length;
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -753,11 +1123,25 @@ function PayoutInstructionForm() {
       <p>Register a verified IBAN used for withdrawals and day-60 forced returns.</p>
       <form className="admin-action-form" onSubmit={submit}>
         <FieldGrid>
-          <TextInput label="Investor user ID" onChange={setInvestorUserId} required value={investorUserId} />
+          <InvestorLookupInput
+            iban={iban}
+            label="Investor / payout owner"
+            onChange={setInvestorUserId}
+            onQueryChange={setInvestorQuery}
+            onResults={setInvestorMatches}
+            query={investorQuery}
+            required
+            value={investorUserId}
+          />
           <TextInput label="Currency" onChange={setCurrency} required value={currency} />
           <TextInput label="Destination IBAN" onChange={setIban} required value={iban} />
           <TextInput label="Account name" onChange={setName} required value={name} />
         </FieldGrid>
+        {ibanCollisionCount > 1 ? (
+          <Banner tone="warn" title="IBAN matches multiple investors">
+            Review the matching investors before saving this payout instruction.
+          </Banner>
+        ) : null}
         <label className="check-row">
           <input checked={verified} onChange={(event) => setVerified(event.target.checked)} type="checkbox" />
           IBAN is usable and verified for this investor.
@@ -771,6 +1155,7 @@ function PayoutInstructionForm() {
 
 function BalanceSummaryLookup() {
   const [investorUserId, setInvestorUserId] = useState(adminFormDefaults.investorUserId);
+  const [investorQuery, setInvestorQuery] = useState(adminFormDefaults.investorUserId);
   const [currency, setCurrency] = useState("CHF");
   const [submitted, setSubmitted] = useState(false);
   const query = useInvestorBalanceSummaryData({ investor_user_id: investorUserId, currency }, submitted && Boolean(investorUserId && currency));
@@ -782,7 +1167,14 @@ function BalanceSummaryLookup() {
       <p>Read the ledger-derived balance buckets used for ageing and withdrawal controls.</p>
       <form className="admin-action-form" onSubmit={(event) => { event.preventDefault(); setSubmitted(true); refetchLive(query.refetch); }}>
         <FieldGrid>
-          <TextInput label="Investor user ID" onChange={setInvestorUserId} required value={investorUserId} />
+          <InvestorLookupInput
+            label="Investor"
+            onChange={setInvestorUserId}
+            onQueryChange={setInvestorQuery}
+            query={investorQuery}
+            required
+            value={investorUserId}
+          />
           <TextInput label="Currency" onChange={setCurrency} required value={currency} />
         </FieldGrid>
         <Button type="submit" variant="primary">Load balance summary</Button>
@@ -891,6 +1283,7 @@ function ReconciliationSnapshotForm() {
 
 function WithdrawalOpsForm() {
   const [withdrawalId, setWithdrawalId] = useState(adminFormDefaults.withdrawalId);
+  const [withdrawalQuery, setWithdrawalQuery] = useState(adminFormDefaults.withdrawalId);
   const [bookingDate, setBookingDate] = useState(today);
   const [valueDate, setValueDate] = useState(today);
   const [collectionAccount, setCollectionAccount] = useState(defaultCollectionAccount);
@@ -933,7 +1326,13 @@ function WithdrawalOpsForm() {
       <p>Finalize executed withdrawals or cancel requested withdrawals before bank execution.</p>
       <form className="admin-action-form" onSubmit={finalizeSubmit}>
         <FieldGrid>
-          <TextInput label="Withdrawal request ID" onChange={setWithdrawalId} required value={withdrawalId} />
+          <WithdrawalLookupInput
+            onChange={setWithdrawalId}
+            onQueryChange={setWithdrawalQuery}
+            query={withdrawalQuery}
+            required
+            value={withdrawalId}
+          />
           <TextInput label="Booking date" onChange={setBookingDate} required type="date" value={bookingDate} />
           <TextInput label="Value date" onChange={setValueDate} required type="date" value={valueDate} />
           <TextInput label="Collection account" onChange={setCollectionAccount} required value={collectionAccount} />
@@ -950,17 +1349,11 @@ function WithdrawalOpsForm() {
   );
 }
 
-function BorrowerDisbursementForm({
-  borrowerOptions,
-  loanOptions,
-  loans
-}: {
-  borrowerOptions: SearchableIdOption[];
-  loanOptions: SearchableIdOption[];
-  loans: Loan[];
-}) {
+function BorrowerDisbursementForm() {
   const [loanId, setLoanId] = useState(adminFormDefaults.loanId);
+  const [loanQuery, setLoanQuery] = useState(adminFormDefaults.loanId);
   const [borrowerId, setBorrowerId] = useState(adminFormDefaults.borrowerId);
+  const [borrowerQuery, setBorrowerQuery] = useState(adminFormDefaults.borrowerName);
   const [amountMinor, setAmountMinor] = useState(isFixturePreview ? "98000000" : "");
   const [currency, setCurrency] = useState("CHF");
   const [bookingDate, setBookingDate] = useState(today);
@@ -973,10 +1366,13 @@ function BorrowerDisbursementForm({
     mutation: { onSuccess: () => setSuccess("Borrower disbursement payable was cleared against collection cash.") }
   });
 
-  function selectLoan(nextLoanId: string) {
-    setLoanId(nextLoanId);
-    const selectedLoan = loans.find((loan) => loan.id === nextLoanId);
-    if (selectedLoan) setBorrowerId(selectedLoan.borrower_id);
+  function selectLoanOption(option: AdminLookupResult) {
+    const selectedBorrowerId = payloadString(option, "borrower_id");
+    const selectedBorrowerName = payloadString(option, "borrower_name");
+    if (selectedBorrowerId) setBorrowerId(selectedBorrowerId);
+    if (selectedBorrowerName) setBorrowerQuery(selectedBorrowerName);
+    const selectedCurrency = payloadString(option, "currency");
+    if (selectedCurrency) setCurrency(selectedCurrency);
   }
 
   function submit(event: FormEvent) {
@@ -1006,19 +1402,18 @@ function BorrowerDisbursementForm({
       <p>Record external payout of an accepted funded loan to the borrower.</p>
       <form className="admin-action-form" onSubmit={submit}>
         <FieldGrid>
-          <SearchableIdInput
-            hint="Search by loan title/status, then keep the exact ID for the backend action."
-            label="Loan ID"
-            onChange={selectLoan}
-            options={loanOptions}
+          <LoanLookupInput
+            onChange={setLoanId}
+            onQueryChange={setLoanQuery}
+            onSelect={selectLoanOption}
+            query={loanQuery}
             required
             value={loanId}
           />
-          <SearchableIdInput
-            hint="Auto-filled from the loan when available."
-            label="Borrower ID"
+          <BorrowerLookupInput
             onChange={setBorrowerId}
-            options={borrowerOptions}
+            onQueryChange={setBorrowerQuery}
+            query={borrowerQuery}
             required
             value={borrowerId}
           />
@@ -1117,8 +1512,6 @@ export function LoansPanel() {
   const loansQuery = useLoansData({ limit: 100 });
   const borrowers = useMemo(() => borrowersQuery.data ?? [], [borrowersQuery.data]);
   const loans = useMemo(() => loansQuery.data ?? [], [loansQuery.data]);
-  const borrowerOptions = useMemo(() => borrowerIdOptions(borrowers), [borrowers]);
-  const loanOptions = useMemo(() => loanIdOptions(loans), [loans]);
   const [selectedBorrowerId, setSelectedBorrowerId] = useState("");
   const [selectedLoanId, setSelectedLoanId] = useState("");
   const selectedLoan = loans.find((loan) => loan.id === selectedLoanId) ?? loans[0];
@@ -1232,7 +1625,7 @@ export function LoansPanel() {
 
       <section className="admin-module-grid">
         <BorrowerCreateForm />
-        <LoanCreateForm borrowerOptions={borrowerOptions} defaultBorrowerId={selectedBorrowerId} />
+        <LoanCreateForm defaultBorrowerId={selectedBorrowerId} />
         <LoanPublishCloseForm
           defaultCommittedPrincipalMinor={selectedLoan?.committed_principal_minor ?? 0}
           defaultFundingDeadline={selectedLoan?.funding_deadline ?? ""}
@@ -1241,9 +1634,8 @@ export function LoansPanel() {
           defaultLoanPrincipalMinor={selectedLoan?.principal_minor ?? 0}
           defaultLoanStatus={selectedLoan?.status ?? ""}
           defaultLoanTitle={selectedLoan?.title ?? ""}
-          loanOptions={loanOptions}
         />
-        <ServicingOpsForm defaultLoanId={selectedLoan?.id ?? ""} defaultLoanTitle={selectedLoan?.title ?? ""} loanOptions={loanOptions} />
+        <ServicingOpsForm defaultLoanId={selectedLoan?.id ?? ""} defaultLoanTitle={selectedLoan?.title ?? ""} />
         <SecondaryMarketAdminForm />
       </section>
     </div>
@@ -1304,14 +1696,9 @@ function BorrowerCreateForm() {
   );
 }
 
-function LoanCreateForm({
-  borrowerOptions,
-  defaultBorrowerId
-}: {
-  borrowerOptions: SearchableIdOption[];
-  defaultBorrowerId: string;
-}) {
+function LoanCreateForm({ defaultBorrowerId }: { defaultBorrowerId: string }) {
   const [borrowerId, setBorrowerId] = useState(defaultBorrowerId);
+  const [borrowerQuery, setBorrowerQuery] = useState(defaultBorrowerId);
   const [title, setTitle] = useState("New real-estate backed facility");
   const [summary, setSummary] = useState("Admin-entered investor summary for the loan.");
   const [principal, setPrincipal] = useState(isFixturePreview ? "100000000" : "");
@@ -1333,6 +1720,7 @@ function LoanCreateForm({
 
   useEffect(() => {
     setBorrowerId(defaultBorrowerId);
+    setBorrowerQuery(defaultBorrowerId);
   }, [defaultBorrowerId]);
 
   function submit(event: FormEvent) {
@@ -1369,11 +1757,10 @@ function LoanCreateForm({
       </div>
       <form className="admin-action-form" onSubmit={submit}>
         <FieldGrid>
-          <SearchableIdInput
-            hint="Search by borrower legal name or KYB status."
-            label="Borrower ID"
+          <BorrowerLookupInput
             onChange={setBorrowerId}
-            options={borrowerOptions}
+            onQueryChange={setBorrowerQuery}
+            query={borrowerQuery}
             required
             value={borrowerId}
           />
@@ -1404,8 +1791,7 @@ function LoanPublishCloseForm({
   defaultLoanId,
   defaultLoanPrincipalMinor,
   defaultLoanStatus,
-  defaultLoanTitle,
-  loanOptions
+  defaultLoanTitle
 }: {
   defaultCommittedPrincipalMinor: number;
   defaultFundingDeadline: string;
@@ -1414,9 +1800,9 @@ function LoanPublishCloseForm({
   defaultLoanPrincipalMinor: number;
   defaultLoanStatus: string;
   defaultLoanTitle: string;
-  loanOptions: SearchableIdOption[];
 }) {
   const [loanId, setLoanId] = useState(defaultLoanId);
+  const [loanQuery, setLoanQuery] = useState(defaultLoanId);
   const [note, setNote] = useState("");
   const [closeReason, setCloseReason] = useState("Accepted funding close after admin review.");
   const [investorMessage, setInvestorMessage] = useState("Loan funding has closed. Your assigned claim is now active.");
@@ -1429,6 +1815,7 @@ function LoanPublishCloseForm({
   const [expiryInvestorMessage, setExpiryInvestorMessage] = useState("");
   const [scanSelectedOnly, setScanSelectedOnly] = useState(true);
   const [orderId, setOrderId] = useState("");
+  const [orderQuery, setOrderQuery] = useState("");
   const [releaseReason, setReleaseReason] = useState("Campaign closed or order not funded.");
   const [preview, setPreview] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | undefined>();
@@ -1452,6 +1839,7 @@ function LoanPublishCloseForm({
 
   useEffect(() => {
     setLoanId(defaultLoanId);
+    setLoanQuery(defaultLoanId);
   }, [defaultLoanId]);
 
   function publishLoan() {
@@ -1540,11 +1928,10 @@ function LoanPublishCloseForm({
             <Money amountMinor={defaultLoanPrincipalMinor} currency={defaultLoanCurrency} />
           </span>
         </div>
-        <SearchableIdInput
-          hint="Search by loan title/status. The exact ID is submitted."
-          label="Loan ID"
+        <LoanLookupInput
           onChange={setLoanId}
-          options={loanOptions}
+          onQueryChange={setLoanQuery}
+          query={loanQuery}
           required
           value={loanId}
         />
@@ -1627,7 +2014,12 @@ function LoanPublishCloseForm({
           Run expiry scan
         </OperationConfirmButton>
         <FieldGrid>
-          <TextInput label="Order ID to release" onChange={setOrderId} value={orderId} />
+          <PrimaryOrderLookupInput
+            onChange={setOrderId}
+            onQueryChange={setOrderQuery}
+            query={orderQuery}
+            value={orderId}
+          />
           <TextInput label="Release reason" onChange={setReleaseReason} value={releaseReason} />
         </FieldGrid>
         <OperationConfirmButton
@@ -1654,14 +2046,13 @@ function LoanPublishCloseForm({
 
 function ServicingOpsForm({
   defaultLoanId,
-  defaultLoanTitle,
-  loanOptions
+  defaultLoanTitle
 }: {
   defaultLoanId: string;
   defaultLoanTitle: string;
-  loanOptions: SearchableIdOption[];
 }) {
   const [loanId, setLoanId] = useState(defaultLoanId);
+  const [loanQuery, setLoanQuery] = useState(defaultLoanId);
   const [amountMinor, setAmountMinor] = useState("1845000");
   const [bookingDate, setBookingDate] = useState(today);
   const [valueDate, setValueDate] = useState(today);
@@ -1677,6 +2068,7 @@ function ServicingOpsForm({
 
   useEffect(() => {
     setLoanId(defaultLoanId);
+    setLoanQuery(defaultLoanId);
   }, [defaultLoanId]);
 
   function submitRepayment() {
@@ -1754,11 +2146,10 @@ function ServicingOpsForm({
           <code>{loanId || "-"}</code>
         </div>
         <FieldGrid>
-          <SearchableIdInput
-            hint="Search by loan title/status."
-            label="Loan ID"
+          <LoanLookupInput
             onChange={setLoanId}
-            options={loanOptions}
+            onQueryChange={setLoanQuery}
+            query={loanQuery}
             required
             value={loanId}
           />
@@ -1808,6 +2199,7 @@ function ServicingOpsForm({
 
 function SecondaryMarketAdminForm() {
   const [listingId, setListingId] = useState(adminFormDefaults.secondaryListingId);
+  const [listingQuery, setListingQuery] = useState(adminFormDefaults.secondaryListingId);
   const [reason, setReason] = useState("Admin-reviewed non-standard listing disclosure.");
   const [disclosure, setDisclosure] = useState("Loan is non-performing. Review public note and days-past-due before purchase.");
   const [preview, setPreview] = useState<string | null>(null);
@@ -1846,7 +2238,13 @@ function SecondaryMarketAdminForm() {
     <Card padded>
       <h2>Secondary-market approvals</h2>
       <div className="admin-action-form">
-        <TextInput label="Listing ID" onChange={setListingId} required value={listingId} />
+        <SecondaryListingLookupInput
+          onChange={setListingId}
+          onQueryChange={setListingQuery}
+          query={listingQuery}
+          required
+          value={listingId}
+        />
         <TextAreaInput label="Reason" onChange={setReason} value={reason} />
         <TextAreaInput label="Buyer disclosure note" onChange={setDisclosure} value={disclosure} />
         <div className="row gap-8 wrap">
@@ -2111,10 +2509,16 @@ function DocumentTemplateForm({ category, defaultVersionId }: { category: Docume
   const [checkboxes, setCheckboxes] = useState("I accept these terms.\nI understand the platform risks.");
   const [publishNow, setPublishNow] = useState(false);
   const [versionId, setVersionId] = useState(defaultVersionId);
+  const [versionQuery, setVersionQuery] = useState(defaultVersionId);
   const [legalRef, setLegalRef] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
   const create = useV1DocumentsAdminTemplatesVersionsCreate();
   const publish = useV1DocumentsAdminTemplatesVersionsPublishCreate();
+
+  useEffect(() => {
+    setVersionId(defaultVersionId);
+    setVersionQuery(defaultVersionId);
+  }, [defaultVersionId]);
 
   function createVersion(event: FormEvent) {
     event.preventDefault();
@@ -2162,7 +2566,13 @@ function DocumentTemplateForm({ category, defaultVersionId }: { category: Docume
         <Button disabled={create.isPending} type="submit" variant="primary">Create version</Button>
       </form>
       <div className="admin-action-form">
-        <TextInput label="Template version ID to publish" onChange={setVersionId} value={versionId || defaultVersionId} />
+        <TemplateVersionLookupInput
+          category={category}
+          onChange={setVersionId}
+          onQueryChange={setVersionQuery}
+          query={versionQuery}
+          value={versionId || defaultVersionId}
+        />
         <OperationConfirmButton
           confirmLabel="Publish template"
           description="Publishing makes this immutable template version current for future clickwrap evidence. Existing accepted versions remain preserved."

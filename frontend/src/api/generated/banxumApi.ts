@@ -194,6 +194,14 @@ export interface AdminLoginStartResponse {
   expires_at: string;
 }
 
+export interface AdminLookupResult {
+  id: string;
+  kind: string;
+  label: string;
+  meta: string;
+  payload: unknown;
+}
+
 export interface AdminOperationsDashboard {
   as_of: string;
   as_of_date: string;
@@ -3039,6 +3047,8 @@ export interface UserSummary {
   id: string;
   email: string;
   full_name: string;
+  /** @nullable */
+  investor_reference: string | null;
   account_type: string;
   status: string;
   phone_verified: boolean;
@@ -3100,6 +3110,267 @@ due_window_days?: number;
  * @maximum 50
  */
 limit?: number;
+};
+
+export type V1AdminOpsLookupsBorrowersListParams = {
+/**
+ * @maxLength 64
+ */
+account_type?: string;
+borrower_id?: string;
+/**
+ * @maxLength 64
+ */
+category?: string;
+/**
+ * @maxLength 64
+ */
+iban?: string;
+/**
+ * @minimum 1
+ * @maximum 50
+ */
+limit?: number;
+/**
+ * @maxLength 128
+ */
+q?: string;
+/**
+ * @maxLength 64
+ */
+status?: string;
+};
+
+export type V1AdminOpsLookupsDocumentTemplateVersionsListParams = {
+/**
+ * @maxLength 64
+ */
+account_type?: string;
+borrower_id?: string;
+/**
+ * @maxLength 64
+ */
+category?: string;
+/**
+ * @maxLength 64
+ */
+iban?: string;
+/**
+ * @minimum 1
+ * @maximum 50
+ */
+limit?: number;
+/**
+ * @maxLength 128
+ */
+q?: string;
+/**
+ * @maxLength 64
+ */
+status?: string;
+};
+
+export type V1AdminOpsLookupsInvestorsListParams = {
+/**
+ * @maxLength 64
+ */
+account_type?: string;
+borrower_id?: string;
+/**
+ * @maxLength 64
+ */
+category?: string;
+/**
+ * @maxLength 64
+ */
+iban?: string;
+/**
+ * @minimum 1
+ * @maximum 50
+ */
+limit?: number;
+/**
+ * @maxLength 128
+ */
+q?: string;
+/**
+ * @maxLength 64
+ */
+status?: string;
+};
+
+export type V1AdminOpsLookupsKycCasesListParams = {
+/**
+ * @maxLength 64
+ */
+account_type?: string;
+borrower_id?: string;
+/**
+ * @maxLength 64
+ */
+category?: string;
+/**
+ * @maxLength 64
+ */
+iban?: string;
+/**
+ * @minimum 1
+ * @maximum 50
+ */
+limit?: number;
+/**
+ * @maxLength 128
+ */
+q?: string;
+/**
+ * @maxLength 64
+ */
+status?: string;
+};
+
+export type V1AdminOpsLookupsLoansListParams = {
+/**
+ * @maxLength 64
+ */
+account_type?: string;
+borrower_id?: string;
+/**
+ * @maxLength 64
+ */
+category?: string;
+/**
+ * @maxLength 64
+ */
+iban?: string;
+/**
+ * @minimum 1
+ * @maximum 50
+ */
+limit?: number;
+/**
+ * @maxLength 128
+ */
+q?: string;
+/**
+ * @maxLength 64
+ */
+status?: string;
+};
+
+export type V1AdminOpsLookupsPrimaryOrdersListParams = {
+/**
+ * @maxLength 64
+ */
+account_type?: string;
+borrower_id?: string;
+/**
+ * @maxLength 64
+ */
+category?: string;
+/**
+ * @maxLength 64
+ */
+iban?: string;
+/**
+ * @minimum 1
+ * @maximum 50
+ */
+limit?: number;
+/**
+ * @maxLength 128
+ */
+q?: string;
+/**
+ * @maxLength 64
+ */
+status?: string;
+};
+
+export type V1AdminOpsLookupsSecondaryListingsListParams = {
+/**
+ * @maxLength 64
+ */
+account_type?: string;
+borrower_id?: string;
+/**
+ * @maxLength 64
+ */
+category?: string;
+/**
+ * @maxLength 64
+ */
+iban?: string;
+/**
+ * @minimum 1
+ * @maximum 50
+ */
+limit?: number;
+/**
+ * @maxLength 128
+ */
+q?: string;
+/**
+ * @maxLength 64
+ */
+status?: string;
+};
+
+export type V1AdminOpsLookupsUsersListParams = {
+/**
+ * @maxLength 64
+ */
+account_type?: string;
+borrower_id?: string;
+/**
+ * @maxLength 64
+ */
+category?: string;
+/**
+ * @maxLength 64
+ */
+iban?: string;
+/**
+ * @minimum 1
+ * @maximum 50
+ */
+limit?: number;
+/**
+ * @maxLength 128
+ */
+q?: string;
+/**
+ * @maxLength 64
+ */
+status?: string;
+};
+
+export type V1AdminOpsLookupsWithdrawalRequestsListParams = {
+/**
+ * @maxLength 64
+ */
+account_type?: string;
+borrower_id?: string;
+/**
+ * @maxLength 64
+ */
+category?: string;
+/**
+ * @maxLength 64
+ */
+iban?: string;
+/**
+ * @minimum 1
+ * @maximum 50
+ */
+limit?: number;
+/**
+ * @maxLength 128
+ */
+q?: string;
+/**
+ * @maxLength 64
+ */
+status?: string;
 };
 
 export type V1AdminOpsTasksListParams = {
@@ -3736,6 +4007,798 @@ export function useV1AdminOpsDashboardRetrieve<TData = Awaited<ReturnType<typeof
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getV1AdminOpsDashboardRetrieveQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1AdminOpsLookupsBorrowersList = (
+    params?: V1AdminOpsLookupsBorrowersListParams,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<AdminLookupResult[]>(
+      {url: `/api/v1/admin-ops/lookups/borrowers/`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+
+
+
+
+export const getV1AdminOpsLookupsBorrowersListQueryKey = (params?: V1AdminOpsLookupsBorrowersListParams,) => {
+    return [
+    `/api/v1/admin-ops/lookups/borrowers/`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+
+export const getV1AdminOpsLookupsBorrowersListQueryOptions = <TData = Awaited<ReturnType<typeof v1AdminOpsLookupsBorrowersList>>, TError = unknown>(params?: V1AdminOpsLookupsBorrowersListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsBorrowersList>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1AdminOpsLookupsBorrowersListQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AdminOpsLookupsBorrowersList>>> = ({ signal }) => v1AdminOpsLookupsBorrowersList(params, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsBorrowersList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1AdminOpsLookupsBorrowersListQueryResult = NonNullable<Awaited<ReturnType<typeof v1AdminOpsLookupsBorrowersList>>>
+export type V1AdminOpsLookupsBorrowersListQueryError = unknown
+
+
+export function useV1AdminOpsLookupsBorrowersList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsBorrowersList>>, TError = unknown>(
+ params: undefined |  V1AdminOpsLookupsBorrowersListParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsBorrowersList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsLookupsBorrowersList>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsLookupsBorrowersList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsLookupsBorrowersList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsBorrowersList>>, TError = unknown>(
+ params?: V1AdminOpsLookupsBorrowersListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsBorrowersList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsLookupsBorrowersList>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsLookupsBorrowersList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsLookupsBorrowersList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsBorrowersList>>, TError = unknown>(
+ params?: V1AdminOpsLookupsBorrowersListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsBorrowersList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1AdminOpsLookupsBorrowersList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsBorrowersList>>, TError = unknown>(
+ params?: V1AdminOpsLookupsBorrowersListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsBorrowersList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1AdminOpsLookupsBorrowersListQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1AdminOpsLookupsDocumentTemplateVersionsList = (
+    params?: V1AdminOpsLookupsDocumentTemplateVersionsListParams,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<AdminLookupResult[]>(
+      {url: `/api/v1/admin-ops/lookups/document-template-versions/`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+
+
+
+
+export const getV1AdminOpsLookupsDocumentTemplateVersionsListQueryKey = (params?: V1AdminOpsLookupsDocumentTemplateVersionsListParams,) => {
+    return [
+    `/api/v1/admin-ops/lookups/document-template-versions/`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+
+export const getV1AdminOpsLookupsDocumentTemplateVersionsListQueryOptions = <TData = Awaited<ReturnType<typeof v1AdminOpsLookupsDocumentTemplateVersionsList>>, TError = unknown>(params?: V1AdminOpsLookupsDocumentTemplateVersionsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsDocumentTemplateVersionsList>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1AdminOpsLookupsDocumentTemplateVersionsListQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AdminOpsLookupsDocumentTemplateVersionsList>>> = ({ signal }) => v1AdminOpsLookupsDocumentTemplateVersionsList(params, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsDocumentTemplateVersionsList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1AdminOpsLookupsDocumentTemplateVersionsListQueryResult = NonNullable<Awaited<ReturnType<typeof v1AdminOpsLookupsDocumentTemplateVersionsList>>>
+export type V1AdminOpsLookupsDocumentTemplateVersionsListQueryError = unknown
+
+
+export function useV1AdminOpsLookupsDocumentTemplateVersionsList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsDocumentTemplateVersionsList>>, TError = unknown>(
+ params: undefined |  V1AdminOpsLookupsDocumentTemplateVersionsListParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsDocumentTemplateVersionsList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsLookupsDocumentTemplateVersionsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsLookupsDocumentTemplateVersionsList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsLookupsDocumentTemplateVersionsList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsDocumentTemplateVersionsList>>, TError = unknown>(
+ params?: V1AdminOpsLookupsDocumentTemplateVersionsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsDocumentTemplateVersionsList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsLookupsDocumentTemplateVersionsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsLookupsDocumentTemplateVersionsList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsLookupsDocumentTemplateVersionsList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsDocumentTemplateVersionsList>>, TError = unknown>(
+ params?: V1AdminOpsLookupsDocumentTemplateVersionsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsDocumentTemplateVersionsList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1AdminOpsLookupsDocumentTemplateVersionsList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsDocumentTemplateVersionsList>>, TError = unknown>(
+ params?: V1AdminOpsLookupsDocumentTemplateVersionsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsDocumentTemplateVersionsList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1AdminOpsLookupsDocumentTemplateVersionsListQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1AdminOpsLookupsInvestorsList = (
+    params?: V1AdminOpsLookupsInvestorsListParams,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<AdminLookupResult[]>(
+      {url: `/api/v1/admin-ops/lookups/investors/`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+
+
+
+
+export const getV1AdminOpsLookupsInvestorsListQueryKey = (params?: V1AdminOpsLookupsInvestorsListParams,) => {
+    return [
+    `/api/v1/admin-ops/lookups/investors/`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+
+export const getV1AdminOpsLookupsInvestorsListQueryOptions = <TData = Awaited<ReturnType<typeof v1AdminOpsLookupsInvestorsList>>, TError = unknown>(params?: V1AdminOpsLookupsInvestorsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsInvestorsList>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1AdminOpsLookupsInvestorsListQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AdminOpsLookupsInvestorsList>>> = ({ signal }) => v1AdminOpsLookupsInvestorsList(params, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsInvestorsList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1AdminOpsLookupsInvestorsListQueryResult = NonNullable<Awaited<ReturnType<typeof v1AdminOpsLookupsInvestorsList>>>
+export type V1AdminOpsLookupsInvestorsListQueryError = unknown
+
+
+export function useV1AdminOpsLookupsInvestorsList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsInvestorsList>>, TError = unknown>(
+ params: undefined |  V1AdminOpsLookupsInvestorsListParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsInvestorsList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsLookupsInvestorsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsLookupsInvestorsList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsLookupsInvestorsList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsInvestorsList>>, TError = unknown>(
+ params?: V1AdminOpsLookupsInvestorsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsInvestorsList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsLookupsInvestorsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsLookupsInvestorsList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsLookupsInvestorsList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsInvestorsList>>, TError = unknown>(
+ params?: V1AdminOpsLookupsInvestorsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsInvestorsList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1AdminOpsLookupsInvestorsList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsInvestorsList>>, TError = unknown>(
+ params?: V1AdminOpsLookupsInvestorsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsInvestorsList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1AdminOpsLookupsInvestorsListQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1AdminOpsLookupsKycCasesList = (
+    params?: V1AdminOpsLookupsKycCasesListParams,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<AdminLookupResult[]>(
+      {url: `/api/v1/admin-ops/lookups/kyc-cases/`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+
+
+
+
+export const getV1AdminOpsLookupsKycCasesListQueryKey = (params?: V1AdminOpsLookupsKycCasesListParams,) => {
+    return [
+    `/api/v1/admin-ops/lookups/kyc-cases/`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+
+export const getV1AdminOpsLookupsKycCasesListQueryOptions = <TData = Awaited<ReturnType<typeof v1AdminOpsLookupsKycCasesList>>, TError = unknown>(params?: V1AdminOpsLookupsKycCasesListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsKycCasesList>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1AdminOpsLookupsKycCasesListQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AdminOpsLookupsKycCasesList>>> = ({ signal }) => v1AdminOpsLookupsKycCasesList(params, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsKycCasesList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1AdminOpsLookupsKycCasesListQueryResult = NonNullable<Awaited<ReturnType<typeof v1AdminOpsLookupsKycCasesList>>>
+export type V1AdminOpsLookupsKycCasesListQueryError = unknown
+
+
+export function useV1AdminOpsLookupsKycCasesList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsKycCasesList>>, TError = unknown>(
+ params: undefined |  V1AdminOpsLookupsKycCasesListParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsKycCasesList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsLookupsKycCasesList>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsLookupsKycCasesList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsLookupsKycCasesList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsKycCasesList>>, TError = unknown>(
+ params?: V1AdminOpsLookupsKycCasesListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsKycCasesList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsLookupsKycCasesList>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsLookupsKycCasesList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsLookupsKycCasesList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsKycCasesList>>, TError = unknown>(
+ params?: V1AdminOpsLookupsKycCasesListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsKycCasesList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1AdminOpsLookupsKycCasesList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsKycCasesList>>, TError = unknown>(
+ params?: V1AdminOpsLookupsKycCasesListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsKycCasesList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1AdminOpsLookupsKycCasesListQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1AdminOpsLookupsLoansList = (
+    params?: V1AdminOpsLookupsLoansListParams,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<AdminLookupResult[]>(
+      {url: `/api/v1/admin-ops/lookups/loans/`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+
+
+
+
+export const getV1AdminOpsLookupsLoansListQueryKey = (params?: V1AdminOpsLookupsLoansListParams,) => {
+    return [
+    `/api/v1/admin-ops/lookups/loans/`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+
+export const getV1AdminOpsLookupsLoansListQueryOptions = <TData = Awaited<ReturnType<typeof v1AdminOpsLookupsLoansList>>, TError = unknown>(params?: V1AdminOpsLookupsLoansListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsLoansList>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1AdminOpsLookupsLoansListQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AdminOpsLookupsLoansList>>> = ({ signal }) => v1AdminOpsLookupsLoansList(params, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsLoansList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1AdminOpsLookupsLoansListQueryResult = NonNullable<Awaited<ReturnType<typeof v1AdminOpsLookupsLoansList>>>
+export type V1AdminOpsLookupsLoansListQueryError = unknown
+
+
+export function useV1AdminOpsLookupsLoansList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsLoansList>>, TError = unknown>(
+ params: undefined |  V1AdminOpsLookupsLoansListParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsLoansList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsLookupsLoansList>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsLookupsLoansList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsLookupsLoansList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsLoansList>>, TError = unknown>(
+ params?: V1AdminOpsLookupsLoansListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsLoansList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsLookupsLoansList>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsLookupsLoansList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsLookupsLoansList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsLoansList>>, TError = unknown>(
+ params?: V1AdminOpsLookupsLoansListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsLoansList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1AdminOpsLookupsLoansList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsLoansList>>, TError = unknown>(
+ params?: V1AdminOpsLookupsLoansListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsLoansList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1AdminOpsLookupsLoansListQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1AdminOpsLookupsPrimaryOrdersList = (
+    params?: V1AdminOpsLookupsPrimaryOrdersListParams,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<AdminLookupResult[]>(
+      {url: `/api/v1/admin-ops/lookups/primary-orders/`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+
+
+
+
+export const getV1AdminOpsLookupsPrimaryOrdersListQueryKey = (params?: V1AdminOpsLookupsPrimaryOrdersListParams,) => {
+    return [
+    `/api/v1/admin-ops/lookups/primary-orders/`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+
+export const getV1AdminOpsLookupsPrimaryOrdersListQueryOptions = <TData = Awaited<ReturnType<typeof v1AdminOpsLookupsPrimaryOrdersList>>, TError = unknown>(params?: V1AdminOpsLookupsPrimaryOrdersListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsPrimaryOrdersList>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1AdminOpsLookupsPrimaryOrdersListQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AdminOpsLookupsPrimaryOrdersList>>> = ({ signal }) => v1AdminOpsLookupsPrimaryOrdersList(params, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsPrimaryOrdersList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1AdminOpsLookupsPrimaryOrdersListQueryResult = NonNullable<Awaited<ReturnType<typeof v1AdminOpsLookupsPrimaryOrdersList>>>
+export type V1AdminOpsLookupsPrimaryOrdersListQueryError = unknown
+
+
+export function useV1AdminOpsLookupsPrimaryOrdersList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsPrimaryOrdersList>>, TError = unknown>(
+ params: undefined |  V1AdminOpsLookupsPrimaryOrdersListParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsPrimaryOrdersList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsLookupsPrimaryOrdersList>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsLookupsPrimaryOrdersList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsLookupsPrimaryOrdersList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsPrimaryOrdersList>>, TError = unknown>(
+ params?: V1AdminOpsLookupsPrimaryOrdersListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsPrimaryOrdersList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsLookupsPrimaryOrdersList>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsLookupsPrimaryOrdersList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsLookupsPrimaryOrdersList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsPrimaryOrdersList>>, TError = unknown>(
+ params?: V1AdminOpsLookupsPrimaryOrdersListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsPrimaryOrdersList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1AdminOpsLookupsPrimaryOrdersList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsPrimaryOrdersList>>, TError = unknown>(
+ params?: V1AdminOpsLookupsPrimaryOrdersListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsPrimaryOrdersList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1AdminOpsLookupsPrimaryOrdersListQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1AdminOpsLookupsSecondaryListingsList = (
+    params?: V1AdminOpsLookupsSecondaryListingsListParams,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<AdminLookupResult[]>(
+      {url: `/api/v1/admin-ops/lookups/secondary-listings/`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+
+
+
+
+export const getV1AdminOpsLookupsSecondaryListingsListQueryKey = (params?: V1AdminOpsLookupsSecondaryListingsListParams,) => {
+    return [
+    `/api/v1/admin-ops/lookups/secondary-listings/`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+
+export const getV1AdminOpsLookupsSecondaryListingsListQueryOptions = <TData = Awaited<ReturnType<typeof v1AdminOpsLookupsSecondaryListingsList>>, TError = unknown>(params?: V1AdminOpsLookupsSecondaryListingsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsSecondaryListingsList>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1AdminOpsLookupsSecondaryListingsListQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AdminOpsLookupsSecondaryListingsList>>> = ({ signal }) => v1AdminOpsLookupsSecondaryListingsList(params, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsSecondaryListingsList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1AdminOpsLookupsSecondaryListingsListQueryResult = NonNullable<Awaited<ReturnType<typeof v1AdminOpsLookupsSecondaryListingsList>>>
+export type V1AdminOpsLookupsSecondaryListingsListQueryError = unknown
+
+
+export function useV1AdminOpsLookupsSecondaryListingsList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsSecondaryListingsList>>, TError = unknown>(
+ params: undefined |  V1AdminOpsLookupsSecondaryListingsListParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsSecondaryListingsList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsLookupsSecondaryListingsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsLookupsSecondaryListingsList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsLookupsSecondaryListingsList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsSecondaryListingsList>>, TError = unknown>(
+ params?: V1AdminOpsLookupsSecondaryListingsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsSecondaryListingsList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsLookupsSecondaryListingsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsLookupsSecondaryListingsList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsLookupsSecondaryListingsList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsSecondaryListingsList>>, TError = unknown>(
+ params?: V1AdminOpsLookupsSecondaryListingsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsSecondaryListingsList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1AdminOpsLookupsSecondaryListingsList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsSecondaryListingsList>>, TError = unknown>(
+ params?: V1AdminOpsLookupsSecondaryListingsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsSecondaryListingsList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1AdminOpsLookupsSecondaryListingsListQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1AdminOpsLookupsUsersList = (
+    params?: V1AdminOpsLookupsUsersListParams,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<AdminLookupResult[]>(
+      {url: `/api/v1/admin-ops/lookups/users/`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+
+
+
+
+export const getV1AdminOpsLookupsUsersListQueryKey = (params?: V1AdminOpsLookupsUsersListParams,) => {
+    return [
+    `/api/v1/admin-ops/lookups/users/`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+
+export const getV1AdminOpsLookupsUsersListQueryOptions = <TData = Awaited<ReturnType<typeof v1AdminOpsLookupsUsersList>>, TError = unknown>(params?: V1AdminOpsLookupsUsersListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsUsersList>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1AdminOpsLookupsUsersListQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AdminOpsLookupsUsersList>>> = ({ signal }) => v1AdminOpsLookupsUsersList(params, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsUsersList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1AdminOpsLookupsUsersListQueryResult = NonNullable<Awaited<ReturnType<typeof v1AdminOpsLookupsUsersList>>>
+export type V1AdminOpsLookupsUsersListQueryError = unknown
+
+
+export function useV1AdminOpsLookupsUsersList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsUsersList>>, TError = unknown>(
+ params: undefined |  V1AdminOpsLookupsUsersListParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsUsersList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsLookupsUsersList>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsLookupsUsersList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsLookupsUsersList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsUsersList>>, TError = unknown>(
+ params?: V1AdminOpsLookupsUsersListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsUsersList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsLookupsUsersList>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsLookupsUsersList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsLookupsUsersList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsUsersList>>, TError = unknown>(
+ params?: V1AdminOpsLookupsUsersListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsUsersList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1AdminOpsLookupsUsersList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsUsersList>>, TError = unknown>(
+ params?: V1AdminOpsLookupsUsersListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsUsersList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1AdminOpsLookupsUsersListQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1AdminOpsLookupsWithdrawalRequestsList = (
+    params?: V1AdminOpsLookupsWithdrawalRequestsListParams,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<AdminLookupResult[]>(
+      {url: `/api/v1/admin-ops/lookups/withdrawal-requests/`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+
+
+
+
+export const getV1AdminOpsLookupsWithdrawalRequestsListQueryKey = (params?: V1AdminOpsLookupsWithdrawalRequestsListParams,) => {
+    return [
+    `/api/v1/admin-ops/lookups/withdrawal-requests/`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+
+export const getV1AdminOpsLookupsWithdrawalRequestsListQueryOptions = <TData = Awaited<ReturnType<typeof v1AdminOpsLookupsWithdrawalRequestsList>>, TError = unknown>(params?: V1AdminOpsLookupsWithdrawalRequestsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsWithdrawalRequestsList>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1AdminOpsLookupsWithdrawalRequestsListQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AdminOpsLookupsWithdrawalRequestsList>>> = ({ signal }) => v1AdminOpsLookupsWithdrawalRequestsList(params, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsWithdrawalRequestsList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1AdminOpsLookupsWithdrawalRequestsListQueryResult = NonNullable<Awaited<ReturnType<typeof v1AdminOpsLookupsWithdrawalRequestsList>>>
+export type V1AdminOpsLookupsWithdrawalRequestsListQueryError = unknown
+
+
+export function useV1AdminOpsLookupsWithdrawalRequestsList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsWithdrawalRequestsList>>, TError = unknown>(
+ params: undefined |  V1AdminOpsLookupsWithdrawalRequestsListParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsWithdrawalRequestsList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsLookupsWithdrawalRequestsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsLookupsWithdrawalRequestsList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsLookupsWithdrawalRequestsList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsWithdrawalRequestsList>>, TError = unknown>(
+ params?: V1AdminOpsLookupsWithdrawalRequestsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsWithdrawalRequestsList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsLookupsWithdrawalRequestsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsLookupsWithdrawalRequestsList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsLookupsWithdrawalRequestsList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsWithdrawalRequestsList>>, TError = unknown>(
+ params?: V1AdminOpsLookupsWithdrawalRequestsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsWithdrawalRequestsList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1AdminOpsLookupsWithdrawalRequestsList<TData = Awaited<ReturnType<typeof v1AdminOpsLookupsWithdrawalRequestsList>>, TError = unknown>(
+ params?: V1AdminOpsLookupsWithdrawalRequestsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsLookupsWithdrawalRequestsList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1AdminOpsLookupsWithdrawalRequestsListQueryOptions(params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
@@ -10274,6 +11337,24 @@ export const getV1AdminOpsAuditEventsListResponseMock = (): AuditEvent[] => (Arr
 
 export const getV1AdminOpsDashboardRetrieveResponseMock = (overrideResponse: Partial< AdminOperationsDashboard > = {}): AdminOperationsDashboard => ({as_of: `${faker.date.past().toISOString().split('.')[0]}Z`, as_of_date: faker.date.past().toISOString().split('T')[0], due_window_days: faker.number.int({min: undefined, max: undefined}), queue_limit: faker.number.int({min: undefined, max: undefined}), summary: {}, currency_summaries: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({currency: faker.string.alpha({length: {min: 10, max: 20}}), available_balance_minor: faker.number.int({min: undefined, max: undefined}), investable_available_minor: faker.number.int({min: undefined, max: undefined}), withdraw_only_available_minor: faker.number.int({min: undefined, max: undefined}), overdue_available_minor: faker.number.int({min: undefined, max: undefined}), frozen_available_minor: faker.number.int({min: undefined, max: undefined}), penalty_mode_available_minor: faker.number.int({min: undefined, max: undefined}), pending_withdrawal_minor: faker.number.int({min: undefined, max: undefined}), forced_withdrawal_minor: faker.number.int({min: undefined, max: undefined}), pending_bank_operation_minor: faker.number.int({min: undefined, max: undefined}), fx_unsettled_sold_minor: faker.number.int({min: undefined, max: undefined}), fx_unsettled_bought_minor: faker.number.int({min: undefined, max: undefined}), fx_unsettled_fee_minor: faker.number.int({min: undefined, max: undefined})})), queues: {admin_tasks: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), kyc_reviews: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), bank_operations_pending: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), withdrawals_requested: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), forced_withdrawals_requested: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), balance_ageing_actions: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), funding_loans: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), servicing_due: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), loan_risk: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), secondary_listing_approvals: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), fx_settlement_deltas: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), failed_emails: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), reconciliation_breaks: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}}))}, ...overrideResponse})
 
+export const getV1AdminOpsLookupsBorrowersListResponseMock = (): AdminLookupResult[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), kind: faker.string.alpha({length: {min: 10, max: 20}}), label: faker.string.alpha({length: {min: 10, max: 20}}), meta: faker.string.alpha({length: {min: 10, max: 20}}), payload: {}})))
+
+export const getV1AdminOpsLookupsDocumentTemplateVersionsListResponseMock = (): AdminLookupResult[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), kind: faker.string.alpha({length: {min: 10, max: 20}}), label: faker.string.alpha({length: {min: 10, max: 20}}), meta: faker.string.alpha({length: {min: 10, max: 20}}), payload: {}})))
+
+export const getV1AdminOpsLookupsInvestorsListResponseMock = (): AdminLookupResult[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), kind: faker.string.alpha({length: {min: 10, max: 20}}), label: faker.string.alpha({length: {min: 10, max: 20}}), meta: faker.string.alpha({length: {min: 10, max: 20}}), payload: {}})))
+
+export const getV1AdminOpsLookupsKycCasesListResponseMock = (): AdminLookupResult[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), kind: faker.string.alpha({length: {min: 10, max: 20}}), label: faker.string.alpha({length: {min: 10, max: 20}}), meta: faker.string.alpha({length: {min: 10, max: 20}}), payload: {}})))
+
+export const getV1AdminOpsLookupsLoansListResponseMock = (): AdminLookupResult[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), kind: faker.string.alpha({length: {min: 10, max: 20}}), label: faker.string.alpha({length: {min: 10, max: 20}}), meta: faker.string.alpha({length: {min: 10, max: 20}}), payload: {}})))
+
+export const getV1AdminOpsLookupsPrimaryOrdersListResponseMock = (): AdminLookupResult[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), kind: faker.string.alpha({length: {min: 10, max: 20}}), label: faker.string.alpha({length: {min: 10, max: 20}}), meta: faker.string.alpha({length: {min: 10, max: 20}}), payload: {}})))
+
+export const getV1AdminOpsLookupsSecondaryListingsListResponseMock = (): AdminLookupResult[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), kind: faker.string.alpha({length: {min: 10, max: 20}}), label: faker.string.alpha({length: {min: 10, max: 20}}), meta: faker.string.alpha({length: {min: 10, max: 20}}), payload: {}})))
+
+export const getV1AdminOpsLookupsUsersListResponseMock = (): AdminLookupResult[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), kind: faker.string.alpha({length: {min: 10, max: 20}}), label: faker.string.alpha({length: {min: 10, max: 20}}), meta: faker.string.alpha({length: {min: 10, max: 20}}), payload: {}})))
+
+export const getV1AdminOpsLookupsWithdrawalRequestsListResponseMock = (): AdminLookupResult[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), kind: faker.string.alpha({length: {min: 10, max: 20}}), label: faker.string.alpha({length: {min: 10, max: 20}}), meta: faker.string.alpha({length: {min: 10, max: 20}}), payload: {}})))
+
 export const getV1AdminOpsReconciliationBreakTasksSyncCreateResponseMock = (overrideResponse: Partial< ReconciliationBreakTaskSyncResponse > = {}): ReconciliationBreakTaskSyncResponse => ({created_count: faker.number.int({min: undefined, max: undefined}), existing_count: faker.number.int({min: undefined, max: undefined}), skipped_count: faker.number.int({min: undefined, max: undefined}), tasks: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), task_type: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), assigned_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_by_id: faker.string.uuid(), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), notes: faker.string.alpha({length: {min: 10, max: 20}}), related_object_type: faker.string.alpha({length: {min: 10, max: 20}}), related_object_id: faker.string.alpha({length: {min: 10, max: 20}}), completed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), completion_note: faker.string.alpha({length: {min: 10, max: 20}}), is_terminal: faker.datatype.boolean(), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`})), ...overrideResponse})
 
 export const getV1AdminOpsTasksListResponseMock = (): AdminTask[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), task_type: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), assigned_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_by_id: faker.string.uuid(), due_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), notes: faker.string.alpha({length: {min: 10, max: 20}}), related_object_type: faker.string.alpha({length: {min: 10, max: 20}}), related_object_id: faker.string.alpha({length: {min: 10, max: 20}}), completed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), completion_note: faker.string.alpha({length: {min: 10, max: 20}}), is_terminal: faker.datatype.boolean(), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`})))
@@ -10286,23 +11367,23 @@ export const getV1AdminOpsTasksPartialUpdateResponseMock = (overrideResponse: Pa
 
 export const getV1AdminOpsTasksEventsListResponseMock = (): AdminTaskEvent[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), task_id: faker.string.uuid(), event_type: faker.string.alpha({length: {min: 10, max: 20}}), actor_user_id: faker.string.uuid(), actor_account_type: faker.string.alpha({length: {min: 10, max: 20}}), previous_status: faker.string.alpha({length: {min: 10, max: 20}}), new_status: faker.string.alpha({length: {min: 10, max: 20}}), note: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, occurred_at: `${faker.date.past().toISOString().split('.')[0]}Z`})))
 
-export const getV1AuthAdminLoginConfirmCreateResponseMock = (overrideResponse: Partial< AuthenticatedUserResponse > = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
+export const getV1AuthAdminLoginConfirmCreateResponseMock = (overrideResponse: Partial< AuthenticatedUserResponse > = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
 
 export const getV1AuthAdminLoginStartCreateResponseMock = (overrideResponse: Partial< AdminLoginStartResponse > = {}): AdminLoginStartResponse => ({code_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), expires_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
 
-export const getV1AuthAdminUsersCreateResponseMock = (overrideResponse: Partial< AuthenticatedUserResponse > = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
+export const getV1AuthAdminUsersCreateResponseMock = (overrideResponse: Partial< AuthenticatedUserResponse > = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
 
-export const getV1AuthAdminUsersAccessCreateResponseMock = (overrideResponse: Partial< AccountAccessChangeResponse > = {}): AccountAccessChangeResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, event: {id: faker.string.uuid(), user_id: faker.string.uuid(), actor_user_id: faker.string.uuid(), actor_account_type: faker.string.alpha({length: {min: 10, max: 20}}), previous_status: faker.string.alpha({length: {min: 10, max: 20}}), new_status: faker.string.alpha({length: {min: 10, max: 20}}), previous_is_active: faker.datatype.boolean(), new_is_active: faker.datatype.boolean(), reason_code: faker.string.alpha({length: {min: 10, max: 20}}), note: faker.string.alpha({length: {min: 10, max: 20}}), evidence_summary: faker.string.alpha({length: {min: 10, max: 20}}), clean_account_confirmed: faker.datatype.boolean(), changed_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, ...overrideResponse})
+export const getV1AuthAdminUsersAccessCreateResponseMock = (overrideResponse: Partial< AccountAccessChangeResponse > = {}): AccountAccessChangeResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, event: {id: faker.string.uuid(), user_id: faker.string.uuid(), actor_user_id: faker.string.uuid(), actor_account_type: faker.string.alpha({length: {min: 10, max: 20}}), previous_status: faker.string.alpha({length: {min: 10, max: 20}}), new_status: faker.string.alpha({length: {min: 10, max: 20}}), previous_is_active: faker.datatype.boolean(), new_is_active: faker.datatype.boolean(), reason_code: faker.string.alpha({length: {min: 10, max: 20}}), note: faker.string.alpha({length: {min: 10, max: 20}}), evidence_summary: faker.string.alpha({length: {min: 10, max: 20}}), clean_account_confirmed: faker.datatype.boolean(), changed_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, ...overrideResponse})
 
-export const getV1AuthMagicLinkConsumeCreateResponseMock = (overrideResponse: Partial< AuthenticatedUserResponse > = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
+export const getV1AuthMagicLinkConsumeCreateResponseMock = (overrideResponse: Partial< AuthenticatedUserResponse > = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
 
-export const getV1AuthMeRetrieveResponseMock = (overrideResponse: Partial< AuthenticatedUserResponse > = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
+export const getV1AuthMeRetrieveResponseMock = (overrideResponse: Partial< AuthenticatedUserResponse > = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
 
-export const getV1AuthPhoneConfirmCreateResponseMock = (overrideResponse: Partial< PhoneVerificationConfirmResponse > = {}): PhoneVerificationConfirmResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
+export const getV1AuthPhoneConfirmCreateResponseMock = (overrideResponse: Partial< PhoneVerificationConfirmResponse > = {}): PhoneVerificationConfirmResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
 
 export const getV1AuthPhoneRequestCreateResponseMock = (overrideResponse: Partial< PhoneVerificationRequestResponse > = {}): PhoneVerificationRequestResponse => ({challenge_id: faker.helpers.arrayElement([faker.string.uuid(), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), expires_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), phone_verified: faker.datatype.boolean(), ...overrideResponse})
 
-export const getV1AuthRegisterNaturalPersonCreateResponseMock = (overrideResponse: Partial< NaturalPersonRegistrationResponse > = {}): NaturalPersonRegistrationResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, email_login_sent: faker.datatype.boolean(), ...overrideResponse})
+export const getV1AuthRegisterNaturalPersonCreateResponseMock = (overrideResponse: Partial< NaturalPersonRegistrationResponse > = {}): NaturalPersonRegistrationResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, email_login_sent: faker.datatype.boolean(), ...overrideResponse})
 
 export const getV1AuthSensitiveActionCodeRequestCreateResponseMock = (overrideResponse: Partial< SensitiveActionCodeRequestResponse > = {}): SensitiveActionCodeRequestResponse => ({code_id: faker.string.uuid(), action: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), expires_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
 
@@ -10481,6 +11562,114 @@ export const getV1AdminOpsDashboardRetrieveMockHandler = (overrideResponse?: Adm
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AdminOpsDashboardRetrieveResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1AdminOpsLookupsBorrowersListMockHandler = (overrideResponse?: AdminLookupResult[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AdminLookupResult[]> | AdminLookupResult[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/admin-ops/lookups/borrowers/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AdminOpsLookupsBorrowersListResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1AdminOpsLookupsDocumentTemplateVersionsListMockHandler = (overrideResponse?: AdminLookupResult[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AdminLookupResult[]> | AdminLookupResult[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/admin-ops/lookups/document-template-versions/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AdminOpsLookupsDocumentTemplateVersionsListResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1AdminOpsLookupsInvestorsListMockHandler = (overrideResponse?: AdminLookupResult[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AdminLookupResult[]> | AdminLookupResult[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/admin-ops/lookups/investors/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AdminOpsLookupsInvestorsListResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1AdminOpsLookupsKycCasesListMockHandler = (overrideResponse?: AdminLookupResult[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AdminLookupResult[]> | AdminLookupResult[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/admin-ops/lookups/kyc-cases/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AdminOpsLookupsKycCasesListResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1AdminOpsLookupsLoansListMockHandler = (overrideResponse?: AdminLookupResult[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AdminLookupResult[]> | AdminLookupResult[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/admin-ops/lookups/loans/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AdminOpsLookupsLoansListResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1AdminOpsLookupsPrimaryOrdersListMockHandler = (overrideResponse?: AdminLookupResult[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AdminLookupResult[]> | AdminLookupResult[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/admin-ops/lookups/primary-orders/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AdminOpsLookupsPrimaryOrdersListResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1AdminOpsLookupsSecondaryListingsListMockHandler = (overrideResponse?: AdminLookupResult[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AdminLookupResult[]> | AdminLookupResult[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/admin-ops/lookups/secondary-listings/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AdminOpsLookupsSecondaryListingsListResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1AdminOpsLookupsUsersListMockHandler = (overrideResponse?: AdminLookupResult[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AdminLookupResult[]> | AdminLookupResult[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/admin-ops/lookups/users/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AdminOpsLookupsUsersListResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1AdminOpsLookupsWithdrawalRequestsListMockHandler = (overrideResponse?: AdminLookupResult[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AdminLookupResult[]> | AdminLookupResult[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/admin-ops/lookups/withdrawal-requests/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AdminOpsLookupsWithdrawalRequestsListResponseMock()),
       { status: 200,
         headers: { 'Content-Type': 'application/json' }
       })
@@ -11603,6 +12792,15 @@ export const getV1ServicingLoanRiskNotesListMockHandler = (overrideResponse?: Pu
 export const getBanxumApiMock = () => [
   getV1AdminOpsAuditEventsListMockHandler(),
   getV1AdminOpsDashboardRetrieveMockHandler(),
+  getV1AdminOpsLookupsBorrowersListMockHandler(),
+  getV1AdminOpsLookupsDocumentTemplateVersionsListMockHandler(),
+  getV1AdminOpsLookupsInvestorsListMockHandler(),
+  getV1AdminOpsLookupsKycCasesListMockHandler(),
+  getV1AdminOpsLookupsLoansListMockHandler(),
+  getV1AdminOpsLookupsPrimaryOrdersListMockHandler(),
+  getV1AdminOpsLookupsSecondaryListingsListMockHandler(),
+  getV1AdminOpsLookupsUsersListMockHandler(),
+  getV1AdminOpsLookupsWithdrawalRequestsListMockHandler(),
   getV1AdminOpsReconciliationBreakTasksSyncCreateMockHandler(),
   getV1AdminOpsTasksListMockHandler(),
   getV1AdminOpsTasksCreateMockHandler(),

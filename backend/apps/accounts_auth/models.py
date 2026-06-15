@@ -5,8 +5,14 @@ import uuid
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
 from django.contrib.auth.models import PermissionsMixin
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 
+from backend.apps.accounts_auth.references import (
+    investor_reference_from_uuid,
+    is_lender_account_type,
+    next_investor_reference_candidate,
+)
 from backend.apps.platform_core.models.base import AppendOnlyModel, TimestampedModel
 
 
@@ -50,6 +56,15 @@ class UserManager(BaseUserManager["User"]):
         if not email:
             raise ValueError("Email is required.")
         user = self.model(email=self.normalize_email(email).strip().lower(), **extra_fields)
+        if is_lender_account_type(str(user.account_type)) and not user.investor_reference:
+            base_reference = investor_reference_from_uuid(user.id)
+            for attempt in range(64):
+                candidate = next_investor_reference_candidate(base_reference, attempt)
+                if not self.model.objects.filter(investor_reference=candidate).exists():
+                    user.investor_reference = candidate
+                    break
+            if not user.investor_reference:
+                raise ValueError("Could not allocate a unique investor reference.")
         if password:
             user.set_password(password)
         else:
@@ -74,6 +89,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     email = models.EmailField(unique=True)
     full_name = models.CharField(max_length=255)
+    investor_reference = models.CharField(max_length=10, blank=True, default="")
     account_type = models.CharField(max_length=64, choices=AccountType.choices)
     status = models.CharField(
         max_length=32,
@@ -98,6 +114,14 @@ class User(AbstractBaseUser, PermissionsMixin):
         indexes = [
             models.Index(fields=["account_type", "status"]),
             models.Index(fields=["email"]),
+            models.Index(fields=["investor_reference"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["investor_reference"],
+                condition=~Q(investor_reference=""),
+                name="unique_user_investor_reference",
+            ),
         ]
 
     def __str__(self) -> str:

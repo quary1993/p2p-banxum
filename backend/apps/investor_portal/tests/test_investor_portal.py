@@ -598,8 +598,7 @@ def test_deposit_instructions_are_self_scoped_and_config_driven(investor: Model)
 
     assert chf["iban"] == "CH9300762011623852957"
     assert chf["is_configured"] is True
-    assert chf["payment_reference"].startswith("BX-")
-    assert str(investor.pk).replace("-", "").upper() in chf["payment_reference"]
+    assert chf["payment_reference"] == f"BX-CHF-{cast(Any, investor).investor_reference}"
 
 
 @pytest.mark.django_db
