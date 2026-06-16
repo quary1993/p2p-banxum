@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import type {
   AdminDashboardQueueItem,
   AdminDashboardQueues
@@ -38,6 +38,62 @@ import { useAdminOperationsDashboardData } from "./data";
 
 const platformName = import.meta.env.VITE_PLATFORM_BRAND_NAME ?? "BANXUM";
 const operatorName = import.meta.env.VITE_LEGAL_OPERATOR_NAME ?? "Garanta Finanzgruppe AG";
+const adminLoginFlowStorageKey = "banxum:admin-login-flow:v1";
+
+type AdminLoginStep = "credentials" | "code";
+
+type AdminLoginFlowState = {
+  step: AdminLoginStep;
+  email: string;
+  codeId: string | null;
+  expiresAt: string | null;
+};
+
+function defaultAdminLoginFlowState(): AdminLoginFlowState {
+  return { step: "credentials", email: "", codeId: null, expiresAt: null };
+}
+
+function adminCodeStillValid(expiresAt: string | null) {
+  if (!expiresAt) return false;
+  return new Date(expiresAt).getTime() > Date.now();
+}
+
+function readAdminLoginFlowState(): AdminLoginFlowState {
+  if (typeof window === "undefined") return defaultAdminLoginFlowState();
+  try {
+    const raw = window.localStorage.getItem(adminLoginFlowStorageKey);
+    if (!raw) return defaultAdminLoginFlowState();
+    const parsed = JSON.parse(raw) as Partial<AdminLoginFlowState>;
+    if (parsed.step === "code" && parsed.codeId && adminCodeStillValid(parsed.expiresAt ?? null)) {
+      return {
+        step: "code",
+        email: typeof parsed.email === "string" ? parsed.email : "",
+        codeId: parsed.codeId,
+        expiresAt: parsed.expiresAt ?? null
+      };
+    }
+    return {
+      ...defaultAdminLoginFlowState(),
+      email: typeof parsed.email === "string" ? parsed.email : ""
+    };
+  } catch {
+    return defaultAdminLoginFlowState();
+  }
+}
+
+function writeAdminLoginFlowState(state: AdminLoginFlowState) {
+  if (typeof window === "undefined") return;
+  if (state.step === "credentials" && !state.email) {
+    window.localStorage.removeItem(adminLoginFlowStorageKey);
+    return;
+  }
+  window.localStorage.setItem(adminLoginFlowStorageKey, JSON.stringify(state));
+}
+
+function clearAdminLoginFlowState() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(adminLoginFlowStorageKey);
+}
 
 type QueueKey = keyof AdminDashboardQueues;
 
@@ -239,6 +295,7 @@ export function AdminApp() {
     query: {
       enabled: !isFixturePreview && localAuthState !== "signed_out",
       retry: false,
+      refetchOnWindowFocus: false,
       staleTime: 30_000
     }
   });
@@ -291,18 +348,25 @@ export function AdminApp() {
 }
 
 function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
-  const [step, setStep] = useState<"credentials" | "code">("credentials");
-  const [email, setEmail] = useState("");
+  const [initialLoginFlowState] = useState(readAdminLoginFlowState);
+  const [step, setStep] = useState<AdminLoginStep>(initialLoginFlowState.step);
+  const [email, setEmail] = useState(initialLoginFlowState.email);
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
-  const [codeId, setCodeId] = useState<string | null>(null);
+  const [codeId, setCodeId] = useState<string | null>(initialLoginFlowState.codeId);
+  const [expiresAt, setExpiresAt] = useState<string | null>(initialLoginFlowState.expiresAt);
   const startLogin = useV1AuthAdminLoginStartCreate();
   const confirmLogin = useV1AuthAdminLoginConfirmCreate();
+
+  useEffect(() => {
+    writeAdminLoginFlowState({ step, email, codeId, expiresAt });
+  }, [codeId, email, expiresAt, step]);
 
   function submitCredentials(event: FormEvent) {
     event.preventDefault();
     if (isFixturePreview) {
       setCodeId("preview-admin-code");
+      setExpiresAt(new Date(Date.now() + 10 * 60 * 1000).toISOString());
       setStep("code");
       return;
     }
@@ -311,6 +375,8 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
       {
         onSuccess: (response) => {
           setCodeId(response.code_id);
+          setExpiresAt(response.expires_at);
+          setCode("");
           setStep("code");
         }
       }
@@ -327,9 +393,19 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
     confirmLogin.mutate(
       { data: { code_id: codeId, code } },
       {
-        onSuccess: onAuthenticated
+        onSuccess: () => {
+          clearAdminLoginFlowState();
+          onAuthenticated();
+        }
       }
     );
+  }
+
+  function returnToCredentials() {
+    setStep("credentials");
+    setCode("");
+    setCodeId(null);
+    setExpiresAt(null);
   }
 
   return (
@@ -399,16 +475,21 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
                 value={code}
               />
             </Field>
+            {expiresAt ? (
+              <p className="muted" style={{ fontSize: 11.5 }}>
+                Code expires {formatDateTime(expiresAt)}.
+              </p>
+            ) : null}
             {confirmLogin.error ? (
               <Banner tone="bad" title="Code confirmation failed">
                 {errorMessage(confirmLogin.error)}
               </Banner>
             ) : null}
             <div className="row gap-8">
-              <Button onClick={() => setStep("credentials")} variant="ghost">
+              <Button onClick={returnToCredentials} variant="ghost">
                 Back
               </Button>
-              <Button disabled={confirmLogin.isPending} type="submit" variant="primary">
+              <Button disabled={code.length < 6 || confirmLogin.isPending} type="submit" variant="primary">
                 Open admin console
               </Button>
             </div>

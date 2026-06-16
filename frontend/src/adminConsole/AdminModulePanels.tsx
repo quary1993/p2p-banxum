@@ -264,6 +264,26 @@ function payloadString(option: AdminLookupResult | null | undefined, key: string
   return typeof value === "string" ? value : "";
 }
 
+function payloadNumber(option: AdminLookupResult | null | undefined, key: string) {
+  const value = payloadRecord(option)[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function compactInvestorReference(value: string) {
+  return value.toUpperCase().match(/L[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{8,9}/)?.[0] ?? "";
+}
+
+function useDebouncedValue(value: string, delayMs = 250) {
+  const [debounced, setDebounced] = useState(value);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(timeout);
+  }, [delayMs, value]);
+
+  return debounced;
+}
+
 function AdminLookupInput({
   label,
   value,
@@ -295,9 +315,11 @@ function AdminLookupInput({
 }) {
   const listId = useId();
   const selected = options.find((option) => option.id === value) ?? null;
+  const queryIsUnselected = required && Boolean(query.trim()) && !value;
   const displayValue = query || (selected ? lookupDisplay(selected) : value);
   const helper = [
     value ? `Selected ID: ${value}` : hint || `Type at least ${minLength} characters to search.`,
+    queryIsUnselected ? "Select a matching result before submitting." : "",
     loading ? "Searching..." : "",
     error ? errorMessage(error) : ""
   ].filter(Boolean).join(" ");
@@ -313,16 +335,27 @@ function AdminLookupInput({
       return;
     }
     onQueryChange(rawValue);
-    onChange(rawValue);
+    onChange("");
   }
 
   return (
     <Field hint={helper} label={label}>
       <input
         list={listId}
+        onBlur={(event) => {
+          const matched = options.find((option) => lookupDisplay(option) === event.target.value);
+          if (matched) handleChange(lookupDisplay(matched));
+        }}
         onChange={(event) => handleChange(event.target.value)}
         placeholder={placeholder}
         required={required}
+        aria-invalid={queryIsUnselected || undefined}
+        onInvalid={(event) => {
+          if (queryIsUnselected) {
+            event.currentTarget.setCustomValidity("Select a matching result from the lookup before submitting.");
+          }
+        }}
+        onInput={(event) => event.currentTarget.setCustomValidity("")}
         value={displayValue}
       />
       <datalist id={listId}>
@@ -361,7 +394,9 @@ function InvestorLookupInput({
   onSelect?: (option: AdminLookupResult) => void;
   onResults?: (options: AdminLookupResult[]) => void;
 }) {
-  const lookup = useAdminInvestorLookupData({ q: query, iban, status, limit: 20 });
+  const debouncedQuery = useDebouncedValue(query);
+  const debouncedIban = useDebouncedValue(iban);
+  const lookup = useAdminInvestorLookupData({ q: debouncedQuery, iban: debouncedIban, status, limit: 20 });
   useEffect(() => {
     onResults?.(lookup.data ?? []);
   }, [lookup.data, onResults]);
@@ -398,7 +433,8 @@ function UserLookupInput({
   required?: boolean;
   label?: string;
 }) {
-  const lookup = useAdminUserLookupData({ q: query, limit: 20 });
+  const debouncedQuery = useDebouncedValue(query);
+  const lookup = useAdminUserLookupData({ q: debouncedQuery, limit: 20 });
   return (
     <AdminLookupInput
       error={lookup.error}
@@ -431,7 +467,8 @@ function BorrowerLookupInput({
   required?: boolean;
   onSelect?: (option: AdminLookupResult) => void;
 }) {
-  const lookup = useAdminBorrowerLookupData({ q: query, limit: 20 });
+  const debouncedQuery = useDebouncedValue(query);
+  const lookup = useAdminBorrowerLookupData({ q: debouncedQuery, limit: 20 });
   return (
     <AdminLookupInput
       error={lookup.error}
@@ -469,7 +506,8 @@ function LoanLookupInput({
   borrowerId?: string;
   onSelect?: (option: AdminLookupResult) => void;
 }) {
-  const lookup = useAdminLoanLookupData({ q: query, status, borrower_id: borrowerId, limit: 20 });
+  const debouncedQuery = useDebouncedValue(query);
+  const lookup = useAdminLoanLookupData({ q: debouncedQuery, status, borrower_id: borrowerId, limit: 20 });
   return (
     <AdminLookupInput
       error={lookup.error}
@@ -501,7 +539,8 @@ function KycCaseLookupInput({
   onQueryChange: (value: string) => void;
   required?: boolean;
 }) {
-  const lookup = useAdminKycCaseLookupData({ q: query, limit: 20 });
+  const debouncedQuery = useDebouncedValue(query);
+  const lookup = useAdminKycCaseLookupData({ q: debouncedQuery, limit: 20 });
   return (
     <AdminLookupInput
       error={lookup.error}
@@ -534,7 +573,8 @@ function WithdrawalLookupInput({
   required?: boolean;
   onSelect?: (option: AdminLookupResult) => void;
 }) {
-  const lookup = useAdminWithdrawalLookupData({ q: query, status: "requested", limit: 20 });
+  const debouncedQuery = useDebouncedValue(query);
+  const lookup = useAdminWithdrawalLookupData({ q: debouncedQuery, status: "requested", limit: 20 });
   return (
     <AdminLookupInput
       error={lookup.error}
@@ -566,7 +606,8 @@ function PrimaryOrderLookupInput({
   onQueryChange: (value: string) => void;
   required?: boolean;
 }) {
-  const lookup = useAdminPrimaryOrderLookupData({ q: query, limit: 20 });
+  const debouncedQuery = useDebouncedValue(query);
+  const lookup = useAdminPrimaryOrderLookupData({ q: debouncedQuery, limit: 20 });
   return (
     <AdminLookupInput
       error={lookup.error}
@@ -597,7 +638,8 @@ function SecondaryListingLookupInput({
   onQueryChange: (value: string) => void;
   required?: boolean;
 }) {
-  const lookup = useAdminSecondaryListingLookupData({ q: query, limit: 20 });
+  const debouncedQuery = useDebouncedValue(query);
+  const lookup = useAdminSecondaryListingLookupData({ q: debouncedQuery, limit: 20 });
   return (
     <AdminLookupInput
       error={lookup.error}
@@ -630,7 +672,8 @@ function TemplateVersionLookupInput({
   category?: string;
   required?: boolean;
 }) {
-  const lookup = useAdminDocumentTemplateVersionLookupData({ q: query, category, limit: 20 });
+  const debouncedQuery = useDebouncedValue(query);
+  const lookup = useAdminDocumentTemplateVersionLookupData({ q: debouncedQuery, category, limit: 20 });
   return (
     <AdminLookupInput
       error={lookup.error}
@@ -1060,9 +1103,13 @@ function DepositForm() {
     mutation: { onSuccess: () => setSuccess("Deposit was declared, ledgered, and added to investor balance lots.") }
   });
 
+  function updateInvestorQuery(value: string) {
+    setInvestorQuery(compactInvestorReference(value) || value);
+  }
+
   function updatePaymentReference(value: string) {
     setPaymentReference(value);
-    const compactReference = value.toUpperCase().match(/L[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{8,9}/)?.[0];
+    const compactReference = compactInvestorReference(value);
     if (compactReference && !investorUserId) setInvestorQuery(compactReference);
   }
 
@@ -1101,7 +1148,7 @@ function DepositForm() {
             hint="Paste the bank-statement reference first when available. If omitted, search by payer first name/surname or email."
             label="Investor from bank reference"
             onChange={setInvestorUserId}
-            onQueryChange={setInvestorQuery}
+            onQueryChange={updateInvestorQuery}
             query={investorQuery}
             required
             value={investorUserId}
@@ -1137,9 +1184,10 @@ function PayoutInstructionForm() {
     mutation: { onSuccess: () => setSuccess("Payout instruction was registered and superseded the prior active instruction.") }
   });
 
-  const ibanCollisionCount = investorMatches.filter(
-    (option) => payloadString(option, "matched_iban_suffix")
-  ).length;
+  const ibanCollisionCount = investorMatches.reduce(
+    (maxCount, option) => Math.max(maxCount, payloadNumber(option, "iban_match_count")),
+    0
+  );
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -1416,6 +1464,14 @@ function BorrowerDisbursementForm() {
     if (selectedCurrency) setCurrency(selectedCurrency);
   }
 
+  function updateLoanId(value: string) {
+    setLoanId(value);
+    if (!value) {
+      setBorrowerId("");
+      setBorrowerQuery("");
+    }
+  }
+
   function submit(event: FormEvent) {
     event.preventDefault();
     const data: BorrowerDisbursementFinalizeRequest = {
@@ -1444,20 +1500,26 @@ function BorrowerDisbursementForm() {
       <form className="admin-action-form" onSubmit={submit}>
         <FieldGrid>
           <LoanLookupInput
-            onChange={setLoanId}
+            onChange={updateLoanId}
             onQueryChange={setLoanQuery}
             onSelect={selectLoanOption}
             query={loanQuery}
             required
             value={loanId}
           />
-          <BorrowerLookupInput
-            onChange={setBorrowerId}
-            onQueryChange={setBorrowerQuery}
-            query={borrowerQuery}
-            required
-            value={borrowerId}
-          />
+          {loanId ? (
+            <Field hint={borrowerId ? `Derived borrower ID: ${borrowerId}` : "The selected loan did not expose a borrower."} label="Borrower">
+              <input readOnly required value={borrowerQuery || borrowerId} />
+            </Field>
+          ) : (
+            <BorrowerLookupInput
+              onChange={setBorrowerId}
+              onQueryChange={setBorrowerQuery}
+              query={borrowerQuery}
+              required
+              value={borrowerId}
+            />
+          )}
           <MoneyMinorInput currency={currency} label="Amount minor units" onChange={setAmountMinor} required value={amountMinor} />
           <TextInput label="Currency" onChange={setCurrency} required value={currency} />
           <TextInput label="Booking date" onChange={setBookingDate} required type="date" value={bookingDate} />

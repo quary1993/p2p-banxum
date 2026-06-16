@@ -68,6 +68,13 @@ def test_admin_investor_lookup_searches_by_reference_name_email_and_iban(
         == cast(Any, investor).investor_reference
     )
 
+    by_bank_reference = client.get(
+        "/api/v1/admin-ops/lookups/investors/",
+        {"q": f"BX-CHF-{cast(Any, investor).investor_reference}"},
+    )
+    assert by_bank_reference.status_code == 200
+    assert by_bank_reference.json()[0]["id"] == str(investor.pk)
+
     by_name = client.get("/api/v1/admin-ops/lookups/investors/", {"q": "alice lender"})
     assert by_name.status_code == 200
     assert by_name.json()[0]["id"] == str(investor.pk)
@@ -115,3 +122,27 @@ def test_admin_withdrawal_lookup_returns_human_readable_context(
     assert "Alice" in payload["label"]
     assert payload["payload"]["iban_suffix"] == "345678009"[-8:]
     assert payload["payload"]["amount_minor"] == 2500000
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/admin-ops/lookups/users/",
+        "/api/v1/admin-ops/lookups/investors/",
+        "/api/v1/admin-ops/lookups/borrowers/",
+        "/api/v1/admin-ops/lookups/loans/",
+        "/api/v1/admin-ops/lookups/kyc-cases/",
+        "/api/v1/admin-ops/lookups/withdrawal-requests/",
+        "/api/v1/admin-ops/lookups/primary-orders/",
+        "/api/v1/admin-ops/lookups/secondary-listings/",
+        "/api/v1/admin-ops/lookups/document-template-versions/",
+    ],
+)
+def test_admin_lookup_endpoints_reject_non_admin_users(path: str, investor: Model) -> None:
+    client = Client()
+    client.force_login(cast(Any, investor))
+
+    response = client.get(path, {"q": "alice", "limit": "5"})
+
+    assert response.status_code == 403

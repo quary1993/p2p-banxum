@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AdminApp } from "./adminConsole/AdminApp";
 import {
   ActionEnum,
@@ -405,6 +405,59 @@ function useSensitiveActionCode(action: ActionEnum) {
   return { codeId, expiresAt, error, isRequesting: requestMutation.isPending, requestCode };
 }
 
+function CodeRequestField({
+  label,
+  hint,
+  value,
+  onChange,
+  requestLabel,
+  requestDisabled = false,
+  onRequest,
+  placeholder = "000000"
+}: {
+  label: string;
+  hint?: string;
+  value: string;
+  onChange: (value: string) => void;
+  requestLabel?: string;
+  requestDisabled?: boolean;
+  onRequest?: () => void;
+  placeholder?: string;
+}) {
+  return (
+    <Field hint={hint} label={label}>
+      <div className={requestLabel ? "code-request-row" : undefined}>
+        <input
+          autoComplete="one-time-code"
+          className="input mono"
+          inputMode="numeric"
+          maxLength={6}
+          onChange={(event) => onChange(event.target.value.replace(/\D/g, ""))}
+          placeholder={placeholder}
+          value={value}
+        />
+        {requestLabel && onRequest ? (
+          <Button
+            className="code-request-button"
+            disabled={requestDisabled}
+            variant="ghost"
+            onClick={onRequest}
+          >
+            {requestLabel}
+          </Button>
+        ) : null}
+      </div>
+    </Field>
+  );
+}
+
+function emailCodeRequestLabel(
+  codeRequest: Pick<ReturnType<typeof useSensitiveActionCode>, "codeId" | "isRequesting">
+) {
+  if (codeRequest.isRequesting) return "Sending code...";
+  return codeRequest.codeId ? "Send a new email code" : "Send email code";
+}
+
 function sourceLabel(sourceType: string) {
   return sourceType
     .replaceAll("_", " ")
@@ -687,6 +740,11 @@ function LoginFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
     );
   };
 
+  function submitMagicLink(event: FormEvent) {
+    event.preventDefault();
+    requestMagicLink();
+  }
+
   if (magicLinkConsume.isPending) {
     return (
       <AuthShell onClose={() => goTo(setRoute, "public")}>
@@ -699,7 +757,7 @@ function LoginFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
     <AuthShell onClose={() => goTo(setRoute, "public")}>
       <div className="auth-card">
         {!sent ? (
-          <>
+          <form className="col" data-testid="login-magic-link-form" onSubmit={submitMagicLink}>
             <h2 style={{ fontSize: 19, marginBottom: 4 }}>Log in</h2>
             <p className="muted" style={{ fontSize: 13, marginBottom: 20 }}>
               We will email a secure magic link. No password is required for investor access.
@@ -708,14 +766,14 @@ function LoginFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
               <input className="input" onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" type="email" value={email} />
             </Field>
             {error ? <Banner tone="bad" title="Could not continue">{error}</Banner> : null}
-            <Button block disabled={!email.includes("@") || magicLinkRequest.isPending} style={{ marginTop: 16 }} variant="primary" onClick={requestMagicLink}>
+            <Button block disabled={!email.includes("@") || magicLinkRequest.isPending} style={{ marginTop: 16 }} type="submit" variant="primary">
               {magicLinkRequest.isPending ? "Sending..." : "Send magic link"}
             </Button>
             <div className="hr" style={{ margin: "18px 0" }} />
             <p className="center muted" style={{ fontSize: 12.5 }}>
               New to {platformName}? <a onClick={() => goTo(setRoute, "register")}>Register as a lender</a>
             </p>
-          </>
+          </form>
         ) : (
           <div className="col" style={{ alignItems: "center", gap: 14, textAlign: "center" }}>
             <div className="avatar" style={{ height: 50, width: 50 }}>
@@ -1195,27 +1253,25 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
                   Request an SMS code for {phoneNumberLabel}. Phone verification is required before
                   financial access.
                 </p>
-                <div className="sms-code-row">
-                  <Field label="SMS code" hint={previewHint("Demo: enter any 6 digits")}>
-                    <input className="input mono" inputMode="numeric" maxLength={6} onChange={(event) => setPhoneCode(event.target.value.replace(/\D/g, ""))} placeholder="000000" value={phoneCode} />
-                  </Field>
-                  {!isFixturePreview ? (
-                    <Button
-                      className="sms-send-button"
-                      disabled={phoneRequestDisabled}
-                      variant="ghost"
-                      onClick={requestPhoneCode}
-                    >
-                      {phoneRequestMutation.isPending
+                <CodeRequestField
+                  hint={previewHint("Demo: enter any 6 digits")}
+                  label="SMS code"
+                  requestDisabled={phoneRequestDisabled}
+                  requestLabel={
+                    !isFixturePreview
+                      ? phoneRequestMutation.isPending
                         ? "Sending..."
                         : phoneCooldownSeconds > 0
                           ? `Resend in ${phoneCooldownSeconds}s`
                           : phoneChallengeId
                             ? "Resend SMS"
-                            : "Send SMS"}
-                    </Button>
-                  ) : null}
-                </div>
+                            : "Send SMS"
+                      : undefined
+                  }
+                  value={phoneCode}
+                  onChange={setPhoneCode}
+                  onRequest={requestPhoneCode}
+                />
                 {error ? <Banner tone="bad" title="Could not verify phone">{error}</Banner> : null}
                 <Button block disabled={phoneCode.length < 6 || (!isFixturePreview && !phoneChallengeId) || phoneConfirmMutation.isPending} style={{ marginTop: 16 }} variant="primary" onClick={confirmPhone}>
                   {phoneConfirmMutation.isPending ? "Verifying..." : "Verify phone"}
@@ -2199,13 +2255,16 @@ function WithdrawModal({ currency, maxMinor, payoutInstructions, onClose }: { cu
         <div className="col gap-16">
           <Review rows={[{ label: "Amount", value: `${currency} ${formatMoneyMinor(amountMinor, currency)}` }, { label: "Fee", value: "None" }, { label: "You will receive", value: `${currency} ${formatMoneyMinor(amountMinor, currency)}`, total: true }]} />
           <Banner icon="lock" tone="info" title="Confirm a sensitive action">Enter the 6-digit email confirmation code.</Banner>
-          <Button disabled={codeRequest.isRequesting} variant="ghost" onClick={codeRequest.requestCode}>
-            {codeRequest.isRequesting ? "Sending code..." : codeRequest.codeId ? "Send a new email code" : "Send email code"}
-          </Button>
+          <CodeRequestField
+            hint={previewHint("Demo: any 6 digits")}
+            label="Email confirmation code"
+            requestDisabled={codeRequest.isRequesting}
+            requestLabel={emailCodeRequestLabel(codeRequest)}
+            value={code}
+            onChange={setCode}
+            onRequest={codeRequest.requestCode}
+          />
           {codeRequest.expiresAt ? <p className="muted" style={{ fontSize: 11.5 }}>Code expires {formatDateTime(codeRequest.expiresAt)}.</p> : null}
-          <Field hint={previewHint("Demo: any 6 digits")} label="Email confirmation code">
-            <input className="input mono" inputMode="numeric" maxLength={6} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} placeholder="000000" value={code} />
-          </Field>
           {codeRequest.error || error ? <Banner tone="bad" title="Could not submit withdrawal">{codeRequest.error || error}</Banner> : null}
         </div>
       ) : (
@@ -2388,13 +2447,18 @@ function FxConfirmModal({ from, to, sourceMinor, targetMinor, feeMinor, rate, qu
           { label: "Platform fee", value: `${from} ${formatMoneyMinor(feeMinor, from)}` },
           { label: "You receive", value: `${to} ${formatMoneyMinor(targetMinor, to, 4)}`, total: true }
         ]} />
-        <Button disabled={codeRequest.isRequesting} variant="ghost" onClick={codeRequest.requestCode}>
-          {codeRequest.isRequesting ? "Sending code..." : codeRequest.codeId ? "Send a new email code" : "Send email code"}
-        </Button>
+        <CodeRequestField
+          hint={previewHint("Demo: any 6 digits")}
+          label="Email confirmation code"
+          requestDisabled={codeRequest.isRequesting}
+          requestLabel={emailCodeRequestLabel(codeRequest)}
+          value={code}
+          onChange={setCode}
+          onRequest={codeRequest.requestCode}
+        />
         {quote?.expires_at ? <p className="muted" style={{ fontSize: 11.5 }}>Quote expires {formatDateTime(quote.expires_at)}.</p> : null}
         <Banner tone="warn" title="Inherited ageing deadline">The target balance inherits the earliest consumed source-lot deadline. It does not start a fresh 30/60-day window.</Banner>
         <Check checked={ack} id="fx-ack" onChange={setAck}>I accept the currency-exchange terms and understand the rate, fee and inherited deadline.</Check>
-        <Field hint={previewHint("Demo: any 6 digits")} label="Email confirmation code"><input className="input mono" inputMode="numeric" maxLength={6} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} value={code} /></Field>
         {codeRequest.error || error ? <Banner tone="bad" title="Could not execute FX">{codeRequest.error || error}</Banner> : null}
       </div>
     </Modal>
@@ -2795,10 +2859,15 @@ function BuyListingModal({ listing, onClose }: { listing: SecondaryMarketBuyerLi
         <Check checked={ack} id="sm-buy-ack" onChange={setAck}>I accept the secondary-market buyer terms and reassignment document.</Check>
         {needsExtra ? <Check checked={extraAck} id="sm-extra-ack" onChange={setExtraAck}>I acknowledge this is a non-standard claim with heightened risk of partial or total loss.</Check> : null}
         {!isFixturePreview && termsQuery.data ? <p className="muted" style={{ fontSize: 11.5 }}>Accepting {termsQuery.data.title} v{termsQuery.data.version_number}.</p> : null}
-        <Button disabled={codeRequest.isRequesting} variant="ghost" onClick={codeRequest.requestCode}>
-          {codeRequest.isRequesting ? "Sending code..." : codeRequest.codeId ? "Send a new email code" : "Send email code"}
-        </Button>
-        <Field hint={previewHint("Demo: any 6 digits")} label="Email confirmation code"><input className="input mono" inputMode="numeric" maxLength={6} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} value={code} /></Field>
+        <CodeRequestField
+          hint={previewHint("Demo: any 6 digits")}
+          label="Email confirmation code"
+          requestDisabled={codeRequest.isRequesting}
+          requestLabel={emailCodeRequestLabel(codeRequest)}
+          value={code}
+          onChange={setCode}
+          onRequest={codeRequest.requestCode}
+        />
         {codeRequest.error || error ? <Banner tone="bad" title="Could not purchase listing">{codeRequest.error || error}</Banner> : null}
       </div>
     </Modal>
@@ -2895,10 +2964,15 @@ function ListHoldingModal({ holding, onClose }: { holding: Holding; onClose: () 
         ]} />
         <Check checked={ack} id="sm-list-ack" onChange={setAck}>I accept the seller/listing terms and confirm I am listing this entire holding.</Check>
         {!isFixturePreview && termsQuery.data ? <p className="muted" style={{ fontSize: 11.5 }}>Accepting {termsQuery.data.title} v{termsQuery.data.version_number}.</p> : null}
-        <Button disabled={codeRequest.isRequesting} variant="ghost" onClick={codeRequest.requestCode}>
-          {codeRequest.isRequesting ? "Sending code..." : codeRequest.codeId ? "Send a new email code" : "Send email code"}
-        </Button>
-        <Field hint={previewHint("Demo: any 6 digits")} label="Email confirmation code"><input className="input mono" inputMode="numeric" maxLength={6} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} value={code} /></Field>
+        <CodeRequestField
+          hint={previewHint("Demo: any 6 digits")}
+          label="Email confirmation code"
+          requestDisabled={codeRequest.isRequesting}
+          requestLabel={emailCodeRequestLabel(codeRequest)}
+          value={code}
+          onChange={setCode}
+          onRequest={codeRequest.requestCode}
+        />
         {codeRequest.error || error ? <Banner tone="bad" title="Could not list holding">{codeRequest.error || error}</Banner> : null}
       </div>
     </Modal>
@@ -3162,13 +3236,16 @@ function PayoutIbanModal({ onClose }: { onClose: () => void }) {
         <Field label="Account holder name">
           <input className="input" onChange={(event) => setAccountName(event.target.value)} placeholder={displayProfile().name} value={accountName} />
         </Field>
-        <Button disabled={codeRequest.isRequesting} variant="ghost" onClick={codeRequest.requestCode}>
-          {codeRequest.isRequesting ? "Sending code..." : codeRequest.codeId ? "Send a new email code" : "Send email code"}
-        </Button>
+        <CodeRequestField
+          hint={previewHint("Demo: any 6 digits")}
+          label="Email confirmation code"
+          requestDisabled={codeRequest.isRequesting}
+          requestLabel={emailCodeRequestLabel(codeRequest)}
+          value={code}
+          onChange={setCode}
+          onRequest={codeRequest.requestCode}
+        />
         {codeRequest.expiresAt ? <p className="muted" style={{ fontSize: 11.5 }}>Code expires {formatDateTime(codeRequest.expiresAt)}.</p> : null}
-        <Field hint={previewHint("Demo: any 6 digits")} label="Email confirmation code">
-          <input className="input mono" inputMode="numeric" maxLength={6} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} value={code} />
-        </Field>
         {codeRequest.error || error ? <Banner tone="bad" title="Could not submit payout IBAN">{codeRequest.error || error}</Banner> : null}
       </div>
     </Modal>
@@ -3428,11 +3505,16 @@ function InvestModal({ loan, onClose }: { loan: MarketplaceLoanDetail; onClose: 
           <Banner icon="lock" tone="info" title="Confirm a sensitive action">Enter the 6-digit email confirmation code.</Banner>
           {!isFixturePreview && termsQuery.isError ? <Banner tone="bad" title="Investment terms unavailable">The current server-published investment terms could not be loaded.</Banner> : null}
           {!isFixturePreview && termsQuery.data ? <p className="muted" style={{ fontSize: 11.5 }}>Accepting {termsQuery.data.title} v{termsQuery.data.version_number}.</p> : null}
-          <Button disabled={codeRequest.isRequesting} variant="ghost" onClick={codeRequest.requestCode}>
-            {codeRequest.isRequesting ? "Sending code..." : codeRequest.codeId ? "Send a new email code" : "Send email code"}
-          </Button>
+          <CodeRequestField
+            hint={previewHint("Demo: any 6 digits")}
+            label="Email confirmation code"
+            requestDisabled={codeRequest.isRequesting}
+            requestLabel={emailCodeRequestLabel(codeRequest)}
+            value={code}
+            onChange={setCode}
+            onRequest={codeRequest.requestCode}
+          />
           {codeRequest.expiresAt ? <p className="muted" style={{ fontSize: 11.5 }}>Code expires {formatDateTime(codeRequest.expiresAt)}.</p> : null}
-          <Field hint={previewHint("Demo: any 6 digits")} label="Email confirmation code"><input className="input mono" inputMode="numeric" maxLength={6} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} value={code} /></Field>
           {codeRequest.error || error ? <Banner tone="bad" title="Could not place order">{codeRequest.error || error}</Banner> : null}
         </div>
       ) : (

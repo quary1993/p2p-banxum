@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
+from functools import lru_cache
 from typing import Any, cast
 
 from django.apps import apps
 from django.db.models import CharField, Q, QuerySet
 from django.db.models.functions import Cast
 
+from backend.apps.platform_core.domain.money import minor_units_to_decimal
+
 LOOKUP_MIN_QUERY_LENGTH = 3
 LOOKUP_MAX_LIMIT = 50
+INVESTOR_REFERENCE_RE = re.compile(r"L[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{8,9}", re.IGNORECASE)
 LENDER_ACCOUNT_TYPES = frozenset(
     {
         "natural_person_lender",
@@ -45,13 +50,25 @@ def _tokenized_user_filter(query: str) -> Q:
         return Q()
     combined = Q()
     for token in tokens:
+        extracted_reference = _extract_investor_reference(token)
+        reference_filter = (
+            Q(investor_reference__iexact=extracted_reference)
+            if extracted_reference
+            else Q(pk__isnull=True)
+        )
         combined &= (
             Q(id_text__icontains=token)
             | Q(email__icontains=token)
             | Q(full_name__icontains=token)
             | Q(investor_reference__icontains=token)
+            | reference_filter
         )
     return combined
+
+
+def _extract_investor_reference(value: str) -> str:
+    match = INVESTOR_REFERENCE_RE.search(value.upper())
+    return match.group(0) if match else ""
 
 
 def _iban_suffix(value: str) -> str:
@@ -67,9 +84,19 @@ def _date_label(value: date | datetime | None) -> str:
     return value.date().isoformat() if isinstance(value, datetime) else value.isoformat()
 
 
+@lru_cache(maxsize=64)
+def _currency_minor_units(currency: str) -> int:
+    currency_model = _model("platform_core", "Currency")
+    currency_obj = currency_model.objects.filter(code=currency.upper()).only("minor_units").first()
+    return int(getattr(currency_obj, "minor_units", 2) if currency_obj is not None else 2)
+
+
 def _money_label(amount_minor: int, currency: str) -> str:
-    major = amount_minor / 100
-    return f"{currency} {major:,.2f}".replace(",", "'")
+    normalized_currency = currency.upper() or "CHF"
+    minor_units = _currency_minor_units(normalized_currency)
+    amount = minor_units_to_decimal(amount_minor, minor_units=minor_units)
+    formatted = f"{amount:,.{minor_units}f}".replace(",", "'")
+    return f"{normalized_currency} {formatted}"
 
 
 def _user_result(

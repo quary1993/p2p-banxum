@@ -1,7 +1,10 @@
+# ruff: noqa: E501
+
 from __future__ import annotations
 
 import html
 import json
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -57,6 +60,26 @@ class RenderedEmail:
 @dataclass(frozen=True, slots=True)
 class EmailProviderResult:
     provider_message_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class EmailButton:
+    label: str
+    url: str
+    variant: str = "primary"
+
+
+@dataclass(frozen=True, slots=True)
+class EmailTemplateContent:
+    notice_label: str
+    preheader: str
+    status_label: str
+    status_tone: str
+    headline: str
+    paragraphs: tuple[str, ...]
+    data_rows: tuple[tuple[str, str], ...] = ()
+    buttons: tuple[EmailButton, ...] = ()
+    fine_print: str = ""
 
 
 class EmailProvider(Protocol):
@@ -163,8 +186,300 @@ def _base_url() -> str:
     return base_url
 
 
+URL_RE = re.compile(r"https?://[^\s<>\"]+")
+STATUS_STYLES = {
+    "confirmation": ("#e7efe8", "#b8cdbd", "#2f6b4f"),
+    "warning": ("#f6ecd2", "#e3cf9c", "#6f4a0d"),
+    "danger": ("#f6e2dd", "#e4b8ad", "#9c3127"),
+    "info": ("#e3edf4", "#bdd0dc", "#244e72"),
+}
+
+
+def _escape_attr(value: str) -> str:
+    return html.escape(value, quote=True)
+
+
+def _linkified_text(value: str) -> str:
+    result: list[str] = []
+    position = 0
+    for match in URL_RE.finditer(value):
+        url = match.group(0)
+        trailing = ""
+        while url and url[-1] in ".,);]":
+            trailing = url[-1] + trailing
+            url = url[:-1]
+        result.append(html.escape(value[position : match.start()]))
+        safe_url = _escape_attr(url)
+        result.append(
+            f'<a href="{safe_url}" target="_blank" '
+            'style="color:#2f6b4f; text-decoration:underline; word-break:break-all;">'
+            f"{html.escape(url)}</a>{html.escape(trailing)}"
+        )
+        position = match.end()
+    result.append(html.escape(value[position:]))
+    return "".join(result).replace("\n", "<br>")
+
+
+def _paragraph_html(paragraphs: tuple[str, ...]) -> str:
+    return "".join(
+        (
+            '<p class="font-sans" '
+            'style="margin:0 0 14px 0; color:#4b544d; font-size:15px; line-height:24px;">'
+            f"{_linkified_text(paragraph)}</p>"
+        )
+        for paragraph in paragraphs
+        if paragraph
+    )
+
+
+def _button_html(button: EmailButton, *, first: bool) -> str:
+    safe_url = _escape_attr(button.url)
+    safe_label = html.escape(button.label)
+    if button.variant == "secondary":
+        background = "#fffefb"
+        color = "#1b211d"
+        border = "#d2cdbd"
+        vml_border = "#d2cdbd"
+    else:
+        background = "#2f6b4f"
+        color = "#ffffff"
+        border = "#2f6b4f"
+        vml_border = "#2f6b4f"
+    width = max(150, min(260, 28 + len(button.label) * 9))
+    padding = "0 10px 0 0" if first else "0"
+    return f"""
+                        <td class="btn-td" style="padding:{padding};">
+                          <!--[if mso]>
+                          <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{safe_url}" style="height:46px;v-text-anchor:middle;width:{width}px;" arcsize="11%" strokecolor="{vml_border}" fillcolor="{background}">
+                          <w:anchorlock/><center style="color:{color};font-family:Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;">{safe_label}</center>
+                          </v:roundrect>
+                          <![endif]-->
+                          <!--[if !mso]><!-- -->
+                          <a class="btn-a font-sans" href="{safe_url}" target="_blank" style="display:inline-block; white-space:nowrap; background-color:{background}; color:{color}; font-size:15px; font-weight:600; line-height:44px; padding:0 24px; border:1px solid {border}; border-radius:6px; text-align:center;">{safe_label}</a>
+                          <!--<![endif]-->
+                        </td>"""
+
+
+def _buttons_html(buttons: tuple[EmailButton, ...]) -> str:
+    if not buttons:
+        return ""
+    button_cells = "\n".join(_button_html(button, first=index == 0) for index, button in enumerate(buttons))
+    return f"""
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td class="px" style="padding:10px 36px 8px 36px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                      <tr>{button_cells}
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>"""
+
+
+def _data_rows_html(rows: tuple[tuple[str, str], ...]) -> str:
+    if not rows:
+        return ""
+    row_html: list[str] = []
+    for index, (key, value) in enumerate(rows):
+        border = "" if index == len(rows) - 1 else " border-bottom:1px solid #ece8dc;"
+        row_html.append(
+            "<tr>"
+            f'<td class="font-sans data-k" style="padding:11px 0; color:#717a72; font-size:13px;{border}">'
+            f"{html.escape(key)}</td>"
+            f'<td class="font-mono data-v" align="right" style="padding:11px 0; color:#1b211d; font-size:14px; font-weight:500;{border}">'
+            f"{_linkified_text(value)}</td>"
+            "</tr>"
+        )
+    rows_combined = "".join(row_html)
+    return f"""
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td class="px" style="padding:8px 36px 20px 36px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#faf8f1; border:1px solid #e0dccf; border-radius:8px;">
+                      <tr>
+                        <td style="padding:6px 18px;">
+                          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                            {rows_combined}
+                          </table>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>"""
+
+
+def _render_banxum_email_html(content: EmailTemplateContent) -> str:
+    platform = html.escape(str(settings.PLATFORM_BRAND_NAME))
+    operator = html.escape(str(settings.LEGAL_OPERATOR_NAME))
+    configured_support_email = str(getattr(settings, "SUPPORT_EMAIL", "") or "support@banxum.com")
+    support_email = html.escape(configured_support_email)
+    base_url = _base_url()
+    portal_url = _escape_attr(base_url)
+    documents_url = _escape_attr(f"{base_url}/documents")
+    settings_url = _escape_attr(f"{base_url}/settings")
+    support_mailto = _escape_attr(f"mailto:{configured_support_email}")
+    status_background, status_border, status_color = STATUS_STYLES.get(
+        content.status_tone, STATUS_STYLES["info"]
+    )
+    preheader = html.escape(content.preheader[:180])
+    notice_label = html.escape(content.notice_label.upper())
+    status_label = html.escape(content.status_label)
+    headline = html.escape(content.headline)
+    paragraphs = _paragraph_html(content.paragraphs)
+    data_panel = _data_rows_html(content.data_rows)
+    buttons = _buttons_html(content.buttons)
+    fine_print = (
+        f"""
+                    <p class="font-sans" style="margin:18px 0 0 0; color:#717a72; font-size:12px; line-height:19px;">
+                      {_linkified_text(content.fine_print)}
+                    </p>"""
+        if content.fine_print
+        else ""
+    )
+    return f"""<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="x-apple-disable-message-reformatting" />
+  <meta name="color-scheme" content="light only" />
+  <meta name="supported-color-schemes" content="light only" />
+  <title>{platform}</title>
+  <!--[if mso]>
+  <noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
+  <![endif]-->
+  <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    html, body {{ margin:0 !important; padding:0 !important; height:100% !important; width:100% !important; }}
+    * {{ -ms-text-size-adjust:100%; -webkit-text-size-adjust:100%; }}
+    table, td {{ mso-table-lspace:0pt !important; mso-table-rspace:0pt !important; border-collapse:collapse !important; }}
+    img {{ -ms-interpolation-mode:bicubic; border:0; height:auto; line-height:100%; outline:none; text-decoration:none; }}
+    a {{ text-decoration:none; }}
+    a[x-apple-data-detectors] {{ color:inherit !important; text-decoration:none !important; font-size:inherit !important; font-family:inherit !important; font-weight:inherit !important; line-height:inherit !important; }}
+    u + #body a {{ color:inherit; text-decoration:none; }}
+    .font-sans {{ font-family:'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }}
+    .font-mono {{ font-family:'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }}
+    @media screen and (max-width:600px) {{
+      .container {{ width:100% !important; max-width:100% !important; }}
+      .px {{ padding-left:22px !important; padding-right:22px !important; }}
+      .btn-td {{ display:block !important; padding:0 0 12px 0 !important; }}
+      .btn-a {{ display:block !important; text-align:center !important; }}
+      .h1 {{ font-size:22px !important; line-height:28px !important; }}
+      .data-k {{ display:block !important; width:100% !important; padding:12px 0 2px 0 !important; }}
+      .data-v {{ display:block !important; width:100% !important; padding:0 0 12px 0 !important; text-align:left !important; }}
+    }}
+  </style>
+</head>
+<body id="body" style="margin:0; padding:0; width:100%; background-color:#e9e5d9;">
+  <div style="display:none; max-height:0; overflow:hidden; mso-hide:all; font-size:1px; line-height:1px; color:#e9e5d9; opacity:0;">
+    {preheader}
+    &nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;
+  </div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#e9e5d9;">
+    <tr>
+      <td align="center" style="padding:28px 12px 40px 12px;">
+        <table role="presentation" class="container" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px; max-width:600px;">
+          <tr>
+            <td class="px" style="padding:4px 8px 16px 8px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td align="left" style="vertical-align:middle;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td style="vertical-align:middle; padding-right:9px;">
+                          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="30" height="30" style="width:30px; height:30px; background-color:#2f6b4f; border-radius:7px;">
+                            <tr><td align="center" valign="middle" class="font-sans" style="color:#ffffff; font-size:17px; font-weight:700; line-height:30px;">B</td></tr>
+                          </table>
+                        </td>
+                        <td style="vertical-align:middle;" class="font-sans">
+                          <div style="color:#1b211d; font-size:17px; font-weight:700; letter-spacing:2px; line-height:18px;">{platform}</div>
+                          <div style="color:#717a72; font-size:10px; letter-spacing:0.3px; line-height:13px;">{operator}</div>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                  <td align="right" class="font-sans" style="vertical-align:middle; color:#98a09a; font-size:11px; letter-spacing:0.4px;">{notice_label}</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color:#fffefb; border:1px solid #e0dccf; border-radius:12px; overflow:hidden;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr><td style="height:3px; background-color:#2f6b4f; font-size:0; line-height:0;">&nbsp;</td></tr>
+              </table>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td class="px" style="padding:30px 36px 0 36px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:18px;">
+                      <tr>
+                        <td class="font-sans" style="background-color:{status_background}; border:1px solid {status_border}; border-radius:999px; padding:5px 12px; color:{status_color}; font-size:12px; font-weight:600; letter-spacing:0.2px;">&#9679;&nbsp; {status_label}</td>
+                      </tr>
+                    </table>
+                    <h1 class="font-sans h1" style="margin:0 0 12px 0; color:#1b211d; font-size:25px; line-height:31px; font-weight:600; letter-spacing:-0.3px;">{headline}</h1>
+                    {paragraphs}
+                  </td>
+                </tr>
+              </table>
+              {data_panel}
+              {buttons}
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td class="px" style="padding:18px 36px 32px 36px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                      <tr><td style="height:1px; background-color:#e0dccf; font-size:0; line-height:0;">&nbsp;</td></tr>
+                    </table>
+                    {fine_print}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td class="px" style="padding:24px 24px 8px 24px;">
+              <p class="font-sans" style="margin:0 0 8px 0; color:#4b544d; font-size:12px; line-height:18px;">
+                <strong style="color:#1b211d;">{platform}</strong> is a peer-to-peer lending platform operated by {operator}.
+              </p>
+              <p class="font-sans" style="margin:0 0 14px 0; color:#717a72; font-size:12px; line-height:18px;">
+                You receive transactional emails because you hold an active account or requested secure access. These cannot be unsubscribed while your account is open.
+                Manage marketing preferences in <a href="{settings_url}" style="color:#2f6b4f; text-decoration:underline;">Settings</a>.
+              </p>
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td class="font-sans" style="color:#98a09a; font-size:11px; padding-right:12px;"><a href="{portal_url}" style="color:#717a72; text-decoration:underline;">Portal</a></td>
+                  <td class="font-sans" style="color:#98a09a; font-size:11px; padding-right:12px;"><a href="{documents_url}" style="color:#717a72; text-decoration:underline;">Documents</a></td>
+                  <td class="font-sans" style="color:#98a09a; font-size:11px; padding-right:12px;"><a href="{support_mailto}" style="color:#717a72; text-decoration:underline;">{support_email}</a></td>
+                </tr>
+              </table>
+              <p class="font-sans" style="margin:16px 0 0 0; color:#b3ab98; font-size:11px; line-height:16px;">&copy; 2026 {operator}. All rights reserved.</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
+
+
 def _html_from_text(body_text: str) -> str:
-    return "<br>".join(html.escape(body_text).splitlines())
+    return _render_banxum_email_html(
+        EmailTemplateContent(
+            notice_label="Account notice",
+            preheader=body_text.splitlines()[0] if body_text.splitlines() else "BANXUM account notice",
+            status_label="Information",
+            status_tone="info",
+            headline="Account notice",
+            paragraphs=tuple(paragraph for paragraph in body_text.split("\n\n") if paragraph.strip()),
+            fine_print=(
+                "This is an automated transactional account notice. "
+                f"If you need help, contact {getattr(settings, 'SUPPORT_EMAIL', '') or 'support@banxum.com'}."
+            ),
+        )
+    )
 
 
 def _render_magic_link_email(message: OutboxMessage) -> RenderedEmail:
@@ -192,7 +507,28 @@ def _render_magic_link_email(message: OutboxMessage) -> RenderedEmail:
         recipient_email=recipient,
         subject=subject,
         body_text=body_text,
-        body_html=_html_from_text(body_text),
+        body_html=_render_banxum_email_html(
+            EmailTemplateContent(
+                notice_label="Secure login",
+                preheader=f"Use your secure one-time {platform} login link.",
+                status_label="Secure login",
+                status_tone="info",
+                headline=f"Sign in to {platform}",
+                paragraphs=(
+                    f"Use this secure one-time link to sign in to {platform}.",
+                    "The link can be used only once. If you did not request this email, you can ignore it.",
+                ),
+                data_rows=(
+                    ("Expires at", token.expires_at.isoformat()),
+                    ("Recipient", recipient),
+                ),
+                buttons=(EmailButton("Open secure login link", login_url),),
+                fine_print=(
+                    f"If the button does not work, copy this link into your browser: {login_url}. "
+                    f"{platform} is operated by {operator}."
+                ),
+            )
+        ),
         template_key="auth.magic_link.v1",
         metadata={
             "user_id": str(payload.get("user_id", "")),
@@ -227,7 +563,26 @@ def _render_sensitive_action_code_email(message: OutboxMessage) -> RenderedEmail
         recipient_email=recipient,
         subject=subject,
         body_text=body_text,
-        body_html=_html_from_text(body_text),
+        body_html=_render_banxum_email_html(
+            EmailTemplateContent(
+                notice_label="Confirmation code",
+                preheader=f"Your {platform} confirmation code for {action}.",
+                status_label="Action needed",
+                status_tone="warning",
+                headline="Confirm this account action",
+                paragraphs=(
+                    f"Use this code to confirm your {platform} action.",
+                    "Never share this code. If you did not request it, contact support and do not continue.",
+                ),
+                data_rows=(
+                    ("Confirmation code", raw_code),
+                    ("Action", action),
+                    ("Expires at", code_record.expires_at.isoformat()),
+                ),
+                buttons=(EmailButton("Open BANXUM", _base_url()),),
+                fine_print=f"{platform} is operated by {operator}.",
+            )
+        ),
         template_key=f"auth.{action}.code.v1",
         metadata={
             "user_id": str(payload.get("user_id", "")),
@@ -236,6 +591,57 @@ def _render_sensitive_action_code_email(message: OutboxMessage) -> RenderedEmail
             "secret_redacted_in_outbox": bool(payload.get("secret_redacted")),
         },
     )
+
+
+def _payload_status_for_topic(topic: str, template_key: str) -> tuple[str, str]:
+    combined = f"{topic} {template_key}".lower()
+    if any(token in combined for token in ("reminder", "deadline", "warning", "ageing")):
+        return ("Action needed", "warning")
+    if any(token in combined for token in ("failed", "default", "penalty", "risk")):
+        return ("Important", "danger")
+    if any(token in combined for token in ("confirmation", "credited", "completed", "approved")):
+        return ("Confirmation", "confirmation")
+    return ("Information", "info")
+
+
+def _payload_data_rows(payload: dict[str, Any]) -> tuple[tuple[str, str], ...]:
+    raw_rows = payload.get("data_rows")
+    if not isinstance(raw_rows, list):
+        return ()
+    rows: list[tuple[str, str]] = []
+    for item in raw_rows[:8]:
+        if isinstance(item, dict):
+            label = str(item.get("label", "")).strip()
+            value = str(item.get("value", "")).strip()
+        elif isinstance(item, list | tuple) and len(item) >= 2:
+            label = str(item[0]).strip()
+            value = str(item[1]).strip()
+        else:
+            continue
+        if label and value:
+            rows.append((label, value))
+    return tuple(rows)
+
+
+def _payload_buttons(payload: dict[str, Any]) -> tuple[EmailButton, ...]:
+    raw_buttons = payload.get("buttons")
+    buttons: list[EmailButton] = []
+    if isinstance(raw_buttons, list):
+        for item in raw_buttons[:2]:
+            if not isinstance(item, dict):
+                continue
+            label = str(item.get("label", "")).strip()
+            url = str(item.get("url", "")).strip()
+            variant = str(item.get("variant", "primary")).strip() or "primary"
+            if label and url.startswith(("https://", "http://")):
+                buttons.append(EmailButton(label=label, url=url, variant=variant))
+    if buttons:
+        return tuple(buttons)
+    action_url = str(payload.get("action_url", "")).strip()
+    action_label = str(payload.get("action_label", "")).strip() or "Open BANXUM"
+    if action_url.startswith(("https://", "http://")):
+        return (EmailButton(action_label, action_url),)
+    return ()
 
 
 def _render_payload_email(message: OutboxMessage) -> RenderedEmail:
@@ -254,7 +660,29 @@ def _render_payload_email(message: OutboxMessage) -> RenderedEmail:
     if not body_text:
         body_text = html.unescape(body_html)
     if not body_html:
-        body_html = _html_from_text(body_text)
+        status_label, status_tone = _payload_status_for_topic(message.topic, template_key)
+        paragraphs = tuple(paragraph for paragraph in body_text.split("\n\n") if paragraph.strip())
+        body_html = _render_banxum_email_html(
+            EmailTemplateContent(
+                notice_label=str(payload.get("notice_label", "Investor notice")),
+                preheader=str(payload.get("preheader", paragraphs[0] if paragraphs else subject)),
+                status_label=str(payload.get("status_label", status_label)),
+                status_tone=str(payload.get("status_tone", status_tone)),
+                headline=str(payload.get("headline", subject)),
+                paragraphs=paragraphs,
+                data_rows=_payload_data_rows(payload),
+                buttons=_payload_buttons(payload),
+                fine_print=str(
+                    payload.get(
+                        "fine_print",
+                        (
+                            "This is an automated transactional account notice. "
+                            f"If you need help, contact {getattr(settings, 'SUPPORT_EMAIL', '') or 'support@banxum.com'}."
+                        ),
+                    )
+                ),
+            )
+        )
     return RenderedEmail(
         recipient_email=recipient,
         subject=subject,

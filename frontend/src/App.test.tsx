@@ -67,6 +67,18 @@ test("fixture-backed authenticated portal is visibly marked as preview data", ()
   expect(screen.getByText(/not real account data/i)).toBeInTheDocument();
 });
 
+test("login form submits when the form is submitted from the email field", () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.submit(screen.getByTestId("login-magic-link-form"));
+
+  expect(screen.getByRole("heading", { name: "Check your inbox" })).toBeInTheDocument();
+});
+
 test("published primary-market loans appear in dashboard and marketplace open views", () => {
   renderApp();
 

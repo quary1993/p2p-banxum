@@ -74,6 +74,12 @@ def test_dispatch_magic_link_email_archives_full_content_and_marks_processed(
     assert "Garanta Finanzgruppe AG" in delivery.body_text
     assert "https://app.banxum.test/login?token=" in delivery.body_text
     assert result.raw_token in delivery.body_text
+    assert (
+        '<a class="btn-a font-sans" href="https://app.banxum.test/login?token='
+        in delivery.body_html
+    )
+    assert f'href="https://app.banxum.test/login?token={result.raw_token}"' in delivery.body_html
+    assert "Open secure login link" in delivery.body_html
     assert delivery.provider == "mock"
     assert delivery.provider_message_id
     assert delivery.sent_at is not None
@@ -113,8 +119,11 @@ def test_dispatch_sensitive_action_code_email_archives_code(
     assert dispatch_result.sent_count == 1
     outbox.refresh_from_db()
     assert outbox.status == OutboxStatus.PROCESSED
-    assert result.raw_code in EmailDeliveryRecord.objects.get(outbox_message=outbox).body_text
-    assert "fx" in EmailDeliveryRecord.objects.get(outbox_message=outbox).metadata["action"]
+    delivery = EmailDeliveryRecord.objects.get(outbox_message=outbox)
+    assert result.raw_code in delivery.body_text
+    assert result.raw_code in delivery.body_html
+    assert "Action needed" in delivery.body_html
+    assert "fx" in delivery.metadata["action"]
 
 
 @pytest.mark.django_db
@@ -195,3 +204,37 @@ def test_communications_evidence_is_append_only_at_app_and_database_layers() -> 
                 "DELETE FROM communications_communicationevent WHERE id = %s",
                 [event.id.hex],
             )
+
+
+@pytest.mark.django_db
+@override_settings(
+    COMMUNICATIONS_EMAIL_PROVIDER="mock",
+    PUBLIC_APP_BASE_URL="https://app.banxum.test",
+    SUPPORT_EMAIL="support@banxum.test",
+)
+def test_payload_email_uses_banxum_template_and_linkifies_urls() -> None:
+    outbox = OutboxMessage.objects.create(
+        idempotency_key="manual-email-with-link",
+        topic="email.manual",
+        payload={
+            "email": "investor@example.test",
+            "subject": "Manual notice",
+            "body_text": (
+                "Review your account notice here:\n\n"
+                "https://app.banxum.test/documents"
+            ),
+            "template_key": "manual.notice.v1",
+        },
+    )
+
+    dispatch_due_email_outbox_messages()
+
+    delivery = EmailDeliveryRecord.objects.get(outbox_message=outbox)
+    assert "<!DOCTYPE html>" in delivery.body_html
+    assert "BANXUM" in delivery.body_html
+    assert "Garanta Finanzgruppe AG" in delivery.body_html
+    assert (
+        '<a href="https://app.banxum.test/documents" target="_blank"'
+        in delivery.body_html
+    )
+    assert "support@banxum.test" in delivery.body_html

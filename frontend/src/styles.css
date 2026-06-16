@@ -1578,8 +1578,7 @@ textarea.input {
   opacity: 0.5;
 }
 
-.phone-number-row,
-.sms-code-row {
+.phone-number-row {
   align-items: end;
   display: grid;
   gap: 8px;
@@ -1590,11 +1589,14 @@ textarea.input {
   font-family: var(--font-mono);
 }
 
-.sms-code-row {
+.code-request-row {
+  align-items: end;
+  display: grid;
+  gap: 8px;
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
-.sms-send-button {
+.code-request-button {
   min-width: 128px;
 }
 
