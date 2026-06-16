@@ -147,3 +147,10 @@ Each entry should include:
 - Current first-version behavior: write-off has been removed from the functional v1 admin console. The Loans panel exposes servicing status scans, risk notes, and recovery-payment recording, while defaulted loans remain in default/recovery handling until Garanta defines a final resolution/loss-recognition policy.
 - Required admin-console improvement: keep write-off hidden from launch-facing admin workflows. Any future final loss-recognition or recovery-closure action must be designed as a separate advisor-approved resolution workflow, not as a generic write-off button.
 - Priority: blocking polish.
+
+## 2026-06-16: Admin Entity CRUD Tables
+
+- Screen or component: Loans, Borrowers, Document templates, and Superadmin user-account directory.
+- Current first-version behavior: added backend-searchable, dense entity tables with search/filter controls in the table header, a create action in the header, and row-level action columns. Borrowers and loans open edit modals backed by the existing PATCH endpoints. Document templates expose create-version and publish-version actions while preserving immutable version history. User accounts are searchable through the admin lookup endpoint and route status changes through the audited account-access workflow.
+- Required admin-console improvement: add true detail drawers for each entity with event history, related documents/evidence, and linked operational queues. Physical remove/delete remains intentionally unsupported for borrowers, loans, template versions, and users because these are audit/evidence entities; future "remove" semantics must be explicit domain transitions such as loan cancellation, listing removal, account closure, or template supersession.
+- Priority: important.

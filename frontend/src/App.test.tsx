@@ -193,5 +193,7 @@ test("admin module navigation renders operational panels", () => {
 
   fireEvent.click(screen.getByRole("button", { name: "Superadmin settings" }));
   expect(screen.getByRole("heading", { name: "Document templates" })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "Create admin user" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "User accounts" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Create admin" }));
+  expect(screen.getAllByRole("heading", { name: "Create admin user" }).length).toBeGreaterThan(0);
 });

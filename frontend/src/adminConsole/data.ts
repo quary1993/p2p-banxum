@@ -207,6 +207,17 @@ export function useDocumentTemplateVersionsData(params: V1DocumentsAdminTemplate
     if (version.template.category !== params.category) return false;
     if (params.language && version.template.language !== params.language) return false;
     if (params.template_key && version.template.template_key !== params.template_key) return false;
+    if (params.q) {
+      const q = params.q.toLowerCase();
+      return [
+        version.id,
+        version.title,
+        version.content_hash,
+        version.legal_review_reference,
+        version.template.name,
+        version.template.template_key
+      ].some((value) => value.toLowerCase().includes(q));
+    }
     return true;
   });
   return useV1DocumentsAdminTemplatesVersionsList(params, {

@@ -513,6 +513,40 @@ def test_document_template_and_acceptance_api(
 
 
 @pytest.mark.django_db
+def test_admin_template_version_list_searches_server_side(
+    client: Client,
+    superadmin_user: Model,
+) -> None:
+    create_document_template_version(
+        _template_command(
+            superadmin_user,
+            title="Primary Investment Terms",
+            publish_now=False,
+        )
+    )
+    create_document_template_version(
+        _template_command(
+            superadmin_user,
+            title="Secondary Buyer Terms",
+            publish_now=False,
+        )
+    )
+    client.force_login(cast(Any, superadmin_user))
+
+    response = client.get(
+        "/api/v1/documents/admin/templates/versions/",
+        data={
+            "category": DocumentCategory.PRIMARY_MARKET_INVESTMENT,
+            "q": "secondary",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [row["title"] for row in payload] == ["Secondary Buyer Terms"]
+
+
+@pytest.mark.django_db
 def test_acceptance_snapshot_includes_server_owned_brand_operator_and_user(
     superadmin_user: Model,
     investor: Model,

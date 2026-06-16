@@ -22,6 +22,7 @@ import {
   useV1DocumentsAdminTemplatesVersionsCreate,
   useV1DocumentsAdminTemplatesVersionsPublishCreate,
   useV1EntitiesAdminBorrowersCreate,
+  useV1EntitiesAdminBorrowersPartialUpdate,
   useV1FxAdminExternalSettlementsCreate,
   useV1KycAdminCasesManualReviewCreate,
   useV1LedgerAdminBalanceAgeingScansCreate,
@@ -32,6 +33,7 @@ import {
   useV1LedgerAdminWithdrawalRequestsCancelCreate,
   useV1LedgerAdminWithdrawalRequestsFinalizeCreate,
   useV1LoansAdminLoansCreate,
+  useV1LoansAdminLoansPartialUpdate,
   useV1LoansAdminLoansPublishCreate,
   useV1MarketplacePrimaryAdminLoansCancelFundingCreate,
   useV1MarketplacePrimaryAdminLoansCloseFundingCreate,
@@ -50,6 +52,7 @@ import {
   type AdminLookupResult,
   type AdminUserCreateRequest,
   type BalanceAgeingScanRequest,
+  type BorrowerEntity,
   type BorrowerDisbursementFinalizeRequest,
   type BorrowerEntityCreateRequest,
   type BorrowerEntityTypeEnum as BorrowerEntityType,
@@ -66,11 +69,14 @@ import {
   type KycManualReviewDecisionRequest,
   type KycManualReviewDecisionRequestReasonCodeEnum as KycReasonCode,
   type LenderDepositDeclareRequest,
+  type Loan,
   type LoanCreateRequest,
   type LoanRecoveryPaymentRecordRequest,
   type LoanRiskNoteCreateRequest,
   type LoanServicingStatusScanRequest,
   type NewStatusEnum as AccountNewStatus,
+  type PatchedBorrowerEntityUpdateRequest,
+  type PatchedLoanUpdateRequest,
   type PeriodPresetEnum as ReportPeriodPreset,
   type PurposeEnum as LoanPurpose,
   type RepaymentTypeEnum as LoanRepaymentType,
@@ -87,7 +93,9 @@ import {
   type RiskRatingEnum as LoanRiskRating,
   type SecondaryMarketListingApproveRequest,
   type SecondaryMarketListingRejectRequest,
-  type SecondaryMarketListingRemoveRequest
+  type SecondaryMarketListingRemoveRequest,
+  type V1EntitiesAdminBorrowersListKybStatus as BorrowerListKybStatus,
+  type V1LoansAdminLoansListStatus as LoanListStatus
 } from "../api/generated/banxumApi";
 import { isFixturePreview } from "../investorPortal/data";
 import { formatDate, formatDateTime, formatMoneyMinor, formatRateBps } from "../investorPortal/format";
@@ -123,7 +131,7 @@ const defaultCollectionAccount = adminFormDefaults.collectionAccount;
 
 function labelize(value: string | null | undefined) {
   if (!value) return "-";
-  if (value === "written_off") return "Defaulted";
+  if (value === "written_off") return "Written Off";
   if (value === "recovery_write_off") return "Recovery/default";
   return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
@@ -873,6 +881,54 @@ function SectionHeader({
   );
 }
 
+function EntityTableHeader({
+  title,
+  description,
+  search,
+  onSearch,
+  searchPlaceholder,
+  filters,
+  action
+}: {
+  title: string;
+  description: string;
+  search?: string;
+  onSearch?: (value: string) => void;
+  searchPlaceholder?: string;
+  filters?: ReactNode;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="admin-entity-head">
+      <div>
+        <h2>{title}</h2>
+        <p>{description}</p>
+      </div>
+      <div className="admin-entity-actions">
+        {onSearch ? (
+          <input
+            aria-label={`Search ${title}`}
+            className="admin-search-input"
+            onChange={(event) => onSearch(event.target.value)}
+            placeholder={searchPlaceholder || "Search"}
+            value={search ?? ""}
+          />
+        ) : null}
+        {filters}
+        {action}
+      </div>
+    </div>
+  );
+}
+
+function UnsupportedRemoveNote({ label }: { label: string }) {
+  return (
+    <span className="admin-action-note" title={`${label} records are retained for audit evidence.`}>
+      No delete
+    </span>
+  );
+}
+
 export function CompliancePanel() {
   const kycQuery = useKycManualReviewsData();
   const cases = useMemo(() => kycQuery.data ?? [], [kycQuery.data]);
@@ -1008,9 +1064,15 @@ function ManualKycDecisionForm({ defaultCaseId }: { defaultCaseId: string }) {
   );
 }
 
-function AccountAccessForm() {
-  const [userId, setUserId] = useState("");
-  const [userQuery, setUserQuery] = useState("");
+function AccountAccessForm({
+  defaultUserId = "",
+  defaultUserQuery = ""
+}: {
+  defaultUserId?: string;
+  defaultUserQuery?: string;
+}) {
+  const [userId, setUserId] = useState(defaultUserId);
+  const [userQuery, setUserQuery] = useState(defaultUserQuery || defaultUserId);
   const [newStatus, setNewStatus] = useState<AccountNewStatus>(NewStatusEnum.restricted);
   const [reasonCode, setReasonCode] = useState<AccountAccessReasonCode>(AccountAccessChangeRequestReasonCodeEnum.compliance_hold);
   const [note, setNote] = useState("");
@@ -1021,6 +1083,11 @@ function AccountAccessForm() {
   const mutation = useV1AuthAdminUsersAccessCreate({
     mutation: { onSuccess: () => setSuccess("Account access change was saved and audit-logged.") }
   });
+
+  useEffect(() => {
+    setUserId(defaultUserId);
+    setUserQuery(defaultUserQuery || defaultUserId);
+  }, [defaultUserId, defaultUserQuery]);
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -1611,12 +1678,30 @@ function FxAdminOps() {
 }
 
 export function LoansPanel() {
-  const borrowersQuery = useBorrowersData({ limit: 100 });
-  const loansQuery = useLoansData({ limit: 100 });
+  const [borrowerSearch, setBorrowerSearch] = useState("");
+  const [borrowerKybStatus, setBorrowerKybStatus] = useState<BorrowerListKybStatus | "">("");
+  const [loanSearch, setLoanSearch] = useState("");
+  const [loanStatus, setLoanStatus] = useState<LoanListStatus | "">("");
+  const debouncedBorrowerSearch = useDebouncedValue(borrowerSearch);
+  const debouncedLoanSearch = useDebouncedValue(loanSearch);
+  const borrowersQuery = useBorrowersData({
+    limit: 100,
+    q: debouncedBorrowerSearch || undefined,
+    kyb_status: borrowerKybStatus || undefined
+  });
+  const loansQuery = useLoansData({
+    limit: 100,
+    q: debouncedLoanSearch || undefined,
+    status: loanStatus || undefined
+  });
   const borrowers = useMemo(() => borrowersQuery.data ?? [], [borrowersQuery.data]);
   const loans = useMemo(() => loansQuery.data ?? [], [loansQuery.data]);
   const [selectedBorrowerId, setSelectedBorrowerId] = useState("");
   const [selectedLoanId, setSelectedLoanId] = useState("");
+  const [showBorrowerCreate, setShowBorrowerCreate] = useState(false);
+  const [showLoanCreate, setShowLoanCreate] = useState(false);
+  const [editingBorrower, setEditingBorrower] = useState<BorrowerEntity | null>(null);
+  const [editingLoan, setEditingLoan] = useState<Loan | null>(null);
   const selectedLoan = loans.find((loan) => loan.id === selectedLoanId) ?? loans[0];
 
   useEffect(() => {
@@ -1639,11 +1724,32 @@ export function LoansPanel() {
 
       <section className="admin-two-col">
         <Card padded>
-          <SectionHeader
-            action={<Button icon="refresh" onClick={() => { refetchLive(borrowersQuery.refetch); refetchLive(loansQuery.refetch); }} size="sm">Refresh</Button>}
+          <EntityTableHeader
+            action={
+              <div className="row gap-8 wrap">
+                <Button icon="refresh" onClick={() => refetchLive(borrowersQuery.refetch)} size="sm">Refresh</Button>
+                <Button icon="plus" onClick={() => setShowBorrowerCreate(true)} size="sm" variant="primary">Create borrower</Button>
+              </div>
+            }
             description="Entity data is admin-entered. Borrower portal accounts do not exist."
+            filters={
+              <select
+                aria-label="Filter borrowers by KYB status"
+                onChange={(event) => setBorrowerKybStatus(event.target.value as BorrowerListKybStatus | "")}
+                value={borrowerKybStatus}
+              >
+                <option value="">All KYB statuses</option>
+                {Object.values(BorrowerKybStatusEnum).map((status) => (
+                  <option key={status} value={status}>{labelize(status)}</option>
+                ))}
+              </select>
+            }
+            onSearch={setBorrowerSearch}
+            search={borrowerSearch}
+            searchPlaceholder="Search legal name, registration, country, UUID"
             title="Borrowers"
           />
+          {borrowersQuery.error ? <Banner tone="bad" title="Could not load borrowers">{errorMessage(borrowersQuery.error)}</Banner> : null}
           {borrowers.length ? (
             <div className="table-wrap admin-table-wrap">
               <table className="admin-table">
@@ -1653,6 +1759,7 @@ export function LoansPanel() {
                     <th>KYB</th>
                     <th>Country</th>
                     <th>Financials</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1671,6 +1778,12 @@ export function LoansPanel() {
                           <span>Revenue <Money amountMinor={borrower.revenue_last_year_minor} currency={borrower.financials_currency} /></span>
                         </div>
                       </td>
+                      <td>
+                        <div className="row gap-8 wrap" onClick={(event) => event.stopPropagation()}>
+                          <Button onClick={() => setEditingBorrower(borrower)} size="sm">Edit</Button>
+                          <UnsupportedRemoveNote label="Borrower" />
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1683,7 +1796,32 @@ export function LoansPanel() {
           )}
         </Card>
         <Card padded>
-          <SectionHeader description="Loans can only publish when required fields, schedule and borrower KYB gates pass." title="Loans" />
+          <EntityTableHeader
+            action={
+              <div className="row gap-8 wrap">
+                <Button icon="refresh" onClick={() => refetchLive(loansQuery.refetch)} size="sm">Refresh</Button>
+                <Button icon="plus" onClick={() => setShowLoanCreate(true)} size="sm" variant="primary">Create loan</Button>
+              </div>
+            }
+            description="Loans can only publish when required fields, schedule, funding-window and borrower KYB gates pass."
+            filters={
+              <select
+                aria-label="Filter loans by status"
+                onChange={(event) => setLoanStatus(event.target.value as LoanListStatus | "")}
+                value={loanStatus}
+              >
+                <option value="">All loan statuses</option>
+                {["draft", "published", "funded", "late", "defaulted", "repaid", "written_off", "cancelled"].map((status) => (
+                  <option key={status} value={status}>{labelize(status)}</option>
+                ))}
+              </select>
+            }
+            onSearch={setLoanSearch}
+            search={loanSearch}
+            searchPlaceholder="Search title, borrower, status, UUID"
+            title="Loans"
+          />
+          {loansQuery.error ? <Banner tone="bad" title="Could not load loans">{errorMessage(loansQuery.error)}</Banner> : null}
           {loans.length ? (
             <div className="table-wrap admin-table-wrap">
               <table className="admin-table">
@@ -1695,6 +1833,7 @@ export function LoansPanel() {
                     <th>Rate</th>
                     <th>LTV</th>
                     <th>Funding deadline</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1713,6 +1852,13 @@ export function LoansPanel() {
                       <td>{formatRateBps(loan.interest_rate_bps)}</td>
                       <td>{loan.ltv_bps === null ? "-" : formatRateBps(loan.ltv_bps)}</td>
                       <td>{formatDate(loan.funding_deadline)}</td>
+                      <td>
+                        <div className="row gap-8 wrap" onClick={(event) => event.stopPropagation()}>
+                          <Button onClick={() => setEditingLoan(loan)} size="sm">Edit</Button>
+                          <Button onClick={() => setSelectedLoanId(loan.id)} size="sm">Manage</Button>
+                          {loan.status === "published" ? <span className="admin-action-note">Cancel via operations</span> : <UnsupportedRemoveNote label="Loan" />}
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1727,8 +1873,6 @@ export function LoansPanel() {
       </section>
 
       <section className="admin-module-grid">
-        <BorrowerCreateForm />
-        <LoanCreateForm defaultBorrowerId={selectedBorrowerId} />
         <LoanPublishCloseForm
           defaultCommittedPrincipalMinor={selectedLoan?.committed_principal_minor ?? 0}
           defaultFundingDeadline={selectedLoan?.funding_deadline ?? ""}
@@ -1745,11 +1889,54 @@ export function LoansPanel() {
         />
         <SecondaryMarketAdminForm />
       </section>
+      {showBorrowerCreate ? (
+        <Modal title="Create borrower" onClose={() => setShowBorrowerCreate(false)}>
+          <BorrowerCreateForm
+            onCreated={() => {
+              setShowBorrowerCreate(false);
+              refetchLive(borrowersQuery.refetch);
+            }}
+          />
+        </Modal>
+      ) : null}
+      {showLoanCreate ? (
+        <Modal title="Create loan draft" onClose={() => setShowLoanCreate(false)}>
+          <LoanCreateForm
+            defaultBorrowerId={selectedBorrowerId}
+            onCreated={() => {
+              setShowLoanCreate(false);
+              refetchLive(loansQuery.refetch);
+            }}
+          />
+        </Modal>
+      ) : null}
+      {editingBorrower ? (
+        <Modal title={`Edit borrower - ${editingBorrower.legal_name}`} onClose={() => setEditingBorrower(null)}>
+          <BorrowerEditForm
+            borrower={editingBorrower}
+            onSaved={() => {
+              setEditingBorrower(null);
+              refetchLive(borrowersQuery.refetch);
+            }}
+          />
+        </Modal>
+      ) : null}
+      {editingLoan ? (
+        <Modal title={`Edit loan - ${editingLoan.title}`} onClose={() => setEditingLoan(null)}>
+          <LoanEditForm
+            loan={editingLoan}
+            onSaved={() => {
+              setEditingLoan(null);
+              refetchLive(loansQuery.refetch);
+            }}
+          />
+        </Modal>
+      ) : null}
     </div>
   );
 }
 
-function BorrowerCreateForm() {
+function BorrowerCreateForm({ onCreated }: { onCreated?: () => void }) {
   const [legalName, setLegalName] = useState(adminFormDefaults.borrowerLegalName);
   const [yearFounded, setYearFounded] = useState("2016");
   const [entityType, setEntityType] = useState<BorrowerEntityType>(BorrowerEntityTypeEnum.swiss_company);
@@ -1761,7 +1948,12 @@ function BorrowerCreateForm() {
   const [preview, setPreview] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | undefined>();
   const mutation = useV1EntitiesAdminBorrowersCreate({
-    mutation: { onSuccess: () => setSuccess("Borrower entity was created.") }
+    mutation: {
+      onSuccess: () => {
+        setSuccess("Borrower entity was created.");
+        onCreated?.();
+      }
+    }
   });
 
   function submit(event: FormEvent) {
@@ -1784,7 +1976,7 @@ function BorrowerCreateForm() {
   }
 
   return (
-    <Card padded>
+    <div className="admin-form-panel">
       <h2>Create borrower</h2>
       <form className="admin-action-form" onSubmit={submit}>
         <FieldGrid>
@@ -1799,11 +1991,99 @@ function BorrowerCreateForm() {
         <TextAreaInput label="Admin note" onChange={setNote} value={note} />
         <ActionFooter mutation={mutation} previewMessage={preview} successMessage={success} submitLabel="Create borrower" />
       </form>
-    </Card>
+    </div>
   );
 }
 
-function LoanCreateForm({ defaultBorrowerId }: { defaultBorrowerId: string }) {
+function BorrowerEditForm({ borrower, onSaved }: { borrower: BorrowerEntity; onSaved?: () => void }) {
+  const [legalName, setLegalName] = useState(borrower.legal_name);
+  const [yearFounded, setYearFounded] = useState(String(borrower.year_founded));
+  const [entityType, setEntityType] = useState<BorrowerEntityType>(borrower.entity_type as BorrowerEntityType);
+  const [kybStatus, setKybStatus] = useState<BorrowerKybStatus>(borrower.kyb_status as BorrowerKybStatus);
+  const [complianceHold, setComplianceHold] = useState(borrower.compliance_hold);
+  const [country, setCountry] = useState(borrower.country || "CH");
+  const [registrationNumber, setRegistrationNumber] = useState(borrower.registration_number || "");
+  const [financialsCurrency, setFinancialsCurrency] = useState(borrower.financials_currency || "CHF");
+  const [assets, setAssets] = useState(borrower.assets_minor === null ? "" : String(borrower.assets_minor));
+  const [liabilities, setLiabilities] = useState(borrower.liabilities_minor === null ? "" : String(borrower.liabilities_minor));
+  const [revenue, setRevenue] = useState(borrower.revenue_last_year_minor === null ? "" : String(borrower.revenue_last_year_minor));
+  const [profit, setProfit] = useState(borrower.profit_last_year_minor === null ? "" : String(borrower.profit_last_year_minor));
+  const [note, setNote] = useState("");
+  const [evidenceSummary, setEvidenceSummary] = useState("");
+  const [preview, setPreview] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | undefined>();
+  const mutation = useV1EntitiesAdminBorrowersPartialUpdate({
+    mutation: {
+      onSuccess: () => {
+        setSuccess("Borrower entity was updated.");
+        onSaved?.();
+      }
+    }
+  });
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    const data: PatchedBorrowerEntityUpdateRequest = {
+      legal_name: legalName,
+      year_founded: intValue(yearFounded, borrower.year_founded),
+      entity_type: entityType,
+      kyb_status: kybStatus,
+      compliance_hold: complianceHold,
+      country,
+      registration_number: registrationNumber,
+      financials_currency: financialsCurrency,
+      assets_minor: assets ? intValue(assets) : null,
+      liabilities_minor: liabilities ? intValue(liabilities) : null,
+      revenue_last_year_minor: revenue ? intValue(revenue) : null,
+      profit_last_year_minor: profit ? intValue(profit) : null,
+      clear_assets: !assets,
+      clear_liabilities: !liabilities,
+      clear_revenue_last_year: !revenue,
+      clear_profit_last_year: !profit,
+      note,
+      evidence_summary: evidenceSummary
+    };
+    if (isFixturePreview) {
+      setPreview(`${legalName} borrower record would be updated.`);
+      return;
+    }
+    mutation.mutate({ borrowerId: borrower.id, data });
+  }
+
+  return (
+    <div className="admin-form-panel">
+      <form className="admin-action-form" onSubmit={submit}>
+        <div className="admin-context-bar">
+          <span>Borrower ID</span>
+          <code>{borrower.id}</code>
+          <Chip tone={statusTone(borrower.kyb_status)}>{labelize(borrower.kyb_status)}</Chip>
+        </div>
+        <FieldGrid>
+          <TextInput label="Legal name" onChange={setLegalName} required value={legalName} />
+          <TextInput label="Year founded" onChange={setYearFounded} required value={yearFounded} />
+          <SelectInput label="Entity type" onChange={setEntityType} options={Object.values(BorrowerEntityTypeEnum)} value={entityType} />
+          <SelectInput label="KYB status" onChange={setKybStatus} options={Object.values(BorrowerKybStatusEnum)} value={kybStatus} />
+          <TextInput label="Country" onChange={setCountry} value={country} />
+          <TextInput label="Registration number" onChange={setRegistrationNumber} value={registrationNumber} />
+          <TextInput label="Financials currency" onChange={setFinancialsCurrency} value={financialsCurrency} />
+          <MoneyMinorInput currency={financialsCurrency} label="Assets minor units" onChange={setAssets} value={assets} />
+          <MoneyMinorInput currency={financialsCurrency} label="Liabilities minor units" onChange={setLiabilities} value={liabilities} />
+          <MoneyMinorInput currency={financialsCurrency} label="Revenue last year minor" onChange={setRevenue} value={revenue} />
+          <MoneyMinorInput currency={financialsCurrency} label="Profit last year minor" onChange={setProfit} value={profit} />
+        </FieldGrid>
+        <label className="check-row">
+          <input checked={complianceHold} onChange={(event) => setComplianceHold(event.target.checked)} type="checkbox" />
+          Compliance hold is active.
+        </label>
+        <TextAreaInput label="Admin note" onChange={setNote} value={note} />
+        <TextAreaInput label="Evidence summary" onChange={setEvidenceSummary} value={evidenceSummary} />
+        <ActionFooter mutation={mutation} previewMessage={preview} successMessage={success} submitLabel="Save borrower changes" />
+      </form>
+    </div>
+  );
+}
+
+function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: string; onCreated?: () => void }) {
   const [borrowerId, setBorrowerId] = useState(defaultBorrowerId);
   const [borrowerQuery, setBorrowerQuery] = useState(defaultBorrowerId);
   const [title, setTitle] = useState("New real-estate backed facility");
@@ -1822,7 +2102,12 @@ function LoanCreateForm({ defaultBorrowerId }: { defaultBorrowerId: string }) {
   const [preview, setPreview] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | undefined>();
   const mutation = useV1LoansAdminLoansCreate({
-    mutation: { onSuccess: () => setSuccess("Loan draft was created and schedule validations ran server-side.") }
+    mutation: {
+      onSuccess: () => {
+        setSuccess("Loan draft was created and schedule validations ran server-side.");
+        onCreated?.();
+      }
+    }
   });
 
   useEffect(() => {
@@ -1856,7 +2141,7 @@ function LoanCreateForm({ defaultBorrowerId }: { defaultBorrowerId: string }) {
   }
 
   return (
-    <Card padded className="admin-wide-card">
+    <div className="admin-form-panel">
       <h2>Create loan draft</h2>
       <div className="admin-context-bar">
         <span>Selected borrower</span>
@@ -1887,7 +2172,99 @@ function LoanCreateForm({ defaultBorrowerId }: { defaultBorrowerId: string }) {
         <TextAreaInput label="Investor summary" onChange={setSummary} required value={summary} />
         <ActionFooter mutation={mutation} previewMessage={preview} successMessage={success} submitLabel="Create loan draft" />
       </form>
-    </Card>
+    </div>
+  );
+}
+
+function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
+  const [title, setTitle] = useState(loan.title);
+  const [summary, setSummary] = useState(loan.investor_summary);
+  const [principal, setPrincipal] = useState(String(loan.principal_minor));
+  const [rateBps, setRateBps] = useState(String(loan.interest_rate_bps));
+  const [termMonths, setTermMonths] = useState(String(loan.term_months));
+  const [purpose, setPurpose] = useState<LoanPurpose>(loan.purpose as LoanPurpose);
+  const [repaymentType, setRepaymentType] = useState<LoanRepaymentType>(loan.repayment_type as LoanRepaymentType);
+  const [collateralType, setCollateralType] = useState<LoanCollateralType>(loan.collateral_type as LoanCollateralType);
+  const [collateralValue, setCollateralValue] = useState(String(loan.collateral_value_minor));
+  const [riskRating, setRiskRating] = useState<LoanRiskRating>(loan.risk_rating as LoanRiskRating);
+  const [fundingDeadline, setFundingDeadline] = useState(loan.funding_deadline);
+  const [firstPaymentDate, setFirstPaymentDate] = useState(loan.first_payment_date);
+  const [investorMessage, setInvestorMessage] = useState("");
+  const [note, setNote] = useState("");
+  const [preview, setPreview] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | undefined>();
+  const mutation = useV1LoansAdminLoansPartialUpdate({
+    mutation: {
+      onSuccess: () => {
+        setSuccess("Loan changes were saved.");
+        onSaved?.();
+      }
+    }
+  });
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    const data: PatchedLoanUpdateRequest = {
+      title,
+      investor_summary: summary,
+      purpose,
+      principal_minor: intValue(principal),
+      interest_rate_bps: intValue(rateBps),
+      term_months: intValue(termMonths),
+      repayment_type: repaymentType,
+      funding_deadline: fundingDeadline,
+      first_payment_date: firstPaymentDate,
+      collateral_type: collateralType,
+      collateral_value_minor: intValue(collateralValue),
+      risk_rating: riskRating,
+      investor_message: investorMessage,
+      note
+    };
+    if (isFixturePreview) {
+      setPreview(`${title} loan record would be updated.`);
+      return;
+    }
+    mutation.mutate({ loanId: loan.id, data });
+  }
+
+  return (
+    <div className="admin-form-panel">
+      <form className="admin-action-form" onSubmit={submit}>
+        <div className="admin-context-bar">
+          <span>Loan ID</span>
+          <code>{loan.id}</code>
+          <Chip tone={statusTone(loan.status)}>{labelize(loan.status)}</Chip>
+          <span>Committed <Money amountMinor={loan.committed_principal_minor} currency={loan.currency} /></span>
+        </div>
+        {loan.committed_principal_minor > 0 ? (
+          <Banner tone="warn" title="Committed investments exist">
+            Backend policy allows only a principal reduction with an investor message once committed investments exist.
+          </Banner>
+        ) : null}
+        <FieldGrid>
+          <TextInput label="Title" onChange={setTitle} required value={title} />
+          <MoneyMinorInput currency={loan.currency} label="Principal minor units" onChange={setPrincipal} required value={principal} />
+          <TextInput label="Interest bps" onChange={setRateBps} required value={rateBps} />
+          <TextInput label="Term months" onChange={setTermMonths} required value={termMonths} />
+          <SelectInput label="Purpose" onChange={setPurpose} options={Object.values(PurposeEnum)} value={purpose} />
+          <SelectInput label="Repayment type" onChange={setRepaymentType} options={Object.values(RepaymentTypeEnum)} value={repaymentType} />
+          <SelectInput label="Collateral type" onChange={setCollateralType} options={Object.values(CollateralTypeEnum)} value={collateralType} />
+          <MoneyMinorInput currency={loan.currency} label="Collateral value minor" onChange={setCollateralValue} required value={collateralValue} />
+          <SelectInput label="Risk rating" onChange={setRiskRating} options={Object.values(RiskRatingEnum)} value={riskRating} />
+          <TextInput label="Funding deadline" onChange={setFundingDeadline} type="date" value={fundingDeadline} />
+          <TextInput label="First payment date" onChange={setFirstPaymentDate} type="date" value={firstPaymentDate} />
+        </FieldGrid>
+        <TextAreaInput label="Investor summary" onChange={setSummary} required value={summary} />
+        <TextAreaInput
+          hint="Required when lowering principal after committed investments exist."
+          label="Investor message"
+          onChange={setInvestorMessage}
+          value={investorMessage}
+        />
+        <TextAreaInput label="Admin note" onChange={setNote} value={note} />
+        <ActionFooter mutation={mutation} previewMessage={preview} successMessage={success} submitLabel="Save loan changes" />
+      </form>
+    </div>
   );
 }
 
@@ -2552,20 +2929,47 @@ export function ReportsPanel() {
 
 export function SettingsPanel() {
   const [category, setCategory] = useState<DocumentCategory>(CategoryEnum.registration);
-  const versionsQuery = useDocumentTemplateVersionsData({ category });
+  const [templateSearch, setTemplateSearch] = useState("");
+  const [showTemplateForm, setShowTemplateForm] = useState(false);
+  const [defaultTemplateVersionId, setDefaultTemplateVersionId] = useState("");
+  const debouncedTemplateSearch = useDebouncedValue(templateSearch);
+  const versionsQuery = useDocumentTemplateVersionsData({
+    category,
+    q: debouncedTemplateSearch || undefined,
+    limit: 100
+  });
   const versions = versionsQuery.data ?? [];
 
   return (
     <div className="admin-content">
       <PreviewNotice>Superadmin settings use dummy templates in preview. Live template changes create immutable document versions.</PreviewNotice>
-      <section className="admin-two-col">
+      <section className="admin-section">
         <Card padded>
-          <SectionHeader
-            action={<Button icon="refresh" onClick={() => refetchLive(versionsQuery.refetch)} size="sm">Refresh</Button>}
+          <EntityTableHeader
+            action={
+              <div className="row gap-8 wrap">
+                <Button icon="refresh" onClick={() => refetchLive(versionsQuery.refetch)} size="sm">Refresh</Button>
+                <Button
+                  icon="plus"
+                  onClick={() => {
+                    setDefaultTemplateVersionId("");
+                    setShowTemplateForm(true);
+                  }}
+                  size="sm"
+                  variant="primary"
+                >
+                  Create version
+                </Button>
+              </div>
+            }
             description="Versioned clickwrap templates by category. Published versions are immutable evidence anchors."
+            filters={<SelectInput label="Category" onChange={setCategory} options={Object.values(CategoryEnum)} value={category} />}
+            onSearch={setTemplateSearch}
+            search={templateSearch}
+            searchPlaceholder="Search title, key, legal ref, hash, UUID"
             title="Document templates"
           />
-          <SelectInput label="Category" onChange={setCategory} options={Object.values(CategoryEnum)} value={category} />
+          {versionsQuery.error ? <Banner tone="bad" title="Could not load document templates">{errorMessage(versionsQuery.error)}</Banner> : null}
           {versions.length ? (
             <div className="table-wrap admin-table-wrap">
               <table className="admin-table">
@@ -2576,6 +2980,7 @@ export function SettingsPanel() {
                     <th>Version</th>
                     <th>Published</th>
                     <th>Hash</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2590,6 +2995,20 @@ export function SettingsPanel() {
                       <td>v{version.version_number}</td>
                       <td>{formatDateTime(version.published_at)}</td>
                       <td className="mono">{version.content_hash}</td>
+                      <td>
+                        <div className="row gap-8 wrap">
+                          <Button
+                            onClick={() => {
+                              setDefaultTemplateVersionId(version.id);
+                              setShowTemplateForm(true);
+                            }}
+                            size="sm"
+                          >
+                            Publish / clone
+                          </Button>
+                          <UnsupportedRemoveNote label="Template version" />
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -2601,17 +3020,36 @@ export function SettingsPanel() {
             </Empty>
           )}
         </Card>
-        <DocumentTemplateForm category={category} defaultVersionId={versions[0]?.id ?? ""} />
       </section>
       <section className="admin-two-col">
-        <AdminUserCreateForm />
+        <AdminUsersDirectory />
         <AccountAccessForm />
       </section>
+      {showTemplateForm ? (
+        <Modal title="Document template version" onClose={() => setShowTemplateForm(false)}>
+          <DocumentTemplateForm
+            category={category}
+            defaultVersionId={defaultTemplateVersionId || versions[0]?.id || ""}
+            onDone={() => {
+              setShowTemplateForm(false);
+              refetchLive(versionsQuery.refetch);
+            }}
+          />
+        </Modal>
+      ) : null}
     </div>
   );
 }
 
-function DocumentTemplateForm({ category, defaultVersionId }: { category: DocumentCategory; defaultVersionId: string }) {
+function DocumentTemplateForm({
+  category,
+  defaultVersionId,
+  onDone
+}: {
+  category: DocumentCategory;
+  defaultVersionId: string;
+  onDone?: () => void;
+}) {
   const [name, setName] = useState("BANXUM Terms Template");
   const [title, setTitle] = useState("BANXUM Terms");
   const [body, setBody] = useState("Advisor-approved body will be inserted here.");
@@ -2621,8 +3059,12 @@ function DocumentTemplateForm({ category, defaultVersionId }: { category: Docume
   const [versionQuery, setVersionQuery] = useState(defaultVersionId);
   const [legalRef, setLegalRef] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
-  const create = useV1DocumentsAdminTemplatesVersionsCreate();
-  const publish = useV1DocumentsAdminTemplatesVersionsPublishCreate();
+  const create = useV1DocumentsAdminTemplatesVersionsCreate({
+    mutation: { onSuccess: () => onDone?.() }
+  });
+  const publish = useV1DocumentsAdminTemplatesVersionsPublishCreate({
+    mutation: { onSuccess: () => onDone?.() }
+  });
 
   useEffect(() => {
     setVersionId(defaultVersionId);
@@ -2656,7 +3098,7 @@ function DocumentTemplateForm({ category, defaultVersionId }: { category: Docume
   }
 
   return (
-    <Card padded>
+    <div className="admin-form-panel">
       <h2>Create or publish template</h2>
       <form className="admin-action-form" onSubmit={createVersion}>
         <FieldGrid>
@@ -2698,18 +3140,104 @@ function DocumentTemplateForm({ category, defaultVersionId }: { category: Docume
           Publish selected version
         </OperationConfirmButton>
       </div>
+    </div>
+  );
+}
+
+function AdminUsersDirectory() {
+  const [search, setSearch] = useState("");
+  const [showCreate, setShowCreate] = useState(false);
+  const [accessUser, setAccessUser] = useState<AdminLookupResult | null>(null);
+  const debouncedSearch = useDebouncedValue(search);
+  const usersQuery = useAdminUserLookupData({ q: debouncedSearch, limit: 50 }, debouncedSearch.trim().length >= 3);
+  const users = usersQuery.data ?? [];
+
+  return (
+    <Card padded>
+      <EntityTableHeader
+        action={<Button icon="plus" onClick={() => setShowCreate(true)} size="sm" variant="primary">Create admin</Button>}
+        description="Search admin and platform users by name, email, investor reference or UUID. Admin account status changes use the audited account-access flow."
+        onSearch={setSearch}
+        search={search}
+        searchPlaceholder="Search name, email, reference, UUID"
+        title="User accounts"
+      />
+      {usersQuery.error ? <Banner tone="bad" title="Could not search users">{errorMessage(usersQuery.error)}</Banner> : null}
+      {debouncedSearch.trim().length < 3 ? (
+        <Empty icon="search" title="Search users">
+          Type at least 3 characters to query backend user records.
+        </Empty>
+      ) : users.length ? (
+        <div className="table-wrap admin-table-wrap">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Kind</th>
+                <th>Context</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((user) => (
+                <tr key={user.id}>
+                  <td>
+                    <strong>{user.label}</strong>
+                    <span className="mono muted">{user.id}</span>
+                  </td>
+                  <td><Chip tone="neutral">{labelize(user.kind)}</Chip></td>
+                  <td>{user.meta || "-"}</td>
+                  <td>
+                    <div className="row gap-8 wrap">
+                      <Button onClick={() => setAccessUser(user)} size="sm">Access controls</Button>
+                      <UnsupportedRemoveNote label="User" />
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <Empty icon="search" title="No users found">
+          Adjust the search term or create a new admin user.
+        </Empty>
+      )}
+      {showCreate ? (
+        <Modal title="Create admin user" onClose={() => setShowCreate(false)}>
+          <AdminUserCreateForm
+            onCreated={() => {
+              setShowCreate(false);
+              refetchLive(usersQuery.refetch);
+            }}
+          />
+        </Modal>
+      ) : null}
+      {accessUser ? (
+        <Modal title={`Account access - ${accessUser.label}`} onClose={() => setAccessUser(null)}>
+          <AccountAccessForm
+            defaultUserId={accessUser.id}
+            defaultUserQuery={lookupDisplay(accessUser)}
+          />
+        </Modal>
+      ) : null}
     </Card>
   );
 }
 
-function AdminUserCreateForm() {
+function AdminUserCreateForm({ onCreated }: { onCreated?: () => void }) {
   const [email, setEmail] = useState(adminFormDefaults.adminEmail);
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState(adminFormDefaults.adminFullName);
   const [preview, setPreview] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | undefined>();
   const mutation = useV1AuthAdminUsersCreate({
-    mutation: { onSuccess: () => setSuccess("Admin user was created. Password reset remains superadmin-managed.") }
+    mutation: {
+      onSuccess: () => {
+        setSuccess("Admin user was created. Password reset remains superadmin-managed.");
+        onCreated?.();
+      }
+    }
   });
 
   function submit(event: FormEvent) {
@@ -2723,7 +3251,7 @@ function AdminUserCreateForm() {
   }
 
   return (
-    <Card padded>
+    <div className="admin-form-panel">
       <h2>Create admin user</h2>
       <p>Superadmin-created admins use email, password and email-code login. There is no forgot-password flow.</p>
       <form className="admin-action-form" onSubmit={submit}>
@@ -2734,7 +3262,7 @@ function AdminUserCreateForm() {
         </FieldGrid>
         <ActionFooter mutation={mutation} previewMessage={preview} successMessage={success} submitLabel="Create admin" />
       </form>
-    </Card>
+    </div>
   );
 }
 

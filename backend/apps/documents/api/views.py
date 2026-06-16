@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from django.db.models import Model
+from django.db.models import CharField, Model, Q
+from django.db.models.functions import Cast
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -11,6 +12,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from backend.apps.documents.api.serializers import (
+    AdminDocumentTemplateVersionListQuerySerializer,
     DocumentAcceptanceArtifactRequestSerializer,
     DocumentAcceptanceCreateRequestSerializer,
     DocumentAcceptanceEvidenceSerializer,
@@ -77,13 +79,13 @@ class AdminDocumentTemplateVersionListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
-        parameters=[DocumentCurrentTemplateQuerySerializer],
+        parameters=[AdminDocumentTemplateVersionListQuerySerializer],
         responses={200: DocumentTemplateVersionSerializer(many=True)},
     )
     def get(self, request: Request) -> Response:
         if not is_superadmin_actor(request.user):
             return _superadmin_forbidden_response()
-        serializer = DocumentCurrentTemplateQuerySerializer(data=request.query_params)
+        serializer = AdminDocumentTemplateVersionListQuerySerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
         data: dict[str, Any] = serializer.validated_data
         versions = (
@@ -95,8 +97,18 @@ class AdminDocumentTemplateVersionListCreateView(APIView):
             )
             .order_by("-version_number", "-created_at", "-id")
         )
+        query = data.get("q", "").strip()
+        if query:
+            versions = versions.annotate(id_text=Cast("id", output_field=CharField())).filter(
+                Q(id_text__icontains=query)
+                | Q(title__icontains=query)
+                | Q(content_hash__icontains=query)
+                | Q(legal_review_reference__icontains=query)
+                | Q(template__name__icontains=query)
+                | Q(template__template_key__icontains=query)
+            )
         return Response(
-            [serialize_template_version(version) for version in versions],
+            [serialize_template_version(version) for version in versions[: data["limit"]]],
             status=status.HTTP_200_OK,
         )
 

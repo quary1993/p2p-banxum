@@ -1114,8 +1114,9 @@ Tasks:
   - risk rating.
   - required investor-facing information.
 - Enforce funding deadline defaults:
-  - default 30 days.
-  - maximum 60 days.
+  - draft/admin planning maximum 60 days.
+  - publish/open-market default 29 days from the Europe/Zurich business date.
+  - publication rejects deadlines in the past or at/after the 30-day balance-investment cutoff, so open campaigns do not later reject balance-funded orders solely because the campaign deadline exceeds the launch investment window.
 - Implement common loan purposes:
   - working capital.
   - liquidity.

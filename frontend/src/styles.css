@@ -2097,6 +2097,59 @@ textarea.input {
   box-shadow: inset 3px 0 0 var(--bad);
 }
 
+.admin-entity-head {
+  align-items: flex-start;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+}
+
+.admin-entity-head h2 {
+  margin: 0;
+}
+
+.admin-entity-head p {
+  color: var(--muted);
+  margin: 4px 0 0;
+}
+
+.admin-entity-actions {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  min-width: min(100%, 360px);
+}
+
+.admin-entity-actions .field {
+  min-width: 170px;
+}
+
+.admin-entity-actions select,
+.admin-search-input {
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  font-size: 12.5px;
+  height: 34px;
+  padding: 0 10px;
+}
+
+.admin-search-input {
+  min-width: min(100%, 260px);
+}
+
+.admin-action-note {
+  align-items: center;
+  color: var(--muted);
+  display: inline-flex;
+  font-size: 11px;
+  min-height: 28px;
+  white-space: nowrap;
+}
+
 .admin-row-button {
   background: transparent;
   border: 0;
@@ -2318,6 +2371,16 @@ textarea.input {
   display: grid;
   gap: 13px;
   margin-top: 12px;
+}
+
+.admin-form-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-form-panel h2,
+.admin-form-panel p {
+  margin-top: 0;
 }
 
 .admin-action-form textarea,

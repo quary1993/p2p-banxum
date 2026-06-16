@@ -1169,6 +1169,18 @@ paths:
           maxLength: 8
           minLength: 1
       - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 250
+          minimum: 1
+          default: 100
+      - in: query
+        name: q
+        schema:
+          type: string
+          maxLength: 255
+      - in: query
         name: template_key
         schema:
           type: string

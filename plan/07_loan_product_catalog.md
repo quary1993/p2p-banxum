@@ -204,11 +204,11 @@ Launch schedule and funding defaults are:
 - Installment calculations round each installment line to the currency minor unit.
 - The final installment absorbs rounding residue.
 - Every loan has an admin-set funding deadline.
-- Default funding deadline is 30 days.
-- Maximum funding deadline is 60 days.
+- Draft/admin planning records may carry a funding deadline up to 60 days.
+- A loan cannot be published/opened to investors if the funding deadline is in the past or at/after the 30-day balance-investment cutoff. The launch publishable default is therefore 29 calendar days from the Europe/Zurich business date.
 
 Rationale:
-These defaults make schedule generation, arrears status, investor display, and funding-campaign monitoring deterministic for v1 while preserving admin flexibility inside a controlled range.
+These defaults make schedule generation, arrears status, investor display, and funding-campaign monitoring deterministic for v1 while preserving admin planning flexibility inside a controlled range. The stricter publish-time cutoff prevents an admin from opening a balance-funded campaign whose deadline would make newly available investor balances fail the 30-day investment-window eligibility check at allocation time.
 
 Follow-ups:
 If Garanta later needs other day-count conventions, frequencies, or interest structures, add them as explicit product configuration with schedule golden tests.

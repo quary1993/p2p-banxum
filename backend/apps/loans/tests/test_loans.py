@@ -89,7 +89,7 @@ def _loan_command(
     repayment_type: str = RepaymentType.EQUAL_INSTALLMENTS,
     interest_only_months: int = 0,
 ) -> CreateLoanCommand:
-    funding_deadline = timezone.localdate() + timedelta(days=30)
+    funding_deadline = timezone.localdate() + timedelta(days=20)
     return CreateLoanCommand(
         actor=admin_user,
         borrower_id=str(borrower.pk),
@@ -226,6 +226,57 @@ def test_publish_requires_borrower_can_transact(admin_user: Model) -> None:
 
 
 @pytest.mark.django_db
+def test_default_funding_deadline_is_publishable(admin_user: Model) -> None:
+    borrower = _borrower(admin_user)
+    loan = create_loan(
+        replace(
+            _loan_command(admin_user, borrower),
+            funding_deadline=None,
+            first_payment_date=None,
+        )
+    )
+
+    assert loan.funding_deadline == timezone.localdate() + timedelta(days=29)
+
+    published = publish_loan(PublishLoanCommand(actor=admin_user, loan_id=str(loan.id)))
+
+    assert published.status == LoanStatus.PUBLISHED
+
+
+@pytest.mark.django_db
+def test_publish_rejects_funding_deadline_in_past(admin_user: Model) -> None:
+    borrower = _borrower(admin_user)
+    loan = create_loan(_loan_command(admin_user, borrower))
+    loan.funding_deadline = timezone.localdate() - timedelta(days=1)
+    loan.save(update_fields=["funding_deadline", "updated_at"])
+
+    with pytest.raises(LoanValidationError, match="Zurich business date"):
+        publish_loan(PublishLoanCommand(actor=admin_user, loan_id=str(loan.id)))
+
+    loan.refresh_from_db()
+    assert loan.status == LoanStatus.DRAFT
+
+
+@pytest.mark.django_db
+def test_publish_rejects_funding_deadline_at_thirty_day_cutoff(admin_user: Model) -> None:
+    borrower = _borrower(admin_user)
+    funding_deadline = timezone.localdate() + timedelta(days=30)
+    loan = create_loan(
+        replace(
+            _loan_command(admin_user, borrower),
+            funding_deadline=funding_deadline,
+            first_payment_date=add_months(funding_deadline, 1),
+        )
+    )
+
+    with pytest.raises(LoanValidationError, match="too far in the future"):
+        publish_loan(PublishLoanCommand(actor=admin_user, loan_id=str(loan.id)))
+
+    loan.refresh_from_db()
+    assert loan.status == LoanStatus.DRAFT
+
+
+@pytest.mark.django_db
 def test_post_commit_edit_allows_only_lowering_amount_with_message(admin_user: Model) -> None:
     borrower = _borrower(admin_user)
     loan = create_loan(_loan_command(admin_user, borrower))
@@ -275,7 +326,7 @@ def test_loan_admin_api_create_publish_schedule_and_events(
 ) -> None:
     borrower = _borrower(admin_user)
     client.force_login(cast(Any, admin_user))
-    funding_deadline = timezone.localdate() + timedelta(days=30)
+    funding_deadline = timezone.localdate() + timedelta(days=20)
 
     create_response = client.post(
         "/api/v1/loans/admin/loans/",

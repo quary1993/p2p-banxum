@@ -86,6 +86,11 @@ class DocumentCurrentTemplateQuerySerializer(serializers.Serializer[Any]):
     language = serializers.CharField(required=False, default="en", max_length=8)
 
 
+class AdminDocumentTemplateVersionListQuerySerializer(DocumentCurrentTemplateQuerySerializer):
+    q = serializers.CharField(required=False, allow_blank=True, max_length=255)
+    limit = serializers.IntegerField(required=False, min_value=1, max_value=250, default=100)
+
+
 class DocumentTemplateVersionCreateRequestSerializer(serializers.Serializer[Any]):
     category = serializers.ChoiceField(choices=DocumentCategory.choices)
     template_key = serializers.CharField(required=False, default="default", max_length=128)

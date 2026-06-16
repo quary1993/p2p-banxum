@@ -3480,6 +3480,15 @@ category: V1DocumentsAdminTemplatesVersionsListCategory;
  */
 language?: string;
 /**
+ * @minimum 1
+ * @maximum 250
+ */
+limit?: number;
+/**
+ * @maxLength 255
+ */
+q?: string;
+/**
  * @minLength 1
  * @maxLength 128
  */

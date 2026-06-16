@@ -368,12 +368,13 @@ Date: 2026-05-22.
 Owner: Garanta product / finance / operations.
 
 Decision:
-Every primary-market loan has an admin-set funding deadline. The default funding deadline is 30 days. The maximum funding deadline is 60 days.
+Every primary-market loan has an admin-set funding deadline. Draft/admin planning records may carry a funding deadline up to 60 days. A loan cannot be published/opened to investors if the funding deadline is in the past or at/after the 30-day balance-investment cutoff; the launch publishable default is therefore 29 calendar days from the Europe/Zurich business date.
 
 If admin accepts a partially funded loan, the accepted funded amount becomes the final loan principal. The repayment schedule is generated or regenerated from that accepted funded principal. The borrower success fee applies to the accepted funded principal, and the borrower repays the accepted funded principal plus agreed interest.
 
 Rationale:
 This keeps partial funding economically clear and avoids borrower schedules based on unfunded amounts.
+The publication cutoff keeps open campaigns compatible with the investor-balance ageing model instead of letting admins publish a loan that would later reject balance-funded orders because the campaign deadline exceeds the 30-day investment/reinvestment window.
 
 Follow-ups:
 Final legal terms must disclose the partial-funding treatment and investor notification rule.

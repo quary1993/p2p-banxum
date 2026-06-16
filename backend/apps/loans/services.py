@@ -33,6 +33,7 @@ from backend.apps.loans.models import (
 )
 from backend.apps.platform_core.domain.access import actor_ref_for_user, is_admin_actor
 from backend.apps.platform_core.domain.money import Money, normalize_currency
+from backend.apps.platform_core.domain.time import business_date, now_utc
 from backend.apps.platform_core.models import Currency
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import DomainEventCommand, record_domain_event
@@ -55,7 +56,8 @@ MAX_PRINCIPAL_MAJOR = 1_000_000_000
 MIN_TERM_MONTHS = 1
 MAX_TERM_MONTHS = 600
 MAX_FUNDING_DEADLINE_DAYS = 60
-DEFAULT_FUNDING_DEADLINE_DAYS = 30
+MAX_PUBLISHABLE_FUNDING_DEADLINE_DAYS = 29
+DEFAULT_FUNDING_DEADLINE_DAYS = MAX_PUBLISHABLE_FUNDING_DEADLINE_DAYS
 MAX_RATE_BPS = 100_000
 MAX_FEE_BPS = 10_000
 
@@ -231,7 +233,7 @@ def _validate_minor_nonnegative(value: int, label: str) -> int:
 
 
 def _business_today() -> date:
-    return timezone.localdate()
+    return business_date(now_utc())
 
 
 def _resolve_funding_deadline(value: date | None) -> date:
@@ -242,6 +244,22 @@ def _resolve_funding_deadline(value: date | None) -> date:
     if (deadline - today).days > MAX_FUNDING_DEADLINE_DAYS:
         raise LoanValidationError("Funding deadline cannot be more than 60 days from today.")
     return deadline
+
+
+def _assert_publishable_funding_deadline(funding_deadline: date) -> None:
+    today = _business_today()
+    if funding_deadline < today:
+        raise LoanValidationError(
+            "Funding deadline must not be before today's Zurich business date "
+            f"({today.isoformat()})."
+        )
+    latest_publishable = today + timedelta(days=MAX_PUBLISHABLE_FUNDING_DEADLINE_DAYS)
+    if funding_deadline > latest_publishable:
+        raise LoanValidationError(
+            "Funding deadline is too far in the future for balance-funded publication. "
+            f"Use a deadline no later than {latest_publishable.isoformat()} so investor "
+            "balance lots remain eligible through campaign close."
+        )
 
 
 def _resolve_first_payment_date(value: date | None, funding_deadline: date) -> date:
@@ -883,6 +901,7 @@ def publish_loan(command: PublishLoanCommand) -> Loan:
         raise LoanValidationError("Only draft loans can be published.")
     if not _borrower_can_transact(cast(Model, loan.borrower)):
         raise LoanValidationError("Borrower KYB must be approved and free of compliance hold.")
+    _assert_publishable_funding_deadline(loan.funding_deadline)
     _assert_current_schedule_complete(loan)
 
     previous_status = loan.status
