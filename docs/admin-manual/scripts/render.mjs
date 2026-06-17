@@ -30,6 +30,7 @@ const paras = (arr) => (arr || []).map((p) => `<p>${esc(p)}</p>`).join("");
 const bullets = (arr) => (arr && arr.length ? `<ul>${arr.map((b) => `<li>${esc(b)}</li>`).join("")}</ul>` : "");
 
 const MAXW = 980; // max display width for a figure (px)
+const MAX_FIG_H = 1230; // keep oversized annotated screenshots on one page
 
 // De-overlap badge y positions along a rail.
 function spread(list, H, getY, minGap = 36, pad = 16) {
@@ -64,7 +65,7 @@ function annotatedFigure(fig, annotations, num) {
     svgParts.push(`<circle class="badge" cx="${bx}" cy="${by}" r="15"/>`);
     svgParts.push(`<text class="bnum" x="${bx}" y="${by + 0.5}">${a.n}</text>`);
   }
-  const display = Math.min(total, MAXW);
+  const display = Math.min(total, MAXW, (MAX_FIG_H * total) / H);
   const dispH = (H * display) / total;
   const svg = `<svg class="figsvg" data-fig="${fig.id}" viewBox="0 0 ${total} ${H}" width="${display}" height="${dispH}" xmlns="http://www.w3.org/2000/svg">
     <defs><marker id="ah${fig.id}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9c3127"/></marker></defs>
@@ -107,9 +108,11 @@ function figureBlock(f, secNum, figNum) {
   if (f.kpiTiles && f.kpiTiles.length) body = kpiFigure(fig, f.kpiTiles);
   else body = annotatedFigure(fig, f.annotations, figNum);
   return `<figure class="fig">
-    <figcaption><span class="figlabel">${label}</span> ${esc(f.caption || fig.title)}</figcaption>
-    ${f.summary ? `<p class="figsummary">${esc(f.summary)}</p>` : ""}
-    <div class="figcanvas">${body.svg}</div>
+    <div class="figtop">
+      <figcaption><span class="figlabel">${label}</span> ${esc(f.caption || fig.title)}</figcaption>
+      ${f.summary ? `<p class="figsummary">${esc(f.summary)}</p>` : ""}
+      <div class="figcanvas">${body.svg}</div>
+    </div>
     ${body.legend}
     ${f.notes && f.notes.length ? `<div class="notes"><div class="notes-h">Notes &amp; rules</div>${bullets(f.notes)}</div>` : ""}
   </figure>`;
@@ -226,61 +229,62 @@ const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/>
 @page { size: 275mm 389mm; margin: 0; }
 * { box-sizing: border-box; }
 html,body { margin:0; padding:0; }
-body { font-family: 'Public Sans','Segoe UI',Helvetica,Arial,sans-serif; color:#1b211d; background:#fffefb; font-size:15px; line-height:1.6; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+body { font-family: 'Public Sans','Segoe UI',Helvetica,Arial,sans-serif; color:#1b211d; background:#fffefb; font-size:14.4px; line-height:1.52; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
 code,.mono { font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace; font-size:0.86em; background:#f3f1e9; padding:1px 5px; border-radius:4px; }
-.wrap { padding:64px 72px; }
+.wrap { padding:54px 60px; }
 .page-break { break-before: page; }
-h2 { font-size:30px; line-height:1.15; margin:0; letter-spacing:-0.4px; }
-h3 { font-size:19px; margin:26px 0 6px; color:#1b211d; }
-p { margin:0 0 12px; }
-ul,ol { margin:0 0 12px; padding-left:22px; }
-li { margin:4px 0; }
+h2 { font-size:28px; line-height:1.12; margin:0; letter-spacing:-0.35px; }
+h3 { font-size:18px; margin:20px 0 5px; color:#1b211d; }
+p { margin:0 0 9px; }
+ul,ol { margin:0 0 9px; padding-left:20px; }
+li { margin:3px 0; }
 .eyebrow { color:#2f6b4f; font-size:12px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; }
-.sec-head { border-bottom:3px solid #2f6b4f; padding-bottom:14px; margin-bottom:22px; }
+.sec-head { border-bottom:3px solid #2f6b4f; padding-bottom:11px; margin-bottom:16px; }
 .sec-head h2 { margin-top:4px; }
-.screen { break-before: page; padding-top:8px; }
-.lead-copy p { font-size:15.5px; color:#363d37; }
-.callout { background:#f0f4ef; border:1px solid #c9dccd; border-left:4px solid #2f6b4f; border-radius:8px; padding:14px 18px; margin:18px 0; }
+.screen { break-before: page; padding-top:0; }
+.lead-copy p { font-size:14.8px; color:#363d37; }
+.callout { background:#f0f4ef; border:1px solid #c9dccd; border-left:4px solid #2f6b4f; border-radius:8px; padding:11px 14px; margin:13px 0; break-inside:avoid; }
 .callout-h, .notes-h { font-weight:700; color:#235; color:#2f6b4f; margin-bottom:6px; font-size:13px; letter-spacing:0.04em; text-transform:uppercase; }
 .callout ul { margin-bottom:0; }
-.primer-block { margin-bottom:18px; break-inside:avoid; }
+.primer-block { margin-bottom:13px; break-inside:avoid; }
 .primer-block h3 { border-left:3px solid #d9b44a; padding-left:10px; }
 
 /* Figures */
-.fig { margin:26px 0 30px; break-inside:avoid; }
-figcaption { font-size:16px; font-weight:600; margin-bottom:4px; }
+.fig { margin:18px 0 22px; break-inside:auto; }
+.figtop { break-inside:avoid; break-after:auto; }
+figcaption { font-size:15.4px; font-weight:600; margin-bottom:3px; break-after:avoid; }
 .figlabel { display:inline-block; background:#2f6b4f; color:#fff; font-size:11px; font-weight:700; letter-spacing:0.06em; padding:2px 8px; border-radius:5px; margin-right:8px; vertical-align:middle; }
-.figsummary { color:#5b635c; font-size:14px; margin:2px 0 12px; }
-.figcanvas { background:#f6f5ef; border:1px solid #e3e0d4; border-radius:12px; padding:16px; text-align:center; }
+.figsummary { color:#5b635c; font-size:13.3px; margin:2px 0 8px; break-after:avoid; }
+.figcanvas { background:#f6f5ef; border:1px solid #e3e0d4; border-radius:10px; padding:11px; text-align:center; break-inside:avoid; }
 .figsvg { max-width:100%; height:auto; }
 .figsvg .hl { fill:none; stroke:#9c3127; stroke-width:2; opacity:0.9; }
 .figsvg .lead { stroke:#9c3127; stroke-width:2; fill:none; }
 .figsvg .badge { fill:#2f6b4f; stroke:#fff; stroke-width:2; }
 .figsvg .bnum { fill:#fff; font-size:17px; font-weight:700; text-anchor:middle; dominant-baseline:central; font-family:'Public Sans',sans-serif; }
-.legend { list-style:none; padding:0; margin:14px 0 0; column-count:2; column-gap:30px; }
-.legend li { display:flex; gap:9px; break-inside:avoid; margin:7px 0; align-items:flex-start; font-size:13.5px; line-height:1.5; }
-.legend .lnum { flex:0 0 auto; width:21px; height:21px; border-radius:50%; background:#2f6b4f; color:#fff; font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; margin-top:1px; }
-.notes { background:#fbf7ec; border:1px solid #e7d9b0; border-radius:8px; padding:12px 16px; margin-top:14px; }
+.legend { list-style:none; padding:0; margin:10px 0 0; column-count:2; column-gap:22px; }
+.legend li { display:flex; gap:8px; break-inside:avoid; margin:4px 0; align-items:flex-start; font-size:12.8px; line-height:1.42; }
+.legend .lnum { flex:0 0 auto; width:19px; height:19px; border-radius:50%; background:#2f6b4f; color:#fff; font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; margin-top:1px; }
+.notes { background:#fbf7ec; border:1px solid #e7d9b0; border-radius:8px; padding:9px 12px; margin-top:10px; font-size:13px; }
 .notes ul { margin-bottom:0; }
 
 /* Flows */
-.flow { break-inside:avoid; border:1px solid #e3e0d4; border-radius:12px; padding:18px 20px; margin:16px 0; background:#fffdf8; }
-.flow-head { display:flex; align-items:center; gap:12px; }
-.flow-n { flex:0 0 auto; width:30px; height:30px; border-radius:8px; background:#2f6b4f; color:#fff; font-weight:700; display:flex; align-items:center; justify-content:center; }
-.flow-head h3 { margin:0; font-size:18px; }
-.flow-goal { font-size:14px; color:#363d37; margin:10px 0; }
-.flow-pre, .flow-pit { font-size:13.5px; margin:8px 0; }
-.flow-steps { list-style:none; counter-reset:s; padding:0; margin:12px 0; }
-.flow-steps li { counter-increment:s; display:flex; gap:12px; margin:8px 0; align-items:flex-start; }
-.flow-steps li::before { content:counter(s); flex:0 0 auto; width:22px; height:22px; border-radius:50%; background:#e6efe7; color:#2f6b4f; font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; margin-top:1px; }
-.step-screen { display:inline-block; background:#eef0e9; color:#3a4a3d; font-size:11px; font-weight:700; padding:2px 8px; border-radius:5px; margin-right:8px; white-space:nowrap; }
+.flow { break-inside:auto; border:1px solid #e3e0d4; border-radius:10px; padding:12px 14px; margin:11px 0; background:#fffdf8; }
+.flow-head { display:flex; align-items:center; gap:10px; break-after:avoid; }
+.flow-n { flex:0 0 auto; width:26px; height:26px; border-radius:7px; background:#2f6b4f; color:#fff; font-weight:700; display:flex; align-items:center; justify-content:center; }
+.flow-head h3 { margin:0; font-size:16.6px; }
+.flow-goal { font-size:13.4px; color:#363d37; margin:7px 0; }
+.flow-pre, .flow-pit { font-size:12.8px; margin:6px 0; }
+.flow-steps { list-style:none; counter-reset:s; padding:0; margin:8px 0; }
+.flow-steps li { counter-increment:s; display:flex; gap:10px; margin:5px 0; align-items:flex-start; break-inside:avoid; }
+.flow-steps li::before { content:counter(s); flex:0 0 auto; width:20px; height:20px; border-radius:50%; background:#e6efe7; color:#2f6b4f; font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; margin-top:1px; }
+.step-screen { display:inline-block; background:#eef0e9; color:#3a4a3d; font-size:10.5px; font-weight:700; padding:1px 7px; border-radius:5px; margin-right:7px; white-space:nowrap; }
 .step-action { font-weight:600; }
-.step-detail { color:#5b635c; font-size:13.5px; margin-top:2px; }
-.flow-out { background:#f0f4ef; border-radius:7px; padding:8px 12px; font-size:14px; }
+.step-detail { color:#5b635c; font-size:12.8px; margin-top:1px; }
+.flow-out { background:#f0f4ef; border-radius:7px; padding:7px 10px; font-size:13px; }
 .flow-pit ul { margin-bottom:0; }
 
 /* Glossary */
-.gloss { display:grid; grid-template-columns:max-content 1fr; gap:4px 18px; margin:6px 0 18px; }
+.gloss { display:grid; grid-template-columns:190px 1fr; gap:3px 16px; margin:6px 0 14px; font-size:13.5px; }
 .gloss dt { font-weight:700; color:#2f6b4f; }
 .gloss dd { margin:0; }
 .missing { color:#9c3127; font-style:italic; }
@@ -294,9 +298,13 @@ figcaption { font-size:16px; font-weight:600; margin-bottom:4px; }
 .cover .brandline { display:flex; align-items:center; gap:16px; }
 .cover .brandline div b { font-size:22px; letter-spacing:2px; }
 .cover .conf { display:inline-block; margin-top:14px; border:1px solid rgba(255,255,255,0.5); border-radius:999px; padding:4px 14px; font-size:12px; letter-spacing:0.08em; text-transform:uppercase; }
-.toc { break-before:page; padding:64px 72px; }
-.toc h2 { border-bottom:3px solid #2f6b4f; padding-bottom:12px; }
-.toc ol { font-size:16px; line-height:2.0; margin-top:18px; }
+.toc { break-before:page; padding:58px 64px; }
+.toc h2 { border-bottom:3px solid #2f6b4f; padding-bottom:12px; margin-bottom:18px; }
+.toc-grid { display:grid; grid-template-columns:1.15fr .85fr; gap:22px; align-items:start; }
+.toc ol { font-size:15.5px; line-height:1.72; margin:0; padding-left:24px; }
+.toc-card { background:#f0f4ef; border:1px solid #c9dccd; border-left:4px solid #2f6b4f; border-radius:10px; padding:16px 18px; font-size:14px; color:#363d37; }
+.toc-card h3 { margin:0 0 8px; font-size:17px; }
+.toc-card ul { margin-bottom:0; }
 </style></head>
 <body>
   <div class="cover">
@@ -311,12 +319,23 @@ figcaption { font-size:16px; font-weight:600; margin-bottom:4px; }
   </div>
   <div class="toc">
     <h2>Contents</h2>
-    <ol>${outline.map((o) => `<li>${esc(o)}</li>`).join("")}</ol>
+    <div class="toc-grid">
+      <ol>${outline.map((o) => `<li>${esc(o)}</li>`).join("")}</ol>
+      <div class="toc-card">
+        <h3>How to use this manual</h3>
+        <ul>
+          <li>Start with Part 1 if you are new to BANXUM or P2P lending.</li>
+          <li>Use Sections 3-9 as screen-by-screen training references.</li>
+          <li>Use Section 10 when you need a click-by-click workflow.</li>
+          <li>Use the glossary when a status, queue, or finance term is unfamiliar.</li>
+        </ul>
+      </div>
+    </div>
   </div>
   <div class="wrap">
     ${body}
   </div>
 </body></html>`;
 
-fs.writeFileSync(path.join(base, "manual.html"), html);
+fs.writeFileSync(path.join(base, "manual.html"), html.replace(/[ \t]+$/gm, ""));
 console.log("wrote manual.html", (html.length / 1024 / 1024).toFixed(1) + "MB", "| screens:", screens.length, "| flows:", flows?.flows?.length ?? 0);

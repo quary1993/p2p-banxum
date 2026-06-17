@@ -14,5 +14,5 @@ html = html.replace(/<svg class="figsvg" data-fig="([^"]+)"[^>]*width="([^"]+)"[
   count++;
   return `<img class="figsvg" src="figures/annotated/${id}.png" width="${w}" height="${h}" style="max-width:100%;height:auto;"/>`;
 });
-fs.writeFileSync(path.join(base, "manual-print.html"), html);
+fs.writeFileSync(path.join(base, "manual-print.html"), html.replace(/[ \t]+$/gm, ""));
 console.log("build-print: replaced", count, "svgs ->", (html.length / 1024).toFixed(0) + "KB");
