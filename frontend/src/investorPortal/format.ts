@@ -62,6 +62,19 @@ export function formatDateTime(value: string | null | undefined) {
   });
 }
 
+export function zurichDateKey(value: string | Date | null | undefined) {
+  if (!value) return "";
+  const date = typeof value === "string" ? new Date(value) : value;
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: "Europe/Zurich"
+  }).formatToParts(date);
+  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
 export function safeMetadataCategory(metadata: unknown) {
   if (metadata && typeof metadata === "object" && "category" in metadata) {
     const value = (metadata as { category?: unknown }).category;

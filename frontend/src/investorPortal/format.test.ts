@@ -3,7 +3,8 @@ import { describe, expect, test } from "vitest";
 import {
   formatMoneyMinor,
   minorUnitDecimalsForCurrency,
-  parseMoneyInputToMinorUnits
+  parseMoneyInputToMinorUnits,
+  zurichDateKey
 } from "./format";
 
 describe("money formatting", () => {
@@ -41,5 +42,11 @@ describe("money input parsing", () => {
       amountMinor: 0,
       error: "Enter a valid amount."
     });
+  });
+});
+
+describe("Zurich business dates", () => {
+  test("formats ISO instants by Europe/Zurich calendar date", () => {
+    expect(zurichDateKey("2026-07-14T22:00:00+00:00")).toBe("2026-07-15");
   });
 });

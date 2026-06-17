@@ -4077,7 +4077,11 @@ def plan_investment_balance_consumption(
         remaining -= amount
         if remaining == 0:
             return plan
-    raise LedgerValidationError("Insufficient eligible balance for the requested investment.")
+    raise LedgerValidationError(
+        "Insufficient eligible balance for the requested investment. Balance lots can only be "
+        "used for loans whose funding deadline is on or before the lot's 30-day investment "
+        "deadline."
+    )
 
 
 def _investment_actor_for_id(actor: Model, investor_user_id: str) -> Model:
@@ -4537,7 +4541,11 @@ def _consume_lots_for_investment(
         )
         remaining -= amount
     if remaining > 0:
-        raise LedgerValidationError("Insufficient eligible balance for the requested investment.")
+        raise LedgerValidationError(
+            "Insufficient eligible balance for the requested investment. Balance lots can only be "
+            "used for loans whose funding deadline is on or before the lot's 30-day investment "
+            "deadline."
+        )
     return allocations
 
 

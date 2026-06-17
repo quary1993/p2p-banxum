@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { AdminApp } from "./adminConsole/AdminApp";
 import {
   ActionEnum,
@@ -70,7 +70,8 @@ import {
   formatMoneyMinor,
   formatRateBps,
   parseMoneyInputToMinorUnits,
-  safeMetadataCategory
+  safeMetadataCategory,
+  zurichDateKey
 } from "./investorPortal/format";
 import type { AppRoute, DemoAccountState, RouteName } from "./investorPortal/types";
 import {
@@ -383,7 +384,7 @@ function useSensitiveActionCode(action: ActionEnum) {
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [error, setError] = useState("");
 
-  const requestCode = () => {
+  const requestCode = useCallback(() => {
     setError("");
     if (isFixturePreview) {
       setCodeId("00000000-0000-0000-0000-000000000000");
@@ -400,9 +401,27 @@ function useSensitiveActionCode(action: ActionEnum) {
         onError: (mutationError) => setError(apiErrorMessage(mutationError))
       }
     );
-  };
+  }, [action, requestMutation]);
 
   return { codeId, expiresAt, error, isRequesting: requestMutation.isPending, requestCode };
+}
+
+function useAutoRequestEmailCode(
+  codeRequest: Pick<ReturnType<typeof useSensitiveActionCode>, "codeId" | "isRequesting" | "requestCode">,
+  active: boolean
+) {
+  const requestedRef = useRef(false);
+  useEffect(() => {
+    if (!active) {
+      requestedRef.current = false;
+      return;
+    }
+    if (isFixturePreview || requestedRef.current || codeRequest.codeId || codeRequest.isRequesting) {
+      return;
+    }
+    requestedRef.current = true;
+    codeRequest.requestCode();
+  }, [active, codeRequest]);
 }
 
 function CodeRequestField({
@@ -467,6 +486,43 @@ function sourceLabel(sourceType: string) {
 function fundingPercent(loan: Pick<MarketplaceLoanPreview, "principal_minor" | "committed_principal_minor">) {
   if (loan.principal_minor <= 0) return 0;
   return Math.round((loan.committed_principal_minor / loan.principal_minor) * 100);
+}
+
+function investmentDeadlineDateKey(lot: BalanceLot) {
+  return zurichDateKey(lot.investment_deadline_at);
+}
+
+function eligibleLotsForLoan(lots: BalanceLot[] | undefined, loan: MarketplaceLoanDetail) {
+  return (lots ?? []).filter(
+    (lot) =>
+      lot.currency === loan.currency &&
+      lot.status === "available" &&
+      lot.bucket === "investable" &&
+      lot.available_amount_minor > 0 &&
+      loan.funding_deadline <= investmentDeadlineDateKey(lot)
+  );
+}
+
+function currentInvestableLotsForLoanCurrency(lots: BalanceLot[] | undefined, loan: MarketplaceLoanDetail) {
+  return (lots ?? []).filter(
+    (lot) =>
+      lot.currency === loan.currency &&
+      lot.status === "available" &&
+      lot.bucket === "investable" &&
+      lot.available_amount_minor > 0
+  );
+}
+
+function sumLotAvailableMinor(lots: BalanceLot[]) {
+  return lots.reduce((total, lot) => total + lot.available_amount_minor, 0);
+}
+
+function latestInvestmentDeadlineDate(lots: BalanceLot[]) {
+  return lots
+    .map(investmentDeadlineDateKey)
+    .filter(Boolean)
+    .sort()
+    .at(-1);
 }
 
 function isOpenMarketplaceLoan(loan: Pick<MarketplaceLoanPreview, "status" | "remaining_capacity_minor">) {
@@ -2185,6 +2241,7 @@ function WithdrawModal({ currency, maxMinor, payoutInstructions, onClose }: { cu
   const [selectedInstructionId, setSelectedInstructionId] = useState(payoutInstructions.find((instruction) => instruction.is_verified_usable)?.id ?? payoutInstructions[0]?.id ?? "");
   const [error, setError] = useState("");
   const codeRequest = useSensitiveActionCode(ActionEnum.withdrawal);
+  useAutoRequestEmailCode(codeRequest, step === "confirm");
   const withdrawalMutation = useV1LedgerWithdrawalRequestsCreate();
   const selectedInstruction = payoutInstructions.find((instruction) => instruction.id === selectedInstructionId);
   const parsedAmount = parseMoneyInputToMinorUnits(amount, currency);
@@ -2399,6 +2456,7 @@ function FxConfirmModal({ from, to, sourceMinor, targetMinor, feeMinor, rate, qu
   const [done, setDone] = useState(false);
   const [error, setError] = useState("");
   const codeRequest = useSensitiveActionCode(ActionEnum.fx);
+  useAutoRequestEmailCode(codeRequest, !done);
   const executeMutation = useV1FxQuotesExecuteCreate();
   const executeFx = () => {
     setError("");
@@ -2787,6 +2845,7 @@ function BuyListingModal({ listing, onClose }: { listing: SecondaryMarketBuyerLi
   const acceptanceMutation = useV1DocumentsAcceptancesCreate();
   const purchaseMutation = useV1MarketplaceSecondaryListingsPurchaseCreate();
   const codeRequest = useSensitiveActionCode(ActionEnum.secondary_market_purchase);
+  useAutoRequestEmailCode(codeRequest, !done);
   const termsQuery = useV1DocumentsTemplatesCurrentRetrieve(
     { category: CategoryEnum.secondary_market_purchase },
     { query: { enabled: !isFixturePreview, retry: false } }
@@ -2887,6 +2946,7 @@ function ListHoldingModal({ holding, onClose }: { holding: Holding; onClose: () 
   const acceptanceMutation = useV1DocumentsAcceptancesCreate();
   const listingMutation = useV1MarketplaceSecondaryListingsCreate();
   const codeRequest = useSensitiveActionCode(ActionEnum.secondary_market_listing);
+  useAutoRequestEmailCode(codeRequest, !done);
   const termsQuery = useV1DocumentsTemplatesCurrentRetrieve(
     { category: CategoryEnum.secondary_market_listing },
     { query: { enabled: !isFixturePreview, retry: false } }
@@ -3180,7 +3240,10 @@ function PayoutIbanModal({ onClose }: { onClose: () => void }) {
   const [done, setDone] = useState(false);
   const mutation = useV1LedgerPayoutInstructionsCreate();
   const codeRequest = useSensitiveActionCode(ActionEnum.bank_account_change);
-  const canSubmit = currency.length === 3 && iban.replace(/\s/g, "").length >= 15 && accountName.trim().length > 1 && (isFixturePreview || (codeRequest.codeId && code.length >= 6));
+  const hasValidPayoutDetails =
+    currency.length === 3 && iban.replace(/\s/g, "").length >= 15 && accountName.trim().length > 1;
+  useAutoRequestEmailCode(codeRequest, !done && hasValidPayoutDetails);
+  const canSubmit = hasValidPayoutDetails && (isFixturePreview || (codeRequest.codeId && code.length >= 6));
 
   const submit = () => {
     setError("");
@@ -3386,8 +3449,12 @@ function FaqScreen() {
 function InvestModal({ loan, onClose }: { loan: MarketplaceLoanDetail; onClose: () => void }) {
   const queryClient = useQueryClient();
   const balances = useBalancesData().data;
-  const balance = balances?.summaries.find((summary) => summary.currency === loan.currency);
-  const maxInvest = Math.min(balance?.investable_minor ?? 0, loan.remaining_capacity_minor);
+  const investableLots = currentInvestableLotsForLoanCurrency(balances?.lots, loan);
+  const loanEligibleLots = eligibleLotsForLoan(balances?.lots, loan);
+  const generalInvestableMinor = sumLotAvailableMinor(investableLots);
+  const loanEligibleBalanceMinor = sumLotAvailableMinor(loanEligibleLots);
+  const latestCurrentInvestmentDeadline = latestInvestmentDeadlineDate(investableLots);
+  const maxInvest = Math.min(loanEligibleBalanceMinor, loan.remaining_capacity_minor);
   const [amount, setAmount] = useState("");
   const [step, setStep] = useState<"amount" | "review" | "confirm" | "done">("amount");
   const [ack1, setAck1] = useState(false);
@@ -3403,6 +3470,7 @@ function InvestModal({ loan, onClose }: { loan: MarketplaceLoanDetail; onClose: 
   const acceptanceMutation = useV1DocumentsAcceptancesCreate();
   const allocateMutation = useV1MarketplacePrimaryOrdersAllocateBalanceCreate();
   const codeRequest = useSensitiveActionCode(ActionEnum.primary_investment);
+  useAutoRequestEmailCode(codeRequest, step === "confirm");
   const termsQuery = useV1DocumentsTemplatesCurrentRetrieve(
     { category: CategoryEnum.primary_market_investment },
     { query: { enabled: !isFixturePreview && step !== "amount", retry: false } }
@@ -3414,7 +3482,7 @@ function InvestModal({ loan, onClose }: { loan: MarketplaceLoanDetail; onClose: 
     (amountMinor > 0 && amountMinor < 100000
       ? "Minimum order is 1,000."
       : amountMinor > maxInvest
-        ? "Exceeds investable balance or remaining capacity."
+        ? "Exceeds loan-eligible balance or remaining capacity."
         : undefined);
   const footer = step === "done"
     ? <Button variant="primary" onClick={onClose}>Done</Button>
@@ -3487,7 +3555,18 @@ function InvestModal({ loan, onClose }: { loan: MarketplaceLoanDetail; onClose: 
     <Modal footer={footer} onClose={onClose} title={step === "done" ? "Order placed" : `Invest - ${loan.title}`}>
       {step === "amount" ? (
         <div className="col gap-16">
-          <div className="row spread"><span className="muted">Investable {loan.currency} balance</span><span className="mono col-strong">{loan.currency} {formatMoneyMinor(balance?.investable_minor ?? 0, loan.currency)}</span></div>
+          <div className="row spread"><span className="muted">Loan-eligible {loan.currency} balance</span><span className="mono col-strong">{loan.currency} {formatMoneyMinor(loanEligibleBalanceMinor, loan.currency)}</span></div>
+          {generalInvestableMinor > loanEligibleBalanceMinor ? (
+            <Banner tone="warn" title="Some balance is not eligible for this loan">
+              {loan.currency} {formatMoneyMinor(generalInvestableMinor - loanEligibleBalanceMinor, loan.currency)} is inside the general 30-day investment window, but cannot be used for this loan because the campaign closes {formatDate(loan.funding_deadline)}
+              {latestCurrentInvestmentDeadline ? ` and your current lot window ends ${formatDate(latestCurrentInvestmentDeadline)}.` : "."}
+            </Banner>
+          ) : null}
+          {loanEligibleBalanceMinor === 0 ? (
+            <Banner tone="bad" title="No eligible balance for this campaign">
+              Deposit fresh funds or choose a loan whose funding deadline is within your current balance lot's 30-day investment window.
+            </Banner>
+          ) : null}
           <Field error={amountError} hint={`Between ${loan.currency} 1,000 and ${formatMoneyMinor(maxInvest, loan.currency)}`} label="Investment amount">
             <div className="input-affix"><span className="prefix">{loan.currency}</span><input className="input mono" inputMode="decimal" onChange={(event) => setAmount(event.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" style={{ paddingLeft: 44 }} value={amount} /></div>
           </Field>
