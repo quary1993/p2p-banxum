@@ -619,7 +619,7 @@ def test_terminal_balance_lot_status_requires_zero_available_amount(
 
 
 @pytest.mark.django_db
-def test_investment_consumption_plan_uses_fifo_and_funding_deadline(
+def test_investment_consumption_plan_uses_fifo_and_pledge_deadline(
     admin_user: Model,
     investor: Model,
 ) -> None:
@@ -646,7 +646,7 @@ def test_investment_consumption_plan_uses_fifo_and_funding_deadline(
         investor_user_id=str(investor.pk),
         currency="CHF",
         amount_minor=150_00,
-        loan_funding_deadline=date(2026, 1, 25),
+        loan_funding_deadline=date(2026, 2, 5),
         as_of=_received_at(date(2026, 1, 15)),
     )
 
@@ -654,13 +654,24 @@ def test_investment_consumption_plan_uses_fifo_and_funding_deadline(
         (str(first.balance_lot.id), 100_00),
         (str(second.balance_lot.id), 50_00),
     ]
+    post_first_deadline_plan = plan_investment_balance_consumption(
+        investor_user_id=str(investor.pk),
+        currency="CHF",
+        amount_minor=100_00,
+        loan_funding_deadline=date(2026, 2, 5),
+        as_of=_received_at(date(2026, 2, 1)),
+    )
+
+    assert [(line.lot_id, line.amount_minor) for line in post_first_deadline_plan] == [
+        (str(second.balance_lot.id), 100_00),
+    ]
     with pytest.raises(LedgerValidationError):
         plan_investment_balance_consumption(
             investor_user_id=str(investor.pk),
             currency="CHF",
             amount_minor=150_00,
             loan_funding_deadline=date(2026, 2, 5),
-            as_of=_received_at(date(2026, 1, 15)),
+            as_of=_received_at(date(2026, 2, 1)),
         )
 
 

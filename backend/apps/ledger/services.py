@@ -4062,9 +4062,6 @@ def plan_investment_balance_consumption(
         _validate_lot_conservation(lot)
         if now_value > lot.investment_deadline_at:
             continue
-        investment_deadline_date = to_business_time(lot.investment_deadline_at).date()
-        if loan_funding_deadline > investment_deadline_date:
-            continue
         amount = min(remaining, lot.available_amount_minor)
         plan.append(
             BalanceConsumptionPlanLine(
@@ -4079,8 +4076,7 @@ def plan_investment_balance_consumption(
             return plan
     raise LedgerValidationError(
         "Insufficient eligible balance for the requested investment. Balance lots can only be "
-        "used for loans whose funding deadline is on or before the lot's 30-day investment "
-        "deadline."
+        "pledged while they are inside the 30-day investment window."
     )
 
 
@@ -4500,9 +4496,6 @@ def _consume_lots_for_investment(
             break
         if as_of > lot.investment_deadline_at:
             continue
-        investment_deadline_date = to_business_time(lot.investment_deadline_at).date()
-        if loan_funding_deadline > investment_deadline_date:
-            continue
         amount = min(remaining, lot.available_amount_minor)
         if amount <= 0:
             continue
@@ -4543,8 +4536,7 @@ def _consume_lots_for_investment(
     if remaining > 0:
         raise LedgerValidationError(
             "Insufficient eligible balance for the requested investment. Balance lots can only be "
-            "used for loans whose funding deadline is on or before the lot's 30-day investment "
-            "deadline."
+            "pledged while they are inside the 30-day investment window."
         )
     return allocations
 

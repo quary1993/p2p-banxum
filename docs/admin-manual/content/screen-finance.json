@@ -1,0 +1,384 @@
+{
+  "key": "finance",
+  "title": "Finance Operations",
+  "intro": [
+    "Finance Operations is the money-movement cockpit of the admin console. This is where Garanta staff record cash that has actually entered or left the company's bank account, and where the system's internal ledger is kept in step with reality. Nothing here moves money by itself: each form records, in the ledger, a bank transfer that you (or the bank) have already arranged or observed.",
+    "A few terms you will see on every form. 'Minor units' means the amount in the smallest currency unit, i.e. cents (rappen for CHF). So 2,500,000 minor units equals 25,000.00 CHF. Always enter whole numbers in minor units, never decimals. The 'collection account' is Garanta's own pooled bank account that holds all lender money before it is invested or paid out. A 'deposit' is incoming money from an investor; a 'disbursement' is outgoing money to a borrower; a 'withdrawal' is outgoing money back to an investor.",
+    "Most forms include an 'investor' (or loan/borrower/withdrawal) autocomplete. You type a name, email, investor reference (a code like L7K3M9PQ2), UUID, or IBAN; the box searches the database and lets you pick a real record. When you pick one, the box quietly stores the matching hidden ID and shows 'Selected ID: ...'. If you type text but never pick a result, the form will refuse to submit. The visible text is just for searching; the hidden ID is what actually gets sent.",
+    "Because each action posts permanent accounting entries, every submit carries an automatic idempotency key so an accidental double-click cannot double-book a transfer. Watch the success and error banners after each action: they tell you exactly what the ledger did."
+  ],
+  "whatYouDoHere": [
+    "Declare a matched incoming lender deposit and credit it to the investor's balance.",
+    "Register the verified IBAN (payout instruction) Garanta will use to pay an investor.",
+    "Look up an investor's ledger balance broken into investable, withdraw-only, overdue, frozen and penalty buckets.",
+    "Run the balance ageing scan that fires 30/60-day reminders, forced withdrawals, and penalty charges (with a safe dry-run mode).",
+    "Create a reconciliation snapshot that compares the bank's stated balance against what the ledger expects.",
+    "Finalize or cancel investor withdrawals, finalize borrower loan disbursements, and declare external FX (currency-exchange) settlements."
+  ],
+  "figures": [
+    {
+      "id": "finance-0-lender-deposit",
+      "caption": "Lender deposit: record an incoming bank transfer and credit the investor.",
+      "summary": "This form declares that money from an investor has landed in Garanta's collection account, and credits that investor's balance in the ledger. Use it only when a real incoming transfer has been seen on the bank statement.",
+      "annotations": [
+        {
+          "item": 1,
+          "label": "Investor (from bank reference)",
+          "text": "Identify which investor sent the money. Best practice: paste the bank-statement reference first, because it usually contains the investor's reference code (the form auto-extracts a code shaped like L followed by 8-9 letters/digits). If there is no usable reference, search by payer first name, surname, or email. You must pick a real match from the dropdown; the hidden investor ID is what gets credited. If you only type text and never select, the deposit will not submit."
+        },
+        {
+          "item": 2,
+          "label": "Amount minor units",
+          "text": "The deposit amount in cents (minor units). Enter 2500000 for 25,000.00 CHF. Must be a positive whole number. This exact amount is credited to the investor and debited into the collection-cash ledger account, so it has to match the bank statement to the cent."
+        },
+        {
+          "item": 3,
+          "label": "Currency",
+          "text": "Currency code such as CHF or EUR. The currency must be enabled in the system or the deposit is rejected. It must match the currency that actually arrived."
+        },
+        {
+          "item": 4,
+          "label": "Booking date",
+          "text": "The date the bank booked the transfer. This is recorded on the ledger entry for accounting/reporting; it does not change when the investor's holding clock starts."
+        },
+        {
+          "item": 5,
+          "label": "Value date",
+          "text": "The date the funds became available (the bank value date). This is the important one: it starts the investor's holding clock. From this date the system sets a 30-day investment deadline and a 60-day withdrawal deadline on the new balance lot."
+        },
+        {
+          "item": 6,
+          "label": "Collection account",
+          "text": "Which of Garanta's pooled bank accounts received the money. Pre-filled with the default collection account. Required. The cash is debited into this collection-cash ledger account."
+        },
+        {
+          "item": 7,
+          "label": "Payer name",
+          "text": "The name on the incoming transfer. Optional, but recording it helps with audit and matching. Tip: if you have not yet identified the investor, typing at least 3 characters here can seed the investor search."
+        },
+        {
+          "item": 8,
+          "label": "Payment reference",
+          "text": "The reference text from the bank transfer. Optional. If it contains the investor reference code and you have not yet selected an investor, the form copies that code into the investor search box for you."
+        },
+        {
+          "item": 9,
+          "label": "Declare deposit",
+          "text": "Submits the deposit. On success it does three things at once: it creates a reconciled bank-operation record, posts a balanced ledger entry (debit collection cash, credit the investor's balance liability), and opens a new 'balance lot' of available funds for the investor. The success banner confirms the deposit was ledgered and added to the investor's balance lots."
+        }
+      ],
+      "notes": [
+        "Only an active admin can declare a deposit. The chosen account must be an active lender account, or it is rejected.",
+        "The new balance lot starts the 30-day 'investable' window and the 60-day 'must withdraw' window from the value date. Those windows drive the ageing scan later.",
+        "Each deposit gets an automatic idempotency key, so resubmitting the same declaration returns the original result rather than crediting the investor twice."
+      ]
+    },
+    {
+      "id": "finance-1-payout-instruction",
+      "caption": "Payout instruction: register the verified IBAN used to pay an investor.",
+      "summary": "A 'payout instruction' is a saved bank account (IBAN) that Garanta is allowed to send an investor's money to. Withdrawals and the day-60 forced returns pay out to the active, verified instruction. Registering a new one replaces (supersedes) the investor's previous active instruction for that currency.",
+      "annotations": [
+        {
+          "item": 1,
+          "label": "Investor / payout owner",
+          "text": "Search and select the investor who owns this bank account, by name, email, reference, UUID, or IBAN. You must pick a real match; the hidden investor ID is stored. This form also passes the IBAN you type below into the search, so it can warn you if that IBAN already belongs to other investors."
+        },
+        {
+          "item": 2,
+          "label": "Currency",
+          "text": "Currency this payout account is for (e.g. CHF). Must be an enabled currency. A separate active instruction exists per currency, so registering a CHF instruction does not touch the investor's EUR instruction."
+        },
+        {
+          "item": 3,
+          "label": "Destination IBAN",
+          "text": "The investor's bank account number to pay out to. The system normalizes it (removes spaces, uppercases) and validates it: it must be 15-34 characters, start with two letters, and be otherwise alphanumeric, or it is rejected."
+        },
+        {
+          "item": 4,
+          "label": "Account name",
+          "text": "The account holder's name as it appears at the bank. Required. Used on the outgoing payment."
+        },
+        {
+          "item": 5,
+          "label": "Notes",
+          "text": "Free-text note for context (e.g. why this account was added or how it was verified). Optional."
+        },
+        {
+          "item": 6,
+          "label": "Register payout instruction",
+          "text": "Saves the instruction. On success the success banner notes it superseded the prior active instruction for that investor and currency (the old one is automatically disabled). If the 'usable and verified' checkbox is ticked, it is immediately usable for payouts; if unticked, it is saved but flagged as needing admin verification before money can go out."
+        }
+      ],
+      "notes": [
+        "A checkbox below the fields, 'IBAN is usable and verified for this investor', is ticked by default. Leave it ticked only when you have confirmed the account belongs to the investor.",
+        "GOTCHA - IBAN collision warning: if the IBAN you entered already matches more than one investor in the system, an amber banner 'IBAN matches multiple investors' appears. Review the matches before saving, since paying the wrong person is hard to reverse.",
+        "Registering a new instruction sets the previous active one for that currency to disabled; only one active instruction per investor per currency exists at a time.",
+        "Only an active admin can register an instruction here. (Investors can self-register their own IBAN elsewhere, but that path requires an extra security code.)"
+      ]
+    },
+    {
+      "id": "finance-2-investor-balance-lookup",
+      "caption": "Investor balance lookup: read an investor's ledger balance buckets.",
+      "summary": "A read-only lookup. It shows an investor's available balance split into the buckets the system uses to decide what they can do with their money. Nothing is changed by running it.",
+      "annotations": [
+        {
+          "item": 1,
+          "label": "Investor",
+          "text": "Search and select the investor whose balance you want to read, by name, email, reference, UUID, or IBAN. The hidden investor ID is used for the lookup."
+        },
+        {
+          "item": 2,
+          "label": "Currency",
+          "text": "Which currency balance to show (e.g. CHF). Must be an enabled currency. Each currency is summarized separately."
+        },
+        {
+          "item": 3,
+          "label": "Load balance summary",
+          "text": "Fetches the summary and displays four figures below: Available (total usable balance), Investable (still inside the 30-day window, can be lent), Withdraw-only (past 30 days but before 60 - can still be withdrawn but no longer invested), and Overdue (past the 60-day withdrawal deadline). If the lookup fails, a red banner shows the reason."
+        }
+      ],
+      "notes": [
+        "The buckets are derived live from the investor's balance lots: AVAILABLE lots are classed as investable / withdraw-only / overdue based on the as-of time against each lot's 30-day and 60-day deadlines. Frozen and penalty-mode lots still count toward Available but are tracked in their own internal buckets.",
+        "This screen shows Available, Investable, Withdraw-only and Overdue. Use it before a forced withdrawal or to explain to an investor why funds are or are not investable.",
+        "Read-only: it never moves money or changes a lot's status."
+      ]
+    },
+    {
+      "id": "finance-3-balance-ageing-scan",
+      "caption": "Balance ageing scan: drive the 30/60-day reminders, forced withdrawals and penalties.",
+      "summary": "This scan walks every investor's still-available balance lots and applies the ageing rules: it raises reminders as lots approach the 60-day limit, and at/after day 60 it either auto-creates a forced withdrawal (if a verified payout IBAN exists) or moves the lot into penalty mode and charges a daily penalty. It can be run safely as a dry run first.",
+      "annotations": [
+        {
+          "item": 1,
+          "label": "As of timestamp",
+          "text": "The point in time to evaluate the lots against. Leave blank to use 'now'. You can backdate or set a specific moment for testing or catch-up runs. Reminder days are measured from each lot's value date up to this timestamp."
+        },
+        {
+          "item": 2,
+          "label": "Currency filter",
+          "text": "Optional. Limit the scan to one currency (e.g. CHF). Leave blank to scan all enabled currencies at once."
+        },
+        {
+          "item": 3,
+          "label": "Run ageing scan",
+          "text": "Runs the scan. The success banner reports how many reminders are due and how many forced withdrawals were created. What it does depends entirely on the 'Dry run only' checkbox above the button."
+        }
+      ],
+      "notes": [
+        "GOTCHA - Dry run: a 'Dry run only' checkbox is TICKED by default. With dry run on, the scan only reports what WOULD happen (reminders, forced-withdrawal candidates, penalty-mode transitions) and changes nothing. Untick it to actually send reminders, create forced withdrawals, flip lots into penalty mode, and post penalty charges. Always dry-run first.",
+        "Reminders fire on holding days 25, 46, 53, 58, 59 and 60; each reminder is only sent once per lot.",
+        "At or after the 60-day withdrawal deadline: if the investor HAS an active verified payout instruction, the scan auto-creates a forced withdrawal for the overdue amount to that IBAN. If they do NOT, the lot is moved into penalty mode and a daily penalty is charged against the balance instead.",
+        "Only an active admin can run the scan. A live run posts real ledger entries and emails, so treat it like any other money-moving action."
+      ]
+    },
+    {
+      "id": "finance-4-reconciliation-snapshot",
+      "caption": "Reconciliation snapshot: compare the bank's balance to what the ledger expects.",
+      "summary": "A 'reconciliation snapshot' is a point-in-time check that the real bank balance matches the sum of everything the ledger says Garanta owes and holds (investor balances, payables, accrued revenue, FX clearing, suspense, plus any pending exceptions you note). It records the difference and raises alerts if anything is off.",
+      "annotations": [
+        {
+          "item": 1,
+          "label": "Currency",
+          "text": "Which currency to reconcile (e.g. CHF). Must be an enabled currency. Each currency is reconciled separately because each has its own bank balance and ledger accounts."
+        },
+        {
+          "item": 2,
+          "label": "As-of date",
+          "text": "An admin-chosen label for which day this reconciliation represents (e.g. month-end). Note: the figures are computed from the current ledger state at the moment you create the snapshot; the as-of date is just the reporting label attached to it."
+        },
+        {
+          "item": 3,
+          "label": "Bank stated balance minor",
+          "text": "The balance the bank actually reports for the collection account, in minor units (cents). This is the 'truth' the ledger is checked against. Must be a non-negative whole number."
+        },
+        {
+          "item": 4,
+          "label": "Pending exceptions minor",
+          "text": "In minor units, the amount of known-but-not-yet-booked items (e.g. cash that arrived but is not yet matched). Optional, defaults to 0. It is added to the expected balance so genuinely-pending money does not look like a break."
+        },
+        {
+          "item": 5,
+          "label": "Notes",
+          "text": "Free-text note describing the reconciliation run or explaining a known difference. Optional."
+        },
+        {
+          "item": 6,
+          "label": "Create snapshot",
+          "text": "Computes the expected ledger balance, subtracts it from the bank-stated balance, and saves the snapshot. The success banner shows the resulting difference. A difference of 0 means everything ties out; any non-zero difference is flagged as a reconciliation break."
+        }
+      ],
+      "notes": [
+        "Expected balance = investor balance liability + withdrawal payable + borrower disbursement payable + recovery distribution payable + Garanta accrued revenue + FX clearing + suspense + your pending exceptions. Difference = bank stated balance minus expected.",
+        "Creating a snapshot can raise alerts that show up as reconciliation breaks on the dashboard: a non-zero reconciliation difference, a mismatch between the bank balance and the collection-cash ledger, or investor-balance integrity breaks (a lot's available amount not matching its liability posting).",
+        "Only an active admin can create a snapshot. It is a read-then-record operation: it does not move money, but it does permanently store the comparison and may open follow-up tasks."
+      ]
+    },
+    {
+      "id": "finance-5-withdrawal-execution",
+      "caption": "Withdrawal execution: finalize a paid-out withdrawal or cancel one before it leaves.",
+      "summary": "This form handles an investor withdrawal that the investor already requested. You either finalize it (record that the bank actually paid it and clear the ledger) or cancel it (release the reserved funds back to the investor before the bank sends anything). The lookup only shows withdrawals in 'requested' status.",
+      "annotations": [
+        {
+          "item": 1,
+          "label": "Requested withdrawal",
+          "text": "Search and select the pending withdrawal to act on, by lender name, email, reference, withdrawal UUID, or IBAN suffix. The list is pre-filtered to 'requested' withdrawals only. You must pick a real match; the hidden withdrawal ID is what both buttons act on."
+        },
+        {
+          "item": 2,
+          "label": "Booking date",
+          "text": "Used only when finalizing: the date the bank booked the outgoing payment. Recorded on the ledger entry. Not used by Cancel."
+        },
+        {
+          "item": 3,
+          "label": "Value date",
+          "text": "Used only when finalizing: the date the funds left the account. Recorded on the outgoing ledger entry. Not used by Cancel."
+        },
+        {
+          "item": 4,
+          "label": "Collection account",
+          "text": "Used only when finalizing: which Garanta account the money was paid out from. Pre-filled with the default collection account. The cash is credited (reduced) out of this collection-cash account."
+        },
+        {
+          "item": 5,
+          "label": "Admin note / cancel reason",
+          "text": "Free text. On Finalize it is stored as the admin note on the withdrawal. On Cancel it is the cancellation reason (if left blank, Cancel uses a default reason). Recommended on cancels so the audit trail explains why."
+        },
+        {
+          "item": 6,
+          "label": "Finalize withdrawal",
+          "text": "Confirms the bank has executed the payout. It creates a reconciled outgoing bank-operation, posts a ledger entry that clears the investor's withdrawal-payable against collection cash, and marks the withdrawal FINALIZED. Only works on a withdrawal still in 'requested' status; a withdrawal already finalized returns its existing result instead of double-paying."
+        },
+        {
+          "item": 7,
+          "label": "Cancel before execution",
+          "text": "Reverses a not-yet-paid withdrawal: it restores the reserved funds back to the investor's balance lots and marks the request CANCELLED. Only works while the withdrawal is still 'requested'. Use this when the payout was stopped before the bank sent it. This is a destructive (danger) action, so confirm you have the right request selected."
+        }
+      ],
+      "notes": [
+        "Finalize and Cancel are mutually exclusive paths on the same request: finalize records that money LEFT; cancel records that money was returned to the investor and never left.",
+        "Both actions require an active admin and carry an automatic idempotency key, so a repeated click cannot pay or cancel twice.",
+        "If a withdrawal is not in 'requested' status, the matching action is refused (you cannot cancel an already-finalized payout, or finalize a cancelled one)."
+      ]
+    },
+    {
+      "id": "finance-6-borrower-disbursement",
+      "caption": "Borrower disbursement: record paying a funded loan out to the borrower.",
+      "summary": "A 'disbursement' is the outgoing payment of a fully-funded loan to the borrower's bank account. This form records that payout in the ledger, clearing the borrower-disbursement payable against the collection cash. It only works once the loan is in 'funded' status.",
+      "annotations": [
+        {
+          "item": 1,
+          "label": "Loan",
+          "text": "Search and select the loan being disbursed, by title, borrower name, status, or UUID. Picking a loan auto-fills the borrower (and the currency) from that loan, so you do not enter them by hand. Clearing the loan also clears the derived borrower."
+        },
+        {
+          "item": 2,
+          "label": "Borrower",
+          "text": "Once a loan is selected this becomes a read-only field showing the borrower derived from the loan (with the derived borrower ID in the hint). This is a safety rule: the borrower must match the loan, so the system fills it for you rather than letting you mistype it. If no loan is selected, it becomes a borrower search box instead."
+        },
+        {
+          "item": 3,
+          "label": "Amount minor units",
+          "text": "The amount to pay the borrower, in cents (minor units). Must be a positive whole number. This is debited against the borrower-disbursement payable and credited out of collection cash."
+        },
+        {
+          "item": 4,
+          "label": "Currency",
+          "text": "Currency of the payout. Auto-filled from the selected loan. It must match the loan's currency or the disbursement is rejected."
+        },
+        {
+          "item": 5,
+          "label": "Booking date",
+          "text": "The date the bank booked the outgoing payment. Recorded on the ledger entry."
+        },
+        {
+          "item": 6,
+          "label": "Value date",
+          "text": "The date the funds left the account. Recorded on the outgoing ledger entry."
+        },
+        {
+          "item": 7,
+          "label": "Payee name",
+          "text": "The borrower account holder name the money was sent to. Required."
+        },
+        {
+          "item": 8,
+          "label": "Payee account",
+          "text": "The borrower bank account the money was sent to. Required."
+        },
+        {
+          "item": 9,
+          "label": "Finalize disbursement",
+          "text": "Records the disbursement. On success it creates a reconciled outgoing bank-operation and posts the ledger entry clearing the borrower's disbursement payable against collection cash. The success banner confirms the payable was cleared against collection cash."
+        }
+      ],
+      "notes": [
+        "SAFETY RULES enforced by the system: the loan must be in 'funded' status; the loan's currency must equal the disbursement currency; the selected borrower must match the loan's borrower; and the borrower's KYB must be approved with no compliance hold (the borrower must be allowed to transact). Any of these failing blocks the disbursement.",
+        "'KYB' (Know Your Business) is the business equivalent of identity verification for the borrowing company.",
+        "Only an active admin can finalize, and the automatic idempotency key prevents double-paying the borrower on a repeat click."
+      ]
+    },
+    {
+      "id": "finance-7-fx-settlement",
+      "caption": "FX settlement: review currency-exchange deltas and declare the external bank settlement.",
+      "summary": "FX means foreign exchange (swapping one currency for another, e.g. CHF to EUR). When investors convert balances inside the platform, Garanta later settles the net amount with a real bank/broker. This wide panel lets you load two reports for a date range and then declare that external settlement.",
+      "annotations": [
+        {
+          "item": 3,
+          "label": "Start date",
+          "text": "Start of the date range for the reports and the settlement batch. The reports cover internal exchanges from this date."
+        },
+        {
+          "item": 4,
+          "label": "End date",
+          "text": "End of the date range. The end date is also used as the booking and value date of the settlement when you declare it. It cannot be before the start date."
+        },
+        {
+          "item": 5,
+          "label": "Sold currency",
+          "text": "The currency Garanta sold to the external counterparty (e.g. CHF). Must be enabled, and must differ from the bought currency, or the settlement is rejected."
+        },
+        {
+          "item": 6,
+          "label": "Bought currency",
+          "text": "The currency Garanta received (e.g. EUR). Must be enabled and different from the sold currency. The pair must be an enabled FX pair."
+        },
+        {
+          "item": 7,
+          "label": "Sold amount minor",
+          "text": "How much of the sold currency actually went out, in minor units (cents). Must be positive. Compared against what internal exchanges expected; the gap is the 'residual' shown in the realized report."
+        },
+        {
+          "item": 8,
+          "label": "Bought amount minor",
+          "text": "How much of the bought currency actually came in, in minor units. Must be positive. Compared against the expected bought amount to compute the residual."
+        },
+        {
+          "item": 9,
+          "label": "Load reports",
+          "text": "Fetches both reports for the date range without changing anything. 'Internal delta' shows what investors converted inside the platform; 'Realized settlement' shows the actual bank execution and residuals. Use these to decide the sold/bought amounts to declare."
+        },
+        {
+          "item": 10,
+          "label": "Declare settlement",
+          "text": "Records the real external currency exchange: it creates two reconciled bank-operations (one sold, one bought) and links them to the internal exchanges in the date range, posting the FX clearing entries. There must be unsettled internal FX exchanges for that pair and range, or it is rejected. The success banner confirms the settlement was declared and linked."
+        },
+        {
+          "item": 1,
+          "label": "Internal delta heading",
+          "text": "Heading for the left report block. The 'internal delta' is the net effect of investor currency conversions still awaiting external settlement: how much source currency was sold, gross and net target bought, and fees, per currency."
+        },
+        {
+          "item": 2,
+          "label": "Realized settlement heading",
+          "text": "Heading for the right report block. 'Realized settlement' compares expected vs actual sold/bought amounts from past declared settlements and shows the residual (the small over/under that remains) per currency."
+        }
+      ],
+      "notes": [
+        "'Load reports' is read-only; 'Declare settlement' is the only money-recording action on this panel.",
+        "Residual = the difference between what the internal exchanges expected and what the bank actually executed; it is expected to be small and is tracked per currency in the realized report.",
+        "Only an active admin can load reports or declare a settlement. Sold and bought currencies must differ and the pair must be enabled.",
+        "Workflow: pick the date range, Load reports, read the internal delta to see the net to settle, confirm against the realized report, then enter the actual sold/bought amounts and Declare settlement."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,260 @@
+{
+  "key": "dashboard",
+  "title": "Daily Dashboard",
+  "intro": [
+    "The Daily Dashboard is the first screen you see when you open the ops console, and it is the screen you start each shift on. Think of it as a control tower: it gathers the work that needs human attention from every part of the platform into one place, so you can see at a glance what is waiting and how urgent it is. (The ops console is the internal admin tool used by Garanta staff; it is separate from the app that investors and borrowers use.)",
+    "The screen has three parts. At the top is a row of four KPI tiles (KPI means 'key performance indicator' - a headline number you watch). Below that is the queues area: a left rail listing 13 work QUEUES, each with a live count, and a table showing the items inside whichever queue you have selected. At the bottom is a multi-currency balance summary table that shows the platform's money position broken down by currency (for example CHF and EUR).",
+    "A QUEUE is simply a named list of things that need looking at - for example loans waiting for funding, or investor withdrawals waiting to be paid out. Each item in a queue points at a real record elsewhere in the platform (a loan, a withdrawal, a bank transfer, and so on).",
+    "Important: this screen is read-only triage. You use it to SEE and PRIORITISE work, not to act on it. To actually approve a KYC case, pay a withdrawal, publish a loan, and so on, you go to the matching module screen in the left navigation (Compliance, Finance ops, Loans, etc.). Clicking a queue item here opens a detail drawer that shows context only; it does not yet perform any action."
+  ],
+  "whatYouDoHere": [
+    "Read the four KPI tiles to gauge the overall load: how many items are open, how many are high priority, how many are past their deadline, and how many touch money.",
+    "Scan the 13 queue tabs in the left rail and note the count badge on each - a non-zero count means there is work waiting in that area.",
+    "Select a queue to load its table, then read each row's status, priority, due date and amount to decide what to handle first.",
+    "Spot overdue items: rows that are past their due date (and not already finished) are highlighted so you can escalate them.",
+    "Open an item's detail drawer to read its full context and metadata before you switch to the relevant module to act.",
+    "Read the bottom currency table to understand the platform's money position per currency - what is investable, what is locked, what is overdue, and what is pending in bank or FX operations.",
+    "On the Reconciliation breaks queue only, use the Create tasks button to turn open reconciliation exceptions into trackable admin tasks; use Refresh to reload the latest numbers."
+  ],
+  "figures": [
+    {
+      "id": "dashboard-0-key-metrics",
+      "caption": "The four KPI tiles across the top of the dashboard.",
+      "summary": "A row of four headline counters that summarise the entire dashboard at a glance. They are calculated from all 13 queues combined, not just the one you have selected.",
+      "kpiTiles": [
+        {
+          "label": "Open queue items",
+          "text": "The total number of items waiting across all 13 queues right now. The small text underneath shows the timestamp the data was generated ('As of ...'). This is your overall workload number. Why it matters: if it is unusually high, the platform has a backlog; if it is zero, there is nothing waiting. Note that each queue is capped (the backend returns at most a limited number of rows per queue), so this is the count of items shown, which on a very busy day can be lower than the true total - lean on the per-queue counts and the bottom summary numbers for the real picture."
+        },
+        {
+          "label": "High priority",
+          "text": "How many of the open items are marked high, urgent or critical priority, with the number of strictly 'urgent'/'critical' ones called out underneath as '... urgent'. Why it matters: this tells you how much of today's work cannot wait. Watch out: priority is set on the underlying record, not here - this tile only counts what the queues report."
+        },
+        {
+          "label": "Overdue SLA",
+          "text": "How many open items are past their due date and not yet finished (an item counts as done only when its status is completed, finalized or settled). SLA means 'service level agreement' - the deadline by which something should be handled. The text underneath ('Window N days') shows the look-ahead window used for due dates. Why it matters: overdue items are the ones most likely to cause regulatory or customer problems; clear these first."
+        },
+        {
+          "label": "Finance actions",
+          "text": "A combined count of the money-movement queues: bank exceptions, withdrawals, forced withdrawals, FX settlement and reconciliation breaks. Why it matters: these queues involve actual cash and ledger accuracy, so this single number tells you how much finance-sensitive work is open. The subtitle lists exactly which queues are included."
+        }
+      ],
+      "notes": [
+        "All four tiles are derived numbers - they refresh when you press Refresh or when the dashboard reloads. They are not editable.",
+        "These counters describe every queue combined; to see where the work actually sits, look at the per-queue counts in the next figure."
+      ]
+    },
+    {
+      "id": "dashboard-1-daily-dashboard-queues",
+      "caption": "The queues area: the 13-queue rail on the left and the selected-queue table on the right.",
+      "summary": "The main working area. The left rail is a vertical list of 13 work queues, each with a live count. Clicking one loads its items into the table on the right. Each table row is a single piece of work that lives in another part of the platform; clicking a row opens a read-only detail drawer.",
+      "annotations": [
+        {
+          "item": 0,
+          "label": "Selected-queue title",
+          "text": "Shows the name of the queue you are currently viewing (here 'Admin tasks'). It changes to match whichever queue tab you click in the left rail, and a one-line description and an 'N open' chip sit alongside it."
+        },
+        {
+          "item": 1,
+          "label": "Column: Item",
+          "text": "The short title of the work item plus, underneath, its 'kind' (an internal type tag such as admin_task or withdrawal_request). This is the column you read first to understand what each row is. The title is a clickable button that opens the detail drawer."
+        },
+        {
+          "item": 2,
+          "label": "Column: Status",
+          "text": "The current state of the underlying record, shown as a coloured chip. Green means a settled/healthy state (e.g. approved, active, reconciled, finalized, settled, completed); red means a problem (e.g. break, defaulted, dead_letter, penalty_mode); amber means it needs review (e.g. late, manual_review, pending_review); blue means in-progress/requested (e.g. requested, due, published, open). The colour is a quick triage cue."
+        },
+        {
+          "item": 3,
+          "label": "Column: Priority",
+          "text": "How urgent the item is, as a coloured chip. Urgent or critical shows red, high shows amber, low shows grey, and anything else shows blue. Use this together with the due date to decide ordering."
+        },
+        {
+          "item": 4,
+          "label": "Column: Due",
+          "text": "The deadline for the item - either a precise date-and-time or a date, depending on the record. If a row has no deadline this shows a dash. Rows whose due date has passed (and are not finished) are highlighted as overdue."
+        },
+        {
+          "item": 5,
+          "label": "Column: Amount",
+          "text": "The money value attached to the item, formatted in the item's currency. Many items have no monetary amount (for example a KYC review or a failed email), in which case this shows a dash. For funding loans this is the remaining principal still to be funded, not the full loan size."
+        },
+        {
+          "item": 6,
+          "label": "Column: Object",
+          "text": "Points at the exact platform record behind the row: an object type (e.g. Loan, InvestorWithdrawalRequest, KycVerificationCase) over a monospaced object ID. This is the reference you use to find and act on the record in the matching module screen."
+        },
+        {
+          "item": 7,
+          "label": "Queue tab: Admin tasks (General)",
+          "text": "Internal to-do items raised by staff or by the system (SLA follow-ups, operational notes). Populated from open admin tasks - any task not in a terminal state (resolved/cancelled) - sorted by due date. The number on the right is the live count of open tasks shown. This is usually where you start."
+        },
+        {
+          "item": 8,
+          "label": "Queue tab: KYC reviews (Compliance)",
+          "text": "Identity/AML checks that the automated provider (Didit) could not clear and that now need a Garanta decision. KYC means 'know your customer'; AML means 'anti-money-laundering'. Populated from verification cases in states like manual_review, high_risk, sanctions_hit, pep_hit, adverse_media_hit, declined or reverification_required. Act on these in the Compliance module."
+        },
+        {
+          "item": 9,
+          "label": "Queue tab: Bank exceptions (Finance)",
+          "text": "Incoming or outgoing bank/PSP transfers that the system could not match or that are still pending, so the money cannot yet be allocated on the ledger. PSP means 'payment service provider'. Populated from bank operations in status pending_review or unmatched. These block deposits/payouts from completing, so they are time-sensitive."
+        },
+        {
+          "item": 10,
+          "label": "Queue tab: Withdrawals (Finance)",
+          "text": "Investor withdrawal requests that have been accepted and are waiting for the actual bank payout to be executed and finalised. Populated from withdrawal requests in status 'requested', sorted oldest-first. Handle these in Finance ops (Withdrawal execution)."
+        },
+        {
+          "item": 11,
+          "label": "Queue tab: Forced withdrawals (Finance)",
+          "text": "A subset of withdrawals that the system created automatically because money sat unused too long. By rule, funds that reach the 60-day return-of-funds point must be sent back to the investor; those generate a 'forced' withdrawal. Same underlying records as the Withdrawals queue but filtered to forced ones."
+        },
+        {
+          "item": 12,
+          "label": "Queue tab: Balance ageing (Finance)",
+          "text": "Investor balance 'lots' (tracked chunks of deposited money) that are near or past the regulatory time windows. The rules: after 30 days money can no longer be invested (becomes withdraw-only), and after 60 days it must be returned. This queue surfaces lots already past the 60-day withdrawal deadline and lots stuck in penalty mode (waiting for a usable payout IBAN)."
+        },
+        {
+          "item": 13,
+          "label": "Queue tab: Funding loans (Marketplace)",
+          "text": "Loans that are published on the marketplace and are being funded by investors, approaching their funding deadline or close review. Populated from loans in status 'published', sorted by funding deadline. The amount shown is the principal still left to fund. Act on these in the Loans module."
+        },
+        {
+          "item": 14,
+          "label": "Queue tab: Servicing due (Servicing)",
+          "text": "Borrower repayments (installments) that fall due inside the look-ahead window. Servicing means managing a live loan's repayments. Computed by checking each funded/late loan's repayment schedule against the due window; the amount shown is the outstanding amount on that installment. Handle in Loans (Servicing and recovery)."
+        },
+        {
+          "item": 15,
+          "label": "Queue tab: Loan risk (Servicing)",
+          "text": "Loans that are in trouble and need notes, a status review, or recovery work. Populated from loans in status late, defaulted or written_off. Use this to drive recovery actions and public risk notes in the Loans module."
+        },
+        {
+          "item": 16,
+          "label": "Queue tab: Secondary approvals (Marketplace)",
+          "text": "Listings on the secondary market (where investors sell loan holdings to each other) that are non-performing or non-standard and therefore need staff approval before they can go live. Populated from secondary listings in status 'approval_requested'. Approve, reject or remove them in the Loans module."
+        },
+        {
+          "item": 17,
+          "label": "Queue tab: FX settlement (Finance)",
+          "text": "Internal currency exchanges (FX = foreign exchange) that have happened on the platform but have not yet been declared as settled with the external bank. Populated from FX exchanges that have no settlement link yet, grouped by the currency pair (e.g. CHF/EUR). Declare settlement in Finance ops."
+        },
+        {
+          "item": 18,
+          "label": "Queue tab: Failed emails (Comms)",
+          "text": "Transactional emails that failed to send and were 'dead-lettered' (set aside after exhausting retries) and now need an operator to review. Populated from outbox messages on email topics with status 'dead_letter'. The detail drawer shows the topic, attempt count and last error."
+        },
+        {
+          "item": 19,
+          "label": "Queue tab: Reconciliation breaks (Finance)",
+          "text": "Mismatches found when comparing the platform ledger against the bank, plus sign anomalies and investor-balance integrity breaks. A 'break' means the numbers do not tie out and must be explained or corrected. Populated from reconciliation snapshots that carry a break signal. This queue has a special Create tasks button (see notes)."
+        },
+        {
+          "item": 20,
+          "label": "Row title button - opens the detail drawer",
+          "text": "The bold item title in the Item column doubles as a button. Clicking it (or anywhere on the row) opens a right-side detail drawer with the item's full context: its kind, the linked object type and ID, due date, amount, and a 'Metadata' block of extra fields. The drawer is read-only - it shows a banner saying 'Module action deferred', meaning the actual action happens in the relevant module screen, not here."
+        },
+        {
+          "item": 22,
+          "label": "Selected-queue 'open' count chip",
+          "text": "The chip near the queue title showing how many items are currently in the selected queue ('2 open' here). It turns informational (blue) when there are items and neutral (grey) when the queue is empty. It mirrors the count badge on the active tab."
+        },
+        {
+          "item": 23,
+          "label": "Status chip on a row (Open)",
+          "text": "Example of a per-row status chip in the Status column. 'Open' here is the state of an admin task. Each row carries its own status; the chip colour follows the status-colour rules described for the Status column."
+        },
+        {
+          "item": 24,
+          "label": "Priority chip on a row (High)",
+          "text": "Example of a per-row priority chip in the Priority column. 'High' renders amber. Rows are not sorted by priority in the table, so scan the colours to find the ones to do first."
+        },
+        {
+          "item": 26,
+          "label": "Priority chip on a row (Urgent)",
+          "text": "Example of an 'Urgent' priority chip, which renders red. Urgent and critical are the most pressing; combined with an overdue due date, treat these as do-now."
+        }
+      ],
+      "notes": [
+        "The dashboard is triage only. None of the rows or the drawer perform an action - to approve, pay, publish or correct anything you must open the matching module from the left navigation (Compliance, Finance ops, Loans, Reports, Settings).",
+        "Each queue shows at most a limited number of rows (a per-queue cap). If a queue is busier than that cap, the table is a sample of the most relevant items, not the complete list; use the bottom currency summary and module screens for totals.",
+        "Overdue highlighting: a row is flagged overdue when its due date is before the dashboard's as-of date and its status is not completed, finalized or settled.",
+        "A Refresh button (top right of the queues area) reloads all queues and counts. When the Reconciliation breaks queue is selected, an extra 'Create tasks' button appears: it scans current reconciliation break snapshots and creates an admin task for each one that does not already have one, reporting how many were created versus already existed. It does not create duplicates.",
+        "The empty state ('No items in this queue') simply means the dashboard API returned no active work for that queue right now - it is not an error."
+      ]
+    },
+    {
+      "id": "dashboard-4-card",
+      "caption": "The platform balance summary table, one row per currency.",
+      "summary": "A platform-wide money snapshot broken down by currency. Each row is one currency (for example CHF, EUR) and the columns split that currency's balances into operational buckets - how much is usable, how much is locked, how much is overdue, and how much is tied up in pending bank, withdrawal or FX operations. All amounts are read-only; they are computed from the ledger when the dashboard loads.",
+      "annotations": [
+        {
+          "item": 0,
+          "label": "Column: Currency",
+          "text": "The currency code for this row (e.g. CHF, EUR), shown as a chip. Every other number in the row is expressed in this currency. Rows are sorted alphabetically by currency code."
+        },
+        {
+          "item": 1,
+          "label": "Column: Available",
+          "text": "The total investor money currently available in this currency across all balance lots (a 'lot' is a tracked chunk of deposited funds). This is the grand total; the next three columns break it down by what the money is allowed to do. Why it matters: it is the headline liability the platform holds for investors in this currency."
+        },
+        {
+          "item": 2,
+          "label": "Column: Investable",
+          "text": "The portion of Available that is still inside its investment window and may be used to fund loans (within the first 30 days). This is the money that can actually flow into the marketplace."
+        },
+        {
+          "item": 3,
+          "label": "Column: Withdraw-only",
+          "text": "The portion of Available that has passed its 30-day investment deadline but not yet its 60-day withdrawal deadline. It can no longer be invested, only withdrawn. Why it matters: this money is ageing toward a forced return and should be flagged to the investor."
+        },
+        {
+          "item": 4,
+          "label": "Column: Overdue",
+          "text": "The portion of Available that is already past its 60-day withdrawal deadline and must be returned to the investor. These lots feed the Balance ageing queue. Why it matters: leaving funds here past deadline is a compliance breach - return them."
+        },
+        {
+          "item": 5,
+          "label": "Column: Frozen",
+          "text": "Money in balance lots whose status is 'frozen' (held, not spendable - for example pending a compliance hold). It is part of the platform's holdings but cannot be invested or withdrawn until unfrozen."
+        },
+        {
+          "item": 6,
+          "label": "Column: Penalty",
+          "text": "Money in lots in 'penalty mode' - typically because the investor has no usable payout IBAN, so the funds cannot be returned automatically. These lots also appear in the Balance ageing queue and need operator follow-up to obtain valid payout details."
+        },
+        {
+          "item": 7,
+          "label": "Column: Pending withdrawals",
+          "text": "The total value of investor withdrawals in this currency that have been requested but not yet paid out. This figure combines normal pending withdrawals and forced (day-60 return) withdrawals into a single number. It matches the Withdrawals and Forced withdrawals queues."
+        },
+        {
+          "item": 8,
+          "label": "Column: Pending bank ops",
+          "text": "The total value of bank operations in this currency still in exception state (pending_review or unmatched) - money stuck in the bank-matching step. Mirrors the Bank exceptions queue. Why it matters: until these clear, the related deposits or payouts cannot complete."
+        },
+        {
+          "item": 9,
+          "label": "Column: FX unsettled",
+          "text": "Internal FX activity in this currency not yet settled with the external bank, shown as three stacked lines: Sold (amount sold out of this currency), Bought (gross amount bought into it) and Fee. Mirrors the FX settlement queue. Declare settlement in Finance ops to clear these."
+        },
+        {
+          "item": 10,
+          "label": "Currency row value: CHF",
+          "text": "Example currency row chip for Swiss francs. Read across this row to see CHF's full money position. CHF is typically the platform's primary operating currency."
+        },
+        {
+          "item": 11,
+          "label": "Currency row value: EUR",
+          "text": "Example currency row chip for euros. Read across this row to see EUR's position. A separate row appears for each currency the platform holds balances in."
+        }
+      ],
+      "notes": [
+        "Available is the sum of Investable + Withdraw-only + Overdue for lots in 'available' status; Frozen and Penalty lots are tracked separately and are not part of the Available split.",
+        "All figures here are derived snapshots, refreshed with the dashboard. You cannot edit them on this screen - to change a balance you act in Finance ops.",
+        "If the table shows 'No currency summaries', the backend has not yet returned currency-level data; press Refresh.",
+        "Amounts are stored internally in minor units (e.g. cents/rappen) and displayed formatted in each currency."
+      ]
+    }
+  ]
+}

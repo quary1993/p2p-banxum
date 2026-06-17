@@ -1,0 +1,189 @@
+{
+  "key": "tasks",
+  "title": "Tasks",
+  "intro": [
+    "The Tasks screen is the operations team's shared to-do list. A \"task\" is one piece of work an admin needs to do, for example \"resolve an unmatched bank deposit\" or \"review a KYC case\". KYC means Know Your Customer: the legal checks that confirm who a person is before they can use a financial service. The screen lets you create tasks, sort through them, and move each one along until it is finished.",
+    "Tasks come from two places. Most are created by hand by an admin (the New task button). Some are created automatically by the system, such as a \"reconciliation break\" task. Reconciliation is the daily check that the money the bank says we hold matches the money our own records say we hold; a \"break\" is a mismatch that someone must investigate. Auto-generated tasks show a specific Type (for example Payment Reconciliation) and are linked to the record that caused them.",
+    "Each task has a Type, a Priority (how urgent), a Status (where it is in its life), an optional Due date, and an optional link to a real object in the system (a loan, an investor, a withdrawal, and so on). You can link a task to that object so anyone reading it knows exactly what it is about.",
+    "Important: this screen is a lightweight tracker only. It does not perform the actual money or compliance actions. The real work (executing a withdrawal, approving a loan, recording a KYC decision) is done on the owning screen (Finance ops, Loans, Compliance). A task is just a reminder and an audit trail that the work happened."
+  ],
+  "whatYouDoHere": [
+    "Create a new internal task with a title, type, priority, optional due date, notes, and an optional link to a real object.",
+    "Filter the task list by status, priority, or type, and free-text search across title, notes, and object id.",
+    "Open any task to see its full detail, edit its fields, and read its event history.",
+    "Move a task through its statuses (Open, In progress, Waiting, Resolved, Cancelled) using quick-action buttons.",
+    "Tell apart manually-created tasks from auto-generated ones (such as reconciliation breaks) by their Type and linked object.",
+    "Record a completion note when you resolve or cancel a task, so the reason is captured permanently."
+  ],
+  "figures": [
+    {
+      "id": "tasks-1-operational-task-queue",
+      "caption": "The toolbar at the top of the Tasks screen.",
+      "summary": "The header bar for the whole screen. It names the queue, and holds the two main action buttons: refresh the list, and create a new task.",
+      "annotations": [
+        {
+          "item": 0,
+          "label": "Screen title",
+          "text": "The name of this screen. \"Operational task queue\" means the running list of work items the ops team needs to handle. Below it, the subtitle reminds you that detailed module actions (executing money, approving loans) still happen on their own screens, not here."
+        },
+        {
+          "item": 1,
+          "label": "Refresh button",
+          "text": "Reloads the task list from the server so you see the latest tasks and any changes other admins made. It does not change any data. Use it after someone else has added or updated a task."
+        },
+        {
+          "item": 2,
+          "label": "New task button",
+          "text": "Opens the \"New admin task\" form in a pop-up window. This is how you create a task by hand. A title is required; everything else has a sensible default. See the New task notes below for the fields."
+        }
+      ],
+      "notes": [
+        "The New task form (opened by this button) asks for: Title (required, up to 255 characters); Type (defaults to \"Other\"); Priority (defaults to \"Normal\"); Due at (optional date and time); Related object type and Related object (optional link to a real record); and Notes (free text for context or evidence references).",
+        "Task types available when creating: KYC manual review, Account access review, Borrower onboarding, Loan setup, Payment reconciliation, FX settlement, Document review, Email delivery failure, Reporting, Support, and Other. Pick the closest match; it is only a label used for filtering.",
+        "Gotcha: the system will block you from creating a second Payment reconciliation task that points at the same reconciliation snapshot. This stops duplicate reconciliation-break tasks. Other types have no such uniqueness rule."
+      ]
+    },
+    {
+      "id": "tasks-2-card",
+      "caption": "The filter bar: narrow the task list down to what you care about.",
+      "summary": "Four controls that filter the table below. Status, Priority, and Type are dropdowns sent to the server; Search is a free-text box that filters the already-loaded list on your screen.",
+      "annotations": [
+        {
+          "item": 0,
+          "label": "Status field label",
+          "text": "Labels the Status dropdown. Status is where a task sits in its life cycle (Open, In progress, Waiting, Resolved, Cancelled)."
+        },
+        {
+          "item": 1,
+          "label": "Priority field label",
+          "text": "Labels the Priority dropdown. Priority is how urgent the task is (Low, Normal, High, Urgent)."
+        },
+        {
+          "item": 2,
+          "label": "Type field label",
+          "text": "Labels the Type dropdown. Type is the kind of work (for example KYC manual review or Payment reconciliation)."
+        },
+        {
+          "item": 3,
+          "label": "Search field label",
+          "text": "Labels the Search box. Search looks across each task's title, notes, related object type, related object id, type, status, and priority."
+        },
+        {
+          "item": 4,
+          "label": "Status dropdown",
+          "text": "Choose one status to show only tasks in that state, or leave it on \"All statuses\" to show every status. The options are Open, In Progress, Waiting, Resolved, and Cancelled. This filter is applied by the server, so the list reloads when you change it."
+        },
+        {
+          "item": 5,
+          "label": "Priority dropdown",
+          "text": "Choose one priority to show only tasks at that urgency, or \"All priorities\" for every level. The options are Low, Normal, High, and Urgent. Urgent and High are the ones to clear first; the KPI tiles at the top of the screen count urgent open tasks for you."
+        },
+        {
+          "item": 6,
+          "label": "Type dropdown",
+          "text": "Choose one task type to show only that kind of work, or \"All types\" for everything. This is the quickest way to separate auto-generated tasks (for example Payment Reconciliation or Email Delivery Failure) from manual ones."
+        }
+      ],
+      "notes": [
+        "Status, Priority, and Type are independent: setting more than one narrows the list further (a task must match all of them).",
+        "The Search box (not captured as a separate item here) filters only what is already loaded on screen, so it does not fetch more tasks from the server. If a task is hidden by the Status, Priority, or Type dropdowns, searching will not bring it back.",
+        "There is no Apply button; filters take effect the moment you change them. To go back to the full list, set each dropdown back to its \"All\" option and clear the search box."
+      ]
+    },
+    {
+      "id": "tasks-3-card",
+      "caption": "The task table: one row per task, click a row to open it.",
+      "summary": "The list of tasks that match the current filters. Each row shows the task title and type, its status and priority chips, due date, linked object, and when it was last changed. Clicking anywhere on a row opens that task's detail drawer.",
+      "annotations": [
+        {
+          "item": 0,
+          "label": "Task column",
+          "text": "Shows the task title in bold and the task type underneath it. The title is the short description of the work; the type tells you what category it belongs to. Click the row to open the full task."
+        },
+        {
+          "item": 1,
+          "label": "Status column",
+          "text": "Shows the task's current status as a coloured chip. Open and In Progress mean the work is still live; Resolved (done) and Cancelled (dropped) are \"terminal\" statuses, meaning the task is finished and no longer counts as open."
+        },
+        {
+          "item": 2,
+          "label": "Priority column",
+          "text": "Shows the urgency as a coloured chip: Urgent is red, High is amber, Normal is blue, Low is grey. Work the red and amber ones first."
+        },
+        {
+          "item": 3,
+          "label": "Due column",
+          "text": "The date and time the task is meant to be done by, if one was set. Blank when no due date exists. The \"Due today\" KPI tile counts non-finished tasks due today, measured on the Europe/Zurich business day."
+        },
+        {
+          "item": 4,
+          "label": "Related object column",
+          "text": "Shows the type of record this task is linked to (for example Loan or InvestorWithdrawalRequest) and its id underneath. A dash means the task is not linked to any record. Use this to jump to the right screen to do the actual work."
+        },
+        {
+          "item": 5,
+          "label": "Updated column",
+          "text": "When the task was last changed. Useful for spotting stale tasks that no one has touched in a while."
+        },
+        {
+          "item": 6,
+          "label": "Task row: Payment Reconciliation (Urgent, Open)",
+          "text": "An example row. The title is \"Resolve unmatched CHF lender deposit reference\" and the type is Payment Reconciliation. This type is typically auto-generated by the daily reconciliation sync when bank and ledger figures disagree. Click it to open the task and see which reconciliation snapshot it is linked to."
+        },
+        {
+          "item": 7,
+          "label": "Task row: KYC Manual Review (Urgent, In Progress)",
+          "text": "An example row, \"PEP flag requires Garanta AML officer decision\". PEP means Politically Exposed Person, someone in or close to public office who needs extra anti-money-laundering (AML) scrutiny. \"In Progress\" means an admin has started it. The real decision is recorded on the Compliance screen; this task just tracks that it needs doing."
+        },
+        {
+          "item": 8,
+          "label": "Task row: FX Settlement (Waiting, High)",
+          "text": "An example row, \"Declare CHF/EUR external FX settlement\". FX means foreign exchange (swapping one currency for another). \"Waiting\" means the task is paused, usually blocked on someone or something outside the team. The actual settlement is declared on the Finance ops screen."
+        },
+        {
+          "item": 9,
+          "label": "Task row: Document Review (Open, Normal)",
+          "text": "An example row, \"Review revised primary-market risk acknowledgement template\". The \"primary market\" is where investors fund brand-new loans (as opposed to the secondary market, where they buy and sell existing loan pieces). This task is a normal-priority review item still open."
+        },
+        {
+          "item": 10,
+          "label": "Task row: Email Delivery Failure (Resolved, Normal)",
+          "text": "An example row, \"Dead-lettered installment notification\". \"Dead-lettered\" means an email that could not be delivered and was set aside. This task type is usually auto-generated. Its status is Resolved, so it is finished; resolved tasks stay in the list for the record but no longer count as open."
+        },
+        {
+          "item": 11,
+          "label": "Status chip: Open (first row)",
+          "text": "The status chip for the first row. Open is the starting state of every new task, meaning no one has begun it yet."
+        },
+        {
+          "item": 12,
+          "label": "Priority chip: Urgent (first row)",
+          "text": "The priority chip for the first row. Urgent (red) is the highest level and should be cleared first."
+        },
+        {
+          "item": 13,
+          "label": "Status chip: In Progress (second row)",
+          "text": "In Progress means an admin has picked the task up and is actively working it. Set it from the task drawer using the \"Mark in progress\" button."
+        },
+        {
+          "item": 15,
+          "label": "Status chip: Waiting (third row)",
+          "text": "Waiting means the task is paused, typically blocked on an external party or a dependency. It still counts as open (not finished). Set it with the \"Waiting\" button in the task drawer."
+        },
+        {
+          "item": 19,
+          "label": "Status chip: Resolved (fifth row)",
+          "text": "Resolved is a terminal (finished) status meaning the work was completed successfully. Setting it stamps a completion time and reveals a Completion note box to record how it was resolved."
+        }
+      ],
+      "notes": [
+        "Clicking any row opens the task detail drawer on the right. There you can edit Title, Type, Priority, Status, Due at, and Notes, then press \"Save changes\".",
+        "Status transitions: there are no locked-down rules on which status can follow which. You can move a task to any of the five statuses at any time. The two finished states are Resolved (done well) and Cancelled (dropped); the system marks both as terminal.",
+        "Quick-action buttons in the drawer let you jump straight to a status without saving the whole form: \"Mark in progress\", \"Waiting\", \"Resolve\", and \"Cancel task\". Each one saves immediately and writes an entry to the event history.",
+        "Gotcha: when you set a task to Resolved or Cancelled, the system records the completion time and shows a Completion note field. If you later move the task back to a non-terminal status (Open, In progress, or Waiting), the system automatically clears both the completion time and the completion note. Re-opening a finished task therefore loses its recorded completion reason.",
+        "Every create and every change is written to an append-only event history shown at the bottom of the task drawer. \"Append-only\" means entries can be added but never edited or deleted, so it is reliable evidence of who did what and when. Each entry shows the event type, the time, any note, and the status change (for example Open to In Progress) and who made it.",
+        "If the table shows \"No tasks match these filters\", either no tasks exist yet or your filters are too narrow. Loosen the dropdowns or clear the search box."
+      ]
+    }
+  ]
+}

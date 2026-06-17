@@ -1,0 +1,126 @@
+{
+  "title": "BANXUM P2P Primer: what you need to know before you touch a screen",
+  "sections": [
+    {
+      "heading": "1. What BANXUM is",
+      "body": [
+        "BANXUM is a peer-to-peer (P2P) lending marketplace. \"Peer-to-peer\" means individual people lend money directly to businesses, instead of a bank sitting in the middle and lending its own money.",
+        "Here is the basic idea. Individual investors (we also call them \"lenders\") put money into BANXUM. That money is then used to fund loans to vetted business borrowers. The borrowers pay the money back over time, with interest. The interest is shared back to the investors who funded that loan. Investors can later take their money out again.",
+        "BANXUM is operated by Garanta Finanzgruppe AG, a Swiss financial group. \"Garanta\" is the operator, and you, as an operations admin, work for Garanta. BANXUM does not lend its own money and is not a bank. It runs the marketplace, checks who everyone is, moves money correctly, and keeps records.",
+        "This manual is about the internal ops console served at /admin, which only Garanta staff use. It is NOT the app that investors log into. Throughout this manual, \"the console\" or \"the admin console\" always means the staff tool, never the investor app."
+      ]
+    },
+    {
+      "heading": "2. The four people in the story",
+      "body": [
+        "Almost everything in BANXUM involves these four parties. Learn them first; the rest of the manual refers to them constantly."
+      ],
+      "bullets": [
+        "Investor (lender): an individual who deposits money and funds loans to earn interest. In the system an investor account has an account_type of either \"natural_person_lender\" (a real human investing for themselves) or \"legal_entity_lender_representative\" (a person acting on behalf of a company that invests). Every lender account is given a short unique investor_reference code when it is created. Investors log into the investor app themselves; they do not use the admin console.",
+        "Borrower: a company that receives a loan and pays it back with interest. A borrower is NEVER a login account. It is a record (a \"BorrowerEntity\") that you, the admin, create and maintain by hand. The borrower has no portal, no password, and never logs in anywhere. Borrowers are vetted through KYB (explained in section 7) before they can receive money.",
+        "Garanta operator (you): a Garanta staff member working in the admin console. There are two staff account types: \"admin\" (normal operations staff) and \"superadmin\" (staff who can also change platform-wide settings and create other admins). You enter borrowers and loans, review compliance, confirm bank movements, and run the day-to-day operation.",
+        "Didit: an external identity-verification company. \"External\" means it is a third-party provider, not part of Garanta. When a person needs their identity checked, BANXUM sends them to Didit. Didit runs the identity and anti-money-laundering checks and reports the result back. The default identity provider on every verification case is \"didit\"."
+      ]
+    },
+    {
+      "heading": "3. How money moves",
+      "body": [
+        "Money flows in one big cycle. Follow it once and most screens will make sense.",
+        "Step 1, the investor sends a bank transfer. The investor wires money from their own bank to a Garanta collection bank account. \"Collection account\" just means the Garanta-controlled bank account that receives investor money.",
+        "Step 2, the transfer is matched and ledgered. When the money arrives, an admin confirms the bank operation and records it in the ledger (the system's official books). Crucially, the investor must put a specific payment reference on their bank transfer so we can tell whose money it is. That reference has the exact format BX-{currency}-{investor_reference}, for example BX-CHF-AB12CD for a Swiss-franc deposit from investor AB12CD. The reference is unique per investor and per currency and must be copied unchanged into the transfer description. A transfer with no reference, or the wrong one, cannot be matched automatically and lands in a suspense/unmatched state for an admin to resolve.",
+        "Step 3, the money becomes an investable balance. Once matched, the deposit creates a \"balance lot\" (think of it as a dated parcel of that investor's money) and the amount becomes investable. Balance buckets are explained in section 5.",
+        "Step 4, the investor invests in a loan (the primary market). The investor places an investment order against a published loan. Their investable balance is reserved for that loan. When the loan finishes funding, the reserved money is committed to it.",
+        "Step 5, the borrower is disbursed. Once a loan is fully funded and the borrower's KYB is approved, an admin pays out (disburses) the loan principal to the borrower's bank account.",
+        "Step 6, the borrower repays. Over the loan term the borrower sends repayments (principal plus interest) back to a Garanta collection account. An admin records each repayment and distributes it to the investors who funded that loan, in proportion to how much each one put in.",
+        "Step 7, returns land back in the investor's balance. Each investor's share of principal and interest is credited back to their BANXUM balance as new balance lots.",
+        "Step 8, the investor withdraws to their bank. When the investor wants their money out, they request a withdrawal to a registered bank account (a \"payout instruction\"). An admin finalises it and the money is wired from the Garanta collection account back to the investor's bank."
+      ],
+      "bullets": [
+        "Deposit reference format: BX-{currency}-{investor_reference}. It must appear, unchanged, in the bank transfer reference field.",
+        "Money only moves between real bank accounts at deposit (step 1-2), disbursement (step 5), repayment (step 6), and withdrawal (step 8). Everything in between is internal bookkeeping in the ledger.",
+        "Every money movement is recorded as a balanced double-entry journal in the ledger, and every confirmed bank transfer is recorded as a \"bank operation\". These records are append-only: they are never edited or deleted, only added to or reversed with a new entry."
+      ]
+    },
+    {
+      "heading": "4. Money in BANXUM is not a bank account",
+      "body": [
+        "This is the single most important idea for an operations admin. An investor's BANXUM balance is NOT a savings account.",
+        "The balance is non-interest-bearing operational money. \"Non-interest-bearing\" means simply holding money in BANXUM earns the investor nothing; interest only comes from funding loans. \"Operational\" means the balance exists so the investor can invest or withdraw, not to park cash. The funds are also segregated, meaning investor money is kept apart from Garanta's own money, not mixed with it.",
+        "Because BANXUM is not a deposit-taking bank, regulators do not allow investors to sit on idle cash indefinitely. So every balance lot is subject to ageing. Ageing means a parcel of money has clocks running against it from the day it was received, and what the investor is allowed to do with it changes as those clocks pass.",
+        "There are two ageing windows, measured from when the money was received:",
+        "The 30-day window (the investment deadline). For the first 30 days a lot is investable: it can be used to fund loans, or withdrawn. After 30 days that lot can no longer be invested. It becomes withdraw-only.",
+        "The 60-day window (the withdrawal deadline). At 60 days the lot has reached the regulatory holding limit and must leave BANXUM. The investor cannot extend this deadline and neither can Garanta. The system sends the investor reminder emails as the deadline approaches (around days 25, 46, 53, 58, 59 and 60).",
+        "What happens at the 60-day limit depends on whether the investor has given us a usable bank account to send the money to. \"Usable\" means a payout instruction (a registered IBAN) that an admin has verified. Two outcomes are possible, handled automatically by the balance ageing scan."
+      ],
+      "bullets": [
+        "Forced withdrawal: if the investor HAS a verified, usable payout IBAN at the 60-day limit, the system automatically creates a withdrawal request for that overdue money. \"Forced\" means the investor did not ask for it; the system raised it for them to honour the deadline. An admin then finalises the bank payout like any other withdrawal.",
+        "Penalty mode: if the investor has NO verified usable IBAN at the 60-day limit, the system cannot send the money out, so the lot is moved into penalty mode. In plain words, a small daily charge starts eating into that specific balance (a per-day penalty in basis points, configured platform-wide). While any of the investor's money is in penalty mode, their other financial actions are blocked until they supply a usable IBAN. If the daily charges ever consume the whole lot, it becomes penalty-exhausted (nothing left to charge).",
+        "Frozen: a separate balance lot status used when a lot is administratively held (for example during a compliance review). Frozen money still belongs to the investor but cannot be invested or withdrawn until the hold is lifted. Frozen is set deliberately, not by the ageing clock; penalty mode is what the 60-day clock produces when there is no usable IBAN."
+      ]
+    },
+    {
+      "heading": "5. The balance buckets",
+      "body": [
+        "When you look at an investor's money, it is grouped into buckets. A bucket is just a label describing what the investor can currently do with that money. The bucket is decided per balance lot, from the lot's status and its two ageing clocks. The same investor can have money in several buckets at once.",
+        "Only money that is genuinely still sitting in the balance (the \"available\" amount of a lot) counts toward these buckets; money already invested, withdrawn, converted in an FX exchange, or eaten by penalties does not."
+      ],
+      "bullets": [
+        "investable: available money younger than 30 days. The investor can invest it in a loan OR withdraw it. This is the only bucket from which new investments can be made.",
+        "withdraw-only: available money past the 30-day investment deadline but not yet past the 60-day withdrawal deadline. It can no longer be invested; it can only be withdrawn.",
+        "overdue: available money past the 60-day withdrawal deadline. It is over the regulatory holding limit and must leave BANXUM. This is what the ageing scan turns into a forced withdrawal (if a usable IBAN exists) or penalty mode (if not).",
+        "frozen: money in a lot that has been administratively frozen. The investor can neither invest nor withdraw it until the freeze is removed.",
+        "penalty: money in a lot in penalty mode, being charged a daily penalty because it passed 60 days with no usable IBAN. Any penalty-mode balance blocks the investor's other financial actions until they fix their payout details.",
+        "available (total): a roll-up of all of the above that still has money in it. It is the sum of every bucket; it is not a separate spendable pot of its own."
+      ]
+    },
+    {
+      "heading": "6. The life of a loan",
+      "body": [
+        "A loan moves through a fixed set of statuses. Knowing the order tells you what is and is not allowed at each step.",
+        "draft: the loan exists only as an internal record an admin is preparing. Investors cannot see it. It can still be edited freely.",
+        "published: an admin has published the loan to the marketplace, so investors can now see it and invest. A loan can only be published from draft, and only when its required fields, repayment schedule, funding window and the borrower's KYB gate all pass. Once published it has a published_at timestamp.",
+        "funded: enough investor money has been committed and an admin closes funding. Only a funded loan can be disbursed to the borrower. (Funding can also be cancelled before close, returning reserved money to investors; a never-funded loan can end up cancelled.)",
+        "performing vs late vs defaulted: after disbursement the borrower repays on a schedule. As long as installments are paid on time the loan keeps performing (its status stays funded). If an installment is overdue by 5 days or more the system marks the loan late. If an installment is overdue by 16 days or more it is marked defaulted.",
+        "repaid: the borrower has paid everything back. The loan is complete and investors have received their principal and interest.",
+        "defaulted then recovery or written-off: a defaulted loan moves into recovery, where Garanta tries to collect what it can (for example by enforcing collateral). Money recovered is distributed to investors. If nothing more can be collected, the remaining amount is written off, meaning it is formally recognised as a loss to the investors who funded it.",
+        "Primary market vs secondary market, in one line each:"
+      ],
+      "bullets": [
+        "Primary market: where loans are funded for the first time. An investor places an investment order on a published loan, their balance is reserved and allocated, and when funding closes the money is committed and the borrower is disbursed. This is the normal way money goes into a loan.",
+        "Secondary market: where an investor who already holds a piece of a loan resells that holding to another investor before the loan finishes, to get their money out early. The seller lists the holding (sometimes at a discount or premium); a buyer pays for it; Garanta takes a fee from each side. Some listings publish automatically and some need admin approval."
+      ]
+    },
+    {
+      "heading": "7. Gates that protect everyone",
+      "body": [
+        "BANXUM blocks risky or non-compliant actions by design. These blocks are called gates. The most important thing to understand: gates are enforced on the server (the backend), not just hidden in the screen. You cannot click your way past them in the admin console, and neither can an investor. If a gate is not satisfied, the action is refused server-side, full stop.",
+        "Identity gates. People are checked with KYC; companies are checked with KYB.",
+        "KYC (Know Your Customer) is identity and anti-money-laundering verification for a person, run through Didit. A KYC case has a status, and only one status, \"approved\", lets the person act. Every other status blocks them, including not_started, pending, declined, manual_review, high_risk, sanctions_hit, pep_hit, adverse_media_hit, expired, and reverification_required. A \"sanctions hit\" means the person matched a sanctions list; a \"PEP hit\" means they were flagged as a Politically Exposed Person (someone in or close to public office, who needs extra scrutiny). When Didit's automated result is unclear or flagged, the case goes to manual_review, where a Garanta compliance admin decides to approve, decline, or request re-verification.",
+        "KYB (Know Your Business) is the company equivalent, for borrowers. A borrower can only transact (receive a disbursement) when its KYB status is \"approved\" AND it has no compliance hold. A \"compliance hold\" is a manual switch an admin can set to stop a borrower for any reason, regardless of KYB status.",
+        "Phone verification. Sensitive money actions also require the investor's phone number to be verified. An account is phone-verified only once a verification challenge has been confirmed.",
+        "Account statuses. Every account carries a status: pending_kyc (the default for a brand-new account that has not finished verification), active, restricted, locked, or closed. An account can only log in when it is active and not restricted, locked, or closed. So restricting, locking, or closing an account immediately cuts off its login.",
+        "Putting it together for investors: the system only lets an investor reach financial features (balances, investing, withdrawing) when ALL of these are true at once: the account is an active lender, the phone is verified, and KYC/KYB is approved. Miss any one and the financial screens are refused."
+      ],
+      "bullets": [
+        "Approved is the only green light. For KYC and for KYB, every status other than \"approved\" is a stop.",
+        "Compliance hold overrides KYB: a borrower with approved KYB but an active compliance hold still cannot receive money.",
+        "Gates live in the backend. The console will not offer an override button, because the rule is enforced where the money actually moves."
+      ]
+    },
+    {
+      "heading": "8. What the admin console is for",
+      "body": [
+        "The console at /admin is organised into seven areas in the left-hand navigation. Here is each one in a single sentence so you know where to go."
+      ],
+      "bullets": [
+        "Daily dashboard: your morning overview, showing the work queues that need attention today (KYC reviews, bank exceptions, withdrawals, forced withdrawals, balance ageing, funding loans, servicing, loan risk, secondary approvals, FX settlement, failed emails, reconciliation breaks).",
+        "Tasks: the admin task list, where operational to-dos are tracked and worked through.",
+        "Compliance: where you review KYC/KYB cases, work the manual-review queue, and act on sanctions, PEP, and adverse-media flags coming from Didit.",
+        "Finance ops: where money is handled, confirming deposits and bank operations, finalising withdrawals (including forced ones), running the balance ageing scan, handling FX (currency exchange) settlement, and doing reconciliation against the bank.",
+        "Loans: where you create and edit borrowers and loans, publish loans to the marketplace, and close or cancel funding.",
+        "Reports: where you generate operational and financial reports (for example FX delta and realised-settlement reports) for a chosen date range.",
+        "Superadmin settings: superadmin-only configuration, such as document templates and platform settings, and creating other admin accounts."
+      ]
+    }
+  ]
+}

@@ -70,8 +70,7 @@ import {
   formatMoneyMinor,
   formatRateBps,
   parseMoneyInputToMinorUnits,
-  safeMetadataCategory,
-  zurichDateKey
+  safeMetadataCategory
 } from "./investorPortal/format";
 import type { AppRoute, DemoAccountState, RouteName } from "./investorPortal/types";
 import {
@@ -488,21 +487,6 @@ function fundingPercent(loan: Pick<MarketplaceLoanPreview, "principal_minor" | "
   return Math.round((loan.committed_principal_minor / loan.principal_minor) * 100);
 }
 
-function investmentDeadlineDateKey(lot: BalanceLot) {
-  return zurichDateKey(lot.investment_deadline_at);
-}
-
-function eligibleLotsForLoan(lots: BalanceLot[] | undefined, loan: MarketplaceLoanDetail) {
-  return (lots ?? []).filter(
-    (lot) =>
-      lot.currency === loan.currency &&
-      lot.status === "available" &&
-      lot.bucket === "investable" &&
-      lot.available_amount_minor > 0 &&
-      loan.funding_deadline <= investmentDeadlineDateKey(lot)
-  );
-}
-
 function currentInvestableLotsForLoanCurrency(lots: BalanceLot[] | undefined, loan: MarketplaceLoanDetail) {
   return (lots ?? []).filter(
     (lot) =>
@@ -515,14 +499,6 @@ function currentInvestableLotsForLoanCurrency(lots: BalanceLot[] | undefined, lo
 
 function sumLotAvailableMinor(lots: BalanceLot[]) {
   return lots.reduce((total, lot) => total + lot.available_amount_minor, 0);
-}
-
-function latestInvestmentDeadlineDate(lots: BalanceLot[]) {
-  return lots
-    .map(investmentDeadlineDateKey)
-    .filter(Boolean)
-    .sort()
-    .at(-1);
 }
 
 function isOpenMarketplaceLoan(loan: Pick<MarketplaceLoanPreview, "status" | "remaining_capacity_minor">) {
@@ -3450,11 +3426,8 @@ function InvestModal({ loan, onClose }: { loan: MarketplaceLoanDetail; onClose: 
   const queryClient = useQueryClient();
   const balances = useBalancesData().data;
   const investableLots = currentInvestableLotsForLoanCurrency(balances?.lots, loan);
-  const loanEligibleLots = eligibleLotsForLoan(balances?.lots, loan);
-  const generalInvestableMinor = sumLotAvailableMinor(investableLots);
-  const loanEligibleBalanceMinor = sumLotAvailableMinor(loanEligibleLots);
-  const latestCurrentInvestmentDeadline = latestInvestmentDeadlineDate(investableLots);
-  const maxInvest = Math.min(loanEligibleBalanceMinor, loan.remaining_capacity_minor);
+  const investableBalanceMinor = sumLotAvailableMinor(investableLots);
+  const maxInvest = Math.min(investableBalanceMinor, loan.remaining_capacity_minor);
   const [amount, setAmount] = useState("");
   const [step, setStep] = useState<"amount" | "review" | "confirm" | "done">("amount");
   const [ack1, setAck1] = useState(false);
@@ -3482,7 +3455,7 @@ function InvestModal({ loan, onClose }: { loan: MarketplaceLoanDetail; onClose: 
     (amountMinor > 0 && amountMinor < 100000
       ? "Minimum order is 1,000."
       : amountMinor > maxInvest
-        ? "Exceeds loan-eligible balance or remaining capacity."
+        ? "Exceeds investable balance or remaining capacity."
         : undefined);
   const footer = step === "done"
     ? <Button variant="primary" onClick={onClose}>Done</Button>
@@ -3555,16 +3528,10 @@ function InvestModal({ loan, onClose }: { loan: MarketplaceLoanDetail; onClose: 
     <Modal footer={footer} onClose={onClose} title={step === "done" ? "Order placed" : `Invest - ${loan.title}`}>
       {step === "amount" ? (
         <div className="col gap-16">
-          <div className="row spread"><span className="muted">Loan-eligible {loan.currency} balance</span><span className="mono col-strong">{loan.currency} {formatMoneyMinor(loanEligibleBalanceMinor, loan.currency)}</span></div>
-          {generalInvestableMinor > loanEligibleBalanceMinor ? (
-            <Banner tone="warn" title="Some balance is not eligible for this loan">
-              {loan.currency} {formatMoneyMinor(generalInvestableMinor - loanEligibleBalanceMinor, loan.currency)} is inside the general 30-day investment window, but cannot be used for this loan because the campaign closes {formatDate(loan.funding_deadline)}
-              {latestCurrentInvestmentDeadline ? ` and your current lot window ends ${formatDate(latestCurrentInvestmentDeadline)}.` : "."}
-            </Banner>
-          ) : null}
-          {loanEligibleBalanceMinor === 0 ? (
-            <Banner tone="bad" title="No eligible balance for this campaign">
-              Deposit fresh funds or choose a loan whose funding deadline is within your current balance lot's 30-day investment window.
+          <div className="row spread"><span className="muted">Investable {loan.currency} balance</span><span className="mono col-strong">{loan.currency} {formatMoneyMinor(investableBalanceMinor, loan.currency)}</span></div>
+          {investableBalanceMinor === 0 ? (
+            <Banner tone="bad" title="No investable balance">
+              Deposit fresh funds or use balance that is still inside its 30-day investment window.
             </Banner>
           ) : null}
           <Field error={amountError} hint={`Between ${loan.currency} 1,000 and ${formatMoneyMinor(maxInvest, loan.currency)}`} label="Investment amount">

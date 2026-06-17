@@ -462,7 +462,7 @@ def test_balance_allocation_is_idempotent_and_rejects_conflicting_replay(
 
 
 @pytest.mark.django_db
-def test_balance_allocation_blocks_lots_that_expire_before_funding_deadline(
+def test_balance_allocation_allows_pledge_before_lot_investment_deadline(
     admin_user: Model,
     investor: Model,
 ) -> None:
@@ -489,16 +489,19 @@ def test_balance_allocation_blocks_lots_that_expire_before_funding_deadline(
         idempotency_key="market-accept-expiring",
     )
 
-    with pytest.raises(MarketplacePrimaryValidationError, match="Insufficient eligible"):
-        allocate_primary_order_from_balance(
-            AllocatePrimaryInvestmentOrderCommand(
-                actor=investor,
-                order_id=str(order.id),
-                document_acceptance_id=str(acceptance.pk),
-                idempotency_key="market-allocate-expiring",
-                **_sensitive_code_payload(investor, "primary_investment"),
-            )
+    result = allocate_primary_order_from_balance(
+        AllocatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            order_id=str(order.id),
+            document_acceptance_id=str(acceptance.pk),
+            idempotency_key="market-allocate-before-lot-deadline",
+            **_sensitive_code_payload(investor, "primary_investment"),
         )
+    )
+
+    assert result.status == PrimaryInvestmentOrderStatus.BALANCE_ALLOCATED
+    assert result.allocated_amount_minor == 25_000_00
+    assert result.lot_allocations[0]["amount_minor"] == 25_000_00
 
 
 @pytest.mark.django_db

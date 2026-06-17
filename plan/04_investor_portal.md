@@ -244,7 +244,7 @@ This text is not final legal wording. It is a generic placeholder for product de
 - Track balance source entries with received timestamp, source type, remaining amount, reinvestment deadline, withdrawal deadline, and penalty status.
 - Consume balances FIFO within each currency.
 - Block investment/reinvestment from balance source entries older than 30 days.
-- Block primary-market investment when the loan funding deadline exceeds the remaining 30-day investment window of the balance source entries that would fund the order.
+- Allow primary-market investment when the source entries are pledged/allocated inside their 30-day investment window, even if the loan funding deadline is later than the source entries' day-30 investment deadline.
 - Show explicit errors and per-currency balance breakdowns for investable, withdraw-required, FX-eligible, and penalty/frozen balances.
 - Send balance ageing reminders on days 25, 46, 53, 58, 59, and 60.
 - Apply day-60 penalty treatment according to env/deployment configuration and legal/compliance policy.

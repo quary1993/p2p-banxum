@@ -258,7 +258,8 @@ def _assert_publishable_funding_deadline(funding_deadline: date) -> None:
         raise LoanValidationError(
             "Funding deadline is too far in the future for balance-funded publication. "
             f"Use a deadline no later than {latest_publishable.isoformat()} so investor "
-            "balance lots remain eligible through campaign close."
+            "funds pledged near the end of their 30-day investment window can still settle "
+            "inside the 60-day operating limit."
         )
 
 

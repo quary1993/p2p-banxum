@@ -368,13 +368,13 @@ Date: 2026-05-22.
 Owner: Garanta product / finance / operations.
 
 Decision:
-Every primary-market loan has an admin-set funding deadline. Draft/admin planning records may carry a funding deadline up to 60 days. A loan cannot be published/opened to investors if the funding deadline is in the past or at/after the 30-day balance-investment cutoff; the launch publishable default is therefore 29 calendar days from the Europe/Zurich business date.
+Every primary-market loan has an admin-set funding deadline. Draft/admin planning records may carry a funding deadline up to 60 days. A loan cannot be published/opened to investors if the funding deadline is in the past or more than 29 calendar days from the Europe/Zurich business date; the launch publishable default is therefore 29 calendar days from that business date.
 
 If admin accepts a partially funded loan, the accepted funded amount becomes the final loan principal. The repayment schedule is generated or regenerated from that accepted funded principal. The borrower success fee applies to the accepted funded principal, and the borrower repays the accepted funded principal plus agreed interest.
 
 Rationale:
 This keeps partial funding economically clear and avoids borrower schedules based on unfunded amounts.
-The publication cutoff keeps open campaigns compatible with the investor-balance ageing model instead of letting admins publish a loan that would later reject balance-funded orders because the campaign deadline exceeds the 30-day investment/reinvestment window.
+The publication cutoff keeps open campaigns compatible with the investor-balance ageing model: an investor may pledge a balance source entry only while that entry is inside its 30-day investment/reinvestment window, and the loan campaign itself may remain open for up to 29 days. This prevents Garanta from holding uninvested client money past the 60-day operating limit without treating the loan funding deadline as part of the source entry's day-30 pledge eligibility.
 
 Follow-ups:
 Final legal terms must disclose the partial-funding treatment and investor notification rule.
@@ -544,8 +544,8 @@ Investor balance entries are subject to the 30-day investment/reinvestment and 6
 - Investor acknowledgements must be current.
 - Pending orders do not reserve loan capacity and do not affect the funding progress amount until balance/funds are allocated.
 - Each investor may have up to 50 pending orders at launch, subject to final configuration.
-- Balance-funded orders may use only eligible balance source entries within the 30-day investment/reinvestment window.
-- The platform blocks a primary-market investment if the loan funding deadline is later than the 30-day investment/reinvestment deadline of any balance source entry that would be consumed by the order. Those amounts remain withdraw-only for that investment and cannot be committed/reserved.
+- Balance-funded orders may use only eligible balance source entries that are still inside the 30-day investment/reinvestment window at allocation/pledge time.
+- The platform does not require the loan funding deadline to fall before the consumed source entry's 30-day investment deadline. The source entry only has to be pledged before day 30; the loan's own maximum funding period is capped separately so allocated cash remains inside the 60-day operating limit.
 - If available aggregate balance includes source entries older than 30 days, the platform must show an explicit error and a per-currency breakdown of investable versus withdraw-only balance.
 - Amount limits are enforced. Exposure metrics and concentration warnings are shown/reported, but hard concentration limits are not enforced at launch.
 - First-come-first-served allocation is based on bank value date of validated received funds or balance reservation/allocation timestamp for balance-funded orders.
