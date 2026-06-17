@@ -1,0 +1,520 @@
+{
+  "terms": [
+    {
+      "term": "P2P lending (peer-to-peer lending)",
+      "definition": "The core business. Many individual investors put up the money to fund a loan to a business borrower. The borrower repays the loan with interest over time. Investors earn that interest. BANXUM is the marketplace that connects the two sides and handles the money and paperwork."
+    },
+    {
+      "term": "BANXUM",
+      "definition": "The brand name of the marketplace platform. It is operated by Garanta Finanzgruppe AG, a Swiss financial group. You work inside its internal admin console at /admin."
+    },
+    {
+      "term": "Garanta Finanzgruppe AG",
+      "definition": "The Swiss company that runs BANXUM. In the system, money and fee accounts owned by the operator are labelled \"Garanta\" (for example Garanta accrued revenue, Garanta in, Garanta out)."
+    },
+    {
+      "term": "Lender / Investor",
+      "definition": "A person or company that deposits money and uses it to fund loans, then earns interest. \"Lender\" and \"investor\" mean the same thing here. An account can be a natural-person lender (an individual) or a legal-entity lender represented by a person."
+    },
+    {
+      "term": "Borrower",
+      "definition": "A vetted business that receives loan money and repays it with interest. Borrowers are companies (called borrower entities), not individuals. Examples of entity types: Swiss company, non-Swiss company, real estate project company, special purpose vehicle."
+    },
+    {
+      "term": "KYC (Know Your Customer)",
+      "definition": "The identity and background checks done on a person before they are allowed to use money on the platform. It confirms who they are and screens them against risk lists. Used for lenders/investors. A lender who has not passed KYC cannot transact."
+    },
+    {
+      "term": "KYB (Know Your Business)",
+      "definition": "The same idea as KYC but for a company (a borrower). It checks the business is real, who owns it, who runs it, and whether it is safe to deal with. A borrower can only transact when KYB is approved and there is no compliance hold."
+    },
+    {
+      "term": "AML (Anti-Money-Laundering)",
+      "definition": "The set of legal checks that stop the platform being used to launder illegal money. KYC and KYB screening feed into AML. Reviews are often labelled \"KYC/AML\"."
+    },
+    {
+      "term": "Didit",
+      "definition": "The outside vendor (third-party provider) that runs the automated identity-verification and screening checks. Most KYC cases use Didit. When Didit cannot give a clear answer, the case is routed to Garanta staff for manual review."
+    },
+    {
+      "term": "Manual review",
+      "definition": "A KYC/KYB case the automated provider could not decide on its own, so a human admin must make the call. Reasons include PEP review, high-risk review, adverse-media review, sanctions review, provider decline, inconclusive provider result, or a document/identity issue. The admin can approve, decline, request re-verification, or reopen the review."
+    },
+    {
+      "term": "Sanctions hit",
+      "definition": "Screening found the person or business on an official sanctions list (people/entities that the law forbids doing business with). This blocks the account until reviewed."
+    },
+    {
+      "term": "PEP (Politically Exposed Person)",
+      "definition": "Someone in a senior public role, or close to one (for example a government minister or their family). They are not banned, but they need extra scrutiny because of higher corruption risk. A PEP hit triggers manual review."
+    },
+    {
+      "term": "Adverse media",
+      "definition": "Negative news found about the person or business (for example reports of fraud or crime). An adverse-media hit triggers manual review before the account can proceed."
+    },
+    {
+      "term": "Compliance hold",
+      "definition": "A manual flag on a borrower that blocks it from transacting, even if its KYB is otherwise approved. Used when compliance staff need to pause activity."
+    },
+    {
+      "term": "Primary market",
+      "definition": "Where brand-new loans are funded for the first time. A loan is published, investors commit money to it, and once it is fully funded the money goes to the borrower. This is the original sale of the loan."
+    },
+    {
+      "term": "Secondary market",
+      "definition": "Where an investor who already holds a piece of a loan can sell that holding to another investor before the loan finishes. The original loan does not change; only who owns the right to its future repayments changes."
+    },
+    {
+      "term": "Holding",
+      "definition": "An investor's stake in a specific loan: the share of the principal they funded and are owed repayments on. A holding is the thing that gets sold on the secondary market."
+    },
+    {
+      "term": "Maker / Taker",
+      "definition": "On the secondary market, the maker is the seller who lists a holding for sale; the taker is the buyer who purchases it. Each pays a separate fee (maker fee, taker fee)."
+    },
+    {
+      "term": "Transfer price",
+      "definition": "The amount the buyer pays the seller for a secondary-market holding. It can be at a discount or premium to the outstanding principal (shown in basis points), plus any accrued interest."
+    },
+    {
+      "term": "Accrued interest",
+      "definition": "Interest that has built up on a loan but has not yet been paid out. On a secondary sale, the buyer compensates the seller for interest earned up to the sale date."
+    },
+    {
+      "term": "Balance lot",
+      "definition": "A single tracked batch of an investor's money, recorded separately by where it came from (a deposit, a repayment installment, a recovery distribution, secondary-market proceeds, FX proceeds, a refund, or a correction). The platform tracks each lot's own age and how much is still available, invested, converted, withdrawn, or penalized. Money is used oldest-lot-first."
+    },
+    {
+      "term": "Minor units",
+      "definition": "Money is stored as whole numbers of the smallest currency unit (cents/centimes) to avoid rounding errors. A field ending in \"_minor\" holds minor units. Example: 150000 minor units = CHF 1,500.00. The console formats these into normal amounts for display."
+    },
+    {
+      "term": "Basis points (bps)",
+      "definition": "A unit for rates and fees. 100 bps = 1%. So an interest rate of 850 bps means 8.50%. Used for interest rates, fees, discounts/premiums, and loan-to-value."
+    },
+    {
+      "term": "LTV (loan-to-value)",
+      "definition": "How big the loan is compared with the value of the collateral backing it, shown in basis points. Lower is safer. A warning is raised if collateral value is zero or smaller than the loan."
+    },
+    {
+      "term": "Collateral",
+      "definition": "Assets a borrower pledges to back a loan, so investors can be repaid if the borrower fails. Types include real estate, corporate or personal guarantees, receivables, invoices, equipment, inventory, securities or share pledges, and cash."
+    },
+    {
+      "term": "Risk rating",
+      "definition": "A credit grade for a loan, from AAA (safest) down through B and C grades to D, or \"unrated\". It signals how risky the loan is to investors."
+    },
+    {
+      "term": "Principal",
+      "definition": "The original loan amount borrowed, before interest. \"Committed principal\" is how much investors have pledged so far toward funding it."
+    },
+    {
+      "term": "Investor reference",
+      "definition": "A short unique code (up to 10 characters) automatically assigned to each lender account. It identifies the investor across the system and is unique per lender."
+    },
+    {
+      "term": "Payment reference",
+      "definition": "A code written on a bank transfer so the platform can match incoming or outgoing money to the right deposit, withdrawal, or settlement. Stored on bank operations and withdrawal records."
+    },
+    {
+      "term": "Collection account",
+      "definition": "The platform's own bank account where investor money and repayments are collected and held. Bank operations record which collection account a transfer touched."
+    },
+    {
+      "term": "Bank operation",
+      "definition": "A recorded movement of real money in or out of the platform's bank, such as a lender deposit, lender withdrawal, borrower disbursement, borrower repayment, or an FX settlement. Each must be matched (reconciled) to the internal ledger."
+    },
+    {
+      "term": "Ledger",
+      "definition": "The platform's internal double-entry bookkeeping system. Every money event creates a journal entry with balanced debit and credit postings across accounts (for example collection cash, investor balance liability, escrow, fee revenue)."
+    },
+    {
+      "term": "Payout instruction (IBAN)",
+      "definition": "An investor's saved bank-account details (IBAN and account name) used to send their withdrawals. There can be only one active payout instruction per investor per currency. An admin must verify it before it can be used."
+    },
+    {
+      "term": "IBAN",
+      "definition": "International Bank Account Number: the standard format for identifying a bank account when sending money. It is the destination for an investor's payout."
+    },
+    {
+      "term": "Withdrawal",
+      "definition": "An investor's request to take their available money out of the platform and have it sent to their bank account. Garanta executes the bank transfer, then marks the request finalized."
+    },
+    {
+      "term": "Forced withdrawal",
+      "definition": "A withdrawal the platform starts on its own (not requested by the investor) to return money that has sat uninvested too long. Triggered by balance ageing at the day-60 window for regulatory reasons. Marked with the \"is_forced\" flag."
+    },
+    {
+      "term": "Ageing",
+      "definition": "Tracking how long each balance lot of uninvested money has been sitting. Swiss rules limit how long the platform may hold idle investor cash, so lots approaching the 30-day and 60-day windows surface for action, and day-60 lots get a forced withdrawal back to the investor."
+    },
+    {
+      "term": "Disbursement",
+      "definition": "Paying out the loan money to the borrower once a loan is fully funded. Held first in a loan funding escrow account, then released to the borrower (borrower disbursement)."
+    },
+    {
+      "term": "Escrow",
+      "definition": "A holding account where committed funding money sits temporarily between the moment investors commit it and the moment it is disbursed to the borrower."
+    },
+    {
+      "term": "Servicing",
+      "definition": "The ongoing management of a live loan: tracking the repayment schedule, collecting each installment from the borrower on its due date, and distributing repayments to investors."
+    },
+    {
+      "term": "Installment",
+      "definition": "One scheduled repayment in a loan's repayment plan, with its own due date and split between principal and interest. The full set of installments is the repayment schedule."
+    },
+    {
+      "term": "Recovery",
+      "definition": "Efforts to get money back from a borrower that has stopped paying (is late or in default), for example by enforcing the collateral. Money clawed back is distributed to investors through a recovery distribution following a defined waterfall (order of who gets paid first)."
+    },
+    {
+      "term": "Default",
+      "definition": "A loan where the borrower has failed to repay as agreed for long enough to be declared in default. It moves into recovery work and may eventually be written off."
+    },
+    {
+      "term": "Write-off",
+      "definition": "Formally recording that a loan's outstanding amount is treated as a loss because it is judged unrecoverable."
+    },
+    {
+      "term": "Reconciliation",
+      "definition": "Checking that the platform's internal ledger matches the real bank balances and that investor balances add up. Done by comparing a reconciliation snapshot (bank balance vs. ledger figures) on a given date."
+    },
+    {
+      "term": "Reconciliation break",
+      "definition": "A mismatch found during reconciliation: the ledger and bank disagree, a balance has the wrong sign, or an investor's balance fails an integrity check. Breaks must be investigated and resolved."
+    },
+    {
+      "term": "Suspense / unmatched cash",
+      "definition": "Money that has arrived in or left the bank but cannot yet be linked to a specific deposit, repayment, or instruction. It is parked in a suspense account until an admin matches it."
+    },
+    {
+      "term": "Outbox email",
+      "definition": "Transactional system emails (login codes, confirmations, notices) are queued in an outbox before being sent, so delivery can be tracked and retried."
+    },
+    {
+      "term": "Dead-letter email",
+      "definition": "An email that failed to send after the system gave up retrying. It lands in a dead-letter state and shows in the Failed emails queue for an admin to review."
+    },
+    {
+      "term": "FX (foreign exchange / currency exchange)",
+      "definition": "Converting an investor's balance from one currency to another inside the platform. The investor gets a quote (rate plus fee), and on acceptance an exchange is executed, producing balance in the new currency."
+    },
+    {
+      "term": "FX quote",
+      "definition": "A priced, time-limited offer to convert one currency to another at a given rate, with the platform fee shown. It expires if not used and passes a sanity check against the previous day's average rate."
+    },
+    {
+      "term": "FX settlement (external settlement)",
+      "definition": "Internal currency conversions are netted and then actually settled with a real bank in the outside market. An admin declares the external settlement: the real amounts sold and bought, the actual rate, and the linked bank operations. Until declared, internal FX shows up in the FX settlement queue."
+    },
+    {
+      "term": "Audit event",
+      "definition": "An append-only (never edited or deleted) record of who did what and when. The system logs these for account-status changes, loan changes, KYC/KYB decisions, secondary-market listing changes, and FX actions, capturing the actor, before/after status, reason, and notes."
+    },
+    {
+      "term": "Append-only",
+      "definition": "A record type that can be added to but never changed or removed, so the history stays trustworthy. Most event and ledger records are append-only."
+    },
+    {
+      "term": "Idempotency key",
+      "definition": "A unique tag attached to a money operation so that, if the same request is sent twice, it is only processed once. Prevents accidental double deposits, withdrawals, or postings."
+    },
+    {
+      "term": "Sensitive action",
+      "definition": "A higher-risk operation that requires an extra one-time confirmation code, such as admin login, a withdrawal, a bank-account change, an FX exchange, a primary investment, or a secondary-market listing or purchase."
+    },
+    {
+      "term": "Reverification",
+      "definition": "Asking a customer to redo their identity/business verification, for example because the previous one expired or new information is needed. The case status becomes \"re-verification required\"."
+    }
+  ],
+  "statuses": [
+    {
+      "name": "Account: Pending KYC",
+      "meaning": "A new account that has not yet passed identity checks. It can log in to resume onboarding, but it cannot use financial features yet. This is the default state for a new user."
+    },
+    {
+      "name": "Account: Active",
+      "meaning": "The account is in normal standing. A lender still needs the other financial-access gates, such as phone verification and any required KYC/KYB state, before using money features."
+    },
+    {
+      "name": "Account: Restricted",
+      "meaning": "The account is limited and cannot log in. Used while under review or held."
+    },
+    {
+      "name": "Account: Locked",
+      "meaning": "The account is blocked from logging in, typically for security or compliance reasons."
+    },
+    {
+      "name": "Account: Closed",
+      "meaning": "The account is permanently shut and cannot log in."
+    },
+    {
+      "name": "Account type: Natural-person lender",
+      "meaning": "An individual investor account."
+    },
+    {
+      "name": "Account type: Legal-entity lender representative",
+      "meaning": "A person who acts for a company that invests on the platform."
+    },
+    {
+      "name": "Account type: Admin / Superadmin",
+      "meaning": "Internal Garanta staff. Superadmin has the highest level of access."
+    },
+    {
+      "name": "KYC: Not started",
+      "meaning": "Identity verification has not begun. Blocks transacting."
+    },
+    {
+      "name": "KYC: Pending",
+      "meaning": "Verification is in progress at the provider; no decision yet. Blocks transacting."
+    },
+    {
+      "name": "KYC: Approved",
+      "meaning": "Identity checks passed. The lender can transact."
+    },
+    {
+      "name": "KYC: Declined",
+      "meaning": "Verification was rejected. The lender cannot transact."
+    },
+    {
+      "name": "KYC: Manual review",
+      "meaning": "The automated check was inconclusive; a Garanta admin must decide. Blocks transacting. Appears in the KYC reviews queue."
+    },
+    {
+      "name": "KYC: High risk",
+      "meaning": "Screening flagged the person as higher risk; needs review before they can proceed."
+    },
+    {
+      "name": "KYC: Sanctions hit",
+      "meaning": "Matched a sanctions list. Blocked pending review."
+    },
+    {
+      "name": "KYC: PEP hit",
+      "meaning": "Flagged as a politically exposed person. Needs extra scrutiny before proceeding."
+    },
+    {
+      "name": "KYC: Adverse media hit",
+      "meaning": "Negative news was found about the person. Needs review before proceeding."
+    },
+    {
+      "name": "KYC: Expired",
+      "meaning": "A previously valid verification has aged out and is no longer accepted. Blocks transacting until redone."
+    },
+    {
+      "name": "KYC: Re-verification required",
+      "meaning": "The customer must redo verification before continuing. Blocks transacting."
+    },
+    {
+      "name": "KYB (borrower): Not started",
+      "meaning": "Business verification has not begun."
+    },
+    {
+      "name": "KYB (borrower): Pending",
+      "meaning": "Business verification is in progress. Default state for a new borrower."
+    },
+    {
+      "name": "KYB (borrower): Approved",
+      "meaning": "The business passed checks. Combined with no compliance hold, it can transact."
+    },
+    {
+      "name": "KYB (borrower): Declined",
+      "meaning": "Business verification was rejected. The borrower cannot transact."
+    },
+    {
+      "name": "KYB (borrower): Manual review",
+      "meaning": "Business verification needs a human decision by Garanta staff."
+    },
+    {
+      "name": "KYB (borrower): Expired",
+      "meaning": "A previously valid business verification has aged out."
+    },
+    {
+      "name": "KYB (borrower): Re-verification required",
+      "meaning": "The business must redo verification before continuing."
+    },
+    {
+      "name": "Loan: Draft",
+      "meaning": "Being prepared by an admin; not visible to investors and not open for funding."
+    },
+    {
+      "name": "Loan: Published",
+      "meaning": "Live on the primary market and open for investors to commit funding (until the funding deadline)."
+    },
+    {
+      "name": "Loan: Funded",
+      "meaning": "Fully funded by investors. Money moves to the borrower and repayments begin per the schedule."
+    },
+    {
+      "name": "Loan: Late",
+      "meaning": "The borrower has missed a payment and is past due, but not yet declared in default."
+    },
+    {
+      "name": "Loan: Defaulted",
+      "meaning": "The borrower has failed to repay as agreed; the loan moves into recovery work."
+    },
+    {
+      "name": "Loan: Repaid",
+      "meaning": "The borrower paid everything back. The loan is finished successfully."
+    },
+    {
+      "name": "Loan: Written off",
+      "meaning": "Recorded as a loss because the outstanding amount is judged unrecoverable."
+    },
+    {
+      "name": "Loan: Cancelled",
+      "meaning": "The loan was withdrawn before it became active (for example funding was cancelled)."
+    },
+    {
+      "name": "Bank operation: Reconciled",
+      "meaning": "The bank movement has been matched to the internal ledger. This is the normal, settled state."
+    },
+    {
+      "name": "Bank operation: Pending review",
+      "meaning": "The bank movement needs an admin to check it before it can be allocated. Appears in the Bank exceptions queue."
+    },
+    {
+      "name": "Bank operation: Unmatched",
+      "meaning": "Money arrived or left but is not yet linked to anything. Sits in suspense; appears in the Bank exceptions queue."
+    },
+    {
+      "name": "Bank operation: Returned",
+      "meaning": "The transfer was sent back (for example a failed or bounced payment)."
+    },
+    {
+      "name": "Balance lot: Available",
+      "meaning": "Money remains in the lot, but what it can be used for depends on the ageing bucket. Before day 30 it can be pledged into loans; after day 30 it is withdraw-only for new loan funding; before day 60 it may still be eligible for FX; at/after day 60 it must be returned or moved to penalty handling."
+    },
+    {
+      "name": "Balance lot: Consumed",
+      "meaning": "The lot is fully used up (invested, converted, or withdrawn); nothing left available."
+    },
+    {
+      "name": "Balance lot: Frozen",
+      "meaning": "The lot is temporarily held and cannot be used, for example during a review or hold."
+    },
+    {
+      "name": "Balance lot: Penalty mode",
+      "meaning": "The lot passed the 60-day limit without a verified payout IBAN. It is charged a daily penalty, cannot be invested, and currently blocks FX exchanges and secondary-market purchases until the overdue balance is resolved."
+    },
+    {
+      "name": "Balance lot: Penalty exhausted",
+      "meaning": "The lot's penalty handling has run its course and nothing remains available."
+    },
+    {
+      "name": "Withdrawal: Requested",
+      "meaning": "The withdrawal has been asked for and is waiting for Garanta to execute the bank transfer."
+    },
+    {
+      "name": "Withdrawal: Finalized",
+      "meaning": "The bank transfer was executed and the withdrawal is complete."
+    },
+    {
+      "name": "Withdrawal: Cancelled",
+      "meaning": "The withdrawal was called off and the money returned to the investor's balance."
+    },
+    {
+      "name": "Payout instruction: Active",
+      "meaning": "The investor's current bank details on file for receiving payouts in a currency. Only one can be active per currency."
+    },
+    {
+      "name": "Payout instruction: Disabled",
+      "meaning": "An old or turned-off set of bank details, no longer used for payouts."
+    },
+    {
+      "name": "Secondary listing: Active",
+      "meaning": "The holding is live for sale on the secondary market and can be bought."
+    },
+    {
+      "name": "Secondary listing: Approval requested",
+      "meaning": "A non-standard or non-performing listing is waiting for an admin to approve before it goes live. Appears in the Secondary approvals queue."
+    },
+    {
+      "name": "Secondary listing: Rejected",
+      "meaning": "An admin refused to approve the listing; it does not go live."
+    },
+    {
+      "name": "Secondary listing: Removed",
+      "meaning": "An admin took the listing down."
+    },
+    {
+      "name": "Secondary listing: Sold",
+      "meaning": "A buyer purchased the holding; the listing is complete."
+    },
+    {
+      "name": "Secondary listing: Cancelled",
+      "meaning": "The seller withdrew their own listing before it sold."
+    },
+    {
+      "name": "Secondary listing publication: Automatic",
+      "meaning": "The listing went live on its own because it met the standard rules; no admin approval was needed."
+    },
+    {
+      "name": "Secondary listing publication: Admin approved",
+      "meaning": "The listing required and received an admin's approval before going live."
+    },
+    {
+      "name": "FX exchange: Completed",
+      "meaning": "The internal currency conversion was executed successfully."
+    },
+    {
+      "name": "FX external settlement: Declared",
+      "meaning": "An admin has recorded the real-world bank settlement for netted FX activity, including actual amounts, rate, and linked bank operations."
+    }
+  ],
+  "queues": [
+    {
+      "name": "Admin tasks (Tasks)",
+      "meaning": "Open internal to-do items, deadline (SLA) follow-ups, and operational notes that staff need to act on. General catch-all work list."
+    },
+    {
+      "name": "KYC reviews (KYC)",
+      "meaning": "Identity-check cases that the Didit provider sent for a human decision. A Garanta admin must approve, decline, or ask for re-verification."
+    },
+    {
+      "name": "Bank exceptions (Bank)",
+      "meaning": "Bank or payment-provider movements that are unmatched or pending review. They block money from being allocated in the ledger until an admin resolves them."
+    },
+    {
+      "name": "Withdrawals (Withdrawals)",
+      "meaning": "Investor withdrawal requests waiting for Garanta to send the bank transfer and then mark them finalized."
+    },
+    {
+      "name": "Forced withdrawals (Forced)",
+      "meaning": "Day-60 return-of-funds withdrawals the system created automatically because money sat uninvested too long. These return idle cash to the investor."
+    },
+    {
+      "name": "Balance ageing (Ageing)",
+      "meaning": "Balance lots that are near or past the 30-day and 60-day limits for holding idle investor cash. They need action so the platform stays within the rules."
+    },
+    {
+      "name": "Funding loans (Funding)",
+      "meaning": "Published loans on the primary market that are near their funding deadline or need a close review of their funding progress."
+    },
+    {
+      "name": "Servicing due (Servicing)",
+      "meaning": "Loan installments and borrower repayment actions that fall inside the current due window and need handling."
+    },
+    {
+      "name": "Loan risk (Risk)",
+      "meaning": "Loans that are late, defaulted, or in recovery and need notes, a status review, or recovery work."
+    },
+    {
+      "name": "Secondary approvals (Secondary)",
+      "meaning": "Secondary-market listings that are non-performing or non-standard and are waiting for an admin to approve or reject them."
+    },
+    {
+      "name": "FX settlement (FX)",
+      "meaning": "Internal currency-exchange activity that still needs an admin to declare its real-world external bank settlement."
+    },
+    {
+      "name": "Failed emails (Emails)",
+      "meaning": "Transactional emails that failed to send and landed in the dead-letter state. They need an admin to review and decide what to do."
+    },
+    {
+      "name": "Reconciliation breaks (Recon)",
+      "meaning": "Mismatches found when comparing the ledger to the bank: ledger-vs-bank differences, wrong-sign anomalies, or investor-balance integrity failures. They must be investigated and cleared."
+    }
+  ]
+}

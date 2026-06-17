@@ -1,0 +1,249 @@
+{
+  "flows": [
+    {
+      "title": "Onboard a borrower and publish their first loan",
+      "goal": "Take a brand-new business borrower from nothing to a live, investable loan on the marketplace.",
+      "actor": "Operations admin (any active admin can do every step).",
+      "preconditions": [
+        "You are signed in to the ops console (email + password, then a 6-digit code sent to your admin email).",
+        "Jargon: 'borrower' = the business that wants to borrow money. 'KYB' = Know Your Business, the compliance check that proves the company is real and allowed to transact. 'KYB status' values are not_started, pending, approved, declined, manual_review, expired, reverification_required. The blocking 'no' value is 'declined' (not 'rejected'). Only 'approved' (with compliance hold off) lets a loan publish. 'Loan draft' = a loan that exists but is not yet visible to investors. 'Publish' = make the loan visible on the primary marketplace so investors can fund it.",
+        "You have the borrower's legal details (legal name, year founded, country) and the loan terms (amount, rate, term, collateral)."
+      ],
+      "steps": [
+        { "n": 1, "screen": "Loans (left nav 'Loans')", "action": "Open the Loans module and go to the 'Borrowers' card.", "detail": "The Borrowers table lists every business entity. Borrowers are admin-entered only; borrowers do NOT have their own login. If the company is not in the list, you must create it." },
+        { "n": 2, "screen": "Loans > Borrowers", "action": "Click 'Create borrower' (top-right of the Borrowers card).", "detail": "A modal opens. Fill Legal name, Year founded, Entity type, KYB status, Country, Financials currency, Assets. New borrowers normally start with KYB status 'Pending'. Click 'Create borrower' to save." },
+        { "n": 3, "screen": "Loans > Borrowers", "action": "Run the KYB review, then set the borrower's KYB status to 'Approved' via the 'Edit' button on that borrower's row.", "detail": "GATE: a loan can only be published when the borrower 'can transact', which means KYB status = approved AND compliance hold is OFF. In the Edit modal, set KYB status to Approved and make sure 'Compliance hold is active' is unchecked. A KYB status change is rejected unless you also type an Admin note OR an Evidence summary - the backend requires one of them for any KYB change. Save." },
+        { "n": 4, "screen": "Loans > Loans card", "action": "With the approved borrower selected, click 'Create loan' (top-right of the Loans card).", "detail": "A 'Create loan draft' modal opens. It shows the selected borrower only as a 'Selected borrower' context bar - it does NOT lock the loan to that row; you must set/confirm the borrower in the editable Borrower lookup inside the form. The visible create fields are: Borrower, Title, Principal minor units (e.g. 100000000 = CHF 1,000,000.00), Currency, Interest bps (950 = 9.50%), Term months, Purpose, Repayment type, Collateral type, Collateral value minor, Risk rating, Funding deadline, First payment date, and Investor summary. Click 'Create loan draft'." },
+        { "n": 5, "screen": "Loans > Loans card", "action": "Confirm the new loan appears with status 'Draft'.", "detail": "Server-side validations already ran: principal must be 1,000-1,000,000,000 in the loan currency, term 1-600 months, funding deadline not in the past and at most 60 days out, first payment date after the funding deadline, and a complete repayment schedule that sums to the principal. If any fail, the draft is not created and you get an error." },
+        { "n": 6, "screen": "Loans > Primary marketplace operations", "action": "Select the draft loan (click its row, or use the 'Loan' lookup inside the 'Primary marketplace operations' card), optionally type a 'Publish note', then click 'Publish loan'.", "detail": "PUBLISH GATES (all enforced server-side; publish fails if any is false): (1) loan status must be 'Draft'; (2) borrower must be approved KYB and free of compliance hold; (3) funding deadline must be today or later AND no more than 29 days out (the publish limit is stricter than the 60-day create limit, so funds pledged late in an investor's 30-day window still settle inside the 60-day operating limit); (4) the repayment schedule must be complete and match the principal. On success the loan flips to 'Published' and becomes an open marketplace opportunity." }
+      ],
+      "outcome": "The loan is 'Published' and visible to investors on the primary marketplace; investors can now pledge funds to it.",
+      "pitfalls": [
+        "If publish fails with 'Borrower KYB must be approved and free of compliance hold', go back to the borrower's Edit form - either KYB is not 'approved' or 'Compliance hold' is still ticked.",
+        "If publish fails on the funding deadline, the deadline is more than 29 days away (or already passed). Edit the loan and set a deadline within 29 days.",
+        "Borrowers cannot be deleted - only edited. A 'No delete' note marks this; records are kept for audit."
+      ]
+    },
+    {
+      "title": "Match an incoming bank deposit to a lender",
+      "goal": "When money lands in the Garanta collection bank account, credit it to the correct investor's BANXUM balance.",
+      "actor": "Operations admin (finance).",
+      "preconditions": [
+        "Jargon: 'lender' / 'investor' = an individual who puts money on the platform to fund loans. 'Deposit' = an incoming bank transfer from that investor. The 30-day (invest) and 60-day (forced-withdrawal) ageing clocks for the resulting balance lot run from the deposit's VALUE DATE (the value_date field you enter), not the day it arrived or the day you keyed it - so entering the value date correctly matters, it sets when reminders fire and when the lot becomes over-age. 'Minor units' = the smallest currency unit; CHF and EUR have 2 decimals, so 2500000 minor units = 25,000.00. 'BX-currency-reference' / investor reference = the code the investor was told to put in the payment reference; it starts with 'L' followed by 8-9 characters (e.g. LXXXXXXXX). 'Collection account' = Garanta's own bank account that received the money.",
+        "You have the bank statement line: amount, currency, dates, payer name, and the payment reference."
+      ],
+      "steps": [
+        { "n": 1, "screen": "Finance ops (left nav 'Finance ops')", "action": "Open Finance ops and go to the 'Lender deposit' card.", "detail": "This is the first card in the finance grid." },
+        { "n": 2, "screen": "Finance ops > Lender deposit", "action": "In 'Payment reference', paste the bank-statement reference first.", "detail": "If the reference contains a valid investor reference (the L-code), the 'Investor from bank reference' search box auto-fills with that code so the right investor surfaces immediately. This is the fastest, most reliable match." },
+        { "n": 3, "screen": "Finance ops > Lender deposit", "action": "If there is no usable reference, type the payer's name (or email) in the 'Payer name' field, or search directly in the 'Investor from bank reference' lookup.", "detail": "On the Lender deposit card the investor lookup matches on reference, full name, email, and UUID only - it does NOT match on IBAN (IBAN matching is wired only into the Payout instruction card's lookup). You MUST pick a result from the list - typing a name that is not selected will block submission." },
+        { "n": 4, "screen": "Finance ops > Lender deposit", "action": "Enter 'Amount minor units' (the field's exact label), Currency, Booking date, Value date, and confirm the Collection account.", "detail": "Watch the live 'Formatted amount' helper under the amount box - it shows, e.g., 'CHF 25,000.00' so you can sanity-check you did not slip a decimal. Enter whole minor units only." },
+        { "n": 5, "screen": "Finance ops > Lender deposit", "action": "Click 'Declare deposit'.", "detail": "GATES: the currency must be enabled, the amount must be positive, and the selected account must be a lender account that is not restricted, locked, or closed. A pending-KYC lender can still receive a deposit; they just cannot use financial features until onboarding gates pass. On success the deposit is recorded as a reconciled bank operation and credited to the investor's balance lots." }
+      ],
+      "outcome": "The investor's available balance increases by the deposited amount; a reconciled bank operation and ledger entry are created and audited.",
+      "pitfalls": [
+        "Do not guess the investor from the payer name alone if a reference exists - names can collide. Prefer the L-reference.",
+        "Entering major units (25000) instead of minor units (2500000) credits 250.00 instead of 25,000.00. Always read the 'Formatted amount' helper.",
+        "Pending-KYC lenders can receive deposits, but restricted, locked, closed, non-lender, or inactive accounts are rejected. If the lookup shows a blocked account, resolve the account status before declaring the deposit."
+      ]
+    },
+    {
+      "title": "Resolve a KYC case routed to manual review",
+      "goal": "Make and record the Garanta decision on an investor identity check that the provider could not auto-clear.",
+      "actor": "Compliance / AML officer (active admin).",
+      "preconditions": [
+        "Jargon: 'KYC' = Know Your Customer, the identity check on an individual investor. 'AML' = Anti-Money-Laundering. 'Didit' = the external provider that runs the check. 'Manual review' = Didit could not decide automatically and handed the case to Garanta. 'PEP' = Politically Exposed Person (extra scrutiny). 'Sanctions hit' = the person appears on a sanctions list. 'Reason code' explains why the decision was made.",
+        "You have reviewed the provider's evidence (the provider report ID and AML screening ID are shown on the case row)."
+      ],
+      "steps": [
+        { "n": 1, "screen": "Compliance (left nav 'Compliance')", "action": "Open Compliance and read the 'KYC manual review' table.", "detail": "Each row shows the subject, current status, risk classification, detected flags (e.g. 'Pep Hit', 'Adverse Media Hit'), provider reference IDs, and last update time. The KPI tiles at the top count manual-review cases, PEP/high-risk cases, and cases with no Garanta decision yet." },
+        { "n": 2, "screen": "Compliance > KYC manual review", "action": "Click the case row you want to work. It becomes the selected case and pre-fills the decision form on the right.", "detail": "Selecting a row copies its case ID into the 'Record AML decision' form's KYC case lookup." },
+        { "n": 3, "screen": "Compliance > Record AML decision", "action": "Choose a 'Decision': Approve, Decline, Request Reverification, or Reopen.", "detail": "What each does: Approve -> case becomes Approved (and if the investor was pending_kyc, their account is activated). Decline -> Declined. Request Reverification -> sends the person back to redo verification. Reopen -> puts the case back into Manual Review." },
+        { "n": 4, "screen": "Compliance > Record AML decision", "action": "Pick a 'Reason code' (e.g. Pep Review, Sanctions Review, Adverse Media Review) and write an Officer note and/or Evidence summary.", "detail": "GATE: the backend requires at least one of Officer note or Evidence summary - a blank decision is rejected." },
+        { "n": 5, "screen": "Compliance > Record AML decision", "action": "Click 'Submit KYC decision'.", "detail": "NON-OVERRIDABLE GATE: you CANNOT manually Approve a case whose current status is 'Sanctions Hit' or 'Declined' - the server refuses it. You can only Approve cases currently in a review-routed status (manual_review, high_risk, pep_hit, adverse_media_hit). A sanctions or confirmed-fraud block must stay blocked. The decision is written immutably to the audit trail." }
+      ],
+      "outcome": "The case moves to its new status, the investor is activated if approved, and the decision plus reason and note are audit-logged.",
+      "pitfalls": [
+        "You cannot 'approve away' a sanctions hit or a decline. If the law says no, the system says no.",
+        "Approve only after you have actually read the provider evidence - the screen reminds you of this.",
+        "A PEP or adverse-media flag does not auto-block; it requires your explicit, documented decision."
+      ]
+    },
+    {
+      "title": "Register a payout IBAN and execute an investor withdrawal",
+      "goal": "Pay money back out to an investor's bank account, in two parts: first record the destination IBAN, then finalize the bank transfer.",
+      "actor": "Operations admin (finance).",
+      "preconditions": [
+        "Jargon: 'IBAN' = the international bank account number money is sent to. 'Payout instruction' = the stored, verified IBAN BANXUM is allowed to pay this investor at. 'Withdrawal' = the investor's request to take money off the platform; it sits in status 'requested' until you execute the bank transfer and 'finalize' it. 'Finalize' = confirm the bank actually sent the money and clear the liability in the ledger.",
+        "The investor has a 'requested' withdrawal waiting, OR you are setting up their payout IBAN ahead of time."
+      ],
+      "steps": [
+        { "n": 1, "screen": "Finance ops > Payout instruction", "action": "Open Finance ops and go to the 'Payout instruction' card.", "detail": "Use this to register the verified IBAN that withdrawals (and day-60 forced returns) will be paid to." },
+        { "n": 2, "screen": "Finance ops > Payout instruction", "action": "Select the investor in 'Investor / payout owner', then enter Currency, Destination IBAN, and Account name.", "detail": "IBAN COLLISION WARNING: as you fill the IBAN, the investor lookup checks how many investors already have a payout instruction with that IBAN. If more than one investor matches, a yellow banner 'IBAN matches multiple investors' appears - stop and confirm you are paying the right person before saving (the same IBAN on two investors usually signals a data error or fraud)." },
+        { "n": 3, "screen": "Finance ops > Payout instruction", "action": "Tick 'IBAN is usable and verified for this investor' once you have verified it, then click 'Register payout instruction'.", "detail": "GATES: the investor must be a lender account, the currency enabled, and the IBAN must look valid (15-34 characters, first 2 letters). Registering supersedes any prior active instruction for that investor/currency. Only a verified instruction can later be used for forced day-60 withdrawals." },
+        { "n": 4, "screen": "Finance ops > Withdrawal execution", "action": "Go to the 'Withdrawal execution' card and pick the withdrawal in the 'Requested withdrawal' lookup.", "detail": "The lookup only shows withdrawals currently in status 'requested'. It searches by lender name, email, reference, withdrawal UUID, or IBAN suffix." },
+        { "n": 5, "screen": "Finance ops > Withdrawal execution", "action": "After you have actually sent the money from the bank, enter Booking date, Value date, Collection account, and an Admin note, then click 'Finalize withdrawal'.", "detail": "GATE: only a withdrawal still in 'requested' can be finalized; re-finalizing an already-finalized one just returns the existing result. Finalize records the outgoing bank operation and clears the withdrawal-payable in the ledger." },
+        { "n": 6, "screen": "Finance ops > Withdrawal execution", "action": "If the transfer should NOT go out, click 'Cancel before execution' instead of finalizing.", "detail": "GATE: cancel only works while the withdrawal is still 'requested' (before any bank execution). Cancelling restores the investor's balance lots and reverses the reservation. Provide a cancel reason in the 'Admin note / cancel reason' box." }
+      ],
+      "outcome": "The destination IBAN is on file as verified; the withdrawal is either finalized (money paid, ledger cleared) or cancelled (funds returned to the investor's balance).",
+      "pitfalls": [
+        "Never tick 'verified' until you have genuinely confirmed the IBAN belongs to that investor - verification is what unlocks automated forced payouts.",
+        "Finalize ONLY after the bank transfer has actually been made; finalizing is the record that the money left.",
+        "If you see the multi-investor IBAN banner, do not save until you have explained it - it can mean two people share an account or a typo."
+      ]
+    },
+    {
+      "title": "Handle a day-60 forced withdrawal",
+      "goal": "Return funds that an investor has held idle past the 60-day regulatory limit, then pay them out.",
+      "actor": "Operations admin (finance).",
+      "preconditions": [
+        "Jargon: 'balance lot' = a dated chunk of an investor's money; each lot's ageing is tracked from the deposit's VALUE DATE (the value_date entered on the deposit), not literally the day it arrived. 'Ageing' = how old a lot is. The platform must not hold uninvested money beyond 60 days. 'Forced withdrawal' = the platform automatically returning over-age funds to the investor. 'Penalty mode' = what happens to an over-age lot when there is NO verified payout IBAN to send it to: the lot is moved to penalty mode AND a real per-day penalty (rate BALANCE_PENALTY_BPS_PER_DAY) is charged against the lot's available balance every time the scan runs while it stays overdue. Penalty mode also blocks FX exchanges and secondary-market purchases until resolved; withdrawal remains the intended way out. Reminder days fire at 25, 46, 53, 58, 59, 60 days held.",
+        "Investors with over-age lots need a verified payout instruction on file (see the payout-IBAN flow) for a forced withdrawal to be created automatically."
+      ],
+      "steps": [
+        { "n": 1, "screen": "Daily dashboard", "action": "On the dashboard, open the 'Balance ageing' and 'Forced withdrawals' queues to see what is near or past 60 days.", "detail": "'Balance ageing' lists lots near or past the 30/60-day windows; 'Forced withdrawals' lists day-60 return-of-funds withdrawals already generated by the ageing scan." },
+        { "n": 2, "screen": "Finance ops > Balance ageing scan", "action": "Open Finance ops, go to 'Balance ageing scan'. First run it as a DRY RUN (leave 'Dry run only' ticked) to preview.", "detail": "Optionally set 'As of timestamp' and a 'Currency filter'. A dry run reports how many reminders are due and how many forced withdrawals WOULD be created, without changing anything." },
+        { "n": 3, "screen": "Finance ops > Balance ageing scan", "action": "When the preview looks right, untick 'Dry run only' and click 'Run ageing scan' for real.", "detail": "GATE / BEHAVIOR: for each investor whose lots are past the withdrawal deadline, the scan checks for an active VERIFIED payout instruction. If one exists, it CREATES a forced withdrawal request (status 'requested') for the over-age amount. If NONE exists, the lot instead moves to 'penalty mode' and no withdrawal is created - and on this and every subsequent live scan while still overdue, the scan charges a real daily penalty (rate BALANCE_PENALTY_BPS_PER_DAY) against the lot's balance, recording a journal entry each time. So registering a verified IBAN (see the payout-IBAN flow) and re-running is TIME-SENSITIVE, not just bookkeeping." },
+        { "n": 4, "screen": "Finance ops > Withdrawal execution", "action": "Go to 'Withdrawal execution', pick the newly generated forced withdrawal in the 'Requested withdrawal' lookup, send the bank transfer, then click 'Finalize withdrawal'.", "detail": "A forced withdrawal is executed exactly like a normal one - it lives in the same 'requested' withdrawal queue. Enter Booking date, Value date, Collection account, and finalize after the money has been sent." }
+      ],
+      "outcome": "Over-age funds leave the platform as finalized withdrawals; lots with no verified IBAN are moved to penalty mode and are actively charged a daily penalty against their balance on every live scan until a verified IBAN is registered.",
+      "pitfalls": [
+        "Always dry-run first. The live scan writes reminders and creates real withdrawal requests.",
+        "If a forced withdrawal was NOT created for someone over 60 days, they almost certainly lack a verified payout instruction - and their over-age lot is now in penalty mode being charged a daily penalty on each live scan. Register a verified IBAN and re-run promptly; the delay costs the investor money.",
+        "The 60-day clock is per-lot, not per-account; a new deposit does not reset an older lot. The clock runs from each lot's VALUE DATE, so back- or forward-dating a deposit's value date shifts that lot's whole ageing timeline."
+      ]
+    },
+    {
+      "title": "Record a borrower repayment, run servicing, and handle a late loan",
+      "goal": "Book the money a borrower pays back, keep the loan's status accurate, and act when a loan falls behind.",
+      "actor": "Operations admin (servicing).",
+      "preconditions": [
+        "Jargon: 'servicing' = ongoing management of a live loan (collecting installments, tracking lateness). 'Installment' = a scheduled repayment. 'late' = at least 5 days past a due date. 'defaulted' = at least 16 days past due. 'status scan' = a job that re-checks each loan's due dates and moves it to late/defaulted as appropriate. 'recovery' = collecting money on a defaulted loan. 'risk note' = a public update to affected investors.",
+        "The loan is 'funded' (money disbursed, borrower owes repayments)."
+      ],
+      "steps": [
+        { "n": 1, "screen": "Loans > Loans card", "action": "Open Loans, click the loan row you are servicing. It becomes the selected loan for the servicing card below.", "detail": "Selecting a loan pre-fills the 'Servicing and recovery' card's Loan lookup and currency." },
+        { "n": 2, "screen": "Loans > Servicing and recovery", "action": "Enter the repayment Amount (minor units), Booking date, Value date, and Payer name, then click 'Record repayment'.", "detail": "GATES: the loan must be 'funded' or 'late' (a 'defaulted' loan must go through Recovery instead), and the borrower must still be able to transact (approved KYB, no compliance hold). WARNING GATE: if the amount does not exactly equal the next due installment (either LESS OR MORE), the backend requires the 'Warning acknowledged for partial/irregular borrower repayment' checkbox to be ticked, otherwise it is rejected. CAVEAT: paying MORE than the current installment (a catch-up / early payoff) is only permitted while the loan is still in status 'funded'; on a 'late' loan an over-amount is refused outright." },
+        { "n": 3, "screen": "Loans > Servicing and recovery", "action": "Click 'Run status scan' to re-evaluate the loan against today.", "detail": "The scan only looks at 'funded' and 'late' loans. It flips a loan to 'late' once an installment is 5+ days past due, and to 'defaulted' at 16+ days past due. Run it for the selected loan, or with no loan selected to scan all repayable loans." },
+        { "n": 4, "screen": "Loans > Servicing and recovery", "action": "For a late or defaulted loan, write a 'Risk note body' and click 'Publish public note' to inform affected investors.", "detail": "This posts a public servicing update tied to the loan." },
+        { "n": 5, "screen": "Loans > Servicing and recovery", "action": "If the loan is 'defaulted' and you collect money, enter 'Recovery gross minor' and use 'Record recovery' (confirm in the modal).", "detail": "GATE: recovery is only allowed on a 'defaulted' loan. Recording a recovery credits the affected investor balance lots via the recovery waterfall and reduces the holding principal. Repayment (step 2) is NOT allowed on a defaulted loan - use recovery." }
+      ],
+      "outcome": "Repayments are booked against installments; the loan's status reflects reality (funded/late/defaulted); investors are kept informed; recoveries are distributed.",
+      "pitfalls": [
+        "Any repayment that is not exactly the next due installment - whether less OR more - is blocked unless you tick the warning-acknowledged box; read it, it confirms the irregular amount is intentional. Note an over-amount is only allowed on a 'funded' loan, not a 'late' one.",
+        "Do not try to 'record repayment' on a defaulted loan - it is refused. Switch to 'Record recovery'.",
+        "Run the status scan regularly; lateness/default is driven by it, not by the repayment form."
+      ]
+    },
+    {
+      "title": "Approve a secondary-market resale listing",
+      "goal": "Let an investor resell their loan claim to another investor when the listing needs admin sign-off.",
+      "actor": "Operations admin (marketplace).",
+      "preconditions": [
+        "Jargon: 'secondary market' = where existing investors sell their share of a loan ('holding') to other investors. 'listing' = an offer to sell. Most standard, performing listings go live automatically. A listing that needs your decision is in status 'Approval Requested' - this happens when the underlying loan is non-performing (late/defaulted) or otherwise non-standard. 'disclosure note' = a warning shown to potential buyers.",
+        "A listing is sitting in 'Approval Requested'."
+      ],
+      "steps": [
+        { "n": 1, "screen": "Daily dashboard", "action": "Check the 'Secondary approvals' queue on the dashboard for listings pending approval.", "detail": "This queue holds non-performing or non-standard secondary listings awaiting an admin decision." },
+        { "n": 2, "screen": "Loans > Secondary-market approvals", "action": "Open Loans, go to the 'Secondary-market approvals' card, and pick the listing in the 'Secondary listing' lookup.", "detail": "The lookup searches by loan title, seller name/email/reference, or listing UUID." },
+        { "n": 3, "screen": "Loans > Secondary-market approvals", "action": "Write a 'Reason' and a 'Buyer disclosure note' explaining the risk (e.g. that the loan is non-performing).", "detail": "The disclosure note is what buyers will see; be specific about days-past-due and any public servicing note." },
+        { "n": 4, "screen": "Loans > Secondary-market approvals", "action": "Click 'Approve listing' and confirm in the modal.", "detail": "GATE: approve only works when the listing status is 'Approval Requested'. Approving makes it visible to eligible buyers WITH your disclosure note and an extra acknowledgement step." },
+        { "n": 5, "screen": "Loans > Secondary-market approvals", "action": "Alternatively click 'Reject' (keeps it hidden, records your reason) or 'Remove' (takes an already-visible listing out of buyer view).", "detail": "GATES: Reject also requires status 'Approval Requested'. Remove works on a listing that is currently 'Active' OR 'Approval Requested'. Each action records the reason in the audit trail." }
+      ],
+      "outcome": "The listing is either live to buyers with a disclosure, rejected, or removed - and the decision is audited.",
+      "pitfalls": [
+        "Standard performing listings do not appear here - they go active on their own. Only flagged ones need you.",
+        "Approve and Reject both require the listing to be in 'Approval Requested'; if it has already changed state your action will fail.",
+        "Always fill a meaningful disclosure note - buyers rely on it to understand they are buying a risky claim."
+      ]
+    },
+    {
+      "title": "Disburse a funded loan to the borrower",
+      "goal": "Pay out the raised money to the borrower once a loan has finished funding.",
+      "actor": "Operations admin (finance).",
+      "preconditions": [
+        "Jargon: 'funded' = the loan's funding campaign closed and investor money has been committed; the loan now owes a payout to the borrower. 'Disbursement' = the bank transfer that sends the principal to the borrower. 'Close funding' is the upstream step (in Primary marketplace operations) that turns a fully-pledged published loan into 'funded'.",
+        "The loan status is 'funded' (close its funding first, in Primary marketplace operations, if it is still 'published')."
+      ],
+      "steps": [
+        { "n": 1, "screen": "Finance ops > Borrower disbursement", "action": "Open Finance ops and go to the 'Borrower disbursement' card.", "detail": "This records the external payout of an accepted, funded loan to the borrower." },
+        { "n": 2, "screen": "Finance ops > Borrower disbursement", "action": "Pick the loan in the 'Loan' lookup.", "detail": "Selecting the loan automatically fills in the Borrower (read-only) and the Currency from that loan. The borrower field becomes read-only and shows the derived borrower ID - you do not pick the borrower separately when a loan is chosen." },
+        { "n": 3, "screen": "Finance ops > Borrower disbursement", "action": "Enter Amount (minor units), confirm Currency, set Booking/Value dates, and enter Payee name and Payee account.", "detail": "The Amount is NOT free entry: it must EXACTLY equal the loan's outstanding borrower-disbursement payable balance - you cannot part-pay or over-pay. That payable is created upstream by 'Close funding'; if it is zero, disbursement is blocked ('Loan has no borrower disbursement payable balance.'). Use the 'Formatted amount' helper to confirm the figure. The payee is the borrower's bank account that receives the money." },
+        { "n": 4, "screen": "Finance ops > Borrower disbursement", "action": "Click 'Finalize disbursement'.", "detail": "GATES (all enforced server-side): the loan must be 'funded'; the loan currency must match the disbursement currency; the borrower MUST match the loan (the borrower derived from the loan is what is sent - this is why the borrower field is auto-filled and read-only); and the borrower must be able to transact (approved KYB, no compliance hold). Two further gates: the entered Amount must EQUAL the outstanding disbursement payable exactly ('Borrower disbursement amount must equal the outstanding payable balance.'), and the collection cash balance must be at least the amount ('Collection cash balance is insufficient for borrower disbursement.'). On success the borrower-payable is cleared against collection cash." }
+      ],
+      "outcome": "The borrower receives the principal; the loan's borrower-payable is cleared in the ledger and the action is audited.",
+      "pitfalls": [
+        "If you see 'Loan must be funded before borrower disbursement', the campaign has not been closed yet - close funding in Primary marketplace operations first.",
+        "'Borrower does not match loan' means the loan/borrower pair is wrong; re-select the loan so the borrower derives correctly.",
+        "Amount is in minor units - double-check the formatted preview before finalizing a large transfer."
+      ]
+    },
+    {
+      "title": "Generate a regulatory report and find an action in the audit log",
+      "goal": "Produce an accounting/regulatory export and look up who did what, when, in the audit trail.",
+      "actor": "Operations admin (finance / compliance).",
+      "preconditions": [
+        "Jargon: 'report type' = the kind of export (e.g. Operational Subledger, Trial Balance, Garanta Accrued Revenue, Bexio Accounting Export, Bank Operations). 'redaction mode' = Redacted (personal data hidden) or Full. 'period preset' = Custom (you set start/end) or a rolling window (Daily/Weekly/Monthly/Quarterly/Yearly/Calendar Year). 'audit log' = an immutable record of every admin action.",
+        "You know which report you need and for which dates."
+      ],
+      "steps": [
+        { "n": 1, "screen": "Reports (left nav 'Reports')", "action": "Open Reports and use the 'Report generation' card.", "detail": "It generates accounting, tax, regulatory and operational exports on demand." },
+        { "n": 2, "screen": "Reports > Report generation", "action": "Choose Report type, Output format (Csv / Pdf / Zip), Redaction mode (Redacted / Full), and Period preset.", "detail": "If Period preset = Custom, fill both Start date and End / anchor date. For a rolling preset, the End / anchor date is used as the anchor and Start date is ignored." },
+        { "n": 3, "screen": "Reports > Report generation", "action": "Add an optional 'Destination note' and click 'Generate report'.", "detail": "On success an artifact panel appears with the filename, a content checksum (SHA-256), the generated timestamp, encoding, a content preview and a manifest." },
+        { "n": 4, "screen": "Reports > Report generation", "action": "Click 'Download artifact' to save the file.", "detail": "CSV/text is shown inline; PDF/ZIP comes back base64-encoded and must be downloaded with this button to get the real file." },
+        { "n": 5, "screen": "Reports > Audit event search", "action": "Switch focus to the 'Audit event search' card (right side) and click 'Refresh' to load recent events.", "detail": "The table shows, per event: When, Action (e.g. loan.published, ledger.investor_withdrawal_finalized, kyc.manual_review_decision_recorded), Actor (type:id), and Target (type:id). Use it to confirm an operation happened and trace who performed it." }
+      ],
+      "outcome": "A downloadable, checksummed report file, plus a readable list of recent audited admin actions.",
+      "pitfalls": [
+        "Pick the right redaction mode - 'Full' includes personal data and should only leave the building when justified.",
+        "For Custom periods you must supply both dates; for rolling presets only the anchor date matters.",
+        "The audit list shows recent reads only; it is for spot-checks and tracing, not a full export."
+      ]
+    },
+    {
+      "title": "Create a new admin user and restrict an investor account",
+      "goal": "Add a colleague to the ops console, and put a hold on a problematic investor account.",
+      "actor": "Superadmin (for creating admins) / compliance admin (for the access change).",
+      "preconditions": [
+        "Jargon: 'admin user' = a staff member who can log in to the ops console. 'account access change' = restricting, locking, reactivating, or closing any user (investor or admin) account. Statuses: Active, Restricted, Locked, Closed. 'reason code' = why (e.g. Compliance Hold, Kyc Aml Review, Account Closure). There is no self-serve forgot-password; passwords stay superadmin-managed.",
+        "For creating an admin you need their email, full name, and an initial password."
+      ],
+      "steps": [
+        { "n": 1, "screen": "Superadmin settings (left nav 'Superadmin settings')", "action": "Open Superadmin settings and find the 'User accounts' card.", "detail": "Type at least 3 characters in its search to query backend user records by name, email, investor reference, or UUID." },
+        { "n": 2, "screen": "Superadmin settings > User accounts", "action": "Click 'Create admin', fill Email, Full name, and Initial password, then click 'Create admin'.", "detail": "The new admin logs in with email + password + an email code. There is NO forgot-password flow; a superadmin must reset passwords manually." },
+        { "n": 3, "screen": "Superadmin settings > User accounts", "action": "To act on an existing account, search for it and click 'Access controls' on its row (or use the 'Account access controls' card directly).", "detail": "The Compliance module also has the same 'Account access controls' card, so you can do this from either Compliance or Superadmin settings." },
+        { "n": 4, "screen": "Account access controls (Compliance or Superadmin settings)", "action": "Select the User account, set 'New account status' to 'Restricted' (or Locked/Closed), pick a Reason code, and write an Admin note plus Evidence summary.", "detail": "'Restricted' limits what the user can do while you investigate; 'Locked' is harder; 'Closed' ends the account." },
+        { "n": 5, "screen": "Account access controls", "action": "If closing an account, tick 'Clean/empty account checked where required for closure', then click 'Apply access change'.", "detail": "The clean-account checkbox is an admin attestation that you verified the balance is empty before closure (it is not yet auto-checked by this endpoint). The change is saved and audit-logged." }
+      ],
+      "outcome": "A new admin can log in; the targeted account is moved to the chosen status with a documented reason in the audit trail.",
+      "pitfalls": [
+        "No forgot-password exists - record the initial admin password securely and hand it over safely.",
+        "Closing an account asserts it is empty; do not tick the clean-account box unless you actually confirmed there is no balance or holding.",
+        "Always provide a reason code and note; access changes are compliance-sensitive and audited.",
+        "Users cannot be deleted from the directory - only their access status is changed."
+      ]
+    },
+    {
+      "title": "Work the daily dashboard from open to empty",
+      "goal": "Start your shift, read every queue, triage by priority, and jump to the right module to clear each item.",
+      "actor": "Operations admin (any).",
+      "preconditions": [
+        "Jargon: 'queue' = a short list of pending work in one area. 'SLA' = service-level deadline; an item past its due date is 'Overdue'. 'priority' = Urgent/High/Normal/Low. The dashboard is read-and-route: you read context here, then go to the module that owns the action.",
+        "You are signed in. The dashboard is the default landing screen ('Daily dashboard' in the nav)."
+      ],
+      "steps": [
+        { "n": 1, "screen": "Daily dashboard (KPI tiles)", "action": "Read the four tiles at the top: Open queue items, High priority (with urgent count), Overdue SLA, and Finance actions.", "detail": "'Finance actions' sums bank exceptions, withdrawals, forced withdrawals, FX settlement, and reconciliation breaks - your money-movement load for the day." },
+        { "n": 2, "screen": "Daily dashboard (Queues list)", "action": "Scan the left-hand queue tabs and their counts: Admin tasks, KYC reviews, Bank exceptions, Withdrawals, Forced withdrawals, Balance ageing, Funding loans, Servicing due, Loan risk, Secondary approvals, FX settlement, Failed emails, Reconciliation breaks.", "detail": "Each tab shows a short label, its group (General/Compliance/Finance/Marketplace/Servicing/Comms), and an open count. Click a tab to load its items on the right." },
+        { "n": 3, "screen": "Daily dashboard (Queue panel)", "action": "Open each non-empty queue; work Urgent and Overdue (highlighted) rows first.", "detail": "Each row shows Item title, Status, Priority, Due, Amount, and the underlying Object (type + id). Overdue rows are visually flagged. Click a row to open a drawer with full metadata and context." },
+        { "n": 4, "screen": "Daily dashboard > queue drawer", "action": "Use the drawer's Object reference (type/id) to know exactly which record to act on, then go to that module.", "detail": "ROUTING: KYC reviews -> Compliance (Record AML decision). Bank exceptions / Withdrawals / Forced withdrawals / Balance ageing / FX settlement -> Finance ops. Funding loans / Loan risk / Servicing due -> Loans (Primary marketplace operations or Servicing and recovery). Secondary approvals -> Loans (Secondary-market approvals). Admin tasks -> Tasks. The drawer itself is context-only; the action lives in the module." },
+        { "n": 5, "screen": "Daily dashboard (Reconciliation breaks queue)", "action": "When the 'Reconciliation breaks' tab is selected, click 'Create tasks' to turn current breaks into trackable admin tasks, then refresh.", "detail": "'Create tasks' syncs reconciliation-break snapshots into the task list (it reports how many were created vs already existed) so nothing falls through the cracks." },
+        { "n": 6, "screen": "Daily dashboard", "action": "After acting in each module, return to the dashboard and click 'Refresh'; repeat until counts reach zero.", "detail": "Also scan the 'Currency operations' table at the bottom (per-currency Available, Investable, Withdraw-only, Overdue, Frozen, Penalty, Pending withdrawals, Pending bank ops, FX unsettled) to confirm money positions look sane before you finish." }
+      ],
+      "outcome": "Every queue is empty or down to non-actionable items; urgent and overdue work is cleared first; reconciliation breaks are converted into tracked tasks.",
+      "pitfalls": [
+        "The dashboard does not let you DO the action - it routes you. Use the Object id, then act in the owning module.",
+        "Do not ignore Overdue (SLA) rows - they are past their deadline and should be cleared before fresh work.",
+        "Refresh after acting; counts do not update live while you are away in a module."
+      ]
+    }
+  ]
+}

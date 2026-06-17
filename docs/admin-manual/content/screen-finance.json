@@ -68,8 +68,8 @@
         }
       ],
       "notes": [
-        "Only an active admin can declare a deposit. The chosen account must be an active lender account, or it is rejected.",
-        "The new balance lot starts the 30-day 'investable' window and the 60-day 'must withdraw' window from the value date. Those windows drive the ageing scan later.",
+        "Only an active admin can declare a deposit. The chosen account must be a lender account that is not restricted, locked, or closed. A pending-KYC lender may receive a deposit; financial actions remain blocked until onboarding gates pass.",
+        "The new balance lot starts the 30-day 'pledge/invest' window and the 60-day 'must withdraw' window from the value date. New loan investments must be pledged before the lot's 30-day deadline; the loan can close later inside its own capped campaign window. These windows drive the ageing scan later.",
         "Each deposit gets an automatic idempotency key, so resubmitting the same declaration returns the original result rather than crediting the investor twice."
       ]
     },
@@ -138,7 +138,7 @@
         }
       ],
       "notes": [
-        "The buckets are derived live from the investor's balance lots: AVAILABLE lots are classed as investable / withdraw-only / overdue based on the as-of time against each lot's 30-day and 60-day deadlines. Frozen and penalty-mode lots still count toward Available but are tracked in their own internal buckets.",
+        "The buckets are derived live from the investor's balance lots: AVAILABLE lots are classed as investable / withdraw-only / overdue based on the as-of time against each lot's 30-day and 60-day deadlines. Frozen and penalty-mode lots are tracked separately and are not normal spendable balance.",
         "This screen shows Available, Investable, Withdraw-only and Overdue. Use it before a forced withdrawal or to explain to an investor why funds are or are not investable.",
         "Read-only: it never moves money or changes a lot's status."
       ]
@@ -167,7 +167,7 @@
       "notes": [
         "GOTCHA - Dry run: a 'Dry run only' checkbox is TICKED by default. With dry run on, the scan only reports what WOULD happen (reminders, forced-withdrawal candidates, penalty-mode transitions) and changes nothing. Untick it to actually send reminders, create forced withdrawals, flip lots into penalty mode, and post penalty charges. Always dry-run first.",
         "Reminders fire on holding days 25, 46, 53, 58, 59 and 60; each reminder is only sent once per lot.",
-        "At or after the 60-day withdrawal deadline: if the investor HAS an active verified payout instruction, the scan auto-creates a forced withdrawal for the overdue amount to that IBAN. If they do NOT, the lot is moved into penalty mode and a daily penalty is charged against the balance instead.",
+        "At or after the 60-day withdrawal deadline: if the investor HAS an active verified payout instruction, the scan auto-creates a forced withdrawal for the overdue amount to that IBAN. If they do NOT, the lot is moved into penalty mode and a daily penalty is charged against the balance instead. Penalty-mode balances also block FX exchanges and secondary-market purchases until a usable payout path resolves the overdue money.",
         "Only an active admin can run the scan. A live run posts real ledger entries and emails, so treat it like any other money-moving action."
       ]
     },

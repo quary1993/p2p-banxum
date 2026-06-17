@@ -1,0 +1,75 @@
+{
+  "corrections": [
+    {
+      "location": "Flow 'Onboard a borrower and publish their first loan' > preconditions (jargon): \"'KYB status' values are pending, manual_review, approved, rejected.\"",
+      "problem": "Wrong and incomplete status enum. The code has no 'rejected' value; the negative outcome is 'declined'. The full set in entities/models.py BorrowerKybStatus is: not_started, pending, approved, declined, manual_review, expired, reverification_required. A newcomer told the value is 'rejected' will never find it in the Edit dropdown.",
+      "fix": "State the real values: not_started, pending, approved, declined, manual_review, expired, reverification_required. The blocking 'no' value is 'declined' (not 'rejected'). Only 'approved' (with compliance hold off) lets a loan publish.",
+      "severity": "high"
+    },
+    {
+      "location": "Flow 'Record a borrower repayment...' > step 2: \"WARNING GATE: if the amount is LESS than the expected installment due, the backend requires the 'Warning acknowledged...' checkbox\" and pitfall 1.",
+      "problem": "Incorrect: the warning-acknowledged gate fires whenever the amount DIFFERS from the next-due installment in EITHER direction - both underpayment (amount < expected_due) and overpayment/catch-up (amount > expected_due) require the checkbox (servicing/services.py lines ~1435-1450). Describing it as only 'less than' is misleading. Additionally, an overpayment beyond the current installment is only allowed when the loan status is 'funded'; for a 'late' loan an over-amount is rejected outright ('Multiple-installment catch-up payments for late loans are handled in a later servicing slice').",
+      "fix": "Say: 'If the amount does not exactly equal the next due installment (either less OR more), the backend requires the warning-acknowledged checkbox.' Add the caveat that paying MORE than the current installment (a catch-up/early payoff) is only permitted on a loan still in status 'funded'; on a 'late' loan an over-amount is refused.",
+      "severity": "high"
+    },
+    {
+      "location": "Flow 'Disburse a funded loan to the borrower' > step 3 and step 4 (GATES).",
+      "problem": "Two enforced gates are missing, and the Amount field is presented as free entry. ledger/services.py finalize_borrower_disbursement requires: (1) the entered Amount must EQUAL the loan's outstanding borrower-disbursement-payable balance exactly ('Borrower disbursement amount must equal the outstanding payable balance.'), and (2) the collection cash balance must be at least the amount ('Collection cash balance is insufficient for borrower disbursement.'). If the payable balance is zero you get 'Loan has no borrower disbursement payable balance.' The flow lets a newcomer think they can type any amount.",
+      "fix": "State that the Amount must match the loan's outstanding disbursement payable exactly (you cannot part-pay or over-pay), and that collection cash must cover it. The payable is created upstream by 'Close funding'; if it is zero, disbursement is blocked.",
+      "severity": "high"
+    },
+    {
+      "location": "Flow 'Handle a day-60 forced withdrawal' > preconditions (jargon 'Penalty mode'), step 3, outcome, and pitfall 2.",
+      "problem": "Understated. When there is no verified payout instruction, the over-age lot is not merely 'flagged' in penalty mode - the scan moves the lot to PENALTY_MODE AND charges a real per-day penalty against the lot's available balance (ledger/services.py _charge_balance_penalty_for_lot, BALANCE_PENALTY_BPS_PER_DAY), recording a journal entry each time the scan runs while still overdue. Calling it just a flag for follow-up hides that the investor's balance is actively being reduced.",
+      "fix": "Add that penalty mode actively charges a daily penalty (rate BALANCE_PENALTY_BPS_PER_DAY) on the over-age amount every time the scan runs while no verified IBAN exists - so registering a verified IBAN and re-running is time-sensitive, not just bookkeeping.",
+      "severity": "medium"
+    },
+    {
+      "location": "Flow 'Match an incoming bank deposit to a lender' > preconditions (jargon 'balance lot') and Flow 'day-60' pitfall 3 (\"The 60-day clock is per-lot... a new deposit does not reset an older lot\").",
+      "problem": "Slightly inaccurate on when the clock starts. The lot's investment_deadline (30 days) and withdrawal_deadline (60 days) are computed from received_at, which is derived from the VALUE DATE you enter on the deposit (_received_at_from_value_date / _lot_deadlines in ledger/services.py), not literally 'the day it arrived' or the day you keyed it. An admin who back- or forward-dates the value date shifts the whole ageing clock.",
+      "fix": "Note that the 30/60-day ageing clock runs from the deposit's VALUE DATE (the value_date field), so entering the value date correctly matters - it sets when reminders fire and when the lot becomes over-age.",
+      "severity": "medium"
+    },
+    {
+      "location": "Flow 'Match an incoming bank deposit to a lender' > step 4: \"Enter Amount (in minor units), Currency, Booking date, Value date, and confirm the Collection account.\"",
+      "problem": "Field-label mismatch. On the Lender deposit card the amount field is labelled 'Amount minor units' (not 'Amount'), and Payer name + Payment reference sit in a separate row from Amount/Currency/Booking date/Value date/Collection account. Minor, but the manual should name the on-screen label exactly.",
+      "fix": "Refer to the field as 'Amount minor units'. The card title is 'Lender deposit'.",
+      "severity": "low"
+    },
+    {
+      "location": "Flow 'Match an incoming bank deposit to a lender' > step 3 (investor lookup matches \"... or a matching payout IBAN\").",
+      "problem": "Partially misleading in context. The backend investor lookup CAN match on a payout IBAN, but only when the IBAN is passed to it - the Lender deposit card's 'Investor from bank reference' input does NOT pass an IBAN (only the Payout instruction card's lookup does). So on the deposit card you cannot actually find an investor by typing an IBAN; IBAN matching is available on the Payout instruction card.",
+      "fix": "Clarify that on the Lender deposit card the lookup matches reference, full name, email, and UUID; IBAN matching is only wired into the Payout instruction card's investor lookup.",
+      "severity": "low"
+    },
+    {
+      "location": "Flow 'Onboard a borrower and publish their first loan' > step 4: \"confirm it via the Borrower lookup\" / create-loan field list.",
+      "problem": "The 'Create loan draft' modal does not pre-fill or lock the borrower to the row you selected in the Borrowers table - it shows a 'Selected borrower' context bar but the form contains an editable Borrower lookup you must set/confirm, and the modal field set does not include Collateral description, Purpose description, Interest-only months, or the success/recovery fee fields (those exist only on the backend command with defaults). The step's phrase 'The selected borrower is pre-filled' overstates the binding.",
+      "fix": "Say the modal shows the selected borrower as context but you confirm/choose the borrower in the Borrower lookup inside the form. The visible create fields are: Borrower, Title, Principal minor units, Currency, Interest bps, Term months, Purpose, Repayment type, Collateral type, Collateral value minor, Risk rating, Funding deadline, First payment date, Investor summary.",
+      "severity": "low"
+    }
+  ],
+  "confirmedAccurate": [
+    "Loan create validations: principal 1,000-1,000,000,000 in loan currency, term 1-600 months, funding deadline not in past and <=60 days out, first payment after funding deadline, schedule complete and summing to principal (loans/services.py).",
+    "Publish gates: status must be DRAFT; borrower.can_transact (KYB approved AND compliance hold off); publishable funding deadline must be today..+29 days (MAX_PUBLISHABLE_FUNDING_DEADLINE_DAYS=29, stricter than the 60-day create limit); schedule complete and matches principal.",
+    "Publish failure string 'Borrower KYB must be approved and free of compliance hold.' is exact, and the 29-day publish rationale (late-pledged funds still settle inside the 60-day operating limit) matches the code comment.",
+    "A KYB status change requires a note OR evidence summary ('A note or evidence summary is required for KYB changes.' in entities/services.py update_borrower_entity).",
+    "Borrowers cannot be deleted (no delete path; UnsupportedRemoveNote 'Borrower' in the UI; records kept via append-only events).",
+    "Balance ageing reminder days are exactly 25, 46, 53, 58, 59, 60 (BALANCE_AGEING_REMINDER_DAYS).",
+    "Forced-withdrawal logic: per overdue investor/currency the scan looks for an active VERIFIED payout instruction; if present it creates a withdrawal request (status 'requested'); if absent the lot goes to penalty mode and no withdrawal is created.",
+    "Dry-run vs live ageing scan, optional As-of timestamp and Currency filter inputs, and the requirement to register a verified IBAN then re-run are accurate.",
+    "Deposit gates: currency must be enabled, amount must be positive, and the selected account must be a lender account that is not restricted, locked, closed, or inactive; pending-KYC lenders can still receive deposits. On success a reconciled BankOperation + journal entry + balance lot are created.",
+    "KYC manual-review decision options Approve/Decline/Request Reverification/Reopen and their targets (Approved / Declined / Reverification Required / back to Manual Review) match _manual_review_target_status; Approve activates a pending_kyc account.",
+    "KYC non-overridable approval gate: cannot manually Approve a case whose status is 'sanctions_hit' or 'declined' (NON_OVERRIDABLE_APPROVAL_STATUSES); Approve only allowed from review-routed statuses manual_review/high_risk/pep_hit/adverse_media_hit (MANUAL_REVIEW_STATUSES).",
+    "KYC decision requires at least one of Officer note or Evidence summary ('A note or evidence summary is required.').",
+    "Servicing thresholds: 'late' at >=5 days past due (LATE_THRESHOLD_DAYS), 'defaulted' at >=16 days (DEFAULT_THRESHOLD_DAYS); status scan only evaluates funded/late loans; repayment allowed only on funded/late (defaulted routed to recovery); recovery allowed only on defaulted (RECOVERY_ALLOWED_LOAN_STATUSES).",
+    "Servicing card buttons/labels: Record repayment, Run status scan, Publish public note (Risk note body), Record recovery (Recovery gross minor), and the 'Warning acknowledged for partial/irregular borrower repayment' checkbox.",
+    "Secondary-market: performing (funded) listings auto-publish to ACTIVE; late/defaulted listings land in APPROVAL_REQUESTED. Approve and Reject both require APPROVAL_REQUESTED; Remove works on ACTIVE or APPROVAL_REQUESTED. Each records reason/audit. Disclosure note required to approve.",
+    "Payout instruction: investor must be a lender account, currency enabled, IBAN 15-34 chars with first 2 letters; registering supersedes (DISABLEs) the prior active instruction for that investor/currency; IBAN-collision warning banner 'IBAN matches multiple investors' appears when iban_match_count > 1.",
+    "Withdrawal execution: the 'Requested withdrawal' lookup is filtered to status=requested; finalize only works on REQUESTED (re-finalizing a FINALIZED one returns the existing result); cancel only works on REQUESTED and restores the lots via the stored allocations.",
+    "Borrower disbursement: loan must be 'funded' ('Loan must be funded before borrower disbursement.'), loan currency must match disbursement currency, borrower must match the loan ('Borrower does not match loan.'), borrower must be able to transact; selecting a loan auto-fills and locks the read-only Borrower field and the Currency.",
+    "Reports: report type / output format (csv/pdf/zip) / redaction mode (redacted/full) / period preset (custom uses start+end, rolling presets use end as anchor and ignore start); artifact panel shows filename, SHA-256 checksum, generated timestamp, encoding, content preview and manifest; base64 PDF/ZIP must be saved via Download artifact.",
+    "Daily dashboard KPI tiles (Open queue items, High priority + urgent, Overdue SLA, Finance actions) and the 13 queue tabs (Admin tasks, KYC reviews, Bank exceptions, Withdrawals, Forced withdrawals, Balance ageing, Funding loans, Servicing due, Loan risk, Secondary approvals, FX settlement, Failed emails, Reconciliation breaks); 'Finance actions' sums bank_operations_pending + withdrawals_requested + forced_withdrawals_requested + fx_settlement_deltas + reconciliation_breaks; 'Create tasks' on the Reconciliation breaks tab syncs break snapshots into tasks reporting created vs existing counts.",
+    "Admin/account management: Create admin (Email, Full name, Initial password) with no forgot-password flow; Account access controls statuses Active/Restricted/Locked/Closed with reason code + note/evidence; clean-account closure checkbox is an admin attestation; users cannot be deleted (UnsupportedRemoveNote 'User')."
+  ]
+}

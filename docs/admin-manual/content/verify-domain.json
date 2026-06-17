@@ -1,0 +1,57 @@
+{
+  "corrections": [
+    {
+      "location": "Section 7, final 'Putting it together for investors' paragraph (and the section 7 sentence 'KYC/KYB is approved')",
+      "problem": "The primer states that an investor only reaches financial features when ALL of these are true: active lender account, phone verified, AND KYC/KYB approved. That is only true for natural-person lenders. In backend/apps/platform_core/domain/access.py, user_can_access_financial_features() returns True for a legal_entity_lender_representative as soon as it is an active lender with phone verified (phone_verified_at is not None) WITHOUT requiring an approved KYC case. Only when account_type == 'natural_person_lender' does the function require user_kyc_status_value(user) == 'approved'.",
+      "fix": "Clarify that KYC approval is gated only for natural_person_lender accounts. For legal_entity_lender_representative accounts the financial-access gate is satisfied by (1) active lender account + (2) phone verified, and approval is handled via the entity's KYB rather than a personal KYC case on the representative. State it as: an active lender account, phone verified, and (for natural-person lenders only) approved KYC.",
+      "severity": "high"
+    },
+    {
+      "location": "Section 4 'penalty mode' bullet AND Section 5 'penalty' bullet.",
+      "problem": "The first verification pass over-corrected this point. It was right that penalty mode is not a universal backend account lock, but current ledger code does enforce narrower gates: primary investment cannot consume penalty-mode lots, FX execution raises 'Investor has overdue balance in penalty mode and cannot exchange currencies', and secondary-market purchase raises 'Buyer has overdue balance in penalty mode and cannot buy secondary-market listings'. Withdrawal remains allowed as the intended exit path.",
+      "fix": "State the exact current behavior: penalty-mode lots are charged daily, cannot be invested, and penalty-mode balance blocks FX exchanges and secondary-market purchases until the overdue balance is resolved; withdrawal remains allowed so the money can leave the platform.",
+      "severity": "high"
+    },
+    {
+      "location": "Section 4, two-outcomes paragraph and 'Forced withdrawal' / 'Penalty mode' bullets ('What happens at the 60-day limit')",
+      "problem": "The trigger is described only as 'at the 60-day limit' / 'AT the 60-day limit'. The code triggers on the deadline being reached OR passed, not exactly at 60. In run_balance_ageing_scan (backend/apps/ledger/services.py) a lot is treated as overdue when business_date(as_of) >= business_date(lot.withdrawal_deadline_at). So a lot already past 60 days is also swept into forced-withdrawal or penalty-mode handling on the next scan, not only on the exact 60-day mark.",
+      "fix": "Say the forced-withdrawal vs penalty-mode handling fires when a lot reaches OR is past its 60-day withdrawal deadline (business_date(as_of) >= business_date(withdrawal_deadline_at)), i.e. on the first balance ageing scan at or after the deadline.",
+      "severity": "low"
+    },
+    {
+      "location": "Section 4 'penalty mode' bullet ('a per-day penalty in basis points, configured platform-wide')",
+      "problem": "Minor precision issue: the per-day penalty rate comes from settings.BALANCE_PENALTY_BPS_PER_DAY (an application/deployment setting read via int(settings.BALANCE_PENALTY_BPS_PER_DAY) in _charge_balance_penalty_for_lot and recorded in lot lineage), not from a runtime 'platform setting' editable in the Superadmin settings screen. The phrase 'configured platform-wide' could mislead a new admin into thinking it is a toggle they can change in the console.",
+      "fix": "Describe it as a deployment-level configuration value (settings.BALANCE_PENALTY_BPS_PER_DAY) applied platform-wide, and note it is not edited from the ops console unless the Superadmin settings screen is actually wired to it. Avoid implying it is an in-console editable setting.",
+      "severity": "low"
+    },
+    {
+      "location": "Section 2 'Garanta operator' bullet and Section 7 'Account statuses' (admin vs superadmin role test)",
+      "problem": "Not wrong, but missing a caveat a newcomer needs: in backend/apps/platform_core/domain/access.py, is_admin_actor requires is_staff True plus account_type in {admin, superadmin} plus a non-blocking status; is_superadmin_actor additionally requires is_superuser True. So a 'superadmin' account_type that lacks is_superuser would NOT pass superadmin checks. The primer presents admin/superadmin purely as account types without noting the is_staff / is_superuser flags that also gate the role.",
+      "fix": "Optionally add a caveat that admin powers also depend on the is_staff flag, and superadmin powers additionally on the is_superuser flag, not on account_type alone.",
+      "severity": "low"
+    }
+  ],
+  "confirmedAccurate": [
+    "Section 2: account_type values 'natural_person_lender' and 'legal_entity_lender_representative' for lenders, and 'admin'/'superadmin' for staff (AccountType in accounts_auth/models.py).",
+    "Section 2 / Section 3: every lender account is given an investor_reference at creation (UserManager.create_user) and it is unique (unique_user_investor_reference constraint); max_length 10, so 'short unique code' is accurate.",
+    "Section 2: default identity provider on a verification case is 'didit' (KycVerificationCase.provider default='didit').",
+    "Section 3 / Section 3 bullets: deposit reference format BX-{currency}-{investor_reference} (investor_portal/services.py _investor_payment_reference returns f'BX-{currency}-{investor_reference}'); example BX-CHF-AB12CD is consistent.",
+    "Section 3 bullets: ledger entries and bank operations are append-only (LedgerJournalEntry, LedgerPosting, BankOperation extend AppendOnlyModel; reversals via reversal_of self-FK).",
+    "Section 4 / Section 5: the 30-day investment deadline and 60-day withdrawal deadline (INVESTMENT_DEADLINE_DAYS=30, WITHDRAWAL_DEADLINE_DAYS=60 in ledger/services.py).",
+    "Section 4: reminder days around 25, 46, 53, 58, 59, 60 (BALANCE_AGEING_REMINDER_DAYS = (25, 46, 53, 58, 59, 60)).",
+    "Section 4 / Section 5: forced withdrawal when a verified usable payout instruction exists vs penalty mode when none exists (run_balance_ageing_scan branches on _active_verified_payout_instruction, which filters status=ACTIVE and is_verified_usable=True).",
+    "Section 4: 'usable' means an active payout instruction with is_verified_usable True (InvestorPayoutInstruction; _active_verified_payout_instruction).",
+    "Section 4 / Section 5: balance lot statuses available, frozen, penalty_mode, penalty_exhausted, consumed (BalanceLotStatus). Frozen is a distinct administrative status separate from the ageing clock.",
+    "Section 5: buckets investable / withdraw_only / overdue / frozen / penalty_mode and that only available-amount > 0 lots count (_balance_bucket and _balance_summaries in investor_portal/services.py; only lots with available_amount_minor > 0 are summed).",
+    "Section 6: loan statuses draft, published, funded, late, defaulted, repaid, written_off, cancelled (LoanStatus).",
+    "Section 6: publish allowed only from draft, requires borrower can_transact (KYB approved AND no compliance hold), a publishable funding deadline, and a complete schedule; sets published_at (publish_loan in loans/services.py).",
+    "Section 6: late at 5+ days past due and defaulted at 16+ days past due (LATE_THRESHOLD_DAYS=5, DEFAULT_THRESHOLD_DAYS=16 in servicing/services.py).",
+    "Section 6: disbursement requires the loan to be 'funded' and the borrower to be able to transact (_locked_funded_loan_for_disbursement requires status == 'funded' and borrower.can_transact).",
+    "Section 6: secondary-market listings can publish automatically or need admin approval (SecondaryMarketListingPublicationType: automatic / admin_approved; statuses include active and approval_requested).",
+    "Section 7: borrower can_transact = kyb_status == APPROVED AND not compliance_hold (entities/models.py), and compliance hold overrides approved KYB.",
+    "Section 7: KYC blocking statuses - 'approved' is the only non-blocking status; not_started, pending, declined, manual_review, high_risk, sanctions_hit, pep_hit, adverse_media_hit, expired, reverification_required all block (KycStatus + BLOCKING_KYC_STATUSES in kyc_compliance/models.py).",
+    "Section 7: account statuses pending_kyc (default), active, restricted, locked, closed; can_login is True only when is_active and status not in {restricted, locked, closed} (AccountStatus + User.can_login).",
+    "Section 7: phone-verified means a confirmed challenge - is_phone_verified is phone_verified_at is not None (User.is_phone_verified).",
+    "Section 8: ledger account types referenced indirectly (collection_cash, suspense_unmatched_cash, withdrawal_payable, borrower_disbursement_payable, etc.) exist in LedgerAccountType, and BankOperationStatus includes 'unmatched' supporting the section 3 suspense/unmatched claim."
+  ]
+}

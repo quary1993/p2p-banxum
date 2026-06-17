@@ -1,0 +1,174 @@
+{
+  "key": "settings",
+  "title": "Superadmin Settings",
+  "intro": [
+    "This screen is the governance area of the admin console. It is locked to superadmins. A superadmin is the highest level of staff account; a plain admin cannot open most of what is here.",
+    "There are two kinds of accounts on BANXUM. Investors (also called lenders) are the public users who deposit money and fund loans. Admins are Garanta staff who run the platform from this console. They are completely separate; an investor is never an admin.",
+    "Three jobs live on this screen. First: manage the legal documents that investors must tick a box to accept (called templates). Second: create new admin staff accounts. Third: look up any user and change whether their account is allowed to log in or transact.",
+    "A note on jargon. 'Clickwrap' means the small legal text plus tick-boxes a user agrees to before an action (like accepting terms). A 'template' is the wording of that text. A 'version' is one dated snapshot of that wording. 'Immutable' means once saved it can never be edited; you only ever create a new version. This matters because every acceptance is kept as legal evidence tied to the exact version the user saw."
+  ],
+  "whatYouDoHere": [
+    "Browse the versioned legal/document templates for each category, and see which version is currently live (the 'Current' one).",
+    "Create a new draft version of a template, or publish a version so it becomes the live one shown to investors.",
+    "Create a new admin staff account (only an active superadmin is allowed to do this).",
+    "Search the full user directory (admins and investors) by name, email, investor reference, or UUID.",
+    "Restrict, lock, reactivate, or close any user account through the audited account-access flow. Always grant the least access a person needs (least privilege)."
+  ],
+  "figures": [
+    {
+      "id": "settings-0-document-templates",
+      "caption": "Document templates: versioned legal text by category, with create-version and publish actions.",
+      "summary": "This card lists the legal/clickwrap templates investors must accept. Each row is one version of a template. Versions are immutable: you never edit one, you create a new version and then publish it to make it live. The list is filtered by the Category dropdown at the top.",
+      "annotations": [
+        {
+          "item": 7,
+          "label": "Category filter (label)",
+          "text": "This label marks the Category picker. A category is the situation where a document is shown to a user. The table only shows templates for the category you pick here."
+        },
+        {
+          "item": 8,
+          "label": "Category dropdown",
+          "text": "Pick which kind of document to view. The four choices are Registration (the terms a user accepts when signing up), Primary Market Investment (accepted when investing in a new loan), Secondary Market Purchase (accepted when buying an existing loan piece from another investor), and Secondary Market Listing (accepted when putting a loan piece up for sale). Changing this reloads the list below."
+        },
+        {
+          "item": 9,
+          "label": "Refresh button",
+          "text": "Reloads the template list from the backend. Use it after someone else has created or published a version so you see the latest state."
+        },
+        {
+          "item": 10,
+          "label": "Create version button",
+          "text": "Opens a form to write a brand-new version of a template: name, title, body text, and the tick-box labels the user must accept. You can optionally tick 'Publish immediately'. A new version is always created fresh; it never overwrites an old one. Only a superadmin can do this."
+        },
+        {
+          "item": 1,
+          "label": "Template column",
+          "text": "The template's name plus its unique ID (UUID). Each row under here is one saved version of that template's wording."
+        },
+        {
+          "item": 2,
+          "label": "Status column",
+          "text": "Shows whether a version is a Draft (written but not yet live) or Published. The row that is the live one for its category shows a green 'Current' chip instead."
+        },
+        {
+          "item": 11,
+          "label": "Current status chip",
+          "text": "A green 'Current' chip marks the one version that investors actually see right now for this category. Only one version per template can be Current at a time. Other published versions stay on record as history."
+        },
+        {
+          "item": 3,
+          "label": "Version column",
+          "text": "The version number (v1, v2, and so on). Numbers only ever go up. A higher number is a newer snapshot of the wording."
+        },
+        {
+          "item": 4,
+          "label": "Published column",
+          "text": "The date and time this version went live. Blank means it is still a draft and has never been published."
+        },
+        {
+          "item": 5,
+          "label": "Hash column",
+          "text": "The content hash: a long fingerprint code calculated from the exact text and tick-box labels. It proves the wording has not changed. Two versions with the same hash contain identical content."
+        },
+        {
+          "item": 6,
+          "label": "Actions column",
+          "text": "Per-row actions. Holds the 'Publish / clone' button for that version."
+        },
+        {
+          "item": 12,
+          "label": "Publish / clone button",
+          "text": "Makes the selected version the live 'Current' one. Gotcha: if the version is still a draft, publishing does not change it in place. The system creates a new published copy (a clone) of that text with the next version number and a recorded legal-review reference, and points 'Current' at the clone. The draft you started from stays as it was. Any version already accepted by investors is always preserved."
+        }
+      ],
+      "notes": [
+        "In preview mode the screen uses dummy templates. On the live system, every create and publish writes a permanent, immutable document version that cannot be altered afterward.",
+        "When publishing, you can record a 'Legal review reference' (a pointer to the legal sign-off for that wording). This is captured so there is an audit trail of who approved the text.",
+        "There is no way to delete a template version from this screen, and the small note next to the action confirms removal is not supported. Document evidence must be kept."
+      ],
+      "kpiTiles": []
+    },
+    {
+      "id": "settings-1-user-accounts",
+      "caption": "User accounts: search the user directory and create new admin staff accounts.",
+      "summary": "This card is the user directory plus the entry point for creating admin staff. You search for any user (admin or investor) by typing into the search box; you must type at least 3 characters before results load. Each result row offers an 'Access controls' button that opens the same account-access form shown in the next figure. The 'Create admin' button opens the new-admin form.",
+      "annotations": [
+        {
+          "item": 0,
+          "label": "User accounts heading",
+          "text": "Title of this card. Below it sits a search box (type at least 3 characters) that finds users by name, email, investor reference, or UUID. Results appear in a table with columns User, Kind, Context, and Actions."
+        },
+        {
+          "item": 1,
+          "label": "Create admin button",
+          "text": "Opens the 'Create admin user' form. You enter an email, full name, and an initial password. Submitting creates a new admin staff account with active status. Gotcha: only an active superadmin is allowed; the backend rejects anyone else. There is no forgot-password flow for admins, so password resets stay superadmin-managed. New admins log in with email, password, and an emailed code."
+        }
+      ],
+      "notes": [
+        "Admins differ from investors. A created admin gets staff access to this console but is not a superuser and cannot create other admins. Investors only use the public side and never appear as admins.",
+        "Search returns nothing until you type 3 or more characters; this prevents pulling the whole user base at once.",
+        "Each found user row has an 'Access controls' button that opens the account-access form (see the next figure) pre-filled for that user. Removing a user is not supported here.",
+        "Practice least privilege: only create an admin account when a person genuinely needs console access, and prefer the lowest access that lets them do their job."
+      ],
+      "kpiTiles": []
+    },
+    {
+      "id": "settings-2-account-access-controls",
+      "caption": "Account access controls: change a user's account status with a reason, note, and audit trail.",
+      "summary": "This form changes whether a user account is allowed to operate. You pick the user, choose a new status, give a reason and a note, then apply. Every change is recorded in the audit log. Use the least restriction that solves the problem, and remember that closing an account is one-way.",
+      "annotations": [
+        {
+          "item": 1,
+          "label": "User account (label)",
+          "text": "Marks the user picker. Start typing a name, email, reference, or UUID and choose the account whose access you want to change. When you arrive here from the directory's 'Access controls' button, this is already filled in."
+        },
+        {
+          "item": 2,
+          "label": "New account status (label)",
+          "text": "Marks the status dropdown described next. This is the new state you want the account to be in."
+        },
+        {
+          "item": 6,
+          "label": "New account status dropdown",
+          "text": "Choose the account's new state. Active means full normal access. Restricted limits the account. Locked blocks log-in. Closed shuts the account down permanently. Gotcha: a Closed account cannot be reactivated, you cannot set the status to the value it already has, and you cannot move an account to 'pending KYC' from here."
+        },
+        {
+          "item": 3,
+          "label": "Reason code (label)",
+          "text": "Marks the reason dropdown below. A reason code is the standard category that explains why you are changing access."
+        },
+        {
+          "item": 7,
+          "label": "Reason code dropdown",
+          "text": "Pick the standard reason for the change, such as KYC/AML review, Compliance Hold, Email Recovery, Support Request, Account Closure, or Admin Correction. This code is stored on the audit record so anyone reviewing later sees why access changed."
+        },
+        {
+          "item": 4,
+          "label": "Admin note (label)",
+          "text": "Marks the free-text note box. Write a short, factual explanation in your own words. Gotcha: you must fill in either this note or the evidence summary, or the change is rejected."
+        },
+        {
+          "item": 5,
+          "label": "Evidence summary (label)",
+          "text": "Marks the evidence box. Summarize the supporting evidence (for example, a ticket reference or what was checked). Either this or the admin note is required."
+        },
+        {
+          "item": 0,
+          "label": "Account access controls heading",
+          "text": "Title of the form. Below the labelled fields is a checkbox 'Clean/empty account checked where required for closure'. You must tick it to close an account; it is your attestation that the account has no remaining balance or holdings."
+        },
+        {
+          "item": 8,
+          "label": "Apply access change button",
+          "text": "Saves the status change. On success you see a confirmation that the change was saved and audit-logged. Gotcha: only an active admin can do this at all, and changing another admin's access requires a superadmin. Environment-managed superadmin accounts cannot be changed here; their access is controlled by deployment configuration."
+        }
+      ],
+      "notes": [
+        "Every applied change writes an audit event and an account-access event recording the old status, new status, reason, note, and your identity. Nothing here is silent.",
+        "Closure rules: setting status to Closed requires the clean-account checkbox to be ticked, and a closed account stays closed (no reactivation in this version).",
+        "This is the same form opened from the directory's 'Access controls' button and from the Compliance screen, so behavior is identical wherever you reach it."
+      ],
+      "kpiTiles": []
+    }
+  ]
+}

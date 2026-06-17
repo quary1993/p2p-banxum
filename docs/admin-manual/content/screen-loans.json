@@ -1,0 +1,408 @@
+{
+  "key": "loans",
+  "title": "Loans & Marketplace",
+  "intro": [
+    "This screen is the lending engine of BANXUM. It is where you set up the companies that borrow money, build the loans they want, and run those loans from the moment they go live until they are fully repaid or written off.",
+    "A quick mental model of the product. Individual investors (called lenders) put money into their BANXUM account. The platform then funds loans to vetted business borrowers. Borrowers repay over time with interest. Lenders earn that interest and can later withdraw.",
+    "Borrowers are companies, not people with logins. There is no borrower portal. An admin types in every borrower's details by hand. The borrower never sees this screen.",
+    "Two jargon terms you will see everywhere. The primary market is where a brand-new loan is first funded by investors. The secondary market is where an investor who already owns a slice of a loan sells that slice to another investor. This screen handles admin tasks for both.",
+    "This page is laid out top to bottom as: key metrics, then a Borrowers table, then a Loans table, then four action panels (Primary marketplace operations, Secondary-market approvals, and Servicing and recovery)."
+  ],
+  "whatYouDoHere": [
+    "Add and edit borrower companies, and watch their KYB status (the company-level identity and compliance check).",
+    "Create loan drafts, edit them, and review their status, amount, interest rate, LTV and funding deadline.",
+    "Publish a loan to the marketplace so investors can fund it, then close or cancel its funding, run an expiry scan, or release a stuck investor order.",
+    "Approve, reject or remove non-standard secondary-market listings (investor-to-investor resales).",
+    "Service live loans: record borrower repayments, run a status scan that flags late or defaulted loans, publish public notes to investors, and record recovery payments on defaulted loans."
+  ],
+  "figures": [
+    {
+      "id": "loans-0-key-metrics",
+      "caption": "The four summary tiles across the top of the Loans screen.",
+      "summary": "A quick at-a-glance count of borrowers, loans, committed money and loans that need attention. These numbers are derived live from the loaded borrower and loan lists.",
+      "kpiTiles": [
+        {
+          "label": "Borrowers",
+          "text": "The total number of borrower companies currently loaded. The small text underneath shows how many of them 'can transact', meaning their KYB is approved and they have no compliance hold. Only those borrowers can have a loan published. Watch this to know how many companies are cleared to lend to versus still pending."
+        },
+        {
+          "label": "Loans",
+          "text": "The total number of loans loaded, with a sub-count of how many are 'published' (live on the marketplace and open for investors to fund). Watch this to see how much is actively raising money right now."
+        },
+        {
+          "label": "Committed",
+          "text": "The sum of money investors have committed across the loaded loans, shown in minor units (the smallest currency unit, e.g. 100 for 1.00 CHF). This is how much investor money is currently pledged into loans. It is a rough total across mixed currencies in preview data, so treat it as an order-of-magnitude figure."
+        },
+        {
+          "label": "Risk items",
+          "text": "The number of loans whose status is 'late' or 'defaulted'. These are loans where the borrower has missed payments. Watch this closely: a non-zero number means servicing or recovery work is needed."
+        }
+      ],
+      "annotations": [],
+      "notes": [
+        "These tiles are calculated from the lists below them, not from a separate report. If you filter or refresh the tables, the counts can change."
+      ]
+    },
+    {
+      "id": "loans-5-borrowers",
+      "caption": "The Borrowers table: every borrower company and its compliance gate.",
+      "summary": "Borrowers are companies that admins enter by hand. KYB stands for Know Your Business: the company-level identity, ownership and compliance check (the business equivalent of KYC for a person). A loan to a borrower can only go live if that borrower's KYB is Approved and the borrower has no compliance hold.",
+      "annotations": [
+        {
+          "item": 1,
+          "label": "Entity column",
+          "text": "The borrower company's legal name with its unique ID (UUID) underneath. Click anywhere on a row to select that borrower; the selected row is used as the default when you create a new loan."
+        },
+        {
+          "item": 2,
+          "label": "KYB column",
+          "text": "The company's KYB status, shown as a coloured chip. There are seven possible values: Not started, Pending, Approved, Declined, Manual review, Expired, and Re-verification required. Only 'Approved' (combined with no compliance hold) lets a loan for this borrower be published. Any other value blocks publishing."
+        },
+        {
+          "item": 3,
+          "label": "Country column",
+          "text": "The borrower's country, or a dash if not recorded. Useful for spotting non-Swiss borrowers at a glance."
+        },
+        {
+          "item": 4,
+          "label": "Financials column",
+          "text": "A short summary of the company's self-reported finances: total assets and last-year revenue, in the borrower's chosen financials currency. This is context only; it does not gate anything automatically."
+        },
+        {
+          "item": 5,
+          "label": "Actions column",
+          "text": "Holds the per-row Edit button. Note there is no delete: borrowers cannot be removed from this screen."
+        },
+        {
+          "item": 6,
+          "label": "Filter borrowers by KYB status",
+          "text": "A dropdown to show only borrowers in a chosen KYB status (or 'All KYB statuses'). Use it to quickly find, for example, every company stuck in Manual review."
+        },
+        {
+          "item": 7,
+          "label": "Refresh button",
+          "text": "Reloads the borrower list from the backend. Use it after creating or editing a borrower if the table has not updated on its own."
+        },
+        {
+          "item": 8,
+          "label": "Create borrower button",
+          "text": "Opens a form to enter a new borrower company by hand (legal name, year founded, type, and other details). New borrowers usually start with a Pending KYB status, so you cannot publish a loan for them until KYB is later moved to Approved."
+        },
+        {
+          "item": 9,
+          "label": "Edit button (row action)",
+          "text": "Opens the borrower edit form for that company. This is where KYB status and the compliance hold flag are changed. Moving KYB to Approved and clearing any compliance hold is what unlocks loan publishing for that borrower."
+        },
+        {
+          "item": 11,
+          "label": "Approved chip",
+          "text": "Example of an 'Approved' KYB chip. A borrower in this state, with no compliance hold, is cleared to have its loans published and to receive borrower repayments."
+        },
+        {
+          "item": 12,
+          "label": "Manual Review chip",
+          "text": "Example of a 'Manual review' KYB chip. The company is parked for a human compliance decision. Loans for this borrower cannot be published until KYB reaches Approved."
+        }
+      ],
+      "notes": [
+        "A borrower is allowed to transact only when KYB equals Approved AND the compliance-hold flag is off. A compliance hold can block an otherwise-approved company.",
+        "There is no borrower login anywhere in BANXUM. Every field you see here was typed in by an admin.",
+        "The search box (top of the card) lets you find a borrower by legal name, registration number, country or UUID."
+      ]
+    },
+    {
+      "id": "loans-6-loans",
+      "caption": "The Loans table: each loan with its status, amount, rate, LTV and funding deadline.",
+      "summary": "Each row is one loan. A loan is created as a draft, then published so investors can fund it. A loan can only be published when its required fields, repayment schedule, funding window and the borrower's KYB all pass their checks.",
+      "annotations": [
+        {
+          "item": 1,
+          "label": "Loan column",
+          "text": "The loan title with its unique ID (UUID) underneath. Click a row to select it; the selected loan becomes the default target for the action panels lower on the page (publish, close, servicing, etc.)."
+        },
+        {
+          "item": 2,
+          "label": "Status column",
+          "text": "The loan's lifecycle status as a coloured chip. The values are: Draft, Published, Funded, Late, Defaulted, Repaid, Written off, and Cancelled. Status controls what you are allowed to do: for example only Draft loans can be published, only Published loans can be closed or cancelled, only Funded/Late loans accept repayments, and only Defaulted loans accept recoveries."
+        },
+        {
+          "item": 3,
+          "label": "Amount column",
+          "text": "The loan principal: the total amount the borrower wants to raise, shown formatted in the loan's currency. (Principal means the borrowed sum itself, before interest.)"
+        },
+        {
+          "item": 4,
+          "label": "Rate column",
+          "text": "The annual interest rate the borrower pays, shown as a percentage. Internally it is stored in basis points (bps), where 100 bps = 1%."
+        },
+        {
+          "item": 5,
+          "label": "LTV column",
+          "text": "LTV means Loan-to-Value: the loan amount divided by the value of the collateral backing it, shown as a percentage. A lower LTV is safer because the collateral comfortably covers the loan. A dash means no LTV is recorded."
+        },
+        {
+          "item": 6,
+          "label": "Funding deadline column",
+          "text": "The date by which investors must finish funding the loan. After this date the campaign is expired and can be cancelled by the expiry scan. To publish a loan, the deadline must be no earlier than today and no more than 29 days out (so end-of-window investor funds can still settle inside the platform's 60-day operating limit)."
+        },
+        {
+          "item": 7,
+          "label": "Actions column",
+          "text": "Holds the per-row Edit and Manage buttons. Published loans show a note that cancellation is done via the operations panel below, rather than from this row."
+        },
+        {
+          "item": 8,
+          "label": "Filter loans by status",
+          "text": "A dropdown to show only loans in a chosen status (Draft, Published, Funded, Late, Defaulted, Repaid, Written off, Cancelled), or all of them. Handy for finding, say, every Late loan that needs servicing."
+        },
+        {
+          "item": 9,
+          "label": "Refresh button",
+          "text": "Reloads the loans list from the backend. Use it after creating, editing or running an operation if the table looks stale."
+        },
+        {
+          "item": 10,
+          "label": "Create loan button",
+          "text": "Opens the loan draft form. You pick a borrower, set the amount, rate, term, repayment type, collateral and funding deadline. The system builds the repayment schedule automatically. New loans always start as a Draft; they are not live until you publish them."
+        },
+        {
+          "item": 11,
+          "label": "Edit button (row action)",
+          "text": "Opens the loan edit form. Note the safety rule: once investors have committed money to the loan, you can only lower the total amount (and not below what is already committed), and you must include an investor message. Other fields lock after commitments exist."
+        },
+        {
+          "item": 12,
+          "label": "Manage button (row action)",
+          "text": "Selects this loan so the operation panels below (Primary marketplace operations, Servicing and recovery) act on it. Use this to line up a loan before publishing, closing or recording a repayment."
+        },
+        {
+          "item": 16,
+          "label": "Published status chip",
+          "text": "Example of a 'Published' chip: this loan is live on the marketplace and investors can fund it now. From here you can close funding, cancel funding, or release individual orders."
+        },
+        {
+          "item": 17,
+          "label": "Late status chip",
+          "text": "Example of a 'Late' chip: at least one installment is 5 or more days past due. If it reaches 16 or more days past due, the status scan moves it to Defaulted. Late loans still accept repayments."
+        }
+      ],
+      "notes": [
+        "Publishing a loan runs four gates at once: required fields present, the repayment schedule is complete (one installment per month of the term and the principal pieces add up to the loan amount), the funding deadline is valid for publishing, and the borrower's KYB is Approved with no compliance hold. If any gate fails, publishing is refused with a message.",
+        "Status is not just a label; it is enforced. The action panels will reject operations that do not match the loan's current status.",
+        "The search box lets you find a loan by title, borrower, status or UUID."
+      ]
+    },
+    {
+      "id": "loans-7-primary-marketplace-operations",
+      "caption": "Primary marketplace operations: publish a loan, close or cancel its funding, run an expiry scan, and release a stuck order.",
+      "summary": "This panel runs the live primary-market actions on a single selected loan. The primary market is the first round of funding, where investors put money into a new loan. The panel reads the loan you selected in the table above, and most actions ask you to confirm before they run.",
+      "annotations": [
+        {
+          "item": 1,
+          "label": "Loan field",
+          "text": "The loan this panel acts on. It defaults to the loan selected in the Loans table, but you can search and pick a different one. Every button below targets this loan."
+        },
+        {
+          "item": 2,
+          "label": "Publish note field",
+          "text": "An optional free-text note saved with the publish action for the audit record. It does not change anything about the loan itself."
+        },
+        {
+          "item": 11,
+          "label": "Publish loan button",
+          "text": "Moves a Draft loan to Published so investors can start funding it. It only works on Draft loans, and only if the borrower's KYB is Approved with no compliance hold, the funding deadline is valid (today through 29 days out), and the repayment schedule is complete. Otherwise it fails with a specific reason."
+        },
+        {
+          "item": 3,
+          "label": "Funding close reason field",
+          "text": "A required reason recorded when you close funding. Closing funding is the normal happy-path end of a campaign: it locks in the investors who funded the loan and creates their holdings."
+        },
+        {
+          "item": 4,
+          "label": "Investor message field",
+          "text": "The message shown to investors when funding closes. It is required for a partial close (where less than the full amount was raised, so the loan amount is lowered to what was actually committed)."
+        },
+        {
+          "item": 12,
+          "label": "Close funding button",
+          "text": "Ends the funding campaign for a Published loan. It creates investor holdings, moves the escrowed money into a borrower payable plus Garanta's fee revenue, and blocks any later order releases for this loan. It only works on Published loans whose borrower can transact and that have allocated orders matching the committed principal. A confirmation dialog summarises the action first."
+        },
+        {
+          "item": 5,
+          "label": "Cancellation reason field",
+          "text": "A required reason recorded when you cancel funding. Cancelling is the unwind path: it ends a campaign before it closes and returns money to investors."
+        },
+        {
+          "item": 6,
+          "label": "Cancellation investor message field",
+          "text": "The message to investors explaining the cancellation. It is required whenever there are pending or allocated investor orders on the loan."
+        },
+        {
+          "item": 13,
+          "label": "Cancel funding button",
+          "text": "Cancels a Published loan's funding. It releases every allocated reservation back to investors, closes pending intents as 'not invested', moves the loan to Cancelled, and records immutable evidence. It only works before funding has been closed, and only on Published loans. This is a destructive action, so it asks for confirmation."
+        },
+        {
+          "item": 7,
+          "label": "Expiry scan as-of date field",
+          "text": "The date the expiry scan compares funding deadlines against. Any published campaign whose funding deadline is before this date is treated as expired."
+        },
+        {
+          "item": 8,
+          "label": "Scan selected loan only checkbox",
+          "text": "When ticked, the scan only looks at the loan selected above. Untick it to scan every expired published campaign at once. Allocation here means the investor money matched to a loan; the scan only acts on expired campaigns."
+        },
+        {
+          "item": 9,
+          "label": "Expiry scan reason override field",
+          "text": "Optional. If left blank, the backend uses its standard expiry reason. Fill it in only when you want a custom reason recorded on the cancellations the scan produces."
+        },
+        {
+          "item": 10,
+          "label": "Expiry scan investor message override field",
+          "text": "Optional. If left blank, the backend uses its standard investor message. Use it to override the wording investors receive when their expired campaign is cancelled."
+        },
+        {
+          "item": 14,
+          "label": "Run expiry scan button",
+          "text": "Finds published campaigns past their funding deadline and cancels them using the same safe cancellation path as the Cancel funding button. After it runs, a message reports how many campaigns were cancelled and how many were skipped. It asks for confirmation first."
+        },
+        {
+          "item": 15,
+          "label": "Primary order field",
+          "text": "The specific investor order to release. An order is one investor's commitment to fund part of a loan. Use this when a single investor's order is stuck and needs unwinding without touching the rest of the campaign."
+        },
+        {
+          "item": 16,
+          "label": "Release reason field",
+          "text": "A required reason recorded against the order release for the audit trail."
+        },
+        {
+          "item": 17,
+          "label": "Release order balance button",
+          "text": "Unwinds one investor order. A still-pending order is simply closed as 'not invested'; an allocated order has its reserved balance restored to the investor and its loan-funding escrow reversed (the loan must still be Published). Orders on a loan whose funding is already closed cannot be released. Confirmation is required."
+        },
+        {
+          "item": 18,
+          "label": "Status chip (context)",
+          "text": "Shows the current status of the selected loan inside this panel (for example 'Published'), so you can confirm you are acting on the right loan before pressing a button."
+        }
+      ],
+      "notes": [
+        "Each action carries an idempotency key behind the scenes. That means clicking twice will not run the same operation twice; a repeat of the exact same request is safely ignored.",
+        "Think of it as: Publish opens funding, Close ends it successfully, Cancel ends it by unwinding, the Expiry scan auto-cancels deadlines that have passed, and Release fixes a single order.",
+        "Close, Cancel, Expiry scan and Release all show a confirmation dialog summarising the loan, reason and message before they run."
+      ]
+    },
+    {
+      "id": "loans-8-secondary-market-approvals",
+      "caption": "Secondary-market approvals: act on investor-to-investor resale listings.",
+      "summary": "The secondary market is where an investor who already owns part of a loan lists that slice for sale to another investor. Most listings go live automatically, but non-standard ones (for example on a non-performing loan) need an admin to approve them with a disclosure note. This panel approves, rejects or removes those listings.",
+      "annotations": [
+        {
+          "item": 1,
+          "label": "Secondary listing field",
+          "text": "The listing this panel acts on. Search and select the listing ID. All three buttons below target this listing."
+        },
+        {
+          "item": 2,
+          "label": "Reason field",
+          "text": "A required reason recorded with whichever action you take (approve, reject or remove). It is stored in the audit trail."
+        },
+        {
+          "item": 3,
+          "label": "Buyer disclosure note field",
+          "text": "The note that will be shown to potential buyers when a listing is approved. It is required to approve a listing and is meant to flag risks (for example that the loan is non-performing) before someone buys."
+        },
+        {
+          "item": 4,
+          "label": "Approve listing button",
+          "text": "Makes the listing visible to eligible buyers with the disclosure note attached. It only works on a listing that is in the 'approval requested' state. After approval, buyers see the listing and the disclosure. Confirmation is required."
+        },
+        {
+          "item": 5,
+          "label": "Reject button",
+          "text": "Refuses the listing so it stays hidden, and records the decision. Like Approve, it only works on a listing that is in the 'approval requested' state. This is a destructive action and asks for confirmation."
+        },
+        {
+          "item": 6,
+          "label": "Remove button",
+          "text": "Takes a listing out of buyer visibility. Unlike Approve and Reject, Remove works on a listing that is either Active (already live) or still in 'approval requested', letting you pull a listing back after it has gone live. The reason is recorded."
+        }
+      ],
+      "notes": [
+        "Approve and Reject are first-decision actions: they only apply to a listing still awaiting a decision. Remove is the way to pull a listing that is already active.",
+        "Approving notifies the seller that the listing is live; rejecting and removing notify the seller of the decision and reason.",
+        "The same Reason and Disclosure note fields are reused across all three buttons, so set them to match the action you are about to take."
+      ]
+    },
+    {
+      "id": "loans-9-servicing-and-recovery",
+      "caption": "Servicing and recovery: record repayments, scan loan health, post public notes, and handle defaults.",
+      "summary": "Servicing means running a loan after it is funded: recording the borrower's repayments and keeping its status accurate. Recovery handles loans that have defaulted (gone badly past due) by recording money clawed back. This panel acts on the loan selected in the table above.",
+      "annotations": [
+        {
+          "item": 1,
+          "label": "Loan field",
+          "text": "The loan being serviced. It defaults to the selected loan but can be changed by search. Repayments and recoveries are applied to this loan and split across its investors."
+        },
+        {
+          "item": 2,
+          "label": "Amount minor units field",
+          "text": "The repayment amount the borrower paid, in minor units (the smallest currency unit, e.g. cents). This is matched against the next installment that is due."
+        },
+        {
+          "item": 3,
+          "label": "Booking date field",
+          "text": "The date the bank booked the incoming payment. Recorded on the repayment for the financial trail."
+        },
+        {
+          "item": 4,
+          "label": "Value date field",
+          "text": "The date the money is treated as effective. The status scan and any status change use this date to judge how late the loan is."
+        },
+        {
+          "item": 5,
+          "label": "Payer name field",
+          "text": "The name on the incoming bank payment. Recorded as evidence of who paid."
+        },
+        {
+          "item": 7,
+          "label": "Record repayment button",
+          "text": "Records a borrower repayment and automatically splits it across all active investor holdings (interest first, then principal). It only works when the loan is Funded or Late and the borrower can transact. Important gotcha: if the amount does not exactly equal the next installment due, in EITHER direction (under OR over), you must tick the warning-acknowledged box first. Paying MORE than due (an early/extra principal payment) is only allowed when the loan status is Funded, not Late."
+        },
+        {
+          "item": 8,
+          "label": "Run status scan button",
+          "text": "Re-checks the loan's health as of the value date and updates its status. A loan with an installment 5+ days past due becomes Late; 16+ days past due becomes Defaulted; fully paid becomes Repaid. The scan is the only thing that escalates a loan into Defaulted; recording a repayment never does."
+        },
+        {
+          "item": 6,
+          "label": "Risk note body field",
+          "text": "The text of a public update to investors about this loan (for example explaining a delay). This is the message that gets published when you press Publish public note."
+        },
+        {
+          "item": 9,
+          "label": "Publish public note button",
+          "text": "Posts a public risk note that investors holding this loan can read. Public notes are only allowed on loans that are in an active portfolio status (Funded, Late, Defaulted, Repaid or Written off), not on drafts or unfunded loans."
+        },
+        {
+          "item": 10,
+          "label": "Recovery gross minor field",
+          "text": "The gross amount recovered, in minor units, used by Record recovery. Gross means before any deducted recovery costs or fees."
+        },
+        {
+          "item": 11,
+          "label": "Record recovery button",
+          "text": "Records money clawed back on a defaulted loan and distributes the net amount to affected investors following the recovery waterfall, reducing their outstanding principal. It only works on loans whose status is Defaulted. This is a sensitive financial action, so it asks for confirmation."
+        }
+      ],
+      "notes": [
+        "The warning-acknowledged checkbox is the key gotcha on this panel: tick it for any repayment that is not exactly the next amount due (whether short or over). Over-payments are only accepted on Funded loans.",
+        "Repayments and recoveries are split automatically across investors by their share of the loan; you do not allocate them by hand here.",
+        "Each action uses an idempotency key, so an accidental double-submit is safely ignored rather than processed twice.",
+        "Order of a defaulting loan's life: a missed payment moves it Late, then Defaulted (via status scan), then recoveries are recorded against it, and finally any unrecovered balance is written off elsewhere."
+      ]
+    }
+  ]
+}

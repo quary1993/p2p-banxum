@@ -1,0 +1,142 @@
+[
+  {
+    "id": "dashboard-0-key-metrics",
+    "w": 922,
+    "h": 113
+  },
+  {
+    "id": "dashboard-1-daily-dashboard-queues",
+    "w": 922,
+    "h": 593
+  },
+  {
+    "id": "dashboard-4-card",
+    "w": 922,
+    "h": 198
+  },
+  {
+    "id": "tasks-1-operational-task-queue",
+    "w": 922,
+    "h": 72
+  },
+  {
+    "id": "tasks-2-card",
+    "w": 922,
+    "h": 69
+  },
+  {
+    "id": "tasks-3-card",
+    "w": 922,
+    "h": 303
+  },
+  {
+    "id": "compliance-5-kyc-manual-review",
+    "w": 640,
+    "h": 553
+  },
+  {
+    "id": "compliance-6-record-aml-decision",
+    "w": 640,
+    "h": 553
+  },
+  {
+    "id": "compliance-7-account-access-controls",
+    "w": 922,
+    "h": 448
+  },
+  {
+    "id": "finance-0-lender-deposit",
+    "w": 640,
+    "h": 441
+  },
+  {
+    "id": "finance-1-payout-instruction",
+    "w": 640,
+    "h": 457
+  },
+  {
+    "id": "finance-2-investor-balance-lookup",
+    "w": 640,
+    "h": 459
+  },
+  {
+    "id": "finance-3-balance-ageing-scan",
+    "w": 640,
+    "h": 249
+  },
+  {
+    "id": "finance-4-reconciliation-snapshot",
+    "w": 640,
+    "h": 429
+  },
+  {
+    "id": "finance-5-withdrawal-execution",
+    "w": 640,
+    "h": 429
+  },
+  {
+    "id": "finance-6-borrower-disbursement",
+    "w": 640,
+    "h": 441
+  },
+  {
+    "id": "finance-7-fx-settlement",
+    "w": 922,
+    "h": 511
+  },
+  {
+    "id": "loans-0-key-metrics",
+    "w": 922,
+    "h": 151
+  },
+  {
+    "id": "loans-5-borrowers",
+    "w": 922,
+    "h": 223
+  },
+  {
+    "id": "loans-6-loans",
+    "w": 922,
+    "h": 238
+  },
+  {
+    "id": "loans-7-primary-marketplace-operations",
+    "w": 640,
+    "h": 1689
+  },
+  {
+    "id": "loans-8-secondary-market-approvals",
+    "w": 640,
+    "h": 455
+  },
+  {
+    "id": "loans-9-servicing-and-recovery",
+    "w": 922,
+    "h": 492
+  },
+  {
+    "id": "reports-0-report-generation",
+    "w": 640,
+    "h": 440
+  },
+  {
+    "id": "reports-1-audit-event-search",
+    "w": 640,
+    "h": 440
+  },
+  {
+    "id": "settings-0-document-templates",
+    "w": 922,
+    "h": 207
+  },
+  {
+    "id": "settings-1-user-accounts",
+    "w": 640,
+    "h": 620
+  },
+  {
+    "id": "settings-2-account-access-controls",
+    "w": 640,
+    "h": 620
+  }
+]
