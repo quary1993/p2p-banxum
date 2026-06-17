@@ -13,6 +13,7 @@ from datetime import date, datetime, time, timedelta
 from typing import Any
 
 from django.apps import apps
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Model
 
@@ -85,6 +86,28 @@ SUPERADMIN_ONLY_REPORT_TYPES = frozenset(
     }
 )
 FIXED_ZIP_ENTRY_DATE_TIME = (1980, 1, 1, 0, 0, 0)
+PDF_PAGE_WIDTH = 842.0
+PDF_PAGE_HEIGHT = 595.0
+PDF_MARGIN_X = 34.0
+PDF_MARGIN_TOP = 30.0
+PDF_MARGIN_BOTTOM = 34.0
+PDF_CONTENT_WIDTH = PDF_PAGE_WIDTH - (PDF_MARGIN_X * 2)
+PDF_TABLE_BODY_FONT_SIZE = 6.2
+PDF_TABLE_HEADER_FONT_SIZE = 6.4
+PDF_TABLE_LINE_HEIGHT = 8.1
+PDF_TABLE_CELL_PADDING_X = 4.0
+PDF_TABLE_CELL_PADDING_Y = 4.0
+PDF_TABLE_HEADER_HEIGHT = 19.0
+PDF_TABLE_MAX_CELL_LINES = 2
+PDF_PRIMARY = (47, 107, 79)
+PDF_PRIMARY_DARK = (27, 33, 29)
+PDF_MUTED = (113, 122, 114)
+PDF_PAPER = (245, 243, 237)
+PDF_RULE = (218, 211, 198)
+PDF_TABLE_HEADER_FILL = (233, 229, 217)
+PDF_ROW_ALT_FILL = (252, 251, 247)
+PDF_TOTAL_FILL = (231, 239, 232)
+PDF_WARNING_FILL = (246, 236, 210)
 
 
 @dataclass(frozen=True, slots=True)
@@ -2325,72 +2348,520 @@ def _pdf_escape(text: str) -> str:
     return ascii_text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
 
-def _dataset_pdf_lines(*, manifest: dict[str, Any], dataset: ReportDataset) -> list[str]:
-    title = f"{manifest['report_type']} report"
-    lines = [
-        title,
-        f"Period: {manifest['start_date']} to {manifest['end_date']}",
-        f"Generated at: {manifest['generated_at']}",
-        f"Redaction mode: {manifest['redaction_mode']}",
-        f"Definition version: {manifest['definition_version']}",
-        f"Row count: {manifest['row_count']}",
-        f"Checksum: {manifest.get('content_sha256', 'pending')}",
-        "",
-    ]
-    if dataset.notes:
-        lines.append("Notes:")
-        lines.extend(dataset.notes)
-        lines.append("")
-    lines.append("Columns: " + ", ".join(dataset.columns))
-    lines.append("")
-    for index, row in enumerate(dataset.rows, start=1):
-        row_parts = [f"{column}={_csv_cell(row.get(column))}" for column in dataset.columns]
-        row_line = f"{index}. " + " | ".join(str(part) for part in row_parts)
-        lines.extend(textwrap.wrap(row_line, width=118) or [""])
-    if not dataset.rows:
-        lines.append("No rows for this period/filter.")
+def _pdf_number(value: float) -> str:
+    text = f"{value:.3f}".rstrip("0").rstrip(".")
+    return text or "0"
+
+
+def _pdf_color(color: tuple[int, int, int]) -> str:
+    return " ".join(_pdf_number(channel / 255) for channel in color)
+
+
+def _pdf_labelize(value: str) -> str:
+    return value.replace("_", " ").replace("-", " ").title()
+
+
+def _pdf_cell_text(value: Any) -> str:
+    cell = _csv_cell(value)
+    if isinstance(cell, int):
+        return f"{cell:,}".replace(",", "'")
+    text = str(cell)
+    return " ".join(text.split())
+
+
+def _pdf_wrap_cell(text: str, *, max_chars: int, max_lines: int) -> list[str]:
+    if not text:
+        return [""]
+    lines = textwrap.wrap(
+        text,
+        width=max(4, max_chars),
+        break_long_words=True,
+        replace_whitespace=True,
+    )
+    if not lines:
+        return [""]
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        last = lines[-1]
+        lines[-1] = (
+            (last[: max(1, max_chars - 3)] + "...")
+            if len(last) >= max_chars
+            else f"{last}..."
+        )
     return lines
 
 
-def _simple_pdf_bytes(lines: list[str]) -> bytes:
-    wrapped_lines: list[str] = []
-    for line in lines:
-        wrapped_lines.extend(textwrap.wrap(line, width=118) or [""])
-    page_lines = [wrapped_lines[index : index + 62] for index in range(0, len(wrapped_lines), 62)]
-    if not page_lines:
-        page_lines = [["No report content."]]
+def _pdf_text_capacity(width: float, font_size: float) -> int:
+    usable_width = max(8.0, width - (PDF_TABLE_CELL_PADDING_X * 2))
+    return max(4, int(usable_width / (font_size * 0.52)))
+
+
+def _pdf_column_groups(columns: list[str]) -> list[list[str]]:
+    if len(columns) <= 10:
+        return [columns]
+    anchor = columns[0]
+    remaining = columns[1:]
+    chunk_size = 6
+    groups: list[list[str]] = []
+    for index in range(0, len(remaining), chunk_size):
+        groups.append([anchor, *remaining[index : index + chunk_size]])
+    return groups or [[anchor]]
+
+
+def _pdf_column_widths(columns: list[str], rows: list[dict[str, Any]]) -> list[float]:
+    row_number_width = 28.0
+    available = PDF_CONTENT_WIDTH - row_number_width
+    weights: list[float] = []
+    sample_rows = rows[:40]
+    for column in columns:
+        label = _pdf_labelize(column)
+        sample_lengths = [len(_pdf_cell_text(row.get(column))) for row in sample_rows]
+        representative = max([len(label), *sample_lengths[:6]], default=len(label))
+        weights.append(float(max(7, min(32, representative))))
+    total_weight = sum(weights) or float(len(columns) or 1)
+    return [available * (weight / total_weight) for weight in weights]
+
+
+def _pdf_is_total_row(row: dict[str, Any]) -> bool:
+    values = {str(value).strip().upper() for value in row.values() if value is not None}
+    return "__TOTAL__" in values or "TOTAL" in values
+
+
+class _PdfReportCanvas:
+    def __init__(self) -> None:
+        self.pages: list[list[str]] = [[]]
+
+    @property
+    def current(self) -> list[str]:
+        return self.pages[-1]
+
+    def new_page(self) -> None:
+        self.pages.append([])
+
+    def text(
+        self,
+        *,
+        x: float,
+        y: float,
+        text: str,
+        size: float = 8.0,
+        font: str = "F1",
+        color: tuple[int, int, int] = PDF_PRIMARY_DARK,
+    ) -> None:
+        self.current.append(
+            "BT "
+            f"/{font} {_pdf_number(size)} Tf "
+            f"{_pdf_color(color)} rg "
+            f"{_pdf_number(x)} {_pdf_number(y)} Td "
+            f"({_pdf_escape(text)}) Tj ET"
+        )
+
+    def rect(
+        self,
+        *,
+        x: float,
+        y: float,
+        width: float,
+        height: float,
+        fill: tuple[int, int, int] | None = None,
+        stroke: tuple[int, int, int] | None = None,
+        line_width: float = 0.6,
+    ) -> None:
+        commands = ["q"]
+        if fill:
+            commands.append(f"{_pdf_color(fill)} rg")
+        if stroke:
+            commands.append(f"{_pdf_color(stroke)} RG {_pdf_number(line_width)} w")
+        commands.append(
+            f"{_pdf_number(x)} {_pdf_number(y)} {_pdf_number(width)} {_pdf_number(height)} re"
+        )
+        if fill and stroke:
+            commands.append("B")
+        elif fill:
+            commands.append("f")
+        else:
+            commands.append("S")
+        commands.append("Q")
+        self.current.append(" ".join(commands))
+
+    def line(
+        self,
+        *,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
+        color: tuple[int, int, int] = PDF_RULE,
+        line_width: float = 0.5,
+    ) -> None:
+        self.current.append(
+            "q "
+            f"{_pdf_color(color)} RG {_pdf_number(line_width)} w "
+            f"{_pdf_number(x1)} {_pdf_number(y1)} m "
+            f"{_pdf_number(x2)} {_pdf_number(y2)} l S Q"
+        )
+
+
+def _pdf_page_header(
+    canvas: _PdfReportCanvas,
+    *,
+    report_title: str,
+    compact: bool,
+) -> float:
+    y = PDF_PAGE_HEIGHT - PDF_MARGIN_TOP
+    brand = str(settings.PLATFORM_BRAND_NAME)
+    operator = str(settings.LEGAL_OPERATOR_NAME)
+    canvas.rect(x=PDF_MARGIN_X, y=y - 22, width=22, height=22, fill=PDF_PRIMARY)
+    canvas.text(
+        x=PDF_MARGIN_X + 7.1,
+        y=y - 15.4,
+        text="B",
+        size=13,
+        font="F2",
+        color=(255, 255, 255),
+    )
+    canvas.text(x=PDF_MARGIN_X + 31, y=y - 7, text=brand, size=11.5, font="F2")
+    canvas.text(x=PDF_MARGIN_X + 31, y=y - 20, text=f"by {operator}", size=6.7, color=PDF_MUTED)
+    canvas.text(
+        x=PDF_PAGE_WIDTH - PDF_MARGIN_X - 250,
+        y=y - 7,
+        text=report_title,
+        size=9 if compact else 10.5,
+        font="F2",
+        color=PDF_PRIMARY,
+    )
+    canvas.line(x1=PDF_MARGIN_X, y1=y - 31, x2=PDF_PAGE_WIDTH - PDF_MARGIN_X, y2=y - 31)
+    return y - (43 if compact else 50)
+
+
+def _pdf_footer(canvas: _PdfReportCanvas, *, page_number: int, page_count: int) -> None:
+    footer_y = 22.0
+    canvas.line(
+        x1=PDF_MARGIN_X,
+        y1=footer_y + 14,
+        x2=PDF_PAGE_WIDTH - PDF_MARGIN_X,
+        y2=footer_y + 14,
+    )
+    canvas.text(
+        x=PDF_MARGIN_X,
+        y=footer_y,
+        text=(
+            "Confidential export. Content checksum is recorded in the report manifest "
+            "and audit trail."
+        ),
+        size=6.3,
+        color=PDF_MUTED,
+    )
+    canvas.text(
+        x=PDF_PAGE_WIDTH - PDF_MARGIN_X - 72,
+        y=footer_y,
+        text=f"Page {page_number} of {page_count}",
+        size=6.3,
+        color=PDF_MUTED,
+    )
+
+
+def _pdf_key_value_box(
+    canvas: _PdfReportCanvas,
+    *,
+    x: float,
+    y: float,
+    width: float,
+    title: str,
+    items: list[tuple[str, str]],
+) -> float:
+    line_height = 10.5
+    height = 24 + (len(items) * line_height)
+    canvas.rect(
+        x=x,
+        y=y - height,
+        width=width,
+        height=height,
+        fill=PDF_ROW_ALT_FILL,
+        stroke=PDF_RULE,
+    )
+    canvas.text(x=x + 10, y=y - 14, text=title, size=7.3, font="F2", color=PDF_PRIMARY)
+    current_y = y - 29
+    for label, value in items:
+        canvas.text(x=x + 10, y=current_y, text=label, size=6.4, color=PDF_MUTED)
+        canvas.text(x=x + 95, y=current_y, text=value, size=6.4, font="F2")
+        current_y -= line_height
+    return y - height
+
+
+def _pdf_notes_box(canvas: _PdfReportCanvas, *, y: float, notes: list[str]) -> float:
+    if not notes:
+        return y
+    wrapped: list[str] = []
+    for note in notes:
+        wrapped.extend(textwrap.wrap(note, width=160) or [""])
+    wrapped = wrapped[:8]
+    height = 22 + (len(wrapped) * 8.5)
+    canvas.rect(
+        x=PDF_MARGIN_X,
+        y=y - height,
+        width=PDF_CONTENT_WIDTH,
+        height=height,
+        fill=PDF_WARNING_FILL,
+        stroke=PDF_RULE,
+    )
+    canvas.text(x=PDF_MARGIN_X + 10, y=y - 14, text="Notes and disclaimers", size=7.2, font="F2")
+    current_y = y - 28
+    for line in wrapped:
+        canvas.text(x=PDF_MARGIN_X + 10, y=current_y, text=line, size=6.3, color=PDF_PRIMARY_DARK)
+        current_y -= 8.5
+    return y - height - 12
+
+
+def _pdf_draw_table_header(
+    canvas: _PdfReportCanvas,
+    *,
+    y: float,
+    columns: list[str],
+    widths: list[float],
+) -> None:
+    canvas.rect(
+        x=PDF_MARGIN_X,
+        y=y - PDF_TABLE_HEADER_HEIGHT,
+        width=PDF_CONTENT_WIDTH,
+        height=PDF_TABLE_HEADER_HEIGHT,
+        fill=PDF_TABLE_HEADER_FILL,
+        stroke=PDF_RULE,
+    )
+    current_x = PDF_MARGIN_X
+    canvas.text(
+        x=current_x + PDF_TABLE_CELL_PADDING_X,
+        y=y - 12.5,
+        text="#",
+        size=PDF_TABLE_HEADER_FONT_SIZE,
+        font="F2",
+    )
+    current_x += 28.0
+    for column, width in zip(columns, widths, strict=True):
+        label = _pdf_labelize(column)
+        max_chars = _pdf_text_capacity(width, PDF_TABLE_HEADER_FONT_SIZE)
+        canvas.text(
+            x=current_x + PDF_TABLE_CELL_PADDING_X,
+            y=y - 12.5,
+            text=_pdf_wrap_cell(label, max_chars=max_chars, max_lines=1)[0],
+            size=PDF_TABLE_HEADER_FONT_SIZE,
+            font="F2",
+            color=PDF_PRIMARY,
+        )
+        current_x += width
+
+
+def _pdf_row_lines(
+    *,
+    row: dict[str, Any],
+    columns: list[str],
+    widths: list[float],
+) -> list[list[str]]:
+    cells: list[list[str]] = []
+    for column, width in zip(columns, widths, strict=True):
+        cells.append(
+            _pdf_wrap_cell(
+                _pdf_cell_text(row.get(column)),
+                max_chars=_pdf_text_capacity(width, PDF_TABLE_BODY_FONT_SIZE),
+                max_lines=PDF_TABLE_MAX_CELL_LINES,
+            )
+        )
+    return cells
+
+
+def _pdf_draw_table_row(
+    canvas: _PdfReportCanvas,
+    *,
+    y: float,
+    row_number: int,
+    columns: list[str],
+    widths: list[float],
+    cell_lines: list[list[str]],
+    row_height: float,
+    alternate: bool,
+    total: bool,
+) -> None:
+    fill = PDF_TOTAL_FILL if total else (PDF_ROW_ALT_FILL if alternate else (255, 255, 255))
+    canvas.rect(
+        x=PDF_MARGIN_X,
+        y=y - row_height,
+        width=PDF_CONTENT_WIDTH,
+        height=row_height,
+        fill=fill,
+        stroke=PDF_RULE,
+        line_width=0.35,
+    )
+    current_x = PDF_MARGIN_X
+    font = "F2" if total else "F1"
+    canvas.text(
+        x=current_x + PDF_TABLE_CELL_PADDING_X,
+        y=y - 11.5,
+        text=str(row_number),
+        size=PDF_TABLE_BODY_FONT_SIZE,
+        font=font,
+        color=PDF_MUTED,
+    )
+    current_x += 28.0
+    for width, lines in zip(widths, cell_lines, strict=True):
+        text_y = y - 11.5
+        for line in lines:
+            canvas.text(
+                x=current_x + PDF_TABLE_CELL_PADDING_X,
+                y=text_y,
+                text=line,
+                size=PDF_TABLE_BODY_FONT_SIZE,
+                font=font,
+            )
+            text_y -= PDF_TABLE_LINE_HEIGHT
+        current_x += width
+
+
+def _report_pdf_bytes(*, manifest: dict[str, Any], dataset: ReportDataset) -> bytes:
+    canvas = _PdfReportCanvas()
+    report_title = f"{_pdf_labelize(str(manifest['report_type']))} report"
+    y = _pdf_page_header(canvas, report_title=report_title, compact=False)
+    canvas.text(x=PDF_MARGIN_X, y=y, text=report_title, size=18, font="F2")
+    canvas.text(
+        x=PDF_MARGIN_X,
+        y=y - 17,
+        text=(
+            f"{manifest['start_date']} to {manifest['end_date']} - "
+            f"{_pdf_labelize(str(manifest['redaction_mode']))}"
+        ),
+        size=8.2,
+        color=PDF_MUTED,
+    )
+    y -= 38
+    left_y = _pdf_key_value_box(
+        canvas,
+        x=PDF_MARGIN_X,
+        y=y,
+        width=(PDF_CONTENT_WIDTH - 14) / 2,
+        title="Report",
+        items=[
+            ("Type", _pdf_labelize(str(manifest["report_type"]))),
+            ("Rows", str(manifest["row_count"])),
+            ("Definition", str(manifest["definition_version"])),
+            ("Semantics", _pdf_labelize(str(manifest["semantics"]))),
+        ],
+    )
+    right_y = _pdf_key_value_box(
+        canvas,
+        x=PDF_MARGIN_X + ((PDF_CONTENT_WIDTH - 14) / 2) + 14,
+        y=y,
+        width=(PDF_CONTENT_WIDTH - 14) / 2,
+        title="Generation",
+        items=[
+            ("Generated", str(manifest["generated_at"])),
+            ("Preset", _pdf_labelize(str(manifest["period_preset"]))),
+            ("Mode", _pdf_labelize(str(manifest["run_mode"]))),
+            ("Filters", _stable_json(manifest.get("filters", {}))[:72] or "{}"),
+        ],
+    )
+    y = min(left_y, right_y) - 16
+    y = _pdf_notes_box(canvas, y=y, notes=dataset.notes)
+
+    column_groups = _pdf_column_groups(dataset.columns)
+    bottom_limit = PDF_MARGIN_BOTTOM + 26
+    if not dataset.rows:
+        if y < bottom_limit + 50:
+            canvas.new_page()
+            y = _pdf_page_header(canvas, report_title=report_title, compact=True)
+        canvas.rect(
+            x=PDF_MARGIN_X,
+            y=y - 42,
+            width=PDF_CONTENT_WIDTH,
+            height=42,
+            fill=PDF_ROW_ALT_FILL,
+            stroke=PDF_RULE,
+        )
+        canvas.text(
+            x=PDF_MARGIN_X + 12,
+            y=y - 18,
+            text="No rows for this period or filter.",
+            size=8.0,
+            font="F2",
+            color=PDF_MUTED,
+        )
+    for group_index, columns in enumerate(column_groups, start=1):
+        widths = _pdf_column_widths(columns, dataset.rows)
+        section_label = f"Table {group_index} of {len(column_groups)}"
+        if len(column_groups) > 1:
+            section_label += f" - columns: {', '.join(_pdf_labelize(column) for column in columns)}"
+        if y < bottom_limit + 70:
+            canvas.new_page()
+            y = _pdf_page_header(canvas, report_title=report_title, compact=True)
+        canvas.text(x=PDF_MARGIN_X, y=y, text=section_label, size=8.0, font="F2", color=PDF_PRIMARY)
+        y -= 10
+        _pdf_draw_table_header(canvas, y=y, columns=columns, widths=widths)
+        y -= PDF_TABLE_HEADER_HEIGHT
+        for row_number, row in enumerate(dataset.rows, start=1):
+            cell_lines = _pdf_row_lines(row=row, columns=columns, widths=widths)
+            line_count = max((len(lines) for lines in cell_lines), default=1)
+            row_height = (
+                (line_count * PDF_TABLE_LINE_HEIGHT)
+                + (PDF_TABLE_CELL_PADDING_Y * 2)
+                + 1.5
+            )
+            if y - row_height < bottom_limit:
+                canvas.new_page()
+                y = _pdf_page_header(canvas, report_title=report_title, compact=True)
+                canvas.text(
+                    x=PDF_MARGIN_X,
+                    y=y,
+                    text=f"{section_label} continued",
+                    size=8.0,
+                    font="F2",
+                    color=PDF_PRIMARY,
+                )
+                y -= 10
+                _pdf_draw_table_header(canvas, y=y, columns=columns, widths=widths)
+                y -= PDF_TABLE_HEADER_HEIGHT
+            _pdf_draw_table_row(
+                canvas,
+                y=y,
+                row_number=row_number,
+                columns=columns,
+                widths=widths,
+                cell_lines=cell_lines,
+                row_height=row_height,
+                alternate=row_number % 2 == 0,
+                total=_pdf_is_total_row(row),
+            )
+            y -= row_height
+        y -= 18
+
+    page_count = len(canvas.pages)
+    for page_number in range(1, page_count + 1):
+        canvas.pages[page_number - 1].append("")
+        _pdf_footer(canvas, page_number=page_number, page_count=page_count)
 
     objects: dict[int, bytes] = {}
     page_object_ids: list[int] = []
     objects[1] = b"<< /Type /Catalog /Pages 2 0 R >>"
     objects[3] = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
+    objects[4] = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>"
+    objects[5] = b"<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>"
 
-    next_id = 4
-    for page_number, lines_for_page in enumerate(page_lines, start=1):
+    next_id = 6
+    for page_commands in canvas.pages:
         content_id = next_id
         page_id = next_id + 1
         next_id += 2
         page_object_ids.append(page_id)
-        text_commands = ["BT", "/F1 8 Tf", "10 TL", "36 800 Td"]
-        for line in lines_for_page:
-            text_commands.append(f"({_pdf_escape(line)}) Tj")
-            text_commands.append("T*")
-        text_commands.extend(
-            [
-                "T*",
-                f"(Page {page_number} of {len(page_lines)}) Tj",
-                "ET",
-            ]
-        )
-        content = "\n".join(text_commands).encode("latin-1", errors="replace")
+        content = "\n".join(page_commands).encode("latin-1", errors="replace")
         objects[content_id] = (
             f"<< /Length {len(content)} >>\nstream\n".encode("ascii") + content + b"\nendstream"
         )
         objects[page_id] = (
-            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] "
-            + f"/Resources << /Font << /F1 3 0 R >> >> /Contents {content_id} 0 R >>".encode(
-                "ascii"
-            )
+            (
+                f"<< /Type /Page /Parent 2 0 R "
+                f"/MediaBox [0 0 {int(PDF_PAGE_WIDTH)} {int(PDF_PAGE_HEIGHT)}] "
+            ).encode("ascii")
+            + (
+                f"/Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> "
+                f"/Contents {content_id} 0 R >>"
+            ).encode("ascii")
         )
 
     kids = " ".join(f"{page_id} 0 R" for page_id in page_object_ids)
@@ -2467,7 +2938,7 @@ def _render_pdf(
         end_date=end_date,
         extension="pdf",
     )
-    pdf_bytes = _simple_pdf_bytes(_dataset_pdf_lines(manifest=manifest, dataset=dataset))
+    pdf_bytes = _report_pdf_bytes(manifest=manifest, dataset=dataset)
     checksum = _content_checksum_bytes(pdf_bytes)
     return RenderedReport(
         content_type=PDF_CONTENT_TYPE,

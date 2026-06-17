@@ -446,6 +446,11 @@ def test_monthly_period_preset_resolves_dates_and_pdf_payload(
     assert artifact.content_encoding == "base64"
     assert artifact.filename == "operational_subledger_2026-01-01_2026-01-31.pdf"
     assert pdf_bytes.startswith(b"%PDF-1.4")
+    assert b"/MediaBox [0 0 842 595]" in pdf_bytes
+    assert b"(BANXUM)" in pdf_bytes
+    assert b"(Operational Subledger report)" in pdf_bytes
+    assert b"(Table 1 of " in pdf_bytes
+    assert b"(Confidential export." in pdf_bytes
     assert artifact.report_run.start_date == date(2026, 1, 1)
     assert artifact.report_run.end_date == date(2026, 1, 31)
     assert artifact.manifest["period_preset"] == "monthly"

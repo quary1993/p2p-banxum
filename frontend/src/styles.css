@@ -2189,7 +2189,8 @@ textarea.input {
 }
 
 .admin-two-col > .card,
-.admin-module-grid > .card {
+.admin-module-grid > .card,
+.admin-stack > .card {
   min-width: 0;
   overflow: hidden;
 }
@@ -2359,6 +2360,14 @@ textarea.input {
 
 .admin-wide-card {
   grid-column: 1 / -1;
+}
+
+/* Full-width stacked data tables: dense tables (many columns) get the whole
+   content width instead of being squeezed into a half-width column. */
+.admin-stack {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
 }
 
 .admin-form-grid {

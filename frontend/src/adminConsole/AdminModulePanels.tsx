@@ -1722,7 +1722,7 @@ export function LoansPanel() {
         <StatLike label="Risk items" value={loans.filter((item) => ["late", "defaulted"].includes(item.status)).length} sub="Servicing attention" />
       </section>
 
-      <section className="admin-two-col">
+      <section className="admin-stack">
         <Card padded>
           <EntityTableHeader
             action={
@@ -1882,12 +1882,12 @@ export function LoansPanel() {
           defaultLoanStatus={selectedLoan?.status ?? ""}
           defaultLoanTitle={selectedLoan?.title ?? ""}
         />
+        <SecondaryMarketAdminForm />
         <ServicingOpsForm
           defaultLoanCurrency={selectedLoan?.currency ?? "CHF"}
           defaultLoanId={selectedLoan?.id ?? ""}
           defaultLoanTitle={selectedLoan?.title ?? ""}
         />
-        <SecondaryMarketAdminForm />
       </section>
       {showBorrowerCreate ? (
         <Modal title="Create borrower" onClose={() => setShowBorrowerCreate(false)}>
