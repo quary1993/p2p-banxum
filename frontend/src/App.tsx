@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { AdminApp } from "./adminConsole/AdminApp";
 import {
   ActionEnum,
@@ -598,19 +598,25 @@ function PublicLanding({ setRoute }: { setRoute: (route: AppRoute) => void }) {
           Register
         </Button>
       </header>
-      <main className="public-body">
-        <div className="public-mobile-links" aria-label="Public links">
-          <button className="btn-link" onClick={() => goTo(setRoute, "faq")} type="button">How it works</button>
-          <button className="btn-link" onClick={() => goTo(setRoute, "faq")} type="button">FAQ</button>
-        </div>
-        {previewLoan ? (
+      {previewLoan ? (
+        <main className="public-body">
+          <div className="public-mobile-links" aria-label="Public links">
+            <button className="btn-link" onClick={() => goTo(setRoute, "faq")} type="button">How it works</button>
+            <button className="btn-link" onClick={() => goTo(setRoute, "faq")} type="button">FAQ</button>
+          </div>
           <PublicLoanPreview
             loan={previewLoan}
             onBack={() => setPreviewLoanId(null)}
             setRoute={setRoute}
           />
-        ) : (
-          <>
+        </main>
+      ) : (
+        <>
+          <main className="public-body landing">
+            <div className="public-mobile-links" aria-label="Public links">
+              <button className="btn-link" onClick={() => goTo(setRoute, "faq")} type="button">How it works</button>
+              <button className="btn-link" onClick={() => goTo(setRoute, "faq")} type="button">FAQ</button>
+            </div>
             <div className="page-head">
               <div>
                 <h1>Open loan opportunities</h1>
@@ -618,6 +624,9 @@ function PublicLanding({ setRoute }: { setRoute: (route: AppRoute) => void }) {
                   Preview current primary-market loans. Borrower documents, ratings, collateral detail and
                   investing unlock after registration and identity verification.
                 </div>
+                <p className="lede-line">
+                  Put your capital to work: fund highly collateralised, secured loans and earn monthly interest.
+                </p>
               </div>
             </div>
             <div className="preview-banner">
@@ -652,10 +661,121 @@ function PublicLanding({ setRoute }: { setRoute: (route: AppRoute) => void }) {
               {operatorName}. Investing involves risk of capital loss and is not a bank deposit,
               fund unit, trading venue, or guaranteed-return product.
             </p>
-          </>
-        )}
-      </main>
+          </main>
+          <LandingMarketing setRoute={setRoute} />
+        </>
+      )}
     </div>
+  );
+}
+
+function LandingMarketing({ setRoute }: { setRoute: (route: AppRoute) => void }) {
+  const steps = [
+    {
+      n: "01",
+      icon: "shield" as const,
+      title: "We originate and vet",
+      desc: `${operatorName} sources, underwrites and services business loans across Switzerland and the EU/EEA. Every loan is risk-rated, secured by collateral, and fully documented.`
+    },
+    {
+      n: "02",
+      icon: "market" as const,
+      title: "You choose and invest",
+      desc: `Browse the marketplace and buy a participation in the loan claims you pick, from CHF / EUR 1,000. Spread your capital across borrowers, sectors and currencies.`
+    },
+    {
+      n: "03",
+      icon: "trend" as const,
+      title: "You earn as they repay",
+      desc: `Interest and principal land in your balance on schedule. Reinvest into new loans, exchange currency, sell early on the secondary market, or withdraw to your bank.`
+    }
+  ];
+
+  const facts: Array<{ fig: ReactNode; k: string; d: string }> = [
+    {
+      fig: <>8–18<span className="u">%</span></>,
+      k: "Target annual interest",
+      d: "Target range across loans on the platform. Returns are targets, not guarantees."
+    },
+    {
+      fig: <>1,000<span className="u"> +</span></>,
+      k: "Minimum per loan",
+      d: "CHF or EUR. A low entry point so you can diversify widely from the start."
+    },
+    {
+      fig: <>Monthly</>,
+      k: "Repayment cash flow",
+      d: "Most loans repay interest and principal on a schedule — income before maturity, not only at the end."
+    },
+    {
+      fig: <>10<span className="u">/10</span></>,
+      k: "Secured by collateral",
+      d: "Every loan is backed by real assets — no unsecured lending on the platform."
+    },
+    {
+      fig: <>{"≤ 63"}<span className="u">%</span></>,
+      k: "Conservative loan-to-value",
+      d: "Pledged collateral comfortably exceeds every loan, cushioning against loss for lower risk."
+    }
+  ];
+
+  return (
+    <>
+      <section className="lband surface">
+        <div className="lband-inner">
+          <div className="lband-eyebrow">What we do</div>
+          <h2 className="lband-title">Private lending, opened up to individuals</h2>
+          <p className="lband-lede">
+            {platformName} lets you invest directly in secured business loans — a form of private credit
+            that was, until recently, the preserve of banks and institutional funds. We handle origination,
+            underwriting and servicing; you choose where your money goes.
+          </p>
+          <div className="steps">
+            {steps.map((step) => (
+              <div className="step" key={step.n}>
+                <div className="step-n">{step.n}</div>
+                <div className="step-icon"><Icon name={step.icon} size={18} /></div>
+                <h3>{step.title}</h3>
+                <p>{step.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="lband dark">
+        <div className="lband-inner">
+          <div className="lband-eyebrow">Why investors choose private credit</div>
+          <h2 className="lband-title">An income-generating asset class, beyond stocks and bonds</h2>
+          <p className="lband-lede">
+            Returns come from borrowers repaying real loans — driven by contractual interest, not market
+            sentiment — which historically gives private credit low correlation to public equity markets
+            and a steady stream of cash flow.
+          </p>
+          <div className="facts">
+            {facts.map((fact) => (
+              <div className="fact" key={fact.k}>
+                <div className="fact-fig">{fact.fig}</div>
+                <div className="fact-k">{fact.k}</div>
+                <div className="fact-d">{fact.d}</div>
+              </div>
+            ))}
+          </div>
+          <p className="dark-caveat">
+            Across 10 loans in 6 countries on the platform today. Peer-to-peer lending carries risk:
+            borrowers may pay late or default, collateral may not fully cover losses, capital is at risk,
+            and an early exit on the secondary market is not guaranteed. Platform balances are not bank
+            deposits and returns are not guaranteed.
+          </p>
+          <div className="dark-cta">
+            <Button size="lg" variant="primary" onClick={() => goTo(setRoute, "register")}>
+              Create your investor account
+            </Button>
+            <a onClick={() => goTo(setRoute, "faq")}>Read how it works →</a>
+          </div>
+        </div>
+      </section>
+    </>
   );
 }
 
