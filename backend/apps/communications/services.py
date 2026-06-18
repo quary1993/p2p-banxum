@@ -131,6 +131,15 @@ class SendGridEmailProvider:
                 {"type": "text/plain", "value": email.body_text},
                 {"type": "text/html", "value": email.body_html or _html_from_text(email.body_text)},
             ],
+            # These are transactional auth emails. Click tracking rewrites the
+            # one-time magic-link/code URLs through a SendGrid redirect domain,
+            # which mail-security scanners pre-fetch — consuming the single-use
+            # token before the user clicks. Open tracking adds a pixel that has
+            # no value here and can hurt deliverability. Disable both.
+            "tracking_settings": {
+                "click_tracking": {"enable": False, "enable_text": False},
+                "open_tracking": {"enable": False},
+            },
         }
         request = urllib.request.Request(
             "https://api.sendgrid.com/v3/mail/send",
