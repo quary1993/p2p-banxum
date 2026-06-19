@@ -6667,6 +6667,15 @@ components:
           type: string
           format: uuid
           nullable: true
+        user_full_name:
+          type: string
+          readOnly: true
+        user_email:
+          type: string
+          readOnly: true
+        investor_reference:
+          type: string
+          readOnly: true
         provider:
           type: string
         provider_environment:
@@ -6712,6 +6721,7 @@ components:
       - decision_at
       - detected_flags
       - id
+      - investor_reference
       - manual_review_required
       - provider
       - provider_environment
@@ -6724,6 +6734,8 @@ components:
       - subject_reference
       - subject_type
       - updated_at
+      - user_email
+      - user_full_name
       - user_id
       - workflow_id
     KycManualReviewDecision:

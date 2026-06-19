@@ -66,6 +66,7 @@ import {
   type InvestorPayoutInstructionRegisterRequest,
   type InvestorWithdrawalCancelRequest,
   type InvestorWithdrawalFinalizeRequest,
+  type KycAdminCase,
   type KycManualReviewDecisionRequest,
   type KycManualReviewDecisionRequestReasonCodeEnum as KycReasonCode,
   type LenderDepositDeclareRequest,
@@ -539,13 +540,15 @@ function KycCaseLookupInput({
   onChange,
   query,
   onQueryChange,
-  required = false
+  required = false,
+  onSelect
 }: {
   value: string;
   onChange: (value: string) => void;
   query: string;
   onQueryChange: (value: string) => void;
   required?: boolean;
+  onSelect?: (option: AdminLookupResult) => void;
 }) {
   const debouncedQuery = useDebouncedValue(query);
   const lookup = useAdminKycCaseLookupData({ q: debouncedQuery, limit: 20 });
@@ -557,6 +560,7 @@ function KycCaseLookupInput({
       loading={lookup.isFetching}
       onChange={onChange}
       onQueryChange={onQueryChange}
+      onSelect={onSelect}
       options={lookup.data ?? []}
       placeholder="Name, email, Didit session, reference, or UUID"
       query={query}
@@ -933,10 +937,18 @@ export function CompliancePanel() {
   const kycQuery = useKycManualReviewsData();
   const cases = useMemo(() => kycQuery.data ?? [], [kycQuery.data]);
   const [selectedCaseId, setSelectedCaseId] = useState("");
+  const [page, setPage] = useState(0);
+  const pageSize = 10;
 
   useEffect(() => {
     if (!selectedCaseId && cases[0]) setSelectedCaseId(cases[0].id);
   }, [cases, selectedCaseId]);
+
+  const pageCount = Math.max(1, Math.ceil(cases.length / pageSize));
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(0);
+  }, [page, pageCount]);
+  const pageCases = cases.slice(page * pageSize, page * pageSize + pageSize);
 
   return (
     <div className="admin-content">
@@ -948,59 +960,76 @@ export function CompliancePanel() {
         <StatLike label="Provider" value={cases[0]?.provider ?? "Didit"} sub="External KYC/KYB provider" />
       </section>
 
-      <section className="admin-two-col">
+      <section className="admin-stack">
         <Card padded>
           <SectionHeader
             action={<Button icon="refresh" onClick={() => refetchLive(kycQuery.refetch)} size="sm">Refresh</Button>}
-            description="Review KYC/KYB cases routed to Garanta manual review. Sanctions and fraud blocks remain non-overridable server-side."
+            description="Review KYC/KYB cases routed to Garanta manual review. Click a row to load it into the AML decision panel below. Sanctions and fraud blocks remain non-overridable server-side."
             title="KYC manual review"
           />
           {cases.length ? (
-            <div className="table-wrap admin-table-wrap">
-              <table className="admin-table">
-                <thead>
-                  <tr>
-                    <th>Subject</th>
-                    <th>Status</th>
-                    <th>Risk</th>
-                    <th>Flags</th>
-                    <th>Provider refs</th>
-                    <th>Updated</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {cases.map((item) => (
-                    <tr
-                      className={selectedCaseId === item.id ? "admin-selected-row" : ""}
-                      key={item.id}
-                      onClick={() => setSelectedCaseId(item.id)}
-                    >
-                      <td>
-                        <strong>{item.subject_reference}</strong>
-                        <span className="muted mono">{item.user_id ?? item.subject_type}</span>
-                      </td>
-                      <td><Chip tone={statusTone(item.status)}>{labelize(item.status)}</Chip></td>
-                      <td>{labelize(item.risk_classification)}</td>
-                      <td>{item.detected_flags.map((flag) => <Chip key={flag} tone="warn">{labelize(flag)}</Chip>)}</td>
-                      <td>
-                        <div className="col gap-4">
-                          <span className="mono">{item.provider_report_id || "-"}</span>
-                          <span className="mono muted">{item.aml_screening_id || "-"}</span>
-                        </div>
-                      </td>
-                      <td>{formatDateTime(item.updated_at)}</td>
+            <>
+              <div className="table-wrap admin-table-wrap">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Email</th>
+                      <th>Reference</th>
+                      <th>Status</th>
+                      <th>Risk</th>
+                      <th>Flags</th>
+                      <th>Updated</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {pageCases.map((item) => (
+                      <tr
+                        className={selectedCaseId === item.id ? "admin-selected-row" : ""}
+                        key={item.id}
+                        onClick={() => setSelectedCaseId(item.id)}
+                      >
+                        <td>
+                          <strong>{item.user_full_name || labelize(item.subject_type)}</strong>
+                          <span className="muted mono">{item.subject_reference || item.user_id || "-"}</span>
+                        </td>
+                        <td className="mono">{item.user_email || "-"}</td>
+                        <td className="mono">{item.investor_reference || "-"}</td>
+                        <td><Chip tone={statusTone(item.status)}>{labelize(item.status)}</Chip></td>
+                        <td>{labelize(item.risk_classification)}</td>
+                        <td>
+                          <div className="row gap-4 wrap">
+                            {item.detected_flags.length
+                              ? item.detected_flags.map((flag) => <Chip key={flag} tone="warn">{labelize(flag)}</Chip>)
+                              : "-"}
+                          </div>
+                        </td>
+                        <td>{formatDateTime(item.updated_at)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {cases.length > pageSize ? (
+                <div className="admin-pager">
+                  <span className="muted">
+                    Showing {page * pageSize + 1}&ndash;{Math.min(cases.length, (page + 1) * pageSize)} of {cases.length}
+                  </span>
+                  <div className="row gap-8">
+                    <Button disabled={page === 0} onClick={() => setPage((current) => Math.max(0, current - 1))} size="sm">Previous</Button>
+                    <span className="muted">Page {page + 1} of {pageCount}</span>
+                    <Button disabled={page >= pageCount - 1} onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))} size="sm">Next</Button>
+                  </div>
+                </div>
+              ) : null}
+            </>
           ) : (
             <Empty icon="shield" title="No manual-review cases">
               KYC/KYB review items will appear when Didit routes a case to Garanta.
             </Empty>
           )}
         </Card>
-        <ManualKycDecisionForm defaultCaseId={selectedCaseId} />
+        <ManualKycDecisionForm cases={cases} defaultCaseId={selectedCaseId} />
       </section>
 
       <section className="admin-section">
@@ -1010,9 +1039,90 @@ export function CompliancePanel() {
   );
 }
 
-function ManualKycDecisionForm({ defaultCaseId }: { defaultCaseId: string }) {
+type KycCaseDetail = {
+  name: string;
+  email: string;
+  reference: string;
+  subjectReference: string;
+  subjectType: string;
+  status: string;
+  risk: string;
+  flags: string[];
+  blockingReason: string;
+  providerSession: string;
+  providerVerification: string;
+  providerReport: string;
+  amlScreening: string;
+};
+
+function buildKycCaseDetail(source: Record<string, unknown> | null | undefined): KycCaseDetail | null {
+  if (!source) return null;
+  const str = (key: string) => {
+    const value = source[key];
+    return typeof value === "string" ? value : value == null ? "" : String(value);
+  };
+  const flags = Array.isArray(source.detected_flags)
+    ? source.detected_flags.filter((flag): flag is string => typeof flag === "string")
+    : [];
+  return {
+    name: str("user_full_name"),
+    email: str("user_email"),
+    reference: str("investor_reference"),
+    subjectReference: str("subject_reference"),
+    subjectType: str("subject_type"),
+    status: str("status"),
+    risk: str("risk_classification"),
+    flags,
+    blockingReason: str("blocking_reason"),
+    providerSession: str("provider_session_id"),
+    providerVerification: str("provider_verification_id"),
+    providerReport: str("provider_report_id"),
+    amlScreening: str("aml_screening_id")
+  };
+}
+
+function KycCaseDetailCard({ detail }: { detail: KycCaseDetail }) {
+  const refs: Array<[string, string]> = [
+    ["Reference", detail.reference],
+    ["Subject", detail.subjectReference],
+    ["Risk", detail.risk ? labelize(detail.risk) : ""],
+    ["Report", detail.providerReport],
+    ["AML screening", detail.amlScreening],
+    ["Didit session", detail.providerSession],
+    ["Verification", detail.providerVerification]
+  ];
+  return (
+    <div className="kyc-detail">
+      <div className="row spread wrap" style={{ gap: 8 }}>
+        <div>
+          <div className="col-strong">{detail.name || labelize(detail.subjectType) || "Selected case"}</div>
+          <div className="muted mono" style={{ fontSize: 12 }}>{detail.email || detail.subjectReference || "-"}</div>
+        </div>
+        {detail.status ? <Chip tone={statusTone(detail.status)}>{labelize(detail.status)}</Chip> : null}
+      </div>
+      {detail.flags.length ? (
+        <div className="row gap-4 wrap" style={{ marginTop: 8 }}>
+          {detail.flags.map((flag) => <Chip key={flag} tone="warn">{labelize(flag)}</Chip>)}
+        </div>
+      ) : null}
+      <div className="admin-context-bar" style={{ marginTop: 10 }}>
+        {refs
+          .filter(([, value]) => value)
+          .map(([label, value]) => (
+            <span key={label}>{label} <strong className="mono">{value}</strong></span>
+          ))}
+      </div>
+      {detail.blockingReason ? (
+        <p className="muted" style={{ fontSize: 12.5, margin: "8px 0 0" }}>{detail.blockingReason}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function ManualKycDecisionForm({ cases, defaultCaseId }: { cases: KycAdminCase[]; defaultCaseId: string }) {
   const [caseId, setCaseId] = useState(defaultCaseId);
   const [caseQuery, setCaseQuery] = useState(defaultCaseId);
+  const [selectedOption, setSelectedOption] = useState<AdminLookupResult | null>(null);
   const [decision, setDecision] = useState<KycDecision>(DecisionEnum.approve);
   const [reasonCode, setReasonCode] = useState<KycReasonCode>(KycManualReviewDecisionRequestReasonCodeEnum.pep_review);
   const [note, setNote] = useState("");
@@ -1030,11 +1140,16 @@ function ManualKycDecisionForm({ defaultCaseId }: { defaultCaseId: string }) {
     setCaseQuery(defaultCaseId);
   }, [defaultCaseId]);
 
+  const tableCase = cases.find((item) => item.id === caseId) as unknown as Record<string, unknown> | undefined;
+  const lookupPayload =
+    selectedOption && selectedOption.id === caseId ? payloadRecord(selectedOption) : null;
+  const detail = buildKycCaseDetail(tableCase ?? lookupPayload);
+
   function submit(event: FormEvent) {
     event.preventDefault();
     const data: KycManualReviewDecisionRequest = { decision, reason_code: reasonCode, note, evidence_summary: evidenceSummary };
     if (isFixturePreview) {
-      setPreview(`${labelize(decision)} recorded for ${caseId || "selected case"}.`);
+      setPreview(`${labelize(decision)} recorded for ${detail?.name || caseId || "selected case"}.`);
       return;
     }
     mutation.mutate({ caseId, data });
@@ -1043,15 +1158,17 @@ function ManualKycDecisionForm({ defaultCaseId }: { defaultCaseId: string }) {
   return (
     <Card padded>
       <h2>Record AML decision</h2>
-      <p>Use only after provider evidence has been reviewed. The backend enforces allowed status transitions.</p>
+      <p>Select the case, review the person&apos;s details below, then record the decision. The backend enforces allowed status transitions.</p>
       <form className="admin-action-form" onSubmit={submit}>
         <KycCaseLookupInput
           onChange={setCaseId}
           onQueryChange={setCaseQuery}
+          onSelect={setSelectedOption}
           query={caseQuery}
           required
           value={caseId}
         />
+        {detail ? <KycCaseDetailCard detail={detail} /> : null}
         <FieldGrid>
           <SelectInput label="Decision" onChange={setDecision} options={Object.values(DecisionEnum)} value={decision} />
           <SelectInput label="Reason code" onChange={setReasonCode} options={Object.values(KycManualReviewDecisionRequestReasonCodeEnum)} value={reasonCode} />

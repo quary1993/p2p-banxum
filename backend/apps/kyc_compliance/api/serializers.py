@@ -44,6 +44,9 @@ class KycAdminCaseSerializer(serializers.Serializer[Any]):
     subject_type = serializers.CharField()
     subject_reference = serializers.CharField()
     user_id = serializers.UUIDField(allow_null=True)
+    user_full_name = serializers.SerializerMethodField()
+    user_email = serializers.SerializerMethodField()
+    investor_reference = serializers.SerializerMethodField()
     provider = serializers.CharField()
     provider_environment = serializers.CharField()
     workflow_id = serializers.CharField()
@@ -60,6 +63,21 @@ class KycAdminCaseSerializer(serializers.Serializer[Any]):
     decision_at = serializers.DateTimeField(allow_null=True)
     created_at = serializers.DateTimeField()
     updated_at = serializers.DateTimeField()
+
+    def _user(self, obj: Any) -> Any:
+        return getattr(obj, "user", None)
+
+    def get_user_full_name(self, obj: Any) -> str:
+        user = self._user(obj)
+        return str(getattr(user, "full_name", "") or "") if user else ""
+
+    def get_user_email(self, obj: Any) -> str:
+        user = self._user(obj)
+        return str(getattr(user, "email", "") or "") if user else ""
+
+    def get_investor_reference(self, obj: Any) -> str:
+        user = self._user(obj)
+        return str(getattr(user, "investor_reference", "") or "") if user else ""
 
 
 class KycManualReviewDecisionRequestSerializer(serializers.Serializer[Any]):

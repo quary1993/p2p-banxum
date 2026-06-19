@@ -552,6 +552,9 @@ export const kycManualReviewFixture: KycAdminCase[] = [
     subject_type: "natural_person",
     subject_reference: "INV-2048",
     user_id: "00000000-0000-4000-8000-000000002048",
+    user_full_name: "Lukas Brunner",
+    user_email: "lukas.brunner@example.ch",
+    investor_reference: "L7K3M9P2Q",
     provider: "Didit",
     provider_environment: "sandbox",
     workflow_id: "didit-workflow-ch-person",
@@ -574,6 +577,9 @@ export const kycManualReviewFixture: KycAdminCase[] = [
     subject_type: "natural_person",
     subject_reference: "INV-2177",
     user_id: "00000000-0000-4000-8000-000000002177",
+    user_full_name: "Sofia Meier",
+    user_email: "sofia.meier@example.eu",
+    investor_reference: "L4N8RQ5T2",
     provider: "Didit",
     provider_environment: "sandbox",
     workflow_id: "didit-workflow-eu-person",
@@ -590,7 +596,45 @@ export const kycManualReviewFixture: KycAdminCase[] = [
     decision_at: null,
     created_at: "2026-06-05T09:20:00+02:00",
     updated_at: "2026-06-05T09:55:00+02:00"
-  }
+  },
+  ...(
+    [
+      ["Amélie Roth", "amelie.roth@example.ch", "LQ2W9K7M4", "manual_review", "medium", ["document_review"]],
+      ["Marco Bianchi", "marco.bianchi@example.it", "L8H3J5N1P", "high_risk", "high", ["high_risk"]],
+      ["Élodie Dubois", "elodie.dubois@example.fr", "LT6R2V9X3", "pep_hit", "high", ["pep_hit"]],
+      ["Jonas Keller", "jonas.keller@example.ch", "LK9M4P7Q2", "manual_review", "low", ["document_review"]],
+      ["Petra Novák", "petra.novak@example.cz", "LB3N8K5R1", "adverse_media_hit", "medium", ["adverse_media_hit"]],
+      ["Andreas Huber", "andreas.huber@example.at", "LW7T2M9K4", "high_risk", "high", ["high_risk", "pep_hit"]],
+      ["Clara Lefevre", "clara.lefevre@example.fr", "LP5Q8R3N7", "manual_review", "medium", ["document_review"]],
+      ["Tomáš Horák", "tomas.horak@example.cz", "LM2K9P4T6", "manual_review", "low", ["address_review"]],
+      ["Giulia Conti", "giulia.conti@example.it", "LR8N3K7M2", "pep_hit", "high", ["pep_hit"]],
+      ["Niklas Vogel", "niklas.vogel@example.de", "LH4T7Q2N9", "adverse_media_hit", "medium", ["adverse_media_hit"]]
+    ] as const
+  ).map(([name, email, reference, status, risk, flags], index) => ({
+    id: `kyc-case-${600 + index}`,
+    subject_type: "natural_person",
+    subject_reference: `INV-${3000 + index}`,
+    user_id: `00000000-0000-4000-8000-0000000030${(index + 10).toString()}`,
+    user_full_name: name,
+    user_email: email,
+    investor_reference: reference,
+    provider: "Didit",
+    provider_environment: "sandbox",
+    workflow_id: "didit-workflow-eu-person",
+    status,
+    manual_review_required: true,
+    blocking_reason: "Routed to Garanta manual review for an AML officer decision.",
+    risk_classification: risk,
+    detected_flags: [...flags],
+    provider_session_id: `didit-sess-${600 + index}`,
+    provider_verification_id: `didit-ver-${600 + index}`,
+    provider_report_id: `didit-report-${600 + index}`,
+    aml_screening_id: `didit-aml-${600 + index}`,
+    provider_subject_id: `didit-subject-${600 + index}`,
+    decision_at: null,
+    created_at: "2026-06-05T08:00:00+02:00",
+    updated_at: `2026-06-04T0${index % 9}:30:00+02:00`
+  }))
 ];
 
 export const borrowersFixture: BorrowerEntity[] = [

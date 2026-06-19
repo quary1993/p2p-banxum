@@ -2655,6 +2655,22 @@ textarea.input {
   overflow-wrap: anywhere;
 }
 
+.admin-pager {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  margin-top: 12px;
+}
+
+.kyc-detail {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 12px 14px;
+}
+
 .admin-confirm-body,
 .admin-artifact-panel {
   display: grid;

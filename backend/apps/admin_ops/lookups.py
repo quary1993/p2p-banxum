@@ -315,9 +315,17 @@ def lookup_kyc_cases(
                     "user_full_name": str(getattr(user, "full_name", "")),
                     "investor_reference": str(getattr(user, "investor_reference", "") or ""),
                     "status": str(getattr(case, "status", "")),
+                    "subject_type": str(getattr(case, "subject_type", "")),
                     "subject_reference": str(getattr(case, "subject_reference", "")),
+                    "manual_review_required": bool(getattr(case, "manual_review_required", False)),
+                    "risk_classification": str(getattr(case, "risk_classification", "") or ""),
+                    "detected_flags": list(getattr(case, "detected_flags", []) or []),
+                    "blocking_reason": str(getattr(case, "blocking_reason", "") or ""),
+                    "decision_at": _date_label(getattr(case, "decision_at", None)),
                     "provider_session_id": str(getattr(case, "provider_session_id", "")),
                     "provider_verification_id": str(getattr(case, "provider_verification_id", "")),
+                    "provider_report_id": str(getattr(case, "provider_report_id", "") or ""),
+                    "aml_screening_id": str(getattr(case, "aml_screening_id", "") or ""),
                 },
             }
         )

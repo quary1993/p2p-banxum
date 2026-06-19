@@ -98,9 +98,11 @@ class KycAdminManualReviewListView(APIView):
                 {"detail": "Only an active admin can view KYC manual reviews."},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        cases = KycVerificationCase.objects.filter(
-            manual_review_required=True,
-        ).order_by("-updated_at", "-created_at")
+        cases = (
+            KycVerificationCase.objects.select_related("user")
+            .filter(manual_review_required=True)
+            .order_by("-updated_at", "-created_at")
+        )
         return Response(
             [serialize_kyc_admin_case(case) for case in cases],
             status=status.HTTP_200_OK,

@@ -988,9 +988,17 @@ def record_manual_review_decision(
     previous_status = KycStatus(case.status)
     if command.decision == KycManualReviewDecisionType.APPROVE:
         if previous_status in NON_OVERRIDABLE_APPROVAL_STATUSES:
-            raise KycManualReviewError("This KYC status cannot be manually approved.")
+            raise KycManualReviewError(
+                "A declined or sanctions-blocked case cannot be approved directly. To clear a "
+                "false-positive provider decline, reopen it to manual review (or request "
+                "re-verification) and approve from there; genuine sanctions hits are not "
+                "overridable."
+            )
         if previous_status not in MANUAL_REVIEW_STATUSES:
-            raise KycManualReviewError("Only review-routed KYC statuses can be manually approved.")
+            raise KycManualReviewError(
+                "Only a case routed to manual review can be approved. Reopen this case to manual "
+                "review first if you intend to override its current status."
+            )
 
     new_status = _manual_review_target_status(command.decision)
     now = timezone.now()
