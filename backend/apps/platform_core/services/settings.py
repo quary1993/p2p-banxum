@@ -82,11 +82,14 @@ DEFAULT_PLATFORM_SETTINGS = (
             },
             "EUR": {
                 "account_holder_name": "Garanta Finanzgruppe AG",
-                "iban": "",
-                "bic": "",
-                "bank_name": "",
-                "collection_account_identifier": "EUR-COLLECTION",
-                "notes": "Configure the live EUR collection account before launch.",
+                "iban": "CH8183019GARANTAFI002",
+                "bic": "YAPECHZ2",
+                "bank_name": "Yapeal",
+                "collection_account_identifier": "Garanta_EUR",
+                "notes": (
+                    "Use the exact BANXUM payment reference shown below in the bank transfer "
+                    "reference/description."
+                ),
             },
         },
         "json",

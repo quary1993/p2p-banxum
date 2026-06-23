@@ -14,6 +14,14 @@ Decoded CHF collector details:
 
 The Swiss QR payload does not include the investor-specific BANXUM payment reference. Investors must still enter the platform-generated reference, formatted as `BX-{currency}-{investor_reference}`, in their bank transfer reference or description for reconciliation.
 
+The EUR collector account was configured from the supplied Yapeal account screenshot:
+
+- Collection account label: `Garanta_EUR`
+- Account IBAN: `CH8183019GARANTAFI002`
+- BIC: `YAPECHZ2`
+
+No EUR QR-bill payload has been supplied. The platform therefore shows the EUR IBAN/BIC and the investor-specific BANXUM payment reference, but no EUR QR code.
+
 Verify the stored payload against a source screenshot and a generated QR image with:
 
 ```bash

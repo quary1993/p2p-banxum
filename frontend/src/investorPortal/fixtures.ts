@@ -44,9 +44,9 @@ export const portalFixture: InvestorPortalFixture = {
     },
     {
       currency: "EUR",
-      iban: "DE21 1007 0024 0123 4567 00",
-      bic: "DEUTDEDBBER",
-      bank: "Garanta collection account EUR",
+      iban: "CH81 83019 GARANTAFI002",
+      bic: "YAPECHZ2",
+      bank: "Yapeal",
       reference: "BX-LBR-EUR-4471"
     }
   ],
