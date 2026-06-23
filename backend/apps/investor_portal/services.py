@@ -283,8 +283,10 @@ def get_deposit_instructions(*, actor: Model) -> dict[str, Any]:
         currency_code = _currency_code(currency)
         details = dict(configured.get(currency_code, {}) or {})
         iban = str(details.get("iban", "")).strip()
+        qr_iban = str(details.get("qr_iban", "")).strip()
         bic = str(details.get("bic", "")).strip()
         bank_name = str(details.get("bank_name", "")).strip()
+        qr_bill_payload = str(details.get("qr_bill_payload", ""))
         holder_name = str(
             details.get("account_holder_name") or details.get("account_name") or ""
         ).strip()
@@ -296,9 +298,11 @@ def get_deposit_instructions(*, actor: Model) -> dict[str, Any]:
                 "currency": currency_code,
                 "account_holder_name": holder_name,
                 "iban": iban,
+                "qr_iban": qr_iban,
                 "bic": bic,
                 "bank_name": bank_name,
                 "collection_account_identifier": collection_identifier,
+                "qr_bill_payload": qr_bill_payload,
                 "payment_reference": _investor_payment_reference(
                     investor_reference=investor_reference,
                     currency=currency_code,

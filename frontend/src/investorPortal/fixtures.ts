@@ -34,9 +34,12 @@ export const portalFixture: InvestorPortalFixture = {
   depositInstructions: [
     {
       currency: "CHF",
-      iban: "CH56 0483 5012 3456 7800 9",
-      bic: "CRESCHZZ80A",
-      bank: "Garanta collection account CHF",
+      iban: "CH11 83019 GARANTAFI001",
+      qrIban: "CH83 30334 GARANTAFI001",
+      qrBillPayload:
+        "SPC\n0200\n1\nCH1183019GARANTAFI001\nS\nGaranta Finanzgruppe AG\nSchauplatzgasse\n26\n3011\nBern\nCH\n\n\n\n\n\n\n\n\nCHF\n\n\n\n\n\n\nNON\n\n\nEPD\n\n\n",
+      bic: "YAPECHZ2",
+      bank: "Yapeal",
       reference: "BX-LBR-CHF-4471"
     },
     {

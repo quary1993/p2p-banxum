@@ -35,6 +35,8 @@ export interface InvestorProfile {
 export interface DepositInstruction {
   currency: string;
   iban: string;
+  qrIban?: string;
+  qrBillPayload?: string;
   bic: string;
   bank: string;
   reference: string;

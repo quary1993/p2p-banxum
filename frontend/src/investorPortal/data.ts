@@ -61,9 +61,11 @@ const depositInstructionsFixture: InvestorDepositInstructions = {
     currency: instruction.currency,
     account_holder_name: "Garanta Finanzgruppe AG",
     iban: instruction.iban,
+    qr_iban: instruction.qrIban ?? "",
     bic: instruction.bic,
     bank_name: instruction.bank,
     collection_account_identifier: `${instruction.currency}-COLLECTION`,
+    qr_bill_payload: instruction.qrBillPayload ?? "",
     payment_reference: instruction.reference,
     notes: "Use the exact payment reference so finance can reconcile the deposit.",
     is_configured: true

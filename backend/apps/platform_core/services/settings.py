@@ -9,6 +9,42 @@ from backend.apps.platform_core.domain.actors import ActorRef
 from backend.apps.platform_core.models import PlatformSetting, PlatformSettingVersion
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 
+CHF_COLLECTOR_QR_BILL_PAYLOAD = (
+    "SPC\n"
+    "0200\n"
+    "1\n"
+    "CH1183019GARANTAFI001\n"
+    "S\n"
+    "Garanta Finanzgruppe AG\n"
+    "Schauplatzgasse\n"
+    "26\n"
+    "3011\n"
+    "Bern\n"
+    "CH\n"
+    "\n"
+    "\n"
+    "\n"
+    "\n"
+    "\n"
+    "\n"
+    "\n"
+    "\n"
+    "CHF\n"
+    "\n"
+    "\n"
+    "\n"
+    "\n"
+    "\n"
+    "\n"
+    "\n"
+    "NON\n"
+    "\n"
+    "\n"
+    "EPD\n"
+    "\n"
+    "\n"
+)
+
 
 @dataclass(frozen=True, slots=True)
 class SettingDefinition:
@@ -32,11 +68,17 @@ DEFAULT_PLATFORM_SETTINGS = (
         {
             "CHF": {
                 "account_holder_name": "Garanta Finanzgruppe AG",
-                "iban": "",
-                "bic": "",
-                "bank_name": "",
-                "collection_account_identifier": "CHF-COLLECTION",
-                "notes": "Configure the live CHF collection account before launch.",
+                "iban": "CH1183019GARANTAFI001",
+                "qr_iban": "CH8330334GARANTAFI001",
+                "bic": "YAPECHZ2",
+                "bank_name": "Yapeal",
+                "collection_account_identifier": "Garanta_CHF",
+                "qr_bill_payload": CHF_COLLECTOR_QR_BILL_PAYLOAD,
+                "notes": (
+                    "Use the exact BANXUM payment reference shown below in the bank transfer "
+                    "reference/description. The QR-bill code identifies the CHF collection "
+                    "account but does not carry the investor-specific reference."
+                ),
             },
             "EUR": {
                 "account_holder_name": "Garanta Finanzgruppe AG",

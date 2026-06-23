@@ -1,4 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
+import QRCode from "qrcode";
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { AdminApp } from "./adminConsole/AdminApp";
 import {
@@ -2400,8 +2401,21 @@ function DepositModal({ currency, onClose }: { currency: string; onClose: () => 
           <KeyValueRow label="Account holder" value={instruction.account_holder_name || "Pending configuration"} />
           <KeyValueRow label="Bank" value={instruction.bank_name || "Pending configuration"} />
           <KeyValueRow label="IBAN" mono value={instruction.iban} />
+          {instruction.qr_iban ? <KeyValueRow label="QR IBAN" mono value={instruction.qr_iban} /> : null}
           <KeyValueRow label="BIC/SWIFT" mono value={instruction.bic} />
         </dl>
+        {instruction.qr_bill_payload ? (
+          <div className="qr-instruction-panel">
+            <QrBillImage payload={instruction.qr_bill_payload} />
+            <div>
+              <div className="eyebrow" style={{ marginBottom: 6 }}>Swiss QR-bill code</div>
+              <p className="muted" style={{ fontSize: 11.5, margin: 0 }}>
+                Scan this code only for {currency} deposits. If your bank app does not carry the
+                BANXUM payment reference automatically, enter the reference below unchanged.
+              </p>
+            </div>
+          </div>
+        ) : null}
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>Payment reference - required</div>
           <div className="codeblock"><span>{instruction.payment_reference}</span><Button icon="copy" size="sm" variant="ghost">Copy</Button></div>
@@ -2411,6 +2425,42 @@ function DepositModal({ currency, onClose }: { currency: string; onClose: () => 
       </div>
     </Modal>
   );
+}
+
+function QrBillImage({ payload }: { payload: string }) {
+  const [src, setSrc] = useState("");
+
+  useEffect(() => {
+    let mounted = true;
+    QRCode.toDataURL(payload, {
+      errorCorrectionLevel: "M",
+      margin: 1,
+      width: 220,
+      color: {
+        dark: "#1b211d",
+        light: "#fffefb"
+      }
+    })
+      .then((nextSrc) => {
+        if (mounted) {
+          setSrc(nextSrc);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setSrc("");
+        }
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [payload]);
+
+  if (!src) {
+    return <div className="qr-instruction-placeholder">QR code unavailable</div>;
+  }
+
+  return <img alt="Swiss QR-bill code for the collection account" className="qr-instruction-image" src={src} />;
 }
 
 function WithdrawModal({ currency, maxMinor, payoutInstructions, onClose }: { currency: string; maxMinor: number; payoutInstructions: PayoutInstruction[]; onClose: () => void }) {

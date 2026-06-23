@@ -582,9 +582,11 @@ def test_deposit_instructions_are_self_scoped_and_config_driven(investor: Model)
                 "CHF": {
                     "account_holder_name": "Garanta Finanzgruppe AG",
                     "iban": "CH9300762011623852957",
+                    "qr_iban": "CH4431999123000889012",
                     "bic": "TESTCHZZ",
                     "bank_name": "Test Bank CHF",
                     "collection_account_identifier": "CHF-COLLECTION",
+                    "qr_bill_payload": "SPC\n0200\n1\nCH9300762011623852957\n\n\n",
                     "notes": "CHF only.",
                 }
             },
@@ -597,6 +599,8 @@ def test_deposit_instructions_are_self_scoped_and_config_driven(investor: Model)
     chf = next(item for item in payload["instructions"] if item["currency"] == "CHF")
 
     assert chf["iban"] == "CH9300762011623852957"
+    assert chf["qr_iban"] == "CH4431999123000889012"
+    assert chf["qr_bill_payload"] == "SPC\n0200\n1\nCH9300762011623852957\n\n\n"
     assert chf["is_configured"] is True
     assert chf["payment_reference"] == f"BX-CHF-{cast(Any, investor).investor_reference}"
 

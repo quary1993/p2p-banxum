@@ -4857,11 +4857,15 @@ components:
           type: string
         iban:
           type: string
+        qr_iban:
+          type: string
         bic:
           type: string
         bank_name:
           type: string
         collection_account_identifier:
+          type: string
+        qr_bill_payload:
           type: string
         payment_reference:
           type: string
