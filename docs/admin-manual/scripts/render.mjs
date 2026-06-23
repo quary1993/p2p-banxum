@@ -26,11 +26,12 @@ const load = (name) => {
 };
 
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-const paras = (arr) => (arr || []).map((p) => `<p>${esc(p)}</p>`).join("");
-const bullets = (arr) => (arr && arr.length ? `<ul>${arr.map((b) => `<li>${esc(b)}</li>`).join("")}</ul>` : "");
+const clean = (arr) => (arr || []).filter((x) => x != null && String(x).trim() !== "");
+const paras = (arr) => clean(arr).map((p) => `<p>${esc(p)}</p>`).join("");
+const bullets = (arr) => { const it = clean(arr); return it.length ? `<ul>${it.map((b) => `<li>${esc(b)}</li>`).join("")}</ul>` : ""; };
 
 const MAXW = 980; // max display width for a figure (px)
-const MAX_FIG_H = 1230; // keep oversized annotated screenshots on one page
+const MAX_FIG_H = 1120; // keep an annotated figure (caption+image) within one page's content height
 
 // De-overlap badge y positions along a rail.
 function spread(list, H, getY, minGap = 36, pad = 16) {
@@ -226,18 +227,20 @@ const outline = [
 const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/>
 <title>BANXUM Admin Console — Operations Manual</title>
 <style>
-@page { size: 275mm 389mm; margin: 0; }
+@page { size: 275mm 389mm; margin: 19mm 17mm 17mm; }
+@page cover { size: 275mm 389mm; margin: 0; }
 * { box-sizing: border-box; }
 html,body { margin:0; padding:0; }
 body { font-family: 'Public Sans','Segoe UI',Helvetica,Arial,sans-serif; color:#1b211d; background:#fffefb; font-size:14.4px; line-height:1.52; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
 code,.mono { font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace; font-size:0.86em; background:#f3f1e9; padding:1px 5px; border-radius:4px; }
-.wrap { padding:54px 60px; }
+.wrap { padding:0; }
 .page-break { break-before: page; }
 h2 { font-size:28px; line-height:1.12; margin:0; letter-spacing:-0.35px; }
 h3 { font-size:18px; margin:20px 0 5px; color:#1b211d; }
-p { margin:0 0 9px; }
+p { margin:0 0 9px; orphans:2; widows:2; }
 ul,ol { margin:0 0 9px; padding-left:20px; }
-li { margin:3px 0; }
+li { margin:3px 0; orphans:2; widows:2; }
+h2,h3,figcaption,.figsummary,.sec-head,.callout-h,.notes-h,.flow-head,.flow-goal,.flow-pre { break-after:avoid; }
 .eyebrow { color:#2f6b4f; font-size:12px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; }
 .sec-head { border-bottom:3px solid #2f6b4f; padding-bottom:11px; margin-bottom:16px; }
 .sec-head h2 { margin-top:4px; }
@@ -246,7 +249,7 @@ li { margin:3px 0; }
 .callout { background:#f0f4ef; border:1px solid #c9dccd; border-left:4px solid #2f6b4f; border-radius:8px; padding:11px 14px; margin:13px 0; break-inside:avoid; }
 .callout-h, .notes-h { font-weight:700; color:#235; color:#2f6b4f; margin-bottom:6px; font-size:13px; letter-spacing:0.04em; text-transform:uppercase; }
 .callout ul { margin-bottom:0; }
-.primer-block { margin-bottom:13px; break-inside:avoid; }
+.primer-block { margin-bottom:13px; }
 .primer-block h3 { border-left:3px solid #d9b44a; padding-left:10px; }
 
 /* Figures */
@@ -290,7 +293,7 @@ figcaption { font-size:15.4px; font-weight:600; margin-bottom:3px; break-after:a
 .missing { color:#9c3127; font-style:italic; }
 
 /* Cover */
-.cover { min-height:386mm; background:linear-gradient(160deg,#1b3a2b 0%,#2f6b4f 60%,#3c855f 100%); color:#fff; padding:96px 84px; display:flex; flex-direction:column; }
+.cover { page:cover; min-height:386mm; background:linear-gradient(160deg,#1b3a2b 0%,#2f6b4f 60%,#3c855f 100%); color:#fff; padding:96px 84px; display:flex; flex-direction:column; }
 .cover .mark { width:64px; height:64px; border-radius:14px; background:#fff; color:#2f6b4f; font-size:38px; font-weight:700; display:flex; align-items:center; justify-content:center; }
 .cover h1 { font-size:64px; line-height:1.04; margin:120px 0 0; letter-spacing:-1.5px; font-weight:700; }
 .cover .sub { font-size:24px; opacity:0.92; margin-top:18px; font-weight:500; }
@@ -298,7 +301,7 @@ figcaption { font-size:15.4px; font-weight:600; margin-bottom:3px; break-after:a
 .cover .brandline { display:flex; align-items:center; gap:16px; }
 .cover .brandline div b { font-size:22px; letter-spacing:2px; }
 .cover .conf { display:inline-block; margin-top:14px; border:1px solid rgba(255,255,255,0.5); border-radius:999px; padding:4px 14px; font-size:12px; letter-spacing:0.08em; text-transform:uppercase; }
-.toc { break-before:page; padding:58px 64px; }
+.toc { break-before:page; padding:0; }
 .toc h2 { border-bottom:3px solid #2f6b4f; padding-bottom:12px; margin-bottom:18px; }
 .toc-grid { display:grid; grid-template-columns:1.15fr .85fr; gap:22px; align-items:start; }
 .toc ol { font-size:15.5px; line-height:1.72; margin:0; padding-left:24px; }

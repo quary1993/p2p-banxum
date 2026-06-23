@@ -7,7 +7,8 @@
       "preconditions": [
         "You are signed in to the ops console (email + password, then a 6-digit code sent to your admin email).",
         "Jargon: 'borrower' = the business that wants to borrow money. 'KYB' = Know Your Business, the compliance check that proves the company is real and allowed to transact. 'KYB status' values are not_started, pending, approved, declined, manual_review, expired, reverification_required. The blocking 'no' value is 'declined' (not 'rejected'). Only 'approved' (with compliance hold off) lets a loan publish. 'Loan draft' = a loan that exists but is not yet visible to investors. 'Publish' = make the loan visible on the primary marketplace so investors can fund it.",
-        "You have the borrower's legal details (legal name, year founded, country) and the loan terms (amount, rate, term, collateral)."
+        "You have the borrower's legal details (legal name, year founded, country) and the loan terms (amount, rate, term, collateral).",
+        "A current Primary Market Investment document template is published in Superadmin Settings. Without it, investors cannot complete the investment clickwrap because the server cannot load the project investment confirmation / claim assignment agreement."
       ],
       "steps": [
         { "n": 1, "screen": "Loans (left nav 'Loans')", "action": "Open the Loans module and go to the 'Borrowers' card.", "detail": "The Borrowers table lists every business entity. Borrowers are admin-entered only; borrowers do NOT have their own login. If the company is not in the list, you must create it." },

@@ -120,7 +120,7 @@ function previewHint(text: string) {
 }
 
 const loginFlowStorageKey = "banxum:login-flow:v1";
-const registerFlowStorageKey = "banxum:register-flow:v2";
+const registerFlowStorageKey = "banxum:register-flow:v3";
 const appRouteStorageKey = "banxum:app-route:v1";
 
 type RegisterFlowState = {
@@ -132,6 +132,7 @@ type RegisterFlowState = {
   phoneNationalNumber: string;
   residenceCountry: string;
   terms: boolean;
+  registrationAcceptedLabels: string[];
   risk: boolean;
   marketing: boolean;
   emailLoginSent: boolean;
@@ -244,6 +245,7 @@ function defaultRegisterFlowState(): RegisterFlowState {
     phoneNationalNumber: isFixturePreview ? "79 000 00 00" : "",
     residenceCountry: "Switzerland",
     terms: false,
+    registrationAcceptedLabels: [],
     risk: false,
     marketing: false,
     emailLoginSent: false,
@@ -1021,6 +1023,9 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
   const [phoneNationalNumber, setPhoneNationalNumber] = useState(initialRegisterState.phoneNationalNumber);
   const [residenceCountry, setResidenceCountry] = useState(initialRegisterState.residenceCountry);
   const [terms, setTerms] = useState(initialRegisterState.terms);
+  const [registrationAcceptedLabels, setRegistrationAcceptedLabels] = useState(
+    initialRegisterState.registrationAcceptedLabels
+  );
   const [risk, setRisk] = useState(initialRegisterState.risk);
   const [marketing, setMarketing] = useState(initialRegisterState.marketing);
   const [emailLoginSent, setEmailLoginSent] = useState(initialRegisterState.emailLoginSent);
@@ -1044,11 +1049,30 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
   const [emailCooldownUntil, setEmailCooldownUntil] = useState(initialRegisterState.emailCooldownUntil);
   const [nowMs, setNowMs] = useState(Date.now());
   const kycSessionMutation = useV1KycSessionCreate();
+  const registrationTermsQuery = useV1DocumentsTemplatesCurrentRetrieve(
+    {
+      category: CategoryEnum.registration,
+      template_key: "default",
+      language: "en"
+    },
+    {
+      query: {
+        enabled: !isFixturePreview,
+        retry: false,
+        staleTime: 0
+      }
+    }
+  );
   const phoneNumber = e164PhoneNumber(phoneCountryCode, phoneNationalNumber);
   const phoneNumberLabel = phoneNumber || "your registered mobile number";
   const phoneCooldownSeconds = Math.max(0, Math.ceil((phoneCooldownUntil - nowMs) / 1000));
   const phoneRequestDisabled = phoneRequestMutation.isPending || phoneCooldownSeconds > 0;
   const emailCooldownSeconds = Math.max(0, Math.ceil((emailCooldownUntil - nowMs) / 1000));
+  const registrationLabels = templateLabels(registrationTermsQuery.data);
+  const allRegistrationTermsAccepted = isFixturePreview
+    ? terms
+    : registrationLabels.length > 0 &&
+      registrationLabels.every((label) => registrationAcceptedLabels.includes(label));
 
   useEffect(() => {
     writeStoredObject(registerFlowStorageKey, {
@@ -1060,6 +1084,7 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
       phoneNationalNumber,
       residenceCountry,
       terms,
+      registrationAcceptedLabels,
       risk,
       marketing,
       emailLoginSent,
@@ -1078,6 +1103,7 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
     phoneCooldownUntil,
     phoneCountryCode,
     phoneNationalNumber,
+    registrationAcceptedLabels,
     residenceCountry,
     risk,
     step,
@@ -1178,6 +1204,10 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
       setEmailLoginSent(true);
       return;
     }
+    if (!registrationTermsQuery.data || registrationLabels.length === 0) {
+      setError("The current lender user agreement is not available. Retry once it loads.");
+      return;
+    }
     registerMutation.mutate(
       {
         data: {
@@ -1186,6 +1216,9 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
           phone_number: phoneNumber,
           terms_version: registrationTermsVersion,
           terms_hash: registrationTermsHash,
+          registration_document_template_version_id: registrationTermsQuery.data?.id,
+          accepted_checkbox_labels: registrationLabels,
+          document_idempotency_key: idempotencyKey("registration-document"),
           marketing_consent: marketing
         }
       },
@@ -1334,21 +1367,72 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
               </select>
             </Field>
             <div className="legal" style={{ margin: "14px 0 12px" }}>
-              <h5>Platform Terms of Use - v4.2</h5>
-              <p>
-                By registering you enter into the {platformName} platform terms operated by{" "}
-                {operatorName}. Platform balances are non-interest-bearing and subject to regulatory
-                ageing limits. The 60-day holding limit cannot be extended.
-              </p>
+              <h5>
+                {isFixturePreview
+                  ? "Platform Terms of Use - v4.2"
+                  : registrationTermsQuery.data?.title ?? "Lender user agreement"}
+              </h5>
+              {isFixturePreview ? (
+                <p>
+                  By registering you enter into the {platformName} platform terms operated by{" "}
+                  {operatorName}. Platform balances are non-interest-bearing and subject to regulatory
+                  ageing limits. The 60-day holding limit cannot be extended.
+                </p>
+              ) : registrationTermsQuery.isLoading ? (
+                <p className="muted">Loading the current server-published lender agreement...</p>
+              ) : registrationTermsQuery.data ? (
+                <>
+                  <p className="muted">
+                    Server-published v{registrationTermsQuery.data.version_number}. Hash{" "}
+                    <span className="mono">{registrationTermsQuery.data.content_hash.slice(0, 12)}</span>.
+                    Acceptance records a versioned PDF snapshot and emails a copy to you.
+                  </p>
+                  <div
+                    aria-label="Current lender user agreement"
+                    className="legal-document-preview"
+                  >
+                    {registrationTermsQuery.data.body}
+                  </div>
+                </>
+              ) : (
+                <p className="muted">
+                  The current server-published lender agreement could not be loaded. Retry before
+                  registering.
+                </p>
+              )}
               <p className="muted">Server-versioned clickwrap. Acceptance is recorded with document version, timestamp and context.</p>
             </div>
             <div className="col gap-10">
-              <Check checked={terms} id="register-terms" onChange={setTerms}>I accept the platform terms and registration documents.</Check>
+              {isFixturePreview || registrationLabels.length === 0 ? (
+                <Check checked={terms} id="register-terms" onChange={setTerms}>I accept the platform terms and registration documents.</Check>
+              ) : (
+                registrationLabels.map((label, index) => (
+                  <Check
+                    checked={registrationAcceptedLabels.includes(label)}
+                    id={`register-terms-${index}`}
+                    key={label}
+                    onChange={(checked) =>
+                      setRegistrationAcceptedLabels((current) =>
+                        checked
+                          ? Array.from(new Set([...current, label]))
+                          : current.filter((item) => item !== label)
+                      )
+                    }
+                  >
+                    {label}
+                  </Check>
+                ))
+              )}
               <Check checked={risk} id="register-risk" onChange={setRisk}>I acknowledge the generic P2P lending risk disclosure.</Check>
               <Check checked={marketing} id="register-marketing" onChange={setMarketing}>I agree to optional marketing communications.</Check>
             </div>
+            {!isFixturePreview && registrationTermsQuery.isError ? (
+              <Banner tone="bad" title="Agreement unavailable">
+                The current server-published lender agreement could not be loaded.
+              </Banner>
+            ) : null}
             {error ? <Banner tone="bad" title="Could not register">{error}</Banner> : null}
-            <Button block disabled={!terms || !risk || !email.includes("@") || !phoneNumber || registerMutation.isPending} style={{ marginTop: 16 }} variant="primary" onClick={submitRegistration}>
+            <Button block disabled={!allRegistrationTermsAccepted || !risk || !email.includes("@") || !phoneNumber || registerMutation.isPending || (!isFixturePreview && !registrationTermsQuery.data)} style={{ marginTop: 16 }} variant="primary" onClick={submitRegistration}>
               {registerMutation.isPending ? "Creating account..." : "Continue"}
             </Button>
           </>

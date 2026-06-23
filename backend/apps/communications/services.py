@@ -48,6 +48,14 @@ class EmailProviderError(CommunicationsError):
 
 
 @dataclass(frozen=True, slots=True)
+class EmailAttachment:
+    filename: str
+    content_type: str
+    content_base64: str
+    disposition: str = "attachment"
+
+
+@dataclass(frozen=True, slots=True)
 class RenderedEmail:
     recipient_email: str
     subject: str
@@ -55,6 +63,7 @@ class RenderedEmail:
     body_html: str
     template_key: str
     metadata: dict[str, Any] = field(default_factory=dict)
+    attachments: tuple[EmailAttachment, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,6 +150,16 @@ class SendGridEmailProvider:
                 "open_tracking": {"enable": False},
             },
         }
+        if email.attachments:
+            payload["attachments"] = [
+                {
+                    "content": attachment.content_base64,
+                    "type": attachment.content_type,
+                    "filename": attachment.filename,
+                    "disposition": attachment.disposition,
+                }
+                for attachment in email.attachments
+            ]
         request = urllib.request.Request(
             "https://api.sendgrid.com/v3/mail/send",
             data=json.dumps(payload).encode("utf-8"),
@@ -186,6 +205,20 @@ def _email_login_token_model() -> Any:
 
 def _sensitive_action_code_model() -> Any:
     return apps.get_model("accounts_auth", "SensitiveActionCode")
+
+
+def _user_model() -> Any:
+    return apps.get_model("accounts_auth", "User")
+
+
+def _document_acceptance_model() -> Any:
+    return apps.get_model("documents", "DocumentAcceptanceEvidence")
+
+
+def _documents_services_module() -> Any:
+    from importlib import import_module
+
+    return import_module("backend.apps.documents.services")
 
 
 def _base_url() -> str:
@@ -602,6 +635,107 @@ def _render_sensitive_action_code_email(message: OutboxMessage) -> RenderedEmail
     )
 
 
+def _render_document_acceptance_pdf_email(message: OutboxMessage) -> RenderedEmail:
+    payload = message.payload
+    acceptance_id = str(payload.get("acceptance_id", "")).strip()
+    if not acceptance_id:
+        raise CommunicationsError("Document-acceptance email payload is incomplete.")
+
+    acceptance_model = _document_acceptance_model()
+    acceptance = (
+        acceptance_model.objects.select_related("template", "template_version")
+        .filter(id=acceptance_id)
+        .first()
+    )
+    if acceptance is None:
+        raise CommunicationsError("Document acceptance evidence was not found.")
+
+    user = _user_model().objects.filter(id=acceptance.user_id).first()
+    if user is None:
+        raise CommunicationsError("Document acceptance user was not found.")
+    recipient = str(getattr(user, "email", "") or payload.get("email", "")).strip().lower()
+    if not recipient:
+        raise CommunicationsError("Document acceptance recipient email is missing.")
+
+    documents = _documents_services_module()
+    artifact = documents.render_document_acceptance_artifact(
+        documents.RenderDocumentAcceptanceArtifactCommand(
+            actor=user,
+            acceptance_id=str(acceptance.id),
+            output_format="pdf",
+            purpose="email_delivery",
+            metadata={
+                "outbox_message_id": str(message.id),
+                "topic": message.topic,
+            },
+        )
+    )
+    platform = settings.PLATFORM_BRAND_NAME
+    operator = settings.LEGAL_OPERATOR_NAME
+    title = str(acceptance.template_version.title)
+    subject = f"Your accepted {platform} agreement PDF"
+    documents_url = f"{_base_url()}/documents"
+    body_text = (
+        f"Attached is the PDF copy of the {platform} document you accepted.\n\n"
+        f"Document: {title}\n"
+        f"Accepted at: {acceptance.accepted_at.isoformat()}\n"
+        f"Acceptance ID: {acceptance.id}\n"
+        f"Document hash: {acceptance.template_hash}\n"
+        f"PDF SHA-256: {artifact.content_sha256}\n\n"
+        f"You can also access your accepted documents in the {platform} portal:\n"
+        f"{documents_url}\n\n"
+        f"{platform} is operated by {operator}."
+    )
+    metadata = {
+        "acceptance_id": str(acceptance.id),
+        "rendered_artifact_id": str(artifact.rendered_artifact.id),
+        "document_category": acceptance.category,
+        "template_version_id": str(acceptance.template_version_id),
+        "template_hash": acceptance.template_hash,
+        "content_sha256": artifact.content_sha256,
+        "filename": artifact.filename,
+        "attachment_count": 1,
+    }
+    return RenderedEmail(
+        recipient_email=recipient,
+        subject=subject,
+        body_text=body_text,
+        body_html=_render_banxum_email_html(
+            EmailTemplateContent(
+                notice_label="Document evidence",
+                preheader=f"Your accepted {platform} agreement PDF is attached.",
+                status_label="Confirmation",
+                status_tone="confirmation",
+                headline="Your agreement PDF is attached",
+                paragraphs=(
+                    f"Attached is the PDF copy of the {platform} document you accepted.",
+                    "The attachment is generated from immutable clickwrap evidence: the accepted template version, content hash, checkbox text, context, timestamp, and audit record.",
+                ),
+                data_rows=(
+                    ("Document", title),
+                    ("Accepted at", acceptance.accepted_at.isoformat()),
+                    ("Acceptance ID", str(acceptance.id)),
+                    ("PDF SHA-256", artifact.content_sha256),
+                ),
+                buttons=(EmailButton("Open documents", documents_url),),
+                fine_print=(
+                    f"If the button does not work, open {documents_url}. "
+                    f"{platform} is operated by {operator}."
+                ),
+            )
+        ),
+        template_key="documents.acceptance_pdf.v1",
+        metadata=metadata,
+        attachments=(
+            EmailAttachment(
+                filename=artifact.filename,
+                content_type=artifact.content_type,
+                content_base64=artifact.content,
+            ),
+        ),
+    )
+
+
 def _payload_status_for_topic(topic: str, template_key: str) -> tuple[str, str]:
     combined = f"{topic} {template_key}".lower()
     if any(token in combined for token in ("reminder", "deadline", "warning", "ageing")):
@@ -707,6 +841,8 @@ def render_email_for_outbox_message(message: OutboxMessage) -> RenderedEmail:
         return _render_magic_link_email(message)
     if message.topic == "email.sensitive_action_code_requested":
         return _render_sensitive_action_code_email(message)
+    if message.topic == "email.document_acceptance_pdf":
+        return _render_document_acceptance_pdf_email(message)
     if message.topic.startswith("email."):
         return _render_payload_email(message)
     raise UnsupportedEmailTopicError(f"Outbox topic '{message.topic}' is not an email topic.")
@@ -738,7 +874,17 @@ def _record_delivery_attempt(
             attempt_number=attempt_number,
             sent_at=timezone.now() if status == EmailDeliveryStatus.SENT else None,
             error=error[:4000],
-            metadata=rendered_email.metadata if rendered_email else {},
+            metadata={
+                **(rendered_email.metadata if rendered_email else {}),
+                "attachments": [
+                    {
+                        "filename": attachment.filename,
+                        "content_type": attachment.content_type,
+                        "disposition": attachment.disposition,
+                    }
+                    for attachment in (rendered_email.attachments if rendered_email else ())
+                ],
+            },
         ),
     )
 

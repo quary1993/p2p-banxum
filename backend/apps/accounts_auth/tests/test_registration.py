@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from importlib import import_module
 from typing import Any
 
 import pytest
@@ -24,6 +25,32 @@ from backend.apps.accounts_auth.services import (
     register_natural_person_lender,
 )
 from backend.apps.platform_core.models import AuditEvent, DomainEvent, OutboxMessage
+
+AGREEMENT_CHECKBOX_LABEL = (
+    "I have read, understood and accept the General Terms and Conditions / "
+    "User Agreement, including its integral annexes"
+)
+
+
+def _published_registration_document() -> Any:
+    documents = import_module("backend.apps.documents.services")
+    superadmin = User.objects.create_superuser(
+        email="registration-docs-superadmin@example.test",
+        password="AdminPass123!",
+        full_name="Registration Docs Superadmin",
+    )
+    return documents.create_document_template_version(
+        documents.CreateDocumentTemplateVersionCommand(
+            actor=superadmin,
+            category="registration",
+            name="Garanta Lender User Agreement",
+            title="General Terms and Conditions / User Agreement for Lenders",
+            body="Agreement body for {{platform.name}} operated by {{operator.name}}.",
+            checkbox_labels=[AGREEMENT_CHECKBOX_LABEL],
+            publish_now=True,
+            legal_review_reference="legal-approved-test",
+        )
+    )
 
 
 @pytest.mark.django_db
@@ -56,6 +83,58 @@ def test_register_natural_person_lender_records_terms_and_events(settings: Any) 
         event_type="NaturalPersonLenderRegistered",
         aggregate_id=str(user.id),
     ).exists()
+
+
+@pytest.mark.django_db
+def test_register_natural_person_lender_accepts_current_registration_document(
+    settings: Any,
+) -> None:
+    version = _published_registration_document()
+    label = version.checkbox_labels[0]
+
+    user = register_natural_person_lender(
+        RegisterNaturalPersonCommand(
+            email="doc-investor@example.test",
+            full_name="Doc Investor",
+            phone_number="+41790000000",
+            terms_version=settings.REGISTRATION_TERMS_VERSION,
+            terms_hash=settings.REGISTRATION_TERMS_HASH,
+            registration_document_template_version_id=str(version.id),
+            accepted_checkbox_labels=[label],
+            document_idempotency_key="registration-doc-acceptance-test",
+        )
+    )
+
+    terms = RegistrationTermsAcceptance.objects.get(user=user)
+    acceptance = apps.get_model("documents", "DocumentAcceptanceEvidence").objects.get(
+        user_id=user.id
+    )
+    assert terms.terms_version == f"document:{version.id}"
+    assert terms.terms_hash == version.content_hash
+    assert acceptance.template_version_id == version.id
+    assert acceptance.accepted_checkbox_labels == [label]
+    assert OutboxMessage.objects.filter(
+        topic="email.document_acceptance_pdf",
+        payload__acceptance_id=str(acceptance.id),
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_register_requires_document_terms_when_registration_template_is_published(
+    settings: Any,
+) -> None:
+    _published_registration_document()
+
+    with pytest.raises(InvalidTermsAcceptanceError, match="agreement"):
+        register_natural_person_lender(
+            RegisterNaturalPersonCommand(
+                email="missing-doc@example.test",
+                full_name="Missing Doc Investor",
+                phone_number="+41790000000",
+                terms_version=settings.REGISTRATION_TERMS_VERSION,
+                terms_hash=settings.REGISTRATION_TERMS_HASH,
+            )
+        )
 
 
 @pytest.mark.django_db

@@ -6,7 +6,7 @@ the internal admin console (`/admin`) with **annotated screenshots** (numbered
 badges + arrows pointing at real UI elements), **end-to-end workflows**, and a
 **glossary**.
 
-- **Deliverable:** [`BANXUM-Admin-Manual.pdf`](BANXUM-Admin-Manual.pdf) (48 pages)
+- **Deliverable:** [`BANXUM-Admin-Manual.pdf`](BANXUM-Admin-Manual.pdf) (50 pages)
 - **On-screen version:** `manual.html` (same content; annotations are live SVG)
 
 ## What's inside the manual

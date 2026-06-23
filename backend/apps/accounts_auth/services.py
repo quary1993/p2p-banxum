@@ -4,7 +4,7 @@ import secrets
 from dataclasses import dataclass
 from datetime import timedelta
 from importlib import import_module
-from typing import cast
+from typing import Any, cast
 
 from django.conf import settings
 from django.contrib.auth.hashers import identify_hasher
@@ -144,6 +144,10 @@ def _dispatch_auth_email_after_commit(outbox_message_id: int) -> None:
     transaction.on_commit(_dispatch)
 
 
+def _documents_services_module() -> Any:
+    return import_module("backend.apps.documents.services")
+
+
 def actor_for_user(user: User) -> ActorRef:
     return actor_ref_for_user(user)
 
@@ -189,6 +193,72 @@ def _validate_registration_terms(version: str, terms_hash: str) -> None:
         raise InvalidTermsAcceptanceError("Registration terms are not current.")
 
 
+def _current_registration_document_template() -> Any | None:
+    documents = _documents_services_module()
+    try:
+        return documents.get_current_document_template(category="registration")
+    except documents.DocumentValidationError:
+        return None
+
+
+def _registration_terms_evidence_values(command: RegisterNaturalPersonCommand) -> tuple[str, str]:
+    current_template = _current_registration_document_template()
+    if current_template is None:
+        _validate_registration_terms(command.terms_version, command.terms_hash)
+        return command.terms_version, command.terms_hash
+
+    if not command.registration_document_template_version_id:
+        raise InvalidTermsAcceptanceError("Registration user agreement is required.")
+    if str(current_template.id) != str(command.registration_document_template_version_id):
+        raise InvalidTermsAcceptanceError("Registration user agreement is not current.")
+    accepted_labels = command.accepted_checkbox_labels or []
+    required_labels = list(cast(list[str], current_template.checkbox_labels))
+    missing = [label for label in required_labels if label not in accepted_labels]
+    if missing:
+        raise InvalidTermsAcceptanceError("Registration user agreement checkbox is required.")
+    return f"document:{current_template.id}", str(current_template.content_hash)
+
+
+def _accept_registration_document_terms(
+    *,
+    user: User,
+    command: RegisterNaturalPersonCommand,
+    terms_acceptance: RegistrationTermsAcceptance,
+) -> None:
+    current_template = _current_registration_document_template()
+    if current_template is None:
+        return
+    documents = _documents_services_module()
+    documents.accept_document_terms(
+        documents.AcceptDocumentTermsCommand(
+            actor=user,
+            category="registration",
+            template_key=str(current_template.template.template_key),
+            language=str(current_template.template.language),
+            expected_template_version_id=str(current_template.id),
+            accepted_checkbox_labels=list(command.accepted_checkbox_labels or []),
+            context_type="registration",
+            context_id=str(user.id),
+            data_snapshot={
+                "registration": {
+                    "terms_acceptance_id": str(terms_acceptance.id),
+                    "marketing_consent": command.marketing_consent,
+                }
+            },
+            ip_address=command.ip_address,
+            user_agent=command.user_agent,
+            idempotency_key=(
+                command.document_idempotency_key
+                or f"registration-document:{user.id}:{terms_acceptance.id}"
+            ),
+            metadata={
+                "source": "natural_person_registration",
+                "registration_terms_acceptance_id": str(terms_acceptance.id),
+            },
+        )
+    )
+
+
 def _user_has_started_kyc(user: User) -> bool:
     try:
         kyc_case = user.kyc_verification_case
@@ -214,6 +284,9 @@ class RegisterNaturalPersonCommand:
     phone_number: str
     terms_version: str
     terms_hash: str
+    registration_document_template_version_id: str | None = None
+    accepted_checkbox_labels: list[str] | None = None
+    document_idempotency_key: str | None = None
     ip_address: str | None = None
     user_agent: str = ""
     marketing_consent: bool = False
@@ -340,7 +413,7 @@ class BootstrapEnvSuperadminResult:
 @transaction.atomic
 def register_natural_person_lender(command: RegisterNaturalPersonCommand) -> User:
     email = normalize_email(command.email)
-    _validate_registration_terms(command.terms_version, command.terms_hash)
+    terms_version, terms_hash = _registration_terms_evidence_values(command)
 
     user = User.objects.select_for_update().filter(email=email).first()
     is_recovered_incomplete_registration = False
@@ -379,10 +452,15 @@ def register_natural_person_lender(command: RegisterNaturalPersonCommand) -> Use
 
     terms_acceptance = RegistrationTermsAcceptance.objects.create(
         user=user,
-        terms_version=command.terms_version,
-        terms_hash=command.terms_hash,
+        terms_version=terms_version,
+        terms_hash=terms_hash,
         ip_address=command.ip_address,
         user_agent=command.user_agent,
+    )
+    _accept_registration_document_terms(
+        user=user,
+        command=command,
+        terms_acceptance=terms_acceptance,
     )
     actor = ActorRef("investor", str(user.id))
     record_audit_event(
@@ -397,7 +475,7 @@ def register_natural_person_lender(command: RegisterNaturalPersonCommand) -> Use
             target_id=str(user.id),
             metadata={
                 "account_type": user.account_type,
-                "terms_version": command.terms_version,
+                "terms_version": terms_version,
                 "marketing_consent": command.marketing_consent,
                 "incomplete_registration_recovered": is_recovered_incomplete_registration,
             },

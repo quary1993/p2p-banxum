@@ -105,6 +105,13 @@ class NaturalPersonRegistrationView(APIView):
                     phone_number=data["phone_number"],
                     terms_version=data["terms_version"],
                     terms_hash=data["terms_hash"],
+                    registration_document_template_version_id=(
+                        str(data["registration_document_template_version_id"])
+                        if data.get("registration_document_template_version_id")
+                        else None
+                    ),
+                    accepted_checkbox_labels=data.get("accepted_checkbox_labels"),
+                    document_idempotency_key=data.get("document_idempotency_key") or None,
                     ip_address=client_ip(request),
                     user_agent=user_agent(request),
                     marketing_consent=data["marketing_consent"],

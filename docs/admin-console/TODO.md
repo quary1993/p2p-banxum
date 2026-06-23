@@ -141,11 +141,11 @@ Each entry should include:
 - Required admin-console improvement: replace the current selected-loan-only context with a dedicated published-campaign detail drawer showing pending/allocated order counts, projected released principal, affected investor/order rows, and direct links to cancellation evidence, released order events, restored balance lots, and loan audit events. Add clearer post-action summaries from the cancellation/scan response, especially when multiple campaigns are cancelled or skipped.
 - Priority: important.
 
-## 2026-06-06: Remove Operational Write-Off From V1 Admin UX
+## 2026-06-06: Final Loss-Recognition Admin UX
 
 - Screen or component: Loans panel, servicing/risk actions.
-- Current first-version behavior: write-off has been removed from the functional v1 admin console. The Loans panel exposes servicing status scans, risk notes, and recovery-payment recording, while defaulted loans remain in default/recovery handling until Garanta defines a final resolution/loss-recognition policy.
-- Required admin-console improvement: keep write-off hidden from launch-facing admin workflows. Any future final loss-recognition or recovery-closure action must be designed as a separate advisor-approved resolution workflow, not as a generic write-off button.
+- Current first-version behavior: the backend exposes a strict final default loss-recognition endpoint for defaulted loans. It closes all remaining active holdings, records immutable per-investor loss lines, and moves the loan to written_off. The Loans panel still exposes the day-to-day servicing status, risk-note, and recovery-payment workflows; final loss recognition is not presented as a casual generic write-off action.
+- Required admin-console improvement: if this workflow is exposed in the admin console, design it as a separate advisor-approved final-resolution flow with a clear policy checklist, investor impact summary, component-loss review, evidence reference, and explicit confirmation. It must not look like an ordinary edit/remove/write-off button.
 - Priority: blocking polish.
 
 ## 2026-06-16: Admin Entity CRUD Tables

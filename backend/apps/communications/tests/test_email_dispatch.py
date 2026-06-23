@@ -5,6 +5,7 @@ from importlib import import_module
 from typing import Any, cast
 
 import pytest
+from django.apps import apps
 from django.contrib.auth import get_user_model
 from django.db import DatabaseError, connection, transaction
 from django.db.models import Model
@@ -24,6 +25,11 @@ from backend.apps.platform_core.models import AuditEvent, DomainEvent, OutboxMes
 from backend.apps.platform_core.models.base import AppendOnlyViolation
 from backend.apps.platform_core.models.events import OutboxStatus
 
+AGREEMENT_CHECKBOX_LABEL = (
+    "I have read, understood and accept the General Terms and Conditions / "
+    "User Agreement, including its integral annexes"
+)
+
 
 @pytest.fixture
 def investor() -> Model:
@@ -39,8 +45,25 @@ def investor() -> Model:
     )
 
 
+@pytest.fixture
+def superadmin_user() -> Model:
+    user_model: Any = get_user_model()
+    return cast(
+        Model,
+        user_model.objects.create_superuser(
+            email="communications-superadmin@example.test",
+            password="AdminPass123!",
+            full_name="Communications Superadmin",
+        ),
+    )
+
+
 def _auth_services() -> Any:
     return import_module("backend.apps.accounts_auth.services")
+
+
+def _document_services() -> Any:
+    return import_module("backend.apps.documents.services")
 
 
 @pytest.mark.django_db
@@ -124,6 +147,59 @@ def test_dispatch_sensitive_action_code_email_archives_code(
     assert result.raw_code in delivery.body_html
     assert "Action needed" in delivery.body_html
     assert "fx" in delivery.metadata["action"]
+
+
+@pytest.mark.django_db
+@override_settings(
+    COMMUNICATIONS_EMAIL_PROVIDER="mock",
+    PUBLIC_APP_BASE_URL="https://app.banxum.test",
+)
+def test_dispatch_document_acceptance_pdf_email_attaches_rendered_artifact(
+    investor: Model,
+    superadmin_user: Model,
+) -> None:
+    documents = _document_services()
+    version = documents.create_document_template_version(
+        documents.CreateDocumentTemplateVersionCommand(
+            actor=superadmin_user,
+            category="registration",
+            name="Garanta Lender User Agreement",
+            title="General Terms and Conditions / User Agreement for Lenders",
+            body="Agreement body for {{user.full_name}} on {{platform.name}}.",
+            checkbox_labels=[AGREEMENT_CHECKBOX_LABEL],
+            publish_now=True,
+            legal_review_reference="approved-test",
+        )
+    )
+    acceptance = documents.accept_document_terms(
+        documents.AcceptDocumentTermsCommand(
+            actor=investor,
+            category="registration",
+            expected_template_version_id=str(version.id),
+            accepted_checkbox_labels=list(cast(list[str], version.checkbox_labels)),
+            context_type="registration",
+            context_id=str(investor.pk),
+            idempotency_key="communications-accepted-registration-doc",
+        )
+    )
+    outbox = OutboxMessage.objects.get(topic="email.document_acceptance_pdf")
+
+    dispatch_result = dispatch_due_email_outbox_messages()
+
+    assert dispatch_result.sent_count == 1
+    outbox.refresh_from_db()
+    assert outbox.status == OutboxStatus.PROCESSED
+    artifact = apps.get_model("documents", "DocumentRenderedArtifact").objects.get(
+        acceptance=acceptance,
+        purpose="email_delivery",
+    )
+    delivery = EmailDeliveryRecord.objects.get(outbox_message=outbox)
+    assert delivery.recipient_email == cast(Any, investor).email
+    assert delivery.template_key == "documents.acceptance_pdf.v1"
+    assert artifact.filename in delivery.metadata["attachments"][0]["filename"]
+    assert delivery.metadata["content_sha256"] == artifact.content_sha256
+    assert "Your agreement PDF is attached" in delivery.body_html
+    assert "https://app.banxum.test/documents" in delivery.body_html
 
 
 @pytest.mark.django_db

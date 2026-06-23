@@ -1,33 +1,33 @@
 [
   {
     "id": "dashboard-0-key-metrics",
-    "w": 956,
-    "h": 118
+    "w": 980,
+    "h": 121
   },
   {
     "id": "dashboard-1-daily-dashboard-queues",
-    "w": 956,
-    "h": 615
+    "w": 980,
+    "h": 631
   },
   {
     "id": "dashboard-4-card",
-    "w": 956,
-    "h": 205
+    "w": 980,
+    "h": 210
   },
   {
     "id": "tasks-1-operational-task-queue",
-    "w": 956,
-    "h": 75
+    "w": 980,
+    "h": 77
   },
   {
     "id": "tasks-2-card",
-    "w": 956,
-    "h": 71
+    "w": 980,
+    "h": 73
   },
   {
     "id": "tasks-3-card",
-    "w": 956,
-    "h": 315
+    "w": 980,
+    "h": 322
   },
   {
     "id": "compliance-5-kyc-manual-review",
@@ -41,8 +41,8 @@
   },
   {
     "id": "compliance-7-account-access-controls",
-    "w": 956,
-    "h": 465
+    "w": 980,
+    "h": 477
   },
   {
     "id": "finance-0-lender-deposit",
@@ -81,28 +81,28 @@
   },
   {
     "id": "finance-7-fx-settlement",
-    "w": 956,
-    "h": 530
+    "w": 980,
+    "h": 543
   },
   {
     "id": "loans-0-key-metrics",
-    "w": 956,
-    "h": 157
+    "w": 980,
+    "h": 160
   },
   {
     "id": "loans-5-borrowers",
-    "w": 956,
-    "h": 231
+    "w": 980,
+    "h": 237
   },
   {
     "id": "loans-6-loans",
-    "w": 956,
-    "h": 247
+    "w": 980,
+    "h": 253
   },
   {
     "id": "loans-7-primary-marketplace-operations",
-    "w": 466,
-    "h": 1230
+    "w": 424,
+    "h": 1120
   },
   {
     "id": "loans-8-secondary-market-approvals",
@@ -111,8 +111,8 @@
   },
   {
     "id": "loans-9-servicing-and-recovery",
-    "w": 956,
-    "h": 510
+    "w": 980,
+    "h": 523
   },
   {
     "id": "reports-0-report-generation",
@@ -126,8 +126,8 @@
   },
   {
     "id": "settings-0-document-templates",
-    "w": 956,
-    "h": 214
+    "w": 980,
+    "h": 220
   },
   {
     "id": "settings-1-user-accounts",

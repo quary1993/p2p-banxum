@@ -277,3 +277,12 @@ Before launch, Claude Design should produce or implement:
 - Remaining backend/API dependency: final bank account details in platform settings, final advisor-approved statement/tax templates and PDF/CSV layouts, and production provider delivery/status data.
 - Claude Design action: polish the density and hierarchy of the deposit-instruction modal, download action grouping, document type filters, checksum/evidence hints, notification status chips, and mobile table/card behavior. Confirm that users can distinguish generated-on-request files from immutable accepted evidence.
 - Priority: important.
+
+## 2026-06-23: Generated Legal Evidence PDFs
+
+- Screen or component: registration acceptance, primary-market investment modal, Documents screen, and email/document confirmation states.
+- Current first-version behavior: registration can use the imported lender user agreement template, and primary-market investments can use the imported project investment confirmation / claim assignment agreement template. Accepted evidence is rendered as a BANXUM/Garanta PDF with a cover page, table of contents, source-of-truth notice, accepted checkbox, and transaction-specific data populated by the server. Acceptance also queues an email with the PDF attached.
+- Design decision: treat these PDFs as legal evidence packages, not marketing collateral. The UI should make clear which document was accepted, which transaction it belongs to, when it was accepted, and where the generated PDF can be downloaded later.
+- Remaining backend/API dependency: final counsel-approved template text, final production PDF layout decision, and any later post-close assignment artifact if legal requires a final holding ID after funding close.
+- Claude Design action: polish user-facing copy and layout around "terms unavailable", stale-template refresh, accepted-document success, email-with-PDF confirmation, and Documents-screen grouping for per-order investment confirmations.
+- Priority: important.

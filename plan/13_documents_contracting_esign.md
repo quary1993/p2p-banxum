@@ -178,6 +178,9 @@ Impacted modules:
 Follow-ups:
 Define whether partially funded orders generate one final assignment document for the accepted amount or a corrected/replaced version.
 
+Implementation status:
+The Garanta project investment confirmation DOCX can be imported as the `primary_market_investment/default/en` template with `import_project_investment_confirmation`. The importer maps the source bracket fields into server-resolved document variables and uses the recommended confirmation text as the required checkbox label. Each primary-order acceptance renders and emails a generated PDF from immutable clickwrap evidence. The acceptance snapshot is enriched server-side with the real order, loan, borrower, lender, assignment, and operator data so client-submitted snapshots cannot forge transaction terms. Holding IDs are not known until funding close; the v1 document renders that field as assigned at funding close. If legal requires the final holding ID inside the same legal package, implement a separate post-close final assignment artifact.
+
 ### DOC-DEC-006: Pre-Investment Borrower Documents
 
 Status: Accepted.
@@ -224,7 +227,7 @@ Follow-ups:
 Define email attachment versus secure-link delivery and file-size limits.
 
 Implementation status:
-Generic acceptance-document download is implemented for PDF and CSV. Each render is regenerated from immutable template version plus acceptance data snapshot, returns a checksum/manifest, records the renderer version used for byte-level traceability, and stores append-only rendered-artifact metadata without storing the generated file bytes as the source of truth. Production still requires Garanta-approved template content before real transactions.
+Generic acceptance-document download is implemented for PDF and CSV. Each render is regenerated from immutable template version plus acceptance data snapshot, returns a checksum/manifest, records the renderer version used for byte-level traceability, and stores append-only rendered-artifact metadata without storing the generated file bytes as the source of truth. New acceptance evidence also queues an idempotent document-package email, and dispatch attaches the generated PDF while recording attachment metadata in immutable email-delivery evidence. Production still requires Garanta-approved template content before real transactions.
 
 ### DOC-DEC-008: Regenerate PDFs From Templates, Generate at Transaction Time
 
@@ -252,7 +255,7 @@ Follow-ups:
 Define whether regulator/auditor exports require materialized PDFs to be generated and stored in evidence packages.
 
 Implementation status:
-Generic template-driven acceptance evidence PDFs and CSVs are implemented. The renderer replaces approved template variables from the stored acceptance data snapshot, rejects missing template variables instead of silently emitting incomplete legal documents, neutralizes CSV formula cells, records append-only `DocumentRenderedArtifact` metadata with checksum/manifest and renderer version, and exposes a self/admin-scoped artifact API. Production layout polish and final legal wording remain separate tasks; the current renderer is a deterministic backend artifact generator, not the final WeasyPrint visual template engine.
+Generic template-driven acceptance evidence PDFs and CSVs are implemented. The renderer replaces approved template variables from the stored acceptance data snapshot, rejects missing template variables instead of silently emitting incomplete legal documents, neutralizes CSV formula cells, records append-only `DocumentRenderedArtifact` metadata with checksum/manifest and renderer version, and exposes a self/admin-scoped artifact API. The current backend PDF renderer includes BANXUM/Garanta branding, evidence cover page, table of contents, and real table rendering for imported legal templates, but it is still a deterministic backend artifact generator rather than a final counsel-approved WeasyPrint layout engine. Production layout polish and final legal wording remain separate tasks.
 
 ### DOC-DEC-009: Template Change Definition
 

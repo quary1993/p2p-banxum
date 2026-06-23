@@ -8008,6 +8008,16 @@ components:
         terms_hash:
           type: string
           maxLength: 128
+        registration_document_template_version_id:
+          type: string
+          format: uuid
+        accepted_checkbox_labels:
+          type: array
+          items:
+            type: string
+        document_idempotency_key:
+          type: string
+          maxLength: 160
         marketing_consent:
           type: boolean
           default: false

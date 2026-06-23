@@ -10,6 +10,7 @@
   "whatYouDoHere": [
     "Browse the versioned legal/document templates for each category, and see which version is currently live (the 'Current' one).",
     "Create a new draft version of a template, or publish a version so it becomes the live one shown to investors.",
+    "Confirm that the current Registration template and Primary Market Investment template are published before live onboarding or investment testing. The primary-market template produces one project investment confirmation PDF per investment order.",
     "Create a new admin staff account (only an active superadmin is allowed to do this).",
     "Search the full user directory (admins and investors) by name, email, investor reference, or UUID.",
     "Restrict, lock, reactivate, or close any user account through the audited account-access flow. Always grant the least access a person needs (least privilege)."
@@ -18,7 +19,7 @@
     {
       "id": "settings-0-document-templates",
       "caption": "Document templates: versioned legal text by category, with create-version and publish actions.",
-      "summary": "This card lists the legal/clickwrap templates investors must accept. Each row is one version of a template. Versions are immutable: you never edit one, you create a new version and then publish it to make it live. The list is filtered by the Category dropdown at the top.",
+      "summary": "This card lists the legal/clickwrap templates investors must accept. Each row is one version of a template. Versions are immutable: you never edit one, you create a new version and then publish it to make it live. The list is filtered by the Category dropdown at the top. The Primary Market Investment category is the project investment confirmation / claim assignment agreement that is generated for each investor order.",
       "annotations": [
         {
           "item": 7,
@@ -28,7 +29,7 @@
         {
           "item": 8,
           "label": "Category dropdown",
-          "text": "Pick which kind of document to view. The four choices are Registration (the terms a user accepts when signing up), Primary Market Investment (accepted when investing in a new loan), Secondary Market Purchase (accepted when buying an existing loan piece from another investor), and Secondary Market Listing (accepted when putting a loan piece up for sale). Changing this reloads the list below."
+          "text": "Pick which kind of document to view. The four choices are Registration (the lender user agreement accepted when signing up), Primary Market Investment (the project investment confirmation and claim assignment agreement accepted once per primary investment order), Secondary Market Purchase (accepted when buying an existing loan piece from another investor), and Secondary Market Listing (accepted when putting a loan piece up for sale). Changing this reloads the list below."
         },
         {
           "item": 9,
@@ -84,6 +85,9 @@
       "notes": [
         "In preview mode the screen uses dummy templates. On the live system, every create and publish writes a permanent, immutable document version that cannot be altered afterward.",
         "When publishing, you can record a 'Legal review reference' (a pointer to the legal sign-off for that wording). This is captured so there is an audit trail of who approved the text.",
+        "Production legal templates should normally be imported from the counsel-approved DOCX sources by an engineer using the import commands, then reviewed here. The current commands are import_lender_user_agreement for Registration and import_project_investment_confirmation for Primary Market Investment.",
+        "The project investment confirmation PDF fills order, loan, borrower, lender, assignment and operator fields from server data at acceptance time. Do not type real investor/loan IDs into the template body; use the approved variables. The final holding ID is assigned at funding close, so the v1 template shows that field as assigned at funding close unless a later post-close assignment artifact is implemented.",
+        "Every accepted document can be regenerated as PDF/CSV from immutable evidence and is also emailed as a PDF package when the email dispatcher processes the acceptance outbox message.",
         "There is no way to delete a template version from this screen, and the small note next to the action confirms removal is not supported. Document evidence must be kept."
       ],
       "kpiTiles": []

@@ -30,6 +30,17 @@ class NaturalPersonRegistrationRequestSerializer(serializers.Serializer[Any]):
     phone_number = serializers.CharField(max_length=32)
     terms_version = serializers.CharField(max_length=64)
     terms_hash = serializers.CharField(max_length=128)
+    registration_document_template_version_id = serializers.UUIDField(required=False)
+    accepted_checkbox_labels = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_empty=False,
+    )
+    document_idempotency_key = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=160,
+    )
     marketing_consent = serializers.BooleanField(default=False)
 
 

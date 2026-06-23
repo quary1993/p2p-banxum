@@ -1,16 +1,24 @@
 from __future__ import annotations
 
 import base64
+import datetime as dt
+import html
 from typing import Any, cast
+from zipfile import ZipFile
 
 import pytest
 from django.apps import apps
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.db import DatabaseError, connection, transaction
 from django.db.models import Model
 from django.test import Client
 from django.utils import timezone
 
+from backend.apps.documents.legal_import import (
+    extract_lender_user_agreement_template,
+    extract_project_investment_confirmation_template,
+)
 from backend.apps.documents.models import (
     DocumentAcceptanceEvidence,
     DocumentCategory,
@@ -34,6 +42,15 @@ from backend.apps.documents.services import (
 )
 from backend.apps.platform_core.models import AuditEvent, DomainEvent
 from backend.apps.platform_core.models.base import AppendOnlyViolation
+
+AGREEMENT_CHECKBOX_LABEL = (
+    "I have read, understood and accept the General Terms and Conditions / "
+    "User Agreement, including its integral annexes"
+)
+INVESTMENT_CONFIRMATION_CHECKBOX_LABEL = (
+    "I confirm this investment and accept the Project Investment Confirmation "
+    "and Claim Assignment Agreement."
+)
 
 
 @pytest.fixture
@@ -121,6 +138,25 @@ def _template_command(
     )
 
 
+def _write_minimal_docx(path: Any, blocks: list[str]) -> None:
+    paragraphs = "\n".join(
+        (
+            '<w:p><w:r><w:t xml:space="preserve">'
+            f"{html.escape(block)}"
+            "</w:t></w:r></w:p>"
+        )
+        for block in blocks
+    )
+    document_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        f"<w:body>{paragraphs}</w:body>"
+        "</w:document>"
+    )
+    with ZipFile(path, "w") as archive:
+        archive.writestr("word/document.xml", document_xml)
+
+
 def _accepted_primary_document(
     *,
     superadmin_user: Model,
@@ -151,6 +187,233 @@ def _accepted_primary_document(
             idempotency_key=idempotency_key,
         )
     )
+
+
+def _create_primary_order_context(*, investor: Model, admin_user: Model) -> Model:
+    currency_model = apps.get_model("platform_core", "Currency")
+    borrower_model = apps.get_model("entities", "BorrowerEntity")
+    loan_model = apps.get_model("loans", "Loan")
+    installment_model = apps.get_model("loans", "LoanInstallment")
+    order_model = apps.get_model("marketplace_primary", "PrimaryInvestmentOrder")
+    currency_model.objects.get_or_create(
+        code="CHF",
+        defaults={"name": "Swiss Franc", "minor_units": 2, "is_enabled": True},
+    )
+    borrower = borrower_model.objects.create(
+        legal_name="Server Owned Borrower AG",
+        year_founded=2018,
+        entity_type="swiss_company",
+        kyb_status="approved",
+        country="CH",
+        created_by_admin_id=admin_user.pk,
+    )
+    loan = loan_model.objects.create(
+        borrower=borrower,
+        status="published",
+        title="Server Owned Project",
+        investor_summary="Server owned summary.",
+        purpose="working_capital",
+        purpose_description="Working capital.",
+        principal_minor=100_000_00,
+        currency_id="CHF",
+        interest_rate_bps=950,
+        term_months=12,
+        repayment_type="bullet_periodic_interest",
+        funding_deadline=dt.date(2026, 7, 20),
+        first_payment_date=dt.date(2026, 8, 20),
+        collateral_type="real_estate",
+        collateral_value_minor=150_000_00,
+        collateral_description="First-ranking real estate pledge.",
+        risk_rating="A",
+        created_by_admin_id=admin_user.pk,
+    )
+    installment_model.objects.create(
+        loan=loan,
+        schedule_version=1,
+        installment_number=1,
+        due_date=dt.date(2027, 6, 20),
+        principal_minor=100_000_00,
+        interest_minor=9_500_00,
+        total_minor=109_500_00,
+    )
+    return cast(
+        Model,
+        order_model.objects.create(
+            loan=loan,
+            investor_user_id=investor.pk,
+            requested_amount_minor=2_500_00,
+            allocated_amount_minor=0,
+            currency_id="CHF",
+            created_by_user_id=investor.pk,
+            idempotency_key="docs-primary-order-context",
+        ),
+    )
+
+
+@pytest.mark.django_db
+def test_lender_user_agreement_docx_import_extracts_body_and_checkbox(tmp_path: Any) -> None:
+    docx_path = tmp_path / "agreement.docx"
+    _write_minimal_docx(
+        docx_path,
+        [
+            "GARANTA FINANZGRUPPE AG",
+            "General Terms and Conditions / User Agreement for Lenders",
+            "Version: 0.4\nEffective date: [to be completed]",
+            "Document Structure and One-Click Acceptance",
+            "Recommended clickwrap acceptance wording",
+            "The platform should display the following text.",
+            f"“{AGREEMENT_CHECKBOX_LABEL}”",
+            "Acceptance evidence to be retained by the platform",
+            "For each acceptance, store a non-editable PDF/snapshot.",
+            "Main Agreement",
+            "1. Parties and Scope",
+            "Fee item [to confirm]",
+        ],
+    )
+
+    imported = extract_lender_user_agreement_template(
+        docx_path=docx_path,
+        effective_date="2026-07-01",
+    )
+
+    assert "Main Agreement" in imported.body
+    assert "Effective date: 2026-07-01" in imported.body
+    assert "Recommended clickwrap acceptance wording" not in imported.body
+    assert imported.checkbox_label.startswith("I have read, understood")
+    assert imported.unresolved_placeholders == ("[to confirm]",)
+
+
+@pytest.mark.django_db
+def test_project_investment_confirmation_import_maps_dynamic_fields(tmp_path: Any) -> None:
+    docx_path = tmp_path / "investment-confirmation.docx"
+    _write_minimal_docx(
+        docx_path,
+        [
+            "GARANTA FINANZGRUPPE AG",
+            "Project Investment Confirmation and Claim Assignment Agreement",
+            "Version: 0.4 | Effective date: [to be completed] | Draft for legal review",
+            "Recommended confirmation text",
+            f"Table:\n{INVESTMENT_CONFIRMATION_CHECKBOX_LABEL}",
+            "Part I - Basic Terms and Conditions",
+            (
+                "Table:\n"
+                "No. | Field | Dynamic value\n"
+                "1 | Agreement No. | [AGREEMENT_NO]\n"
+                "2 | Project ID / Project name | [PROJECT_ID] / [PROJECT_NAME]\n"
+                "3 | Borrower | [BORROWER_NAME] / [BORROWER_ID]\n"
+                "4 | Investment / Claim Amount | [AMOUNT] [CURRENCY]\n"
+                "5 | Interest rate | [INTEREST_RATE]% p.a.\n"
+                "6 | Collateral / security | "
+                "[none / as described in the Project Summary / as per Collateral Documents]"
+            ),
+            "Part II - General Assignment Terms and Conditions",
+            "1. Relationship with the User Agreement and Project documents",
+            "The transaction is accepted electronically.",
+        ],
+    )
+
+    imported = extract_project_investment_confirmation_template(
+        docx_path=docx_path,
+        effective_date="2026-07-01",
+    )
+
+    assert "Effective date: 2026-07-01" in imported.body
+    assert "Recommended confirmation text" not in imported.body
+    assert "{{order.agreement_no}}" in imported.body
+    assert "{{loan.title}}" in imported.body
+    assert "{{borrower.legal_name}}" in imported.body
+    assert "{{loan.collateral_security}}" in imported.body
+    assert imported.checkbox_label == INVESTMENT_CONFIRMATION_CHECKBOX_LABEL
+    assert imported.unresolved_placeholders == ()
+
+
+@pytest.mark.django_db
+def test_import_lender_user_agreement_command_publishes_registration_template(
+    superadmin_user: Model,
+    tmp_path: Any,
+) -> None:
+    docx_path = tmp_path / "agreement.docx"
+    _write_minimal_docx(
+        docx_path,
+        [
+            "GARANTA FINANZGRUPPE AG",
+            "General Terms and Conditions / User Agreement for Lenders",
+            "Version: 0.4\nEffective date: [to be completed]",
+            "Document Structure and One-Click Acceptance",
+            "Recommended clickwrap acceptance wording",
+            "The platform should display the following text.",
+            f"“{AGREEMENT_CHECKBOX_LABEL}”",
+            "Acceptance evidence to be retained by the platform",
+            "For each acceptance, store a non-editable PDF/snapshot.",
+            "Main Agreement",
+            "1. Parties and Scope",
+            "Final legal text.",
+        ],
+    )
+
+    call_command(
+        "import_lender_user_agreement",
+        str(docx_path),
+        "--effective-date",
+        "2026-07-01",
+        "--superadmin-email",
+        cast(Any, superadmin_user).email,
+        "--legal-review-reference",
+        "advisor-approved-test",
+        "--publish",
+    )
+
+    current = get_current_document_template(category=DocumentCategory.REGISTRATION)
+    assert current.status == DocumentTemplateVersionStatus.PUBLISHED
+    assert current.template.template_key == "default"
+    assert current.legal_review_reference == "advisor-approved-test"
+    assert current.metadata["source_docx_sha256"]
+    assert current.metadata["effective_date"] == "2026-07-01"
+    assert "Recommended clickwrap" in current.metadata["skipped_instruction_text"]
+    assert "Final legal text." in current.body
+
+
+@pytest.mark.django_db
+def test_import_project_investment_confirmation_command_publishes_primary_template(
+    superadmin_user: Model,
+    tmp_path: Any,
+) -> None:
+    docx_path = tmp_path / "investment-confirmation.docx"
+    _write_minimal_docx(
+        docx_path,
+        [
+            "GARANTA FINANZGRUPPE AG",
+            "Project Investment Confirmation and Claim Assignment Agreement",
+            "Version: 0.4 | Effective date: [to be completed] | Draft for legal review",
+            "Recommended confirmation text",
+            f"Table:\n{INVESTMENT_CONFIRMATION_CHECKBOX_LABEL}",
+            "Part I - Basic Terms and Conditions",
+            "Table:\nNo. | Field | Dynamic value\n1 | Agreement No. | [AGREEMENT_NO]",
+            "Part II - General Assignment Terms and Conditions",
+            "1. Relationship with the User Agreement and Project documents",
+            "Final investment confirmation text.",
+        ],
+    )
+
+    call_command(
+        "import_project_investment_confirmation",
+        str(docx_path),
+        "--effective-date",
+        "2026-07-01",
+        "--superadmin-email",
+        cast(Any, superadmin_user).email,
+        "--legal-review-reference",
+        "advisor-approved-test",
+        "--publish",
+    )
+
+    current = get_current_document_template(category=DocumentCategory.PRIMARY_MARKET_INVESTMENT)
+    assert current.status == DocumentTemplateVersionStatus.PUBLISHED
+    assert current.template.template_key == "default"
+    assert current.legal_review_reference == "advisor-approved-test"
+    assert current.checkbox_labels == [INVESTMENT_CONFIRMATION_CHECKBOX_LABEL]
+    assert current.metadata["generation_context"] == "one_acceptance_per_primary_investment_order"
+    assert "{{order.agreement_no}}" in current.body
 
 
 @pytest.mark.django_db
@@ -565,6 +828,67 @@ def test_acceptance_snapshot_includes_server_owned_brand_operator_and_user(
 
 
 @pytest.mark.django_db
+def test_primary_investment_acceptance_snapshot_uses_server_owned_order_context(
+    superadmin_user: Model,
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    order = _create_primary_order_context(investor=investor, admin_user=admin_user)
+    version = create_document_template_version(
+        _template_command(
+            superadmin_user,
+            title="Project Investment Confirmation",
+            body=(
+                "Agreement {{order.agreement_no}}\n\n"
+                "Table:\n"
+                "Field | Value\n"
+                "Project | {{loan.id}} / {{loan.title}}\n"
+                "Borrower | {{borrower.legal_name}} / {{borrower.id}}\n"
+                "Amount | {{order.amount}} {{order.currency}}\n"
+                "Lender | {{lender.id}}\n"
+                "Holding | {{holding.id}}\n"
+                "Assignor | {{assignment.assignor_name}}"
+            ),
+        )
+    )
+
+    acceptance = accept_document_terms(
+        AcceptDocumentTermsCommand(
+            actor=investor,
+            category=DocumentCategory.PRIMARY_MARKET_INVESTMENT,
+            expected_template_version_id=str(version.id),
+            accepted_checkbox_labels=list(cast(list[str], version.checkbox_labels)),
+            context_type="primary_order",
+            context_id=str(cast(Any, order).id),
+            data_snapshot={
+                "loan": {"title": "Forged Loan"},
+                "borrower": {"legal_name": "Forged Borrower"},
+                "order": {"amount": "999'999.00", "currency": "EUR"},
+            },
+            idempotency_key="accept-server-owned-primary-order",
+        )
+    )
+
+    assert acceptance.data_snapshot["loan"]["title"] == "Server Owned Project"
+    assert acceptance.data_snapshot["borrower"]["legal_name"] == "Server Owned Borrower AG"
+    assert acceptance.data_snapshot["order"]["amount"] == "2'500.00"
+    assert acceptance.data_snapshot["order"]["currency"] == "CHF"
+    assert acceptance.data_snapshot["holding"]["id"] == "Assigned at funding close"
+
+    artifact = render_document_acceptance_artifact(
+        RenderDocumentAcceptanceArtifactCommand(
+            actor=investor,
+            acceptance_id=str(acceptance.id),
+            output_format="pdf",
+        )
+    )
+    pdf_bytes = base64.b64decode(artifact.content.encode("ascii"))
+    assert b"Server Owned Project" in pdf_bytes
+    assert b"Forged Loan" not in pdf_bytes
+
+
+@pytest.mark.django_db
 def test_render_acceptance_pdf_is_template_driven_and_records_artifact(
     superadmin_user: Model,
     investor: Model,
@@ -599,7 +923,9 @@ def test_render_acceptance_pdf_is_template_driven_and_records_artifact(
     assert artifact.manifest["legal_content_status"] == (
         "template_content_must_be_approved_before_production_use"
     )
-    assert artifact.manifest["renderer_version"] == "document-artifact-renderer-v1"
+    assert artifact.manifest["renderer_version"] == "document-artifact-renderer-v2"
+    assert b"Table of contents" in pdf_bytes
+    assert b"BANXUM accepted-document artifact" in pdf_bytes
     assert DocumentRenderedArtifact.objects.filter(
         acceptance=acceptance,
         content_sha256=artifact.content_sha256,

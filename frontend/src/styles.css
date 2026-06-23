@@ -1366,6 +1366,15 @@ textarea.input {
   margin: 10px 0 4px;
 }
 
+.legal-document-preview {
+  border-top: 1px solid var(--line);
+  color: var(--ink-2);
+  font-family: var(--font-sans);
+  margin-top: 10px;
+  padding-top: 10px;
+  white-space: pre-wrap;
+}
+
 .codeblock {
   align-items: center;
   background: var(--surface-3);

@@ -2134,6 +2134,10 @@ export interface NaturalPersonRegistrationRequest {
   terms_version: string;
   /** @maxLength 128 */
   terms_hash: string;
+  registration_document_template_version_id?: string;
+  accepted_checkbox_labels?: string[];
+  /** @maxLength 160 */
+  document_idempotency_key?: string;
   marketing_consent?: boolean;
 }
 
