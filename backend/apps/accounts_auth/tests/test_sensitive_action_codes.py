@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import json
 from datetime import timedelta
-from typing import Any
+from importlib import import_module
+from typing import Any, cast
 
 import pytest
+from django.apps import apps
 from django.test import Client
+from django.test.utils import override_settings
 
 from backend.apps.accounts_auth.models import AccountStatus, AccountType, SensitiveAction, User
 from backend.apps.accounts_auth.services import (
@@ -18,6 +22,28 @@ from backend.apps.accounts_auth.services import (
     issue_sensitive_action_code,
 )
 from backend.apps.platform_core.models import AuditEvent, OutboxMessage
+
+
+class _FakeSendGridResponse:
+    status = 202
+    headers = {"X-Message-Id": "sendgrid-sensitive-code"}
+
+    def __enter__(self) -> _FakeSendGridResponse:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return b""
+
+
+def _communications_services() -> Any:
+    return import_module("backend.apps.communications.services")
+
+
+def _email_delivery_record_model() -> Any:
+    return apps.get_model("communications", "EmailDeliveryRecord")
 
 
 @pytest.fixture
@@ -207,6 +233,52 @@ def test_sensitive_action_code_request_api_issues_investor_money_code(
         topic="email.sensitive_action_code_requested",
         payload__action=SensitiveAction.FX,
     ).exists()
+
+
+@pytest.mark.django_db
+@override_settings(
+    COMMUNICATIONS_EMAIL_PROVIDER="sendgrid",
+    SENDGRID_API_KEY="SG.test",
+    SENDGRID_FROM_EMAIL="hq@banxum.com",
+    SENDGRID_FROM_NAME="BANXUM",
+    PUBLIC_APP_BASE_URL="https://app.banxum.test",
+)
+def test_sensitive_action_code_request_api_dispatches_via_mocked_sendgrid(
+    client: Client,
+    investor: User,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_urlopen(request: Any, timeout: int) -> _FakeSendGridResponse:
+        captured["payload"] = json.loads(cast(bytes, request.data).decode("utf-8"))
+        captured["authorization"] = dict(request.header_items())["Authorization"]
+        return _FakeSendGridResponse()
+
+    monkeypatch.setattr(
+        "backend.apps.communications.services.urllib.request.urlopen",
+        fake_urlopen,
+    )
+    client.force_login(investor)
+
+    response = client.post(
+        "/api/v1/auth/sensitive-action-code/request/",
+        data={"action": SensitiveAction.WITHDRAWAL},
+        content_type="application/json",
+    )
+    dispatch_result = _communications_services().dispatch_due_email_outbox_messages()
+
+    assert response.status_code == 202
+    assert dispatch_result.sent_count == 1
+    assert captured["authorization"] == "Bearer SG.test"
+    assert captured["payload"]["personalizations"][0]["to"][0]["email"] == investor.email
+    assert captured["payload"]["from"] == {"email": "hq@banxum.com", "name": "BANXUM"}
+    assert captured["payload"]["tracking_settings"]["click_tracking"]["enable"] is False
+    delivery = _email_delivery_record_model().objects.get(
+        provider_message_id="sendgrid-sensitive-code"
+    )
+    assert delivery.status == "sent"
+    assert delivery.template_key == "auth.withdrawal.code.v1"
 
 
 @pytest.mark.django_db

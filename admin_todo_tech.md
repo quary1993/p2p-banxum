@@ -1,7 +1,7 @@
 # Admin TODO: Technical Architecture and Implementation Decisions
 
 Status: Launch technical baseline resolved.
-Last updated: 2026-06-06.
+Last updated: 2026-06-23.
 
 This file tracks architecture and strictly technical decisions. It does not track provider credentials, legal wording, accounting policy, or business procedure unless the decision is a technical implementation detail.
 
@@ -11,7 +11,7 @@ Blocking means the technical team cannot complete the named implementation area 
 
 No technical architecture blockers remain for implementation after the 2026-06-01 launch-infrastructure decision set.
 
-Real deployment still needs the accounts/access items in `admin_todo_accounts.md`, especially AWS, GitHub, DNS, provider credentials, SendGrid, Twilio, Didit, Yahoo Finance access, and bank/collection-account details.
+Real deployment still needs the accounts/access items in `admin_todo_accounts.md`, especially final-domain DNS, provider production credentials/validation, SendGrid/Twilio/Didit/Yahoo operational access, and bank/collection-account operating procedures.
 
 ### HTTPS Transport For Staging/Production
 
@@ -32,7 +32,7 @@ BANXUM uses cookie-based admin/investor sessions, CSRF tokens, KYC data, PII, an
 
 Status:
 
-Blocking before production-like use. Implementation can continue locally with private mock data and local HTTP only.
+The temporary test-domain deployment has HTTPS and should be used instead of raw-IP HTTP for staging/private testing. This remains a production launch gate until the final BANXUM domain, provider callback URLs, cookie flags, and credential rotation are verified in the launch environment.
 
 ### Scheduled-Job Monitoring Wiring
 
@@ -68,6 +68,8 @@ Status:
 
 Blocking before unattended production real-money operation. Implementation can continue, and staging
 can run these commands manually or through temporary cron while alert routing is finalized.
+
+See `docs/runbooks/go-live-checklist.md` for the operational go-live, admin-operations, provider-validation, and before-real-money test checklists that sit on top of these technical decisions.
 
 ## Resolved Launch Technical Decisions
 

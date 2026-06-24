@@ -154,3 +154,10 @@ Each entry should include:
 - Current first-version behavior: added backend-searchable, dense entity tables with search/filter controls in the table header, a create action in the header, and row-level action columns. Borrowers and loans open edit modals backed by the existing PATCH endpoints. Document templates expose create-version and publish-version actions while preserving immutable version history. User accounts are searchable through the admin lookup endpoint and route status changes through the audited account-access workflow.
 - Required admin-console improvement: add true detail drawers for each entity with event history, related documents/evidence, and linked operational queues. Physical remove/delete remains intentionally unsupported for borrowers, loans, template versions, and users because these are audit/evidence entities; future "remove" semantics must be explicit domain transitions such as loan cancellation, listing removal, account closure, or template supersession.
 - Priority: important.
+
+## 2026-06-23: Admin Manual And Launch Operations Update
+
+- Screen or component: admin manual, Finance Ops deposit instructions, Superadmin document-template operations, Reports/document downloads.
+- Current first-version behavior: the admin manual source now documents the current CHF/EUR collector accounts, the verified CHF QR-bill behavior, the generated lender user agreement and project investment confirmation PDFs, and the current CRUD/search/autocomplete admin flows. `docs/runbooks/go-live-checklist.md` now centralizes go-live, admin operations, provider validation, and before-real-money test checklists.
+- Required admin-console improvement: keep the manual in sync after future changes to collection accounts, provider behavior, generated document delivery, or admin CRUD flows. Add screenshots/figures for any new detail drawers, object-storage artifact links, or final loss-recognition UI if those are introduced.
+- Priority: important.

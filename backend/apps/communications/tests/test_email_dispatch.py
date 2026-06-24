@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import timedelta
 from importlib import import_module
 from typing import Any, cast
@@ -66,6 +67,20 @@ def _document_services() -> Any:
     return import_module("backend.apps.documents.services")
 
 
+class _FakeSendGridResponse:
+    status = 202
+    headers = {"X-Message-Id": "sendgrid-message-1"}
+
+    def __enter__(self) -> _FakeSendGridResponse:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return b""
+
+
 @pytest.mark.django_db
 @override_settings(
     COMMUNICATIONS_EMAIL_PROVIDER="mock",
@@ -84,7 +99,7 @@ def test_dispatch_magic_link_email_archives_full_content_and_marks_processed(
     dispatch_result = dispatch_due_email_outbox_messages(DispatchEmailOutboxCommand(limit=10))
 
     assert dispatch_result.processed_count == 1
-    assert dispatch_result.sent_count == 1
+    assert dispatch_result.sent_count == 1, EmailDeliveryRecord.objects.get().error
     outbox.refresh_from_db()
     assert outbox.status == OutboxStatus.PROCESSED
     assert "token" not in outbox.payload
@@ -139,7 +154,7 @@ def test_dispatch_sensitive_action_code_email_archives_code(
 
     dispatch_result = dispatch_due_email_outbox_messages()
 
-    assert dispatch_result.sent_count == 1
+    assert dispatch_result.sent_count == 1, EmailDeliveryRecord.objects.get().error
     outbox.refresh_from_db()
     assert outbox.status == OutboxStatus.PROCESSED
     delivery = EmailDeliveryRecord.objects.get(outbox_message=outbox)
@@ -147,6 +162,58 @@ def test_dispatch_sensitive_action_code_email_archives_code(
     assert result.raw_code in delivery.body_html
     assert "Action needed" in delivery.body_html
     assert "fx" in delivery.metadata["action"]
+
+
+@pytest.mark.django_db
+@override_settings(
+    COMMUNICATIONS_EMAIL_PROVIDER="sendgrid",
+    SENDGRID_API_KEY="SG.test",
+    SENDGRID_FROM_EMAIL="hq@banxum.com",
+    SENDGRID_FROM_NAME="BANXUM",
+    SENDGRID_TIMEOUT_SECONDS=7,
+    PUBLIC_APP_BASE_URL="https://app.banxum.test",
+)
+def test_sensitive_action_email_dispatch_uses_sendgrid_payload_without_tracking(
+    investor: Model,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth_services = _auth_services()
+    result = auth_services.issue_sensitive_action_code(
+        auth_services.SensitiveActionCodeCommand(user=investor, action="withdrawal")
+    )
+    captured: dict[str, Any] = {}
+
+    def fake_urlopen(request: Any, timeout: int) -> _FakeSendGridResponse:
+        captured["url"] = request.full_url
+        captured["timeout"] = timeout
+        captured["headers"] = dict(request.header_items())
+        captured["payload"] = json.loads(cast(bytes, request.data).decode("utf-8"))
+        return _FakeSendGridResponse()
+
+    monkeypatch.setattr(
+        "backend.apps.communications.services.urllib.request.urlopen",
+        fake_urlopen,
+    )
+
+    dispatch_result = dispatch_due_email_outbox_messages()
+
+    assert dispatch_result.sent_count == 1, EmailDeliveryRecord.objects.get().error
+    assert captured["url"] == "https://api.sendgrid.com/v3/mail/send"
+    assert captured["timeout"] == 7
+    assert captured["headers"]["Authorization"] == "Bearer SG.test"
+    payload = captured["payload"]
+    assert payload["from"] == {"email": "hq@banxum.com", "name": "BANXUM"}
+    assert payload["personalizations"][0]["to"][0]["email"] == cast(Any, investor).email
+    assert payload["tracking_settings"] == {
+        "click_tracking": {"enable": False, "enable_text": False},
+        "open_tracking": {"enable": False},
+    }
+    assert result.raw_code in payload["content"][0]["value"]
+    assert result.raw_code in payload["content"][1]["value"]
+    assert "<a " in payload["content"][1]["value"]
+    delivery = EmailDeliveryRecord.objects.get(template_key="auth.withdrawal.code.v1")
+    assert delivery.provider == "sendgrid"
+    assert delivery.provider_message_id == "sendgrid-message-1"
 
 
 @pytest.mark.django_db

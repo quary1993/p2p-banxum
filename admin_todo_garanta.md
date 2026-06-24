@@ -1,7 +1,7 @@
 # Admin TODO: Garanta Business, Legal, Accounting, and Operational Decisions
 
 Status: Working list for Garanta admins, management, legal/compliance advisors, finance, and operations.
-Last updated: 2026-06-06.
+Last updated: 2026-06-23.
 
 This file is for non-technical Garanta stakeholders. It explains what business, legal, accounting, operational, and compliance decisions are still needed.
 
@@ -379,7 +379,16 @@ Implementation can proceed using the documented launch assumptions, but producti
 
 Needed before production launch and before real transactions are enabled.
 
-What Garanta must create and upload:
+Implemented baseline:
+
+- Counsel draft DOCX sources have been converted into server-side template import/render flows for:
+  - the lender user agreement accepted at registration; and
+  - the project investment confirmation / claim-assignment agreement accepted for every primary-market investment.
+- Generated PDF examples exist under `docs/generated-examples/`.
+- The platform records immutable clickwrap evidence, renders deterministic PDF/CSV evidence artifacts from the accepted template/data snapshot, stores rendered-artifact checksum/manifest/renderer-version metadata, and emails generated agreement PDFs through the transactional email outbox.
+- Admins manage/publish the live template versions from Superadmin Settings after import.
+
+What Garanta must still create/approve/upload:
 
 - Platform registration terms.
 - Primary-market investment terms.
@@ -394,10 +403,13 @@ What Garanta must create and upload:
 - Partial-funding consent language.
 - Listing-change notification wording.
 - Checkbox labels and acknowledgement text for every acceptance flow.
+- Final approved lender user agreement wording and project investment confirmation wording for production, including any remaining legal placeholders and business variables.
+- Final acceptance checkbox labels and email text for agreement delivery.
+- Final decision on whether rendered PDFs must be materialized into object storage at generation time or whether reproducible regeneration plus immutable checksum/manifest/renderer-version evidence is enough for launch.
 
 Why this is non-blocking:
 
-The documents/template module now supports placeholder templates, versioning, clickwrap evidence, and generic PDF/CSV evidence generation. Garanta will provide the final approved templates. PDFs and CSVs, where applicable, are required for launch before real transactions or production statements are enabled; clickwrap plus email confirmation alone is not the launch document-delivery model.
+The documents/template module now supports placeholder templates, versioning, clickwrap evidence, generated legal PDFs, CSV evidence, email delivery, and immutable artifact metadata. Garanta will provide final approved templates and decide whether bytes are persisted in object storage. PDFs and CSVs, where applicable, are required for launch before real transactions or production statements are enabled; clickwrap plus email confirmation alone is not the launch document-delivery model.
 
 ### Jurisdiction and Cross-Border Policy
 

@@ -19,6 +19,8 @@ from backend.apps.accounts_auth.models import (
 from backend.apps.accounts_auth.phone_providers import (
     PhoneVerificationCheckResult,
     PhoneVerificationStartResult,
+    check_twilio_verify,
+    start_twilio_verify,
 )
 from backend.apps.accounts_auth.services import (
     InvalidOrExpiredCodeError,
@@ -32,6 +34,39 @@ from backend.apps.accounts_auth.services import (
     request_phone_verification,
 )
 from backend.apps.platform_core.models import AuditEvent, DomainEvent, OutboxMessage
+
+
+class _FakeTwilioResponse:
+    status = 200
+
+    def __init__(self, payload: dict[str, str]) -> None:
+        self._payload = payload
+
+    def __enter__(self) -> _FakeTwilioResponse:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def read(self) -> bytes:
+        import json
+
+        return json.dumps(self._payload).encode("utf-8")
+
+
+class _FakeTwilioOpener:
+    def __init__(self, calls: list[dict[str, Any]]) -> None:
+        self.calls = calls
+
+    def open(self, request: Any, timeout: int) -> _FakeTwilioResponse:
+        from urllib.parse import parse_qs
+
+        body = parse_qs(request.data.decode("utf-8"))
+        payload = {key: values[0] for key, values in body.items()}
+        self.calls.append({"url": request.full_url, "timeout": timeout, "payload": payload})
+        if request.full_url.endswith("/Verifications"):
+            return _FakeTwilioResponse({"sid": "VE-started", "status": "pending"})
+        return _FakeTwilioResponse({"sid": "VE-checked", "status": "approved"})
 
 
 @pytest.fixture
@@ -305,6 +340,43 @@ def test_twilio_phone_verification_confirm_uses_provider(
     assert confirmed.attempts == 2
     investor.refresh_from_db()
     assert investor.phone_verified_at is not None
+
+
+@override_settings(
+    TWILIO_VERIFY_SERVICE_SID="VA11111111111111111111111111111111",
+    TWILIO_API_KEY_SID="SK11111111111111111111111111111111",
+    TWILIO_API_KEY_SECRET="test-secret",
+    TWILIO_ACCOUNT_SID="",
+    TWILIO_AUTH_TOKEN="",
+    TWILIO_VERIFY_CHANNEL="sms",
+    TWILIO_TIMEOUT_SECONDS=8,
+)
+def test_twilio_verify_provider_adapter_posts_start_and_check_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(
+        "backend.apps.accounts_auth.phone_providers.urllib.request.build_opener",
+        lambda handler: _FakeTwilioOpener(calls),
+    )
+
+    start = start_twilio_verify("+40740000000")
+    check = check_twilio_verify("+40740000000", "123456")
+
+    assert start.provider_reference == "VE-started"
+    assert start.provider_status == "pending"
+    assert check.provider_reference == "VE-checked"
+    assert check.approved is True
+    assert calls[0]["url"].endswith(
+        "/Services/VA11111111111111111111111111111111/Verifications"
+    )
+    assert calls[0]["timeout"] == 8
+    assert calls[0]["payload"] == {"To": "+40740000000", "Channel": "sms"}
+    assert calls[1]["url"].endswith(
+        "/Services/VA11111111111111111111111111111111/VerificationCheck"
+    )
+    assert calls[1]["payload"] == {"To": "+40740000000", "Code": "123456"}
 
 
 @override_settings(

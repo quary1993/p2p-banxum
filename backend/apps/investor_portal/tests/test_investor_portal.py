@@ -28,6 +28,7 @@ from backend.apps.platform_core.domain.time import business_timezone
 from backend.apps.platform_core.models import Currency
 from backend.apps.platform_core.services.settings import (
     SetPlatformSettingCommand,
+    seed_default_platform_settings,
     set_platform_setting,
 )
 
@@ -606,6 +607,33 @@ def test_deposit_instructions_are_self_scoped_and_config_driven(investor: Model)
 
 
 @pytest.mark.django_db
+def test_default_deposit_instructions_project_chf_eur_collector_accounts(
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    seed_default_platform_settings()
+
+    payload = get_deposit_instructions(actor=investor)
+    by_currency = {item["currency"]: item for item in payload["instructions"]}
+
+    assert by_currency["CHF"]["iban"] == "CH1183019GARANTAFI001"
+    assert by_currency["CHF"]["qr_iban"] == "CH8330334GARANTAFI001"
+    assert by_currency["CHF"]["bic"] == "YAPECHZ2"
+    assert by_currency["CHF"]["collection_account_identifier"] == "Garanta_CHF"
+    assert by_currency["CHF"]["qr_bill_payload"].startswith("SPC\n0200\n1\n")
+    assert by_currency["CHF"]["payment_reference"] == (
+        f"BX-CHF-{cast(Any, investor).investor_reference}"
+    )
+    assert by_currency["EUR"]["iban"] == "CH8183019GARANTAFI002"
+    assert by_currency["EUR"]["bic"] == "YAPECHZ2"
+    assert by_currency["EUR"]["collection_account_identifier"] == "Garanta_EUR"
+    assert by_currency["EUR"]["qr_bill_payload"] == ""
+    assert by_currency["EUR"]["payment_reference"] == (
+        f"BX-EUR-{cast(Any, investor).investor_reference}"
+    )
+
+
+@pytest.mark.django_db
 def test_investor_documents_and_acceptance_download_are_self_scoped(
     investor: Model,
     other_investor: Model,
@@ -642,6 +670,34 @@ def test_investor_documents_and_acceptance_download_are_self_scoped(
                 output_format="pdf",
             )
         )
+
+
+@pytest.mark.django_db
+def test_investor_document_download_api_returns_generated_pdf(
+    client: Client,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    acceptance = _create_registration_acceptance(investor, key="portal-api-pdf-acceptance")
+    client.force_login(cast(Any, investor))
+
+    response = client.post(
+        "/api/v1/investor/portal/documents/download/",
+        data={
+            "document_kind": "acceptance_evidence",
+            "document_id": str(acceptance.pk),
+            "output_format": "pdf",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["content_type"] == "application/pdf"
+    assert payload["content_encoding"] == "base64"
+    assert payload["content_sha256"]
+    assert payload["manifest"]["output_format"] == "pdf"
+    assert payload["manifest"]["content_sha256"] == payload["content_sha256"]
 
 
 @pytest.mark.django_db

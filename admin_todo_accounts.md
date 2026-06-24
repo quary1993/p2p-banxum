@@ -1,7 +1,7 @@
 # Admin TODO: Accounts, Credentials, API Access, and Domains
 
 Status: Working list.
-Last updated: 2026-06-06.
+Last updated: 2026-06-23.
 
 This file tracks accounts, credentials, API access, domains, portals, and third-party access that must be provided to make the platform functional.
 
@@ -50,14 +50,14 @@ Current implementation boundary:
   - API credential and workflow smoke test using `GET /v3/workflows/`; the configured workflow is published, default, and KYC type.
   - BANXUM service smoke test creating a real hosted KYC session against Didit; the session returned a verification URL and did not persist the Didit session token.
   - local V3 webhook signature-verification test using the supplied signing secret.
-- Still blocked by missing live server/webhook/report details:
+- Still pending before real-money launch:
   - exact redirect/iframe/SDK behavior and callback URLs.
-  - Didit webhook destination secret and console delivery test against BANXUM staging/prod URLs.
+  - Didit webhook destination delivery test against BANXUM staging/prod URLs, including both success and manual-review/failure payloads.
   - exact workflow-specific event names, payload fields, retry behavior, and status vocabulary for Garanta's configured workflow.
   - provider report download/export API integration.
   - provider report metadata, file checksum, local object-storage persistence, and report inclusion in evidence exports.
   - sandbox test users, test documents, and negative test scenarios.
-  - end-to-end tests against Didit sandbox or production.
+  - end-to-end tests against Didit sandbox or production after final domain/provider settings are frozen.
   - Didit ongoing-monitoring alert ingestion, if Garanta later wants platform-side ingestion rather than off-platform review and manual account controls.
 
 ### SendGrid Transactional Email Account
@@ -68,12 +68,12 @@ Launch provider decision:
 
 - SendGrid is the selected launch transactional email provider.
 
-Provide:
+Provide/verify:
 
 - SendGrid account access.
 - SendGrid transactional email API key for sandbox/staging if available.
-- Verified sender identity.
-- Sender domain decision.
+- Verified sender identity. Launch default is `hq@banxum.com` unless Garanta chooses a different transactional sender.
+- Sender domain decision. The temporary/private-test domain is `nxnarena.com`; final BANXUM sender domain should be confirmed before public launch.
 - DNS access or DNS records needed for sender authentication.
 - Default from-name and from-address.
 - Reply-to address, usually the support email.
@@ -135,25 +135,25 @@ The FX module can be implemented against the Yahoo Finance adapter interface, bu
 
 ### Bank/Payment Partner and Banking Access
 
-Blocks: real deposit instructions, production bank statement/export configuration, withdrawal evidence, collection account setup.
+Blocks: production bank statement/export configuration, withdrawal evidence, and final collection-account operating procedures. Basic CHF/EUR investor deposit instructions are implemented.
 
 Provide:
 
 - Bank/payment partner name.
-- CHF collection account/IBAN.
-- EUR collection account/IBAN.
+- CHF collection account/IBAN: implemented as `Garanta_CHF`, account IBAN `CH1183019GARANTAFI001`, QR IBAN `CH8330334GARANTAFI001`, BIC `YAPECHZ2`.
+- EUR collection account/IBAN: implemented as `Garanta_EUR`, account IBAN `CH8183019GARANTAFI002`, BIC `YAPECHZ2`.
 - Account holder names exactly as shown by the bank.
 - Supported payment rails for CHF and EUR.
 - Bank portal access for authorized finance/admin users, if the platform team must observe statement exports.
 - Statement export formats available from the bank.
 - Example bank statements for CHF and EUR.
 - Final bank-compatible payment reference format.
-- Any bank constraints on payment reference length, characters, or QR/payment slips.
+- Any bank constraints on payment reference length, characters, or QR/payment slips. The CHF QR-bill payload has been decoded, stored, and re-verified; it identifies the CHF collector account but does not include the investor-specific BANXUM payment reference. Investors must still copy `BX-{currency}-{investor_reference}` into the bank reference/description. No EUR QR payload has been supplied.
 - Evidence files Garanta expects admins to upload for lender deposits, lender withdrawals, borrower loan disbursements, borrower repayments, Garanta out, Garanta in, and FX external settlement.
 
 Why this is needed:
 
-The platform can build generic manual bank-operation declaration and reconciliation screens from the documented operation taxonomy. Production payment instructions and any bank statement parsing/export support depend on the selected bank and its formats.
+The platform now projects CHF/EUR deposit instructions from the default platform settings. Production statement parsing/export support, bank-side procedures, and final evidence requirements still depend on the selected bank and its formats.
 
 ### AWS and Hosting Access
 

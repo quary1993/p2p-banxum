@@ -1021,6 +1021,58 @@ def test_yahoo_finance_provider_rate_parses_chart_payload(
 
 
 @pytest.mark.django_db
+def test_yahoo_finance_provider_rate_can_issue_executable_quote(
+    investor: Model,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _approve_financial_access(investor)
+    observed_at = timezone.now()
+    observed_timestamp = int(observed_at.timestamp())
+    payload = {
+        "chart": {
+            "result": [
+                {
+                    "meta": {
+                        "symbol": "CHFEUR=X",
+                        "regularMarketPrice": 1.05,
+                        "regularMarketTime": observed_timestamp,
+                        "previousClose": 1.049,
+                    },
+                    "timestamp": [observed_timestamp],
+                    "indicators": {"quote": [{"close": [1.049, 1.05]}]},
+                }
+            ],
+            "error": None,
+        }
+    }
+
+    monkeypatch.setattr(
+        "backend.apps.fx.services.urllib.request.urlopen",
+        lambda request, timeout: _FakeYahooResponse(payload),
+    )
+
+    with override_settings(FX_RATE_PROVIDER="yahoo_finance"):
+        provider_rate = configured_provider_rate(source_currency="CHF", target_currency="EUR")
+        quote = issue_fx_quote(
+            IssueFxQuoteCommand(
+                actor=investor,
+                source_currency="CHF",
+                target_currency="EUR",
+                source_amount_minor=1_000_00,
+                provider_rate=provider_rate,
+                idempotency_key="yahoo-smoke-executable-quote",
+                as_of=provider_rate.observed_at,
+            )
+        )
+
+    assert quote.provider == "yahoo_finance"
+    assert quote.rate == Decimal("1.05")
+    assert quote.gross_target_amount_minor == 1_050_00
+    assert quote.target_amount_minor == 1_034_25
+    assert quote.provider_quote_id == f"yahoo:CHFEUR=X:{observed_timestamp}"
+
+
+@pytest.mark.django_db
 @override_settings(IS_PRODUCTION=True)
 def test_mock_fx_provider_is_blocked_in_production() -> None:
     with pytest.raises(FxValidationError, match="Mock FX provider"):
