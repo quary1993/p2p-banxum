@@ -14,14 +14,22 @@ from backend.apps.admin_ops.api.views import (
     AdminTaskDetailView,
     AdminTaskEventListView,
     AdminTaskListCreateView,
+    AdminUserDirectoryView,
     AdminUserLookupView,
     AdminWithdrawalLookupView,
     AuditEventListView,
+    ReadOnlyImpersonationStartView,
     ReconciliationBreakTaskSyncView,
 )
 
 urlpatterns = [
     path("dashboard/", AdminOperationsDashboardView.as_view(), name="admin-dashboard"),
+    path("users/", AdminUserDirectoryView.as_view(), name="admin-user-directory"),
+    path(
+        "users/<uuid:user_id>/readonly-impersonation/",
+        ReadOnlyImpersonationStartView.as_view(),
+        name="admin-user-readonly-impersonation-start",
+    ),
     path("lookups/users/", AdminUserLookupView.as_view(), name="admin-user-lookup"),
     path("lookups/investors/", AdminInvestorLookupView.as_view(), name="admin-investor-lookup"),
     path("lookups/borrowers/", AdminBorrowerLookupView.as_view(), name="admin-borrower-lookup"),

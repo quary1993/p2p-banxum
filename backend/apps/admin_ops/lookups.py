@@ -20,6 +20,7 @@ LENDER_ACCOUNT_TYPES = frozenset(
         "legal_entity_lender_representative",
     }
 )
+ADMIN_ACCOUNT_TYPES = frozenset({"admin", "superadmin"})
 
 
 def _model(app_label: str, model_name: str) -> Any:
@@ -140,6 +141,56 @@ def lookup_users(
         _user_result(user)
         for user in queryset.order_by("full_name", "email", "id")[: _limit(limit)]
     ]
+
+
+def list_user_directory(
+    *,
+    query: str = "",
+    account_type: str = "",
+    status: str = "",
+    limit: int | None = 25,
+    offset: int | None = 0,
+    allow_impersonation: bool = False,
+) -> dict[str, Any]:
+    user_model = _model("accounts_auth", "User")
+    queryset = _uuid_searchable(user_model.objects.all())
+    cleaned = _clean(query)
+    if _query_ready(cleaned):
+        queryset = queryset.filter(_tokenized_user_filter(cleaned))
+    if account_type:
+        queryset = queryset.filter(account_type=account_type)
+    if status:
+        queryset = queryset.filter(status=status)
+    bounded_limit = _limit(limit)
+    bounded_offset = max(0, int(offset or 0))
+    total = queryset.count()
+    results: list[dict[str, Any]] = []
+    page_queryset = queryset.order_by("full_name", "email", "id")[
+        bounded_offset : bounded_offset + bounded_limit
+    ]
+    for user in page_queryset:
+        results.append(
+            {
+                "id": str(user.pk),
+                "email": str(user.email),
+                "full_name": str(user.full_name),
+                "investor_reference": str(user.investor_reference or ""),
+                "account_type": str(user.account_type),
+                "status": str(user.status),
+                "phone_verified": bool(getattr(user, "is_phone_verified", False)),
+                "is_staff": bool(getattr(user, "is_staff", False)),
+                "is_active": bool(getattr(user, "is_active", False)),
+                "date_joined": user.date_joined,
+                "can_impersonate_readonly": allow_impersonation
+                and str(user.account_type) not in ADMIN_ACCOUNT_TYPES,
+            }
+        )
+    return {
+        "count": total,
+        "limit": bounded_limit,
+        "offset": bounded_offset,
+        "results": results,
+    }
 
 
 def lookup_investors(

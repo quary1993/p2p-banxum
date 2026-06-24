@@ -161,3 +161,10 @@ Each entry should include:
 - Current first-version behavior: the admin manual source now documents the current CHF/EUR collector accounts, the verified CHF QR-bill behavior, the generated lender user agreement and project investment confirmation PDFs, and the current CRUD/search/autocomplete admin flows. `docs/runbooks/go-live-checklist.md` now centralizes go-live, admin operations, provider validation, and before-real-money test checklists.
 - Required admin-console improvement: keep the manual in sync after future changes to collection accounts, provider behavior, generated document delivery, or admin CRUD flows. Add screenshots/figures for any new detail drawers, object-storage artifact links, or final loss-recognition UI if those are introduced.
 - Priority: important.
+
+## 2026-06-25: Users Module And Read-Only Impersonation
+
+- Screen or component: `/admin` Users module, account access controls, superadmin read-only investor view.
+- Current first-version behavior: added a dedicated Users navigation item with backend-side search, filters, pagination, row-level account-access controls, admin-user creation, and a superadmin-only read-only view action for non-admin users. The read-only view opens the existing investor portal with a short-lived signed impersonation token, displays a support/audit banner, disables visible investor mutation entry points, and leaves the real authenticated session as the superadmin. Investor-portal read/download endpoints scope data to the selected investor while generated documents/reports are audit-attributed to the superadmin.
+- Required admin-console improvement: update the visual admin manual screenshots and workflow chapters so user account actions are taught from the Users module rather than Superadmin Settings or Compliance. Add a future impersonation-audit drawer showing recent `admin.readonly_impersonation_started`, `document.artifact_rendered`, and report-generation audit events for the selected user, visible only to superadmins.
+- Priority: important.

@@ -10,11 +10,21 @@ from django.utils import timezone
 
 from backend.apps.admin_ops.tests.factories import create_user
 from backend.apps.platform_core.models import Currency
+from backend.apps.platform_core.services.impersonation import resolve_readonly_impersonation
 
 
 @pytest.fixture
 def admin_user() -> Model:
     return create_user(email="lookup-admin@example.test")
+
+
+@pytest.fixture
+def superadmin_user() -> Model:
+    return create_user(
+        email="lookup-superadmin@example.test",
+        account_type="superadmin",
+        is_superuser=True,
+    )
 
 
 @pytest.fixture
@@ -146,3 +156,61 @@ def test_admin_lookup_endpoints_reject_non_admin_users(path: str, investor: Mode
     response = client.get(path, {"q": "alice", "limit": "5"})
 
     assert response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_admin_user_directory_is_paginated_and_marks_superadmin_impersonation(
+    admin_user: Model,
+    superadmin_user: Model,
+    investor: Model,
+) -> None:
+    client = Client()
+    client.force_login(cast(Any, superadmin_user))
+
+    response = client.get("/api/v1/admin-ops/users/", {"q": "alice", "limit": "10"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 1
+    row = payload["results"][0]
+    assert row["id"] == str(investor.pk)
+    assert row["email"] == cast(Any, investor).email
+    assert row["can_impersonate_readonly"] is True
+
+    client.force_login(cast(Any, admin_user))
+    response = client.get("/api/v1/admin-ops/users/", {"q": "alice", "limit": "10"})
+    assert response.status_code == 200
+    assert response.json()["results"][0]["can_impersonate_readonly"] is False
+
+
+@pytest.mark.django_db
+def test_readonly_impersonation_token_is_superadmin_only_and_blocks_admin_targets(
+    admin_user: Model,
+    superadmin_user: Model,
+    investor: Model,
+) -> None:
+    client = Client()
+    client.force_login(cast(Any, admin_user))
+
+    response = client.post(
+        f"/api/v1/admin-ops/users/{investor.pk}/readonly-impersonation/",
+        content_type="application/json",
+    )
+    assert response.status_code == 403
+
+    client.force_login(cast(Any, superadmin_user))
+    response = client.post(
+        f"/api/v1/admin-ops/users/{admin_user.pk}/readonly-impersonation/",
+        content_type="application/json",
+    )
+    assert response.status_code == 403
+
+    response = client.post(
+        f"/api/v1/admin-ops/users/{investor.pk}/readonly-impersonation/",
+        content_type="application/json",
+    )
+    assert response.status_code == 201
+    token = response.json()["token"]
+    target, context = resolve_readonly_impersonation(actor=superadmin_user, token=token)
+    assert target.pk == investor.pk
+    assert context.superadmin_user_id == str(superadmin_user.pk)

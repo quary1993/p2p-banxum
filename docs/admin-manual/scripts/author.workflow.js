@@ -144,13 +144,23 @@ const SCREENS = [
   },
   {
     key: 'settings', title: 'Superadmin Settings',
-    figures: ['settings-0-document-templates', 'settings-1-user-accounts', 'settings-2-account-access-controls'],
+    figures: ['settings-0-document-templates'],
     files: [
-      '${ROOT}/frontend/src/adminConsole/AdminModulePanels.tsx (SettingsPanel ~line 2930: document templates list + create/publish template, create admin user, users directory, account access controls)',
+      '${ROOT}/frontend/src/adminConsole/AdminModulePanels.tsx (SettingsPanel: document templates list + create/publish template)',
       '${ROOT}/backend/apps/documents (DocumentTemplate/Version, publish, versioning, legal review reference)',
+    ],
+    focus: 'Superadmin-only governance: manage versioned legal/document TEMPLATES (create a new version, publish the current one). User directory, admin-user creation, account access controls, and read-only impersonation now live in the Users module.',
+  },
+  {
+    key: 'users', title: 'Users',
+    figures: ['users-0-user-accounts', 'users-1-account-access-controls', 'users-2-read-only-impersonation'],
+    files: [
+      '${ROOT}/frontend/src/adminConsole/AdminModulePanels.tsx (UserAccountsPanel: paginated user directory, admin-user creation, account-access controls, superadmin read-only impersonation)',
+      '${ROOT}/backend/apps/admin_ops/api/views.py (AdminUserDirectoryView, ReadOnlyImpersonationStartView)',
+      '${ROOT}/backend/apps/platform_core/services/impersonation.py (signed short-lived read-only impersonation token)',
       '${ROOT}/backend/apps/accounts_auth/services.py (create_admin_user requires active superadmin; change_account_access)',
     ],
-    focus: 'Superadmin-only governance: manage versioned legal/document TEMPLATES (create a new version, publish the current one), create ADMIN users (note: only an active superadmin can; admins differ from investors), browse the user directory, and change account access. Stress least-privilege: most staff are admins, few are superadmins.',
+    focus: 'Account-level operations: backend-searchable user table, creating admins, restricting/locking/closing/reactivating users, and superadmin-only read-only investor portal view. Stress that impersonation never changes the user session, cannot impersonate admins/superadmins, disables investor mutations, and generated/downloaded evidence is audited to the superadmin only.',
   },
 ]
 
@@ -206,7 +216,7 @@ WRITE these flows (each as ordered steps that name the screen and the control to
 7. Approve a secondary-market resale listing (Loans -> Secondary-market approvals).
 8. Disburse a funded loan to the borrower (Finance ops -> Borrower disbursement; borrower must match the loan).
 9. Generate a regulatory report and find an action in the audit log (Reports).
-10. Create a new admin user and restrict an investor account (Superadmin settings + Compliance/Account access controls).
+10. Create a new admin user and restrict an investor account (Users module / Account access controls).
 11. Work the daily dashboard from open to empty (Daily dashboard: read queues, triage, jump to the right module).
 
 SCHEMA (write to ${OUT}/flows.json):

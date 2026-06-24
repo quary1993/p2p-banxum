@@ -31,7 +31,8 @@ import {
   FinanceOpsPanel,
   LoansPanel,
   ReportsPanel,
-  SettingsPanel
+  SettingsPanel,
+  UserAccountsPanel
 } from "./AdminModulePanels";
 import { AdminTasksPanel } from "./AdminTasksPanel";
 import { useAdminOperationsDashboardData } from "./data";
@@ -200,6 +201,7 @@ const queueDefinitions: Array<{
 const navItems: Array<{ id: string; label: string; icon: Parameters<typeof Icon>[0]["name"] }> = [
   { id: "dashboard", label: "Daily dashboard", icon: "dashboard" },
   { id: "tasks", label: "Tasks", icon: "checkCircle" },
+  { id: "users", label: "Users", icon: "portfolio" },
   { id: "compliance", label: "Compliance", icon: "shield" },
   { id: "finance", label: "Finance ops", icon: "balance" },
   { id: "loans", label: "Loans", icon: "market" },
@@ -553,6 +555,7 @@ function AdminShell({
         </header>
         {selectedNav === "dashboard" ? <AdminDashboard /> : null}
         {selectedNav === "tasks" ? <AdminTasksPanel /> : null}
+        {selectedNav === "users" ? <UserAccountsPanel /> : null}
         {selectedNav === "compliance" ? <CompliancePanel /> : null}
         {selectedNav === "finance" ? <FinanceOpsPanel /> : null}
         {selectedNav === "loans" ? <LoansPanel /> : null}

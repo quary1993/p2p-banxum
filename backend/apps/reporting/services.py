@@ -133,6 +133,8 @@ class GenerateInvestorSelfServiceReportCommand:
     end_date: date
     output_format: str = ReportOutputFormat.PDF
     as_of: datetime | None = None
+    participant_actor: Model | None = None
+    audit_actor: Model | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -3078,11 +3080,17 @@ def _write_zip_entry(archive: zipfile.ZipFile, filename: str, content: bytes) ->
     archive.writestr(entry, content)
 
 
-def _require_investor_self_service_report_access(*, actor: Model, report_type: str) -> None:
-    if not user_can_access_financial_features(actor):
+def _require_investor_self_service_report_access(
+    *, actor: Model, participant_actor: Model, report_type: str
+) -> None:
+    if not user_can_access_financial_features(participant_actor):
         raise ReportingAuthorizationError(
             "Investor self-service report downloads require active lender access, phone "
             "verification, and approved KYC/KYB status."
+        )
+    if str(actor.pk) != str(participant_actor.pk) and not is_superadmin_actor(actor):
+        raise ReportingAuthorizationError(
+            "Only a superadmin can generate investor self-service reports for another user."
         )
     if report_type not in {
         ReportType.PARTICIPANT_ACCOUNT_STATEMENT,
@@ -3277,9 +3285,15 @@ def generate_investor_self_service_report(
 ) -> GeneratedReportArtifact:
     report_type = _report_type(command.report_type)
     output_format = _output_format(command.output_format)
-    _require_investor_self_service_report_access(actor=command.actor, report_type=report_type)
+    participant_actor = command.participant_actor or command.actor
+    audit_actor = command.audit_actor or command.actor
+    _require_investor_self_service_report_access(
+        actor=audit_actor,
+        participant_actor=participant_actor,
+        report_type=report_type,
+    )
     return _generate_report_artifact(
-        actor=command.actor,
+        actor=audit_actor,
         report_type=report_type,
         output_format=output_format,
         redaction_mode=ReportRedactionMode.FULL,
@@ -3289,9 +3303,13 @@ def generate_investor_self_service_report(
         period_anchor_date=None,
         filters={
             "participant_type": "lender",
-            "participant_id": str(command.actor.pk),
+            "participant_id": str(participant_actor.pk),
         },
-        destination_note="investor self-service download",
+        destination_note=(
+            "investor self-service download"
+            if str(audit_actor.pk) == str(participant_actor.pk)
+            else "superadmin read-only impersonation download"
+        ),
         as_of=command.as_of,
         run_mode="investor_self_service",
     )

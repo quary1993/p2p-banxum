@@ -26,6 +26,7 @@ from backend.apps.investor_portal.services import (
 from backend.apps.platform_core.domain.actors import ActorRef
 from backend.apps.platform_core.domain.time import business_timezone
 from backend.apps.platform_core.models import Currency
+from backend.apps.platform_core.services.impersonation import issue_readonly_impersonation_token
 from backend.apps.platform_core.services.settings import (
     SetPlatformSettingCommand,
     seed_default_platform_settings,
@@ -45,6 +46,23 @@ def admin_user() -> Model:
             account_type="admin",
             status="active",
             is_staff=True,
+        ),
+    )
+
+
+@pytest.fixture
+def superadmin_user() -> Model:
+    user_model: Any = get_user_model()
+    return cast(
+        Model,
+        user_model.objects.create_user(
+            email="portal-superadmin@example.test",
+            password="AdminPass123!",
+            full_name="Portal Superadmin",
+            account_type="superadmin",
+            status="active",
+            is_staff=True,
+            is_superuser=True,
         ),
     )
 
@@ -698,6 +716,46 @@ def test_investor_document_download_api_returns_generated_pdf(
     assert payload["content_sha256"]
     assert payload["manifest"]["output_format"] == "pdf"
     assert payload["manifest"]["content_sha256"] == payload["content_sha256"]
+
+
+@pytest.mark.django_db
+def test_superadmin_readonly_impersonation_can_read_and_download_without_user_attribution(
+    client: Client,
+    superadmin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    acceptance = _create_registration_acceptance(investor, key="portal-impersonated-acceptance")
+    token_payload = issue_readonly_impersonation_token(
+        actor=superadmin_user,
+        target_user_id=str(investor.pk),
+    )
+    client.force_login(cast(Any, superadmin_user))
+
+    dashboard_response = client.get(
+        "/api/v1/investor/portal/dashboard/",
+        HTTP_X_BANXUM_IMPERSONATE=token_payload["token"],
+    )
+    assert dashboard_response.status_code == 200
+
+    download_response = client.post(
+        "/api/v1/investor/portal/documents/download/",
+        data={
+            "document_kind": "acceptance_evidence",
+            "document_id": str(acceptance.pk),
+            "output_format": "pdf",
+        },
+        content_type="application/json",
+        HTTP_X_BANXUM_IMPERSONATE=token_payload["token"],
+    )
+
+    assert download_response.status_code == 200
+    artifact_model = apps.get_model("documents", "DocumentRenderedArtifact")
+    artifact = artifact_model.objects.latest("rendered_at")
+    assert artifact.user_id == investor.pk
+    assert artifact.actor_user_id == superadmin_user.pk
+    assert artifact.metadata["download_subject_user_id"] == str(investor.pk)
+    assert artifact.metadata["download_actor_user_id"] == str(superadmin_user.pk)
 
 
 @pytest.mark.django_db

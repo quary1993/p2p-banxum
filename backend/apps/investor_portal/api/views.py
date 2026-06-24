@@ -42,6 +42,23 @@ from backend.apps.investor_portal.services import (
     get_primary_orders,
     get_secondary_market_activity,
 )
+from backend.apps.platform_core.services.impersonation import (
+    READONLY_IMPERSONATION_HEADER,
+    ReadOnlyImpersonationError,
+    resolve_readonly_impersonation,
+)
+
+
+def _portal_read_actor(request: Request) -> tuple[Model, Model]:
+    real_actor = cast(Model, request.user)
+    token = request.headers.get(READONLY_IMPERSONATION_HEADER, "")
+    if not token:
+        return real_actor, real_actor
+    try:
+        target_actor, _context = resolve_readonly_impersonation(actor=real_actor, token=token)
+    except ReadOnlyImpersonationError as exc:
+        raise InvestorPortalAuthorizationError(str(exc)) from exc
+    return target_actor, real_actor
 
 
 def _error_response(exc: Exception) -> Response:
@@ -59,7 +76,8 @@ class InvestorDashboardView(APIView):
     @extend_schema(responses={200: InvestorDashboardSerializer})
     def get(self, request: Request) -> Response:
         try:
-            payload = get_investor_dashboard(actor=cast(Model, request.user))
+            actor, _audit_actor = _portal_read_actor(request)
+            payload = get_investor_dashboard(actor=actor)
         except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
             return _error_response(exc)
         return Response(payload, status=status.HTTP_200_OK)
@@ -71,7 +89,8 @@ class InvestorBalancesView(APIView):
     @extend_schema(responses={200: InvestorBalancePortalSerializer})
     def get(self, request: Request) -> Response:
         try:
-            payload = get_investor_balances(actor=cast(Model, request.user))
+            actor, _audit_actor = _portal_read_actor(request)
+            payload = get_investor_balances(actor=actor)
         except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
             return _error_response(exc)
         return Response(payload, status=status.HTTP_200_OK)
@@ -83,7 +102,8 @@ class InvestorDepositInstructionsView(APIView):
     @extend_schema(responses={200: InvestorDepositInstructionsSerializer})
     def get(self, request: Request) -> Response:
         try:
-            payload = get_deposit_instructions(actor=cast(Model, request.user))
+            actor, _audit_actor = _portal_read_actor(request)
+            payload = get_deposit_instructions(actor=actor)
         except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
             return _error_response(exc)
         return Response(payload, status=status.HTTP_200_OK)
@@ -95,7 +115,8 @@ class InvestorDocumentsView(APIView):
     @extend_schema(responses={200: InvestorDocumentsSerializer})
     def get(self, request: Request) -> Response:
         try:
-            payload = get_investor_documents(actor=cast(Model, request.user))
+            actor, _audit_actor = _portal_read_actor(request)
+            payload = get_investor_documents(actor=actor)
         except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
             return _error_response(exc)
         return Response(payload, status=status.HTTP_200_OK)
@@ -113,9 +134,11 @@ class InvestorDocumentDownloadView(APIView):
         serializer.is_valid(raise_exception=True)
         data: dict[str, Any] = serializer.validated_data
         try:
+            actor, audit_actor = _portal_read_actor(request)
             payload = download_investor_document(
                 InvestorDocumentDownloadCommand(
-                    actor=cast(Model, request.user),
+                    actor=actor,
+                    audit_actor=audit_actor,
                     document_kind=data["document_kind"],
                     document_id=data.get("document_id", ""),
                     output_format=data.get("output_format", "pdf"),
@@ -141,8 +164,9 @@ class InvestorNotificationsView(APIView):
         serializer.is_valid(raise_exception=True)
         data: dict[str, Any] = serializer.validated_data
         try:
+            actor, _audit_actor = _portal_read_actor(request)
             payload = get_investor_notifications(
-                actor=cast(Model, request.user),
+                actor=actor,
                 limit=data["limit"],
             )
         except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
@@ -162,8 +186,9 @@ class InvestorPortfolioView(APIView):
         serializer.is_valid(raise_exception=True)
         data: dict[str, Any] = serializer.validated_data
         try:
+            actor, _audit_actor = _portal_read_actor(request)
             payload = get_investor_portfolio(
-                actor=cast(Model, request.user),
+                actor=actor,
                 include_inactive=data["include_inactive"],
             )
         except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
@@ -183,8 +208,9 @@ class InvestorActivityView(APIView):
         serializer.is_valid(raise_exception=True)
         data: dict[str, Any] = serializer.validated_data
         try:
+            actor, _audit_actor = _portal_read_actor(request)
             payload = get_investor_activity(
-                actor=cast(Model, request.user),
+                actor=actor,
                 limit=data["limit"],
             )
         except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
@@ -204,7 +230,8 @@ class InvestorPrimaryOrdersView(APIView):
         serializer.is_valid(raise_exception=True)
         data: dict[str, Any] = serializer.validated_data
         try:
-            payload = get_primary_orders(actor=cast(Model, request.user), limit=data["limit"])
+            actor, _audit_actor = _portal_read_actor(request)
+            payload = get_primary_orders(actor=actor, limit=data["limit"])
         except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
             return _error_response(exc)
         return Response(payload, status=status.HTTP_200_OK)
@@ -222,8 +249,9 @@ class InvestorSecondaryMarketActivityView(APIView):
         serializer.is_valid(raise_exception=True)
         data: dict[str, Any] = serializer.validated_data
         try:
+            actor, _audit_actor = _portal_read_actor(request)
             payload = get_secondary_market_activity(
-                actor=cast(Model, request.user),
+                actor=actor,
                 limit=data["limit"],
             )
         except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
@@ -243,7 +271,8 @@ class InvestorFxHistoryView(APIView):
         serializer.is_valid(raise_exception=True)
         data: dict[str, Any] = serializer.validated_data
         try:
-            payload = get_fx_history(actor=cast(Model, request.user), limit=data["limit"])
+            actor, _audit_actor = _portal_read_actor(request)
+            payload = get_fx_history(actor=actor, limit=data["limit"])
         except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
             return _error_response(exc)
         return Response(payload, status=status.HTTP_200_OK)

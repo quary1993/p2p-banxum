@@ -137,6 +137,43 @@ class AdminLookupResultSerializer(serializers.Serializer[Any]):
     payload = serializers.JSONField()
 
 
+class AdminUserDirectoryQuerySerializer(serializers.Serializer[Any]):
+    q = serializers.CharField(required=False, allow_blank=True, max_length=128)
+    status = serializers.CharField(required=False, allow_blank=True, max_length=64)
+    account_type = serializers.CharField(required=False, allow_blank=True, max_length=64)
+    limit = serializers.IntegerField(required=False, min_value=1, max_value=50, default=25)
+    offset = serializers.IntegerField(required=False, min_value=0, default=0)
+
+
+class AdminUserDirectoryRowSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    email = serializers.EmailField()
+    full_name = serializers.CharField()
+    investor_reference = serializers.CharField(allow_blank=True)
+    account_type = serializers.CharField()
+    status = serializers.CharField()
+    phone_verified = serializers.BooleanField()
+    is_staff = serializers.BooleanField()
+    is_active = serializers.BooleanField()
+    date_joined = serializers.DateTimeField()
+    can_impersonate_readonly = serializers.BooleanField()
+
+
+class AdminUserDirectoryResponseSerializer(serializers.Serializer[Any]):
+    count = serializers.IntegerField()
+    limit = serializers.IntegerField()
+    offset = serializers.IntegerField()
+    results = AdminUserDirectoryRowSerializer(many=True)
+
+
+class ReadOnlyImpersonationStartResponseSerializer(serializers.Serializer[Any]):
+    token = serializers.CharField()
+    expires_in_seconds = serializers.IntegerField()
+    target_user_id = serializers.UUIDField()
+    target_email = serializers.EmailField()
+    target_full_name = serializers.CharField(allow_blank=True)
+
+
 class AdminDashboardQuerySerializer(serializers.Serializer[Any]):
     as_of = serializers.DateTimeField(required=False)
     due_window_days = serializers.IntegerField(required=False, min_value=0, max_value=60, default=7)

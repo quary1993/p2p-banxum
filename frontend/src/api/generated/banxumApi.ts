@@ -338,6 +338,27 @@ export interface AdminUserCreateRequest {
   full_name: string;
 }
 
+export interface AdminUserDirectoryResponse {
+  count: number;
+  limit: number;
+  offset: number;
+  results: AdminUserDirectoryRow[];
+}
+
+export interface AdminUserDirectoryRow {
+  id: string;
+  email: string;
+  full_name: string;
+  investor_reference: string;
+  account_type: string;
+  status: string;
+  phone_verified: boolean;
+  is_staff: boolean;
+  is_active: boolean;
+  date_joined: string;
+  can_impersonate_readonly: boolean;
+}
+
 export interface AmountByCurrency {
   currency: string;
   amount_minor: number;
@@ -2585,6 +2606,14 @@ export const PurposeEnum = {
   other: 'other',
 } as const;
 
+export interface ReadOnlyImpersonationStartResponse {
+  token: string;
+  expires_in_seconds: number;
+  target_user_id: string;
+  target_email: string;
+  target_full_name: string;
+}
+
 export interface ReconciliationBreakTaskSyncRequest {
   /**
    * @minimum 1
@@ -3473,6 +3502,30 @@ export const V1AdminOpsTasksListTaskType = {
   support: 'support',
   other: 'other',
 } as const;
+
+export type V1AdminOpsUsersRetrieveParams = {
+/**
+ * @maxLength 64
+ */
+account_type?: string;
+/**
+ * @minimum 1
+ * @maximum 50
+ */
+limit?: number;
+/**
+ * @minimum 0
+ */
+offset?: number;
+/**
+ * @maxLength 128
+ */
+q?: string;
+/**
+ * @maxLength 64
+ */
+status?: string;
+};
 
 export type V1DocumentsAdminTemplatesVersionsListParams = {
 /**
@@ -5267,6 +5320,151 @@ export function useV1AdminOpsTasksEventsList<TData = Awaited<ReturnType<typeof v
 
 
 
+
+export const v1AdminOpsUsersRetrieve = (
+    params?: V1AdminOpsUsersRetrieveParams,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<AdminUserDirectoryResponse>(
+      {url: `/api/v1/admin-ops/users/`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+
+
+
+
+export const getV1AdminOpsUsersRetrieveQueryKey = (params?: V1AdminOpsUsersRetrieveParams,) => {
+    return [
+    `/api/v1/admin-ops/users/`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+
+export const getV1AdminOpsUsersRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1AdminOpsUsersRetrieve>>, TError = unknown>(params?: V1AdminOpsUsersRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsUsersRetrieve>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1AdminOpsUsersRetrieveQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AdminOpsUsersRetrieve>>> = ({ signal }) => v1AdminOpsUsersRetrieve(params, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsUsersRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1AdminOpsUsersRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1AdminOpsUsersRetrieve>>>
+export type V1AdminOpsUsersRetrieveQueryError = unknown
+
+
+export function useV1AdminOpsUsersRetrieve<TData = Awaited<ReturnType<typeof v1AdminOpsUsersRetrieve>>, TError = unknown>(
+ params: undefined |  V1AdminOpsUsersRetrieveParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsUsersRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsUsersRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsUsersRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsUsersRetrieve<TData = Awaited<ReturnType<typeof v1AdminOpsUsersRetrieve>>, TError = unknown>(
+ params?: V1AdminOpsUsersRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsUsersRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsUsersRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsUsersRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsUsersRetrieve<TData = Awaited<ReturnType<typeof v1AdminOpsUsersRetrieve>>, TError = unknown>(
+ params?: V1AdminOpsUsersRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsUsersRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1AdminOpsUsersRetrieve<TData = Awaited<ReturnType<typeof v1AdminOpsUsersRetrieve>>, TError = unknown>(
+ params?: V1AdminOpsUsersRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsUsersRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1AdminOpsUsersRetrieveQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1AdminOpsUsersReadonlyImpersonationCreate = (
+    userId: string,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<ReadOnlyImpersonationStartResponse>(
+      {url: `/api/v1/admin-ops/users/${userId}/readonly-impersonation/`, method: 'POST', signal
+    },
+      );
+    }
+
+
+
+export const getV1AdminOpsUsersReadonlyImpersonationCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AdminOpsUsersReadonlyImpersonationCreate>>, TError,{userId: string}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1AdminOpsUsersReadonlyImpersonationCreate>>, TError,{userId: string}, TContext> => {
+
+const mutationKey = ['v1AdminOpsUsersReadonlyImpersonationCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AdminOpsUsersReadonlyImpersonationCreate>>, {userId: string}> = (props) => {
+          const {userId} = props ?? {};
+
+          return  v1AdminOpsUsersReadonlyImpersonationCreate(userId,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AdminOpsUsersReadonlyImpersonationCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AdminOpsUsersReadonlyImpersonationCreate>>>
+
+    export type V1AdminOpsUsersReadonlyImpersonationCreateMutationError = unknown
+
+    export const useV1AdminOpsUsersReadonlyImpersonationCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AdminOpsUsersReadonlyImpersonationCreate>>, TError,{userId: string}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AdminOpsUsersReadonlyImpersonationCreate>>,
+        TError,
+        {userId: string},
+        TContext
+      > => {
+
+      const mutationOptions = getV1AdminOpsUsersReadonlyImpersonationCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
 
 export const v1AuthAdminLoginConfirmCreate = (
     adminLoginConfirmRequest: AdminLoginConfirmRequest,
@@ -11442,6 +11640,10 @@ export const getV1AdminOpsTasksPartialUpdateResponseMock = (overrideResponse: Pa
 
 export const getV1AdminOpsTasksEventsListResponseMock = (): AdminTaskEvent[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), task_id: faker.string.uuid(), event_type: faker.string.alpha({length: {min: 10, max: 20}}), actor_user_id: faker.string.uuid(), actor_account_type: faker.string.alpha({length: {min: 10, max: 20}}), previous_status: faker.string.alpha({length: {min: 10, max: 20}}), new_status: faker.string.alpha({length: {min: 10, max: 20}}), note: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, occurred_at: `${faker.date.past().toISOString().split('.')[0]}Z`})))
 
+export const getV1AdminOpsUsersRetrieveResponseMock = (overrideResponse: Partial< AdminUserDirectoryResponse > = {}): AdminUserDirectoryResponse => ({count: faker.number.int({min: undefined, max: undefined}), limit: faker.number.int({min: undefined, max: undefined}), offset: faker.number.int({min: undefined, max: undefined}), results: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), is_staff: faker.datatype.boolean(), is_active: faker.datatype.boolean(), date_joined: `${faker.date.past().toISOString().split('.')[0]}Z`, can_impersonate_readonly: faker.datatype.boolean()})), ...overrideResponse})
+
+export const getV1AdminOpsUsersReadonlyImpersonationCreateResponseMock = (overrideResponse: Partial< ReadOnlyImpersonationStartResponse > = {}): ReadOnlyImpersonationStartResponse => ({token: faker.string.alpha({length: {min: 10, max: 20}}), expires_in_seconds: faker.number.int({min: undefined, max: undefined}), target_user_id: faker.string.uuid(), target_email: faker.internet.email(), target_full_name: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
 export const getV1AuthAdminLoginConfirmCreateResponseMock = (overrideResponse: Partial< AuthenticatedUserResponse > = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
 
 export const getV1AuthAdminLoginStartCreateResponseMock = (overrideResponse: Partial< AdminLoginStartResponse > = {}): AdminLoginStartResponse => ({code_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), expires_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
@@ -11818,6 +12020,30 @@ export const getV1AdminOpsTasksEventsListMockHandler = (overrideResponse?: Admin
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AdminOpsTasksEventsListResponseMock()),
       { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1AdminOpsUsersRetrieveMockHandler = (overrideResponse?: AdminUserDirectoryResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AdminUserDirectoryResponse> | AdminUserDirectoryResponse), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/admin-ops/users/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AdminOpsUsersRetrieveResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1AdminOpsUsersReadonlyImpersonationCreateMockHandler = (overrideResponse?: ReadOnlyImpersonationStartResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<ReadOnlyImpersonationStartResponse> | ReadOnlyImpersonationStartResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/admin-ops/users/:userId/readonly-impersonation/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AdminOpsUsersReadonlyImpersonationCreateResponseMock()),
+      { status: 201,
         headers: { 'Content-Type': 'application/json' }
       })
   }, options)
@@ -12892,6 +13118,8 @@ export const getBanxumApiMock = () => [
   getV1AdminOpsTasksRetrieveMockHandler(),
   getV1AdminOpsTasksPartialUpdateMockHandler(),
   getV1AdminOpsTasksEventsListMockHandler(),
+  getV1AdminOpsUsersRetrieveMockHandler(),
+  getV1AdminOpsUsersReadonlyImpersonationCreateMockHandler(),
   getV1AuthAdminLoginConfirmCreateMockHandler(),
   getV1AuthAdminLoginStartCreateMockHandler(),
   getV1AuthAdminUsersCreateMockHandler(),

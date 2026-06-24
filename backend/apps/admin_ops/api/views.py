@@ -21,8 +21,11 @@ from backend.apps.admin_ops.api.serializers import (
     AdminTaskListQuerySerializer,
     AdminTaskSerializer,
     AdminTaskUpdateRequestSerializer,
+    AdminUserDirectoryQuerySerializer,
+    AdminUserDirectoryResponseSerializer,
     AuditEventQuerySerializer,
     AuditEventSerializer,
+    ReadOnlyImpersonationStartResponseSerializer,
     ReconciliationBreakTaskSyncRequestSerializer,
     ReconciliationBreakTaskSyncResponseSerializer,
     serialize_admin_task,
@@ -45,6 +48,10 @@ from backend.apps.admin_ops.services import (
 from backend.apps.platform_core.domain.access import actor_ref_for_user, is_admin_actor
 from backend.apps.platform_core.models import AuditEvent
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
+from backend.apps.platform_core.services.impersonation import (
+    ReadOnlyImpersonationError,
+    issue_readonly_impersonation_token,
+)
 
 
 def _admin_forbidden_response() -> Response:
@@ -180,6 +187,52 @@ class AdminUserLookupView(APIView):
                 status=str(data.get("status", "")),
                 limit=cast(int, data.get("limit", 20)),
             )
+        )
+
+
+class AdminUserDirectoryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        parameters=[AdminUserDirectoryQuerySerializer],
+        responses={200: AdminUserDirectoryResponseSerializer},
+    )
+    def get(self, request: Request) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = AdminUserDirectoryQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        payload = lookups.list_user_directory(
+            query=str(data.get("q", "")),
+            account_type=str(data.get("account_type", "")),
+            status=str(data.get("status", "")),
+            limit=cast(int, data.get("limit", 25)),
+            offset=cast(int, data.get("offset", 0)),
+            allow_impersonation=bool(getattr(request.user, "is_superuser", False))
+            and str(getattr(request.user, "account_type", "")) == "superadmin",
+        )
+        return Response(
+            AdminUserDirectoryResponseSerializer(payload).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+class ReadOnlyImpersonationStartView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(request=None, responses={201: ReadOnlyImpersonationStartResponseSerializer})
+    def post(self, request: Request, user_id: str) -> Response:
+        try:
+            payload = issue_readonly_impersonation_token(
+                actor=cast(Model, request.user),
+                target_user_id=user_id,
+            )
+        except ReadOnlyImpersonationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        return Response(
+            ReadOnlyImpersonationStartResponseSerializer(payload).data,
+            status=status.HTTP_201_CREATED,
         )
 
 

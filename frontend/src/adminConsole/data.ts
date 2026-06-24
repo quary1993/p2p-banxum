@@ -12,6 +12,7 @@ import {
   useV1AdminOpsLookupsWithdrawalRequestsList,
   useV1AdminOpsTasksEventsList,
   useV1AdminOpsTasksList,
+  useV1AdminOpsUsersRetrieve,
   useV1DocumentsAdminTemplatesVersionsList,
   useV1EntitiesAdminBorrowersList,
   useV1FxAdminDeltaReportRetrieve,
@@ -23,6 +24,7 @@ import {
   type AdminLookupResult,
   type V1AdminOpsAuditEventsListParams,
   type V1AdminOpsTasksListParams,
+  type V1AdminOpsUsersRetrieveParams,
   type V1AdminOpsDashboardRetrieveParams,
   type V1AdminOpsLookupsBorrowersListParams,
   type V1AdminOpsLookupsDocumentTemplateVersionsListParams,
@@ -87,6 +89,17 @@ export function useAdminOperationsDashboardData(
 export function useAdminTasksData(params: V1AdminOpsTasksListParams = { limit: 100 }) {
   return useV1AdminOpsTasksList(params, {
     query: adminPreviewQuery(adminTasksFixture)
+  });
+}
+
+export function useAdminUsersDirectoryData(params: V1AdminOpsUsersRetrieveParams = { limit: 25, offset: 0 }) {
+  return useV1AdminOpsUsersRetrieve(params, {
+    query: adminPreviewQuery({
+      count: 0,
+      limit: params.limit ?? 25,
+      offset: params.offset ?? 0,
+      results: []
+    })
   });
 }
 

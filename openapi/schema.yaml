@@ -818,6 +818,70 @@ paths:
                 items:
                   $ref: '#/components/schemas/AdminTaskEvent'
           description: ''
+  /api/v1/admin-ops/users/:
+    get:
+      operationId: v1_admin_ops_users_retrieve
+      parameters:
+      - in: query
+        name: account_type
+        schema:
+          type: string
+          maxLength: 64
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 50
+          minimum: 1
+          default: 25
+      - in: query
+        name: offset
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+      - in: query
+        name: q
+        schema:
+          type: string
+          maxLength: 128
+      - in: query
+        name: status
+        schema:
+          type: string
+          maxLength: 64
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserDirectoryResponse'
+          description: ''
+  /api/v1/admin-ops/users/{user_id}/readonly-impersonation/:
+    post:
+      operationId: v1_admin_ops_users_readonly_impersonation_create
+      parameters:
+      - in: path
+        name: user_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadOnlyImpersonationStartResponse'
+          description: ''
   /api/v1/auth/admin/login/confirm/:
     post:
       operationId: v1_auth_admin_login_confirm_create
@@ -3845,6 +3909,64 @@ components:
       - email
       - full_name
       - password
+    AdminUserDirectoryResponse:
+      type: object
+      properties:
+        count:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminUserDirectoryRow'
+      required:
+      - count
+      - limit
+      - offset
+      - results
+    AdminUserDirectoryRow:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        full_name:
+          type: string
+        investor_reference:
+          type: string
+        account_type:
+          type: string
+        status:
+          type: string
+        phone_verified:
+          type: boolean
+        is_staff:
+          type: boolean
+        is_active:
+          type: boolean
+        date_joined:
+          type: string
+          format: date-time
+        can_impersonate_readonly:
+          type: boolean
+      required:
+      - account_type
+      - can_impersonate_readonly
+      - date_joined
+      - email
+      - full_name
+      - id
+      - investor_reference
+      - is_active
+      - is_staff
+      - phone_verified
+      - status
     AmountByCurrency:
       type: object
       properties:
@@ -8932,6 +9054,27 @@ components:
         * `development` - Development
         * `inventory_trade_finance` - Inventory or trade finance
         * `other` - Other
+    ReadOnlyImpersonationStartResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        expires_in_seconds:
+          type: integer
+        target_user_id:
+          type: string
+          format: uuid
+        target_email:
+          type: string
+          format: email
+        target_full_name:
+          type: string
+      required:
+      - expires_in_seconds
+      - target_email
+      - target_full_name
+      - target_user_id
+      - token
     ReconciliationBreakTaskSyncRequest:
       type: object
       properties:

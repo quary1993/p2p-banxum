@@ -51,6 +51,7 @@ class InvestorDocumentDownloadCommand:
     start_date: date | None = None
     end_date: date | None = None
     year: int | None = None
+    audit_actor: Model | None = None
 
 
 def _model(app_label: str, model_name: str) -> Any:
@@ -414,20 +415,29 @@ def get_investor_documents(*, actor: Model) -> dict[str, Any]:
 def _acceptance_download_payload(
     *,
     actor: Model,
+    audit_actor: Model,
     document_id: str,
     output_format: str,
 ) -> dict[str, Any]:
     if not document_id:
         raise InvestorPortalValidationError("document_id is required for acceptance evidence.")
+    acceptance_model = _model("documents", "DocumentAcceptanceEvidence")
+    acceptance = acceptance_model.objects.filter(id=document_id, user_id=actor.pk).first()
+    if acceptance is None:
+        raise InvestorPortalValidationError("Document evidence was not found.")
     documents = _documents_services()
     try:
         artifact = documents.render_document_acceptance_artifact(
             documents.RenderDocumentAcceptanceArtifactCommand(
-                actor=actor,
+                actor=audit_actor,
                 acceptance_id=document_id,
                 output_format=output_format,
                 purpose="investor_download",
-                metadata={"source": "investor_portal"},
+                metadata={
+                    "source": "investor_portal",
+                    "download_subject_user_id": str(actor.pk),
+                    "download_actor_user_id": str(audit_actor.pk),
+                },
             )
         )
     except documents.DocumentAuthorizationError as exc:
@@ -459,6 +469,7 @@ def _report_period_from_download(command: InvestorDocumentDownloadCommand) -> tu
 
 def download_investor_document(command: InvestorDocumentDownloadCommand) -> dict[str, Any]:
     _require_financial_access(command.actor)
+    audit_actor = command.audit_actor or command.actor
     output_format = command.output_format.lower().strip()
     if output_format not in {"pdf", "csv", "zip"}:
         raise InvestorPortalValidationError("output_format must be pdf, csv, or zip.")
@@ -466,6 +477,7 @@ def download_investor_document(command: InvestorDocumentDownloadCommand) -> dict
     if document_kind == "acceptance_evidence":
         return _acceptance_download_payload(
             actor=command.actor,
+            audit_actor=audit_actor,
             document_id=command.document_id,
             output_format=output_format,
         )
@@ -481,6 +493,8 @@ def download_investor_document(command: InvestorDocumentDownloadCommand) -> dict
     artifact = reporting.generate_investor_self_service_report(
         reporting.GenerateInvestorSelfServiceReportCommand(
             actor=command.actor,
+            participant_actor=command.actor,
+            audit_actor=audit_actor,
             report_type=report_type,
             start_date=start_date,
             end_date=end_date,

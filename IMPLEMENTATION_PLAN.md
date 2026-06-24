@@ -524,6 +524,12 @@ Identity, login, and account lifecycle:
 - Legal-entity lender account.
 - Admin account.
 - Superadmin env-backed bootstrap.
+- Admin user operations now have a dedicated Users module. Active admins can search and paginate
+  all platform accounts and use the audited account-access workflow from that module. Active
+  superadmins can additionally start a short-lived, signed, read-only investor-portal
+  impersonation view for non-admin accounts. The impersonation view does not replace the
+  authenticated session, does not allow investor money/account mutations, and records generated
+  document/report evidence against the real superadmin actor rather than as user-visible activity.
 - Magic-link login.
 - Email-code confirmation for sensitive investor actions.
 - Admin password + email-code login.

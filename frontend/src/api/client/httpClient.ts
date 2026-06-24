@@ -1,3 +1,5 @@
+import { readReadonlyImpersonationToken } from "./impersonation";
+
 const csrfSafeMethods = new Set(["GET", "HEAD", "OPTIONS", "TRACE"]);
 
 export class ApiClientError extends Error {
@@ -97,6 +99,11 @@ export const httpClient = async <T>({
     if (csrfToken) {
       requestHeaders.set("X-CSRFToken", decodeURIComponent(csrfToken));
     }
+  }
+
+  const readonlyImpersonationToken = readReadonlyImpersonationToken();
+  if (readonlyImpersonationToken && !requestHeaders.has("X-BANXUM-Impersonate")) {
+    requestHeaders.set("X-BANXUM-Impersonate", readonlyImpersonationToken);
   }
 
   const response = await fetch(requestUrl, {

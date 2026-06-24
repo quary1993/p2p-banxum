@@ -13,8 +13,9 @@ badges + arrows pointing at real UI elements), **end-to-end workflows**, and a
 
 1. Part 1 — The BANXUM model in plain language (the P2P primer)
 2. Part 2 — Getting into the console (login, layout, preview vs. live, legend)
-3. Sections 3–9 — One per admin screen: Daily Dashboard, Tasks, Compliance,
-   Finance Operations, Loans & Marketplace, Reports & Audit, Superadmin Settings
+3. Sections 3–10 — One per admin screen: Daily Dashboard, Tasks, Users,
+   Compliance, Finance Operations, Loans & Marketplace, Reports & Audit,
+   Superadmin Settings
 4. End-to-end workflows (11 click-by-click recipes)
 5. Glossary & quick reference (terms, statuses, dashboard queues)
 

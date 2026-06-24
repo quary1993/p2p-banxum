@@ -19,6 +19,7 @@ import {
   VisibilityEnum,
   useV1AuthAdminUsersAccessCreate,
   useV1AuthAdminUsersCreate,
+  useV1AdminOpsUsersReadonlyImpersonationCreate,
   useV1DocumentsAdminTemplatesVersionsCreate,
   useV1DocumentsAdminTemplatesVersionsPublishCreate,
   useV1EntitiesAdminBorrowersCreate,
@@ -50,6 +51,7 @@ import {
   type AccountAccessChangeRequest,
   type AccountAccessChangeRequestReasonCodeEnum as AccountAccessReasonCode,
   type AdminLookupResult,
+  type AdminUserDirectoryRow,
   type AdminUserCreateRequest,
   type BalanceAgeingScanRequest,
   type BorrowerEntity,
@@ -98,6 +100,7 @@ import {
   type V1EntitiesAdminBorrowersListKybStatus as BorrowerListKybStatus,
   type V1LoansAdminLoansListStatus as LoanListStatus
 } from "../api/generated/banxumApi";
+import { writeReadonlyImpersonation } from "../api/client/impersonation";
 import { isFixturePreview } from "../investorPortal/data";
 import { formatDate, formatDateTime, formatMoneyMinor, formatRateBps } from "../investorPortal/format";
 import { Banner, Button, Card, Chip, Empty, Field, Modal, Money, type Tone } from "../investorPortal/ui";
@@ -112,6 +115,7 @@ import {
   useAdminPrimaryOrderLookupData,
   useAdminSecondaryListingLookupData,
   useAdminUserLookupData,
+  useAdminUsersDirectoryData,
   useAdminWithdrawalLookupData,
   useBorrowersData,
   useDocumentTemplateVersionsData,
@@ -1032,9 +1036,6 @@ export function CompliancePanel() {
         <ManualKycDecisionForm cases={cases} defaultCaseId={selectedCaseId} />
       </section>
 
-      <section className="admin-section">
-        <AccountAccessForm />
-      </section>
     </div>
   );
 }
@@ -3138,9 +3139,16 @@ export function SettingsPanel() {
           )}
         </Card>
       </section>
-      <section className="admin-two-col">
-        <AdminUsersDirectory />
-        <AccountAccessForm />
+      <section className="admin-section">
+        <Card padded>
+          <SectionHeader
+            description="Admin users and user account access controls now live in the Users module so account-level actions are reviewed from one place."
+            title="User account administration"
+          />
+          <p className="muted">
+            Open the Users module to search platform users, create admin accounts, restrict or reactivate accounts, and start superadmin read-only views.
+          </p>
+        </Card>
       </section>
       {showTemplateForm ? (
         <Modal title="Document template version" onClose={() => setShowTemplateForm(false)}>
@@ -3261,65 +3269,148 @@ function DocumentTemplateForm({
   );
 }
 
-function AdminUsersDirectory() {
+export function UserAccountsPanel() {
   const [search, setSearch] = useState("");
+  const [accountType, setAccountType] = useState("");
+  const [status, setStatus] = useState("");
+  const [page, setPage] = useState(0);
   const [showCreate, setShowCreate] = useState(false);
-  const [accessUser, setAccessUser] = useState<AdminLookupResult | null>(null);
+  const [accessUser, setAccessUser] = useState<AdminUserDirectoryRow | null>(null);
+  const [impersonationNotice, setImpersonationNotice] = useState("");
   const debouncedSearch = useDebouncedValue(search);
-  const usersQuery = useAdminUserLookupData({ q: debouncedSearch, limit: 50 }, debouncedSearch.trim().length >= 3);
-  const users = usersQuery.data ?? [];
+  const pageSize = 25;
+  const usersQuery = useAdminUsersDirectoryData({
+    q: debouncedSearch,
+    account_type: accountType || undefined,
+    status: status || undefined,
+    limit: pageSize,
+    offset: page * pageSize
+  });
+  const users = usersQuery.data?.results ?? [];
+  const total = usersQuery.data?.count ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const impersonationMutation = useV1AdminOpsUsersReadonlyImpersonationCreate();
+
+  useEffect(() => {
+    setPage(0);
+  }, [accountType, debouncedSearch, status]);
+
+  function userDisplay(user: AdminUserDirectoryRow) {
+    return user.full_name || user.email || user.id;
+  }
+
+  function startReadOnlyImpersonation(user: AdminUserDirectoryRow) {
+    if (isFixturePreview) {
+      setImpersonationNotice(`Preview would open a read-only view as ${userDisplay(user)}.`);
+      return;
+    }
+    impersonationMutation.mutate(
+      { userId: user.id },
+      {
+        onSuccess: (response) => {
+          writeReadonlyImpersonation(
+            response.token,
+            `${response.target_full_name || response.target_email} (${response.target_email})`
+          );
+          window.open("/", "_blank", "noopener,noreferrer");
+          setImpersonationNotice(`Read-only portal opened for ${response.target_email}.`);
+        }
+      }
+    );
+  }
 
   return (
-    <Card padded>
-      <EntityTableHeader
-        action={<Button icon="plus" onClick={() => setShowCreate(true)} size="sm" variant="primary">Create admin</Button>}
-        description="Search admin and platform users by name, email, investor reference or UUID. Admin account status changes use the audited account-access flow."
-        onSearch={setSearch}
-        search={search}
-        searchPlaceholder="Search name, email, reference, UUID"
-        title="User accounts"
-      />
-      {usersQuery.error ? <Banner tone="bad" title="Could not search users">{errorMessage(usersQuery.error)}</Banner> : null}
-      {debouncedSearch.trim().length < 3 ? (
-        <Empty icon="search" title="Search users">
-          Type at least 3 characters to query backend user records.
-        </Empty>
-      ) : users.length ? (
-        <div className="table-wrap admin-table-wrap">
-          <table className="admin-table">
-            <thead>
-              <tr>
-                <th>User</th>
-                <th>Kind</th>
-                <th>Context</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((user) => (
-                <tr key={user.id}>
-                  <td>
-                    <strong>{user.label}</strong>
-                    <span className="mono muted">{user.id}</span>
-                  </td>
-                  <td><Chip tone="neutral">{labelize(user.kind)}</Chip></td>
-                  <td>{user.meta || "-"}</td>
-                  <td>
-                    <div className="row gap-8 wrap">
-                      <Button onClick={() => setAccessUser(user)} size="sm">Access controls</Button>
-                      <UnsupportedRemoveNote label="User" />
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <Empty icon="search" title="No users found">
-          Adjust the search term or create a new admin user.
-        </Empty>
-      )}
+    <div className="admin-content">
+      <PreviewNotice>User records are dummy data in preview. Live mode queries users server-side with pagination.</PreviewNotice>
+      <Card padded>
+        <EntityTableHeader
+          action={<Button icon="plus" onClick={() => setShowCreate(true)} size="sm" variant="primary">Create admin</Button>}
+          description="Search every platform account by name, email, investor reference or UUID. Account-level actions are audited here."
+          onSearch={setSearch}
+          search={search}
+          searchPlaceholder="Search name, email, reference, UUID"
+          title="User accounts"
+        />
+        <FieldGrid>
+          <SelectInput
+            label="Account type"
+            onChange={setAccountType}
+            options={["", "natural_person_lender", "legal_entity_lender_representative", "admin", "superadmin"]}
+            value={accountType}
+          />
+          <SelectInput
+            label="Account status"
+            onChange={setStatus}
+            options={["", "pending_kyc", "active", "restricted", "locked", "closed"]}
+            value={status}
+          />
+        </FieldGrid>
+        {usersQuery.error ? <Banner tone="bad" title="Could not load users">{errorMessage(usersQuery.error)}</Banner> : null}
+        {impersonationMutation.error ? <Banner tone="bad" title="Could not start read-only view">{errorMessage(impersonationMutation.error)}</Banner> : null}
+        {impersonationNotice ? <Banner tone="info" title="Read-only view">{impersonationNotice}</Banner> : null}
+        {users.length ? (
+          <>
+            <div className="table-wrap admin-table-wrap">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>User</th>
+                    <th>Reference</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Phone</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.map((user) => (
+                    <tr key={user.id}>
+                      <td>
+                        <strong>{userDisplay(user)}</strong>
+                        <span className="mono muted">{user.email}</span>
+                        <span className="mono muted">{user.id}</span>
+                      </td>
+                      <td className="mono">{user.investor_reference || "-"}</td>
+                      <td><Chip tone="neutral">{labelize(user.account_type)}</Chip></td>
+                      <td><Chip tone={statusTone(user.status)}>{labelize(user.status)}</Chip></td>
+                      <td>{user.phone_verified ? <Chip tone="ok">Verified</Chip> : <Chip tone="neutral">Unverified</Chip>}</td>
+                      <td>{formatDateTime(user.date_joined)}</td>
+                      <td>
+                        <div className="row gap-8 wrap">
+                          <Button onClick={() => setAccessUser(user)} size="sm">Access controls</Button>
+                          <Button
+                            disabled={!user.can_impersonate_readonly || impersonationMutation.isPending}
+                            onClick={() => startReadOnlyImpersonation(user)}
+                            size="sm"
+                            variant="ghost"
+                          >
+                            Read-only view
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="admin-pager">
+              <span className="muted">
+                Showing {total === 0 ? 0 : page * pageSize + 1}&ndash;{Math.min(total, (page + 1) * pageSize)} of {total}
+              </span>
+              <div className="row gap-8">
+                <Button disabled={page === 0} onClick={() => setPage((current) => Math.max(0, current - 1))} size="sm">Previous</Button>
+                <span className="muted">Page {page + 1} of {pageCount}</span>
+                <Button disabled={page >= pageCount - 1} onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))} size="sm">Next</Button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <Empty icon="search" title="No users found">
+            Adjust the search or filters.
+          </Empty>
+        )}
+      </Card>
       {showCreate ? (
         <Modal title="Create admin user" onClose={() => setShowCreate(false)}>
           <AdminUserCreateForm
@@ -3331,14 +3422,14 @@ function AdminUsersDirectory() {
         </Modal>
       ) : null}
       {accessUser ? (
-        <Modal title={`Account access - ${accessUser.label}`} onClose={() => setAccessUser(null)}>
+        <Modal title={`Account access - ${userDisplay(accessUser)}`} onClose={() => setAccessUser(null)}>
           <AccountAccessForm
             defaultUserId={accessUser.id}
-            defaultUserQuery={lookupDisplay(accessUser)}
+            defaultUserQuery={`${userDisplay(accessUser)} ${accessUser.email}`}
           />
         </Modal>
       ) : null}
-    </Card>
+    </div>
   );
 }
 

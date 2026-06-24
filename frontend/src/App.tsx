@@ -30,6 +30,11 @@ import {
   useV1MarketplaceSecondaryListingsPurchaseCreate
 } from "./api/generated/banxumApi";
 import { ApiClientError } from "./api/client/httpClient";
+import {
+  clearReadonlyImpersonation,
+  readReadonlyImpersonationLabel,
+  readReadonlyImpersonationToken
+} from "./api/client/impersonation";
 import type {
   ActivityEntry,
   BalanceLot,
@@ -114,6 +119,10 @@ const liveProfileFallback = {
 
 function displayProfile() {
   return isFixturePreview ? portalFixture.profile : liveProfileFallback;
+}
+
+function isReadonlyImpersonationActive() {
+  return Boolean(readReadonlyImpersonationToken());
 }
 
 function previewHint(text: string) {
@@ -1570,8 +1579,14 @@ function InvestorShell({
   const queryClient = useQueryClient();
   const [navOpen, setNavOpen] = useState(false);
   const [investLoan, setInvestLoan] = useState<MarketplaceLoanDetail | null>(null);
+  const [readonlyImpersonation, setReadonlyImpersonation] = useState(() => ({
+    active: isReadonlyImpersonationActive(),
+    label: readReadonlyImpersonationLabel()
+  }));
   const finishLogout = () => {
     clearPortalSessionState(queryClient);
+    clearReadonlyImpersonation();
+    setReadonlyImpersonation({ active: false, label: "" });
     goTo(setRoute, "public");
     setNavOpen(false);
     setInvestLoan(null);
@@ -1581,7 +1596,7 @@ function InvestorShell({
   });
   const kycGateQuery = useV1KycStatusRetrieve({
     query: {
-      enabled: !isFixturePreview,
+      enabled: !isFixturePreview && !readonlyImpersonation.active,
       retry: false,
       staleTime: 0,
       refetchInterval: (query) => {
@@ -1594,10 +1609,19 @@ function InvestorShell({
     }
   });
   const financialAccessAllowed =
-    isFixturePreview || kycGateQuery.data?.financial_access_allowed === true;
+    isFixturePreview || readonlyImpersonation.active || kycGateQuery.data?.financial_access_allowed === true;
   const balances = useBalancesData(financialAccessAllowed).data ?? { summaries: [], lots: [] };
   const notifications = useNotificationsData(20, financialAccessAllowed).data;
-  const profile = displayProfile();
+  const profile = readonlyImpersonation.active
+    ? {
+        initials: "RO",
+        name: readonlyImpersonation.label || "Read-only user",
+        email: "Superadmin read-only view",
+        country: "",
+        phone: "",
+        memberSince: ""
+      }
+    : displayProfile();
 
   const screen = (() => {
     switch (route.name) {
@@ -1699,6 +1723,10 @@ function InvestorShell({
             disabled={logoutMutation.isPending}
             icon="logout"
             onClick={() => {
+              if (readonlyImpersonation.active) {
+                finishLogout();
+                return;
+              }
               if (isFixturePreview) {
                 finishLogout();
                 return;
@@ -1708,7 +1736,7 @@ function InvestorShell({
             size="sm"
             variant="ghost"
           >
-            {logoutMutation.isPending ? "Signing out..." : "Sign out"}
+            {readonlyImpersonation.active ? "Exit read-only view" : logoutMutation.isPending ? "Signing out..." : "Sign out"}
           </Button>
         </div>
       </aside>
@@ -1751,6 +1779,15 @@ function InvestorShell({
             <Banner icon="alert" tone="warn" title="Preview data">
               This investor portal is running with local fixture data for UX review. Balances,
               holdings, activity, FX history, and documents shown here are not real account data.
+            </Banner>
+          </div>
+        ) : null}
+        {readonlyImpersonation.active ? (
+          <div className="fixture-preview-notice">
+            <Banner icon="lock" tone="info" title="Superadmin read-only view">
+              Viewing the portal as {readonlyImpersonation.label || "selected user"}. Mutating
+              actions are disabled and generated/downloaded evidence is audited to the superadmin,
+              not recorded as user activity.
             </Banner>
           </div>
         ) : null}
@@ -2094,9 +2131,13 @@ function LoanDetailScreen({
                 <KeyValue label="Minimum order" value={`${loan.currency} 1,000`} />
                 <KeyValue label="Remaining" value={`${loan.currency} ${formatMoneyMinor(loan.remaining_capacity_minor, loan.currency)}`} />
                 <KeyValue label="Closes" value={formatDate(loan.funding_deadline)} />
-                {blocked ? (
+                {blocked || isReadonlyImpersonationActive() ? (
                   <Banner tone={demoState === "frozen" ? "bad" : "warn"} title={demoState === "frozen" ? "Financial actions frozen" : "Investing not yet available"}>
-                    {demoState === "frozen" ? "Provide a usable payout IBAN to unlock investing." : "Complete KYC verification to unlock investing."}
+                    {isReadonlyImpersonationActive()
+                      ? "Read-only impersonation cannot place orders."
+                      : demoState === "frozen"
+                        ? "Provide a usable payout IBAN to unlock investing."
+                        : "Complete KYC verification to unlock investing."}
                   </Banner>
                 ) : (
                   <Button block icon="trend" variant="primary" onClick={() => setInvestLoan(loan)}>Place investment order</Button>
@@ -2268,6 +2309,13 @@ function BalancesScreen({ demoState }: { demoState: DemoAccountState }) {
         <Segmented options={[{ value: "CHF", label: "CHF" }, { value: "EUR", label: "EUR" }]} value={currency} onChange={setCurrency} />
       </div>
       {frozen ? <div style={{ marginBottom: 18 }}><FrozenBanner setRoute={() => setModal("iban")} /></div> : null}
+      {isReadonlyImpersonationActive() ? (
+        <div style={{ marginBottom: 18 }}>
+          <Banner icon="lock" tone="info" title="Read-only view">
+            Deposits, withdrawals and payout-IBAN changes are disabled during superadmin read-only impersonation.
+          </Banner>
+        </div>
+      ) : null}
       <div className="grid grid-4" style={{ marginBottom: 16 }}>
         <BucketTile label="Investable" value={summary.investable_minor} currency={currency} tone="ok" sub="Within 30-day window" />
         <BucketTile label="Withdraw-only" value={summary.withdraw_only_minor} currency={currency} tone="warn" sub="Investment window closed" />
@@ -2275,9 +2323,9 @@ function BalancesScreen({ demoState }: { demoState: DemoAccountState }) {
         <BucketTile label="Penalty/frozen" value={frozen ? summary.overdue_minor : summary.penalty_mode_minor + summary.frozen_minor} currency={currency} tone={frozen ? "bad" : "neutral"} sub={frozen ? "IBAN required" : "None"} />
       </div>
       <div className="row gap-8 wrap" style={{ marginBottom: 20 }}>
-        <Button disabled={frozen} icon="plus" variant="primary" onClick={() => setModal("deposit")}>Deposit funds</Button>
-        <Button icon="download" onClick={() => setModal("withdraw")}>Withdraw</Button>
-        <Button icon="balance" variant="ghost" onClick={() => setModal("iban")}>Payout IBANs</Button>
+        <Button disabled={frozen || isReadonlyImpersonationActive()} icon="plus" variant="primary" onClick={() => setModal("deposit")}>Deposit funds</Button>
+        <Button disabled={isReadonlyImpersonationActive()} icon="download" onClick={() => setModal("withdraw")}>Withdraw</Button>
+        <Button disabled={isReadonlyImpersonationActive()} icon="balance" variant="ghost" onClick={() => setModal("iban")}>Payout IBANs</Button>
       </div>
       <Card className="banner-neutral" padded>
         <div className="row gap-12" style={{ alignItems: "flex-start" }}>
@@ -2632,21 +2680,22 @@ function FxScreen({ demoState }: { demoState: DemoAccountState }) {
     <main className="content narrow">
       <div className="page-head"><div><h1>Currency exchange</h1><div className="ph-sub">Auxiliary settlement function, not trading or speculation.</div></div></div>
       {frozen ? <Banner icon="lock" tone="bad" title="FX is frozen">Provide a usable payout IBAN to unlock currency exchange.</Banner> : null}
+      {isReadonlyImpersonationActive() ? <Banner icon="lock" tone="info" title="Read-only view">FX quote and execution are disabled during superadmin read-only impersonation.</Banner> : null}
       <div className="grid grid-2 section">
         <Card padded>
           <div className="row spread" style={{ marginBottom: 14 }}><span className="eyebrow">Exchange</span><span className="muted">Fee 1.5%</span></div>
           <div className="col gap-10">
             <Field error={amountError} hint={`Available ${from}: ${formatMoneyMinor(availableMinor, from)}`} label="From">
-              <div className="input-affix"><span className="prefix">{from}</span><input className="input mono" disabled={frozen} inputMode="decimal" onChange={(event) => setAmount(event.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" style={{ paddingLeft: 44 }} value={amount} /></div>
+              <div className="input-affix"><span className="prefix">{from}</span><input className="input mono" disabled={frozen || isReadonlyImpersonationActive()} inputMode="decimal" onChange={(event) => setAmount(event.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" style={{ paddingLeft: 44 }} value={amount} /></div>
             </Field>
-            <button aria-label="Swap direction" className="icon-btn" disabled={frozen} onClick={() => { setFrom(to); setLiveQuote(null); }} type="button"><Icon name="swap" size={16} /></button>
+            <button aria-label="Swap direction" className="icon-btn" disabled={frozen || isReadonlyImpersonationActive()} onClick={() => { setFrom(to); setLiveQuote(null); }} type="button"><Icon name="swap" size={16} /></button>
             <Field label="To estimated">
               <div className="input-affix"><span className="prefix">{to}</span><input className="input mono" readOnly style={{ background: "var(--surface-2)", paddingLeft: 44 }} value={amountMinor > 0 && !parsedAmount.error ? formatMoneyMinor(targetMinor, to) : ""} /></div>
             </Field>
           </div>
           <Review rows={[{ label: "Indicative rate", value: `${from}/${to} ${rate.toFixed(4)}` }, { label: "Platform fee", value: `${from} ${formatMoneyMinor(feeMinor, from)}` }]} />
           {error ? <Banner tone="bad" title="Could not quote FX">{error}</Banner> : null}
-          <Button block disabled={frozen || amountMinor <= 0 || Boolean(amountError) || quoteMutation.isPending} style={{ marginTop: 14 }} variant="primary" onClick={requestQuote}>{quoteMutation.isPending ? "Quoting..." : "Review exchange"}</Button>
+          <Button block disabled={frozen || isReadonlyImpersonationActive() || amountMinor <= 0 || Boolean(amountError) || quoteMutation.isPending} style={{ marginTop: 14 }} variant="primary" onClick={requestQuote}>{quoteMutation.isPending ? "Quoting..." : "Review exchange"}</Button>
         </Card>
         <Card padded>
           <div className="eyebrow" style={{ marginBottom: 10 }}>How FX works here</div>
@@ -3009,7 +3058,7 @@ function BuyerListingsTable({ listings, onBuy, frozen }: { listings: SecondaryMa
           <thead><tr><th>Listing</th><th>Status</th><th className="num">Principal</th><th className="num">Price</th><th className="num">Accrued</th><th className="num">Total cost</th><th className="num">DPD</th><th /></tr></thead>
           <tbody>
             {listings.map((listing) => (
-              <tr className="clickable" key={listing.id} onClick={() => !frozen && onBuy(listing)}>
+              <tr className="clickable" key={listing.id} onClick={() => !frozen && !isReadonlyImpersonationActive() && onBuy(listing)}>
                 <td><div className="col-strong">{listing.loan_title}</div><div className="sub mono">{listing.id}</div></td>
                 <td><div className="row gap-6 wrap"><Chip status={listing.loan_status_at_listing} tone={statusTone(listing.loan_status_at_listing)} />{listing.risk_acknowledgement_required ? <Chip square tone="warn">Non-standard</Chip> : null}</div></td>
                 <td className="num"><Money amountMinor={listing.current_principal_minor} currency={listing.currency} /></td>
@@ -3038,7 +3087,7 @@ function SellableHoldingsTable({ holdings, onSell, frozen }: { holdings: Holding
       <div className="tbl-wrap">
         <table className="tbl">
           <thead><tr><th>Holding</th><th>Status</th><th className="num">Current principal</th><th className="num">Rate</th><th /></tr></thead>
-          <tbody>{holdings.map((holding) => <tr key={holding.id}><td><div className="col-strong">{holding.loan.borrower_name}</div><div className="sub mono">{holding.loan.loan_id}</div></td><td><Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} /></td><td className="num"><Money amountMinor={holding.current_principal_minor} currency={holding.currency} /></td><td className="num">{formatRateBps(holding.loan.interest_rate_bps)}</td><td className="right"><Button disabled={frozen} size="sm" onClick={() => onSell(holding)}>{holding.loan.loan_status === "funded" ? "List" : "Request listing"}</Button></td></tr>)}</tbody>
+          <tbody>{holdings.map((holding) => <tr key={holding.id}><td><div className="col-strong">{holding.loan.borrower_name}</div><div className="sub mono">{holding.loan.loan_id}</div></td><td><Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} /></td><td className="num"><Money amountMinor={holding.current_principal_minor} currency={holding.currency} /></td><td className="num">{formatRateBps(holding.loan.interest_rate_bps)}</td><td className="right"><Button disabled={frozen || isReadonlyImpersonationActive()} size="sm" onClick={() => onSell(holding)}>{holding.loan.loan_status === "funded" ? "List" : "Request listing"}</Button></td></tr>)}</tbody>
         </table>
       </div>
     </Card>
@@ -3433,7 +3482,7 @@ function SettingsScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) {
         <Card><div className="card-head"><h3>Profile</h3></div><div className="card-pad"><dl className="kv"><KeyValueRow label="Name" value={profile.name} /><KeyValueRow label="Email" mono value={profile.email} /><KeyValueRow label="Country" value={profile.country} />{profile.memberSince ? <KeyValueRow label="Member since" mono value={formatDate(profile.memberSince)} /> : null}</dl><p className="muted" style={{ fontSize: 11.5, marginTop: 12 }}>Name or email changes are handled through support after identity re-verification.</p></div></Card>
         <Card><div className="card-head"><h3>Verification</h3></div><div className="card-pad col gap-12"><div className="row spread"><span className="row gap-8"><Icon className="muted" name="shield" size={16} />Identity (KYC/AML)</span><Chip status={isFixturePreview ? "approved" : "backend required"} tone={isFixturePreview ? "ok" : "neutral"} /></div><div className="hr" /><div className="row spread"><span className="row gap-8"><Icon className="muted" name="phone" size={16} />Phone {profile.phone || "backend required"}</span><Chip status={isFixturePreview ? "verified" : "backend required"} tone={isFixturePreview ? "ok" : "neutral"} /></div></div></Card>
         <Card>
-          <div className="card-head"><h3>Payout accounts</h3><Button size="sm" variant="ghost" onClick={() => setShowPayoutModal(true)}>Add/update IBAN</Button></div>
+          <div className="card-head"><h3>Payout accounts</h3><Button disabled={isReadonlyImpersonationActive()} size="sm" variant="ghost" onClick={() => setShowPayoutModal(true)}>Add/update IBAN</Button></div>
           <div className="card-pad col gap-12">
             {balances.isError && !isFixturePreview ? <Banner tone="bad" title="Could not load payout accounts">Retry after signing in or when the API connection is restored.</Banner> : null}
             {payoutInstructions.length === 0 ? (
