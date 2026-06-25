@@ -2828,6 +2828,7 @@ function PortfolioScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) 
     );
   }
   if (!portfolio || !activity || !orders) return <ScreenLoading title="Portfolio" />;
+  const openOrders = activePrimaryOrders(orders.orders);
 
   return (
     <main className="content">
@@ -2838,10 +2839,11 @@ function PortfolioScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) 
         <Stat amountMinor={sumAmounts(portfolio.summary.realized_interest_by_currency)} currency="CHF" label="Interest received" sub="lifetime" />
         <Stat label="Weighted yield" raw="7.6%" sub="projection" />
       </div>
+      {openOrders.length > 0 ? <PendingOrdersNotice orders={openOrders} onViewOrders={() => setTab("orders")} /> : null}
       <Tabs tabs={[{ value: "holdings", label: "Holdings" }, { value: "exposure", label: "Exposure" }, { value: "activity", label: "Activity" }, { value: "orders", label: "Orders" }]} value={tab} onChange={setTab} />
       <div style={{ paddingTop: 18 }}>
-        {tab === "holdings" ? <HoldingsTable holdings={portfolio.holdings} onOpen={setDetail} /> : null}
-        {tab === "exposure" ? <ExposurePanel portfolio={portfolio} /> : null}
+        {tab === "holdings" ? <HoldingsTable holdings={portfolio.holdings} pendingOrders={openOrders} onOpen={setDetail} onViewOrders={() => setTab("orders")} /> : null}
+        {tab === "exposure" ? <ExposurePanel pendingOrders={openOrders} portfolio={portfolio} onViewOrders={() => setTab("orders")} /> : null}
         {tab === "activity" ? <ActivityTable entries={activity.entries} /> : null}
         {tab === "orders" ? <OrdersTable orders={orders.orders} /> : null}
       </div>
@@ -2850,9 +2852,84 @@ function PortfolioScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) 
   );
 }
 
-function HoldingsTable({ holdings, onOpen }: { holdings: Holding[]; onOpen: (holding: Holding) => void }) {
+const openPrimaryOrderStatuses = new Set(["pending", "balance_allocated", "partially_allocated"]);
+
+function activePrimaryOrders(orders: PrimaryOrderPortal[]) {
+  return orders.filter((order) => openPrimaryOrderStatuses.has(order.status));
+}
+
+function primaryOrderDisplayAmount(order: PrimaryOrderPortal) {
+  return order.allocated_amount_minor > 0 ? order.allocated_amount_minor : order.requested_amount_minor;
+}
+
+function primaryOrderTotalsByCurrency(orders: PrimaryOrderPortal[]) {
+  const totals = new Map<string, number>();
+  for (const order of orders) {
+    totals.set(order.currency, (totals.get(order.currency) ?? 0) + primaryOrderDisplayAmount(order));
+  }
+  return Array.from(totals.entries()).sort(([left], [right]) => left.localeCompare(right));
+}
+
+function PendingOrdersNotice({ orders, onViewOrders }: { orders: PrimaryOrderPortal[]; onViewOrders: () => void }) {
+  const allocatedCount = orders.filter((order) => order.allocated_amount_minor > 0).length;
+  const totals = primaryOrderTotalsByCurrency(orders);
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <Banner
+        actions={<Button size="sm" onClick={onViewOrders}>View orders</Button>}
+        tone="info"
+        title="Primary orders awaiting funding close"
+      >
+        {allocatedCount > 0
+          ? "Allocated order balances are reserved for published loans. They become portfolio holdings only after Garanta closes the loan funding round."
+          : "Your primary orders are still waiting for balance allocation. They are not portfolio holdings yet."}{" "}
+        {totals.map(([currency, amount]) => `${currency} ${formatMoneyMinor(amount, currency)}`).join(" / ")} is currently open in primary orders.
+      </Banner>
+    </div>
+  );
+}
+
+function PendingOrdersEmptyState({ orders, onViewOrders }: { orders: PrimaryOrderPortal[]; onViewOrders: () => void }) {
+  return (
+    <Card padded>
+      <div className="col gap-12">
+        <Empty icon="portfolio" title="No loan holdings yet">
+          Holdings are created only when a published loan is closed and your allocated order converts into a loan claim.
+        </Empty>
+        <div className="grid grid-2">
+          {primaryOrderTotalsByCurrency(orders).map(([currency, amount]) => (
+            <div className="stat" key={currency}>
+              <div className="stat-label">Awaiting funding close</div>
+              <div className="stat-value"><span className="ccy">{currency}</span>{formatMoneyMinor(amount, currency)}</div>
+              <div className="stat-sub">{orders.filter((order) => order.currency === currency).length} open primary orders</div>
+            </div>
+          ))}
+        </div>
+        <Banner tone="neutral" title="Why Activity has rows">
+          Activity includes deposits, FX and primary-market order events. Orders are commitments/reservations; they are not portfolio exposure until the loan closes.
+        </Banner>
+        <div><Button size="sm" onClick={onViewOrders}>Open Orders tab</Button></div>
+      </div>
+    </Card>
+  );
+}
+
+function HoldingsTable({
+  holdings,
+  pendingOrders,
+  onOpen,
+  onViewOrders
+}: {
+  holdings: Holding[];
+  pendingOrders: PrimaryOrderPortal[];
+  onOpen: (holding: Holding) => void;
+  onViewOrders: () => void;
+}) {
   if (holdings.length === 0) {
-    return <Card><Empty icon="portfolio" title="No holdings yet">Allocated investments and secondary-market purchases will appear here.</Empty></Card>;
+    if (pendingOrders.length > 0) {
+      return <PendingOrdersEmptyState orders={pendingOrders} onViewOrders={onViewOrders} />;
+    }
+    return <Card><Empty icon="portfolio" title="No holdings yet">Funded loan claims and settled secondary-market purchases will appear here.</Empty></Card>;
   }
 
   return (
@@ -2880,8 +2957,53 @@ function HoldingsTable({ holdings, onOpen }: { holdings: Holding[]; onOpen: (hol
   );
 }
 
-function ExposurePanel({ portfolio }: { portfolio: ReturnType<typeof usePortfolioData>["data"] }) {
+function hasExposure(portfolio: NonNullable<ReturnType<typeof usePortfolioData>["data"]>) {
+  return (
+    portfolio.exposure.by_loan_status.length > 0 ||
+    portfolio.exposure.by_risk_rating.length > 0 ||
+    portfolio.exposure.by_borrower.length > 0 ||
+    portfolio.exposure.by_country.length > 0 ||
+    portfolio.exposure.by_purpose.length > 0 ||
+    portfolio.exposure.by_collateral_type.length > 0 ||
+    portfolio.exposure.by_maturity.length > 0
+  );
+}
+
+function ExposurePanel({
+  portfolio,
+  pendingOrders,
+  onViewOrders
+}: {
+  portfolio: ReturnType<typeof usePortfolioData>["data"];
+  pendingOrders: PrimaryOrderPortal[];
+  onViewOrders: () => void;
+}) {
   if (!portfolio) return null;
+  if (!hasExposure(portfolio)) {
+    return (
+      <Card padded>
+        <div className="col gap-12">
+          <Empty icon="trend" title="No funded exposure yet">
+            Exposure is calculated only from active loan holdings. Allocated primary orders are shown separately until funding closes.
+          </Empty>
+          {pendingOrders.length > 0 ? (
+            <>
+              <div className="grid grid-2">
+                {primaryOrderTotalsByCurrency(pendingOrders).map(([currency, amount]) => (
+                  <div className="stat" key={currency}>
+                    <div className="stat-label">Allocated / pending orders</div>
+                    <div className="stat-value"><span className="ccy">{currency}</span>{formatMoneyMinor(amount, currency)}</div>
+                    <div className="stat-sub">Not yet exposure</div>
+                  </div>
+                ))}
+              </div>
+              <div><Button size="sm" onClick={onViewOrders}>View order pipeline</Button></div>
+            </>
+          ) : null}
+        </div>
+      </Card>
+    );
+  }
   const statusData = portfolio.exposure.by_loan_status.map((bucket) => ({ label: bucket.name, value: bucket.outstanding_principal_minor }));
   const ratingData = portfolio.exposure.by_risk_rating.map((bucket) => ({ label: bucket.name, value: bucket.outstanding_principal_minor }));
   return (
@@ -2892,6 +3014,37 @@ function ExposurePanel({ portfolio }: { portfolio: ReturnType<typeof usePortfoli
         <Card padded><div className="eyebrow" style={{ marginBottom: 14 }}>By risk rating</div><BarBreakdown data={ratingData} /></Card>
       </div>
     </div>
+  );
+}
+
+function activityCategory(entry: ActivityEntry) {
+  if (entry.activity_type === "primary_order") return "order";
+  if (entry.activity_type === "fx_exchange") return "fx";
+  if (entry.activity_type === "withdrawal_request") return "withdrawal";
+  if (entry.activity_type === "repayment_distribution") return "income";
+  if (entry.activity_type === "recovery_distribution") return "recovery";
+  if (entry.activity_type === "secondary_listing") return "listing";
+  if (entry.activity_type === "secondary_purchase") return "purchase";
+  if (entry.activity_type === "secondary_sale") return "sale";
+  if (entry.activity_type.startsWith("balance_")) {
+    return entry.activity_type.replace("balance_", "").replaceAll("_", " ");
+  }
+  return safeMetadataCategory(entry.metadata);
+}
+
+function ActivityAmount({ entry }: { entry: ActivityEntry }) {
+  if (entry.amount_minor === 0 || entry.amount_minor === null) {
+    return <span className="muted">-</span>;
+  }
+  const absoluteAmount = Math.abs(entry.amount_minor);
+  const sign = entry.direction === "in" ? "+" : entry.direction === "out" ? "-" : "";
+  const toneClass = entry.direction === "in" ? "pos" : entry.direction === "out" ? "neg" : "";
+  return (
+    <span className={`money ${toneClass}`}>
+      <span className="muted">{entry.currency} </span>
+      {sign}
+      {formatMoneyMinor(absoluteAmount, entry.currency)}
+    </span>
   );
 }
 
@@ -2907,14 +3060,14 @@ function ActivityTable({ entries, dense = false }: { entries: ActivityEntry[]; d
           <thead><tr><th>Date</th><th>Activity</th><th>Reference</th><th>Type</th><th className="num">Amount</th></tr></thead>
           <tbody>
             {entries.map((entry) => {
-              const category = safeMetadataCategory(entry.metadata);
+              const category = activityCategory(entry);
               return (
                 <tr key={entry.id}>
                   <td className="mono muted" style={{ fontSize: 12 }}>{formatDateTime(entry.occurred_at)}</td>
                   <td className="col-strong">{entry.title}</td>
                   <td className="sub mono">{entry.loan_title || entry.activity_type}</td>
                   <td><ActivityTag category={category} /></td>
-                  <td className="num">{entry.amount_minor === 0 || entry.amount_minor === null ? <span className="muted">-</span> : <Money amountMinor={entry.amount_minor} currency={entry.currency} sign />}</td>
+                  <td className="num"><ActivityAmount entry={entry} /></td>
                 </tr>
               );
             })}
@@ -2926,7 +3079,7 @@ function ActivityTable({ entries, dense = false }: { entries: ActivityEntry[]; d
 }
 
 function ActivityTag({ category }: { category: string }) {
-  const tone = category === "income" ? "ok" : category === "cost" ? "bad" : category === "status" ? "warn" : "neutral";
+  const tone = category === "income" || category === "deposit" || category === "sale" || category === "recovery" ? "ok" : category === "cost" || category === "withdrawal" || category === "purchase" ? "bad" : category === "status" || category === "order" || category === "listing" ? "warn" : "neutral";
   return <Chip dot={false} tone={tone}>{category}</Chip>;
 }
 

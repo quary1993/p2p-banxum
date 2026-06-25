@@ -8,6 +8,7 @@ import {
   readReadonlyImpersonationToken,
   writeReadonlyImpersonation
 } from "./api/client/impersonation";
+import { portfolioFixture, primaryOrdersFixture } from "./investorPortal/fixtures";
 import { onboardingStepForUser } from "./onboarding";
 
 function renderApp(path = "/") {
@@ -116,6 +117,68 @@ test("published primary-market loans appear in dashboard and marketplace open vi
   expect(screen.getByText("4 loans")).toBeInTheDocument();
   expect(screen.getByText("Helvetia Logistik AG")).toBeInTheDocument();
   expect(screen.getAllByText("Open").length).toBeGreaterThan(0);
+});
+
+test("portfolio explains allocated orders that are not holdings yet", () => {
+  const originalHoldings = portfolioFixture.holdings;
+  const originalExposure = portfolioFixture.exposure;
+  const originalSummary = portfolioFixture.summary;
+  const originalOrders = primaryOrdersFixture.orders;
+
+  portfolioFixture.holdings = [];
+  portfolioFixture.exposure = {
+    by_borrower: [],
+    by_country: [],
+    by_purpose: [],
+    by_risk_rating: [],
+    by_collateral_type: [],
+    by_maturity: [],
+    by_loan_status: []
+  };
+  portfolioFixture.summary = {
+    ...originalSummary,
+    holding_count: 0,
+    active_holding_count: 0,
+    original_principal_by_currency: [],
+    outstanding_principal_by_currency: [],
+    late_or_defaulted_exposure_by_currency: []
+  };
+  primaryOrdersFixture.orders = [
+    {
+      ...originalOrders[0],
+      status: "balance_allocated",
+      requested_amount_minor: 500000,
+      allocated_amount_minor: 500000
+    }
+  ];
+
+  try {
+    renderApp();
+
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+    fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+      target: { value: "lukas.brunner@example.ch" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Portfolio" }));
+
+    expect(screen.getByText("Primary orders awaiting funding close")).toBeInTheDocument();
+    expect(screen.getByText("No loan holdings yet")).toBeInTheDocument();
+    expect(screen.getByText(/created only when a published loan is closed/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Exposure" }));
+    expect(screen.getByText("No funded exposure yet")).toBeInTheDocument();
+    expect(screen.getByText(/not yet exposure/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Orders" }));
+    expect(screen.getByText("Balance allocated")).toBeInTheDocument();
+  } finally {
+    portfolioFixture.holdings = originalHoldings;
+    portfolioFixture.exposure = originalExposure;
+    portfolioFixture.summary = originalSummary;
+    primaryOrdersFixture.orders = originalOrders;
+  }
 });
 
 test("day-60 frozen state keeps read-only access visible and blocks money actions", () => {
