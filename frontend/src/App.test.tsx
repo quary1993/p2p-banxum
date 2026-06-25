@@ -3,6 +3,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { expect, test } from "vitest";
 
 import { App } from "./App";
+import {
+  readReadonlyImpersonationLabel,
+  readReadonlyImpersonationToken,
+  writeReadonlyImpersonation
+} from "./api/client/impersonation";
 import { onboardingStepForUser } from "./onboarding";
 
 function renderApp(path = "/") {
@@ -65,6 +70,20 @@ test("fixture-backed authenticated portal is visibly marked as preview data", ()
   expect(screen.getByRole("heading", { name: "Welcome back, Lukas" })).toBeInTheDocument();
   expect(screen.getByText("Preview data")).toBeInTheDocument();
   expect(screen.getByText(/not real account data/i)).toBeInTheDocument();
+});
+
+test("read-only impersonation token survives a new tab and opens the investor portal", () => {
+  writeReadonlyImpersonation("signed-token", "Viorel Nica (viorel.nica1@gmail.com)", 60);
+  window.sessionStorage.clear();
+
+  expect(readReadonlyImpersonationToken()).toBe("signed-token");
+  expect(readReadonlyImpersonationLabel()).toBe("Viorel Nica (viorel.nica1@gmail.com)");
+
+  renderApp("/");
+
+  expect(screen.getAllByText("Superadmin read-only view").length).toBeGreaterThan(0);
+  expect(screen.getByText(/Viewing the portal as Viorel Nica/i)).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Welcome back, Lukas" })).toBeInTheDocument();
 });
 
 test("login form submits when the form is submitted from the email field", () => {

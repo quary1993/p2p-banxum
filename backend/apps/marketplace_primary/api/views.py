@@ -47,6 +47,10 @@ from backend.apps.marketplace_primary.services import (
     release_primary_order_balance,
     scan_expired_primary_loan_funding,
 )
+from backend.apps.platform_core.api.impersonation import (
+    ReadOnlyImpersonationError,
+    readonly_read_actor_from_request,
+)
 from backend.apps.platform_core.api.request_meta import client_ip, user_agent
 
 
@@ -82,7 +86,10 @@ class MarketplaceLoanDetailView(APIView):
     @extend_schema(responses={200: MarketplaceLoanDetailSerializer})
     def get(self, request: Request, loan_id: str) -> Response:
         try:
-            payload = get_full_marketplace_loan(actor=cast(Model, request.user), loan_id=loan_id)
+            actor, _audit_actor = readonly_read_actor_from_request(request)
+            payload = get_full_marketplace_loan(actor=actor, loan_id=loan_id)
+        except ReadOnlyImpersonationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
         except (MarketplacePrimaryAuthorizationError, MarketplacePrimaryValidationError) as exc:
             return _error_response(exc)
         return Response(payload, status=status.HTTP_200_OK)

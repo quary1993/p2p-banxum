@@ -38,6 +38,10 @@ from backend.apps.marketplace_primary.services import (
 )
 from backend.apps.platform_core.models import AuditEvent, Currency, DomainEvent
 from backend.apps.platform_core.models.base import AppendOnlyViolation
+from backend.apps.platform_core.services.impersonation import (
+    READONLY_IMPERSONATION_HEADER,
+    issue_readonly_impersonation_token,
+)
 from backend.apps.platform_core.tests.factories import (
     SensitiveActionCodePayload,
     issue_sensitive_action_test_code,
@@ -1777,6 +1781,37 @@ def test_primary_marketplace_api_flow(
     assert close_response.status_code == 200
     assert close_response.json()["close_type"] == PrimaryLoanCloseType.PARTIAL
     assert close_response.json()["accepted_principal_minor"] == 10_000_00
+
+
+@pytest.mark.django_db
+def test_primary_loan_detail_uses_readonly_impersonation_target(
+    client: Client,
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    user_model: Any = get_user_model()
+    superadmin = user_model.objects.create_superuser(
+        email="market-superadmin@example.test",
+        password="unused",
+        full_name="Market Superadmin",
+        account_type="superadmin",
+        status="active",
+    )
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user)
+    token = issue_readonly_impersonation_token(actor=superadmin, target_user_id=str(investor.pk))[
+        "token"
+    ]
+    client.force_login(cast(Any, superadmin))
+
+    response = client.get(
+        f"/api/v1/marketplace/primary/loans/{loan.pk}/",
+        **{f"HTTP_{READONLY_IMPERSONATION_HEADER.upper().replace('-', '_')}": token},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["investor_summary"]
+    assert response.json()["loan_id"] == str(loan.pk)
 
 
 @pytest.mark.django_db

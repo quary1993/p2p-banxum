@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
 from django.db.models import Model
 from drf_spectacular.utils import extend_schema
@@ -42,23 +42,17 @@ from backend.apps.investor_portal.services import (
     get_primary_orders,
     get_secondary_market_activity,
 )
-from backend.apps.platform_core.services.impersonation import (
-    READONLY_IMPERSONATION_HEADER,
+from backend.apps.platform_core.api.impersonation import (
     ReadOnlyImpersonationError,
-    resolve_readonly_impersonation,
+    readonly_read_actor_from_request,
 )
 
 
 def _portal_read_actor(request: Request) -> tuple[Model, Model]:
-    real_actor = cast(Model, request.user)
-    token = request.headers.get(READONLY_IMPERSONATION_HEADER, "")
-    if not token:
-        return real_actor, real_actor
     try:
-        target_actor, _context = resolve_readonly_impersonation(actor=real_actor, token=token)
+        return readonly_read_actor_from_request(request)
     except ReadOnlyImpersonationError as exc:
         raise InvestorPortalAuthorizationError(str(exc)) from exc
-    return target_actor, real_actor
 
 
 def _error_response(exc: Exception) -> Response:

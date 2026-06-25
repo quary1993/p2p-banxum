@@ -3310,7 +3310,8 @@ export function UserAccountsPanel() {
         onSuccess: (response) => {
           writeReadonlyImpersonation(
             response.token,
-            `${response.target_full_name || response.target_email} (${response.target_email})`
+            `${response.target_full_name || response.target_email} (${response.target_email})`,
+            response.expires_in_seconds
           );
           window.open("/", "_blank", "noopener,noreferrer");
           setImpersonationNotice(`Read-only portal opened for ${response.target_email}.`);

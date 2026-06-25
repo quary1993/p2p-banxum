@@ -10,6 +10,10 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from backend.apps.platform_core.api.impersonation import (
+    ReadOnlyImpersonationError,
+    readonly_read_actor_from_request,
+)
 from backend.apps.platform_core.api.request_meta import client_ip, user_agent
 from backend.apps.secondary_market.api.serializers import (
     SecondaryMarketBuyerListingSerializer,
@@ -66,10 +70,13 @@ class SecondaryMarketListingListCreateView(APIView):
         serializer.is_valid(raise_exception=True)
         data: dict[str, Any] = serializer.validated_data
         try:
+            actor, _audit_actor = readonly_read_actor_from_request(request)
             listings = list_active_secondary_market_listings(
-                actor=cast(Model, request.user),
+                actor=actor,
                 limit=data["limit"],
             )
+        except ReadOnlyImpersonationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
         except (SecondaryMarketAuthorizationError, SecondaryMarketValidationError) as exc:
             return _error_response(exc)
         return Response(

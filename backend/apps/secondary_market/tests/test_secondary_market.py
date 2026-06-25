@@ -15,6 +15,10 @@ from django.utils import timezone
 
 from backend.apps.platform_core.models import AuditEvent, Currency, DomainEvent, OutboxMessage
 from backend.apps.platform_core.models.base import AppendOnlyViolation
+from backend.apps.platform_core.services.impersonation import (
+    READONLY_IMPERSONATION_HEADER,
+    issue_readonly_impersonation_token,
+)
 from backend.apps.platform_core.tests.factories import (
     SensitiveActionCodePayload,
     issue_sensitive_action_test_code,
@@ -846,6 +850,52 @@ def test_secondary_market_api_create_list_and_approve(
         "removal_reason",
     }
     assert private_fields.isdisjoint(buyer_listing)
+
+
+@pytest.mark.django_db
+def test_secondary_market_list_uses_readonly_impersonation_target(
+    admin_user: Model,
+    investor: Model,
+    other_investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    _approve_financial_access(other_investor)
+    user_model: Any = get_user_model()
+    superadmin = user_model.objects.create_superuser(
+        email="secondary-superadmin@example.test",
+        password="unused",
+        full_name="Secondary Superadmin",
+        account_type="superadmin",
+        status="active",
+    )
+    loan = _create_funded_loan(admin_user)
+    holding = _create_holding(admin_user, investor, loan)
+    acceptance = _create_listing_acceptance(investor, holding)
+    listing = create_secondary_market_listing(
+        CreateSecondaryMarketListingCommand(
+            actor=investor,
+            holding_id=str(cast(Any, holding).id),
+            price_bps=9500,
+            document_acceptance_id=str(acceptance.pk),
+            idempotency_key="secondary-readonly-listing",
+            **_sensitive_code_payload(investor, "secondary_market_listing"),
+        )
+    )
+    token = issue_readonly_impersonation_token(
+        actor=superadmin,
+        target_user_id=str(other_investor.pk),
+    )["token"]
+    client = Client()
+    client.force_login(cast(Any, superadmin))
+
+    response = client.get(
+        "/api/v1/marketplace/secondary/listings/",
+        **{f"HTTP_{READONLY_IMPERSONATION_HEADER.upper().replace('-', '_')}": token},
+    )
+
+    assert response.status_code == 200
+    assert response.json()[0]["id"] == str(listing.pk)
+    assert "seller_user_id" not in response.json()[0]
 
 
 @pytest.mark.django_db

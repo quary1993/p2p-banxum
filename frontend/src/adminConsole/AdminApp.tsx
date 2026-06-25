@@ -11,6 +11,7 @@ import {
   useV1AuthLogoutCreate,
   useV1AdminOpsReconciliationBreakTasksSyncCreate
 } from "../api/generated/banxumApi";
+import { clearReadonlyImpersonation } from "../api/client/impersonation";
 import { isFixturePreview } from "../investorPortal/data";
 import { formatDate, formatDateTime } from "../investorPortal/format";
 import {
@@ -288,6 +289,7 @@ export function AdminApp() {
   );
   const finishLogout = () => {
     queryClient.clear();
+    clearReadonlyImpersonation();
     setLocalAuthState(isFixturePreview ? "authenticated" : "signed_out");
   };
   const logoutMutation = useV1AuthLogoutCreate({

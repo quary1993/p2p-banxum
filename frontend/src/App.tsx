@@ -538,9 +538,11 @@ function clearPortalSessionState(queryClient: ReturnType<typeof useQueryClient>)
 }
 
 export function App() {
-  const initialRoute: AppRoute = window.location.pathname.startsWith("/login")
-    ? { name: "login" }
-    : readStoredRoute();
+  const initialRoute: AppRoute = readReadonlyImpersonationToken()
+    ? { name: "dashboard" }
+    : window.location.pathname.startsWith("/login")
+      ? { name: "login" }
+      : readStoredRoute();
   const [route, setRoute] = useState<AppRoute>(initialRoute);
   const [demoState, setDemoState] = useState<DemoAccountState>("active");
 

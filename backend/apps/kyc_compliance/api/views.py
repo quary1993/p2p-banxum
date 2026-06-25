@@ -41,12 +41,11 @@ from backend.apps.kyc_compliance.services import (
     refresh_user_kyc_status_from_provider,
     verify_didit_webhook_signature,
 )
-from backend.apps.platform_core.domain.access import is_admin_actor
-from backend.apps.platform_core.services.impersonation import (
-    READONLY_IMPERSONATION_HEADER,
+from backend.apps.platform_core.api.impersonation import (
     ReadOnlyImpersonationError,
-    resolve_readonly_impersonation,
+    readonly_read_actor_from_request,
 )
+from backend.apps.platform_core.domain.access import is_admin_actor
 
 
 class KycStatusView(APIView):
@@ -54,15 +53,11 @@ class KycStatusView(APIView):
 
     @extend_schema(responses={200: KycStatusResponseSerializer})
     def get(self, request: Request) -> Response:
-        readonly_token = request.headers.get(READONLY_IMPERSONATION_HEADER, "")
-        if readonly_token:
-            try:
-                readonly_user, _context = resolve_readonly_impersonation(
-                    actor=cast(Model, request.user),
-                    token=readonly_token,
-                )
-            except ReadOnlyImpersonationError as exc:
-                return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        try:
+            readonly_user, audit_actor = readonly_read_actor_from_request(request)
+        except ReadOnlyImpersonationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        if readonly_user.pk != audit_actor.pk:
             case = KycVerificationCase.objects.filter(user_id=readonly_user.pk).first()
             latest_session = (
                 KycProviderSession.objects.filter(case=case).first() if case is not None else None

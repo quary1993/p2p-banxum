@@ -101,7 +101,10 @@ export const httpClient = async <T>({
     }
   }
 
-  const readonlyImpersonationToken = readReadonlyImpersonationToken();
+  const readonlyImpersonationToken =
+    typeof window !== "undefined" && window.location.pathname.startsWith("/admin")
+      ? ""
+      : readReadonlyImpersonationToken();
   if (readonlyImpersonationToken && !requestHeaders.has("X-BANXUM-Impersonate")) {
     requestHeaders.set("X-BANXUM-Impersonate", readonlyImpersonationToken);
   }
