@@ -3519,7 +3519,7 @@ function DocumentsScreen() {
   };
   return (
     <main className="content">
-      <div className="page-head"><div><h1>Documents</h1><div className="ph-sub">Accepted terms, transaction evidence, statements and tax information. Self-scoped to your account.</div></div></div>
+      <div className="page-head"><div><h1>Documents</h1><div className="ph-sub">Accepted document history, transaction evidence, statements and tax information. Self-scoped to your account.</div></div></div>
       <Banner tone="neutral" title="Informational only">{documents.disclaimer}</Banner>
       {error ? <div style={{ marginTop: 12 }}><Banner tone="bad" title="Download failed">{error}</Banner></div> : null}
       <div className="toolbar" style={{ marginTop: 16 }}>
@@ -3528,10 +3528,16 @@ function DocumentsScreen() {
       </div>
       <Card>
         <div className="tbl-wrap">
-          <table className="tbl"><thead><tr><th>Document</th><th>Type</th><th>Version</th><th>Context</th><th>Date</th><th className="num">Size</th><th /></tr></thead>
+          <table className="tbl"><thead><tr><th>Document</th><th>Type</th><th>Version</th><th>Context</th><th>Date</th><th className="num">Artifact</th><th /></tr></thead>
             <tbody>{rows.map((document) => (
               <tr key={document.id}>
-                <td className="row gap-8"><Icon className="muted" name="doc" size={16} /><span className="col-strong">{document.title}</span></td>
+                <td className="row gap-8">
+                  <Icon className="muted" name="doc" size={16} />
+                  <span>
+                    <span className="col-strong">{document.title}</span>
+                    {document.template_title ? <div className="sub">{document.template_title}</div> : null}
+                  </span>
+                </td>
                 <td><Chip dot={false} tone={document.document_type === "Risk" ? "warn" : document.document_type === "Tax" ? "accent" : "neutral"}>{document.document_type}</Chip></td>
                 <td className="mono muted">{document.version}</td>
                 <td className="sub">{document.context_label}</td>

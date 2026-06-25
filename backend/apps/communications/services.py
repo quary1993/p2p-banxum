@@ -657,44 +657,28 @@ def _render_document_acceptance_pdf_email(message: OutboxMessage) -> RenderedEma
     if not recipient:
         raise CommunicationsError("Document acceptance recipient email is missing.")
 
-    documents = _documents_services_module()
-    artifact = documents.render_document_acceptance_artifact(
-        documents.RenderDocumentAcceptanceArtifactCommand(
-            actor=user,
-            acceptance_id=str(acceptance.id),
-            output_format="pdf",
-            purpose="email_delivery",
-            metadata={
-                "outbox_message_id": str(message.id),
-                "topic": message.topic,
-            },
-        )
-    )
     platform = settings.PLATFORM_BRAND_NAME
     operator = settings.LEGAL_OPERATOR_NAME
     title = str(acceptance.template_version.title)
-    subject = f"Your accepted {platform} agreement PDF"
+    subject = f"Your accepted {platform} document is available"
     documents_url = f"{_base_url()}/documents"
     body_text = (
-        f"Attached is the PDF copy of the {platform} document you accepted.\n\n"
+        f"The {platform} document you accepted is available in your portal documents.\n\n"
         f"Document: {title}\n"
         f"Accepted at: {acceptance.accepted_at.isoformat()}\n"
         f"Acceptance ID: {acceptance.id}\n"
         f"Document hash: {acceptance.template_hash}\n"
-        f"PDF SHA-256: {artifact.content_sha256}\n\n"
-        f"You can also access your accepted documents in the {platform} portal:\n"
+        "\n"
+        f"You can generate the accepted document PDF in the {platform} portal:\n"
         f"{documents_url}\n\n"
         f"{platform} is operated by {operator}."
     )
     metadata = {
         "acceptance_id": str(acceptance.id),
-        "rendered_artifact_id": str(artifact.rendered_artifact.id),
         "document_category": acceptance.category,
         "template_version_id": str(acceptance.template_version_id),
         "template_hash": acceptance.template_hash,
-        "content_sha256": artifact.content_sha256,
-        "filename": artifact.filename,
-        "attachment_count": 1,
+        "attachment_count": 0,
     }
     return RenderedEmail(
         recipient_email=recipient,
@@ -703,19 +687,26 @@ def _render_document_acceptance_pdf_email(message: OutboxMessage) -> RenderedEma
         body_html=_render_banxum_email_html(
             EmailTemplateContent(
                 notice_label="Document evidence",
-                preheader=f"Your accepted {platform} agreement PDF is attached.",
+                preheader=f"Your accepted {platform} document is available in the portal.",
                 status_label="Confirmation",
                 status_tone="confirmation",
-                headline="Your agreement PDF is attached",
+                headline="Your accepted document is available",
                 paragraphs=(
-                    f"Attached is the PDF copy of the {platform} document you accepted.",
-                    "The attachment is generated from immutable clickwrap evidence: the accepted template version, content hash, checkbox text, context, timestamp, and audit record.",
+                    (
+                        f"The {platform} document you accepted is available in your portal "
+                        "Documents section."
+                    ),
+                    (
+                        "The PDF is generated on demand from immutable clickwrap evidence: the "
+                        "accepted template version, content hash, checkbox text, context, "
+                        "timestamp, and audit record."
+                    ),
                 ),
                 data_rows=(
                     ("Document", title),
                     ("Accepted at", acceptance.accepted_at.isoformat()),
                     ("Acceptance ID", str(acceptance.id)),
-                    ("PDF SHA-256", artifact.content_sha256),
+                    ("Document hash", acceptance.template_hash),
                 ),
                 buttons=(EmailButton("Open documents", documents_url),),
                 fine_print=(
@@ -724,15 +715,8 @@ def _render_document_acceptance_pdf_email(message: OutboxMessage) -> RenderedEma
                 ),
             )
         ),
-        template_key="documents.acceptance_pdf.v1",
+        template_key="documents.acceptance_portal_notice.v1",
         metadata=metadata,
-        attachments=(
-            EmailAttachment(
-                filename=artifact.filename,
-                content_type=artifact.content_type,
-                content_base64=artifact.content,
-            ),
-        ),
     )
 
 

@@ -2667,6 +2667,27 @@ textarea.input {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.admin-readonly-field {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+}
+
+.admin-readonly-field span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.admin-readonly-field strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .admin-action-form {
   display: grid;
   gap: 13px;

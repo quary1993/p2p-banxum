@@ -665,7 +665,12 @@ def test_investor_documents_and_acceptance_download_are_self_scoped(
     )
 
     listing = get_investor_documents(actor=investor)
-    assert str(own_acceptance.pk) in {item["id"] for item in listing["documents"]}
+    own_document = next(
+        item for item in listing["documents"] if item["id"] == str(own_acceptance.pk)
+    )
+    assert own_document["title"] == "Lender user agreement"
+    assert own_document["generated_on_request"] is True
+    assert own_document["output_formats"] == ["pdf", "csv"]
     assert str(other_acceptance.pk) not in {item["id"] for item in listing["documents"]}
 
     artifact = download_investor_document(

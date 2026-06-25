@@ -17,8 +17,11 @@ import {
   ReportTypeEnum,
   RiskRatingEnum,
   VisibilityEnum,
+  AdminUserDocumentArtifactRequestOutputFormatEnum,
   useV1AuthAdminUsersAccessCreate,
   useV1AuthAdminUsersCreate,
+  useV1AdminOpsUsersDocumentsArtifactCreate,
+  useV1AdminOpsUsersDocumentsRetrieve,
   useV1AdminOpsUsersReadonlyImpersonationCreate,
   useV1DocumentsAdminTemplatesVersionsCreate,
   useV1DocumentsAdminTemplatesVersionsPublishCreate,
@@ -43,6 +46,10 @@ import {
   useV1MarketplaceSecondaryAdminListingsApproveCreate,
   useV1MarketplaceSecondaryAdminListingsRejectCreate,
   useV1MarketplaceSecondaryAdminListingsRemoveCreate,
+  useV1QaDevModeAdvanceCreate,
+  useV1QaDevModeEnableCreate,
+  useV1QaDevModeRetrieve,
+  useV1QaDevModeRevertCreate,
   useV1ReportingAdminReportsCreate,
   useV1ServicingAdminBorrowerRepaymentsCreate,
   useV1ServicingAdminRecoveriesCreate,
@@ -51,6 +58,8 @@ import {
   type AccountAccessChangeRequest,
   type AccountAccessChangeRequestReasonCodeEnum as AccountAccessReasonCode,
   type AdminLookupResult,
+  type AdminUserDocument,
+  type AdminUserDocumentArtifactResponse,
   type AdminUserDirectoryRow,
   type AdminUserCreateRequest,
   type BalanceAgeingScanRequest,
@@ -82,6 +91,7 @@ import {
   type PatchedLoanUpdateRequest,
   type PeriodPresetEnum as ReportPeriodPreset,
   type PurposeEnum as LoanPurpose,
+  type QaDevModeState,
   type RepaymentTypeEnum as LoanRepaymentType,
   type PrimaryInvestmentOrderReleaseRequest,
   type PrimaryLoanCancellationRequest,
@@ -159,7 +169,12 @@ function intValue(value: string, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function reportContentBytes(response: ReportGenerateResponse) {
+type DownloadableArtifact = Pick<
+  ReportGenerateResponse | AdminUserDocumentArtifactResponse,
+  "content" | "content_encoding" | "content_type" | "filename"
+>;
+
+function artifactContentBytes(response: DownloadableArtifact) {
   if (response.content_encoding.toLowerCase().includes("base64")) {
     const binary = window.atob(response.content);
     return Uint8Array.from(binary, (char) => char.charCodeAt(0));
@@ -167,8 +182,8 @@ function reportContentBytes(response: ReportGenerateResponse) {
   return new TextEncoder().encode(response.content);
 }
 
-function downloadReportArtifact(response: ReportGenerateResponse) {
-  const blob = new Blob([reportContentBytes(response)], {
+function downloadArtifact(response: DownloadableArtifact) {
+  const blob = new Blob([artifactContentBytes(response)], {
     type: response.content_type || "application/octet-stream"
   });
   const url = window.URL.createObjectURL(blob);
@@ -179,6 +194,10 @@ function downloadReportArtifact(response: ReportGenerateResponse) {
   anchor.click();
   anchor.remove();
   window.URL.revokeObjectURL(url);
+}
+
+function downloadReportArtifact(response: ReportGenerateResponse) {
+  downloadArtifact(response);
 }
 
 function statusTone(status: string): Tone {
@@ -3166,6 +3185,320 @@ export function SettingsPanel() {
   );
 }
 
+const qaDevModePreviewState: QaDevModeState = {
+  allowed: true,
+  is_enabled: false,
+  current_time: new Date().toISOString(),
+  entered_at: null,
+  entered_by_user_id: null,
+  snapshot_created_at: null,
+  has_snapshot: false,
+  note: "",
+  last_advanced_at: null,
+  last_advance_summary: {},
+  max_advance_days: 120,
+  environment: "preview"
+};
+
+function qaSummaryBatches(state: QaDevModeState | undefined) {
+  const summary = state?.last_advance_summary;
+  if (!summary || typeof summary !== "object" || Array.isArray(summary)) return [];
+  const batches = (summary as Record<string, unknown>).batches;
+  return Array.isArray(batches) ? batches.slice(-8) : [];
+}
+
+function qaFailedCount(state: QaDevModeState | undefined) {
+  const summary = state?.last_advance_summary;
+  if (!summary || typeof summary !== "object" || Array.isArray(summary)) return 0;
+  const failed = (summary as Record<string, unknown>).failed_count;
+  return typeof failed === "number" ? failed : 0;
+}
+
+export function QaDevModePanel() {
+  const [note, setNote] = useState("QA session");
+  const [days, setDays] = useState("1");
+  const [confirmation, setConfirmation] = useState("");
+  const [notice, setNotice] = useState("");
+  const stateQuery = useV1QaDevModeRetrieve({
+    query: {
+      enabled: !isFixturePreview,
+      placeholderData: isFixturePreview ? qaDevModePreviewState : undefined,
+      retry: false,
+      staleTime: 0
+    }
+  });
+  const enable = useV1QaDevModeEnableCreate();
+  const advance = useV1QaDevModeAdvanceCreate();
+  const revert = useV1QaDevModeRevertCreate();
+  const state = stateQuery.data ?? qaDevModePreviewState;
+  const failedCount = qaFailedCount(state);
+  const batches = qaSummaryBatches(state);
+
+  function refresh() {
+    refetchLive(stateQuery.refetch);
+  }
+
+  function enableMode() {
+    if (isFixturePreview) {
+      setNotice("Preview mode: enabling QA would create a database snapshot and pin simulated time.");
+      return;
+    }
+    enable.mutate(
+      { data: { note } },
+      {
+        onSuccess: () => {
+          setNotice("QA mode enabled. A database snapshot was captured at entry.");
+          refresh();
+        }
+      }
+    );
+  }
+
+  function advanceTime() {
+    const parsedDays = intValue(days, 1);
+    if (isFixturePreview) {
+      setNotice(`Preview mode: advancing ${parsedDays} day(s) would run daily scheduled jobs.`);
+      return;
+    }
+    advance.mutate(
+      { data: { days: parsedDays } },
+      {
+        onSuccess: () => {
+          setNotice(`QA clock advanced by ${parsedDays} day(s). Scheduled jobs were run for crossed business dates.`);
+          refresh();
+        }
+      }
+    );
+  }
+
+  function revertMode() {
+    if (isFixturePreview) {
+      setNotice("Preview mode: revert would restore the entry database snapshot and sign the operator out.");
+      return;
+    }
+    revert.mutate(
+      { data: { confirmation } },
+      {
+        onSuccess: () => {
+          setNotice("Database revert was requested and completed. Sign in again if your session is reset.");
+          setConfirmation("");
+          refresh();
+        }
+      }
+    );
+  }
+
+  return (
+    <div className="admin-content">
+      <PreviewNotice>QA mode is dummy-only in preview. Live mode requires QA_DEV_MODE_ALLOWED and an active superadmin session.</PreviewNotice>
+      <section className="admin-section">
+        <Card padded>
+          <SectionHeader
+            description="Temporary staging/local controls for deterministic QA. This must never be enabled in production."
+            title="QA development mode"
+          />
+          {stateQuery.error ? (
+            <Banner tone="bad" title="Could not load QA mode">
+              {errorMessage(stateQuery.error)}
+            </Banner>
+          ) : null}
+          {!state.allowed ? (
+            <Banner tone="warn" title="Disabled by deployment config">
+              Set QA_DEV_MODE_ALLOWED=true in a non-production environment to use this panel.
+            </Banner>
+          ) : null}
+          {notice ? (
+            <Banner tone="info" title="QA action">
+              {notice}
+            </Banner>
+          ) : null}
+          <div className="admin-detail-grid">
+            <div className="admin-review-row">
+              <span>Environment</span>
+              <strong>{state.environment}</strong>
+            </div>
+            <div className="admin-review-row">
+              <span>Mode</span>
+              <strong>
+                <Chip tone={state.is_enabled ? "warn" : "neutral"}>{state.is_enabled ? "Enabled" : "Disabled"}</Chip>
+              </strong>
+            </div>
+            <div className="admin-review-row">
+              <span>Simulated time</span>
+              <strong>{state.current_time ? formatDateTime(state.current_time) : "-"}</strong>
+            </div>
+            <div className="admin-review-row">
+              <span>Entered at</span>
+              <strong>{state.entered_at ? formatDateTime(state.entered_at) : "-"}</strong>
+            </div>
+            <div className="admin-review-row">
+              <span>Snapshot</span>
+              <strong>{state.has_snapshot ? "Captured" : "-"}</strong>
+            </div>
+            <div className="admin-review-row">
+              <span>Max advance</span>
+              <strong>{state.max_advance_days} days per action</strong>
+            </div>
+          </div>
+        </Card>
+      </section>
+
+      <section className="admin-module-grid">
+        <Card padded>
+          <SectionHeader
+            description="Creates a database snapshot and pins now_utc() to the QA clock."
+            title="Enable mode"
+          />
+          <Field label="QA session note">
+            <textarea
+              onChange={(event) => setNote(event.target.value)}
+              rows={3}
+              value={note}
+            />
+          </Field>
+          {enable.error ? <Banner tone="bad" title="Could not enable QA mode">{errorMessage(enable.error)}</Banner> : null}
+          <OperationConfirmButton
+            confirmLabel="Enable QA mode"
+            description="A database snapshot is created before mode is enabled. Use only on staging/local data."
+            details={[
+              { label: "Environment", value: state.environment },
+              { label: "Snapshot", value: "Captured before enabling" }
+            ]}
+            disabled={!state.allowed || state.is_enabled || enable.isPending}
+            onConfirm={enableMode}
+            title="Enable QA development mode"
+            variant="danger"
+          >
+            Enable QA mode
+          </OperationConfirmButton>
+        </Card>
+
+        <Card padded>
+          <SectionHeader
+            description="Advances the simulated clock by whole days and runs the daily scheduled jobs for each crossed Zurich business date."
+            title="Advance time"
+          />
+          <Field hint="Use small increments when testing irreversible transitions." label="Days to advance">
+            <input
+              max={state.max_advance_days}
+              min={1}
+              onChange={(event) => setDays(event.target.value)}
+              type="number"
+              value={days}
+            />
+          </Field>
+          {advance.error ? <Banner tone="bad" title="Could not advance time">{errorMessage(advance.error)}</Banner> : null}
+          <OperationConfirmButton
+            confirmLabel="Advance and run jobs"
+            description="This runs balance ageing, servicing status, funding expiry, reconciliation sync and due-email dispatch for crossed business dates."
+            details={[
+              { label: "Current simulated time", value: state.current_time ? formatDateTime(state.current_time) : "-" },
+              { label: "Days", value: days || "0" }
+            ]}
+            disabled={!state.allowed || !state.is_enabled || advance.isPending}
+            onConfirm={advanceTime}
+            title="Advance QA time"
+            variant="danger"
+          >
+            Advance time
+          </OperationConfirmButton>
+        </Card>
+
+        <Card padded>
+          <SectionHeader
+            description="Restores the entry snapshot and exits QA mode. Sessions and all data changes made since entry are reset."
+            title="Revert database"
+          />
+          <Banner tone="bad" title="Destructive QA reset">
+            This restores the database to the moment QA mode was enabled. You should expect to sign in again.
+          </Banner>
+          <Field hint='Type "REVERT QA DB" exactly.' label="Confirmation">
+            <input
+              onChange={(event) => setConfirmation(event.target.value)}
+              value={confirmation}
+            />
+          </Field>
+          {revert.error ? <Banner tone="bad" title="Could not revert QA mode">{errorMessage(revert.error)}</Banner> : null}
+          <OperationConfirmButton
+            confirmLabel="Restore snapshot"
+            description="This reverts the database snapshot captured when QA mode was enabled. File/object storage is not rolled back."
+            details={[
+              { label: "Snapshot", value: state.has_snapshot ? "Captured" : "Missing" },
+              { label: "Confirmation", value: confirmation || "-" }
+            ]}
+            disabled={!state.allowed || !state.is_enabled || confirmation !== "REVERT QA DB" || revert.isPending}
+            onConfirm={revertMode}
+            title="Revert QA database"
+            variant="danger"
+          >
+            Revert database
+          </OperationConfirmButton>
+        </Card>
+      </section>
+
+      <section className="admin-section">
+        <Card padded>
+          <SectionHeader
+            description="Last advance result. Failed scheduled jobs should be investigated before continuing QA."
+            title="Scheduled-job replay"
+          />
+          {failedCount ? (
+            <Banner tone="bad" title="Scheduled jobs failed">
+              {failedCount} job run(s) failed during the last advancement.
+            </Banner>
+          ) : state.last_advanced_at ? (
+            <Banner tone="ok" title="Last advancement completed">
+              No scheduled-job failures were reported.
+            </Banner>
+          ) : null}
+          {batches.length ? (
+            <div className="table-wrap admin-table-wrap">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>As of</th>
+                    <th>Business date</th>
+                    <th>Results</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {batches.map((batch, index) => {
+                    const row = batch as Record<string, unknown>;
+                    const results = Array.isArray(row.results) ? row.results : [];
+                    return (
+                      <tr key={`${row.as_of}-${index}`}>
+                        <td>{typeof row.as_of === "string" ? formatDateTime(row.as_of) : "-"}</td>
+                        <td>{typeof row.business_date === "string" ? row.business_date : "-"}</td>
+                        <td>
+                          <div className="row gap-8 wrap">
+                            {results.map((result, resultIndex) => {
+                              const job = result as Record<string, unknown>;
+                              const status = String(job.status ?? "");
+                              return (
+                                <Chip key={`${job.job_name}-${resultIndex}`} tone={status === "failed" ? "bad" : status === "skipped" ? "neutral" : "ok"}>
+                                  {String(job.job_name ?? "job")}: {labelize(status)}
+                                </Chip>
+                              );
+                            })}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <Empty icon="clock" title="No replay history">
+              Advance QA time to see which scheduled jobs ran.
+            </Empty>
+          )}
+        </Card>
+      </section>
+    </div>
+  );
+}
+
 function DocumentTemplateForm({
   category,
   defaultVersionId,
@@ -3276,6 +3609,7 @@ export function UserAccountsPanel() {
   const [page, setPage] = useState(0);
   const [showCreate, setShowCreate] = useState(false);
   const [accessUser, setAccessUser] = useState<AdminUserDirectoryRow | null>(null);
+  const [documentsUser, setDocumentsUser] = useState<AdminUserDirectoryRow | null>(null);
   const [impersonationNotice, setImpersonationNotice] = useState("");
   const debouncedSearch = useDebouncedValue(search);
   const pageSize = 25;
@@ -3386,6 +3720,7 @@ export function UserAccountsPanel() {
                       <td>
                         <div className="row gap-8 wrap">
                           <Button onClick={() => setAccessUser(user)} size="sm">Access controls</Button>
+                          <Button onClick={() => setDocumentsUser(user)} size="sm" variant="ghost">Documents</Button>
                           <Button
                             disabled={!user.can_impersonate_readonly || impersonationMutation.isPending}
                             onClick={() => startReadOnlyImpersonation(user)}
@@ -3436,7 +3771,152 @@ export function UserAccountsPanel() {
           />
         </Modal>
       ) : null}
+      {documentsUser ? (
+        <UserDocumentsModal
+          onClose={() => setDocumentsUser(null)}
+          user={documentsUser}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function UserDocumentsModal({
+  onClose,
+  user
+}: {
+  onClose: () => void;
+  user: AdminUserDirectoryRow;
+}) {
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const documentsQuery = useV1AdminOpsUsersDocumentsRetrieve(user.id, {
+    query: {
+      enabled: !isFixturePreview && Boolean(user.id),
+      placeholderData: isFixturePreview
+        ? {
+            user: {
+              id: user.id,
+              email: user.email,
+              full_name: user.full_name,
+              investor_reference: user.investor_reference,
+              account_type: user.account_type,
+              status: user.status
+            },
+            documents: [],
+            disclaimer:
+              "Preview mode does not include accepted-document evidence. Live mode fetches this user-specific history from the backend."
+          }
+        : undefined
+    }
+  });
+  const artifactMutation = useV1AdminOpsUsersDocumentsArtifactCreate();
+  const documents = documentsQuery.data?.documents ?? [];
+
+  function generate(documentRow: AdminUserDocument, outputFormat: "pdf" | "csv") {
+    setError("");
+    setSuccess("");
+    if (isFixturePreview) {
+      setSuccess(`${documentRow.title} would be generated as ${outputFormat.toUpperCase()}.`);
+      return;
+    }
+    artifactMutation.mutate(
+      {
+        userId: user.id,
+        acceptanceId: documentRow.id,
+        data: {
+          output_format:
+            outputFormat === "csv"
+              ? AdminUserDocumentArtifactRequestOutputFormatEnum.csv
+              : AdminUserDocumentArtifactRequestOutputFormatEnum.pdf
+        }
+      },
+      {
+        onSuccess: (artifact) => {
+          downloadArtifact(artifact);
+          setSuccess(`Generated ${artifact.filename}.`);
+        },
+        onError: (mutationError) => setError(errorMessage(mutationError))
+      }
+    );
+  }
+
+  return (
+    <Modal title={`Accepted documents - ${user.full_name || user.email}`} onClose={onClose}>
+      <div className="col gap-16">
+        <Banner tone="neutral" title="Accepted-document history">
+          {documentsQuery.data?.disclaimer ?? "Each document is generated on demand from immutable clickwrap evidence."}
+        </Banner>
+        {documentsQuery.error ? <Banner tone="bad" title="Could not load documents">{errorMessage(documentsQuery.error)}</Banner> : null}
+        {error ? <Banner tone="bad" title="Could not generate document">{error}</Banner> : null}
+        {success ? <Banner tone="ok" title="Document generated">{success}</Banner> : null}
+        <div className="admin-form-grid">
+          <div className="admin-readonly-field"><span>Name</span><strong>{user.full_name || "-"}</strong></div>
+          <div className="admin-readonly-field"><span>Email</span><strong>{user.email}</strong></div>
+          <div className="admin-readonly-field"><span>Reference</span><strong className="mono">{user.investor_reference || "-"}</strong></div>
+          <div className="admin-readonly-field"><span>Status</span><strong>{labelize(user.status)}</strong></div>
+        </div>
+        {documentsQuery.isLoading ? (
+          <div className="muted">Loading accepted documents...</div>
+        ) : documents.length ? (
+          <div className="table-wrap admin-table-wrap">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>Document</th>
+                  <th>Type</th>
+                  <th>Accepted</th>
+                  <th>Context</th>
+                  <th>Hash</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {documents.map((documentRow) => (
+                  <tr key={documentRow.id}>
+                    <td>
+                      <strong>{documentRow.title}</strong>
+                      <div className="muted small">{documentRow.template_title}</div>
+                    </td>
+                    <td><Chip tone="neutral">{documentRow.document_type}</Chip></td>
+                    <td>{formatDateTime(documentRow.date)}</td>
+                    <td>{documentRow.context_label}</td>
+                    <td className="mono muted">{documentRow.content_hash.slice(0, 12)}...</td>
+                    <td>
+                      <div className="row gap-8 wrap">
+                        <Button
+                          disabled={artifactMutation.isPending}
+                          icon="download"
+                          onClick={() => generate(documentRow, "pdf")}
+                          size="sm"
+                          variant="ghost"
+                        >
+                          PDF
+                        </Button>
+                        {documentRow.output_formats.includes("csv") ? (
+                          <Button
+                            disabled={artifactMutation.isPending}
+                            onClick={() => generate(documentRow, "csv")}
+                            size="sm"
+                            variant="ghost"
+                          >
+                            CSV
+                          </Button>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <Empty icon="doc" title="No accepted documents">
+            This user has no accepted document evidence yet.
+          </Empty>
+        )}
+      </div>
+    </Modal>
   );
 }
 

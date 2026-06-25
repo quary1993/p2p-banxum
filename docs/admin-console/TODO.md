@@ -168,3 +168,17 @@ Each entry should include:
 - Current first-version behavior: added a dedicated Users navigation item with backend-side search, filters, pagination, row-level account-access controls, admin-user creation, and a superadmin-only read-only view action for non-admin users. The read-only view opens the existing investor portal with a short-lived signed impersonation token, displays a support/audit banner, disables visible investor mutation entry points, and leaves the real authenticated session as the superadmin. Investor-portal read/download endpoints scope data to the selected investor while generated documents/reports are audit-attributed to the superadmin.
 - Required admin-console improvement: update the visual admin manual screenshots and workflow chapters so user account actions are taught from the Users module rather than Superadmin Settings or Compliance. Add a future impersonation-audit drawer showing recent `admin.readonly_impersonation_started`, `document.artifact_rendered`, and report-generation audit events for the selected user, visible only to superadmins.
 - Priority: important.
+
+## 2026-06-25: QA Development Mode
+
+- Screen or component: `/admin` QA mode section.
+- Current first-version behavior: added a superadmin-only QA panel backed by guarded platform-core APIs. In non-production environments with `QA_DEV_MODE_ALLOWED=true`, superadmins can enable QA mode, capture a database snapshot, advance the simulated platform clock by whole days, replay daily scheduled jobs for crossed Europe/Zurich business dates, inspect the last replay result, and revert the database to the entry snapshot. The backend rejects QA mode in production regardless of UI state. Revert restores database state and may sign the operator out; file/object storage and external provider side effects are not rolled back.
+- Required admin-console improvement: after QA has been exercised on staging, add a small history/diff drawer for recent QA advances, including failed scheduled-job summaries and links to the generated scheduled-job run evidence. Add a staging-only visual banner across the admin shell while QA mode is enabled so operators cannot miss that time is simulated.
+- Priority: important.
+
+## 2026-06-25: User Accepted-Document History
+
+- Screen or component: `/admin` Users module, row-level Documents modal.
+- Current first-version behavior: admins can open a selected user's accepted-document history from the Users table. The modal lists historical clickwrap acceptances with human-readable identifiers, template titles, accepted timestamps, context labels, and content-hash prefixes. PDF/CSV artifacts are generated on demand through admin-scoped endpoints, and the rendered artifact is audited to the admin actor rather than the user. Legal terms and transaction-agreement PDFs are not emailed by default.
+- Required admin-console improvement: update the admin manual screenshots/workflows to include the Users document-history action. Add a future evidence drawer with recent `DocumentRenderedArtifact` rows, full checksum/manifest display, and links from related orders/listings/loans back to the accepted document.
+- Priority: important.

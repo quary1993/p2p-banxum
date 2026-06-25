@@ -19,6 +19,8 @@ Complete these before calling any environment production-like.
   - Any admin/superadmin passwords used during raw-IP or plaintext testing have been rotated.
   - Environment-managed superadmin is synchronized with `make bootstrap-superadmin`.
   - A dedicated scheduler service admin exists and is configured as `SCHEDULED_JOBS_ACTOR_EMAIL`.
+  - `QA_DEV_MODE_ALLOWED=false` in production, and the QA mode admin panel is not used against real
+    customer data.
   - Production server and database access are limited to authorized tech users.
 - Database, cache, and backups:
   - Production and staging PostgreSQL databases/users/volumes are separate.
@@ -40,7 +42,7 @@ Complete these before calling any environment production-like.
   - Registration lender user agreement template is counsel-approved, imported, reviewed in Superadmin Settings, and published.
   - Primary-market project investment confirmation / claim-assignment template is counsel-approved, imported, reviewed, and published.
   - Secondary-market buyer/listing terms are approved and published before enabling secondary-market actions.
-  - Generated agreement PDFs are rendered, emailed, and downloadable from immutable acceptance evidence.
+  - Generated agreement PDFs/CSVs are rendered on demand from immutable acceptance evidence and are downloadable from investor Documents plus the admin Users document-history modal. Legal terms and transaction-agreement PDFs are not emailed by default.
 - Communications and monitoring:
   - Scheduled jobs are installed for email dispatch, daily balance ageing/penalty charging, servicing status scan, campaign expiry scan, and reconciliation-break task sync.
   - `check_scheduled_jobs` runs at least every 15 minutes and alerts on non-zero exit.
@@ -95,7 +97,7 @@ Run these checks in staging before production, and again in production before re
   - Magic-link email is delivered to a real mailbox and the link is clickable.
   - Admin email-code login is delivered within the expected latency.
   - Sensitive-action email code is delivered and not exposed in portal notifications.
-  - Generated legal PDF email for registration/investment is delivered with the expected link/attachment behavior.
+  - Legal-document acceptance does not enqueue/send PDF attachments; any legacy document-acceptance email outbox row renders as a portal notice with no attachment.
   - Bounce/suppression handling is visible in SendGrid activity logs.
 - Twilio Verify:
   - Start verification succeeds for a Swiss number and for at least one allowed EEA test number.
@@ -158,10 +160,13 @@ Run this as an end-to-end staging rehearsal with test users and small provider-s
   - Issue and execute an FX quote using Yahoo rates; declare external FX settlement and verify reconciliation remains balanced.
 - Documents and reports:
   - Download lender user agreement and project investment confirmation PDFs from the investor portal.
+  - Open the admin Users document-history modal for the same investor and generate the accepted-document PDF from there; verify the rendered artifact is audit-attributed to the admin actor.
   - Generate redacted and full admin reports as allowed by role.
   - Verify report checksums, PDF formatting, and audit-log entries.
   - Generate participant account statement and annual tax report for the test investor.
 - Integrity and operations:
+  - If QA time travel was used in staging, revert the QA database snapshot or rebuild staging before
+    treating the environment as a clean rehearsal.
   - Create reconciliation snapshot and confirm zero difference for the controlled scenario.
   - Force a known reconciliation break in staging only and confirm dashboard/task sync surfaces it.
   - Confirm scheduled jobs run, failures alert, and `check_scheduled_jobs` is green.

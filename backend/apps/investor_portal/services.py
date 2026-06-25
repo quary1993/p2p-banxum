@@ -322,50 +322,17 @@ def get_deposit_instructions(*, actor: Model) -> dict[str, Any]:
     }
 
 
-def _document_type_for_category(category: str) -> str:
-    if category == "registration":
-        return "Agreement"
-    if category == "primary_market_investment":
-        return "Assignment"
-    if category == "secondary_market_purchase":
-        return "Assignment"
-    if category == "secondary_market_listing":
-        return "Confirmation"
-    return "Agreement"
-
-
-def _document_context_label(acceptance: Any) -> str:
-    context_type = str(acceptance.context_type).replace("_", " ").title()
-    context_id = str(acceptance.context_id)
-    if not context_id:
-        return context_type
-    return f"{context_type} {context_id}"
-
-
 def get_investor_documents(*, actor: Model) -> dict[str, Any]:
     investor_user_id = _require_financial_access(actor)
     acceptance_model = _model("documents", "DocumentAcceptanceEvidence")
+    document_services = _documents_services()
     documents: list[dict[str, Any]] = []
     for acceptance in (
         acceptance_model.objects.filter(user_id=investor_user_id)
         .select_related("template", "template_version")
         .order_by("-accepted_at", "-id")
     ):
-        version = acceptance.template_version
-        documents.append(
-            {
-                "id": str(acceptance.pk),
-                "document_kind": "acceptance_evidence",
-                "title": str(version.title),
-                "document_type": _document_type_for_category(str(acceptance.category)),
-                "version": f"v{acceptance.template_version_number}",
-                "date": acceptance.accepted_at,
-                "context_label": _document_context_label(acceptance),
-                "output_formats": ["pdf", "csv"],
-                "generated_on_request": False,
-                "content_hash": acceptance.template_hash,
-            }
-        )
+        documents.append(document_services.acceptance_history_item(acceptance))
 
     as_of = now_utc()
     today = business_date(as_of)

@@ -215,3 +215,40 @@ docker compose --project-name banxum_staging -f infra/deploy/docker-compose.yml 
 ```
 
 Do not add `-v` unless deliberately deleting that environment's database volumes.
+
+## QA Development Mode
+
+QA development mode is a temporary superadmin-only staging/local tool for end-to-end testing of
+time-based workflows. It must never be enabled in production.
+
+Enable it only in a non-production environment by setting:
+
+```env
+QA_DEV_MODE_ALLOWED=true
+QA_DEV_MODE_SNAPSHOT_DIR=/opt/banxum/staging/qa-snapshots
+QA_DEV_MODE_MAX_ADVANCE_DAYS=120
+```
+
+The admin console exposes the controls under `/admin` -> `QA mode` for superadmins only. The backend
+also enforces superadmin-only access and rejects the feature when `ENVIRONMENT=production` /
+`IS_PRODUCTION=true`, even if the env flag is set incorrectly.
+
+Behavior:
+
+- Enabling QA mode creates a Django database fixture snapshot before any QA-time changes are made.
+- While QA mode is enabled, the platform's `now_utc()` helper returns the simulated QA time.
+- Advancing time is day-based. For each crossed Europe/Zurich business date, the system runs the
+  daily scheduled jobs: balance ageing and penalty charging, loan servicing status scan, primary
+  funding-expiry scan, reconciliation-break task sync, and due email dispatch.
+- Reverting restores the database snapshot captured at QA-mode entry and clears the simulated clock.
+  Sessions are part of database state and should be expected to reset; the operator may need to sign
+  in again.
+
+Important limits:
+
+- QA mode restores database state, not file/object storage. Uploaded files, generated files already
+  written to disk, and external provider side effects are not rolled back by the DB snapshot.
+- Do not use QA mode against real customer data, real-money provider flows, or production
+  credentials.
+- Do not schedule normal crons against the same environment while a manual QA time-travel run is in
+  progress; the QA panel already invokes the scheduled-job service for crossed business dates.

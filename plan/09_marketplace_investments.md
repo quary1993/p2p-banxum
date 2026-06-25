@@ -299,7 +299,7 @@ No admin approval or mediation is required for a current/performing holding that
 
 For non-standard holdings under MKT-DEC-009, admin approval is required before the listing becomes visible. Once approved and visible, the buyer can purchase directly after eligibility, balance/funds, required additional risk acknowledgement, document acceptance, fee calculation, and system validation pass.
 
-Required documents are accepted by checkbox/clickwrap and sent by email according to the document module.
+Required documents are accepted by checkbox/clickwrap and made available for on-demand generation/download according to the document module. Legal terms and transaction-agreement PDFs are not emailed by default.
 
 Rationale:
 Direct acceptance keeps the bulletin-board secondary market simple and usable while admin approval gates non-performing or otherwise non-standard listings before buyer purchase.

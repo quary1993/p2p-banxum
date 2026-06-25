@@ -359,6 +359,65 @@ export interface AdminUserDirectoryRow {
   can_impersonate_readonly: boolean;
 }
 
+export interface AdminUserDocument {
+  id: string;
+  document_kind: string;
+  title: string;
+  template_title: string;
+  document_type: string;
+  category: string;
+  version: string;
+  date: string;
+  context_label: string;
+  context_type: string;
+  context_id: string;
+  output_formats: string[];
+  generated_on_request: boolean;
+  content_hash: string;
+}
+
+export interface AdminUserDocumentArtifactRequest {
+  output_format?: AdminUserDocumentArtifactRequestOutputFormatEnum;
+}
+
+/**
+ * * `pdf` - pdf
+* `csv` - csv
+ */
+export type AdminUserDocumentArtifactRequestOutputFormatEnum = typeof AdminUserDocumentArtifactRequestOutputFormatEnum[keyof typeof AdminUserDocumentArtifactRequestOutputFormatEnum];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const AdminUserDocumentArtifactRequestOutputFormatEnum = {
+  pdf: 'pdf',
+  csv: 'csv',
+} as const;
+
+export interface AdminUserDocumentArtifactResponse {
+  rendered_artifact_id: string;
+  content_type: string;
+  filename: string;
+  content_encoding: string;
+  content: string;
+  content_sha256: string;
+  manifest: unknown;
+}
+
+export interface AdminUserDocumentOwner {
+  id: string;
+  email: string;
+  full_name: string;
+  investor_reference: string;
+  account_type: string;
+  status: string;
+}
+
+export interface AdminUserDocumentsResponse {
+  user: AdminUserDocumentOwner;
+  documents: AdminUserDocument[];
+  disclaimer: string;
+}
+
 export interface AmountByCurrency {
   currency: string;
   amount_minor: number;
@@ -1315,10 +1374,14 @@ export interface InvestorDocument {
   id: string;
   document_kind: string;
   title: string;
+  template_title?: string;
   document_type: string;
+  category?: string;
   version: string;
   date: string;
   context_label: string;
+  context_type?: string;
+  context_id?: string;
   output_formats: string[];
   generated_on_request: boolean;
   content_hash?: string;
@@ -2605,6 +2668,44 @@ export const PurposeEnum = {
   inventory_trade_finance: 'inventory_trade_finance',
   other: 'other',
 } as const;
+
+export interface QaDevModeAdvanceRequest {
+  /**
+   * @minimum 1
+   * @maximum 120
+   */
+  days: number;
+}
+
+export interface QaDevModeEnableRequest {
+  /** @maxLength 2000 */
+  note?: string;
+}
+
+export interface QaDevModeRevertRequest {
+  /** @maxLength 64 */
+  confirmation: string;
+}
+
+export interface QaDevModeState {
+  allowed: boolean;
+  is_enabled: boolean;
+  /** @nullable */
+  current_time: string | null;
+  /** @nullable */
+  entered_at: string | null;
+  /** @nullable */
+  entered_by_user_id: string | null;
+  /** @nullable */
+  snapshot_created_at: string | null;
+  has_snapshot: boolean;
+  note: string;
+  /** @nullable */
+  last_advanced_at: string | null;
+  last_advance_summary: unknown;
+  max_advance_days: number;
+  environment: string;
+}
 
 export interface ReadOnlyImpersonationStartResponse {
   token: string;
@@ -5408,6 +5509,154 @@ export function useV1AdminOpsUsersRetrieve<TData = Awaited<ReturnType<typeof v1A
 
 
 
+
+export const v1AdminOpsUsersDocumentsRetrieve = (
+    userId: string,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<AdminUserDocumentsResponse>(
+      {url: `/api/v1/admin-ops/users/${userId}/documents/`, method: 'GET', signal
+    },
+      );
+    }
+
+
+
+
+export const getV1AdminOpsUsersDocumentsRetrieveQueryKey = (userId?: string,) => {
+    return [
+    `/api/v1/admin-ops/users/${userId}/documents/`
+    ] as const;
+    }
+
+
+export const getV1AdminOpsUsersDocumentsRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1AdminOpsUsersDocumentsRetrieve>>, TError = unknown>(userId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsUsersDocumentsRetrieve>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1AdminOpsUsersDocumentsRetrieveQueryKey(userId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1AdminOpsUsersDocumentsRetrieve>>> = ({ signal }) => v1AdminOpsUsersDocumentsRetrieve(userId, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(userId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsUsersDocumentsRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1AdminOpsUsersDocumentsRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1AdminOpsUsersDocumentsRetrieve>>>
+export type V1AdminOpsUsersDocumentsRetrieveQueryError = unknown
+
+
+export function useV1AdminOpsUsersDocumentsRetrieve<TData = Awaited<ReturnType<typeof v1AdminOpsUsersDocumentsRetrieve>>, TError = unknown>(
+ userId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsUsersDocumentsRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsUsersDocumentsRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsUsersDocumentsRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsUsersDocumentsRetrieve<TData = Awaited<ReturnType<typeof v1AdminOpsUsersDocumentsRetrieve>>, TError = unknown>(
+ userId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsUsersDocumentsRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1AdminOpsUsersDocumentsRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1AdminOpsUsersDocumentsRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1AdminOpsUsersDocumentsRetrieve<TData = Awaited<ReturnType<typeof v1AdminOpsUsersDocumentsRetrieve>>, TError = unknown>(
+ userId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsUsersDocumentsRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1AdminOpsUsersDocumentsRetrieve<TData = Awaited<ReturnType<typeof v1AdminOpsUsersDocumentsRetrieve>>, TError = unknown>(
+ userId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1AdminOpsUsersDocumentsRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1AdminOpsUsersDocumentsRetrieveQueryOptions(userId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1AdminOpsUsersDocumentsArtifactCreate = (
+    userId: string,
+    acceptanceId: string,
+    adminUserDocumentArtifactRequest: AdminUserDocumentArtifactRequest,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<AdminUserDocumentArtifactResponse>(
+      {url: `/api/v1/admin-ops/users/${userId}/documents/${acceptanceId}/artifact/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: adminUserDocumentArtifactRequest, signal
+    },
+      );
+    }
+
+
+
+export const getV1AdminOpsUsersDocumentsArtifactCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AdminOpsUsersDocumentsArtifactCreate>>, TError,{userId: string;acceptanceId: string;data: AdminUserDocumentArtifactRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1AdminOpsUsersDocumentsArtifactCreate>>, TError,{userId: string;acceptanceId: string;data: AdminUserDocumentArtifactRequest}, TContext> => {
+
+const mutationKey = ['v1AdminOpsUsersDocumentsArtifactCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AdminOpsUsersDocumentsArtifactCreate>>, {userId: string;acceptanceId: string;data: AdminUserDocumentArtifactRequest}> = (props) => {
+          const {userId,acceptanceId,data} = props ?? {};
+
+          return  v1AdminOpsUsersDocumentsArtifactCreate(userId,acceptanceId,data,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AdminOpsUsersDocumentsArtifactCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AdminOpsUsersDocumentsArtifactCreate>>>
+    export type V1AdminOpsUsersDocumentsArtifactCreateMutationBody = AdminUserDocumentArtifactRequest
+    export type V1AdminOpsUsersDocumentsArtifactCreateMutationError = unknown
+
+    export const useV1AdminOpsUsersDocumentsArtifactCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AdminOpsUsersDocumentsArtifactCreate>>, TError,{userId: string;acceptanceId: string;data: AdminUserDocumentArtifactRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AdminOpsUsersDocumentsArtifactCreate>>,
+        TError,
+        {userId: string;acceptanceId: string;data: AdminUserDocumentArtifactRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1AdminOpsUsersDocumentsArtifactCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
 
 export const v1AdminOpsUsersReadonlyImpersonationCreate = (
     userId: string,
@@ -11079,6 +11328,270 @@ const {mutation: mutationOptions} = options ?
       return useMutation(mutationOptions, queryClient);
     }
 
+export const v1QaDevModeRetrieve = (
+
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<QaDevModeState>(
+      {url: `/api/v1/qa/dev-mode/`, method: 'GET', signal
+    },
+      );
+    }
+
+
+
+
+export const getV1QaDevModeRetrieveQueryKey = () => {
+    return [
+    `/api/v1/qa/dev-mode/`
+    ] as const;
+    }
+
+
+export const getV1QaDevModeRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1QaDevModeRetrieve>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1QaDevModeRetrieve>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1QaDevModeRetrieveQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1QaDevModeRetrieve>>> = ({ signal }) => v1QaDevModeRetrieve(signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1QaDevModeRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1QaDevModeRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1QaDevModeRetrieve>>>
+export type V1QaDevModeRetrieveQueryError = unknown
+
+
+export function useV1QaDevModeRetrieve<TData = Awaited<ReturnType<typeof v1QaDevModeRetrieve>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1QaDevModeRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1QaDevModeRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1QaDevModeRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1QaDevModeRetrieve<TData = Awaited<ReturnType<typeof v1QaDevModeRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1QaDevModeRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1QaDevModeRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1QaDevModeRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1QaDevModeRetrieve<TData = Awaited<ReturnType<typeof v1QaDevModeRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1QaDevModeRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1QaDevModeRetrieve<TData = Awaited<ReturnType<typeof v1QaDevModeRetrieve>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1QaDevModeRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1QaDevModeRetrieveQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1QaDevModeAdvanceCreate = (
+    qaDevModeAdvanceRequest: QaDevModeAdvanceRequest,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<QaDevModeState>(
+      {url: `/api/v1/qa/dev-mode/advance/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: qaDevModeAdvanceRequest, signal
+    },
+      );
+    }
+
+
+
+export const getV1QaDevModeAdvanceCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1QaDevModeAdvanceCreate>>, TError,{data: QaDevModeAdvanceRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1QaDevModeAdvanceCreate>>, TError,{data: QaDevModeAdvanceRequest}, TContext> => {
+
+const mutationKey = ['v1QaDevModeAdvanceCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1QaDevModeAdvanceCreate>>, {data: QaDevModeAdvanceRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1QaDevModeAdvanceCreate(data,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1QaDevModeAdvanceCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1QaDevModeAdvanceCreate>>>
+    export type V1QaDevModeAdvanceCreateMutationBody = QaDevModeAdvanceRequest
+    export type V1QaDevModeAdvanceCreateMutationError = unknown
+
+    export const useV1QaDevModeAdvanceCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1QaDevModeAdvanceCreate>>, TError,{data: QaDevModeAdvanceRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1QaDevModeAdvanceCreate>>,
+        TError,
+        {data: QaDevModeAdvanceRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1QaDevModeAdvanceCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+
+export const v1QaDevModeEnableCreate = (
+    qaDevModeEnableRequest: QaDevModeEnableRequest,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<QaDevModeState>(
+      {url: `/api/v1/qa/dev-mode/enable/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: qaDevModeEnableRequest, signal
+    },
+      );
+    }
+
+
+
+export const getV1QaDevModeEnableCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1QaDevModeEnableCreate>>, TError,{data: QaDevModeEnableRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1QaDevModeEnableCreate>>, TError,{data: QaDevModeEnableRequest}, TContext> => {
+
+const mutationKey = ['v1QaDevModeEnableCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1QaDevModeEnableCreate>>, {data: QaDevModeEnableRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1QaDevModeEnableCreate(data,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1QaDevModeEnableCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1QaDevModeEnableCreate>>>
+    export type V1QaDevModeEnableCreateMutationBody = QaDevModeEnableRequest
+    export type V1QaDevModeEnableCreateMutationError = unknown
+
+    export const useV1QaDevModeEnableCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1QaDevModeEnableCreate>>, TError,{data: QaDevModeEnableRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1QaDevModeEnableCreate>>,
+        TError,
+        {data: QaDevModeEnableRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1QaDevModeEnableCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+
+export const v1QaDevModeRevertCreate = (
+    qaDevModeRevertRequest: QaDevModeRevertRequest,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<QaDevModeState>(
+      {url: `/api/v1/qa/dev-mode/revert/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: qaDevModeRevertRequest, signal
+    },
+      );
+    }
+
+
+
+export const getV1QaDevModeRevertCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1QaDevModeRevertCreate>>, TError,{data: QaDevModeRevertRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1QaDevModeRevertCreate>>, TError,{data: QaDevModeRevertRequest}, TContext> => {
+
+const mutationKey = ['v1QaDevModeRevertCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1QaDevModeRevertCreate>>, {data: QaDevModeRevertRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1QaDevModeRevertCreate(data,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1QaDevModeRevertCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1QaDevModeRevertCreate>>>
+    export type V1QaDevModeRevertCreateMutationBody = QaDevModeRevertRequest
+    export type V1QaDevModeRevertCreateMutationError = unknown
+
+    export const useV1QaDevModeRevertCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1QaDevModeRevertCreate>>, TError,{data: QaDevModeRevertRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1QaDevModeRevertCreate>>,
+        TError,
+        {data: QaDevModeRevertRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1QaDevModeRevertCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+
 export const v1ReportingAdminReportsCreate = (
     reportGenerateRequest: ReportGenerateRequest,
  signal?: AbortSignal
@@ -11642,6 +12155,10 @@ export const getV1AdminOpsTasksEventsListResponseMock = (): AdminTaskEvent[] => 
 
 export const getV1AdminOpsUsersRetrieveResponseMock = (overrideResponse: Partial< AdminUserDirectoryResponse > = {}): AdminUserDirectoryResponse => ({count: faker.number.int({min: undefined, max: undefined}), limit: faker.number.int({min: undefined, max: undefined}), offset: faker.number.int({min: undefined, max: undefined}), results: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), is_staff: faker.datatype.boolean(), is_active: faker.datatype.boolean(), date_joined: `${faker.date.past().toISOString().split('.')[0]}Z`, can_impersonate_readonly: faker.datatype.boolean()})), ...overrideResponse})
 
+export const getV1AdminOpsUsersDocumentsRetrieveResponseMock = (overrideResponse: Partial< AdminUserDocumentsResponse > = {}): AdminUserDocumentsResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.string.alpha({length: {min: 10, max: 20}}), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}})}, documents: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), document_kind: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), template_title: faker.string.alpha({length: {min: 10, max: 20}}), document_type: faker.string.alpha({length: {min: 10, max: 20}}), category: faker.string.alpha({length: {min: 10, max: 20}}), version: faker.string.alpha({length: {min: 10, max: 20}}), date: `${faker.date.past().toISOString().split('.')[0]}Z`, context_label: faker.string.alpha({length: {min: 10, max: 20}}), context_type: faker.string.alpha({length: {min: 10, max: 20}}), context_id: faker.string.alpha({length: {min: 10, max: 20}}), output_formats: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), generated_on_request: faker.datatype.boolean(), content_hash: faker.string.alpha({length: {min: 10, max: 20}})})), disclaimer: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getV1AdminOpsUsersDocumentsArtifactCreateResponseMock = (overrideResponse: Partial< AdminUserDocumentArtifactResponse > = {}): AdminUserDocumentArtifactResponse => ({rendered_artifact_id: faker.string.uuid(), content_type: faker.string.alpha({length: {min: 10, max: 20}}), filename: faker.string.alpha({length: {min: 10, max: 20}}), content_encoding: faker.string.alpha({length: {min: 10, max: 20}}), content: faker.string.alpha({length: {min: 10, max: 20}}), content_sha256: faker.string.alpha({length: {min: 10, max: 20}}), manifest: {}, ...overrideResponse})
+
 export const getV1AdminOpsUsersReadonlyImpersonationCreateResponseMock = (overrideResponse: Partial< ReadOnlyImpersonationStartResponse > = {}): ReadOnlyImpersonationStartResponse => ({token: faker.string.alpha({length: {min: 10, max: 20}}), expires_in_seconds: faker.number.int({min: undefined, max: undefined}), target_user_id: faker.string.uuid(), target_email: faker.internet.email(), target_full_name: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getV1AuthAdminLoginConfirmCreateResponseMock = (overrideResponse: Partial< AuthenticatedUserResponse > = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
@@ -11714,7 +12231,7 @@ export const getV1InvestorPortalDashboardRetrieveResponseMock = (overrideRespons
 
 export const getV1InvestorPortalDepositInstructionsRetrieveResponseMock = (overrideResponse: Partial< InvestorDepositInstructions > = {}): InvestorDepositInstructions => ({as_of: `${faker.date.past().toISOString().split('.')[0]}Z`, instructions: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({currency: faker.string.alpha({length: {min: 10, max: 20}}), account_holder_name: faker.string.alpha({length: {min: 10, max: 20}}), iban: faker.string.alpha({length: {min: 10, max: 20}}), qr_iban: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), bic: faker.string.alpha({length: {min: 10, max: 20}}), bank_name: faker.string.alpha({length: {min: 10, max: 20}}), collection_account_identifier: faker.string.alpha({length: {min: 10, max: 20}}), qr_bill_payload: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), payment_reference: faker.string.alpha({length: {min: 10, max: 20}}), notes: faker.string.alpha({length: {min: 10, max: 20}}), is_configured: faker.datatype.boolean()})), reference_rule: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getV1InvestorPortalDocumentsRetrieveResponseMock = (overrideResponse: Partial< InvestorDocuments > = {}): InvestorDocuments => ({as_of: `${faker.date.past().toISOString().split('.')[0]}Z`, documents: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), document_kind: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), document_type: faker.string.alpha({length: {min: 10, max: 20}}), version: faker.string.alpha({length: {min: 10, max: 20}}), date: `${faker.date.past().toISOString().split('.')[0]}Z`, context_label: faker.string.alpha({length: {min: 10, max: 20}}), output_formats: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), generated_on_request: faker.datatype.boolean(), content_hash: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), period_start: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], undefined]), period_end: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], undefined])})), disclaimer: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+export const getV1InvestorPortalDocumentsRetrieveResponseMock = (overrideResponse: Partial< InvestorDocuments > = {}): InvestorDocuments => ({as_of: `${faker.date.past().toISOString().split('.')[0]}Z`, documents: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), document_kind: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), template_title: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), document_type: faker.string.alpha({length: {min: 10, max: 20}}), category: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), version: faker.string.alpha({length: {min: 10, max: 20}}), date: `${faker.date.past().toISOString().split('.')[0]}Z`, context_label: faker.string.alpha({length: {min: 10, max: 20}}), context_type: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), context_id: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), output_formats: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), generated_on_request: faker.datatype.boolean(), content_hash: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), period_start: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], undefined]), period_end: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], undefined])})), disclaimer: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getV1InvestorPortalDocumentsDownloadCreateResponseMock = (overrideResponse: Partial< InvestorDocumentDownloadResponse > = {}): InvestorDocumentDownloadResponse => ({content_type: faker.string.alpha({length: {min: 10, max: 20}}), filename: faker.string.alpha({length: {min: 10, max: 20}}), content_encoding: faker.string.alpha({length: {min: 10, max: 20}}), content: faker.string.alpha({length: {min: 10, max: 20}}), content_sha256: faker.string.alpha({length: {min: 10, max: 20}}), manifest: {}, ...overrideResponse})
 
@@ -11803,6 +12320,14 @@ export const getV1MarketplaceSecondaryListingsCreateResponseMock = (overrideResp
 export const getV1MarketplaceSecondaryListingsCancelCreateResponseMock = (overrideResponse: Partial< SecondaryMarketListing > = {}): SecondaryMarketListing => ({id: faker.string.uuid(), holding_id: faker.string.uuid(), loan_id: faker.string.uuid(), seller_user_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), publication_type: faker.string.alpha({length: {min: 10, max: 20}}), current_principal_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), price_bps: faker.number.int({min: undefined, max: undefined}), transfer_price_minor: faker.number.int({min: undefined, max: undefined}), discount_premium_bps: faker.number.int({min: undefined, max: undefined}), accrued_interest_minor: faker.number.int({min: undefined, max: undefined}), accrued_interest_from_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), accrued_interest_to_date: faker.date.past().toISOString().split('T')[0], maker_fee_bps: faker.number.int({min: undefined, max: undefined}), taker_fee_bps: faker.number.int({min: undefined, max: undefined}), minimum_maker_fee_minor: faker.number.int({min: undefined, max: undefined}), minimum_taker_fee_minor: faker.number.int({min: undefined, max: undefined}), maker_fee_minor: faker.number.int({min: undefined, max: undefined}), taker_fee_minor: faker.number.int({min: undefined, max: undefined}), seller_net_proceeds_minor: faker.number.int({min: undefined, max: undefined}), buyer_total_cost_minor: faker.number.int({min: undefined, max: undefined}), loan_status_at_listing: faker.string.alpha({length: {min: 10, max: 20}}), days_past_due: faker.number.int({min: undefined, max: undefined}), last_payment_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), risk_acknowledgement_required: faker.datatype.boolean(), document_acceptance_id: faker.string.uuid(), public_disclosure_note: faker.string.alpha({length: {min: 10, max: 20}}), listed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), approved_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), approved_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), approval_reason: faker.string.alpha({length: {min: 10, max: 20}}), rejected_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), rejected_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), rejection_reason: faker.string.alpha({length: {min: 10, max: 20}}), removed_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), removed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), removal_reason: faker.string.alpha({length: {min: 10, max: 20}}), cancelled_by_user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), cancelled_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), cancellation_reason: faker.string.alpha({length: {min: 10, max: 20}}), created_by_user_id: faker.string.uuid(), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
 
 export const getV1MarketplaceSecondaryListingsPurchaseCreateResponseMock = (overrideResponse: Partial< SecondaryMarketPurchase > = {}): SecondaryMarketPurchase => ({id: faker.string.uuid(), listing_id: faker.string.uuid(), loan_id: faker.string.uuid(), buyer_holding_id: faker.string.uuid(), current_principal_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), price_bps: faker.number.int({min: undefined, max: undefined}), transfer_price_minor: faker.number.int({min: undefined, max: undefined}), discount_premium_bps: faker.number.int({min: undefined, max: undefined}), accrued_interest_minor: faker.number.int({min: undefined, max: undefined}), accrued_interest_from_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), accrued_interest_to_date: faker.date.past().toISOString().split('T')[0], taker_fee_bps: faker.number.int({min: undefined, max: undefined}), minimum_taker_fee_minor: faker.number.int({min: undefined, max: undefined}), taker_fee_minor: faker.number.int({min: undefined, max: undefined}), buyer_total_cost_minor: faker.number.int({min: undefined, max: undefined}), loan_status_at_purchase: faker.string.alpha({length: {min: 10, max: 20}}), days_past_due: faker.number.int({min: undefined, max: undefined}), last_payment_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), risk_acknowledgement_accepted: faker.datatype.boolean(), purchased_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+
+export const getV1QaDevModeRetrieveResponseMock = (overrideResponse: Partial< QaDevModeState > = {}): QaDevModeState => ({allowed: faker.datatype.boolean(), is_enabled: faker.datatype.boolean(), current_time: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), entered_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), entered_by_user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), snapshot_created_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), has_snapshot: faker.datatype.boolean(), note: faker.string.alpha({length: {min: 10, max: 20}}), last_advanced_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), last_advance_summary: {}, max_advance_days: faker.number.int({min: undefined, max: undefined}), environment: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getV1QaDevModeAdvanceCreateResponseMock = (overrideResponse: Partial< QaDevModeState > = {}): QaDevModeState => ({allowed: faker.datatype.boolean(), is_enabled: faker.datatype.boolean(), current_time: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), entered_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), entered_by_user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), snapshot_created_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), has_snapshot: faker.datatype.boolean(), note: faker.string.alpha({length: {min: 10, max: 20}}), last_advanced_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), last_advance_summary: {}, max_advance_days: faker.number.int({min: undefined, max: undefined}), environment: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getV1QaDevModeEnableCreateResponseMock = (overrideResponse: Partial< QaDevModeState > = {}): QaDevModeState => ({allowed: faker.datatype.boolean(), is_enabled: faker.datatype.boolean(), current_time: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), entered_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), entered_by_user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), snapshot_created_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), has_snapshot: faker.datatype.boolean(), note: faker.string.alpha({length: {min: 10, max: 20}}), last_advanced_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), last_advance_summary: {}, max_advance_days: faker.number.int({min: undefined, max: undefined}), environment: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getV1QaDevModeRevertCreateResponseMock = (overrideResponse: Partial< QaDevModeState > = {}): QaDevModeState => ({allowed: faker.datatype.boolean(), is_enabled: faker.datatype.boolean(), current_time: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), entered_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), entered_by_user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), snapshot_created_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), has_snapshot: faker.datatype.boolean(), note: faker.string.alpha({length: {min: 10, max: 20}}), last_advanced_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), last_advance_summary: {}, max_advance_days: faker.number.int({min: undefined, max: undefined}), environment: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getV1ReportingAdminReportsCreateResponseMock = (overrideResponse: Partial< ReportGenerateResponse > = {}): ReportGenerateResponse => ({report_run: {id: faker.string.uuid(), report_type: faker.string.alpha({length: {min: 10, max: 20}}), output_format: faker.string.alpha({length: {min: 10, max: 20}}), redaction_mode: faker.string.alpha({length: {min: 10, max: 20}}), start_date: faker.date.past().toISOString().split('T')[0], end_date: faker.date.past().toISOString().split('T')[0], generated_by_admin_id: faker.string.uuid(), generated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, definition_version: faker.string.alpha({length: {min: 10, max: 20}}), filters: {}, row_count: faker.number.int({min: undefined, max: undefined}), content_sha256: faker.string.alpha({length: {min: 10, max: 20}}), manifest: {}, destination_note: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, content_type: faker.string.alpha({length: {min: 10, max: 20}}), filename: faker.string.alpha({length: {min: 10, max: 20}}), content_encoding: faker.string.alpha({length: {min: 10, max: 20}}), content: faker.string.alpha({length: {min: 10, max: 20}}), manifest: {}, ...overrideResponse})
 
@@ -12031,6 +12556,30 @@ export const getV1AdminOpsUsersRetrieveMockHandler = (overrideResponse?: AdminUs
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AdminOpsUsersRetrieveResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1AdminOpsUsersDocumentsRetrieveMockHandler = (overrideResponse?: AdminUserDocumentsResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AdminUserDocumentsResponse> | AdminUserDocumentsResponse), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/admin-ops/users/:userId/documents/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AdminOpsUsersDocumentsRetrieveResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1AdminOpsUsersDocumentsArtifactCreateMockHandler = (overrideResponse?: AdminUserDocumentArtifactResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AdminUserDocumentArtifactResponse> | AdminUserDocumentArtifactResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/admin-ops/users/:userId/documents/:acceptanceId/artifact/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AdminOpsUsersDocumentsArtifactCreateResponseMock()),
       { status: 200,
         headers: { 'Content-Type': 'application/json' }
       })
@@ -13005,6 +13554,54 @@ export const getV1MarketplaceSecondaryListingsPurchaseCreateMockHandler = (overr
   }, options)
 }
 
+export const getV1QaDevModeRetrieveMockHandler = (overrideResponse?: QaDevModeState | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<QaDevModeState> | QaDevModeState), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/qa/dev-mode/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1QaDevModeRetrieveResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1QaDevModeAdvanceCreateMockHandler = (overrideResponse?: QaDevModeState | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<QaDevModeState> | QaDevModeState), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/qa/dev-mode/advance/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1QaDevModeAdvanceCreateResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1QaDevModeEnableCreateMockHandler = (overrideResponse?: QaDevModeState | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<QaDevModeState> | QaDevModeState), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/qa/dev-mode/enable/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1QaDevModeEnableCreateResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1QaDevModeRevertCreateMockHandler = (overrideResponse?: QaDevModeState | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<QaDevModeState> | QaDevModeState), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/qa/dev-mode/revert/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1QaDevModeRevertCreateResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
 export const getV1ReportingAdminReportsCreateMockHandler = (overrideResponse?: ReportGenerateResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<ReportGenerateResponse> | ReportGenerateResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/reporting/admin/reports/', async (info) => {await delay(1000);
 
@@ -13119,6 +13716,8 @@ export const getBanxumApiMock = () => [
   getV1AdminOpsTasksPartialUpdateMockHandler(),
   getV1AdminOpsTasksEventsListMockHandler(),
   getV1AdminOpsUsersRetrieveMockHandler(),
+  getV1AdminOpsUsersDocumentsRetrieveMockHandler(),
+  getV1AdminOpsUsersDocumentsArtifactCreateMockHandler(),
   getV1AdminOpsUsersReadonlyImpersonationCreateMockHandler(),
   getV1AuthAdminLoginConfirmCreateMockHandler(),
   getV1AuthAdminLoginStartCreateMockHandler(),
@@ -13200,6 +13799,10 @@ export const getBanxumApiMock = () => [
   getV1MarketplaceSecondaryListingsCreateMockHandler(),
   getV1MarketplaceSecondaryListingsCancelCreateMockHandler(),
   getV1MarketplaceSecondaryListingsPurchaseCreateMockHandler(),
+  getV1QaDevModeRetrieveMockHandler(),
+  getV1QaDevModeAdvanceCreateMockHandler(),
+  getV1QaDevModeEnableCreateMockHandler(),
+  getV1QaDevModeRevertCreateMockHandler(),
   getV1ReportingAdminReportsCreateMockHandler(),
   getV1ServicingAdminBorrowerRepaymentsCreateMockHandler(),
   getV1ServicingAdminRecoveriesCreateMockHandler(),

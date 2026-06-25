@@ -39,8 +39,6 @@ from backend.apps.platform_core.domain.access import (
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import (
     DomainEventCommand,
-    OutboxCommand,
-    enqueue_outbox_message,
     record_domain_event,
 )
 
@@ -73,7 +71,6 @@ BASE64_CONTENT_ENCODING = "base64"
 DOCUMENT_ARTIFACT_RENDERER_VERSION = "document-artifact-renderer-v2"
 CSV_FORMULA_PREFIXES = ("=", "+", "-", "@")
 CSV_FORMULA_LEADING_CHARS = ("\t", "\r", "\n")
-DOCUMENT_ACCEPTANCE_EMAIL_TOPIC = "email.document_acceptance_pdf"
 
 
 DEFAULT_VARIABLE_SCOPES: dict[str, dict[str, Any]] = {
@@ -297,6 +294,179 @@ def _format_minor_units_for_document(amount_minor: int, currency: str) -> str:
     absolute = abs(amount_minor)
     major, minor = divmod(absolute, 100)
     return f"{sign}{major:,}.{minor:02d}".replace(",", "'")
+
+
+def _document_money_label(amount_minor: Any, currency: Any) -> str:
+    try:
+        normalized_amount = int(amount_minor)
+    except (TypeError, ValueError):
+        return ""
+    normalized_currency = str(currency or "").upper().strip()
+    if not normalized_currency:
+        return _format_minor_units_for_document(normalized_amount, "")
+    formatted = _format_minor_units_for_document(normalized_amount, normalized_currency)
+    return f"{normalized_currency} {formatted}"
+
+
+def _snapshot_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _snapshot_get(snapshot: dict[str, Any], *path: str) -> Any:
+    current: Any = snapshot
+    for key in path:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
+
+
+def _short_identifier(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    return raw[:8].upper()
+
+
+def _document_type_for_category(category: str) -> str:
+    if category == DocumentCategory.REGISTRATION:
+        return "Agreement"
+    if category == DocumentCategory.PRIMARY_MARKET_INVESTMENT:
+        return "Investment agreement"
+    if category == DocumentCategory.SECONDARY_MARKET_PURCHASE:
+        return "Transfer agreement"
+    if category == DocumentCategory.SECONDARY_MARKET_LISTING:
+        return "Listing agreement"
+    return "Agreement"
+
+
+def _loan_title_from_snapshot(snapshot: dict[str, Any]) -> str:
+    loan_title = str(_snapshot_get(snapshot, "loan", "title") or "").strip()
+    if loan_title:
+        return loan_title
+    loan_id = _snapshot_get(snapshot, "loan", "id") or snapshot.get("loan_id")
+    short = _short_identifier(loan_id)
+    return f"Loan {short}" if short else "Loan"
+
+
+def _primary_acceptance_label(acceptance: DocumentAcceptanceEvidence) -> tuple[str, str]:
+    snapshot = _snapshot_dict(acceptance.data_snapshot)
+    title = _loan_title_from_snapshot(snapshot)
+    order_snapshot = _snapshot_dict(snapshot.get("order"))
+    amount_minor = (
+        order_snapshot.get("allocated_amount_minor")
+        or order_snapshot.get("requested_amount_minor")
+        or snapshot.get("amount_minor")
+    )
+    currency = (
+        order_snapshot.get("currency")
+        or _snapshot_get(snapshot, "loan", "currency")
+        or snapshot.get("currency")
+    )
+    money = _document_money_label(amount_minor, currency)
+    title_fragment = title if title.lower().startswith("loan ") else f"Loan {title}"
+    label = f"{title_fragment} {money} agreement" if money else f"{title_fragment} agreement"
+    context = f"Primary order {_short_identifier(acceptance.context_id)}"
+    return label, context
+
+
+def _secondary_listing_label(acceptance: DocumentAcceptanceEvidence) -> tuple[str, str]:
+    snapshot = _snapshot_dict(acceptance.data_snapshot)
+    amount_minor = snapshot.get("current_principal_minor")
+    currency = snapshot.get("currency")
+    loan_title = ""
+    if acceptance.context_id:
+        try:
+            holding_id = uuid.UUID(str(acceptance.context_id))
+        except ValueError:
+            holding_id = None
+        if holding_id is not None:
+            holding_model = apps.get_model("holdings", "InvestorLoanHolding")
+            holding = (
+                holding_model.objects.select_related("loan", "currency")
+                .filter(id=holding_id)
+                .first()
+            )
+            if holding is not None:
+                holding_ref = cast(Any, holding)
+                loan_title = str(getattr(holding_ref.loan, "title", "") or "").strip()
+                amount_minor = amount_minor or int(holding_ref.current_principal_minor)
+                currency = currency or str(holding_ref.currency_id)
+    title = loan_title or "Loan"
+    money = _document_money_label(amount_minor, currency)
+    label = (
+        f"Secondary listing {title} {money} agreement"
+        if money
+        else f"Secondary listing {title} agreement"
+    )
+    context = f"Holding {_short_identifier(acceptance.context_id)}"
+    return label, context
+
+
+def _secondary_purchase_label(acceptance: DocumentAcceptanceEvidence) -> tuple[str, str]:
+    snapshot = _snapshot_dict(acceptance.data_snapshot)
+    amount_minor = snapshot.get("buyer_total_cost_minor")
+    currency = snapshot.get("currency")
+    loan_title = ""
+    if acceptance.context_id:
+        try:
+            listing_id = uuid.UUID(str(acceptance.context_id))
+        except ValueError:
+            listing_id = None
+        if listing_id is not None:
+            listing_model = apps.get_model("secondary_market", "SecondaryMarketListing")
+            listing = (
+                listing_model.objects.select_related("loan", "currency")
+                .filter(id=listing_id)
+                .first()
+            )
+            if listing is not None:
+                listing_ref = cast(Any, listing)
+                loan_title = str(getattr(listing_ref.loan, "title", "") or "").strip()
+                amount_minor = amount_minor or int(listing_ref.buyer_total_cost_minor)
+                currency = currency or str(listing_ref.currency_id)
+    title = loan_title or "Loan"
+    money = _document_money_label(amount_minor, currency)
+    label = (
+        f"Secondary purchase {title} {money} agreement"
+        if money
+        else f"Secondary purchase {title} agreement"
+    )
+    context = f"Listing {_short_identifier(acceptance.context_id)}"
+    return label, context
+
+
+def acceptance_history_item(acceptance: DocumentAcceptanceEvidence) -> dict[str, Any]:
+    category = str(acceptance.category)
+    if category == DocumentCategory.REGISTRATION:
+        title = "Lender user agreement"
+        context_label = "Registration"
+    elif category == DocumentCategory.PRIMARY_MARKET_INVESTMENT:
+        title, context_label = _primary_acceptance_label(acceptance)
+    elif category == DocumentCategory.SECONDARY_MARKET_LISTING:
+        title, context_label = _secondary_listing_label(acceptance)
+    elif category == DocumentCategory.SECONDARY_MARKET_PURCHASE:
+        title, context_label = _secondary_purchase_label(acceptance)
+    else:
+        title = str(acceptance.template_version.title)
+        context_name = str(acceptance.context_type).replace("_", " ").title()
+        context_label = f"{context_name} {acceptance.context_id}"
+    return {
+        "id": str(acceptance.pk),
+        "document_kind": "acceptance_evidence",
+        "title": title,
+        "template_title": str(acceptance.template_version.title),
+        "document_type": _document_type_for_category(category),
+        "category": category,
+        "version": f"v{acceptance.template_version_number}",
+        "date": acceptance.accepted_at,
+        "context_label": context_label,
+        "context_type": str(acceptance.context_type),
+        "context_id": str(acceptance.context_id),
+        "output_formats": ["pdf", "csv"],
+        "generated_on_request": True,
+        "content_hash": acceptance.template_hash,
+    }
 
 
 def _format_bps_percent_for_document(bps: int) -> str:
@@ -1606,36 +1776,6 @@ def _acceptance_pdf_lines(
     ]
 
 
-def _enqueue_acceptance_pdf_email(
-    *,
-    acceptance: DocumentAcceptanceEvidence,
-    actor: Model,
-) -> None:
-    recipient_email = str(getattr(actor, "email", "") or "").strip().lower()
-    if not recipient_email:
-        return
-    enqueue_outbox_message(
-        OutboxCommand(
-            idempotency_key=f"document-acceptance:{acceptance.id}:email-pdf",
-            topic=DOCUMENT_ACCEPTANCE_EMAIL_TOPIC,
-            payload={
-                "acceptance_id": str(acceptance.id),
-                "user_id": str(acceptance.user_id),
-                "email": recipient_email,
-                "category": acceptance.category,
-                "template_id": str(acceptance.template_id),
-                "template_version_id": str(acceptance.template_version_id),
-                "template_version_number": acceptance.template_version_number,
-                "template_hash": acceptance.template_hash,
-                "template_title": acceptance.template_version.title,
-                "context_type": acceptance.context_type,
-                "context_id": acceptance.context_id,
-                "accepted_at": acceptance.accepted_at.isoformat(),
-            },
-        )
-    )
-
-
 @transaction.atomic
 def create_document_template_version(
     command: CreateDocumentTemplateVersionCommand,
@@ -2086,7 +2226,6 @@ def accept_document_terms(command: AcceptDocumentTermsCommand) -> DocumentAccept
             idempotency_key=f"document-acceptance:{acceptance.id}:accepted",
         )
     )
-    _enqueue_acceptance_pdf_email(acceptance=acceptance, actor=command.actor)
     return acceptance
 
 

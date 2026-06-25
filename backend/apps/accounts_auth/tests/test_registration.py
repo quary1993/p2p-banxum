@@ -113,7 +113,7 @@ def test_register_natural_person_lender_accepts_current_registration_document(
     assert terms.terms_hash == version.content_hash
     assert acceptance.template_version_id == version.id
     assert acceptance.accepted_checkbox_labels == [label]
-    assert OutboxMessage.objects.filter(
+    assert not OutboxMessage.objects.filter(
         topic="email.document_acceptance_pdf",
         payload__acceptance_id=str(acceptance.id),
     ).exists()

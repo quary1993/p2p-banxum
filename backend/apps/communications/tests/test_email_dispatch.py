@@ -221,7 +221,7 @@ def test_sensitive_action_email_dispatch_uses_sendgrid_payload_without_tracking(
     COMMUNICATIONS_EMAIL_PROVIDER="mock",
     PUBLIC_APP_BASE_URL="https://app.banxum.test",
 )
-def test_dispatch_document_acceptance_pdf_email_attaches_rendered_artifact(
+def test_dispatch_legacy_document_acceptance_email_points_to_portal_without_attachment(
     investor: Model,
     superadmin_user: Model,
 ) -> None:
@@ -249,23 +249,30 @@ def test_dispatch_document_acceptance_pdf_email_attaches_rendered_artifact(
             idempotency_key="communications-accepted-registration-doc",
         )
     )
-    outbox = OutboxMessage.objects.get(topic="email.document_acceptance_pdf")
+    outbox = OutboxMessage.objects.create(
+        idempotency_key=f"legacy-document-acceptance:{acceptance.pk}:portal-notice",
+        topic="email.document_acceptance_pdf",
+        payload={
+            "acceptance_id": str(acceptance.pk),
+            "email": cast(Any, investor).email,
+        },
+    )
 
     dispatch_result = dispatch_due_email_outbox_messages()
 
     assert dispatch_result.sent_count == 1
     outbox.refresh_from_db()
     assert outbox.status == OutboxStatus.PROCESSED
-    artifact = apps.get_model("documents", "DocumentRenderedArtifact").objects.get(
-        acceptance=acceptance,
-        purpose="email_delivery",
-    )
     delivery = EmailDeliveryRecord.objects.get(outbox_message=outbox)
     assert delivery.recipient_email == cast(Any, investor).email
-    assert delivery.template_key == "documents.acceptance_pdf.v1"
-    assert artifact.filename in delivery.metadata["attachments"][0]["filename"]
-    assert delivery.metadata["content_sha256"] == artifact.content_sha256
-    assert "Your agreement PDF is attached" in delivery.body_html
+    assert delivery.template_key == "documents.acceptance_portal_notice.v1"
+    assert delivery.metadata["attachment_count"] == 0
+    assert delivery.metadata["attachments"] == []
+    assert not apps.get_model("documents", "DocumentRenderedArtifact").objects.filter(
+        acceptance=acceptance,
+        purpose="email_delivery",
+    ).exists()
+    assert "Your accepted document is available" in delivery.body_html
     assert "https://app.banxum.test/documents" in delivery.body_html
 
 

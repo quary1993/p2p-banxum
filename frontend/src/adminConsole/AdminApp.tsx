@@ -31,6 +31,7 @@ import {
   CompliancePanel,
   FinanceOpsPanel,
   LoansPanel,
+  QaDevModePanel,
   ReportsPanel,
   SettingsPanel,
   UserAccountsPanel
@@ -207,6 +208,7 @@ const navItems: Array<{ id: string; label: string; icon: Parameters<typeof Icon>
   { id: "finance", label: "Finance ops", icon: "balance" },
   { id: "loans", label: "Loans", icon: "market" },
   { id: "reports", label: "Reports", icon: "docs" },
+  { id: "qa", label: "QA mode", icon: "clock" },
   { id: "settings", label: "Superadmin settings", icon: "settings" }
 ];
 
@@ -339,6 +341,7 @@ export function AdminApp() {
 
   return (
     <AdminShell
+      isSuperadmin={isFixturePreview || sessionQuery.data?.user.account_type === "superadmin"}
       isLoggingOut={logoutMutation.isPending}
       onLogout={() => {
         if (isFixturePreview) {
@@ -505,13 +508,22 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
 }
 
 function AdminShell({
+  isSuperadmin,
   isLoggingOut,
   onLogout
 }: {
+  isSuperadmin: boolean;
   isLoggingOut: boolean;
   onLogout: () => void;
 }) {
   const [selectedNav, setSelectedNav] = useState("dashboard");
+  const visibleNavItems = navItems.filter((item) => item.id !== "qa" || isSuperadmin);
+
+  useEffect(() => {
+    if (!isSuperadmin && selectedNav === "qa") {
+      setSelectedNav("dashboard");
+    }
+  }, [isSuperadmin, selectedNav]);
 
   return (
     <div className="admin-app">
@@ -524,7 +536,7 @@ function AdminShell({
           </div>
         </div>
         <nav className="admin-nav">
-          {navItems.map((item) => (
+          {visibleNavItems.map((item) => (
             <button
               aria-current={selectedNav === item.id ? "page" : undefined}
               className={selectedNav === item.id ? "active" : ""}
@@ -562,6 +574,7 @@ function AdminShell({
         {selectedNav === "finance" ? <FinanceOpsPanel /> : null}
         {selectedNav === "loans" ? <LoansPanel /> : null}
         {selectedNav === "reports" ? <ReportsPanel /> : null}
+        {selectedNav === "qa" && isSuperadmin ? <QaDevModePanel /> : null}
         {selectedNav === "settings" ? <SettingsPanel /> : null}
       </main>
     </div>

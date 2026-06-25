@@ -60,8 +60,8 @@ Legal-entity lenders do not self-register. Their registration and KYC/KYB/AML ar
 5. Show fees, expected cash flows, risks, and required acknowledgements.
 6. Accept primary-market investment terms/contracts, risk disclosure, and required acknowledgements by checkbox/clickwrap.
 7. Reserve or debit available investor balance for the order according to allocation rules.
-8. Generate investment-time PDF documents from the template/data snapshot and send them by email.
-9. Receive order status and downloadable documents.
+8. Record immutable accepted-document evidence and make generated PDF/CSV artifacts available on demand from the Documents section.
+9. Receive order status and document-history access.
 
 Deposit instructions should warn lenders to send the intended currency to the matching currency IBAN. Cross-currency bank transfers are not advised because banks may auto-convert and charge fees; the platform reconciles only the amount received in the credited balance currency with the correct payment reference.
 
@@ -170,7 +170,7 @@ Holdings in non-performing or otherwise non-standard loans/projects may be sold 
 - Annual lender tax information statement.
 - Refund or recovery notices where applicable.
 
-Investor documents are English-only at launch. Accepted/generated transaction documents can be downloaded from the portal after the relevant primary investment or secondary-market purchase and are sent by email at transaction time.
+Investor documents are English-only at launch. Accepted/generated transaction documents can be downloaded from the portal after the relevant registration, primary investment, or secondary-market action. Legal terms and transaction-agreement PDFs are not emailed by default.
 
 ## Loan Detail Requirements
 
@@ -265,8 +265,8 @@ This text is not final legal wording. It is a generic placeholder for product de
 - Require current terms acceptance.
 - Use checkbox/clickwrap acceptance for v1 investor terms, risk disclosures, assignment documents, and secondary-market documents.
 - Record document/template version, data snapshot, timestamp, user, acceptance context, and available technical evidence for each checkbox/clickwrap acceptance.
-- Generate primary-investment and secondary-market purchase PDFs at transaction time and send them by email.
-- Allow investors to download accepted/generated documents from the portal after the relevant transaction.
+- Generate primary-investment and secondary-market purchase PDFs/CSVs on demand from immutable accepted-document history.
+- Allow investors to download accepted/generated documents from the portal after the relevant transaction; do not email legal terms or transaction-agreement PDFs by default.
 - Make annual lender tax information statements available to all investors.
 - Capture optional marketing communication consent during registration or profile flow, without exposing full notification-preference management in v1.
 - Expose support email in an appropriate help/FAQ/footer location.
@@ -301,6 +301,6 @@ This text is not final legal wording. It is a generic placeholder for product de
 6. Superseded by PAY-DEC-003/PAY-DEC-017/PAY-DEC-018: investors have multi-currency website balances, can deposit/withdraw/exchange, and receive repayment/SM proceeds as balance credits subject to ageing deadlines.
 7. Answered by marketplace/admin TODO: auto-invest and automated reinvestment are future scope, not launch scope.
 8. Updated by KYC-DEC-003 and ORIG-DEC-003: full loan data requires registration-time KYC approval; optional borrower financial fields are hidden when not declared.
-9. Answered by DOC-DEC-001 and FIN-DEC-001: investor statements, repayment statements, and annual lender tax information statement for all investors are required; generated/accepted transaction documents are downloadable and emailed.
+9. Answered by DOC-DEC-001 and FIN-DEC-001: investor statements, repayment statements, and annual lender tax information statement for all investors are required; generated/accepted transaction documents are downloadable from portal document history and are not emailed as legal-document attachments by default.
 10. Answered by MKT-DEC-006/MKT-DEC-007/MKT-DEC-009/MKT-DEC-020: secondary-market selling and buying are available at launch as full-holding bulletin-board transfers; sellers set discount/premium price as a percentage of current principal balance; accrued interest to settlement belongs to seller and future interest belongs to buyer; non-performing/non-standard listings require admin approval and additional buyer acknowledgement.
 11. Answered by ACC-DEC-001: investor/client portal login uses email magic links, and phone verification is mandatory for natural-person investors.

@@ -142,6 +142,10 @@ def _model(app_label: str, model_name: str) -> Any:
     return apps.get_model(app_label, model_name)
 
 
+def _documents_services() -> Any:
+    return import_module("backend.apps.documents.services")
+
+
 def _servicing_services() -> Any:
     return import_module("backend.apps.servicing.services")
 
@@ -305,6 +309,20 @@ class SyncReconciliationBreakTasksCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class ListAdminUserDocumentsCommand:
+    actor: Model
+    user_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class RenderAdminUserDocumentCommand:
+    actor: Model
+    user_id: str
+    acceptance_id: str
+    output_format: str = "pdf"
+
+
+@dataclass(frozen=True, slots=True)
 class CreateAdminTaskCommand:
     actor: Model
     task_type: str
@@ -331,6 +349,92 @@ class UpdateAdminTaskCommand:
     clear_due_at: bool = False
     notes: str | None = None
     completion_note: str | None = None
+
+
+def _document_subject_user(user_id: str) -> Model:
+    user = get_user_model().objects.filter(id=user_id).first()
+    if user is None:
+        raise AdminTaskValidationError("User was not found.")
+    return cast(Model, user)
+
+
+def list_admin_user_documents(command: ListAdminUserDocumentsCommand) -> dict[str, Any]:
+    _require_admin_actor(command.actor)
+    subject = _document_subject_user(command.user_id)
+    acceptance_model = _model("documents", "DocumentAcceptanceEvidence")
+    documents = _documents_services()
+    acceptances = (
+        acceptance_model.objects.filter(user_id=subject.pk)
+        .select_related("template", "template_version")
+        .order_by("-accepted_at", "-id")
+    )
+    document_rows = [documents.acceptance_history_item(acceptance) for acceptance in acceptances]
+    payload = {
+        "user": {
+            "id": str(subject.pk),
+            "email": str(getattr(subject, "email", "")),
+            "full_name": str(getattr(subject, "full_name", "")),
+            "investor_reference": str(getattr(subject, "investor_reference", "") or ""),
+            "account_type": str(getattr(subject, "account_type", "")),
+            "status": str(getattr(subject, "status", "")),
+        },
+        "documents": document_rows,
+        "disclaimer": (
+            "Accepted-document artifacts are generated on demand from immutable clickwrap "
+            "evidence. "
+            "The generation is audited to the admin actor, not to the user."
+        ),
+    }
+    record_audit_event(
+        AuditCommand(
+            actor=_actor_for_admin(command.actor),
+            action="admin_user_documents.listed",
+            target_type="User",
+            target_id=str(subject.pk),
+            metadata={"document_count": len(document_rows)},
+        )
+    )
+    return payload
+
+
+def render_admin_user_document(command: RenderAdminUserDocumentCommand) -> dict[str, Any]:
+    _require_admin_actor(command.actor)
+    subject = _document_subject_user(command.user_id)
+    acceptance_model = _model("documents", "DocumentAcceptanceEvidence")
+    acceptance = acceptance_model.objects.filter(
+        id=command.acceptance_id,
+        user_id=subject.pk,
+    ).first()
+    if acceptance is None:
+        raise AdminTaskValidationError("Document evidence was not found for this user.")
+    documents = _documents_services()
+    try:
+        artifact = documents.render_document_acceptance_artifact(
+            documents.RenderDocumentAcceptanceArtifactCommand(
+                actor=command.actor,
+                acceptance_id=str(acceptance.pk),
+                output_format=command.output_format,
+                purpose="admin_download",
+                metadata={
+                    "source": "admin_users",
+                    "download_subject_user_id": str(subject.pk),
+                    "download_actor_user_id": str(command.actor.pk),
+                },
+            )
+        )
+    except documents.DocumentAuthorizationError as exc:
+        raise AdminTaskAuthorizationError(str(exc)) from exc
+    except documents.DocumentValidationError as exc:
+        raise AdminTaskValidationError(str(exc)) from exc
+    return {
+        "rendered_artifact_id": str(artifact.rendered_artifact.id),
+        "content_type": artifact.content_type,
+        "filename": artifact.filename,
+        "content_encoding": artifact.content_encoding,
+        "content": artifact.content,
+        "content_sha256": artifact.content_sha256,
+        "manifest": artifact.manifest,
+    }
 
 
 @transaction.atomic

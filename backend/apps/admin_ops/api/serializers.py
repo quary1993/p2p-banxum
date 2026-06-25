@@ -174,6 +174,52 @@ class ReadOnlyImpersonationStartResponseSerializer(serializers.Serializer[Any]):
     target_full_name = serializers.CharField(allow_blank=True)
 
 
+class AdminUserDocumentOwnerSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    email = serializers.EmailField()
+    full_name = serializers.CharField(allow_blank=True)
+    investor_reference = serializers.CharField(allow_blank=True)
+    account_type = serializers.CharField()
+    status = serializers.CharField()
+
+
+class AdminUserDocumentSerializer(serializers.Serializer[Any]):
+    id = serializers.CharField()
+    document_kind = serializers.CharField()
+    title = serializers.CharField()
+    template_title = serializers.CharField()
+    document_type = serializers.CharField()
+    category = serializers.CharField()
+    version = serializers.CharField()
+    date = serializers.DateTimeField()
+    context_label = serializers.CharField()
+    context_type = serializers.CharField()
+    context_id = serializers.CharField()
+    output_formats = serializers.ListField(child=serializers.CharField())
+    generated_on_request = serializers.BooleanField()
+    content_hash = serializers.CharField()
+
+
+class AdminUserDocumentsResponseSerializer(serializers.Serializer[Any]):
+    user = AdminUserDocumentOwnerSerializer()
+    documents = AdminUserDocumentSerializer(many=True)
+    disclaimer = serializers.CharField()
+
+
+class AdminUserDocumentArtifactRequestSerializer(serializers.Serializer[Any]):
+    output_format = serializers.ChoiceField(choices=["pdf", "csv"], required=False, default="pdf")
+
+
+class AdminUserDocumentArtifactResponseSerializer(serializers.Serializer[Any]):
+    rendered_artifact_id = serializers.UUIDField()
+    content_type = serializers.CharField()
+    filename = serializers.CharField()
+    content_encoding = serializers.CharField()
+    content = serializers.CharField()
+    content_sha256 = serializers.CharField()
+    manifest = serializers.JSONField()
+
+
 class AdminDashboardQuerySerializer(serializers.Serializer[Any]):
     as_of = serializers.DateTimeField(required=False)
     due_window_days = serializers.IntegerField(required=False, min_value=0, max_value=60, default=7)

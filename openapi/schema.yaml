@@ -861,6 +861,65 @@ paths:
               schema:
                 $ref: '#/components/schemas/AdminUserDirectoryResponse'
           description: ''
+  /api/v1/admin-ops/users/{user_id}/documents/:
+    get:
+      operationId: v1_admin_ops_users_documents_retrieve
+      parameters:
+      - in: path
+        name: user_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserDocumentsResponse'
+          description: ''
+  /api/v1/admin-ops/users/{user_id}/documents/{acceptance_id}/artifact/:
+    post:
+      operationId: v1_admin_ops_users_documents_artifact_create
+      parameters:
+      - in: path
+        name: acceptance_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: user_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminUserDocumentArtifactRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AdminUserDocumentArtifactRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AdminUserDocumentArtifactRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserDocumentArtifactResponse'
+          description: ''
   /api/v1/admin-ops/users/{user_id}/readonly-impersonation/:
     post:
       operationId: v1_admin_ops_users_readonly_impersonation_create
@@ -3100,6 +3159,97 @@ paths:
               schema:
                 $ref: '#/components/schemas/SecondaryMarketPurchase'
           description: ''
+  /api/v1/qa/dev-mode/:
+    get:
+      operationId: v1_qa_dev_mode_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QaDevModeState'
+          description: ''
+  /api/v1/qa/dev-mode/advance/:
+    post:
+      operationId: v1_qa_dev_mode_advance_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QaDevModeAdvanceRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/QaDevModeAdvanceRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/QaDevModeAdvanceRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QaDevModeState'
+          description: ''
+  /api/v1/qa/dev-mode/enable/:
+    post:
+      operationId: v1_qa_dev_mode_enable_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QaDevModeEnableRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/QaDevModeEnableRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/QaDevModeEnableRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QaDevModeState'
+          description: ''
+  /api/v1/qa/dev-mode/revert/:
+    post:
+      operationId: v1_qa_dev_mode_revert_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QaDevModeRevertRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/QaDevModeRevertRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/QaDevModeRevertRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QaDevModeState'
+          description: ''
   /api/v1/reporting/admin/reports/:
     post:
       operationId: v1_reporting_admin_reports_create
@@ -3967,6 +4117,134 @@ components:
       - is_staff
       - phone_verified
       - status
+    AdminUserDocument:
+      type: object
+      properties:
+        id:
+          type: string
+        document_kind:
+          type: string
+        title:
+          type: string
+        template_title:
+          type: string
+        document_type:
+          type: string
+        category:
+          type: string
+        version:
+          type: string
+        date:
+          type: string
+          format: date-time
+        context_label:
+          type: string
+        context_type:
+          type: string
+        context_id:
+          type: string
+        output_formats:
+          type: array
+          items:
+            type: string
+        generated_on_request:
+          type: boolean
+        content_hash:
+          type: string
+      required:
+      - category
+      - content_hash
+      - context_id
+      - context_label
+      - context_type
+      - date
+      - document_kind
+      - document_type
+      - generated_on_request
+      - id
+      - output_formats
+      - template_title
+      - title
+      - version
+    AdminUserDocumentArtifactRequest:
+      type: object
+      properties:
+        output_format:
+          allOf:
+          - $ref: '#/components/schemas/AdminUserDocumentArtifactRequestOutputFormatEnum'
+          default: pdf
+    AdminUserDocumentArtifactRequestOutputFormatEnum:
+      enum:
+      - pdf
+      - csv
+      type: string
+      description: |-
+        * `pdf` - pdf
+        * `csv` - csv
+    AdminUserDocumentArtifactResponse:
+      type: object
+      properties:
+        rendered_artifact_id:
+          type: string
+          format: uuid
+        content_type:
+          type: string
+        filename:
+          type: string
+        content_encoding:
+          type: string
+        content:
+          type: string
+        content_sha256:
+          type: string
+        manifest: {}
+      required:
+      - content
+      - content_encoding
+      - content_sha256
+      - content_type
+      - filename
+      - manifest
+      - rendered_artifact_id
+    AdminUserDocumentOwner:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        full_name:
+          type: string
+        investor_reference:
+          type: string
+        account_type:
+          type: string
+        status:
+          type: string
+      required:
+      - account_type
+      - email
+      - full_name
+      - id
+      - investor_reference
+      - status
+    AdminUserDocumentsResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/AdminUserDocumentOwner'
+        documents:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminUserDocument'
+        disclaimer:
+          type: string
+      required:
+      - disclaimer
+      - documents
+      - user
     AmountByCurrency:
       type: object
       properties:
@@ -6117,7 +6395,11 @@ components:
           type: string
         title:
           type: string
+        template_title:
+          type: string
         document_type:
+          type: string
+        category:
           type: string
         version:
           type: string
@@ -6125,6 +6407,10 @@ components:
           type: string
           format: date-time
         context_label:
+          type: string
+        context_type:
+          type: string
+        context_id:
           type: string
         output_formats:
           type: array
@@ -9054,6 +9340,78 @@ components:
         * `development` - Development
         * `inventory_trade_finance` - Inventory or trade finance
         * `other` - Other
+    QaDevModeAdvanceRequest:
+      type: object
+      properties:
+        days:
+          type: integer
+          maximum: 120
+          minimum: 1
+      required:
+      - days
+    QaDevModeEnableRequest:
+      type: object
+      properties:
+        note:
+          type: string
+          maxLength: 2000
+    QaDevModeRevertRequest:
+      type: object
+      properties:
+        confirmation:
+          type: string
+          maxLength: 64
+      required:
+      - confirmation
+    QaDevModeState:
+      type: object
+      properties:
+        allowed:
+          type: boolean
+        is_enabled:
+          type: boolean
+        current_time:
+          type: string
+          format: date-time
+          nullable: true
+        entered_at:
+          type: string
+          format: date-time
+          nullable: true
+        entered_by_user_id:
+          type: string
+          format: uuid
+          nullable: true
+        snapshot_created_at:
+          type: string
+          format: date-time
+          nullable: true
+        has_snapshot:
+          type: boolean
+        note:
+          type: string
+        last_advanced_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_advance_summary: {}
+        max_advance_days:
+          type: integer
+        environment:
+          type: string
+      required:
+      - allowed
+      - current_time
+      - entered_at
+      - entered_by_user_id
+      - environment
+      - has_snapshot
+      - is_enabled
+      - last_advance_summary
+      - last_advanced_at
+      - max_advance_days
+      - note
+      - snapshot_created_at
     ReadOnlyImpersonationStartResponse:
       type: object
       properties:

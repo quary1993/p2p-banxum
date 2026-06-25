@@ -179,7 +179,7 @@ Follow-ups:
 Define whether partially funded orders generate one final assignment document for the accepted amount or a corrected/replaced version.
 
 Implementation status:
-The Garanta project investment confirmation DOCX can be imported as the `primary_market_investment/default/en` template with `import_project_investment_confirmation`. The importer maps the source bracket fields into server-resolved document variables and uses the recommended confirmation text as the required checkbox label. Each primary-order acceptance renders and emails a generated PDF from immutable clickwrap evidence. The acceptance snapshot is enriched server-side with the real order, loan, borrower, lender, assignment, and operator data so client-submitted snapshots cannot forge transaction terms. Holding IDs are not known until funding close; the v1 document renders that field as assigned at funding close. If legal requires the final holding ID inside the same legal package, implement a separate post-close final assignment artifact.
+The Garanta project investment confirmation DOCX can be imported as the `primary_market_investment/default/en` template with `import_project_investment_confirmation`. The importer maps the source bracket fields into server-resolved document variables and uses the recommended confirmation text as the required checkbox label. Each primary-order acceptance can render a generated PDF/CSV on demand from immutable clickwrap evidence in the investor portal or admin Users document-history modal. The acceptance snapshot is enriched server-side with the real order, loan, borrower, lender, assignment, and operator data so client-submitted snapshots cannot forge transaction terms. Holding IDs are not known until funding close; the v1 document renders that field as assigned at funding close. If legal requires the final holding ID inside the same legal package, implement a separate post-close final assignment artifact.
 
 ### DOC-DEC-006: Pre-Investment Borrower Documents
 
@@ -214,20 +214,20 @@ Date: 2026-05-20.
 Owner: Garanta product / operations.
 
 Decision:
-After investing, investors can download their accepted/generated documents from the portal and receive them by email. The same applies to secondary-market purchase documents.
+After accepting a platform, primary-market, or secondary-market document, investors can see the historical accepted-document record in the portal and generate the full PDF/CSV artifact on demand. The same accepted-document history is available to admins from the Users section for support and audit review.
 
 Rationale:
-Portal download gives investors durable self-service access, while email delivery provides immediate evidence at the transaction moment.
+Portal download gives investors durable self-service access without distributing legal terms as email attachments. The immutable acceptance event, template version, and data snapshot remain the evidence source of truth, while generated artifacts are produced when the investor or an authorized admin requests them.
 
 Impacted modules:
 - Investor Portal.
 - Communications and Notifications.
 
 Follow-ups:
-Define email attachment versus secure-link delivery and file-size limits.
+Define whether future secure-link notifications are useful for specific non-terms documents. Legal terms and transaction agreements are not emailed by default at launch.
 
 Implementation status:
-Generic acceptance-document download is implemented for PDF and CSV. Each render is regenerated from immutable template version plus acceptance data snapshot, returns a checksum/manifest, records the renderer version used for byte-level traceability, and stores append-only rendered-artifact metadata without storing the generated file bytes as the source of truth. New acceptance evidence also queues an idempotent document-package email, and dispatch attaches the generated PDF while recording attachment metadata in immutable email-delivery evidence. Production still requires Garanta-approved template content before real transactions.
+Generic acceptance-document download is implemented for PDF and CSV. Each render is regenerated from immutable template version plus acceptance data snapshot, returns a checksum/manifest, records the renderer version used for byte-level traceability, and stores append-only rendered-artifact metadata without storing the generated file bytes as the source of truth. New acceptance evidence no longer queues legal-document PDF emails. Legacy queued document-acceptance email outbox rows render only a portal notice with no attachment. Investor portal and admin Users history show human-readable accepted-document identifiers such as loan/investment agreement labels. Production still requires Garanta-approved template content before real transactions.
 
 ### DOC-DEC-008: Regenerate PDFs From Templates, Generate at Transaction Time
 
@@ -236,9 +236,9 @@ Date: 2026-05-20.
 Owner: Garanta product / engineering.
 
 Decision:
-Generated PDFs are regenerated on the fly from templates and the stored transaction data snapshot. At primary investment time and secondary-market purchase time, the platform generates the relevant PDFs and sends them to the investor by email.
+Generated PDFs are regenerated on the fly from templates and the stored transaction data snapshot. At registration, primary investment, and secondary-market acceptance time, the platform records immutable clickwrap evidence. The investor and authorized admins can generate the relevant PDFs/CSVs on demand from the accepted-document history.
 
-The primary record is the acceptance event, template version, and data snapshot. Generated PDF files do not need to be stored permanently as the source of truth, though delivery metadata and any generated/sent artifact references should be auditable.
+The primary record is the acceptance event, template version, and data snapshot. Generated PDF files do not need to be stored permanently as the source of truth, though generated artifact metadata, checksum, renderer version, and actor/purpose must be auditable.
 
 Generated PDFs and CSVs, where applicable, are required for launch. Clickwrap evidence plus an email confirmation alone is not sufficient as the production document-delivery model; the platform must provide downloadable generated artifacts for accepted/generated documents, statements, tax information, and transfer/assignment evidence where applicable.
 
@@ -382,7 +382,7 @@ Future e-signature requirements, if introduced later:
 
 - Investors see documents relevant to their investments and disclosures.
 - Investors can download accepted/generated investment and secondary-market documents after the relevant transaction.
-- Investors receive generated investment and secondary-market documents by email at transaction time.
+- Investors do not receive legal terms or transaction-agreement PDFs by email by default; they use portal document history for on-demand generation.
 - Before investing, eligible logged-in investors can access borrower presentation, borrower financial PDF, and admin-named generic borrower documents if admin has uploaded and published them for the listing.
 - Borrower portal access is out of scope; borrower documents are managed by admin after offline Garanta-borrower handling.
 - Borrower-side signed/offline documents are optional admin uploads and can be internal-only unless admin/legal marks a document investor-visible.
@@ -411,5 +411,5 @@ Future e-signature requirements, if introduced later:
 6. Answered by DOC-DEC-006: borrower presentation, borrower financial PDF, and admin-named generic borrower documents are visible before investing if uploaded/published.
 7. Answered by DOC-DEC-006 and DOC-DEC-007: investors can access published borrower documents before investing and can download their accepted/generated transaction documents after investing.
 8. Answered by DOC-DEC-009 and DOC-DEC-010: template change means changes to reusable standard legal/document wording, layout, variables, or acceptance language; superadmin can change/publish templates.
-9. Answered by DOC-DEC-008: generated PDFs are regenerated on the fly from template/data snapshot, and generated/sent by email at primary investment and secondary-market purchase time.
+9. Answered by DOC-DEC-008: generated PDFs are regenerated on the fly from template/data snapshot through investor/admin document-history downloads; legal terms and transaction agreements are not emailed by default.
 10. Partly answered by DOC-DEC-005: claim assignment is generated per investment order; exact legal templates remain to be drafted/approved.

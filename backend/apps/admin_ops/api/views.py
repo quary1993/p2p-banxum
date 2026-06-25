@@ -23,6 +23,9 @@ from backend.apps.admin_ops.api.serializers import (
     AdminTaskUpdateRequestSerializer,
     AdminUserDirectoryQuerySerializer,
     AdminUserDirectoryResponseSerializer,
+    AdminUserDocumentArtifactRequestSerializer,
+    AdminUserDocumentArtifactResponseSerializer,
+    AdminUserDocumentsResponseSerializer,
     AuditEventQuerySerializer,
     AuditEventSerializer,
     ReadOnlyImpersonationStartResponseSerializer,
@@ -38,10 +41,14 @@ from backend.apps.admin_ops.services import (
     AdminTaskValidationError,
     CreateAdminTaskCommand,
     GetAdminDashboardCommand,
+    ListAdminUserDocumentsCommand,
+    RenderAdminUserDocumentCommand,
     SyncReconciliationBreakTasksCommand,
     UpdateAdminTaskCommand,
     create_admin_task,
     get_admin_operations_dashboard,
+    list_admin_user_documents,
+    render_admin_user_document,
     sync_reconciliation_break_tasks,
     update_admin_task,
 )
@@ -233,6 +240,58 @@ class ReadOnlyImpersonationStartView(APIView):
         return Response(
             ReadOnlyImpersonationStartResponseSerializer(payload).data,
             status=status.HTTP_201_CREATED,
+        )
+
+
+class AdminUserDocumentsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: AdminUserDocumentsResponseSerializer})
+    def get(self, request: Request, user_id: str) -> Response:
+        try:
+            payload = list_admin_user_documents(
+                ListAdminUserDocumentsCommand(
+                    actor=cast(Model, request.user),
+                    user_id=user_id,
+                )
+            )
+        except AdminTaskAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except AdminTaskValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            AdminUserDocumentsResponseSerializer(payload).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+class AdminUserDocumentArtifactView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=AdminUserDocumentArtifactRequestSerializer,
+        responses={200: AdminUserDocumentArtifactResponseSerializer},
+    )
+    def post(self, request: Request, user_id: str, acceptance_id: str) -> Response:
+        serializer = AdminUserDocumentArtifactRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            payload = render_admin_user_document(
+                RenderAdminUserDocumentCommand(
+                    actor=cast(Model, request.user),
+                    user_id=user_id,
+                    acceptance_id=acceptance_id,
+                    output_format=data.get("output_format", "pdf"),
+                )
+            )
+        except AdminTaskAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except AdminTaskValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            AdminUserDocumentArtifactResponseSerializer(payload).data,
+            status=status.HTTP_200_OK,
         )
 
 

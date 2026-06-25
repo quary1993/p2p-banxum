@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from importlib import import_module
 from typing import Any, cast
 
 import pytest
@@ -9,7 +10,7 @@ from django.test import Client
 from django.utils import timezone
 
 from backend.apps.admin_ops.tests.factories import create_user
-from backend.apps.platform_core.models import Currency
+from backend.apps.platform_core.models import AuditEvent, Currency
 from backend.apps.platform_core.services.impersonation import resolve_readonly_impersonation
 
 
@@ -214,3 +215,80 @@ def test_readonly_impersonation_token_is_superadmin_only_and_blocks_admin_target
     target, context = resolve_readonly_impersonation(actor=superadmin_user, token=token)
     assert target.pk == investor.pk
     assert context.superadmin_user_id == str(superadmin_user.pk)
+
+
+@pytest.mark.django_db
+def test_admin_user_documents_list_and_artifact_download_are_admin_attributed(
+    admin_user: Model,
+    superadmin_user: Model,
+    investor: Model,
+) -> None:
+    documents = import_module("backend.apps.documents.services")
+    version = documents.create_document_template_version(
+        documents.CreateDocumentTemplateVersionCommand(
+            actor=superadmin_user,
+            category="registration",
+            name="Garanta Lender User Agreement",
+            title="General Terms and Conditions / User Agreement for Lenders",
+            body="Agreement body for {{user.full_name}}.",
+            checkbox_labels=["I accept the lender user agreement."],
+            publish_now=True,
+            legal_review_reference="approved-test",
+        )
+    )
+    acceptance = documents.accept_document_terms(
+        documents.AcceptDocumentTermsCommand(
+            actor=investor,
+            category="registration",
+            expected_template_version_id=str(version.id),
+            accepted_checkbox_labels=["I accept the lender user agreement."],
+            context_type="registration",
+            context_id=str(investor.pk),
+            idempotency_key="admin-user-docs-registration-acceptance",
+        )
+    )
+
+    client = Client()
+    client.force_login(cast(Any, admin_user))
+
+    list_response = client.get(f"/api/v1/admin-ops/users/{investor.pk}/documents/")
+    assert list_response.status_code == 200
+    list_payload = list_response.json()
+    assert list_payload["user"]["id"] == str(investor.pk)
+    assert list_payload["documents"][0]["id"] == str(acceptance.pk)
+    assert list_payload["documents"][0]["title"] == "Lender user agreement"
+    assert list_payload["documents"][0]["template_title"] == str(version.title)
+    assert AuditEvent.objects.filter(
+        action="admin_user_documents.listed",
+        target_id=str(investor.pk),
+    ).exists()
+
+    artifact_response = client.post(
+        f"/api/v1/admin-ops/users/{investor.pk}/documents/{acceptance.pk}/artifact/",
+        data={"output_format": "pdf"},
+        content_type="application/json",
+    )
+    assert artifact_response.status_code == 200
+    artifact_payload = artifact_response.json()
+    assert artifact_payload["content_type"] == "application/pdf"
+    artifact = apps.get_model("documents", "DocumentRenderedArtifact").objects.get(
+        id=artifact_payload["rendered_artifact_id"]
+    )
+    assert artifact.user_id == investor.pk
+    assert artifact.actor_user_id == admin_user.pk
+    assert artifact.purpose == "admin_download"
+    assert artifact.metadata["download_subject_user_id"] == str(investor.pk)
+    assert artifact.metadata["download_actor_user_id"] == str(admin_user.pk)
+
+    other_investor = create_user(
+        email="other-docs-investor@example.test",
+        account_type="natural_person_lender",
+        status="active",
+        is_staff=False,
+    )
+    wrong_user_response = client.post(
+        f"/api/v1/admin-ops/users/{other_investor.pk}/documents/{acceptance.pk}/artifact/",
+        data={"output_format": "pdf"},
+        content_type="application/json",
+    )
+    assert wrong_user_response.status_code == 400
