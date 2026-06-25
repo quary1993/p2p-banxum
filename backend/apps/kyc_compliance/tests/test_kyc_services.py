@@ -30,6 +30,10 @@ from backend.apps.kyc_compliance.services import (
 )
 from backend.apps.platform_core.models import AuditEvent, DomainEvent
 from backend.apps.platform_core.models.base import AppendOnlyViolation
+from backend.apps.platform_core.services.impersonation import (
+    READONLY_IMPERSONATION_HEADER,
+    issue_readonly_impersonation_token,
+)
 
 
 def create_lender(email: str = "investor@example.test") -> Model:
@@ -440,6 +444,46 @@ def test_kyc_status_api_polls_older_approved_session_when_latest_is_not_started(
     assert KycProviderSession.objects.get(
         provider_session_id="didit-not-started-session"
     ).provider_payload["last_polled_status"] == KycStatus.PENDING
+
+
+@pytest.mark.django_db
+def test_kyc_status_api_uses_readonly_impersonation_target(client: Client) -> None:
+    user_model: Any = get_user_model()
+    superadmin = user_model.objects.create_superuser(
+        email="superadmin@example.test",
+        password="unused",
+        full_name="Super Admin",
+        account_type="superadmin",
+        status="active",
+    )
+    target = create_lender(email="target-approved@example.test")
+    mark_phone_verified(target)
+    session_result = create_kyc_session(CreateKycSessionCommand(user=target))
+    assert session_result.session is not None
+    process_didit_event(
+        ProviderKycEventCommand(
+            provider_event_id="didit-event-readonly-target-approved",
+            provider_event_type="verification.completed",
+            provider_status="approved",
+            provider_session_id=session_result.session.provider_session_id,
+            vendor_data=f"user:{target.pk}",
+            risk_classification="low",
+            raw_payload={"id": "didit-event-readonly-target-approved", "status": "approved"},
+        )
+    )
+    token = issue_readonly_impersonation_token(actor=superadmin, target_user_id=str(target.pk))[
+        "token"
+    ]
+    client.force_login(cast(Any, superadmin))
+
+    response = client.get(
+        "/api/v1/kyc/status/",
+        **{f"HTTP_{READONLY_IMPERSONATION_HEADER.upper().replace('-', '_')}": token},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == KycStatus.APPROVED
+    assert response.json()["financial_access_allowed"] is True
 
 
 @pytest.mark.django_db

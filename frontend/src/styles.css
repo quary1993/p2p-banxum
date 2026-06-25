@@ -2334,7 +2334,7 @@ textarea.input {
 .admin-table {
   border-collapse: collapse;
   font-size: 12.5px;
-  min-width: 860px;
+  min-width: 1040px;
   width: 100%;
 }
 
@@ -2353,6 +2353,22 @@ textarea.input {
   border-top: 1px solid var(--line);
   padding: 10px;
   vertical-align: top;
+}
+
+.admin-user-name-cell {
+  min-width: 140px;
+}
+
+.admin-email-cell,
+.admin-id-cell {
+  display: block;
+  line-height: 1.35;
+  max-width: 230px;
+  overflow-wrap: anywhere;
+}
+
+.admin-id-cell {
+  max-width: 190px;
 }
 
 .admin-table tbody tr {

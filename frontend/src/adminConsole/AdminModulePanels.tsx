@@ -3354,11 +3354,13 @@ export function UserAccountsPanel() {
               <table className="admin-table">
                 <thead>
                   <tr>
-                    <th>User</th>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>User ID</th>
                     <th>Reference</th>
                     <th>Type</th>
                     <th>Status</th>
-                    <th>Phone</th>
+                    <th>Phone verification</th>
                     <th>Created</th>
                     <th>Actions</th>
                   </tr>
@@ -3366,15 +3368,19 @@ export function UserAccountsPanel() {
                 <tbody>
                   {users.map((user) => (
                     <tr key={user.id}>
+                      <td className="admin-user-name-cell">
+                        <strong>{user.full_name || "-"}</strong>
+                      </td>
                       <td>
-                        <strong>{userDisplay(user)}</strong>
-                        <span className="mono muted">{user.email}</span>
-                        <span className="mono muted">{user.id}</span>
+                        <span className="admin-email-cell">{user.email}</span>
+                      </td>
+                      <td>
+                        <span className="admin-id-cell mono muted">{user.id}</span>
                       </td>
                       <td className="mono">{user.investor_reference || "-"}</td>
                       <td><Chip tone="neutral">{labelize(user.account_type)}</Chip></td>
                       <td><Chip tone={statusTone(user.status)}>{labelize(user.status)}</Chip></td>
-                      <td>{user.phone_verified ? <Chip tone="ok">Verified</Chip> : <Chip tone="neutral">Unverified</Chip>}</td>
+                      <td>{user.phone_verified ? <Chip tone="ok">Phone verified</Chip> : <Chip tone="neutral">Phone unverified</Chip>}</td>
                       <td>{formatDateTime(user.date_joined)}</td>
                       <td>
                         <div className="row gap-8 wrap">
