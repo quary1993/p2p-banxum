@@ -2905,9 +2905,6 @@ function PendingOrdersEmptyState({ orders, onViewOrders }: { orders: PrimaryOrde
             </div>
           ))}
         </div>
-        <Banner tone="neutral" title="Why Activity has rows">
-          Activity includes deposits, FX and primary-market order events. Orders are commitments/reservations; they are not portfolio exposure until the loan closes.
-        </Banner>
         <div><Button size="sm" onClick={onViewOrders}>Open Orders tab</Button></div>
       </div>
     </Card>
