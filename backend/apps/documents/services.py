@@ -36,6 +36,7 @@ from backend.apps.platform_core.domain.access import (
     is_superadmin_actor,
     user_can_access_financial_features,
 )
+from backend.apps.platform_core.domain.actors import ActorRef
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import (
     DomainEventCommand,
@@ -71,6 +72,7 @@ BASE64_CONTENT_ENCODING = "base64"
 DOCUMENT_ARTIFACT_RENDERER_VERSION = "document-artifact-renderer-v2"
 CSV_FORMULA_PREFIXES = ("=", "+", "-", "@")
 CSV_FORMULA_LEADING_CHARS = ("\t", "\r", "\n")
+SYSTEM_SEED_ACTOR_ID = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
 
 DEFAULT_VARIABLE_SCOPES: dict[str, dict[str, Any]] = {
@@ -118,6 +120,70 @@ DEFAULT_VARIABLE_SCOPES: dict[str, dict[str, Any]] = {
         "platform": {"description": "Platform brand fields."},
         "operator": {"description": "Legal operator fields."},
         "risk": {"description": "Non-standard listing disclosure fields."},
+    },
+}
+
+SECONDARY_MARKET_PLACEHOLDER_TEMPLATES: dict[str, dict[str, Any]] = {
+    DocumentCategory.SECONDARY_MARKET_LISTING: {
+        "name": "Temporary secondary-market seller terms",
+        "title": "Temporary Secondary-Market Seller Listing Terms",
+        "description": (
+            "Temporary placeholder seller/listing terms for QA and private testing. "
+            "Replace with advisor-approved legal content before production use."
+        ),
+        "body": (
+            "# Temporary Secondary-Market Seller Listing Terms\n\n"
+            "These temporary terms allow {{platform.name}} private testing of the "
+            "secondary-market listing workflow. They are not final legal terms and must be "
+            "replaced with advisor-approved content before production use with real investors.\n\n"
+            "By listing a holding, the seller confirms that the listing covers the full holding "
+            "shown in the platform, that the displayed price, fee estimate, net proceeds, loan "
+            "status, and risk information have been reviewed, and that the seller authorizes "
+            "{{operator.name}} to publish or route the listing according to platform rules.\n\n"
+            "The seller understands that secondary-market listings are not guaranteed to be "
+            "purchased, that non-performing or non-standard loans may require additional "
+            "approval and disclosure, and that a listing may be cancelled, rejected, removed, "
+            "or made unavailable if platform controls require it.\n\n"
+            "Final legal terms, assignment wording, risk disclosures, and fee language remain "
+            "pending Garanta/legal approval."
+        ),
+        "checkbox_labels": [
+            "I accept the temporary secondary-market seller/listing terms.",
+            (
+                "I confirm I am listing the full holding shown and understand final "
+                "legal terms are pending."
+            ),
+        ],
+    },
+    DocumentCategory.SECONDARY_MARKET_PURCHASE: {
+        "name": "Temporary secondary-market buyer terms",
+        "title": "Temporary Secondary-Market Buyer Purchase Terms",
+        "description": (
+            "Temporary placeholder buyer/purchase terms for QA and private testing. "
+            "Replace with advisor-approved legal content before production use."
+        ),
+        "body": (
+            "# Temporary Secondary-Market Buyer Purchase Terms\n\n"
+            "These temporary terms allow {{platform.name}} private testing of the "
+            "secondary-market purchase workflow. They are not final legal terms and must be "
+            "replaced with advisor-approved content before production use with real investors.\n\n"
+            "By purchasing a listed holding, the buyer confirms that the displayed claim, loan "
+            "status, purchase price, accrued-interest treatment, taker fee, and total cost have "
+            "been reviewed before confirming the transaction.\n\n"
+            "The buyer understands that P2P lending involves credit risk, delayed repayment "
+            "risk, partial recovery risk, and possible total loss. Non-performing or "
+            "non-standard listings may carry heightened risk and require an additional "
+            "acknowledgement in the platform before purchase.\n\n"
+            "Final legal terms, reassignment wording, risk disclosures, and fee language "
+            "remain pending Garanta/legal approval."
+        ),
+        "checkbox_labels": [
+            "I accept the temporary secondary-market buyer/purchase terms.",
+            (
+                "I understand the purchased claim may involve delayed repayment, "
+                "partial loss, or total loss."
+            ),
+        ],
     },
 }
 
@@ -698,6 +764,146 @@ def _record_document_event(
             metadata=metadata or {},
         ),
     )
+
+
+def _record_seed_document_event(
+    *,
+    template: DocumentTemplate,
+    template_version: DocumentTemplateVersion,
+    category: str,
+    event_type: DocumentEventType,
+    metadata: dict[str, Any],
+) -> DocumentEvent:
+    return cast(
+        DocumentEvent,
+        DocumentEvent.objects.create(
+            template=template,
+            template_version=template_version,
+            category=category,
+            event_type=event_type,
+            actor_user_id=SYSTEM_SEED_ACTOR_ID,
+            actor_account_type="system",
+            note="Temporary seed placeholder. Replace with approved legal content before launch.",
+            metadata=metadata,
+        ),
+    )
+
+
+@transaction.atomic
+def seed_secondary_market_placeholder_terms() -> list[DocumentTemplateVersion]:
+    """Publish temporary secondary-market templates only when none are current."""
+    created_versions: list[DocumentTemplateVersion] = []
+    now = timezone.now()
+    for category, definition in SECONDARY_MARKET_PLACEHOLDER_TEMPLATES.items():
+        category_value = _category(category)
+        template, created_template = DocumentTemplate.objects.select_for_update().get_or_create(
+            category=category_value,
+            template_key=DEFAULT_TEMPLATE_KEY,
+            language="en",
+            defaults={
+                "name": str(definition["name"]),
+                "description": str(definition["description"]),
+                "created_by_superadmin_id": SYSTEM_SEED_ACTOR_ID,
+                "updated_by_superadmin_id": SYSTEM_SEED_ACTOR_ID,
+            },
+        )
+        if template.current_published_version_id is not None:
+            continue
+
+        checkbox_labels = _clean_checkbox_labels(cast(list[str], definition["checkbox_labels"]))
+        variable_schema = default_variable_schema(category_value)
+        body = _clean_required(str(definition["body"]), "Body")
+        title = _clean_required(str(definition["title"]), "Title")
+        _validate_template_placeholders(body, variable_schema)
+        if not created_template:
+            template.name = str(definition["name"])
+            template.description = str(definition["description"])
+            template.updated_by_superadmin_id = SYSTEM_SEED_ACTOR_ID
+            template.save(update_fields=["name", "description", "updated_by_superadmin_id"])
+
+        version = cast(
+            DocumentTemplateVersion,
+            DocumentTemplateVersion.objects.create(
+                template=template,
+                version_number=_next_version_number(template),
+                status=DocumentTemplateVersionStatus.PUBLISHED,
+                title=title,
+                body=body,
+                checkbox_labels=checkbox_labels,
+                variable_schema=variable_schema,
+                content_hash=_content_hash(
+                    category=category_value,
+                    template_key=DEFAULT_TEMPLATE_KEY,
+                    language="en",
+                    title=title,
+                    body=body,
+                    checkbox_labels=checkbox_labels,
+                    variable_schema=variable_schema,
+                ),
+                created_by_superadmin_id=SYSTEM_SEED_ACTOR_ID,
+                published_at=now,
+                legal_review_reference="temporary-placeholder-private-testing",
+                metadata={
+                    "seeded_by": "seed_demo",
+                    "temporary_placeholder": True,
+                    "launch_blocker": "Replace with advisor-approved secondary-market terms.",
+                },
+            ),
+        )
+        template.current_published_version = version
+        template.updated_by_superadmin_id = SYSTEM_SEED_ACTOR_ID
+        template.save(
+            update_fields=[
+                "current_published_version",
+                "updated_by_superadmin_id",
+                "updated_at",
+            ]
+        )
+        event_metadata = {
+            "category": category_value,
+            "template_id": str(template.id),
+            "template_version_id": str(version.id),
+            "template_key": DEFAULT_TEMPLATE_KEY,
+            "language": "en",
+            "version_number": version.version_number,
+            "content_hash": version.content_hash,
+            "temporary_placeholder": True,
+        }
+        if created_template:
+            _record_seed_document_event(
+                template=template,
+                template_version=version,
+                category=category_value,
+                event_type=DocumentEventType.TEMPLATE_CREATED,
+                metadata=event_metadata,
+            )
+        _record_seed_document_event(
+            template=template,
+            template_version=version,
+            category=category_value,
+            event_type=DocumentEventType.VERSION_PUBLISHED,
+            metadata=event_metadata,
+        )
+        record_audit_event(
+            AuditCommand(
+                actor=ActorRef.system(),
+                action="document.secondary_market_placeholder_terms_seeded",
+                target_type="DocumentTemplateVersion",
+                target_id=str(version.id),
+                metadata=event_metadata,
+            )
+        )
+        record_domain_event(
+            DomainEventCommand(
+                event_type="DocumentTemplateVersionPublished",
+                aggregate_type="DocumentTemplateVersion",
+                aggregate_id=str(version.id),
+                payload=event_metadata,
+                idempotency_key=f"document-template-version:{version.id}:seed-placeholder",
+            )
+        )
+        created_versions.append(version)
+    return created_versions
 
 
 def _artifact_output_format(value: str) -> DocumentArtifactOutputFormat:

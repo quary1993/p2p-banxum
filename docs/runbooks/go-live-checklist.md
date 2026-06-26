@@ -41,7 +41,7 @@ Complete these before calling any environment production-like.
 - Legal and documents:
   - Registration lender user agreement template is counsel-approved, imported, reviewed in Superadmin Settings, and published.
   - Primary-market project investment confirmation / claim-assignment template is counsel-approved, imported, reviewed, and published.
-  - Secondary-market buyer/listing terms are approved and published before enabling secondary-market actions.
+  - Secondary-market buyer/listing terms are approved and published before enabling secondary-market actions. `seed_demo` currently publishes temporary placeholder buyer/listing terms only when no current secondary-market template exists, so private testing can exercise the flow; these placeholders are explicitly not approved production legal content.
   - Generated agreement PDFs/CSVs are rendered on demand from immutable acceptance evidence and are downloadable from investor Documents plus the admin Users document-history modal. Legal terms and transaction-agreement PDFs are not emailed by default.
 - Communications and monitoring:
   - Scheduled jobs are installed for email dispatch, daily balance ageing/penalty charging, servicing status scan, campaign expiry scan, and reconciliation-break task sync.

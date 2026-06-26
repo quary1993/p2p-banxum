@@ -124,7 +124,7 @@ def _create_published_loan(
     admin_user: Model,
     *,
     principal_minor: int = 100_000_00,
-    funding_deadline: date = date(2026, 6, 25),
+    funding_deadline: date = date(2030, 1, 10),
 ) -> Model:
     borrower = _create_borrower(admin_user)
     loan_model = apps.get_model("loans", "Loan")
@@ -143,7 +143,7 @@ def _create_published_loan(
             term_months=12,
             repayment_type="equal_installments",
             funding_deadline=funding_deadline,
-            first_payment_date=date(2026, 7, 25),
+            first_payment_date=date(2030, 2, 10),
             collateral_type="real_estate",
             collateral_value_minor=150_000_00,
             risk_rating="BBB",

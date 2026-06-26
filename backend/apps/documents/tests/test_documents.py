@@ -417,6 +417,64 @@ def test_import_project_investment_confirmation_command_publishes_primary_templa
 
 
 @pytest.mark.django_db
+def test_seed_demo_publishes_temporary_secondary_market_terms() -> None:
+    call_command("seed_demo", verbosity=0)
+
+    listing = get_current_document_template(category=DocumentCategory.SECONDARY_MARKET_LISTING)
+    purchase = get_current_document_template(category=DocumentCategory.SECONDARY_MARKET_PURCHASE)
+
+    assert listing.template.template_key == "default"
+    assert purchase.template.template_key == "default"
+    assert listing.metadata["temporary_placeholder"] is True
+    assert purchase.metadata["temporary_placeholder"] is True
+    assert "Temporary Secondary-Market Seller" in listing.title
+    assert "Temporary Secondary-Market Buyer" in purchase.title
+    assert len(listing.checkbox_labels) >= 1
+    assert len(purchase.checkbox_labels) >= 1
+
+    call_command("seed_demo", verbosity=0)
+
+    assert (
+        DocumentTemplateVersion.objects.filter(
+            template__category=DocumentCategory.SECONDARY_MARKET_LISTING
+        ).count()
+        == 1
+    )
+    assert (
+        DocumentTemplateVersion.objects.filter(
+            template__category=DocumentCategory.SECONDARY_MARKET_PURCHASE
+        ).count()
+        == 1
+    )
+
+
+@pytest.mark.django_db
+def test_seed_demo_does_not_replace_existing_secondary_market_terms(
+    superadmin_user: Model,
+) -> None:
+    real_listing = create_document_template_version(
+        _template_command(
+            superadmin_user,
+            category=DocumentCategory.SECONDARY_MARKET_LISTING,
+            title="Approved Seller Listing Terms",
+            body="Approved seller listing terms for {{platform.name}}.",
+        )
+    )
+
+    call_command("seed_demo", verbosity=0)
+
+    current_listing = get_current_document_template(
+        category=DocumentCategory.SECONDARY_MARKET_LISTING
+    )
+    current_purchase = get_current_document_template(
+        category=DocumentCategory.SECONDARY_MARKET_PURCHASE
+    )
+    assert current_listing.id == real_listing.id
+    assert current_listing.title == "Approved Seller Listing Terms"
+    assert current_purchase.metadata["temporary_placeholder"] is True
+
+
+@pytest.mark.django_db
 def test_superadmin_creates_published_template_and_current_lookup(superadmin_user: Model) -> None:
     version = create_document_template_version(_template_command(superadmin_user))
     current = get_current_document_template(category=DocumentCategory.PRIMARY_MARKET_INVESTMENT)
