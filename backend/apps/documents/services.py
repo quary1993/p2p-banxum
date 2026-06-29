@@ -64,6 +64,12 @@ MAX_CHECKBOX_LABEL_LENGTH = 500
 MAX_ACCEPTANCE_JSON_BYTES = 65_536
 ACCEPTANCE_FINGERPRINT_METADATA_KEY = "request_fingerprint"
 PLACEHOLDER_PATTERN = re.compile(r"{{\s*([a-zA-Z_][\w]*(?:\.[a-zA-Z_][\w]*)*)\s*}}")
+UNAPPROVED_LEGAL_TEXT_PATTERN = re.compile(
+    r"advisor-approved body will be inserted here|"
+    r"TODO|"
+    r"\[(?:to be completed|to confirm|to complete)\]",
+    flags=re.I,
+)
 TEMPLATE_KEY_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.:-]{0,127}$")
 CSV_CONTENT_TYPE = "text/csv; charset=utf-8"
 PDF_CONTENT_TYPE = "application/pdf"
@@ -700,6 +706,17 @@ def _validate_template_placeholders(body: str, variable_schema: dict[str, Any]) 
         raise DocumentValidationError(
             f"Template contains unsupported variable scope(s): {unknown_text}."
         )
+
+
+def _validate_publishable_legal_body(body: str) -> None:
+    match = UNAPPROVED_LEGAL_TEXT_PATTERN.search(body)
+    if match is None:
+        return
+    marker = " ".join(match.group(0).split())
+    raise DocumentValidationError(
+        "Document template contains unresolved placeholder legal text and cannot be "
+        f"published or accepted: {marker}"
+    )
 
 
 def _stable_json_fingerprint(payload: dict[str, Any]) -> str:
@@ -1996,6 +2013,8 @@ def create_document_template_version(
     checkbox_labels = _clean_checkbox_labels(command.checkbox_labels)
     variable_schema = _variable_schema(category, command.variable_schema)
     _validate_template_placeholders(body, variable_schema)
+    if command.publish_now:
+        _validate_publishable_legal_body(body)
 
     template, created = DocumentTemplate.objects.select_for_update().get_or_create(
         category=category,
@@ -2148,6 +2167,7 @@ def publish_document_template_version(
         raise DocumentValidationError("Template version does not exist.")
     template = source_version.template
     template = DocumentTemplate.objects.select_for_update().get(id=template.id)
+    _validate_publishable_legal_body(source_version.body)
 
     if (
         source_version.status == DocumentTemplateVersionStatus.PUBLISHED
@@ -2317,6 +2337,7 @@ def accept_document_terms(command: AcceptDocumentTermsCommand) -> DocumentAccept
         template_key=command.template_key,
         language=command.language,
     )
+    _validate_publishable_legal_body(template_version.body)
     if (
         command.expected_template_version_id is not None
         and str(template_version.id) != command.expected_template_version_id

@@ -24,6 +24,7 @@ from backend.apps.documents.models import (
     DocumentCategory,
     DocumentEvent,
     DocumentRenderedArtifact,
+    DocumentTemplate,
     DocumentTemplateVersion,
     DocumentTemplateVersionStatus,
 )
@@ -508,6 +509,61 @@ def test_template_validation_rejects_unknown_variable_scope(superadmin_user: Mod
             _template_command(
                 superadmin_user,
                 body="This uses {{unknown.field}}.",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_published_template_rejects_placeholder_legal_text(superadmin_user: Model) -> None:
+    with pytest.raises(DocumentValidationError, match="unresolved placeholder legal text"):
+        create_document_template_version(
+            _template_command(
+                superadmin_user,
+                title="BANXUM Terms",
+                body="Advisor-approved body will be inserted here. TODO",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_acceptance_rejects_legacy_current_placeholder_template(
+    superadmin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    template = DocumentTemplate.objects.create(
+        category=DocumentCategory.PRIMARY_MARKET_INVESTMENT,
+        template_key="default",
+        language="en",
+        name="Legacy placeholder terms",
+        created_by_superadmin_id=superadmin_user.pk,
+        updated_by_superadmin_id=superadmin_user.pk,
+    )
+    version = DocumentTemplateVersion.objects.create(
+        template=template,
+        version_number=1,
+        status=DocumentTemplateVersionStatus.PUBLISHED,
+        title="BANXUM Terms",
+        body="Advisor-approved body will be inserted here. TODO",
+        checkbox_labels=["I accept these investment terms."],
+        variable_schema={"user": {}, "platform": {}, "loan": {}},
+        content_hash="0" * 64,
+        created_by_superadmin_id=superadmin_user.pk,
+        published_at=timezone.now(),
+    )
+    template.current_published_version = version
+    template.save(update_fields=["current_published_version", "updated_at"])
+
+    with pytest.raises(DocumentValidationError, match="unresolved placeholder legal text"):
+        accept_document_terms(
+            AcceptDocumentTermsCommand(
+                actor=investor,
+                category=DocumentCategory.PRIMARY_MARKET_INVESTMENT,
+                expected_template_version_id=str(version.id),
+                accepted_checkbox_labels=list(cast(list[str], version.checkbox_labels)),
+                context_type="primary_order",
+                context_id="order-legacy-placeholder",
+                idempotency_key="accept-legacy-placeholder",
             )
         )
 
