@@ -66,8 +66,7 @@ ACCEPTANCE_FINGERPRINT_METADATA_KEY = "request_fingerprint"
 PLACEHOLDER_PATTERN = re.compile(r"{{\s*([a-zA-Z_][\w]*(?:\.[a-zA-Z_][\w]*)*)\s*}}")
 UNAPPROVED_LEGAL_TEXT_PATTERN = re.compile(
     r"advisor-approved body will be inserted here|"
-    r"TODO|"
-    r"\[(?:to be completed|to confirm|to complete)\]",
+    r"TODO",
     flags=re.I,
 )
 TEMPLATE_KEY_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.:-]{0,127}$")

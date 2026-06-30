@@ -406,6 +406,7 @@ def test_import_project_investment_confirmation_command_publishes_primary_templa
             "Part II - General Assignment Terms and Conditions",
             "1. Relationship with the User Agreement and Project documents",
             "Final investment confirmation text.",
+            "Commercial fallback note [to complete].",
         ],
     )
 
@@ -427,6 +428,8 @@ def test_import_project_investment_confirmation_command_publishes_primary_templa
     assert current.legal_review_reference == "advisor-approved-test"
     assert current.checkbox_labels == [INVESTMENT_CONFIRMATION_CHECKBOX_LABEL]
     assert current.metadata["generation_context"] == "one_acceptance_per_primary_investment_order"
+    assert current.metadata["unresolved_placeholders"] == ["[to complete]"]
+    assert "Commercial fallback note [to complete]." in current.body
     assert "{{order.agreement_no}}" in current.body
 
 
@@ -536,6 +539,24 @@ def test_published_template_rejects_placeholder_legal_text(superadmin_user: Mode
                 body="Advisor-approved body will be inserted here. TODO",
             )
         )
+
+
+@pytest.mark.django_db
+def test_published_template_allows_bracket_completion_markers(superadmin_user: Model) -> None:
+    version = create_document_template_version(
+        _template_command(
+            superadmin_user,
+            title="BANXUM Terms",
+            body=(
+                "Final legal text with a commercial field [to complete] and a "
+                "counterparty choice [to confirm]."
+            ),
+        )
+    )
+
+    assert version.status == DocumentTemplateVersionStatus.PUBLISHED
+    assert "[to complete]" in version.body
+    assert "[to confirm]" in version.body
 
 
 @pytest.mark.django_db

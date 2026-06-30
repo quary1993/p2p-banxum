@@ -35,8 +35,8 @@ class Command(BaseCommand):
             "--allow-unresolved-placeholders",
             action="store_true",
             help=(
-                "Allow unresolved [to confirm]/[to complete] placeholders. "
-                "Do not use for production publication."
+                "Deprecated no-op retained for older import scripts. Unresolved "
+                "[to confirm]/[to complete] placeholders are recorded in metadata."
             ),
         )
 
@@ -55,14 +55,6 @@ class Command(BaseCommand):
             )
         except LegalTemplateImportError as exc:
             raise CommandError(str(exc)) from exc
-
-        if imported.unresolved_placeholders and not options["allow_unresolved_placeholders"]:
-            unresolved = ", ".join(imported.unresolved_placeholders)
-            raise CommandError(
-                "Agreement still contains unresolved legal/commercial placeholders: "
-                f"{unresolved}. Complete the DOCX or rerun with "
-                "--allow-unresolved-placeholders for non-production testing only."
-            )
 
         try:
             version = create_document_template_version(
