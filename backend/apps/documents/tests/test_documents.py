@@ -268,7 +268,10 @@ def test_lender_user_agreement_docx_import_extracts_body_and_checkbox(tmp_path: 
             "For each acceptance, store a non-editable PDF/snapshot.",
             "Main Agreement",
             "1. Parties and Scope",
-            "Fee item [to confirm]",
+            "Amounts, percentages and thresholds must be completed before production launch.",
+            "Fee / Cost | Who pays | Basis | Amount / Formula | Timing",
+            "Primary market platform fee | Lender / Borrower / both [to confirm] | "
+            "Project-specific | [to complete] | At funding / repayment / other",
         ],
     )
 
@@ -281,7 +284,17 @@ def test_lender_user_agreement_docx_import_extracts_body_and_checkbox(tmp_path: 
     assert "Effective date: 2026-07-01" in imported.body
     assert "Recommended clickwrap acceptance wording" not in imported.body
     assert imported.checkbox_label.startswith("I have read, understood")
-    assert imported.unresolved_placeholders == ("[to confirm]",)
+    assert "must be completed before production launch" not in imported.body
+    assert (
+        "relevant project, quote, listing, withdrawal or transaction confirmation"
+        in imported.body
+    )
+    assert (
+        "As disclosed in the relevant project-specific or transaction confirmation"
+        in imported.body
+    )
+    assert "As disclosed before the relevant transaction is confirmed" in imported.body
+    assert imported.unresolved_placeholders == ()
 
 
 @pytest.mark.django_db

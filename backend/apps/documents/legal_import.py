@@ -41,6 +41,14 @@ class ImportedProjectInvestmentConfirmationTemplate:
 WORD_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 W = f"{{{WORD_NS}}}"
 UNRESOLVED_PLACEHOLDER_RE = re.compile(r"\[(?:to be completed|to confirm|to complete)\]", re.I)
+LENDER_FEE_SCHEDULE_PRODUCTION_NOTE = (
+    "Amounts, percentages and thresholds must be completed before production launch."
+)
+LENDER_FEE_SCHEDULE_TRANSACTION_DISCLOSURE = (
+    "Fees, costs, percentages, thresholds and pass-through charges are shown in the "
+    "relevant project, quote, listing, withdrawal or transaction confirmation before the "
+    "Lender accepts that transaction."
+)
 
 PROJECT_INVESTMENT_PLACEHOLDERS = {
     "[AGREEMENT_NO]": "{{order.agreement_no}}",
@@ -135,6 +143,22 @@ def _quoted_checkbox_label(text: str) -> str:
     return cleaned
 
 
+def _normalize_lender_fee_schedule_placeholders(body: str) -> str:
+    body = body.replace(
+        LENDER_FEE_SCHEDULE_PRODUCTION_NOTE,
+        LENDER_FEE_SCHEDULE_TRANSACTION_DISCLOSURE,
+    )
+    body = body.replace(
+        "Lender / Borrower / both [to confirm]",
+        "As disclosed in the relevant project-specific or transaction confirmation",
+    )
+    body = body.replace(
+        "[to complete]",
+        "As disclosed before the relevant transaction is confirmed",
+    )
+    return body
+
+
 def extract_lender_user_agreement_template(
     *,
     docx_path: str | Path,
@@ -193,6 +217,7 @@ def extract_lender_user_agreement_template(
         version_label = "0.4"
 
     body = "\n\n".join(body_blocks).replace("[to be completed]", effective_date)
+    body = _normalize_lender_fee_schedule_placeholders(body)
     body = body.replace("\u00a0", " ")
     body_sha256 = hashlib.sha256(body.encode("utf-8")).hexdigest()
     unresolved = tuple(sorted(set(UNRESOLVED_PLACEHOLDER_RE.findall(body))))
