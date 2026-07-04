@@ -2,6 +2,7 @@ export type DemoAccountState = "active" | "kyc_pending" | "frozen";
 
 export type RouteName =
   | "public"
+  | "publicFaq"
   | "login"
   | "register"
   | "kyc"

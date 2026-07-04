@@ -1840,6 +1840,13 @@ export function LoansPanel() {
   const [editingBorrower, setEditingBorrower] = useState<BorrowerEntity | null>(null);
   const [editingLoan, setEditingLoan] = useState<Loan | null>(null);
   const selectedLoan = loans.find((loan) => loan.id === selectedLoanId) ?? loans[0];
+  const committedByCurrency = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const loan of loans) {
+      totals.set(loan.currency, (totals.get(loan.currency) ?? 0) + loan.committed_principal_minor);
+    }
+    return [...totals.entries()];
+  }, [loans]);
 
   useEffect(() => {
     if (!selectedBorrowerId && borrowers[0]) setSelectedBorrowerId(borrowers[0].id);
@@ -1855,7 +1862,21 @@ export function LoansPanel() {
       <section className="admin-kpi-grid">
         <StatLike label="Borrowers" value={borrowers.length} sub={`${borrowers.filter((item) => item.can_transact).length} can transact`} />
         <StatLike label="Loans" value={loans.length} sub={`${loans.filter((item) => item.status === "published").length} published`} />
-        <StatLike label="Committed" value={loans.reduce((sum, loan) => sum + loan.committed_principal_minor, 0)} sub="Minor units across preview loans" />
+        <StatLike
+          label="Committed"
+          value={
+            committedByCurrency.length ? (
+              <span className="col gap-4">
+                {committedByCurrency.map(([currency, amountMinor]) => (
+                  <Money amountMinor={amountMinor} currency={currency} key={currency} />
+                ))}
+              </span>
+            ) : (
+              <Money amountMinor={0} currency="CHF" />
+            )
+          }
+          sub="Committed principal across listed loans"
+        />
         <StatLike label="Risk items" value={loans.filter((item) => ["late", "defaulted"].includes(item.status)).length} sub="Servicing attention" />
       </section>
 
@@ -3032,7 +3053,7 @@ export function ReportsPanel() {
           />
           {auditQuery.data?.length ? (
             <div className="table-wrap admin-table-wrap">
-              <table className="admin-table">
+              <table className="admin-table admin-audit-table">
                 <thead>
                   <tr>
                     <th>When</th>

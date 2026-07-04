@@ -129,6 +129,15 @@ function previewHint(text: string) {
   return isFixturePreview ? text : undefined;
 }
 
+function humanizeToken(token: string) {
+  const label = token.replaceAll("_", " ").trim();
+  return label ? label.charAt(0).toUpperCase() + label.slice(1) : "";
+}
+
+function countLabel(count: number, singularNoun: string) {
+  return `${count} ${singularNoun}${count === 1 ? "" : "s"}`;
+}
+
 const loginFlowStorageKey = "banxum:login-flow:v1";
 const registerFlowStorageKey = "banxum:register-flow:v3";
 const appRouteStorageKey = "banxum:app-route:v1";
@@ -213,6 +222,7 @@ function removeStoredObject(key: string) {
 
 const routeNames: RouteName[] = [
   "public",
+  "publicFaq",
   "login",
   "register",
   "kyc",
@@ -318,8 +328,29 @@ function retryAfterSeconds(error: unknown) {
   return undefined;
 }
 
+function useSecondsUntil(untilMs: number) {
+  const [nowMs, setNowMs] = useState(Date.now());
+  useEffect(() => {
+    if (untilMs <= Date.now()) {
+      setNowMs(Date.now());
+      return undefined;
+    }
+    setNowMs(Date.now());
+    const timer = window.setInterval(() => {
+      const now = Date.now();
+      setNowMs(now);
+      if (untilMs <= now) {
+        window.clearInterval(timer);
+      }
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [untilMs]);
+  return Math.max(0, Math.ceil((untilMs - nowMs) / 1000));
+}
+
 const routeTitles: Record<RouteName, string> = {
   public: platformName,
+  publicFaq: "Help & FAQ",
   login: "Log in",
   register: "Register",
   kyc: "Verification",
@@ -389,17 +420,96 @@ function templateLabels(template: PublicDocumentTemplateVersion | undefined) {
     : [];
 }
 
+function copyTextFallback(text: string) {
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.left = "-9999px";
+  textarea.style.position = "fixed";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  document.body.removeChild(textarea);
+}
+
+function CopyIdButton({
+  id,
+  label = "Copy ID",
+  ariaLabel
+}: {
+  id: string;
+  label?: string;
+  ariaLabel?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <Button
+      aria-label={ariaLabel ?? label}
+      className="copy-id-btn"
+      icon="copy"
+      size="sm"
+      variant="ghost"
+      onClick={(event) => {
+        event.stopPropagation();
+        const done = () => {
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1400);
+        };
+        const writeClipboard = navigator.clipboard?.writeText?.bind(navigator.clipboard);
+        if (writeClipboard) {
+          void writeClipboard(id).then(done).catch(() => {
+            copyTextFallback(id);
+            done();
+          });
+          return;
+        }
+        copyTextFallback(id);
+        done();
+      }}
+    >
+      {copied ? "Copied" : label}
+    </Button>
+  );
+}
+
+function EntityReference({
+  title,
+  id,
+  idLabel = "Copy ID",
+  meta
+}: {
+  title: ReactNode;
+  id?: string;
+  idLabel?: string;
+  meta?: ReactNode;
+}) {
+  return (
+    <div className="entity-ref">
+      <div className="col-strong">{title}</div>
+      {(id || meta) ? (
+        <div className="entity-ref-meta">
+          {meta ? <span className="sub">{meta}</span> : null}
+          {id ? <CopyIdButton ariaLabel={idLabel} id={id} label={idLabel} /> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function useSensitiveActionCode(action: ActionEnum) {
   const requestMutation = useV1AuthSensitiveActionCodeRequestCreate();
   const [codeId, setCodeId] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
+  const [resendCooldownUntil, setResendCooldownUntil] = useState(0);
   const [error, setError] = useState("");
+  const resendCooldownSeconds = useSecondsUntil(resendCooldownUntil);
 
   const requestCode = useCallback(() => {
     setError("");
     if (isFixturePreview) {
       setCodeId("00000000-0000-0000-0000-000000000000");
       setExpiresAt(new Date(Date.now() + 10 * 60 * 1000).toISOString());
+      setResendCooldownUntil(Date.now() + 60_000);
       return;
     }
     requestMutation.mutate(
@@ -408,13 +518,20 @@ function useSensitiveActionCode(action: ActionEnum) {
         onSuccess: (response) => {
           setCodeId(response.code_id);
           setExpiresAt(response.expires_at);
+          setResendCooldownUntil(Date.now() + 60_000);
         },
-        onError: (mutationError) => setError(apiErrorMessage(mutationError))
+        onError: (mutationError) => {
+          const waitSeconds = retryAfterSeconds(mutationError);
+          if (waitSeconds) {
+            setResendCooldownUntil(Date.now() + waitSeconds * 1000);
+          }
+          setError(apiErrorMessage(mutationError));
+        }
       }
     );
   }, [action, requestMutation]);
 
-  return { codeId, expiresAt, error, isRequesting: requestMutation.isPending, requestCode };
+  return { codeId, expiresAt, error, isRequesting: requestMutation.isPending, resendCooldownSeconds, requestCode };
 }
 
 function useAutoRequestEmailCode(
@@ -482,10 +599,21 @@ function CodeRequestField({
 }
 
 function emailCodeRequestLabel(
-  codeRequest: Pick<ReturnType<typeof useSensitiveActionCode>, "codeId" | "isRequesting">
+  codeRequest: Pick<ReturnType<typeof useSensitiveActionCode>, "codeId" | "isRequesting" | "resendCooldownSeconds">
 ) {
   if (codeRequest.isRequesting) return "Sending code...";
+  if (codeRequest.resendCooldownSeconds > 0) {
+    return codeRequest.codeId
+      ? `Code sent. Send new in ${codeRequest.resendCooldownSeconds}s`
+      : `Send new in ${codeRequest.resendCooldownSeconds}s`;
+  }
   return codeRequest.codeId ? "Send a new email code" : "Send email code";
+}
+
+function emailCodeRequestDisabled(
+  codeRequest: Pick<ReturnType<typeof useSensitiveActionCode>, "isRequesting" | "resendCooldownSeconds">
+) {
+  return codeRequest.isRequesting || codeRequest.resendCooldownSeconds > 0;
 }
 
 function sourceLabel(sourceType: string) {
@@ -540,6 +668,8 @@ function clearPortalSessionState(queryClient: ReturnType<typeof useQueryClient>)
 export function App() {
   const initialRoute: AppRoute = readReadonlyImpersonationToken()
     ? { name: "dashboard" }
+    : window.location.pathname.startsWith("/faq") || window.location.pathname.startsWith("/help")
+      ? { name: "publicFaq" }
     : window.location.pathname.startsWith("/login")
       ? { name: "login" }
       : readStoredRoute();
@@ -556,6 +686,10 @@ export function App() {
 
   if (route.name === "public") {
     return <PublicLanding setRoute={setRoute} />;
+  }
+
+  if (route.name === "publicFaq") {
+    return <PublicFaqPage setRoute={setRoute} />;
   }
 
   if (route.name === "login") {
@@ -602,8 +736,8 @@ function PublicLanding({ setRoute }: { setRoute: (route: AppRoute) => void }) {
         <Wordmark />
         <div className="grow" />
         <nav className="public-nav" aria-label="Public navigation">
-          <a onClick={() => goTo(setRoute, "faq")}>How it works</a>
-          <a onClick={() => goTo(setRoute, "faq")}>FAQ</a>
+          <a onClick={() => goTo(setRoute, "publicFaq")}>How it works</a>
+          <a onClick={() => goTo(setRoute, "publicFaq")}>FAQ</a>
         </nav>
         <Button variant="ghost" onClick={() => goTo(setRoute, "login")}>
           Log in
@@ -615,8 +749,8 @@ function PublicLanding({ setRoute }: { setRoute: (route: AppRoute) => void }) {
       {previewLoan ? (
         <main className="public-body">
           <div className="public-mobile-links" aria-label="Public links">
-            <button className="btn-link" onClick={() => goTo(setRoute, "faq")} type="button">How it works</button>
-            <button className="btn-link" onClick={() => goTo(setRoute, "faq")} type="button">FAQ</button>
+            <button className="btn-link" onClick={() => goTo(setRoute, "publicFaq")} type="button">How it works</button>
+            <button className="btn-link" onClick={() => goTo(setRoute, "publicFaq")} type="button">FAQ</button>
           </div>
           <PublicLoanPreview
             loan={previewLoan}
@@ -628,8 +762,8 @@ function PublicLanding({ setRoute }: { setRoute: (route: AppRoute) => void }) {
         <>
           <main className="public-body landing">
             <div className="public-mobile-links" aria-label="Public links">
-              <button className="btn-link" onClick={() => goTo(setRoute, "faq")} type="button">How it works</button>
-              <button className="btn-link" onClick={() => goTo(setRoute, "faq")} type="button">FAQ</button>
+              <button className="btn-link" onClick={() => goTo(setRoute, "publicFaq")} type="button">How it works</button>
+              <button className="btn-link" onClick={() => goTo(setRoute, "publicFaq")} type="button">FAQ</button>
             </div>
             <div className="page-head">
               <div>
@@ -785,7 +919,7 @@ function LandingMarketing({ setRoute }: { setRoute: (route: AppRoute) => void })
             <Button size="lg" variant="primary" onClick={() => goTo(setRoute, "register")}>
               Create your investor account
             </Button>
-            <a onClick={() => goTo(setRoute, "faq")}>Read how it works →</a>
+            <a onClick={() => goTo(setRoute, "publicFaq")}>Read how it works →</a>
           </div>
         </div>
       </section>
@@ -815,7 +949,7 @@ function PublicLoanPreview({
             <span className="tag">{loan.purpose}</span>
           </div>
           <h1>{loan.title}</h1>
-          <div className="ph-sub mono">{loan.loan_id}</div>
+          <div className="ph-sub"><CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" /></div>
           <Card className="section" padded>
             <div className="grid grid-4" style={{ gap: 0 }}>
               <Stat amountMinor={loan.principal_minor} currency={loan.currency} label="Amount" />
@@ -1846,7 +1980,7 @@ function Dashboard({ demoState, setRoute }: { demoState: DemoAccountState; setRo
       </div>
 
       <div className="grid-stat" style={{ marginBottom: 20 }}>
-        <Stat amountMinor={sumAmounts(dashboard.portfolio_summary.outstanding_principal_by_currency)} currency="CHF" label="Outstanding principal" sub={`${dashboard.portfolio_summary.active_holding_count} active holdings`} />
+        <Stat amountMinor={sumAmounts(dashboard.portfolio_summary.outstanding_principal_by_currency)} currency="CHF" label="Outstanding principal" sub={countLabel(dashboard.portfolio_summary.active_holding_count, "active holding")} />
         <Stat amountMinor={sumAmounts(dashboard.portfolio_summary.realized_interest_by_currency)} currency="CHF" label="Interest received" sub="lifetime distributions" />
         <Stat amountMinor={sumAmounts(dashboard.portfolio_summary.late_or_defaulted_exposure_by_currency)} currency="CHF" label="Late/default principal" sub="watch status updates" />
         <Stat label="Weighted yield" raw="7.6%" sub="display projection" />
@@ -2083,7 +2217,7 @@ function LoanDetailScreen({
             <span className="tag">{loan.currency}</span>
           </div>
           <h1>{loan.title}</h1>
-          <div className="ph-sub mono">{loan.loan_id}</div>
+          <div className="ph-sub"><CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" /></div>
         </div>
       </div>
       <div className="split">
@@ -2163,7 +2297,7 @@ function LoanOverview({ loan }: { loan: MarketplaceLoanDetail }) {
       <p className="muted-2" style={{ lineHeight: 1.6, maxWidth: 680 }}>{loan.purpose_description}</p>
       <div className="hr" style={{ margin: "16px 0" }} />
       <dl className="kv">
-        <KeyValueRow label="Loan ID" mono value={loan.loan_id} />
+        <KeyValueRow label="Loan reference" value={<CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" />} />
         <KeyValueRow label="Borrower" value={loan.title} />
         <KeyValueRow label="Currency" value={loan.currency} />
         <KeyValueRow label="Repayment type" value={loan.repayment_type} />
@@ -2257,7 +2391,7 @@ function LoansTable({ loans, onOpen, preview = false }: { loans: MarketplaceLoan
           <tbody>
             {loans.map((loan) => (
               <tr className="clickable" key={loan.loan_id} onClick={() => onOpen(loan)}>
-                <td><div className="col-strong">{loan.title}</div><div className="sub mono">{loan.loan_id}</div></td>
+                <td><EntityReference id={loan.loan_id} idLabel="Copy loan ID" title={loan.title} /></td>
                 <td>{loan.purpose}</td>
                 <td className="num"><Money amountMinor={loan.principal_minor} currency={loan.currency} /></td>
                 <td className="num col-strong">{formatRateBps(loan.interest_rate_bps)}</td>
@@ -2388,7 +2522,7 @@ function BalanceLotsTable({ lots, frozen }: { lots: BalanceLot[]; frozen: boolea
               const penalty = frozen && lot.bucket === "overdue";
               return (
                 <tr className={penalty ? "lot-penalty" : lot.bucket === "overdue" ? "lot-overdue" : ""} key={lot.id}>
-                  <td className="mono col-strong">{lot.id}</td>
+                  <td><CopyIdButton ariaLabel="Copy lot ID" id={lot.id} label="Copy lot ID" /></td>
                   <td><div>{sourceLabel(lot.source_type)}</div>{lot.source_type === "fx_proceeds" ? <div className="sub">Deadline inherited from source lot</div> : null}</td>
                   <td className="mono muted" style={{ fontSize: 12 }}>{formatDate(lot.received_at)}</td>
                   <td className="num col-strong">{formatMoneyMinor(lot.available_amount_minor, lot.currency)}</td>
@@ -2595,7 +2729,7 @@ function WithdrawModal({ currency, maxMinor, payoutInstructions, onClose }: { cu
           <CodeRequestField
             hint={previewHint("Demo: any 6 digits")}
             label="Email confirmation code"
-            requestDisabled={codeRequest.isRequesting}
+            requestDisabled={emailCodeRequestDisabled(codeRequest)}
             requestLabel={emailCodeRequestLabel(codeRequest)}
             value={code}
             onChange={setCode}
@@ -2715,11 +2849,19 @@ function FxScreen({ demoState }: { demoState: DemoAccountState }) {
           <DataErrorCard title="Could not load exchange history" onRetry={() => void fxQuery.refetch()}>
             Your quote form is available, but historical FX activity could not be loaded.
           </DataErrorCard>
+        ) : !fx ? (
+          <LoadingCard title="Loading exchange history">Loading executed currency exchanges.</LoadingCard>
+        ) : fx.exchanges.length === 0 ? (
+          <Card>
+            <Empty icon="swap" title="No exchanges yet">
+              Executed currency exchanges and their settlement status will appear here.
+            </Empty>
+          </Card>
         ) : (
         <Card>
           <div className="tbl-wrap">
             <table className="tbl dense"><thead><tr><th>Reference</th><th>Date</th><th>Pair</th><th className="num">Debited</th><th className="num">Credited</th><th>Status</th></tr></thead>
-              <tbody>{(fx?.exchanges ?? []).map((exchange) => <tr key={exchange.id}><td className="mono col-strong">{exchange.id}</td><td className="mono muted">{formatDate(exchange.executed_at)}</td><td>{exchange.source_currency}/{exchange.target_currency}</td><td className="num">{exchange.source_currency} {formatMoneyMinor(exchange.source_amount_minor, exchange.source_currency)}</td><td className="num">{exchange.target_currency} {formatMoneyMinor(exchange.target_amount_minor, exchange.target_currency)}</td><td><Chip status={exchange.status} /></td></tr>)}</tbody>
+              <tbody>{fx.exchanges.map((exchange) => <tr key={exchange.id}><td><CopyIdButton ariaLabel="Copy exchange ID" id={exchange.id} label="Copy ID" /></td><td className="mono muted">{formatDate(exchange.executed_at)}</td><td>{exchange.source_currency}/{exchange.target_currency}</td><td className="num">{exchange.source_currency} {formatMoneyMinor(exchange.source_amount_minor, exchange.source_currency)}</td><td className="num">{exchange.target_currency} {formatMoneyMinor(exchange.target_amount_minor, exchange.target_currency)}</td><td><Chip status={exchange.status} /></td></tr>)}</tbody>
             </table>
           </div>
         </Card>
@@ -2789,7 +2931,7 @@ function FxConfirmModal({ from, to, sourceMinor, targetMinor, feeMinor, rate, qu
         <CodeRequestField
           hint={previewHint("Demo: any 6 digits")}
           label="Email confirmation code"
-          requestDisabled={codeRequest.isRequesting}
+          requestDisabled={emailCodeRequestDisabled(codeRequest)}
           requestLabel={emailCodeRequestLabel(codeRequest)}
           value={code}
           onChange={setCode}
@@ -2835,7 +2977,7 @@ function PortfolioScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) 
       <div className="page-head"><div><h1>Portfolio</h1><div className="ph-sub">Your loan claim holdings, exposure and transaction history.</div></div></div>
       <div className="grid-stat" style={{ marginBottom: 20 }}>
         <Stat amountMinor={sumAmounts(portfolio.summary.original_principal_by_currency)} currency="CHF" label="Invested principal" sub="lifetime" />
-        <Stat amountMinor={sumAmounts(portfolio.summary.outstanding_principal_by_currency)} currency="CHF" label="Outstanding principal" sub={`${portfolio.summary.active_holding_count} active holdings`} />
+        <Stat amountMinor={sumAmounts(portfolio.summary.outstanding_principal_by_currency)} currency="CHF" label="Outstanding principal" sub={countLabel(portfolio.summary.active_holding_count, "active holding")} />
         <Stat amountMinor={sumAmounts(portfolio.summary.realized_interest_by_currency)} currency="CHF" label="Interest received" sub="lifetime" />
         <Stat label="Weighted yield" raw="7.6%" sub="projection" />
       </div>
@@ -2937,7 +3079,7 @@ function HoldingsTable({
           <tbody>
             {holdings.map((holding) => (
               <tr className="clickable" key={holding.id} onClick={() => onOpen(holding)}>
-                <td><div className="col-strong">{holding.loan.borrower_name}</div><div className="sub mono">{holding.loan.loan_id}</div></td>
+                <td><EntityReference id={holding.loan.loan_id} idLabel="Copy loan ID" title={holding.loan.borrower_name} /></td>
                 <td><Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} /></td>
                 <td className="num"><Money amountMinor={holding.original_principal_minor} currency={holding.currency} /></td>
                 <td className="num col-strong">{formatMoneyMinor(holding.current_principal_minor, holding.currency)}</td>
@@ -3062,7 +3204,7 @@ function ActivityTable({ entries, dense = false }: { entries: ActivityEntry[]; d
                 <tr key={entry.id}>
                   <td className="mono muted" style={{ fontSize: 12 }}>{formatDateTime(entry.occurred_at)}</td>
                   <td className="col-strong">{entry.title}</td>
-                  <td className="sub mono">{entry.loan_title || entry.activity_type}</td>
+                  <td className="sub mono">{entry.loan_title || humanizeToken(entry.activity_type) || "-"}</td>
                   <td><ActivityTag category={category} /></td>
                   <td className="num"><ActivityAmount entry={entry} /></td>
                 </tr>
@@ -3091,7 +3233,7 @@ function OrdersTable({ orders }: { orders: PrimaryOrderPortal[] }) {
         <div className="tbl-wrap">
           <table className="tbl">
             <thead><tr><th>Order</th><th>Loan</th><th className="num">Requested</th><th className="num">Allocated</th><th>Placed</th><th>Status</th></tr></thead>
-            <tbody>{orders.map((order) => <tr key={order.id}><td className="mono col-strong">{order.id}</td><td><div className="col-strong">{order.loan_title}</div><div className="sub mono">{order.loan_id}</div></td><td className="num"><Money amountMinor={order.requested_amount_minor} currency={order.currency} /></td><td className="num">{order.allocated_amount_minor > 0 ? <Money amountMinor={order.allocated_amount_minor} currency={order.currency} /> : <span className="muted">-</span>}</td><td className="mono muted">{formatDateTime(order.created_at)}</td><td><Chip status={order.status} /></td></tr>)}</tbody>
+            <tbody>{orders.map((order) => <tr key={order.id}><td><CopyIdButton ariaLabel="Copy order ID" id={order.id} label="Copy order ID" /></td><td><EntityReference id={order.loan_id} idLabel="Copy loan ID" title={order.loan_title} /></td><td className="num"><Money amountMinor={order.requested_amount_minor} currency={order.currency} /></td><td className="num">{order.allocated_amount_minor > 0 ? <Money amountMinor={order.allocated_amount_minor} currency={order.currency} /> : <span className="muted">-</span>}</td><td className="mono muted">{formatDateTime(order.created_at)}</td><td><Chip status={order.status} /></td></tr>)}</tbody>
           </table>
         </div>
       </Card>
@@ -3105,7 +3247,7 @@ function HoldingDetail({ holding, onClose, setRoute }: { holding: Holding; onClo
   return (
     <Modal drawer footer={<><Button variant="ghost" onClick={onClose}>Close</Button><Button disabled={holding.loan.loan_status !== "funded"} icon="secondary" variant="primary" onClick={() => { onClose(); goTo(setRoute, "secondary"); }}>List on secondary market</Button></>} onClose={onClose} title={holding.loan.borrower_name}>
       <div className="col gap-16">
-        <div className="row gap-8 wrap"><Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} /><Rating value={holding.loan.risk_rating} /><Country code={holding.loan.borrower_country} /><span className="tag">{holding.loan.loan_id}</span></div>
+        <div className="row gap-8 wrap"><Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} /><Rating value={holding.loan.risk_rating} /><Country code={holding.loan.borrower_country} /><CopyIdButton ariaLabel="Copy loan ID" id={holding.loan.loan_id} label="Copy loan ID" /></div>
         {impaired ? <Banner tone="warn" title={`${holding.loan.loan_status.replaceAll("_", " ")} - ${holding.loan.days_past_due} DPD`}>This position is not a normal live loan. Review public notes and recovery updates before taking action.</Banner> : null}
         <div className="grid grid-2">
           <Card padded><Stat amountMinor={holding.original_principal_minor} currency={holding.currency} label="Invested" /></Card>
@@ -3211,7 +3353,7 @@ function BuyerListingsTable({ listings, onBuy, frozen }: { listings: SecondaryMa
           <tbody>
             {listings.map((listing) => (
               <tr className="clickable" key={listing.id} onClick={() => !frozen && !isReadonlyImpersonationActive() && onBuy(listing)}>
-                <td><div className="col-strong">{listing.loan_title}</div><div className="sub mono">{listing.id}</div></td>
+                <td><EntityReference id={listing.id} idLabel="Copy listing ID" title={listing.loan_title} /></td>
                 <td><div className="row gap-6 wrap"><Chip status={listing.loan_status_at_listing} tone={statusTone(listing.loan_status_at_listing)} />{listing.risk_acknowledgement_required ? <Chip square tone="warn">Non-standard</Chip> : null}</div></td>
                 <td className="num"><Money amountMinor={listing.current_principal_minor} currency={listing.currency} /></td>
                 <td className="num">{priceLabel(listing.discount_premium_bps)}</td>
@@ -3239,7 +3381,7 @@ function SellableHoldingsTable({ holdings, onSell, frozen }: { holdings: Holding
       <div className="tbl-wrap">
         <table className="tbl">
           <thead><tr><th>Holding</th><th>Status</th><th className="num">Current principal</th><th className="num">Rate</th><th /></tr></thead>
-          <tbody>{holdings.map((holding) => <tr key={holding.id}><td><div className="col-strong">{holding.loan.borrower_name}</div><div className="sub mono">{holding.loan.loan_id}</div></td><td><Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} /></td><td className="num"><Money amountMinor={holding.current_principal_minor} currency={holding.currency} /></td><td className="num">{formatRateBps(holding.loan.interest_rate_bps)}</td><td className="right"><Button disabled={frozen || isReadonlyImpersonationActive()} size="sm" onClick={() => onSell(holding)}>{holding.loan.loan_status === "funded" ? "List" : "Request listing"}</Button></td></tr>)}</tbody>
+          <tbody>{holdings.map((holding) => <tr key={holding.id}><td><EntityReference id={holding.loan.loan_id} idLabel="Copy loan ID" title={holding.loan.borrower_name} /></td><td><Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} /></td><td className="num"><Money amountMinor={holding.current_principal_minor} currency={holding.currency} /></td><td className="num">{formatRateBps(holding.loan.interest_rate_bps)}</td><td className="right"><Button disabled={frozen || isReadonlyImpersonationActive()} size="sm" onClick={() => onSell(holding)}>{holding.loan.loan_status === "funded" ? "List" : "Request listing"}</Button></td></tr>)}</tbody>
         </table>
       </div>
     </Card>
@@ -3256,7 +3398,7 @@ function MyListingsTable({ listings }: { listings: SecondaryListingPortal[] }) {
       <div className="tbl-wrap">
         <table className="tbl">
           <thead><tr><th>Listing</th><th className="num">Principal</th><th className="num">Seller net</th><th>State</th></tr></thead>
-          <tbody>{listings.map((listing) => <tr key={listing.id}><td><div className="col-strong">{listing.loan_title}</div><div className="sub mono">{listing.id}</div></td><td className="num"><Money amountMinor={listing.current_principal_minor} currency={listing.currency} /></td><td className="num"><Money amountMinor={listing.seller_net_proceeds_minor} currency={listing.currency} /></td><td><Chip status={listing.status} /></td></tr>)}</tbody>
+          <tbody>{listings.map((listing) => <tr key={listing.id}><td><EntityReference id={listing.id} idLabel="Copy listing ID" title={listing.loan_title} /></td><td className="num"><Money amountMinor={listing.current_principal_minor} currency={listing.currency} /></td><td className="num"><Money amountMinor={listing.seller_net_proceeds_minor} currency={listing.currency} /></td><td><Chip status={listing.status} /></td></tr>)}</tbody>
         </table>
       </div>
     </Card>
@@ -3336,10 +3478,11 @@ function BuyListingModal({ listing, onClose }: { listing: SecondaryMarketBuyerLi
     return <Modal footer={<Button variant="primary" onClick={onClose}>Done</Button>} onClose={onClose} title="Purchase confirmed"><SuccessState title="Purchase confirmed">The holding will appear in your portfolio after settlement evidence is generated.</SuccessState></Modal>;
   }
   return (
-    <Modal wide footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!ack || (needsExtra && !extraAck) || code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || acceptanceMutation.isPending || purchaseMutation.isPending} variant="primary" onClick={submitPurchase}>{acceptanceMutation.isPending || purchaseMutation.isPending ? "Submitting..." : "Confirm purchase"}</Button></>} onClose={onClose} title={`Buy listing ${listing.id}`}>
+    <Modal wide footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!ack || (needsExtra && !extraAck) || code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || acceptanceMutation.isPending || purchaseMutation.isPending} variant="primary" onClick={submitPurchase}>{acceptanceMutation.isPending || purchaseMutation.isPending ? "Submitting..." : "Confirm purchase"}</Button></>} onClose={onClose} title={`Buy ${listing.loan_title}`}>
       <div className="col gap-16">
         {needsExtra ? <Banner tone="bad" title="Non-standard listing - elevated risk">This listing is non-performing or otherwise non-standard. You may receive less than the principal shown, or nothing.</Banner> : null}
         <Review rows={[
+          { label: "Listing", value: <span className="entity-inline"><span>{listing.loan_title}</span><CopyIdButton ariaLabel="Copy listing ID" id={listing.id} label="Copy listing ID" /></span> },
           { label: "Current principal", value: `${listing.currency} ${formatMoneyMinor(listing.current_principal_minor, listing.currency)}` },
           { label: "Sale price", value: priceLabel(listing.discount_premium_bps) },
           { label: "Accrued interest to seller", value: `${listing.currency} ${formatMoneyMinor(listing.accrued_interest_minor, listing.currency)}` },
@@ -3352,7 +3495,7 @@ function BuyListingModal({ listing, onClose }: { listing: SecondaryMarketBuyerLi
         <CodeRequestField
           hint={previewHint("Demo: any 6 digits")}
           label="Email confirmation code"
-          requestDisabled={codeRequest.isRequesting}
+          requestDisabled={emailCodeRequestDisabled(codeRequest)}
           requestLabel={emailCodeRequestLabel(codeRequest)}
           value={code}
           onChange={setCode}
@@ -3441,13 +3584,14 @@ function ListHoldingModal({ holding, onClose }: { holding: Holding; onClose: () 
     return <Modal footer={<Button variant="primary" onClick={onClose}>Done</Button>} onClose={onClose} title={nonStandard ? "Submitted for approval" : "Listing published"}><SuccessState title={nonStandard ? "Submitted for approval" : "Listing published"}>{nonStandard ? "Garanta will review the listing disclosure before it becomes visible." : "Your holding is visible to buyers anonymously."}</SuccessState></Modal>;
   }
   return (
-    <Modal footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!ack || code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || acceptanceMutation.isPending || listingMutation.isPending} variant="primary" onClick={submitListing}>{acceptanceMutation.isPending || listingMutation.isPending ? "Submitting..." : nonStandard ? "Submit for approval" : "Publish listing"}</Button></>} onClose={onClose} title={`List ${holding.loan.loan_id}`}>
+    <Modal footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!ack || code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || acceptanceMutation.isPending || listingMutation.isPending} variant="primary" onClick={submitListing}>{acceptanceMutation.isPending || listingMutation.isPending ? "Submitting..." : nonStandard ? "Submit for approval" : "Publish listing"}</Button></>} onClose={onClose} title={`List ${holding.loan.borrower_name}`}>
       <div className="col gap-16">
         {nonStandard ? <Banner tone="warn" title="Requires Garanta approval">Non-performing holdings require approval and status disclosure before buyers can see them.</Banner> : null}
         <Field hint="10000 = at par, 9800 = 2% discount, 10100 = 1% premium." label="Sale price bps">
           <input className="input mono" inputMode="numeric" onChange={(event) => setPriceBps(event.target.value.replace(/\D/g, ""))} value={priceBps} />
         </Field>
         <Review rows={[
+          { label: "Holding", value: <span className="entity-inline"><span>{holding.loan.borrower_name}</span><CopyIdButton ariaLabel="Copy holding ID" id={holding.id} label="Copy holding ID" /></span> },
           { label: "Current principal", value: `${holding.currency} ${formatMoneyMinor(holding.current_principal_minor, holding.currency)}` },
           { label: "Transfer price", value: `${holding.currency} ${formatMoneyMinor(transferPrice, holding.currency)}` },
           { label: "Maker fee", value: `${holding.currency} ${formatMoneyMinor(makerFee, holding.currency)}` },
@@ -3458,7 +3602,7 @@ function ListHoldingModal({ holding, onClose }: { holding: Holding; onClose: () 
         <CodeRequestField
           hint={previewHint("Demo: any 6 digits")}
           label="Email confirmation code"
-          requestDisabled={codeRequest.isRequesting}
+          requestDisabled={emailCodeRequestDisabled(codeRequest)}
           requestLabel={emailCodeRequestLabel(codeRequest)}
           value={code}
           onChange={setCode}
@@ -3627,18 +3771,41 @@ function NotificationsScreen() {
   );
 }
 
+function kycChipTone(status: string) {
+  if (status === "approved") return "ok" as const;
+  if (status === "pending" || status === "not_started") return "neutral" as const;
+  if (status === "manual_review" || status === "expired" || status === "reverification_required") return "warn" as const;
+  return "bad" as const;
+}
+
 function SettingsScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) {
   const [marketing, setMarketing] = useState(false);
   const [showPayoutModal, setShowPayoutModal] = useState(false);
-  const profile = displayProfile();
+  const authMeQuery = useV1AuthMeRetrieve({
+    query: { enabled: !isFixturePreview, retry: false, staleTime: 0 }
+  });
+  const kycStatusQuery = useV1KycStatusRetrieve({
+    query: { enabled: !isFixturePreview && !isReadonlyImpersonationActive(), retry: false, staleTime: 0 }
+  });
+  const fixtureProfile = displayProfile();
+  const account = authMeQuery.data?.user;
+  const name = isFixturePreview ? fixtureProfile.name : account?.full_name ?? "";
+  const email = isFixturePreview ? fixtureProfile.email : account?.email ?? "";
+  const country = isFixturePreview ? fixtureProfile.country : "";
+  const memberSince = isFixturePreview ? fixtureProfile.memberSince : "";
+  const phone = isFixturePreview ? fixtureProfile.phone : "";
+  const kycStatus = isFixturePreview ? "approved" : kycStatusQuery.data?.status;
+  const phoneVerified = isFixturePreview
+    ? true
+    : kycStatusQuery.data?.phone_verified ?? account?.phone_verified;
   const balances = useBalancesData();
   const payoutInstructions = balances.data?.payout_instructions ?? [];
   return (
     <main className="content narrow">
       <div className="page-head"><div><h1>Settings</h1><div className="ph-sub">Profile, verification, payout accounts and preferences.</div></div></div>
       <div className="col gap-16">
-        <Card><div className="card-head"><h3>Profile</h3></div><div className="card-pad"><dl className="kv"><KeyValueRow label="Name" value={profile.name} /><KeyValueRow label="Email" mono value={profile.email} /><KeyValueRow label="Country" value={profile.country} />{profile.memberSince ? <KeyValueRow label="Member since" mono value={formatDate(profile.memberSince)} /> : null}</dl><p className="muted" style={{ fontSize: 11.5, marginTop: 12 }}>Name or email changes are handled through support after identity re-verification.</p></div></Card>
-        <Card><div className="card-head"><h3>Verification</h3></div><div className="card-pad col gap-12"><div className="row spread"><span className="row gap-8"><Icon className="muted" name="shield" size={16} />Identity (KYC/AML)</span><Chip status={isFixturePreview ? "approved" : "backend required"} tone={isFixturePreview ? "ok" : "neutral"} /></div><div className="hr" /><div className="row spread"><span className="row gap-8"><Icon className="muted" name="phone" size={16} />Phone {profile.phone || "backend required"}</span><Chip status={isFixturePreview ? "verified" : "backend required"} tone={isFixturePreview ? "ok" : "neutral"} /></div></div></Card>
+        <Card><div className="card-head"><h3>Profile</h3></div><div className="card-pad"><dl className="kv">{name ? <KeyValueRow label="Name" value={name} /> : null}{email ? <KeyValueRow label="Email" mono value={email} /> : null}{country ? <KeyValueRow label="Country" value={country} /> : null}{memberSince ? <KeyValueRow label="Member since" mono value={formatDate(memberSince)} /> : null}</dl><p className="muted" style={{ fontSize: 11.5, marginTop: 12 }}>Name or email changes are handled through support after identity re-verification.</p></div></Card>
+        <Card><div className="card-head"><h3>Verification</h3></div><div className="card-pad col gap-12"><div className="row spread"><span className="row gap-8"><Icon className="muted" name="shield" size={16} />Identity (KYC/AML)</span>{kycStatus ? <Chip tone={kycChipTone(kycStatus)}>{humanizeToken(kycStatus)}</Chip> : <span className="muted">-</span>}</div><div className="hr" /><div className="row spread"><span className="row gap-8"><Icon className="muted" name="phone" size={16} />{phone ? `Phone ${phone}` : "Phone"}</span>{phoneVerified === undefined ? <span className="muted">-</span> : <Chip status={phoneVerified ? "verified" : "pending"} tone={phoneVerified ? "ok" : "neutral"} />}</div></div></Card>
         <Card>
           <div className="card-head"><h3>Payout accounts</h3><Button disabled={isReadonlyImpersonationActive()} size="sm" variant="ghost" onClick={() => setShowPayoutModal(true)}>Add/update IBAN</Button></div>
           <div className="card-pad col gap-12">
@@ -3739,7 +3906,7 @@ function PayoutIbanModal({ onClose }: { onClose: () => void }) {
         <CodeRequestField
           hint={previewHint("Demo: any 6 digits")}
           label="Email confirmation code"
-          requestDisabled={codeRequest.isRequesting}
+          requestDisabled={emailCodeRequestDisabled(codeRequest)}
           requestLabel={emailCodeRequestLabel(codeRequest)}
           value={code}
           onChange={setCode}
@@ -3856,29 +4023,355 @@ function KycTimeline({ current }: { current: "pending" | "manual_review" | "appr
   );
 }
 
+type FaqSection = {
+  title: string;
+  summary: string;
+  items: Array<{ question: string; answer: ReactNode }>;
+};
+
+const faqSections: FaqSection[] = [
+  {
+    title: "How BANXUM works",
+    summary: "The platform connects individual lenders with secured business-loan opportunities.",
+    items: [
+      {
+        question: `What is ${platformName}?`,
+        answer: (
+          <>
+            {platformName} is a peer-to-peer lending platform operated by {operatorName}. Individual
+            lenders can buy participations in loan claims originated, documented and serviced by the
+            operator.
+          </>
+        )
+      },
+      {
+        question: "Who are the parties in a typical loan?",
+        answer: (
+          <>
+            A borrower receives financing, lenders fund loan-claim participations, {operatorName} operates
+            the platform and servicing process, and Didit supports identity verification. The platform is
+            not a bank deposit product, fund, exchange, or guaranteed-return product.
+          </>
+        )
+      },
+      {
+        question: "Is every loan secured?",
+        answer: (
+          <>
+            Loans are intended to be backed by collateral or security described in each project. Security can
+            reduce loss risk, but it does not guarantee repayment or full recovery after a borrower default.
+          </>
+        )
+      }
+    ]
+  },
+  {
+    title: "Account and verification",
+    summary: "Registration, phone verification and KYC must be complete before financial access unlocks.",
+    items: [
+      {
+        question: "Who can register online?",
+        answer: (
+          <>
+            The online flow is for individual lenders in Switzerland and EU/EEA countries. Legal entities are
+            onboarded by {operatorName} off-platform.
+          </>
+        )
+      },
+      {
+        question: "Why do I need phone verification and KYC?",
+        answer: (
+          <>
+            Phone verification confirms account contact details. KYC confirms identity and helps satisfy AML
+            and investor-protection controls. Until those checks are complete, deposits and investing remain
+            locked.
+          </>
+        )
+      },
+      {
+        question: "What happens if KYC is under review?",
+        answer: (
+          <>
+            The verification screen waits for the provider and compliance result. If the case is routed to
+            manual review, financial actions remain locked until {operatorName} approves the account.
+          </>
+        )
+      }
+    ]
+  },
+  {
+    title: "Balances and deadlines",
+    summary: "Operational balances are controlled by 30-day and 60-day regulatory ageing rules.",
+    items: [
+      {
+        question: "Are platform balances like a bank account?",
+        answer: (
+          <>
+            No. Platform balances are non-interest-bearing operational funds held for investing, FX or
+            withdrawal workflows. They are not bank deposits and are subject to ageing controls.
+          </>
+        )
+      },
+      {
+        question: "How long can money remain uninvested?",
+        answer: (
+          <>
+            Newly received funds are investable for up to 30 days. They must be either invested, withdrawn, or
+            handled by the 60-day return process before the outer deadline is reached.
+          </>
+        )
+      },
+      {
+        question: "What happens at the 60-day deadline?",
+        answer: (
+          <>
+            If a verified usable payout IBAN is on file, the system can create a forced withdrawal. If there is
+            no usable IBAN, money-moving actions are blocked and the overdue balance can enter penalty mode.
+            The 60-day limit cannot be extended.
+          </>
+        )
+      }
+    ]
+  },
+  {
+    title: "Investing and orders",
+    summary: "Orders are intents first; they become effective only after funds are allocated.",
+    items: [
+      {
+        question: "Does placing an order reserve loan capacity?",
+        answer: (
+          <>
+            No. An order is an investment intent. It becomes effective only when eligible funds are allocated
+            and validated on a first-come, first-served basis.
+          </>
+        )
+      },
+      {
+        question: "Can an order be partially filled?",
+        answer: (
+          <>
+            Yes. If remaining capacity is lower than your requested amount, the platform may allocate only the
+            available part, subject to platform rules and available eligible balance.
+          </>
+        )
+      },
+      {
+        question: "What do I agree to when investing?",
+        answer: (
+          <>
+            Each investment requires current investment terms and risk acknowledgements. The accepted document
+            version, timestamp, checkbox labels and context are recorded as immutable evidence.
+          </>
+        )
+      }
+    ]
+  },
+  {
+    title: "Repayments, portfolio and risk",
+    summary: "Repayments credit lender balances; borrower delay or default can reduce expected returns.",
+    items: [
+      {
+        question: "How do repayments reach me?",
+        answer: (
+          <>
+            Borrower repayments are distributed to current holders according to their outstanding principal.
+            Principal and interest credits appear in your balance and activity history.
+          </>
+        )
+      },
+      {
+        question: "Can I lose money?",
+        answer: (
+          <>
+            Yes. Borrowers can pay late, pay partially, default, or become subject to recovery proceedings.
+            Collateral, guarantees or security may not fully cover losses or may take time and cost to enforce.
+          </>
+        )
+      },
+      {
+        question: "Why do holdings sometimes show late or default status?",
+        answer: (
+          <>
+            Loan status follows the servicing process. Late/default statuses are based on overdue installments
+            and are shown so lenders can assess current risk before holding or selling.
+          </>
+        )
+      }
+    ]
+  },
+  {
+    title: "Secondary market and FX",
+    summary: "Selling and currency conversion are available only under platform controls.",
+    items: [
+      {
+        question: "Can I sell before maturity?",
+        answer: (
+          <>
+            You can list an entire holding on the secondary market when the platform permits it. Liquidity is
+            not guaranteed, and non-performing or non-standard listings require additional acknowledgement or
+            admin approval.
+          </>
+        )
+      },
+      {
+        question: "Does a buyer see who the seller is?",
+        answer: (
+          <>
+            No. Buyer-facing secondary-market views are counterparty-redacted. Buyers see loan, price, fee,
+            risk and disclosure fields, not the seller identity.
+          </>
+        )
+      },
+      {
+        question: "Does converting currency reset the ageing clock?",
+        answer: (
+          <>
+            No. FX is a settlement function. Converted balance inherits the source lot's relevant deadlines;
+            conversion must not create a fresh 30/60-day timer.
+          </>
+        )
+      }
+    ]
+  },
+  {
+    title: "Documents, reports and support",
+    summary: "Accepted documents and statements remain available from the portal.",
+    items: [
+      {
+        question: "Where can I find terms I accepted?",
+        answer: (
+          <>
+            Open Documents in the portal. The system lists historical accepted document versions, and the full
+            accepted PDF can be generated from immutable evidence when needed.
+          </>
+        )
+      },
+      {
+        question: "Can I download account statements or tax documents?",
+        answer: (
+          <>
+            Statement and tax download surfaces are available from the portal when data exists. They are scoped
+            to your own account.
+          </>
+        )
+      },
+      {
+        question: "How do I contact support?",
+        answer: (
+          <>
+            Email <a href={`mailto:${supportEmail}`}>{supportEmail}</a>. Include your investor reference if
+            you have one, but do not send passwords, one-time codes or identity-document images by email unless
+            support explicitly instructs you.
+          </>
+        )
+      }
+    ]
+  }
+];
+
+function FaqContent() {
+  const [open, setOpen] = useState("0-0");
+  return (
+    <>
+      <div className="page-head">
+        <div>
+          <h1>Help & FAQ</h1>
+          <div className="ph-sub">
+            Plain-English answers on onboarding, balances, orders, risk, FX, documents and the secondary market.
+          </div>
+        </div>
+      </div>
+      <div className="faq-intro">
+        <div>
+          <div className="eyebrow">Before investing</div>
+          <h2>Know the operating rules before moving money</h2>
+          <p>
+            {platformName} is built for secured peer-to-peer lending. These answers summarize the user-facing
+            flow; the legally binding wording is the document version you accept in the platform.
+          </p>
+        </div>
+        <div className="faq-support">
+          <div className="muted">Need help?</div>
+          <a className="mono" href={`mailto:${supportEmail}`}>{supportEmail}</a>
+        </div>
+      </div>
+      <div className="faq-sections">
+        {faqSections.map((section, sectionIndex) => (
+          <Card key={section.title}>
+            <div className="faq-section-head">
+              <div>
+                <h2>{section.title}</h2>
+                <p>{section.summary}</p>
+              </div>
+            </div>
+            {section.items.map((item, itemIndex) => {
+              const key = `${sectionIndex}-${itemIndex}`;
+              const isOpen = open === key;
+              return (
+                <div className="faq-row" key={item.question}>
+                  <button
+                    className="faq-q"
+                    onClick={() => setOpen(isOpen ? "" : key)}
+                    type="button"
+                  >
+                    <span>{item.question}</span>
+                    <Icon className="muted" name={isOpen ? "chevD" : "chevR"} size={16} />
+                  </button>
+                  {isOpen ? <div className="faq-a">{item.answer}</div> : null}
+                </div>
+              );
+            })}
+          </Card>
+        ))}
+      </div>
+      <Banner tone="warn" title="Risk warning">
+        Investing through {platformName} involves risk of capital loss, borrower default, late payment,
+        illiquidity, enforcement cost and no guaranteed return.
+      </Banner>
+    </>
+  );
+}
+
+function PublicFaqPage({ setRoute }: { setRoute: (route: AppRoute) => void }) {
+  return (
+    <div className="public">
+      <header className="public-top">
+        <Wordmark />
+        <div className="grow" />
+        <nav className="public-nav" aria-label="Public navigation">
+          <a onClick={() => goTo(setRoute, "public")}>Marketplace preview</a>
+          <a aria-current="page">FAQ</a>
+        </nav>
+        <Button variant="ghost" onClick={() => goTo(setRoute, "login")}>
+          Log in
+        </Button>
+        <Button variant="primary" onClick={() => goTo(setRoute, "register")}>
+          Register
+        </Button>
+      </header>
+      <main className="public-body public-faq">
+        <div className="public-mobile-links" aria-label="Public links">
+          <button className="btn-link" onClick={() => goTo(setRoute, "public")} type="button">
+            Marketplace preview
+          </button>
+          <button className="btn-link" onClick={() => goTo(setRoute, "register")} type="button">
+            Register
+          </button>
+        </div>
+        <FaqContent />
+        <div className="faq-cta">
+          <Button variant="ghost" onClick={() => goTo(setRoute, "public")}>Back to marketplace</Button>
+          <Button variant="primary" onClick={() => goTo(setRoute, "register")}>Create lender account</Button>
+        </div>
+      </main>
+    </div>
+  );
+}
+
 function FaqScreen() {
-  const [open, setOpen] = useState(0);
-  const faqs = [
-    ["Are platform balances like a bank account?", "No. Balances are non-interest-bearing operational funds, not bank deposits, and are subject to regulatory ageing limits."],
-    ["What happens at the 60-day deadline?", "If a usable payout IBAN is on file, Garanta may initiate forced withdrawal. If not, money-moving actions freeze until one is provided. The 60-day limit cannot be extended."],
-    ["Does converting currency reset the clock?", "No. FX is a settlement function. Converted funds inherit source-lot deadlines."],
-    ["Is an investment order guaranteed to be filled?", "No. Orders are intents and are filled first-come, first-served only when funds are allocated and validated."],
-    ["Can I sell before maturity?", "You can list an entire holding on the secondary market. Liquidity is not guaranteed and non-performing listings require approval and extra acknowledgement."]
-  ];
   return (
     <main className="content narrow">
-      <div className="page-head"><div><h1>Help & FAQ</h1><div className="ph-sub">Plain-English answers on balances, orders, risk, FX and secondary market.</div></div></div>
-      <Card>
-        {faqs.map(([question, answer], index) => (
-          <div key={question} style={{ borderBottom: index < faqs.length - 1 ? "1px solid var(--line)" : 0 }}>
-            <button className="row spread" onClick={() => setOpen(open === index ? -1 : index)} style={{ background: "none", border: 0, cursor: "pointer", padding: "15px 18px", textAlign: "left", width: "100%" }} type="button">
-              <span className="col-strong">{question}</span><Icon className="muted" name={open === index ? "chevD" : "chevR"} size={16} />
-            </button>
-            {open === index ? <div style={{ padding: "0 18px 16px" }}><p className="muted-2" style={{ fontSize: 13, lineHeight: 1.6 }}>{answer}</p></div> : null}
-          </div>
-        ))}
-      </Card>
-      <Banner tone="warn" title="Risk warning">Investing through {platformName} involves risk of loss, borrower default, illiquidity and no guaranteed return.</Banner>
+      <FaqContent />
     </main>
   );
 }
@@ -3893,6 +4386,7 @@ function InvestModal({ loan, onClose }: { loan: MarketplaceLoanDetail; onClose: 
   const [step, setStep] = useState<"amount" | "review" | "confirm" | "done">("amount");
   const [ack1, setAck1] = useState(false);
   const [ack2, setAck2] = useState(false);
+  const [termsExpanded, setTermsExpanded] = useState(false);
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [orderId, setOrderId] = useState<string | null>(null);
@@ -4002,8 +4496,42 @@ function InvestModal({ loan, onClose }: { loan: MarketplaceLoanDetail; onClose: 
         </div>
       ) : step === "review" ? (
         <div className="col gap-16">
-          <Review rows={[{ label: "Loan", value: `${loan.loan_id} - ${loan.title}` }, { label: "Order amount", value: `${loan.currency} ${formatMoneyMinor(amountMinor, loan.currency)}` }, { label: "Target interest", value: `${formatRateBps(loan.interest_rate_bps)} p.a.` }, { label: "Platform fee", value: "None" }]} />
+          <Review rows={[{ label: "Loan", value: <span className="entity-inline"><span>{loan.title}</span><CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" /></span> }, { label: "Order amount", value: `${loan.currency} ${formatMoneyMinor(amountMinor, loan.currency)}` }, { label: "Target interest", value: `${formatRateBps(loan.interest_rate_bps)} p.a.` }, { label: "Platform fee", value: "None" }]} />
           <div className="legal"><h5>Generic P2P lending risk acknowledgement</h5><p>{riskText}</p></div>
+          <div className="legal terms-summary">
+            <h5>Investment terms and loan claim assignment</h5>
+            <p>
+              Before placing this order, review the full primary-market investment terms and loan
+              claim assignment. Your acceptance is recorded against the exact server-published
+              document version, timestamp, order amount and loan context.
+            </p>
+            <p>
+              Full terms:{" "}
+              {!isFixturePreview && termsQuery.data ? (
+                <a
+                  className="terms-link"
+                  href={`#investment-terms-${termsQuery.data.id}`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    setTermsExpanded((expanded) => !expanded);
+                  }}
+                >
+                  {termsExpanded ? "Hide" : "Read"} {termsQuery.data.title} v{termsQuery.data.version_number}
+                </a>
+              ) : isFixturePreview ? (
+                <span className="muted">Preview mode uses demo terms; live terms load from the published server template.</span>
+              ) : termsQuery.isError ? (
+                <span className="neg">Current terms could not be loaded.</span>
+              ) : (
+                <span className="muted">Loading current terms...</span>
+              )}
+            </p>
+            {termsExpanded && termsQuery.data ? (
+              <div className="legal-document-preview terms-body-preview" id={`investment-terms-${termsQuery.data.id}`}>
+                {termsQuery.data.body}
+              </div>
+            ) : null}
+          </div>
           <Check checked={ack1} id="invest-ack-1" onChange={setAck1}>I accept the primary-market investment terms and loan claim assignment.</Check>
           <Check checked={ack2} id="invest-ack-2" onChange={setAck2}>I acknowledge the risk disclosure and possible capital loss.</Check>
         </div>
@@ -4015,7 +4543,7 @@ function InvestModal({ loan, onClose }: { loan: MarketplaceLoanDetail; onClose: 
           <CodeRequestField
             hint={previewHint("Demo: any 6 digits")}
             label="Email confirmation code"
-            requestDisabled={codeRequest.isRequesting}
+            requestDisabled={emailCodeRequestDisabled(codeRequest)}
             requestLabel={emailCodeRequestLabel(codeRequest)}
             value={code}
             onChange={setCode}
@@ -4025,7 +4553,7 @@ function InvestModal({ loan, onClose }: { loan: MarketplaceLoanDetail; onClose: 
           {codeRequest.error || error ? <Banner tone="bad" title="Could not place order">{codeRequest.error || error}</Banner> : null}
         </div>
       ) : (
-        <SuccessState title="Order placed">Your order is pending allocation. Documents will be emailed and added to Documents when generated.</SuccessState>
+        <SuccessState title="Order placed">Your order is pending allocation. Investment evidence will be added to Documents when generated.</SuccessState>
       )}
     </Modal>
   );
@@ -4035,7 +4563,7 @@ function KeyValue({ label, value }: { label: string; value: string }) {
   return <div className="row spread" style={{ fontSize: 13, gap: 12, marginBottom: 8 }}><span className="muted">{label}</span><span className="mono col-strong right">{value}</span></div>;
 }
 
-function KeyValueRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+function KeyValueRow({ label, value, mono = false }: { label: string; value: ReactNode; mono?: boolean }) {
   return <div className="kv-row"><dt>{label}</dt><dd className={mono ? "mono" : ""}>{value}</dd></div>;
 }
 

@@ -32,6 +32,15 @@ test("renders the BANXUM public investor preview", () => {
   expect(screen.getByRole("button", { name: "Register" })).toBeInTheDocument();
 });
 
+test("renders the FAQ for logged-out visitors", () => {
+  renderApp("/faq");
+
+  expect(screen.getByRole("heading", { name: "Help & FAQ" })).toBeInTheDocument();
+  expect(screen.getByText("How BANXUM works")).toBeInTheDocument();
+  expect(screen.getByText("Account and verification")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Create lender account" })).toBeInTheDocument();
+});
+
 test("login resume sends incomplete accounts back to onboarding", () => {
   expect(
     onboardingStepForUser({

@@ -286,3 +286,11 @@ Before launch, Claude Design should produce or implement:
 - Remaining backend/API dependency: final counsel-approved template text, final production PDF layout decision, and any later post-close assignment artifact if legal requires a final holding ID after funding close.
 - Claude Design action: polish user-facing copy and layout around "terms unavailable", stale-template refresh, accepted-document success, and Documents-screen grouping for historical accepted versions and per-order investment confirmations. Do not design an email-with-attachment expectation for legal terms.
 - Priority: important.
+
+## 2026-06-30: Public And Portal FAQ
+
+- Screen or component: logged-out FAQ/How-it-works page and signed-in Help & FAQ screen.
+- Current first-version behavior: FAQ content is now a shared React component rendered from a public-safe route (`/faq` or public navigation) and inside the authenticated investor shell. Logged-out visitors no longer hit investor portal gating or authenticated data calls when opening FAQ.
+- Design decision: keep FAQ educational and compliance-aware rather than promotional. It explains the P2P model, onboarding/KYC, balance ageing, investment orders, repayments, secondary-market anonymity, FX deadline inheritance, documents, support, and risk warnings without implying guaranteed liquidity or returns.
+- Suggested improvement: Claude Design should polish the public FAQ hierarchy, mobile accordion spacing, quick navigation between sections, and whether the public FAQ should include visual diagrams for money flow and 30/60-day ageing rules.
+- Priority: important.

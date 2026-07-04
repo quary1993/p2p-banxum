@@ -948,8 +948,11 @@ td.num {
 }
 
 .tbl-wrap {
+  max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
   width: 100%;
+  -webkit-overflow-scrolling: touch;
 }
 
 table.tbl {
@@ -1343,6 +1346,40 @@ textarea.input {
   text-align: right;
 }
 
+.rv .entity-inline {
+  justify-content: flex-end;
+}
+
+.copy-id-btn {
+  color: var(--ink-3);
+  font-size: 11px;
+  height: 24px;
+  padding: 0 7px;
+}
+
+.entity-ref {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.entity-ref-meta {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 1px;
+}
+
+.entity-inline {
+  align-items: center;
+  display: inline-flex;
+  flex-wrap: wrap;
+  font-family: var(--font-sans);
+  gap: 8px;
+}
+
 .rrow.total {
   background: var(--accent-soft);
   font-weight: 600;
@@ -1360,6 +1397,21 @@ textarea.input {
   padding: 14px 16px;
 }
 
+.terms-summary {
+  max-height: none;
+}
+
+.terms-summary p + p {
+  margin-top: 8px;
+}
+
+.terms-link {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .legal h5 {
   color: var(--ink);
   font-size: 12.5px;
@@ -1373,6 +1425,11 @@ textarea.input {
   margin-top: 10px;
   padding-top: 10px;
   white-space: pre-wrap;
+}
+
+.terms-body-preview {
+  max-height: 240px;
+  overflow: auto;
 }
 
 .codeblock {
@@ -1582,6 +1639,100 @@ textarea.input {
 .public-body.landing {
   flex: 0 0 auto;
   padding-bottom: 44px;
+}
+
+.public-body.public-faq {
+  max-width: 980px;
+}
+
+.faq-intro {
+  align-items: start;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-bottom: 18px;
+  padding: 18px;
+}
+
+.faq-intro h2 {
+  font-size: 20px;
+  margin: 4px 0 8px;
+}
+
+.faq-intro p {
+  color: var(--ink-2);
+  max-width: 680px;
+}
+
+.faq-support {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  min-width: 220px;
+  padding: 12px;
+}
+
+.faq-sections {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.faq-section-head {
+  border-bottom: 1px solid var(--line);
+  padding: 16px 18px;
+}
+
+.faq-section-head h2 {
+  font-size: 17px;
+  margin-bottom: 4px;
+}
+
+.faq-section-head p,
+.faq-a {
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.faq-row {
+  border-bottom: 1px solid var(--line);
+}
+
+.faq-row:last-child {
+  border-bottom: 0;
+}
+
+.faq-q {
+  align-items: center;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  padding: 14px 18px;
+  text-align: left;
+  width: 100%;
+}
+
+.faq-q span {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.faq-a {
+  padding: 0 18px 16px;
+}
+
+.faq-cta {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 18px;
 }
 
 .lede-line {
@@ -2083,6 +2234,34 @@ textarea.input {
     justify-self: start;
   }
 
+  .faq-intro {
+    grid-template-columns: 1fr;
+    padding: 14px;
+  }
+
+  .faq-support {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .faq-section-head,
+  .faq-q {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .faq-a {
+    padding: 0 14px 14px;
+  }
+
+  .faq-cta {
+    flex-direction: column-reverse;
+  }
+
+  .faq-cta .btn {
+    width: 100%;
+  }
+
   .auth-wrap {
     padding: 16px;
   }
@@ -2329,6 +2508,22 @@ textarea.input {
   min-width: 0;
   overflow-x: auto;
   width: 100%;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Keep the horizontal scrollbar visible (macOS overlay scrollbars otherwise
+   make wide admin tables look clipped with no affordance to scroll). */
+.admin-table-wrap::-webkit-scrollbar {
+  height: 8px;
+}
+
+.admin-table-wrap::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.admin-table-wrap::-webkit-scrollbar-thumb {
+  background: var(--line-2);
+  border-radius: 999px;
 }
 
 .admin-table {
@@ -2355,6 +2550,16 @@ textarea.input {
   vertical-align: top;
 }
 
+/* Muted mono identifiers (UUIDs/references) that follow a row title render on
+   their own line instead of concatenating with the title text. */
+.admin-table td > .mono.muted {
+  display: block;
+  font-size: 11px;
+  line-height: 1.4;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
+
 .admin-user-name-cell {
   min-width: 140px;
 }
@@ -2364,11 +2569,15 @@ textarea.input {
   display: block;
   line-height: 1.35;
   max-width: 230px;
+  min-width: 170px;
   overflow-wrap: anywhere;
 }
 
 .admin-id-cell {
-  max-width: 190px;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .admin-table tbody tr {
@@ -2465,7 +2674,18 @@ textarea.input {
 }
 
 .admin-currency-table {
-  min-width: 1180px;
+  min-width: 1080px;
+}
+
+/* Audit event search renders in a half-width panel: keep the table narrow
+   enough to mostly fit, let long actor/target identifiers wrap, and rely on
+   the scrollable wrapper for the remainder. */
+.admin-audit-table {
+  min-width: 640px;
+}
+
+.admin-audit-table td {
+  overflow-wrap: anywhere;
 }
 
 .admin-section {
@@ -2479,6 +2699,7 @@ textarea.input {
   overflow: hidden;
 }
 
+.admin-content > .card,
 .admin-two-col > .card,
 .admin-module-grid > .card,
 .admin-stack > .card {
@@ -2918,5 +3139,44 @@ textarea.input {
 
   .admin-review-row {
     grid-template-columns: 1fr;
+  }
+
+  /* Stack card headers and toolbars vertically so descriptions keep their
+     width and search inputs / filters / action buttons stay on-screen. */
+  .admin-entity-head,
+  .admin-dashboard-head,
+  .admin-panel-head {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .admin-entity-head {
+    align-items: stretch;
+  }
+
+  .admin-dashboard-head,
+  .admin-panel-head {
+    align-items: flex-start;
+  }
+
+  .admin-entity-actions {
+    justify-content: stretch;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .admin-entity-actions .field,
+  .admin-entity-actions select,
+  .admin-entity-actions .row,
+  .admin-search-input {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .admin-entity-actions .row .btn,
+  .admin-dashboard-head .row .btn,
+  .admin-panel-head .row .btn {
+    flex: 1 1 auto;
+    min-height: 40px;
   }
 }

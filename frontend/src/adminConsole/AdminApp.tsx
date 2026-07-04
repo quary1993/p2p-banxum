@@ -560,7 +560,11 @@ function AdminShell({
         <header className="admin-topbar">
           <div>
             <p className="eyebrow">Internal operations</p>
-            <h1>{selectedNav === "dashboard" ? "Admin operations" : labelize(selectedNav)}</h1>
+            <h1>
+              {selectedNav === "dashboard"
+                ? "Admin operations"
+                : navItems.find((item) => item.id === selectedNav)?.label ?? labelize(selectedNav)}
+            </h1>
           </div>
           <div className="row gap-8 wrap">
             {isFixturePreview ? <Chip dot={false} tone="info">Preview data</Chip> : null}
