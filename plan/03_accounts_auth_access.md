@@ -148,22 +148,30 @@ Single-user lender accounts match the launch scope and avoid premature organizat
 Follow-ups:
 If legal-entity multi-user access is introduced later, define representative roles, signatory authority, organization membership, and optional maker-checker rules.
 
-### ACC-DEC-005: No Admin Impersonation at Launch
+### ACC-DEC-005: Read-Only Superadmin Impersonation
 
-Status: Accepted.
-Date: 2026-05-22.
+Status: Accepted. Updated 2026-07-04 (supersedes the launch-time "no impersonation" rule).
+Date: 2026-05-22. Updated 2026-07-04.
 Owner: Garanta operations / technology / security.
 
 Decision:
-Admin/support impersonation of investor users is not supported at launch.
+Superadmins may open a read-only impersonation view of an investor account for support and
+technical investigation. The feature follows the constraints this decision originally set for
+any future introduction:
 
-Support and technical investigation rely on audit logs, event logs, support email, and admin-visible operational records.
+- Superadmin-only: only an active superadmin can start or use an impersonation context; regular admins cannot.
+- Read-only: mutating requests are rejected while impersonating; only viewing is possible.
+- Restricted targets: admin and superadmin accounts can never be impersonated.
+- Short-lived: access uses a signed, purpose-scoped token (default 30 minutes, deployment-configurable) presented alongside the superadmin's own authenticated session; the token grants nothing on its own.
+- Heavily audited: every impersonation start is recorded as a high-risk audit event with the acting superadmin, target identity, and token lifetime.
+
+Support and technical investigation otherwise continue to rely on audit logs, event logs, support email, and admin-visible operational records.
 
 Rationale:
-Avoiding impersonation reduces security and privacy risk while preserving auditability for troubleshooting.
+A read-only, superadmin-gated, audited view resolves real support cases (seeing exactly what an investor sees) without granting the ability to act on the account, preserving the security and privacy intent of the original decision.
 
 Follow-ups:
-If impersonation is ever introduced, it must be read-only, purpose-limited, and heavily audited.
+Any future write-capable impersonation or admin-role targeting would require a new decision with compliance sign-off.
 
 ### ACC-DEC-006: Account Closure, Access Restriction, and Reversible Pseudonymization
 
@@ -266,7 +274,7 @@ Launch lender portal accounts use a single permission set. More granular investo
 - Refresh tokens are revocable.
 - Passwords, if used, must follow modern hashing and breach detection controls.
 - Login and permission changes create audit events.
-- Admin impersonation is not supported at launch.
+- Investor impersonation is read-only, superadmin-only, short-lived, blocked for admin targets, and audited (ACC-DEC-005).
 
 ## Organization Model
 
@@ -308,7 +316,7 @@ The future organization model may support:
 2. Updated by ACC-DEC-001/ACC-DEC-002/ACC-DEC-008: baseline investor login uses magic links and mandatory phone verification, with sensitive-action email-code confirmation for financial/legal actions; admin login uses email-code verification.
 3. Answered by ACC-DEC-004: no legal-entity lender maker-checker approval or internal roles are required at launch.
 4. Answered by ACC-DEC-004: one person cannot represent multiple investor accounts/entities at launch; borrower representative relationships are tracked only as entity data.
-5. Answered by ACC-DEC-005: admin/support impersonation is not supported at launch.
+5. Updated by ACC-DEC-005 (2026-07-04): support impersonation exists as a read-only, superadmin-only, short-lived, audited view of investor accounts; no write-capable impersonation.
 6. Updated by ACC-DEC-006 and SEC-DEC-004: account closure is requested by email support/admin, requires a clean/empty account, restricts login, retains required documents/data, and may optionally trigger reversible direct-identifier pseudonymization through an admin checkbox.
 7. Answered by RPT-DEC-003: auditor/regulator direct portal access is out of launch scope; admins generate export packages offline.
 8. Answered by Operating Model DEC-010: superadmin and admin.

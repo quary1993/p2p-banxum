@@ -4092,8 +4092,9 @@ const faqSections: FaqSection[] = [
         question: "What happens if KYC is under review?",
         answer: (
           <>
-            The verification screen waits for the provider and compliance result. If the case is routed to
-            manual review, financial actions remain locked until {operatorName} approves the account.
+            Your verification screen updates automatically as soon as the provider returns a result. If the
+            case is routed to manual review, financial actions stay locked until {operatorName} approves the
+            account — no action is needed from you in the meantime.
           </>
         )
       }
@@ -4103,6 +4104,18 @@ const faqSections: FaqSection[] = [
     title: "Balances and deadlines",
     summary: "Operational balances are controlled by 30-day and 60-day regulatory ageing rules.",
     items: [
+      {
+        question: "How do I deposit money?",
+        answer: (
+          <>
+            Open Balances and choose Deposit. You will see the collection account (IBAN) for each enabled
+            currency together with your personal payment reference. Send a normal bank transfer from your own
+            account in the same currency and include the reference exactly as shown — it is how your payment
+            is matched to your account. Your balance is credited once {operatorName} reconciles the incoming
+            payment.
+          </>
+        )
+      },
       {
         question: "Are platform balances like a bank account?",
         answer: (
@@ -4116,8 +4129,9 @@ const faqSections: FaqSection[] = [
         question: "How long can money remain uninvested?",
         answer: (
           <>
-            Newly received funds are investable for up to 30 days. They must be either invested, withdrawn, or
-            handled by the 60-day return process before the outer deadline is reached.
+            Newly received funds are investable for 30 days. After day 30 they become withdraw-only, and by
+            day 60 they must leave the platform — either through your own withdrawal or the platform's return
+            process.
           </>
         )
       },
@@ -4161,6 +4175,16 @@ const faqSections: FaqSection[] = [
           <>
             Each investment requires current investment terms and risk acknowledgements. The accepted document
             version, timestamp, checkbox labels and context are recorded as immutable evidence.
+          </>
+        )
+      },
+      {
+        question: "What fees do lenders pay?",
+        answer: (
+          <>
+            Every fee that applies to an action — for example secondary-market transaction fees or the
+            currency-exchange fee — is shown in that flow before you confirm, together with the exact amounts.
+            Nothing is charged without being displayed first.
           </>
         )
       }
@@ -4226,8 +4250,8 @@ const faqSections: FaqSection[] = [
         question: "Does converting currency reset the ageing clock?",
         answer: (
           <>
-            No. FX is a settlement function. Converted balance inherits the source lot's relevant deadlines;
-            conversion must not create a fresh 30/60-day timer.
+            No. FX is a settlement function, not a way to restart deadlines. Converted balance inherits the
+            deadlines of the funds you converted — it never receives a fresh 30/60-day timer.
           </>
         )
       }
@@ -4250,8 +4274,8 @@ const faqSections: FaqSection[] = [
         question: "Can I download account statements or tax documents?",
         answer: (
           <>
-            Statement and tax download surfaces are available from the portal when data exists. They are scoped
-            to your own account.
+            Yes. Account statements and annual tax summaries can be downloaded from the Documents section once
+            they are available. Every download is scoped to your own account.
           </>
         )
       },

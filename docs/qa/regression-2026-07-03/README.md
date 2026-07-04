@@ -103,11 +103,12 @@ all recorded as superseded entries in `results.jsonl`.
 
 ## Blocked — needs user input
 
-1. **Twilio trial account** (error 21608): SMS phone verification cannot reach
-   arbitrary numbers until the account is upgraded and RO/CH geo-permissions
-   enabled. The regression set `phone_verified_at` directly in the staging DB
-   as a workaround. Everything else in the flow (challenge issuing, gating) is
-   implemented and tested with the local provider in CI.
+1. ~~**Twilio trial account** (error 21608)~~ **RESOLVED 2026-07-04**: the
+   account is upgraded (`type: Full`, verified via the Twilio API), so SMS
+   phone verification can now reach arbitrary numbers. The regression run
+   itself set `phone_verified_at` directly in the staging DB — that remains
+   the right technique for *automated* runs (no SMS receiver), but a manual
+   registration with a real phone is now expected to work end-to-end.
 2. **FX live execution E2E** — re-run on a weekday (Zurich market day):
    `BANXUM_DIDIT_WEBHOOK_SECRET=… uv run --with requests staging-lifecycle-driver.py fxsmoke`.
 3. **Spec divergence to ratify**: `plan/06` says "no impersonation feature";

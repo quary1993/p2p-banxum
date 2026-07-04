@@ -285,7 +285,7 @@ Examples:
 - Initial superadmin credentials are configured through environment variables and managed at deploy time.
 - Admin sensitive actions do not require step-up authentication at launch, but must be logged with actor, timestamp, action type, target object, and before/after values where appropriate.
 - Investor sensitive/financial actions require fresh email-code confirmation before execution, including withdrawals, withdrawal bank-account changes, currency exchange, primary-market investments, secondary-market listings, and secondary-market purchases.
-- Admin/support impersonation is not supported at launch.
+- Investor impersonation is read-only, superadmin-only, short-lived, blocked for admin targets, and recorded as a high-risk audit event (ACC-DEC-005, updated 2026-07-04). No write-capable impersonation exists.
 
 ## Session Policy Notes
 
@@ -317,6 +317,6 @@ These defaults balance investor usability with action-level controls for money-m
 8. Answered by SEC-DEC-005: full/unredacted exports require audit logging only at launch; no default field masking in admin UI.
 9. Answered by RPT-DEC-003: report exports are admin-only and support redacted/full modes; direct auditor/regulator portal access is out of launch scope.
 10. Answered by COMMS-DEC-004: full sent email content is stored, with delivery metadata and template/data snapshot.
-11. Updated by ACC-DEC-001/ACC-DEC-002/ACC-DEC-003/ACC-DEC-005/ACC-DEC-008: investor magic-link login, mandatory phone verification, investor sensitive-action email-code confirmation, admin email/password plus email-code login, no admin step-up, and no impersonation.
+11. Updated by ACC-DEC-001/ACC-DEC-002/ACC-DEC-003/ACC-DEC-005/ACC-DEC-008: investor magic-link login, mandatory phone verification, investor sensitive-action email-code confirmation, admin email/password plus email-code login, no admin step-up, and read-only superadmin-only audited investor impersonation (ACC-DEC-005 update 2026-07-04).
 12. Updated by SEC-DEC-006 and KYC-DEC-005: Didit performs the launch natural-person KYC capture/check flow, while Garanta stores local KYC/KYB/AML evidence where legally and technically possible; all uploads and retained evidence require restricted access, encryption, retention controls, and malware-scanning where applicable.
 13. Updated by ACC-DEC-008: investor sessions are long-lived; investor sensitive-action email codes expire after 10 minutes, allow 3 attempts, and require resend throttling; admin session defaults are 15-minute idle and 8-hour maximum. Exact global rate-limit implementation remains a security configuration detail.
