@@ -27,6 +27,7 @@ from backend.apps.fx.api.serializers import (
     serialize_fx_realized_settlement_report,
 )
 from backend.apps.fx.services import (
+    FX_TEMPORARILY_UNAVAILABLE_MESSAGE,
     DeclareFxExternalSettlementCommand,
     ExecuteFxQuoteCommand,
     FxAuthorizationError,
@@ -42,13 +43,20 @@ from backend.apps.fx.services import (
 from backend.apps.platform_core.api.request_meta import client_ip, user_agent
 
 
+def _safe_fx_error_message(exc: Exception) -> str:
+    message = str(exc)
+    if message.startswith("Yahoo Finance ") or message.startswith("FX provider rate "):
+        return FX_TEMPORARILY_UNAVAILABLE_MESSAGE
+    return message
+
+
 def _error_response(exc: Exception) -> Response:
     status_code = (
         status.HTTP_403_FORBIDDEN
         if isinstance(exc, FxAuthorizationError)
         else status.HTTP_400_BAD_REQUEST
     )
-    return Response({"detail": str(exc)}, status=status_code)
+    return Response({"detail": _safe_fx_error_message(exc)}, status=status_code)
 
 
 class FxQuoteIssueView(APIView):

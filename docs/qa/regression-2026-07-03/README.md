@@ -88,9 +88,13 @@ all recorded as superseded entries in `results.jsonl`.
 
 ## Healthy errors (by design — not bugs)
 
-- **FX fails closed on weekends/holidays** ("FX provider rate is stale") and
-  under QA time travel (simulated clock ≫ provider timestamp breaks the 300s
-  freshness window). Plan-approved fail-closed behavior.
+- **FX fails closed on weekends/holidays** with explicit user-facing closure
+  copy. Weekends show a proactive "FX unavailable on weekends" banner in the
+  investor FX screen; configured holidays return a market-holiday quote error.
+  Ordinary stale/malformed provider data returns a temporary FX-rate
+  availability message with support escalation copy. QA time travel can still
+  trigger the temporary-provider path because simulated clock ≫ provider
+  timestamp breaks the 300s freshness window.
 - **KYC decline non-overridable** for direct manual approval (reopen→approve
   path is the false-positive route; user-confirmed policy).
 - Empty marketplace after funding close ("No loans available") — loans leave

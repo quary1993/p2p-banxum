@@ -95,7 +95,7 @@ Stories: INV-FX-1/2/3 (plan/01+04), INV-FX-QUOTE-1, INV-FX-SETTLE-1, SYS-FX-SANI
 - Executable quote: live Yahoo Finance fetch, fixed **exactly 1 minute** with countdown; expired quote must refresh; clickwrap FX terms + fresh email code before execution; background-polled rates display-only.
 - Instant settlement: source debited FIFO, target credited immediately; ageing NEVER resets — target inherits **EARLIEST** consumed investment (day-30) and withdrawal (day-60) deadlines; full lineage retained; FX entries use internal transaction timestamp; fee revenue posted at exchange time.
 - Display up to 4 decimals on FX quote/confirmation (2 elsewhere); rates/fees/intermediates stored with **≥ 6 decimal places**; half-up rounding on debit/credit/fees/posted amounts.
-- Sanity: fail-closed on missing/zero/negative/non-numeric/infinite/malformed/stale/wrong-pair rates; **±5%** deviation vs previous-day average → alert, no auto-execute; **±2%** display-tick jump → invalidated/skipped; **300-second** freshness window (fails closed on weekends/holidays); production rejects mock rates.
+- Sanity: fail-closed on missing/zero/negative/non-numeric/infinite/malformed/stale/wrong-pair rates; **±5%** deviation vs previous-day average → alert, no auto-execute; **±2%** display-tick jump → invalidated/skipped; **300-second** freshness window; weekends and configured FX market holidays fail closed with explicit closure copy; ordinary stale/provider issues fail closed with a temporary availability message; production rejects mock rates.
 
 ### Step 11 — Balance ageing 30/60d (time-travel)
 Stories: INV-BAL-2/3/4/5, INV-AGE-1…4, SYS-AGEING-REMINDERS-1, SYS-PENALTY-1, ADM-FORCED-WITHDRAWAL-1, ADM-FORCED-WD-1, ADM-PENALTY-FREEZE-1

@@ -67,11 +67,25 @@ DEFAULT_PAIR_RATE_BOUNDS = {
     "EUR/CHF": {"min": "0.500000", "max": "2.000000"},
 }
 DEFAULT_PROVIDER_RATE_FRESHNESS_SECONDS = 300
+DEFAULT_FX_MARKET_HOLIDAYS = ("01-01", "12-25")
 PREVIOUS_DAY_AVERAGE_MAX_DEVIATION_BPS = 500
 LOCAL_FX_ENVIRONMENTS = {"local", "test"}
 MOCK_FX_PROVIDERS = {"mock", "local"}
 YAHOO_FINANCE_PROVIDER = "yahoo_finance"
 DEFAULT_YAHOO_SYMBOLS = {"CHF/EUR": "CHFEUR=X", "EUR/CHF": "EURCHF=X"}
+FX_WEEKEND_UNAVAILABLE_MESSAGE = (
+    "FX is unavailable on weekends because live FX market rates are not published. "
+    "Try again after markets reopen."
+)
+FX_HOLIDAY_UNAVAILABLE_MESSAGE = (
+    "FX is unavailable today because live FX market rates are not published on this "
+    "market holiday. "
+    "Try again after markets reopen."
+)
+FX_TEMPORARILY_UNAVAILABLE_MESSAGE = (
+    "FX rates aren't available right now. This is a temporary provider issue. "
+    "If it persists, contact support."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -564,6 +578,37 @@ def _assert_daily_limit(
         raise FxValidationError("FX daily conversion limit exceeded for this investor.")
 
 
+def _configured_fx_market_holidays() -> set[str]:
+    configured = get_platform_setting_value(
+        "fx.market_holidays",
+        list(DEFAULT_FX_MARKET_HOLIDAYS),
+    )
+    if not isinstance(configured, list):
+        configured = list(DEFAULT_FX_MARKET_HOLIDAYS)
+    holidays: set[str] = set(DEFAULT_FX_MARKET_HOLIDAYS)
+    for value in configured:
+        if not isinstance(value, str):
+            continue
+        normalized = value.strip()
+        if len(normalized) in {5, 10}:
+            holidays.add(normalized)
+    return holidays
+
+
+def _is_configured_fx_market_holiday(business_day: date) -> bool:
+    holidays = _configured_fx_market_holidays()
+    return business_day.isoformat() in holidays or business_day.strftime("%m-%d") in holidays
+
+
+def _stale_provider_rate_message(as_of: datetime) -> str:
+    business_day = _business_date_for_timestamp(as_of)
+    if business_day.weekday() >= 5:
+        return FX_WEEKEND_UNAVAILABLE_MESSAGE
+    if _is_configured_fx_market_holiday(business_day):
+        return FX_HOLIDAY_UNAVAILABLE_MESSAGE
+    return FX_TEMPORARILY_UNAVAILABLE_MESSAGE
+
+
 def _validate_provider_rate(
     *,
     pair: str,
@@ -589,7 +634,7 @@ def _validate_provider_rate(
     )
     age_seconds = abs((as_of - observed_at).total_seconds())
     if age_seconds > max_age:
-        raise FxValidationError("FX provider rate is stale.")
+        raise FxValidationError(_stale_provider_rate_message(as_of))
     sanity["checks"].append({"name": "freshness", "age_seconds": age_seconds})
     bounds = _pair_rate_bounds(pair)
     if bounds is not None:

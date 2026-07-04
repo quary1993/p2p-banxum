@@ -294,3 +294,11 @@ Before launch, Claude Design should produce or implement:
 - Design decision: keep FAQ educational and compliance-aware rather than promotional. It explains the P2P model, onboarding/KYC, balance ageing, investment orders, repayments, secondary-market anonymity, FX deadline inheritance, documents, support, and risk warnings without implying guaranteed liquidity or returns.
 - Suggested improvement: Claude Design should polish the public FAQ hierarchy, mobile accordion spacing, quick navigation between sections, and whether the public FAQ should include visual diagrams for money flow and 30/60-day ageing rules.
 - Priority: important.
+
+## 2026-07-04: FX Market-Closed Availability State
+
+- Screen or component: investor Currency Exchange screen and quote error states.
+- Current first-version behavior: live-mode FX now displays a proactive weekend-closed banner and disables quote entry/button on Zurich weekends. Backend quote errors distinguish weekend closure, configured FX market holiday closure, and ordinary temporary provider staleness/malformed provider responses.
+- Design decision: closed-market FX should feel like a clear operational unavailability state, not a failed trade. Copy must explain that BANXUM cannot issue executable quotes when live FX market rates are not published, while keeping exchange history readable.
+- Suggested improvement: Claude Design should polish the weekend/holiday banner placement, mobile spacing, disabled-form affordance, and whether the exchange form should collapse into a read-only explanatory panel during market closures.
+- Priority: important.

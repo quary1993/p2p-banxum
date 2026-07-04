@@ -242,9 +242,9 @@ def test_issue_fx_quote_rejects_stale_out_of_bounds_and_deviating_provider_rates
     investor: Model,
 ) -> None:
     _approve_financial_access(investor)
-    as_of = _as_of()
+    as_of = _as_of(date(2026, 1, 13))
 
-    with pytest.raises(FxValidationError, match="stale"):
+    with pytest.raises(FxValidationError, match="temporary provider issue"):
         issue_fx_quote(
             IssueFxQuoteCommand(
                 actor=investor,
@@ -257,6 +257,40 @@ def test_issue_fx_quote_rejects_stale_out_of_bounds_and_deviating_provider_rates
                 ),
                 idempotency_key="fx-stale-rate",
                 as_of=as_of,
+            )
+        )
+
+    weekend_as_of = _as_of(date(2026, 1, 10))
+    with pytest.raises(FxValidationError, match="unavailable on weekends"):
+        issue_fx_quote(
+            IssueFxQuoteCommand(
+                actor=investor,
+                source_currency="CHF",
+                target_currency="EUR",
+                source_amount_minor=10_000_00,
+                provider_rate=_provider_rate(
+                    as_of=weekend_as_of - timedelta(days=1),
+                    rate="1.100000",
+                ),
+                idempotency_key="fx-weekend-stale-rate",
+                as_of=weekend_as_of,
+            )
+        )
+
+    holiday_as_of = _as_of(date(2026, 1, 1))
+    with pytest.raises(FxValidationError, match="market holiday"):
+        issue_fx_quote(
+            IssueFxQuoteCommand(
+                actor=investor,
+                source_currency="CHF",
+                target_currency="EUR",
+                source_amount_minor=10_000_00,
+                provider_rate=_provider_rate(
+                    as_of=holiday_as_of - timedelta(days=1),
+                    rate="1.100000",
+                ),
+                idempotency_key="fx-holiday-stale-rate",
+                as_of=holiday_as_of,
             )
         )
 

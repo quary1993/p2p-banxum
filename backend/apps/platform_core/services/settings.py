@@ -131,6 +131,13 @@ DEFAULT_PLATFORM_SETTINGS = (
         "Maximum accepted provider-rate age for executable FX quotes.",
     ),
     SettingDefinition(
+        "fx.market_holidays",
+        ["01-01", "12-25"],
+        "json",
+        "FX market holidays that should explain stale provider rates. "
+        "Supports recurring MM-DD and exact YYYY-MM-DD values.",
+    ),
+    SettingDefinition(
         "fx.mock_rates",
         {"CHF/EUR": "1.050000", "EUR/CHF": "0.952381"},
         "json",

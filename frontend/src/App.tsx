@@ -479,6 +479,18 @@ function apiErrorMessage(error: unknown) {
   return "Request failed. Retry once the connection is restored.";
 }
 
+function isZurichWeekend(date = new Date()) {
+  try {
+    const weekday = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Europe/Zurich",
+      weekday: "short"
+    }).format(date);
+    return weekday === "Sat" || weekday === "Sun";
+  } catch {
+    return date.getDay() === 0 || date.getDay() === 6;
+  }
+}
+
 function templateLabels(template: PublicDocumentTemplateVersion | undefined) {
   return Array.isArray(template?.checkbox_labels)
     ? template.checkbox_labels.filter((label): label is string => typeof label === "string")
@@ -2835,10 +2847,15 @@ function FxScreen({ demoState }: { demoState: DemoAccountState }) {
   const feeMinor = Math.round(amountMinor * 0.015);
   const targetMinor = Math.round((amountMinor - feeMinor) * rate);
   const frozen = demoState === "frozen";
+  const fxClosedForWeekend = !isFixturePreview && isZurichWeekend();
   const amountError =
     parsedAmount.error ?? (amountMinor > availableMinor ? `Exceeds available ${from} balance.` : undefined);
   const requestQuote = () => {
     setError("");
+    if (fxClosedForWeekend) {
+      setError("FX is unavailable on weekends because live FX market rates are not published. Try again after markets reopen.");
+      return;
+    }
     if (isFixturePreview) {
       setQuoteOpen(true);
       return;
@@ -2875,21 +2892,27 @@ function FxScreen({ demoState }: { demoState: DemoAccountState }) {
       <div className="page-head"><div><h1>Currency exchange</h1><div className="ph-sub">Auxiliary settlement function, not trading or speculation.</div></div></div>
       {frozen ? <Banner icon="lock" tone="bad" title="FX is frozen">Provide a usable payout IBAN to unlock currency exchange.</Banner> : null}
       {isReadonlyImpersonationActive() ? <Banner icon="lock" tone="info" title="Read-only view">FX quote and execution are disabled during superadmin read-only impersonation.</Banner> : null}
+      {fxClosedForWeekend ? (
+        <Banner icon="clock" tone="warn" title="FX unavailable on weekends">
+          Live FX market rates are not published on weekends, so BANXUM cannot issue executable FX quotes now.
+          Currency exchange resumes after markets reopen.
+        </Banner>
+      ) : null}
       <div className="grid grid-2 section">
         <Card padded>
           <div className="row spread" style={{ marginBottom: 14 }}><span className="eyebrow">Exchange</span><span className="muted">Fee 1.5%</span></div>
           <div className="col gap-10">
             <Field error={amountError} hint={`Available ${from}: ${formatMoneyMinor(availableMinor, from)}`} label="From">
-              <div className="input-affix"><span className="prefix">{from}</span><input className="input mono" disabled={frozen || isReadonlyImpersonationActive()} inputMode="decimal" onChange={(event) => setAmount(event.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" style={{ paddingLeft: 44 }} value={amount} /></div>
+              <div className="input-affix"><span className="prefix">{from}</span><input className="input mono" disabled={frozen || fxClosedForWeekend || isReadonlyImpersonationActive()} inputMode="decimal" onChange={(event) => setAmount(event.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" style={{ paddingLeft: 44 }} value={amount} /></div>
             </Field>
-            <button aria-label="Swap direction" className="icon-btn" disabled={frozen || isReadonlyImpersonationActive()} onClick={() => { setFrom(to); setLiveQuote(null); }} type="button"><Icon name="swap" size={16} /></button>
+            <button aria-label="Swap direction" className="icon-btn" disabled={frozen || fxClosedForWeekend || isReadonlyImpersonationActive()} onClick={() => { setFrom(to); setLiveQuote(null); }} type="button"><Icon name="swap" size={16} /></button>
             <Field label="To estimated">
               <div className="input-affix"><span className="prefix">{to}</span><input className="input mono" readOnly style={{ background: "var(--surface-2)", paddingLeft: 44 }} value={amountMinor > 0 && !parsedAmount.error ? formatMoneyMinor(targetMinor, to) : ""} /></div>
             </Field>
           </div>
           <Review rows={[{ label: "Indicative rate", value: `${from}/${to} ${rate.toFixed(4)}` }, { label: "Platform fee", value: `${from} ${formatMoneyMinor(feeMinor, from)}` }]} />
           {error ? <Banner tone="bad" title="Could not quote FX">{error}</Banner> : null}
-          <Button block disabled={frozen || isReadonlyImpersonationActive() || amountMinor <= 0 || Boolean(amountError) || quoteMutation.isPending} style={{ marginTop: 14 }} variant="primary" onClick={requestQuote}>{quoteMutation.isPending ? "Quoting..." : "Review exchange"}</Button>
+          <Button block disabled={frozen || fxClosedForWeekend || isReadonlyImpersonationActive() || amountMinor <= 0 || Boolean(amountError) || quoteMutation.isPending} style={{ marginTop: 14 }} variant="primary" onClick={requestQuote}>{quoteMutation.isPending ? "Quoting..." : "Review exchange"}</Button>
         </Card>
         <Card padded>
           <div className="eyebrow" style={{ marginBottom: 10 }}>How FX works here</div>
