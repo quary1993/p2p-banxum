@@ -213,8 +213,15 @@ test("registration KYC handoff reflects Didit plus Garanta evidence retention", 
   renderApp();
 
   fireEvent.click(screen.getByRole("button", { name: "Register" }));
-  fireEvent.click(screen.getByText("I accept the platform terms and registration documents."));
-  fireEvent.click(screen.getByText("I acknowledge the generic P2P lending risk disclosure."));
+  // Checkbox labels embed new-tab document links, so the text spans elements.
+  fireEvent.click(
+    screen.getByLabelText((label) => label.includes("I accept the") && label.includes("platform terms"))
+  );
+  fireEvent.click(
+    screen.getByLabelText(
+      (label) => label.includes("I acknowledge the") && label.includes("risk disclosure")
+    )
+  );
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   fireEvent.change(screen.getByPlaceholderText("000000"), {
     target: { value: "123456" }

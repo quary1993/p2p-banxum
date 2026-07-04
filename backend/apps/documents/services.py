@@ -37,6 +37,7 @@ from backend.apps.platform_core.domain.access import (
     user_can_access_financial_features,
 )
 from backend.apps.platform_core.domain.actors import ActorRef
+from backend.apps.platform_core.selectors.settings import get_platform_setting_value
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import (
     DomainEventCommand,
@@ -126,9 +127,51 @@ DEFAULT_VARIABLE_SCOPES: dict[str, dict[str, Any]] = {
         "operator": {"description": "Legal operator fields."},
         "risk": {"description": "Non-standard listing disclosure fields."},
     },
+    DocumentCategory.RISK_DISCLOSURE: {
+        "platform": {"description": "Platform brand fields."},
+        "operator": {"description": "Legal operator fields."},
+    },
 }
 
-SECONDARY_MARKET_PLACEHOLDER_TEMPLATES: dict[str, dict[str, Any]] = {
+PLACEHOLDER_LEGAL_TEMPLATES: dict[str, dict[str, Any]] = {
+    DocumentCategory.RISK_DISCLOSURE: {
+        "name": "Generic P2P lending risk disclosure",
+        "title": "Generic P2P Lending Risk Disclosure",
+        "description": (
+            "Generic launch risk disclosure referenced by every investment "
+            "acknowledgement. Replace with advisor-approved legal content before "
+            "production use."
+        ),
+        "body": (
+            "# Generic P2P Lending Risk Disclosure\n\n"
+            "Investing through {{platform.name}}, operated by {{operator.name}}, involves "
+            "lending-related risks. You may lose some or all of the amount invested.\n\n"
+            "## Credit and repayment risk\n\n"
+            "Borrowers may pay late, pay only part of the expected amount, or default. "
+            "Late payment and default reduce or delay the interest and principal you "
+            "receive, and can result in partial or total loss of the invested amount.\n\n"
+            "## Collateral and enforcement risk\n\n"
+            "Collateral, guarantees or other security may not fully cover losses. "
+            "Enforcement and recovery can take significant time, involve external legal "
+            "and recovery costs, and may recover less than the outstanding claim.\n\n"
+            "## Return and performance risk\n\n"
+            "Expected returns are targets, not guarantees. Past performance and risk "
+            "ratings do not guarantee future results.\n\n"
+            "## Liquidity risk\n\n"
+            "Loan-claim participations are not listed securities. A secondary-market "
+            "sale may be unavailable, may require approval for non-performing claims, or "
+            "may only be possible at a lower price than the outstanding principal.\n\n"
+            "## Platform balances\n\n"
+            "Platform balances are non-interest-bearing operational funds, not bank "
+            "deposits, and are subject to 30-day investment and 60-day withdrawal "
+            "deadlines that cannot be extended.\n\n"
+            "Final advisor-approved risk disclosure wording remains pending; this "
+            "generic disclosure applies until it is replaced."
+        ),
+        "checkbox_labels": [
+            "I acknowledge the risk disclosure and possible capital loss.",
+        ],
+    },
     DocumentCategory.SECONDARY_MARKET_LISTING: {
         "name": "Temporary secondary-market seller terms",
         "title": "Temporary Secondary-Market Seller Listing Terms",
@@ -806,11 +849,11 @@ def _record_seed_document_event(
 
 
 @transaction.atomic
-def seed_secondary_market_placeholder_terms() -> list[DocumentTemplateVersion]:
-    """Publish temporary secondary-market templates only when none are current."""
+def seed_placeholder_legal_templates() -> list[DocumentTemplateVersion]:
+    """Publish temporary placeholder legal templates only when none are current."""
     created_versions: list[DocumentTemplateVersion] = []
     now = timezone.now()
-    for category, definition in SECONDARY_MARKET_PLACEHOLDER_TEMPLATES.items():
+    for category, definition in PLACEHOLDER_LEGAL_TEMPLATES.items():
         category_value = _category(category)
         template, created_template = DocumentTemplate.objects.select_for_update().get_or_create(
             category=category_value,
@@ -1179,7 +1222,8 @@ def _pdf_footer(
     *,
     page_number: int,
     page_count: int,
-    acceptance_id: str,
+    acceptance_id: str = "",
+    label: str = "",
 ) -> None:
     footer_y = 23.0
     canvas.line(
@@ -1191,7 +1235,7 @@ def _pdf_footer(
     canvas.text(
         x=PDF_MARGIN_X,
         y=footer_y,
-        text=f"BANXUM accepted-document artifact. Acceptance {acceptance_id}.",
+        text=label or f"BANXUM accepted-document artifact. Acceptance {acceptance_id}.",
         size=6.3,
         color=PDF_MUTED,
     )
@@ -1670,13 +1714,12 @@ def _render_acceptance_toc_page(
             break
 
 
-def _render_acceptance_body_pages(
+def _render_document_body_canvas(
     *,
-    acceptance: DocumentAcceptanceEvidence,
     rendered_body: str,
     document_title: str,
     page_offset: int,
-) -> tuple[list[list[str]], list[_DocumentTocEntry]]:
+) -> tuple[_PdfDocumentCanvas, float, list[_DocumentTocEntry]]:
     body_canvas = _PdfDocumentCanvas()
     y = _pdf_page_header(body_canvas, document_title=document_title, compact=True)
     toc_entries: list[_DocumentTocEntry] = []
@@ -1699,6 +1742,21 @@ def _render_acceptance_body_pages(
                     level=heading_level,
                 )
             )
+    return body_canvas, y, toc_entries
+
+
+def _render_acceptance_body_pages(
+    *,
+    acceptance: DocumentAcceptanceEvidence,
+    rendered_body: str,
+    document_title: str,
+    page_offset: int,
+) -> tuple[list[list[str]], list[_DocumentTocEntry]]:
+    body_canvas, y, toc_entries = _render_document_body_canvas(
+        rendered_body=rendered_body,
+        document_title=document_title,
+        page_offset=page_offset,
+    )
     y = _pdf_ensure_space(body_canvas, y=y, required_height=150, document_title=document_title)
     canvas = body_canvas
     canvas.text(
@@ -2456,6 +2514,169 @@ def accept_document_terms(command: AcceptDocumentTermsCommand) -> DocumentAccept
 
 
 @transaction.atomic
+def _render_template_preview_text(*, body: str, context: dict[str, Any]) -> str:
+    """Render a template for pre-acceptance reading.
+
+    Server-known scopes (platform/operator) resolve; transaction-specific
+    variables stay visible as readable [bracketed] placeholders instead of
+    failing, because no acceptance snapshot exists yet.
+    """
+
+    def replace(match: re.Match[str]) -> str:
+        path = match.group(1)
+        try:
+            value = _resolve_path(context, path)
+        except DocumentValidationError:
+            return f"[{path}]"
+        if value is None:
+            return ""
+        if isinstance(value, dict | list):
+            return _stable_json(value)
+        return str(value)
+
+    return PLACEHOLDER_PATTERN.sub(replace, body)
+
+
+def _render_template_preview_cover_page(
+    canvas: _PdfDocumentCanvas,
+    *,
+    version: DocumentTemplateVersion,
+    document_title: str,
+) -> None:
+    y = _pdf_page_header(canvas, document_title=document_title, compact=False)
+    title_lines = _pdf_wrap_text(document_title, width=PDF_CONTENT_WIDTH, font_size=17.2)
+    title_y = y
+    for line in title_lines:
+        canvas.text(x=PDF_MARGIN_X, y=title_y, text=line, size=17.2, font="F2")
+        title_y -= 19.0
+    canvas.text(
+        x=PDF_MARGIN_X,
+        y=title_y - 2,
+        text="Current published document - preview for reading before acceptance",
+        size=10.5,
+        color=PDF_MUTED,
+    )
+    y = title_y - 35
+    template = version.template
+    left_y = _pdf_key_value_box(
+        canvas,
+        x=PDF_MARGIN_X,
+        y=y,
+        width=(PDF_CONTENT_WIDTH - 14) / 2,
+        title="Document",
+        items=[
+            ("Category", str(template.category)),
+            ("Version", str(version.version_number)),
+            ("Language", str(template.language)),
+            ("Published", version.published_at.isoformat() if version.published_at else ""),
+        ],
+    )
+    right_y = _pdf_key_value_box(
+        canvas,
+        x=PDF_MARGIN_X + ((PDF_CONTENT_WIDTH - 14) / 2) + 14,
+        y=y,
+        width=(PDF_CONTENT_WIDTH - 14) / 2,
+        title="Integrity",
+        items=[
+            ("Template", str(template.id)),
+            ("Version ID", str(version.id)),
+            ("Hash", version.content_hash[:28] + "..."),
+            ("Operator", str(settings.LEGAL_OPERATOR_NAME)),
+        ],
+    )
+    y = min(left_y, right_y) - 20
+    canvas.rect(
+        x=PDF_MARGIN_X,
+        y=y - 74,
+        width=PDF_CONTENT_WIDTH,
+        height=74,
+        fill=PDF_INFO_FILL,
+        stroke=PDF_RULE,
+    )
+    canvas.text(
+        x=PDF_MARGIN_X + 12, y=y - 17, text="How to read this document", size=8.4, font="F2"
+    )
+    note = (
+        "This is the exact server-published document version you accept in the platform. "
+        "Values shown in [brackets] are transaction-specific and are filled with your real "
+        "order, account and loan data at acceptance time; the accepted evidence PDF with "
+        "those values is available from Documents after acceptance."
+    )
+    text_y = y - 33
+    for line in _pdf_wrap_text(note, width=PDF_CONTENT_WIDTH - 24, font_size=7.4):
+        canvas.text(x=PDF_MARGIN_X + 12, y=text_y, text=line, size=7.4)
+        text_y -= 9.8
+
+
+def _template_preview_pdf_bytes(
+    *,
+    version: DocumentTemplateVersion,
+    rendered_body: str,
+) -> bytes:
+    document_title = version.title
+    body_canvas, _y, toc_entries = _render_document_body_canvas(
+        rendered_body=rendered_body,
+        document_title=document_title,
+        page_offset=2,
+    )
+    canvas = _PdfDocumentCanvas()
+    _render_template_preview_cover_page(canvas, version=version, document_title=document_title)
+    _render_acceptance_toc_page(canvas, document_title=document_title, toc_entries=toc_entries)
+    canvas.pages.extend(body_canvas.pages)
+    page_count = len(canvas.pages)
+    for page_number in range(1, page_count + 1):
+        _pdf_footer(
+            canvas,
+            page_number=page_number,
+            page_count=page_count,
+            label=(
+                f"{settings.PLATFORM_BRAND_NAME} published document preview. "
+                f"Version {version.id}."
+            ),
+        )
+    return _pdf_canvas_bytes(canvas)
+
+
+def render_current_template_preview(
+    *,
+    category: str,
+    template_key: str = DEFAULT_TEMPLATE_KEY,
+    language: str = "en",
+) -> dict[str, Any]:
+    """PDF of the current published template for pre-acceptance download."""
+    version = get_current_document_template(
+        category=category,
+        template_key=template_key,
+        language=language,
+    )
+    support_email = ""
+    try:
+        support_email = str(get_platform_setting_value("platform.support_email") or "")
+    except Exception:  # noqa: BLE001 - preview must render even if settings are unseeded
+        support_email = ""
+    context = {
+        "platform": {
+            "name": str(settings.PLATFORM_BRAND_NAME),
+            "support_email": support_email,
+        },
+        "operator": {"name": str(settings.LEGAL_OPERATOR_NAME)},
+    }
+    rendered_body = _render_template_preview_text(body=version.body, context=context)
+    pdf_bytes = _template_preview_pdf_bytes(version=version, rendered_body=rendered_body)
+    filename = f"{_safe_filename(version.title)}-v{version.version_number}.pdf"
+    return {
+        "template_version_id": str(version.id),
+        "category": str(version.template.category),
+        "title": version.title,
+        "version_number": version.version_number,
+        "content_hash": version.content_hash,
+        "content_type": PDF_CONTENT_TYPE,
+        "content_encoding": BASE64_CONTENT_ENCODING,
+        "filename": filename,
+        "content": base64.b64encode(pdf_bytes).decode("ascii"),
+    }
+
+
 def render_document_acceptance_artifact(
     command: RenderDocumentAcceptanceArtifactCommand,
 ) -> RenderedDocumentArtifact:
@@ -2576,3 +2797,7 @@ def render_document_acceptance_artifact(
         content_sha256=content_sha256,
         manifest=manifest,
     )
+
+
+# Backwards-compatible alias (pre-2026-07 name).
+seed_secondary_market_placeholder_terms = seed_placeholder_legal_templates

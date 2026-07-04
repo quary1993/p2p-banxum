@@ -1283,3 +1283,51 @@ def test_document_append_only_records_have_app_and_db_guards(
             with connection.cursor() as cursor:
                 cursor.execute(f"DELETE FROM {table} WHERE id = %s", [db_record_id])
         assert "append-only" in str(delete_error.value)
+
+
+@pytest.mark.django_db
+def test_seed_placeholder_legal_templates_includes_risk_disclosure() -> None:
+    from backend.apps.documents.services import seed_placeholder_legal_templates
+
+    created = seed_placeholder_legal_templates()
+
+    categories = {version.template.category for version in created}
+    assert "risk_disclosure" in categories
+    template = DocumentTemplate.objects.get(
+        category="risk_disclosure", template_key="default", language="en"
+    )
+    version = template.current_published_version
+    assert version is not None
+    assert version.status == "published"
+    assert "risk" in version.title.lower()
+    # Idempotent: re-seeding must not publish a second version.
+    assert seed_placeholder_legal_templates() == [] or all(
+        v.template.category != "risk_disclosure" for v in seed_placeholder_legal_templates()
+    )
+
+
+@pytest.mark.django_db
+def test_current_template_preview_artifact_api() -> None:
+    from backend.apps.documents.services import seed_placeholder_legal_templates
+
+    seed_placeholder_legal_templates()
+    client = Client()
+
+    response = client.get(
+        "/api/v1/documents/templates/current/artifact/",
+        {"category": "risk_disclosure"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["category"] == "risk_disclosure"
+    assert payload["content_type"] == "application/pdf"
+    assert payload["content_encoding"] == "base64"
+    assert payload["filename"].endswith(".pdf")
+    pdf_bytes = base64.b64decode(payload["content"])
+    assert pdf_bytes.startswith(b"%PDF")
+
+    missing = client.get(
+        "/api/v1/documents/templates/current/artifact/",
+        {"category": "registration"},
+    )
+    assert missing.status_code == 404

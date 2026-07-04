@@ -398,8 +398,73 @@ const navGroups: Array<{
   }
 ];
 
-const riskText =
-  `I understand that investing through ${platformName} involves lending-related risks. I may lose some or all of the amount invested. Borrowers may pay late, pay only part of the expected amount, or default. Collateral, guarantees or security may not fully cover losses and may take time and cost to enforce. Expected returns are not guaranteed, past performance and risk ratings do not guarantee future results, and secondary-market sale may be unavailable or only possible at a lower price.`;
+const legalDocumentTitles: Record<string, string> = {
+  registration: "Lender user agreement",
+  primary_market_investment: "Investment terms and loan claim assignment",
+  secondary_market_listing: "Secondary-market seller/listing terms",
+  secondary_market_purchase: "Secondary-market buyer terms",
+  risk_disclosure: "Generic P2P lending risk disclosure"
+};
+
+function legalDocumentPath(category: string) {
+  return `/legal/${category.replace(/_/g, "-")}`;
+}
+
+function renderLegalBody(body: string): ReactNode {
+  const resolved = body
+    .replace(/\{\{\s*platform\.name\s*\}\}/g, platformName)
+    .replace(/\{\{\s*operator\.name\s*\}\}/g, operatorName)
+    .replace(/\{\{\s*platform\.support_email\s*\}\}/g, supportEmail)
+    .replace(/\{\{\s*([\w.]+)\s*\}\}/g, "[$1]");
+  return resolved.split(/\n\n+/).map((rawBlock, index) => {
+    const block = rawBlock.trim();
+    if (!block) return null;
+    const heading = block.match(/^(#{1,3})\s+([\s\S]*)$/);
+    if (heading) {
+      const text = heading[2].trim();
+      return heading[1].length === 1 ? <h2 key={index}>{text}</h2> : <h3 key={index}>{text}</h3>;
+    }
+    const lines = block.split("\n").map((line) => line.trim()).filter(Boolean);
+    if (lines.length > 1 && lines.every((line) => line.startsWith("|"))) {
+      const rows = lines.map((line) => line.replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim()));
+      const [head, ...rest] = rows;
+      return (
+        <table className="legal-doc-table" key={index}>
+          <thead><tr>{head.map((cell, cellIndex) => <th key={cellIndex}>{cell}</th>)}</tr></thead>
+          <tbody>
+            {rest
+              .filter((cells) => !cells.every((cell) => /^[-\s:]*$/.test(cell)))
+              .map((cells, rowIndex) => (
+                <tr key={rowIndex}>{cells.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>
+              ))}
+          </tbody>
+        </table>
+      );
+    }
+    if (lines.length > 0 && lines.every((line) => /^[-*]\s+/.test(line))) {
+      return (
+        <ul key={index}>
+          {lines.map((line, lineIndex) => <li key={lineIndex}>{line.replace(/^[-*]\s+/, "")}</li>)}
+        </ul>
+      );
+    }
+    return <p key={index}>{block}</p>;
+  });
+}
+
+function LegalDocLink({ category, children }: { category: string; children: ReactNode }) {
+  return (
+    <a
+      className="doc-link"
+      href={legalDocumentPath(category)}
+      rel="noopener noreferrer"
+      target="_blank"
+    >
+      {children}
+      <span aria-hidden="true" className="doc-link-arrow">&#8599;</span>
+    </a>
+  );
+}
 
 function idempotencyKey(prefix: string) {
   const random =
@@ -682,6 +747,10 @@ export function App() {
 
   if (window.location.pathname.startsWith("/kyc/callback")) {
     return <KycReturnScreen setRoute={setRoute} />;
+  }
+
+  if (window.location.pathname.startsWith("/legal/")) {
+    return <LegalDocumentPage />;
   }
 
   if (route.name === "public") {
@@ -1512,45 +1581,15 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
                 ))}
               </select>
             </Field>
-            <div className="legal" style={{ margin: "14px 0 12px" }}>
-              <h5>
-                {isFixturePreview
-                  ? "Platform Terms of Use - v4.2"
-                  : registrationTermsQuery.data?.title ?? "Lender user agreement"}
-              </h5>
-              {isFixturePreview ? (
-                <p>
-                  By registering you enter into the {platformName} platform terms operated by{" "}
-                  {operatorName}. Platform balances are non-interest-bearing and subject to regulatory
-                  ageing limits. The 60-day holding limit cannot be extended.
-                </p>
-              ) : registrationTermsQuery.isLoading ? (
-                <p className="muted">Loading the current server-published lender agreement...</p>
-              ) : registrationTermsQuery.data ? (
-                <>
-                  <p className="muted">
-                    Server-published v{registrationTermsQuery.data.version_number}. Hash{" "}
-                    <span className="mono">{registrationTermsQuery.data.content_hash.slice(0, 12)}</span>.
-                    Acceptance records a versioned PDF snapshot and emails a copy to you.
-                  </p>
-                  <div
-                    aria-label="Current lender user agreement"
-                    className="legal-document-preview"
-                  >
-                    {registrationTermsQuery.data.body}
-                  </div>
-                </>
-              ) : (
-                <p className="muted">
-                  The current server-published lender agreement could not be loaded. Retry before
-                  registering.
-                </p>
-              )}
-              <p className="muted">Server-versioned clickwrap. Acceptance is recorded with document version, timestamp and context.</p>
-            </div>
-            <div className="col gap-10">
+            <div className="col gap-10" style={{ marginTop: 14 }}>
               {isFixturePreview || registrationLabels.length === 0 ? (
-                <Check checked={terms} id="register-terms" onChange={setTerms}>I accept the platform terms and registration documents.</Check>
+                <Check checked={terms} id="register-terms" onChange={setTerms}>
+                  I accept the{" "}
+                  <LegalDocLink category="registration">
+                    platform terms and registration documents
+                  </LegalDocLink>
+                  .
+                </Check>
               ) : (
                 registrationLabels.map((label, index) => (
                   <Check
@@ -1565,13 +1604,32 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
                       )
                     }
                   >
-                    {label}
+                    {label} <LegalDocLink category="registration">read &amp; download</LegalDocLink>
                   </Check>
                 ))
               )}
-              <Check checked={risk} id="register-risk" onChange={setRisk}>I acknowledge the generic P2P lending risk disclosure.</Check>
+              <Check checked={risk} id="register-risk" onChange={setRisk}>
+                I acknowledge the{" "}
+                <LegalDocLink category="risk_disclosure">
+                  generic P2P lending risk disclosure
+                </LegalDocLink>
+                .
+              </Check>
               <Check checked={marketing} id="register-marketing" onChange={setMarketing}>I agree to optional marketing communications.</Check>
             </div>
+            <p className="muted" style={{ fontSize: 11.5, marginTop: 10 }}>
+              Documents open in a new tab where you can read and download them.{" "}
+              {!isFixturePreview && registrationTermsQuery.data ? (
+                <>
+                  Acceptance is recorded against server-published v
+                  {registrationTermsQuery.data.version_number} (hash{" "}
+                  <span className="mono">{registrationTermsQuery.data.content_hash.slice(0, 12)}</span>)
+                  with timestamp and context, and a copy is emailed to you.
+                </>
+              ) : (
+                <>Acceptance is recorded with document version, timestamp and context.</>
+              )}
+            </p>
             {!isFixturePreview && registrationTermsQuery.isError ? (
               <Banner tone="bad" title="Agreement unavailable">
                 The current server-published lender agreement could not be loaded.
@@ -3489,7 +3547,13 @@ function BuyListingModal({ listing, onClose }: { listing: SecondaryMarketBuyerLi
           { label: "Taker fee", value: `${listing.currency} ${formatMoneyMinor(listing.taker_fee_minor, listing.currency)}` },
           { label: "Total cost", value: `${listing.currency} ${formatMoneyMinor(listing.buyer_total_cost_minor, listing.currency)}`, total: true }
         ]} />
-        <Check checked={ack} id="sm-buy-ack" onChange={setAck}>I accept the secondary-market buyer terms and reassignment document.</Check>
+        <Check checked={ack} id="sm-buy-ack" onChange={setAck}>
+          I accept the{" "}
+          <LegalDocLink category="secondary_market_purchase">
+            secondary-market buyer terms and reassignment document
+          </LegalDocLink>
+          .
+        </Check>
         {needsExtra ? <Check checked={extraAck} id="sm-extra-ack" onChange={setExtraAck}>I acknowledge this is a non-standard claim with heightened risk of partial or total loss.</Check> : null}
         {!isFixturePreview && termsQuery.data ? <p className="muted" style={{ fontSize: 11.5 }}>Accepting {termsQuery.data.title} v{termsQuery.data.version_number}.</p> : null}
         <CodeRequestField
@@ -3597,7 +3661,11 @@ function ListHoldingModal({ holding, onClose }: { holding: Holding; onClose: () 
           { label: "Maker fee", value: `${holding.currency} ${formatMoneyMinor(makerFee, holding.currency)}` },
           { label: "Seller net proceeds", value: `${holding.currency} ${formatMoneyMinor(transferPrice - makerFee, holding.currency)}`, total: true }
         ]} />
-        <Check checked={ack} id="sm-list-ack" onChange={setAck}>I accept the seller/listing terms and confirm I am listing this entire holding.</Check>
+        <Check checked={ack} id="sm-list-ack" onChange={setAck}>
+          I accept the{" "}
+          <LegalDocLink category="secondary_market_listing">seller/listing terms</LegalDocLink> and
+          confirm I am listing this entire holding.
+        </Check>
         {!isFixturePreview && termsQuery.data ? <p className="muted" style={{ fontSize: 11.5 }}>Accepting {termsQuery.data.title} v{termsQuery.data.version_number}.</p> : null}
         <CodeRequestField
           hint={previewHint("Demo: any 6 digits")}
@@ -4400,6 +4468,113 @@ function FaqScreen() {
   );
 }
 
+function LegalDocumentPage() {
+  const category = window.location.pathname
+    .replace(/^\/legal\//, "")
+    .replace(/\/+$/, "")
+    .replace(/-/g, "_");
+  const known = category in legalDocumentTitles;
+  const [downloadError, setDownloadError] = useState("");
+  const [downloading, setDownloading] = useState(false);
+  const templateQuery = useV1DocumentsTemplatesCurrentRetrieve(
+    { category: category as CategoryEnum, template_key: "default", language: "en" },
+    { query: { enabled: !isFixturePreview && known, retry: false } }
+  );
+  const doc = templateQuery.data;
+  const title = doc?.title ?? legalDocumentTitles[category] ?? "Document";
+
+  const download = async () => {
+    setDownloadError("");
+    setDownloading(true);
+    try {
+      const response = await fetch(
+        `/api/v1/documents/templates/current/artifact/?category=${encodeURIComponent(category)}`
+      );
+      if (!response.ok) throw new Error(`Download failed (${response.status}).`);
+      const payload = (await response.json()) as { content: string; content_type: string; filename: string };
+      const bytes = Uint8Array.from(atob(payload.content), (char) => char.charCodeAt(0));
+      const blob = new Blob([bytes], { type: payload.content_type });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = payload.filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setDownloadError(error instanceof Error ? error.message : "Download failed.");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <div className="public">
+      <header className="public-top">
+        <Wordmark />
+        <div className="grow" />
+        <Button variant="ghost" onClick={() => window.location.assign("/")}>Open {platformName}</Button>
+      </header>
+      <main className="public-body legal-doc">
+        {!known ? (
+          <Card padded>
+            <Empty icon="doc" title="Document not found">
+              This document address is not recognized. Open {platformName} and use the links in each flow.
+            </Empty>
+          </Card>
+        ) : (
+          <>
+            <div className="page-head">
+              <div>
+                <h1>{title}</h1>
+                <div className="ph-sub">
+                  The exact server-published version you accept in the platform. Values in brackets are
+                  filled with your transaction data at acceptance time.
+                </div>
+              </div>
+              <Button disabled={downloading || isFixturePreview} icon="doc" variant="primary" onClick={download}>
+                {downloading ? "Preparing PDF..." : "Download PDF"}
+              </Button>
+            </div>
+            {downloadError ? <Banner tone="bad" title="Download failed">{downloadError}</Banner> : null}
+            <Card padded>
+              {isFixturePreview ? (
+                <p className="muted">Preview mode: live document content loads from the published server template.</p>
+              ) : templateQuery.isLoading ? (
+                <p className="muted">Loading the current published document...</p>
+              ) : doc ? (
+                <>
+                  <div className="legal-doc-meta">
+                    <Chip status={`v${doc.version_number}`} tone="info" />
+                    <span className="muted mono">hash {doc.content_hash.slice(0, 16)}</span>
+                    {doc.published_at ? (
+                      <span className="muted">published {formatDate(doc.published_at)}</span>
+                    ) : null}
+                  </div>
+                  <div className="legal-document-preview legal-doc-body">{renderLegalBody(doc.body)}</div>
+                  {Array.isArray(doc.checkbox_labels) && doc.checkbox_labels.length > 0 ? (
+                    <div className="legal-doc-acks">
+                      <h5>You will be asked to confirm</h5>
+                      <ul>
+                        {(doc.checkbox_labels as string[]).map((label) => (
+                          <li key={label}>{label}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <Banner tone="bad" title="Document unavailable">
+                  The current published document could not be loaded. Retry, or contact {supportEmail}.
+                </Banner>
+              )}
+            </Card>
+          </>
+        )}
+      </main>
+    </div>
+  );
+}
+
 function InvestModal({ loan, onClose }: { loan: MarketplaceLoanDetail; onClose: () => void }) {
   const queryClient = useQueryClient();
   const balances = useBalancesData().data;
@@ -4410,7 +4585,6 @@ function InvestModal({ loan, onClose }: { loan: MarketplaceLoanDetail; onClose: 
   const [step, setStep] = useState<"amount" | "review" | "confirm" | "done">("amount");
   const [ack1, setAck1] = useState(false);
   const [ack2, setAck2] = useState(false);
-  const [termsExpanded, setTermsExpanded] = useState(false);
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [orderId, setOrderId] = useState<string | null>(null);
@@ -4521,43 +4695,28 @@ function InvestModal({ loan, onClose }: { loan: MarketplaceLoanDetail; onClose: 
       ) : step === "review" ? (
         <div className="col gap-16">
           <Review rows={[{ label: "Loan", value: <span className="entity-inline"><span>{loan.title}</span><CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" /></span> }, { label: "Order amount", value: `${loan.currency} ${formatMoneyMinor(amountMinor, loan.currency)}` }, { label: "Target interest", value: `${formatRateBps(loan.interest_rate_bps)} p.a.` }, { label: "Platform fee", value: "None" }]} />
-          <div className="legal"><h5>Generic P2P lending risk acknowledgement</h5><p>{riskText}</p></div>
-          <div className="legal terms-summary">
-            <h5>Investment terms and loan claim assignment</h5>
-            <p>
-              Before placing this order, review the full primary-market investment terms and loan
-              claim assignment. Your acceptance is recorded against the exact server-published
-              document version, timestamp, order amount and loan context.
-            </p>
-            <p>
-              Full terms:{" "}
-              {!isFixturePreview && termsQuery.data ? (
-                <a
-                  className="terms-link"
-                  href={`#investment-terms-${termsQuery.data.id}`}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    setTermsExpanded((expanded) => !expanded);
-                  }}
-                >
-                  {termsExpanded ? "Hide" : "Read"} {termsQuery.data.title} v{termsQuery.data.version_number}
-                </a>
-              ) : isFixturePreview ? (
-                <span className="muted">Preview mode uses demo terms; live terms load from the published server template.</span>
-              ) : termsQuery.isError ? (
-                <span className="neg">Current terms could not be loaded.</span>
-              ) : (
-                <span className="muted">Loading current terms...</span>
-              )}
-            </p>
-            {termsExpanded && termsQuery.data ? (
-              <div className="legal-document-preview terms-body-preview" id={`investment-terms-${termsQuery.data.id}`}>
-                {termsQuery.data.body}
-              </div>
-            ) : null}
-          </div>
-          <Check checked={ack1} id="invest-ack-1" onChange={setAck1}>I accept the primary-market investment terms and loan claim assignment.</Check>
-          <Check checked={ack2} id="invest-ack-2" onChange={setAck2}>I acknowledge the risk disclosure and possible capital loss.</Check>
+          <Check checked={ack1} id="invest-ack-1" onChange={setAck1}>
+            I accept the{" "}
+            <LegalDocLink category="primary_market_investment">
+              primary-market investment terms and loan claim assignment
+            </LegalDocLink>
+            .
+          </Check>
+          <Check checked={ack2} id="invest-ack-2" onChange={setAck2}>
+            I acknowledge the <LegalDocLink category="risk_disclosure">risk disclosure</LegalDocLink> and
+            possible capital loss.
+          </Check>
+          <p className="muted" style={{ fontSize: 11.5 }}>
+            Documents open in a new tab where you can read and download them.{" "}
+            {!isFixturePreview && termsQuery.data
+              ? `Your acceptance is recorded against ${termsQuery.data.title} v${termsQuery.data.version_number}, timestamp, order amount and loan context.`
+              : "Your acceptance is recorded against the exact server-published document version, timestamp, order amount and loan context."}
+          </p>
+          {!isFixturePreview && termsQuery.isError ? (
+            <Banner tone="bad" title="Investment terms unavailable">
+              The current server-published investment terms could not be loaded.
+            </Banner>
+          ) : null}
         </div>
       ) : step === "confirm" ? (
         <div className="col gap-16">

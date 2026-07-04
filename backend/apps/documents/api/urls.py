@@ -5,6 +5,7 @@ from django.urls import path
 from backend.apps.documents.api.views import (
     AdminDocumentTemplateVersionListCreateView,
     AdminDocumentTemplateVersionPublishView,
+    CurrentDocumentTemplateArtifactView,
     CurrentDocumentTemplateView,
     DocumentAcceptanceArtifactView,
     DocumentAcceptanceCreateView,
@@ -15,6 +16,11 @@ urlpatterns = [
         "templates/current/",
         CurrentDocumentTemplateView.as_view(),
         name="document-template-current",
+    ),
+    path(
+        "templates/current/artifact/",
+        CurrentDocumentTemplateArtifactView.as_view(),
+        name="document-template-current-artifact",
     ),
     path(
         "admin/templates/versions/",

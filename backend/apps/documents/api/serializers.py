@@ -86,6 +86,18 @@ class DocumentCurrentTemplateQuerySerializer(serializers.Serializer[Any]):
     language = serializers.CharField(required=False, default="en", max_length=8)
 
 
+class DocumentTemplatePreviewArtifactResponseSerializer(serializers.Serializer[Any]):
+    template_version_id = serializers.UUIDField()
+    category = serializers.CharField()
+    title = serializers.CharField()
+    version_number = serializers.IntegerField()
+    content_hash = serializers.CharField()
+    content_type = serializers.CharField()
+    content_encoding = serializers.CharField()
+    filename = serializers.CharField()
+    content = serializers.CharField()
+
+
 class AdminDocumentTemplateVersionListQuerySerializer(DocumentCurrentTemplateQuerySerializer):
     q = serializers.CharField(required=False, allow_blank=True, max_length=255)
     limit = serializers.IntegerField(required=False, min_value=1, max_value=250, default=100)

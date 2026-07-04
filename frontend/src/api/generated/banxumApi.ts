@@ -843,6 +843,7 @@ export interface BorrowerRepaymentRecordResponse {
 * `primary_market_investment` - Primary-market investment
 * `secondary_market_purchase` - Secondary-market purchase
 * `secondary_market_listing` - Secondary-market listing
+* `risk_disclosure` - Risk disclosure
  */
 export type CategoryEnum = typeof CategoryEnum[keyof typeof CategoryEnum];
 
@@ -853,6 +854,7 @@ export const CategoryEnum = {
   primary_market_investment: 'primary_market_investment',
   secondary_market_purchase: 'secondary_market_purchase',
   secondary_market_listing: 'secondary_market_listing',
+  risk_disclosure: 'risk_disclosure',
 } as const;
 
 /**
@@ -1025,6 +1027,18 @@ export interface DocumentTemplate {
   updated_by_superadmin_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface DocumentTemplatePreviewArtifactResponse {
+  template_version_id: string;
+  category: string;
+  title: string;
+  version_number: number;
+  content_hash: string;
+  content_type: string;
+  content_encoding: string;
+  filename: string;
+  content: string;
 }
 
 export interface DocumentTemplateVersion {
@@ -3634,6 +3648,7 @@ export type V1DocumentsAdminTemplatesVersionsListParams = {
 * `primary_market_investment` - Primary-market investment
 * `secondary_market_purchase` - Secondary-market purchase
 * `secondary_market_listing` - Secondary-market listing
+* `risk_disclosure` - Risk disclosure
  * @minLength 1
  */
 category: V1DocumentsAdminTemplatesVersionsListCategory;
@@ -3667,6 +3682,7 @@ export const V1DocumentsAdminTemplatesVersionsListCategory = {
   primary_market_investment: 'primary_market_investment',
   secondary_market_purchase: 'secondary_market_purchase',
   secondary_market_listing: 'secondary_market_listing',
+  risk_disclosure: 'risk_disclosure',
 } as const;
 
 export type V1DocumentsTemplatesCurrentRetrieveParams = {
@@ -3675,6 +3691,7 @@ export type V1DocumentsTemplatesCurrentRetrieveParams = {
 * `primary_market_investment` - Primary-market investment
 * `secondary_market_purchase` - Secondary-market purchase
 * `secondary_market_listing` - Secondary-market listing
+* `risk_disclosure` - Risk disclosure
  * @minLength 1
  */
 category: V1DocumentsTemplatesCurrentRetrieveCategory;
@@ -3699,6 +3716,41 @@ export const V1DocumentsTemplatesCurrentRetrieveCategory = {
   primary_market_investment: 'primary_market_investment',
   secondary_market_purchase: 'secondary_market_purchase',
   secondary_market_listing: 'secondary_market_listing',
+  risk_disclosure: 'risk_disclosure',
+} as const;
+
+export type V1DocumentsTemplatesCurrentArtifactRetrieveParams = {
+/**
+ * * `registration` - Registration terms
+* `primary_market_investment` - Primary-market investment
+* `secondary_market_purchase` - Secondary-market purchase
+* `secondary_market_listing` - Secondary-market listing
+* `risk_disclosure` - Risk disclosure
+ * @minLength 1
+ */
+category: V1DocumentsTemplatesCurrentArtifactRetrieveCategory;
+/**
+ * @minLength 1
+ * @maxLength 8
+ */
+language?: string;
+/**
+ * @minLength 1
+ * @maxLength 128
+ */
+template_key?: string;
+};
+
+export type V1DocumentsTemplatesCurrentArtifactRetrieveCategory = typeof V1DocumentsTemplatesCurrentArtifactRetrieveCategory[keyof typeof V1DocumentsTemplatesCurrentArtifactRetrieveCategory];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const V1DocumentsTemplatesCurrentArtifactRetrieveCategory = {
+  registration: 'registration',
+  primary_market_investment: 'primary_market_investment',
+  secondary_market_purchase: 'secondary_market_purchase',
+  secondary_market_listing: 'secondary_market_listing',
+  risk_disclosure: 'risk_disclosure',
 } as const;
 
 export type V1EntitiesAdminBorrowersListParams = {
@@ -6850,6 +6902,94 @@ export function useV1DocumentsTemplatesCurrentRetrieve<TData = Awaited<ReturnTyp
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getV1DocumentsTemplatesCurrentRetrieveQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1DocumentsTemplatesCurrentArtifactRetrieve = (
+    params: V1DocumentsTemplatesCurrentArtifactRetrieveParams,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<DocumentTemplatePreviewArtifactResponse>(
+      {url: `/api/v1/documents/templates/current/artifact/`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+
+
+
+
+export const getV1DocumentsTemplatesCurrentArtifactRetrieveQueryKey = (params?: V1DocumentsTemplatesCurrentArtifactRetrieveParams,) => {
+    return [
+    `/api/v1/documents/templates/current/artifact/`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+
+export const getV1DocumentsTemplatesCurrentArtifactRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentArtifactRetrieve>>, TError = unknown>(params: V1DocumentsTemplatesCurrentArtifactRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentArtifactRetrieve>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1DocumentsTemplatesCurrentArtifactRetrieveQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentArtifactRetrieve>>> = ({ signal }) => v1DocumentsTemplatesCurrentArtifactRetrieve(params, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentArtifactRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1DocumentsTemplatesCurrentArtifactRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentArtifactRetrieve>>>
+export type V1DocumentsTemplatesCurrentArtifactRetrieveQueryError = unknown
+
+
+export function useV1DocumentsTemplatesCurrentArtifactRetrieve<TData = Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentArtifactRetrieve>>, TError = unknown>(
+ params: V1DocumentsTemplatesCurrentArtifactRetrieveParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentArtifactRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentArtifactRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentArtifactRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1DocumentsTemplatesCurrentArtifactRetrieve<TData = Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentArtifactRetrieve>>, TError = unknown>(
+ params: V1DocumentsTemplatesCurrentArtifactRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentArtifactRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentArtifactRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentArtifactRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1DocumentsTemplatesCurrentArtifactRetrieve<TData = Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentArtifactRetrieve>>, TError = unknown>(
+ params: V1DocumentsTemplatesCurrentArtifactRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentArtifactRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1DocumentsTemplatesCurrentArtifactRetrieve<TData = Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentArtifactRetrieve>>, TError = unknown>(
+ params: V1DocumentsTemplatesCurrentArtifactRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1DocumentsTemplatesCurrentArtifactRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1DocumentsTemplatesCurrentArtifactRetrieveQueryOptions(params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
@@ -12193,6 +12333,8 @@ export const getV1DocumentsAdminTemplatesVersionsPublishCreateResponseMock = (ov
 
 export const getV1DocumentsTemplatesCurrentRetrieveResponseMock = (overrideResponse: Partial< PublicDocumentTemplateVersion > = {}): PublicDocumentTemplateVersion => ({id: faker.string.uuid(), category: faker.string.alpha({length: {min: 10, max: 20}}), template_key: faker.string.alpha({length: {min: 10, max: 20}}), language: faker.string.alpha({length: {min: 10, max: 20}}), version_number: faker.number.int({min: undefined, max: undefined}), title: faker.string.alpha({length: {min: 10, max: 20}}), body: faker.string.alpha({length: {min: 10, max: 20}}), checkbox_labels: {}, content_hash: faker.string.alpha({length: {min: 10, max: 20}}), published_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), ...overrideResponse})
 
+export const getV1DocumentsTemplatesCurrentArtifactRetrieveResponseMock = (overrideResponse: Partial< DocumentTemplatePreviewArtifactResponse > = {}): DocumentTemplatePreviewArtifactResponse => ({template_version_id: faker.string.uuid(), category: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), version_number: faker.number.int({min: undefined, max: undefined}), content_hash: faker.string.alpha({length: {min: 10, max: 20}}), content_type: faker.string.alpha({length: {min: 10, max: 20}}), content_encoding: faker.string.alpha({length: {min: 10, max: 20}}), filename: faker.string.alpha({length: {min: 10, max: 20}}), content: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
 export const getV1EntitiesAdminBorrowersListResponseMock = (): BorrowerEntity[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), legal_name: faker.string.alpha({length: {min: 10, max: 20}}), year_founded: faker.number.int({min: undefined, max: undefined}), entity_type: faker.string.alpha({length: {min: 10, max: 20}}), kyb_status: faker.string.alpha({length: {min: 10, max: 20}}), compliance_hold: faker.datatype.boolean(), can_transact: faker.datatype.boolean(), country: faker.string.alpha({length: {min: 10, max: 20}}), registration_number: faker.string.alpha({length: {min: 10, max: 20}}), registered_address: faker.string.alpha({length: {min: 10, max: 20}}), operating_address: faker.string.alpha({length: {min: 10, max: 20}}), industry_activity: faker.string.alpha({length: {min: 10, max: 20}}), ownership_structure: faker.string.alpha({length: {min: 10, max: 20}}), beneficial_owners: {}, directors_officers: {}, authorized_signatories: {}, bank_account_details: {}, financials_currency: faker.string.alpha({length: {min: 10, max: 20}}), assets_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), liabilities_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), revenue_last_year_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), profit_last_year_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`})))
 
 export const getV1EntitiesAdminBorrowersCreateResponseMock = (overrideResponse: Partial< BorrowerEntity > = {}): BorrowerEntity => ({id: faker.string.uuid(), legal_name: faker.string.alpha({length: {min: 10, max: 20}}), year_founded: faker.number.int({min: undefined, max: undefined}), entity_type: faker.string.alpha({length: {min: 10, max: 20}}), kyb_status: faker.string.alpha({length: {min: 10, max: 20}}), compliance_hold: faker.datatype.boolean(), can_transact: faker.datatype.boolean(), country: faker.string.alpha({length: {min: 10, max: 20}}), registration_number: faker.string.alpha({length: {min: 10, max: 20}}), registered_address: faker.string.alpha({length: {min: 10, max: 20}}), operating_address: faker.string.alpha({length: {min: 10, max: 20}}), industry_activity: faker.string.alpha({length: {min: 10, max: 20}}), ownership_structure: faker.string.alpha({length: {min: 10, max: 20}}), beneficial_owners: {}, directors_officers: {}, authorized_signatories: {}, bank_account_details: {}, financials_currency: faker.string.alpha({length: {min: 10, max: 20}}), assets_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), liabilities_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), revenue_last_year_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), profit_last_year_minor: faker.helpers.arrayElement([faker.number.int({min: undefined, max: undefined}), null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
@@ -12804,6 +12946,18 @@ export const getV1DocumentsTemplatesCurrentRetrieveMockHandler = (overrideRespon
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1DocumentsTemplatesCurrentRetrieveResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1DocumentsTemplatesCurrentArtifactRetrieveMockHandler = (overrideResponse?: DocumentTemplatePreviewArtifactResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<DocumentTemplatePreviewArtifactResponse> | DocumentTemplatePreviewArtifactResponse), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/documents/templates/current/artifact/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1DocumentsTemplatesCurrentArtifactRetrieveResponseMock()),
       { status: 200,
         headers: { 'Content-Type': 'application/json' }
       })
@@ -13737,6 +13891,7 @@ export const getBanxumApiMock = () => [
   getV1DocumentsAdminTemplatesVersionsCreateMockHandler(),
   getV1DocumentsAdminTemplatesVersionsPublishCreateMockHandler(),
   getV1DocumentsTemplatesCurrentRetrieveMockHandler(),
+  getV1DocumentsTemplatesCurrentArtifactRetrieveMockHandler(),
   getV1EntitiesAdminBorrowersListMockHandler(),
   getV1EntitiesAdminBorrowersCreateMockHandler(),
   getV1EntitiesAdminBorrowersRetrieveMockHandler(),

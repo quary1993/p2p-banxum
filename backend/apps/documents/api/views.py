@@ -18,6 +18,7 @@ from backend.apps.documents.api.serializers import (
     DocumentAcceptanceEvidenceSerializer,
     DocumentArtifactResponseSerializer,
     DocumentCurrentTemplateQuerySerializer,
+    DocumentTemplatePreviewArtifactResponseSerializer,
     DocumentTemplateVersionCreateRequestSerializer,
     DocumentTemplateVersionPublishRequestSerializer,
     DocumentTemplateVersionSerializer,
@@ -39,6 +40,7 @@ from backend.apps.documents.services import (
     create_document_template_version,
     get_current_document_template,
     publish_document_template_version,
+    render_current_template_preview,
     render_document_acceptance_artifact,
 )
 from backend.apps.platform_core.api.request_meta import client_ip, user_agent
@@ -73,6 +75,32 @@ class CurrentDocumentTemplateView(APIView):
         except DocumentValidationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND)
         return Response(serialize_public_template_version(version), status=status.HTTP_200_OK)
+
+
+class CurrentDocumentTemplateArtifactView(APIView):
+    authentication_classes: list[type] = []
+    permission_classes: list[type] = []
+
+    @extend_schema(
+        parameters=[DocumentCurrentTemplateQuerySerializer],
+        responses={200: DocumentTemplatePreviewArtifactResponseSerializer},
+    )
+    def get(self, request: Request) -> Response:
+        serializer = DocumentCurrentTemplateQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            payload = render_current_template_preview(
+                category=data["category"],
+                template_key=data["template_key"],
+                language=data["language"],
+            )
+        except DocumentValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND)
+        return Response(
+            DocumentTemplatePreviewArtifactResponseSerializer(payload).data,
+            status=status.HTTP_200_OK,
+        )
 
 
 class AdminDocumentTemplateVersionListCreateView(APIView):

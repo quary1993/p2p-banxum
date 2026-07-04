@@ -19,7 +19,7 @@ class Command(BaseCommand):
         documents_services = import_module("backend.apps.documents.services")
         created_templates = cast(
             list[Any],
-            documents_services.seed_secondary_market_placeholder_terms(),
+            documents_services.seed_placeholder_legal_templates(),
         )
         if created_templates:
             self.stdout.write(

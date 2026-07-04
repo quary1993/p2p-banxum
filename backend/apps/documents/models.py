@@ -12,6 +12,7 @@ class DocumentCategory(models.TextChoices):
     PRIMARY_MARKET_INVESTMENT = "primary_market_investment", "Primary-market investment"
     SECONDARY_MARKET_PURCHASE = "secondary_market_purchase", "Secondary-market purchase"
     SECONDARY_MARKET_LISTING = "secondary_market_listing", "Secondary-market listing"
+    RISK_DISCLOSURE = "risk_disclosure", "Risk disclosure"
 
 
 class DocumentTemplateVersionStatus(models.TextChoices):

@@ -1276,6 +1276,7 @@ paths:
           - primary_market_investment
           - secondary_market_purchase
           - secondary_market_listing
+          - risk_disclosure
           type: string
           minLength: 1
         description: |-
@@ -1283,6 +1284,7 @@ paths:
           * `primary_market_investment` - Primary-market investment
           * `secondary_market_purchase` - Secondary-market purchase
           * `secondary_market_listing` - Secondary-market listing
+          * `risk_disclosure` - Risk disclosure
         required: true
       - in: query
         name: language
@@ -1392,6 +1394,7 @@ paths:
           - primary_market_investment
           - secondary_market_purchase
           - secondary_market_listing
+          - risk_disclosure
           type: string
           minLength: 1
         description: |-
@@ -1399,6 +1402,7 @@ paths:
           * `primary_market_investment` - Primary-market investment
           * `secondary_market_purchase` - Secondary-market purchase
           * `secondary_market_listing` - Secondary-market listing
+          * `risk_disclosure` - Risk disclosure
         required: true
       - in: query
         name: language
@@ -1422,6 +1426,51 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PublicDocumentTemplateVersion'
+          description: ''
+  /api/v1/documents/templates/current/artifact/:
+    get:
+      operationId: v1_documents_templates_current_artifact_retrieve
+      parameters:
+      - in: query
+        name: category
+        schema:
+          enum:
+          - registration
+          - primary_market_investment
+          - secondary_market_purchase
+          - secondary_market_listing
+          - risk_disclosure
+          type: string
+          minLength: 1
+        description: |-
+          * `registration` - Registration terms
+          * `primary_market_investment` - Primary-market investment
+          * `secondary_market_purchase` - Secondary-market purchase
+          * `secondary_market_listing` - Secondary-market listing
+          * `risk_disclosure` - Risk disclosure
+        required: true
+      - in: query
+        name: language
+        schema:
+          type: string
+          default: en
+          maxLength: 8
+          minLength: 1
+      - in: query
+        name: template_key
+        schema:
+          type: string
+          default: default
+          maxLength: 128
+          minLength: 1
+      tags:
+      - v1
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentTemplatePreviewArtifactResponse'
           description: ''
   /api/v1/entities/admin/borrowers/:
     get:
@@ -5198,12 +5247,14 @@ components:
       - primary_market_investment
       - secondary_market_purchase
       - secondary_market_listing
+      - risk_disclosure
       type: string
       description: |-
         * `registration` - Registration terms
         * `primary_market_investment` - Primary-market investment
         * `secondary_market_purchase` - Secondary-market purchase
         * `secondary_market_listing` - Secondary-market listing
+        * `risk_disclosure` - Risk disclosure
     CollateralTypeEnum:
       enum:
       - real_estate
@@ -5489,6 +5540,38 @@ components:
       - template_key
       - updated_at
       - updated_by_superadmin_id
+    DocumentTemplatePreviewArtifactResponse:
+      type: object
+      properties:
+        template_version_id:
+          type: string
+          format: uuid
+        category:
+          type: string
+        title:
+          type: string
+        version_number:
+          type: integer
+        content_hash:
+          type: string
+        content_type:
+          type: string
+        content_encoding:
+          type: string
+        filename:
+          type: string
+        content:
+          type: string
+      required:
+      - category
+      - content
+      - content_encoding
+      - content_hash
+      - content_type
+      - filename
+      - template_version_id
+      - title
+      - version_number
     DocumentTemplateVersion:
       type: object
       properties:
