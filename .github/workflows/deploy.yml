@@ -1,0 +1,169 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target BANXUM environment to deploy.
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+          - both
+
+jobs:
+  deploy:
+    name: Deploy BANXUM
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        env:
+          SSH_HOST: ${{ secrets.BANXUM_SSH_HOST }}
+          SSH_USER: ${{ secrets.BANXUM_SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.BANXUM_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_PRIVATE_KEY"
+
+      - name: Prepare SSH key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.BANXUM_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/banxum_deploy_key"
+          chmod 600 "$HOME/.ssh/banxum_deploy_key"
+
+      - name: Trust host key
+        env:
+          SSH_HOST: ${{ secrets.BANXUM_SSH_HOST }}
+          SSH_PORT: ${{ secrets.BANXUM_SSH_PORT || '22' }}
+        run: |
+          set -euo pipefail
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> "$HOME/.ssh/known_hosts"
+
+      - name: Build release archive
+        run: |
+          set -euo pipefail
+          tar \
+            --exclude=.git \
+            --exclude=.github/workflows/deploy.yml.local \
+            --exclude=.mypy_cache \
+            --exclude=.pytest_cache \
+            --exclude=.ruff_cache \
+            --exclude='**/.DS_Store' \
+            --exclude='**/node_modules' \
+            --exclude='**/.venv' \
+            --exclude='**/__pycache__' \
+            --exclude=docs/secrets.md \
+            --exclude=.env \
+            --exclude=.env.local \
+            -czf "$RUNNER_TEMP/banxum-release.tgz" .
+
+      - name: Deploy selected environment(s)
+        env:
+          DEPLOY_TARGET: ${{ inputs.environment }}
+          SSH_HOST: ${{ secrets.BANXUM_SSH_HOST }}
+          SSH_USER: ${{ secrets.BANXUM_SSH_USER }}
+          SSH_PORT: ${{ secrets.BANXUM_SSH_PORT || '22' }}
+        run: |
+          set -euo pipefail
+
+          targets="$DEPLOY_TARGET"
+          if [ "$DEPLOY_TARGET" = "both" ]; then
+            targets="staging production"
+          fi
+
+          for target in $targets; do
+            release_name="banxum-${GITHUB_SHA}-${target}.tgz"
+            remote_archive="/tmp/${release_name}"
+
+            scp \
+              -i "$HOME/.ssh/banxum_deploy_key" \
+              -P "$SSH_PORT" \
+              -o BatchMode=yes \
+              "$RUNNER_TEMP/banxum-release.tgz" \
+              "$SSH_USER@$SSH_HOST:$remote_archive"
+
+            ssh \
+              -i "$HOME/.ssh/banxum_deploy_key" \
+              -p "$SSH_PORT" \
+              -o BatchMode=yes \
+              -o ConnectTimeout=15 \
+              "$SSH_USER@$SSH_HOST" \
+              TARGET="$target" REMOTE_ARCHIVE="$remote_archive" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+
+          case "$TARGET" in
+            staging)
+              app_root="/opt/banxum/staging"
+              project_name="banxum_staging"
+              health_url="http://127.0.0.1:8081/api/v1/health/"
+              ;;
+            production)
+              app_root="/opt/banxum/production"
+              project_name="banxum_prod"
+              health_url="http://127.0.0.1:8082/api/v1/health/"
+              ;;
+            *)
+              echo "Unknown deploy target: $TARGET" >&2
+              exit 2
+              ;;
+          esac
+
+          app_dir="$app_root/app"
+          preserved_env="$app_root/.env.preserved"
+
+          mkdir -p "$app_root"
+          if [ -f "$app_dir/infra/deploy/.env" ]; then
+            cp "$app_dir/infra/deploy/.env" "$preserved_env"
+          fi
+
+          rm -rf "$app_dir"
+          mkdir -p "$app_dir"
+          tar -xzf "$REMOTE_ARCHIVE" -C "$app_dir"
+          rm -f "$REMOTE_ARCHIVE"
+
+          if [ -f "$preserved_env" ]; then
+            mkdir -p "$app_dir/infra/deploy"
+            mv "$preserved_env" "$app_dir/infra/deploy/.env"
+          fi
+
+          if [ ! -f "$app_dir/infra/deploy/.env" ]; then
+            echo "Missing $app_dir/infra/deploy/.env; refusing to deploy without environment config." >&2
+            exit 3
+          fi
+
+          cd "$app_dir"
+          docker compose \
+            --project-name "$project_name" \
+            --env-file infra/deploy/.env \
+            -f infra/deploy/docker-compose.yml \
+            up -d --build
+
+          for attempt in $(seq 1 30); do
+            if curl -fsS "$health_url" >/dev/null; then
+              echo "$TARGET health check passed: $health_url"
+              exit 0
+            fi
+            sleep 5
+          done
+
+          echo "$TARGET health check failed: $health_url" >&2
+          docker compose \
+            --project-name "$project_name" \
+            --env-file infra/deploy/.env \
+            -f infra/deploy/docker-compose.yml \
+            ps
+          exit 4
+          REMOTE
+          done

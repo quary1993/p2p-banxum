@@ -88,6 +88,19 @@ Each directory contains a copy of the app source and `infra/deploy/.env` for tha
 
 ## Standard Commands
 
+The preferred deployment path is the manual GitHub Actions workflow:
+
+```text
+Actions -> Deploy -> Run workflow -> environment: staging | production | both
+```
+
+The workflow uploads the checked-out commit as a release archive, preserves the target
+environment's existing `infra/deploy/.env`, rebuilds only the BANXUM Compose project, and runs the
+server-local health check. It must use only the configured BANXUM SSH secrets and the directories /
+Compose project names listed below.
+
+Use the direct server commands below only for emergency or diagnostic work.
+
 From the relevant environment app directory on the server:
 
 ```bash
