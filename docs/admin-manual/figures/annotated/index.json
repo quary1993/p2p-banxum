@@ -12,7 +12,7 @@
   {
     "id": "dashboard-4-card",
     "w": 980,
-    "h": 210
+    "h": 272
   },
   {
     "id": "tasks-1-operational-task-queue",
@@ -30,19 +30,19 @@
     "h": 322
   },
   {
+    "id": "users-0-user-accounts",
+    "w": 980,
+    "h": 815
+  },
+  {
     "id": "compliance-5-kyc-manual-review",
-    "w": 640,
-    "h": 553
+    "w": 980,
+    "h": 649
   },
   {
     "id": "compliance-6-record-aml-decision",
-    "w": 640,
-    "h": 553
-  },
-  {
-    "id": "compliance-7-account-access-controls",
     "w": 980,
-    "h": 477
+    "h": 621
   },
   {
     "id": "finance-0-lender-deposit",
@@ -87,17 +87,17 @@
   {
     "id": "loans-0-key-metrics",
     "w": 980,
-    "h": 160
+    "h": 208
   },
   {
     "id": "loans-5-borrowers",
     "w": 980,
-    "h": 237
+    "h": 242
   },
   {
     "id": "loans-6-loans",
     "w": 980,
-    "h": 253
+    "h": 230
   },
   {
     "id": "loans-7-primary-marketplace-operations",
@@ -127,16 +127,11 @@
   {
     "id": "settings-0-document-templates",
     "w": 980,
-    "h": 220
+    "h": 197
   },
   {
-    "id": "settings-1-user-accounts",
-    "w": 640,
-    "h": 620
-  },
-  {
-    "id": "settings-2-account-access-controls",
-    "w": 640,
-    "h": 620
+    "id": "settings-1-user-account-administration",
+    "w": 980,
+    "h": 94
   }
 ]

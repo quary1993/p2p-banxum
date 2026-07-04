@@ -28,7 +28,7 @@ echo "2/6 rasterize annotated figures"
 launch_chrome 9341; node scripts/rasterize.mjs "$(ws_for_port 9341)"; kill_chrome 9341
 
 echo "3/6 build print-safe HTML"; node scripts/build-print.mjs
-echo "4/6 split into chunks"; PARTS="$(node scripts/split-print.mjs)"; echo "    chunks: $PARTS"
+echo "4/6 split into chunks"; PARTS="$(MAX_IMGS="${MAX_IMGS:-4}" node scripts/split-print.mjs)"; echo "    chunks: $PARTS"
 
 echo "5/6 print each chunk (fresh Chrome per chunk)"
 i=0; PDFS=""

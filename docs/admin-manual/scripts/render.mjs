@@ -178,7 +178,7 @@ function glossarySection(gloss, secNum) {
 const primer = load("primer.json");
 const glossary = load("glossary.json");
 const flows = load("flows.json");
-const screenOrder = ["dashboard", "tasks", "compliance", "finance", "loans", "reports", "settings"];
+const screenOrder = ["dashboard", "tasks", "users", "compliance", "finance", "loans", "reports", "settings"];
 const screens = screenOrder.map((k) => load(`screen-${k}.json`)).filter(Boolean);
 
 const today = process.env.MANUAL_DATE || "";
@@ -190,7 +190,7 @@ const gettingStarted = `<section class="screen" id="getting-started">
   <div class="lead-copy">
     <p>The admin console lives at the <code>/admin</code> address of the BANXUM web app. It is completely separate from the investor app that lenders use. Only staff accounts of type <em>admin</em> or <em>superadmin</em>, with an active status, can sign in.</p>
     <p><strong>Signing in is two steps.</strong> First you enter your work email and password. Then BANXUM emails you a one-time numeric code, which you type on the next screen. This second step (an emailed code) is a security measure — even if someone learns your password they cannot get in without your mailbox. If you mistype the code too many times you must start again.</p>
-    <p><strong>The layout.</strong> A dark navigation rail runs down the left with the seven areas of the console (described in the sections that follow). The main area on the right shows the selected area. A top bar shows where you are and who the operator is.</p>
+    <p><strong>The layout.</strong> A dark navigation rail runs down the left with the areas of the console (described in the sections that follow). The main area on the right shows the selected area. A top bar shows where you are and who the operator is.</p>
     <p><strong>Preview vs. live data.</strong> When the console shows a small "Preview data" tag near the top right, you are looking at fixture (demo) data — safe for training and screenshots, not real customers. A live deployment has no such tag and every action affects real money and real people. <em>The screenshots in this manual were taken in preview mode, so the names and numbers are invented.</em></p>
     <p><strong>Signing out.</strong> Use the "Sign out" button at the bottom of the left rail when you finish. Never leave an authenticated admin session unattended.</p>
   </div>
@@ -328,8 +328,8 @@ figcaption { font-size:15.4px; font-weight:600; margin-bottom:3px; break-after:a
         <h3>How to use this manual</h3>
         <ul>
           <li>Start with Part 1 if you are new to BANXUM or P2P lending.</li>
-          <li>Use Sections 3-9 as screen-by-screen training references.</li>
-          <li>Use Section 10 when you need a click-by-click workflow.</li>
+          <li>Use Sections 3-10 as screen-by-screen training references.</li>
+          <li>Use Section 11 when you need a click-by-click workflow.</li>
           <li>Use the glossary when a status, queue, or finance term is unfamiliar.</li>
         </ul>
       </div>

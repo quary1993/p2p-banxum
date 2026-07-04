@@ -126,6 +126,7 @@ const captureScreen = async (navLabel, key, opts = {}) => {
 
 await captureScreen(null, "dashboard", { label: "Daily dashboard", wait: 1800 });
 await captureScreen("Tasks", "tasks", {});
+await captureScreen("Users", "users", {});
 await captureScreen("Compliance", "compliance", {});
 await captureScreen("Finance ops", "finance", {});
 await captureScreen("Loans", "loans", {});

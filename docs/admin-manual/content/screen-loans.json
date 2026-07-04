@@ -55,53 +55,68 @@
         },
         {
           "item": 2,
+          "label": "Classification column",
+          "text": "The borrower's business classification (for example 'Residential real-estate development') with a chip showing whether that text is Public or Internal. Public means investors can read it on the loan page; Internal means only admins see it. The choice is made per borrower in the create/edit form."
+        },
+        {
+          "item": 3,
           "label": "KYB column",
           "text": "The company's KYB status, shown as a coloured chip. There are seven possible values: Not started, Pending, Approved, Declined, Manual review, Expired, and Re-verification required. Only 'Approved' (combined with no compliance hold) lets a loan for this borrower be published. Any other value blocks publishing."
         },
         {
-          "item": 3,
+          "item": 4,
           "label": "Country column",
           "text": "The borrower's country, or a dash if not recorded. Useful for spotting non-Swiss borrowers at a glance."
         },
         {
-          "item": 4,
+          "item": 5,
           "label": "Financials column",
           "text": "A short summary of the company's self-reported finances: total assets and last-year revenue, in the borrower's chosen financials currency. This is context only; it does not gate anything automatically."
         },
         {
-          "item": 5,
+          "item": 6,
           "label": "Actions column",
           "text": "Holds the per-row Edit button. Note there is no delete: borrowers cannot be removed from this screen."
         },
         {
-          "item": 6,
+          "item": 7,
           "label": "Filter borrowers by KYB status",
           "text": "A dropdown to show only borrowers in a chosen KYB status (or 'All KYB statuses'). Use it to quickly find, for example, every company stuck in Manual review."
         },
         {
-          "item": 7,
+          "item": 8,
           "label": "Refresh button",
           "text": "Reloads the borrower list from the backend. Use it after creating or editing a borrower if the table has not updated on its own."
         },
         {
-          "item": 8,
+          "item": 9,
           "label": "Create borrower button",
-          "text": "Opens a form to enter a new borrower company by hand (legal name, year founded, type, and other details). New borrowers usually start with a Pending KYB status, so you cannot publish a loan for them until KYB is later moved to Approved."
+          "text": "Opens a form to enter a new borrower company by hand: legal name, year founded, type, business classification, addresses and contact info (each with a 'public' checkbox that controls whether investors may see it), plus internal-only ownership, bank-account, KYB/AML-observation and financial-risk notes. New borrowers usually start with a Pending KYB status, so you cannot publish a loan for them until KYB is later moved to Approved."
         },
         {
-          "item": 9,
+          "item": 10,
           "label": "Edit button (row action)",
           "text": "Opens the borrower edit form for that company. This is where KYB status and the compliance hold flag are changed. Moving KYB to Approved and clearing any compliance hold is what unlocks loan publishing for that borrower."
         },
         {
-          "item": 11,
+          "item": 13,
           "label": "Approved chip",
           "text": "Example of an 'Approved' KYB chip. A borrower in this state, with no compliance hold, is cleared to have its loans published and to receive borrower repayments."
         },
         {
-          "item": 12,
+          "item": 15,
           "label": "Manual Review chip",
           "text": "Example of a 'Manual review' KYB chip. The company is parked for a human compliance decision. Loans for this borrower cannot be published until KYB reaches Approved."
+        },
+        {
+          "item": 12,
+          "label": "Public chip",
+          "text": "This borrower's classification is marked public, so lenders see the same text on the loan's detail page. Only fields explicitly marked public are ever shown to investors; everything else stays internal."
+        },
+        {
+          "item": 14,
+          "label": "Internal chip",
+          "text": "This borrower's classification is internal-only. Investors see nothing for this field. Internal-only borrower data also includes ownership notes, bank-account details, KYB/AML observations and financial-risk notes - none of these ever reach the investor app."
         }
       ],
       "notes": [
@@ -176,12 +191,12 @@
           "text": "Selects this loan so the operation panels below (Primary marketplace operations, Servicing and recovery) act on it. Use this to line up a loan before publishing, closing or recording a repayment."
         },
         {
-          "item": 16,
+          "item": 15,
           "label": "Published status chip",
           "text": "Example of a 'Published' chip: this loan is live on the marketplace and investors can fund it now. From here you can close funding, cancel funding, or release individual orders."
         },
         {
-          "item": 17,
+          "item": 16,
           "label": "Late status chip",
           "text": "Example of a 'Late' chip: at least one installment is 5 or more days past due. If it reaches 16 or more days past due, the status scan moves it to Defaulted. Late loans still accept repayments."
         }
@@ -208,7 +223,7 @@
           "text": "An optional free-text note saved with the publish action for the audit record. It does not change anything about the loan itself."
         },
         {
-          "item": 11,
+          "item": 13,
           "label": "Publish loan button",
           "text": "Moves a Draft loan to Published so investors can start funding it. It only works on Draft loans, and only if the borrower's KYB is Approved with no compliance hold, the funding deadline is valid (today through 29 days out), and the repayment schedule is complete. Otherwise it fails with a specific reason."
         },
@@ -223,7 +238,7 @@
           "text": "The message shown to investors when funding closes. It is required for a partial close (where less than the full amount was raised, so the loan amount is lowered to what was actually committed)."
         },
         {
-          "item": 12,
+          "item": 14,
           "label": "Close funding button",
           "text": "Ends the funding campaign for a Published loan. It creates investor holdings, moves the escrowed money into a borrower payable plus Garanta's fee revenue, and blocks any later order releases for this loan. It only works on Published loans whose borrower can transact and that have allocated orders matching the committed principal. A confirmation dialog summarises the action first."
         },
@@ -238,7 +253,7 @@
           "text": "The message to investors explaining the cancellation. It is required whenever there are pending or allocated investor orders on the loan."
         },
         {
-          "item": 13,
+          "item": 15,
           "label": "Cancel funding button",
           "text": "Cancels a Published loan's funding. It releases every allocated reservation back to investors, closes pending intents as 'not invested', moves the loan to Cancelled, and records immutable evidence. It only works before funding has been closed, and only on Published loans. This is a destructive action, so it asks for confirmation."
         },
@@ -263,17 +278,17 @@
           "text": "Optional. If left blank, the backend uses its standard investor message. Use it to override the wording investors receive when their expired campaign is cancelled."
         },
         {
-          "item": 14,
+          "item": 16,
           "label": "Run expiry scan button",
           "text": "Finds published campaigns past their funding deadline and cancels them using the same safe cancellation path as the Cancel funding button. After it runs, a message reports how many campaigns were cancelled and how many were skipped. It asks for confirmation first."
         },
         {
-          "item": 15,
+          "item": 11,
           "label": "Primary order field",
           "text": "The specific investor order to release. An order is one investor's commitment to fund part of a loan. Use this when a single investor's order is stuck and needs unwinding without touching the rest of the campaign."
         },
         {
-          "item": 16,
+          "item": 12,
           "label": "Release reason field",
           "text": "A required reason recorded against the order release for the audit trail."
         },
@@ -367,12 +382,12 @@
           "text": "The name on the incoming bank payment. Recorded as evidence of who paid."
         },
         {
-          "item": 7,
+          "item": 8,
           "label": "Record repayment button",
           "text": "Records a borrower repayment and automatically splits it across all active investor holdings (interest first, then principal). It only works when the loan is Funded or Late and the borrower can transact. Important gotcha: if the amount does not exactly equal the next installment due, in EITHER direction (under OR over), you must tick the warning-acknowledged box first. Paying MORE than due (an early/extra principal payment) is only allowed when the loan status is Funded, not Late."
         },
         {
-          "item": 8,
+          "item": 9,
           "label": "Run status scan button",
           "text": "Re-checks the loan's health as of the value date and updates its status. A loan with an installment 5+ days past due becomes Late; 16+ days past due becomes Defaulted; fully paid becomes Repaid. The scan is the only thing that escalates a loan into Defaulted; recording a repayment never does."
         },
@@ -382,12 +397,12 @@
           "text": "The text of a public update to investors about this loan (for example explaining a delay). This is the message that gets published when you press Publish public note."
         },
         {
-          "item": 9,
+          "item": 10,
           "label": "Publish public note button",
           "text": "Posts a public risk note that investors holding this loan can read. Public notes are only allowed on loans that are in an active portfolio status (Funded, Late, Defaulted, Repaid or Written off), not on drafts or unfunded loans."
         },
         {
-          "item": 10,
+          "item": 7,
           "label": "Recovery gross minor field",
           "text": "The gross amount recovered, in minor units, used by Record recovery. Gross means before any deducted recovery costs or fees."
         },

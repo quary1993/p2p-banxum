@@ -26,49 +26,59 @@
           "text": "This card lists every case the Didit provider routed to manual review. A case appears here only when the automated check was inconclusive or flagged a risk that a human must judge. If nothing is here, no case currently needs a decision."
         },
         {
-          "item": 7,
+          "item": 2,
+          "label": "Email column",
+          "text": "The account's login email - the fastest way to match a case to a support conversation."
+        },
+        {
+          "item": 8,
           "label": "Refresh button",
           "text": "Re-fetches the queue from the backend so you see the latest cases. New cases arrive when Didit finishes screening a customer and decides a human is needed. Click this if you are waiting on a case to come through."
         },
         {
           "item": 1,
-          "label": "Subject column",
-          "text": "Who the case is about. The bold line is the subject reference (an internal label such as a user reference). The grey line below it is the linked user ID, or the subject type (for example a business) if no user is linked. This is the person or company whose identity is under review."
+          "label": "Name column",
+          "text": "The person's registered name, so you can recognize the case without decoding IDs. Click any row to load this case into the decision form below."
         },
         {
-          "item": 2,
+          "item": 4,
           "label": "Status column",
           "text": "The current KYC outcome for that subject, shown as a coloured chip. Possible review statuses include Manual review, High risk, PEP hit, Adverse media hit, and (non-decidable here) Sanctions hit and Declined. The status drives what you are allowed to do: only review-routed statuses can be manually approved."
         },
         {
-          "item": 3,
+          "item": 5,
           "label": "Risk column",
           "text": "Didit's overall risk classification for the subject, such as High. It is a quick read of how concerning the provider found the case before you open it."
         },
         {
-          "item": 4,
+          "item": 6,
           "label": "Flags column",
           "text": "The specific reasons the case was flagged, each as a small chip. Examples: PEP (a politically exposed person), High risk, Adverse media (bad press), Sanctions, Identity fraud. A row can carry several flags at once. These tell you what to look into before deciding."
         },
         {
-          "item": 5,
-          "label": "Provider refs column",
-          "text": "Reference IDs from Didit so you can find the same case in the provider's own system. The top line is the provider report ID; the grey line below is the AML screening ID. A dash means that reference was not supplied. Use these when reviewing the provider's evidence."
+          "item": 3,
+          "label": "Reference column",
+          "text": "The investor reference (the short L-code also used in deposit payment references). Provider session/report references moved to the selected-case detail card in the decision form below."
         },
         {
-          "item": 6,
+          "item": 7,
           "label": "Updated column",
           "text": "When the case last changed, as a date and time. Helps you work the oldest pending cases first and confirm a case reflects the provider's most recent result."
         },
         {
-          "item": 8,
+          "item": 11,
           "label": "PEP Hit status chip (example row)",
           "text": "A status chip reading \"PEP hit\" means the provider matched this subject to a politically exposed person. PEP is a review-routed status, so you can still approve it by hand after reviewing the evidence, unlike a sanctions hit. Click the row to load it into the decision form."
         },
         {
-          "item": 11,
+          "item": 14,
           "label": "Adverse Media Hit chip (example row)",
           "text": "\"Adverse media hit\" means the provider found negative news linking the subject to wrongdoing. Like PEP and High risk, this is decidable here: after reviewing the evidence you can approve, decline, request re-verification, or reopen the case."
+        },
+        {
+          "item": 9,
+          "label": "Previous / Next (pagination)",
+          "text": "The review queue shows up to 10 cases per page. Use Previous/Next to move through the queue; the count above the table shows where you are."
         }
       ],
       "notes": [
@@ -118,74 +128,20 @@
           "text": "A short summary of the provider evidence you relied on. Counts as the required justification if the officer note is empty. Together with the note it forms the permanent record of why this case was decided."
         },
         {
-          "item": 7,
+          "item": 8,
           "label": "Submit KYC decision button",
           "text": "Sends the decision. The backend re-confirms you are an active admin, that a note or evidence is present, and that the status change is allowed. If it passes, the case status is updated, the decision is written to the audit trail, and you see a confirmation. If it fails (for example trying to approve a sanctions hit), it is refused with an error."
+        },
+        {
+          "item": 9,
+          "label": "Selected-case flags (detail card)",
+          "text": "When you pick a case, a detail card shows the person's data and the exact provider flags (for example PEP or High risk) plus provider references - the context you need to decide without leaving the form."
         }
       ],
       "notes": [
         "Approve is the most restricted choice. It only works when the case is in a review-routed status (Manual review, High risk, PEP hit, or Adverse media hit). It is impossible to approve a Sanctions hit or a Declined case; the server blocks it.",
         "Every submitted decision is recorded permanently: who decided, the previous and new status, the reason code, and your note/evidence. These records are kept for audit and are not deletable.",
         "In preview/demo mode the form only shows a preview message and does not change any real case."
-      ]
-    },
-    {
-      "id": "compliance-7-account-access-controls",
-      "caption": "Account access controls",
-      "summary": "A separate tool for changing a user account's status: restrict, lock, close, or reactivate it. Pick the user, choose the new status and a reason, write a note plus evidence, tick the clean-account box when closing, then apply. Strong guardrails apply: closing needs the clean-account confirmation, only a superadmin can change another admin's account, and a closed account cannot be reactivated.",
-      "annotations": [
-        {
-          "item": 0,
-          "label": "Account access controls (title)",
-          "text": "This tool changes a user's account standing; it is not about KYC decisions. Use it to freeze, lock, close, or restore an account. The description notes that the clean-account confirmation is an admin attestation (your sworn check) until automatic balance/holding checks are wired into this endpoint."
-        },
-        {
-          "item": 1,
-          "label": "User account (lookup field)",
-          "text": "Which account you are changing. Type to search and select the user. Required. The status change applies to exactly this account, so confirm you have the right person."
-        },
-        {
-          "item": 2,
-          "label": "New account status (dropdown)",
-          "text": "The status to move the account to. Active = normal use. Restricted = limited access. Locked = cannot log in or act. Closed = permanently ended (the account also becomes inactive). You cannot set the same status the account already has, and you cannot set \"pending KYC\" from here."
-        },
-        {
-          "item": 6,
-          "label": "Status options (Active / Restricted / Locked / Closed)",
-          "text": "These are the four statuses you can choose. Active reactivates or normalises an account; Restricted and Locked are escalating holds; Closed ends the account. Choosing Closed makes the account inactive and is effectively final, because a closed account cannot be reactivated in this version."
-        },
-        {
-          "item": 3,
-          "label": "Reason code (dropdown)",
-          "text": "Why you are changing the status, recorded for audit. Options: KYC/AML review, Compliance hold, Email recovery, Support request, Account closure, Admin correction, and Other. Pick the one that fits the situation."
-        },
-        {
-          "item": 7,
-          "label": "Reason code options",
-          "text": "The selectable reasons. Use Account closure when closing, Compliance hold or KYC/AML review when freezing for risk reasons, Support request or Email recovery for routine user-driven changes, and Admin correction to fix a mistake."
-        },
-        {
-          "item": 4,
-          "label": "Admin note",
-          "text": "A free-text note explaining the change. You must provide either this note or the evidence summary; the backend rejects the change if both are empty. Be specific so the next person understands why."
-        },
-        {
-          "item": 5,
-          "label": "Evidence summary",
-          "text": "A short record of the supporting evidence for the change. Counts as the required justification if the admin note is blank. Stored permanently in the audit trail with the access event."
-        },
-        {
-          "item": 8,
-          "label": "Apply access change button",
-          "text": "Saves the status change. The backend re-checks all rules: you must be an active admin, only a superadmin may change an admin account, closed accounts cannot be reactivated, closing needs the clean-account box ticked, the new status must differ from the current one, and a note or evidence must be present. On success the change is applied and audit-logged."
-        }
-      ],
-      "notes": [
-        "Clean-account confirmation: when the new status is Closed you must tick the \"Clean/empty account checked\" box, or the backend refuses the closure. For now this is your attestation that the account has no outstanding balance or holdings; automatic checks are not yet enforced by this endpoint.",
-        "Admin and superadmin accounts are protected: changing another admin's account requires that you are a superadmin. A regular admin cannot lock, close, or alter an admin account.",
-        "Environment-managed superadmin accounts cannot be changed here at all; their access is controlled by deployment configuration.",
-        "A Closed account is effectively permanent: it cannot be reactivated to any other status in this version. You also cannot set a status the account already has, and you cannot move an account to \"pending KYC\".",
-        "In preview/demo mode the form only shows a preview message; no real account is changed."
       ]
     }
   ]

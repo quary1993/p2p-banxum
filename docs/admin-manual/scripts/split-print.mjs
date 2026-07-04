@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const base = path.resolve(here, "..");
-const MAX_IMGS = 10;
+const MAX_IMGS = Number(process.env.MAX_IMGS || 10);
 
 const html = fs.readFileSync(path.join(base, "manual-print.html"), "utf8");
 const head = html.match(/<head>[\s\S]*?<\/head>/)[0];

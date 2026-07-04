@@ -110,7 +110,7 @@
     {
       "heading": "8. What the admin console is for",
       "body": [
-        "The console at /admin is organised into seven areas in the left-hand navigation. Here is each one in a single sentence so you know where to go."
+        "The console at /admin is organised into the main areas in the left-hand navigation. Here is each one in a single sentence so you know where to go."
       ],
       "bullets": [
         "Daily dashboard: your morning overview, showing the work queues that need attention today (KYC reviews, bank exceptions, withdrawals, forced withdrawals, balance ageing, funding loans, servicing, loan risk, secondary approvals, FX settlement, failed emails, reconciliation breaks).",
@@ -119,7 +119,25 @@
         "Finance ops: where money is handled, confirming deposits and bank operations, finalising withdrawals (including forced ones), running the balance ageing scan, handling FX (currency exchange) settlement, and doing reconciliation against the bank.",
         "Loans: where you create and edit borrowers and loans, publish loans to the marketplace, and close or cancel funding.",
         "Reports: where you generate operational and financial reports (for example FX delta and realised-settlement reports) for a chosen date range.",
-        "Superadmin settings: superadmin-only configuration, such as document templates and platform settings, and creating other admin accounts."
+        "Users: where you search the full user directory, inspect account state, open read-only investor views, and apply audited account access controls.",
+        "Superadmin settings: superadmin-only configuration, such as document templates, platform settings, creating other admin accounts, and staging-only QA controls."
+      ]
+    },
+    {
+      "heading": "9. Staging, production, and QA fast-forwarding",
+      "body": [
+        "BANXUM has separate deployment contexts. Production is the real customer environment at nxnarena.com. Staging is the private testing and training environment at staging.nxnarena.com. Staging runs the real application stack, not the browser-only preview fixtures, but it is still a test environment: data can be changed, reset, or rolled back during QA.",
+        "Preview mode, staging, and production are three different things. Preview mode is local/demo UI data and is marked as not real account data. Staging is a live backend/database used for private testing. Production is the real operating environment and should be treated as legal and operational truth.",
+        "QA mode is a staging/local-only superadmin feature for testing time-based behavior. It must never be enabled in production and should never be used with real customer funds, real customer onboarding, or live-money provider actions. In staging, a superadmin can enter QA mode from the Superadmin area when the deployment has QA mode explicitly enabled.",
+        "When QA mode is entered, the system captures a database snapshot. While QA mode is active, BANXUM's business-time helper returns the simulated time instead of normal wall-clock time. Advancing time is day-based: for each Europe/Zurich business date crossed, the system runs the daily jobs that would normally happen in real time.",
+        "Fast-forwarding is intended to behave like real time for core platform jobs. It runs balance ageing and penalty charging, servicing status scans, primary funding-expiry cancellation, reconciliation-break task sync, and due email dispatch for the crossed dates. This lets admins test day-30/day-60 balance behavior, forced withdrawals, penalty mode, late/default transitions, campaign expiry, and scheduled notifications without waiting weeks.",
+        "Revert restores the database snapshot captured at QA-mode entry and clears the simulated clock. Treat revert as a full test reset: sessions may be invalidated, records created during the QA window disappear, and IDs created during the window should not be referenced afterward."
+      ],
+      "bullets": [
+        "Use staging QA mode only for private testing, training, and regression checks. Do not use it to create legal production evidence or operate real money.",
+        "The snapshot/revert covers database state. It does not roll back external provider side effects, emails or SMS already sent, downloaded files, object-storage artifacts, or changes made outside the database.",
+        "Do not run normal scheduled jobs at the same time as a manual fast-forward test unless the runbook explicitly calls for it. QA fast-forward already runs the relevant daily jobs for the dates it crosses.",
+        "Record what you are testing before enabling QA mode, then revert when finished so the staging environment returns to its entry state."
       ]
     }
   ]

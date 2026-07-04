@@ -34,47 +34,47 @@
             "text": "Item",
             "x": 299,
             "y": 74,
-            "w": 321,
+            "w": 397,
             "h": 34
           },
           {
             "role": "column",
             "text": "Status",
-            "x": 620,
+            "x": 696,
             "y": 74,
-            "w": 79,
+            "w": 93,
             "h": 34
           },
           {
             "role": "column",
             "text": "Priority",
-            "x": 699,
+            "x": 789,
             "y": 74,
-            "w": 77,
+            "w": 90,
             "h": 34
           },
           {
             "role": "column",
             "text": "Due",
-            "x": 776,
+            "x": 880,
             "y": 74,
-            "w": 148,
+            "w": 182,
             "h": 34
           },
           {
             "role": "column",
             "text": "Amount",
-            "x": 924,
+            "x": 1062,
             "y": 74,
-            "w": 116,
+            "w": 138,
             "h": 34
           },
           {
             "role": "column",
             "text": "Object",
-            "x": 1040,
+            "x": 1199,
             "y": 74,
-            "w": 119,
+            "w": 140,
             "h": 34
           },
           {
@@ -186,16 +186,16 @@
             "text": "Review updated KYC evidence retention checklistadmin_task",
             "x": 309,
             "y": 118,
-            "w": 301,
-            "h": 56
+            "w": 320,
+            "h": 37
           },
           {
             "role": "button",
             "text": "Resolve unmatched CHF lender deposit referenceadmin_task",
             "x": 309,
-            "y": 194,
-            "w": 301,
-            "h": 56
+            "y": 176,
+            "w": 319,
+            "h": 37
           },
           {
             "role": "status",
@@ -208,7 +208,7 @@
           {
             "role": "status",
             "text": "Open",
-            "x": 630,
+            "x": 706,
             "y": 118,
             "w": 59,
             "h": 21
@@ -216,7 +216,7 @@
           {
             "role": "status",
             "text": "High",
-            "x": 709,
+            "x": 799,
             "y": 118,
             "w": 45,
             "h": 21
@@ -224,16 +224,16 @@
           {
             "role": "status",
             "text": "Open",
-            "x": 630,
-            "y": 194,
+            "x": 706,
+            "y": 176,
             "w": 59,
             "h": 21
           },
           {
             "role": "status",
             "text": "Urgent",
-            "x": 709,
-            "y": 194,
+            "x": 799,
+            "y": 176,
             "w": 57,
             "h": 21
           }
@@ -374,47 +374,47 @@
             "text": "Item",
             "x": 15,
             "y": 74,
-            "w": 321,
+            "w": 397,
             "h": 34
           },
           {
             "role": "column",
             "text": "Status",
-            "x": 336,
+            "x": 412,
             "y": 74,
-            "w": 79,
+            "w": 93,
             "h": 34
           },
           {
             "role": "column",
             "text": "Priority",
-            "x": 415,
+            "x": 505,
             "y": 74,
-            "w": 77,
+            "w": 90,
             "h": 34
           },
           {
             "role": "column",
             "text": "Due",
-            "x": 492,
+            "x": 596,
             "y": 74,
-            "w": 148,
+            "w": 182,
             "h": 34
           },
           {
             "role": "column",
             "text": "Amount",
-            "x": 640,
+            "x": 778,
             "y": 74,
-            "w": 116,
+            "w": 138,
             "h": 34
           },
           {
             "role": "column",
             "text": "Object",
-            "x": 756,
+            "x": 915,
             "y": 74,
-            "w": 119,
+            "w": 140,
             "h": 34
           },
           {
@@ -422,16 +422,16 @@
             "text": "Review updated KYC evidence retention checklistadmin_task",
             "x": 25,
             "y": 118,
-            "w": 301,
-            "h": 56
+            "w": 320,
+            "h": 37
           },
           {
             "role": "button",
             "text": "Resolve unmatched CHF lender deposit referenceadmin_task",
             "x": 25,
-            "y": 194,
-            "w": 301,
-            "h": 56
+            "y": 176,
+            "w": 319,
+            "h": 37
           },
           {
             "role": "status",
@@ -444,7 +444,7 @@
           {
             "role": "status",
             "text": "Open",
-            "x": 346,
+            "x": 422,
             "y": 118,
             "w": 59,
             "h": 21
@@ -452,7 +452,7 @@
           {
             "role": "status",
             "text": "High",
-            "x": 425,
+            "x": 515,
             "y": 118,
             "w": 45,
             "h": 21
@@ -460,16 +460,16 @@
           {
             "role": "status",
             "text": "Open",
-            "x": 346,
-            "y": 194,
+            "x": 422,
+            "y": 176,
             "w": 59,
             "h": 21
           },
           {
             "role": "status",
             "text": "Urgent",
-            "x": 425,
-            "y": 194,
+            "x": 515,
+            "y": 176,
             "w": 57,
             "h": 21
           }
@@ -480,7 +480,7 @@
         "kind": "card",
         "title": "",
         "cssWidth": 1032,
-        "cssHeight": 250,
+        "cssHeight": 323,
         "scale": 2,
         "items": [
           {
@@ -496,21 +496,21 @@
             "text": "Available",
             "x": 87,
             "y": 13,
-            "w": 109,
+            "w": 95,
             "h": 34
           },
           {
             "role": "column",
             "text": "Investable",
-            "x": 196,
+            "x": 182,
             "y": 13,
-            "w": 109,
+            "w": 95,
             "h": 34
           },
           {
             "role": "column",
             "text": "Withdraw-only",
-            "x": 305,
+            "x": 277,
             "y": 13,
             "w": 125,
             "h": 34
@@ -518,31 +518,31 @@
           {
             "role": "column",
             "text": "Overdue",
-            "x": 431,
+            "x": 402,
             "y": 13,
-            "w": 102,
+            "w": 88,
             "h": 34
           },
           {
             "role": "column",
             "text": "Frozen",
-            "x": 532,
+            "x": 490,
             "y": 13,
-            "w": 102,
+            "w": 88,
             "h": 34
           },
           {
             "role": "column",
             "text": "Penalty",
-            "x": 634,
+            "x": 578,
             "y": 13,
-            "w": 102,
+            "w": 88,
             "h": 34
           },
           {
             "role": "column",
             "text": "Pending withdrawals",
-            "x": 736,
+            "x": 665,
             "y": 13,
             "w": 168,
             "h": 34
@@ -550,7 +550,7 @@
           {
             "role": "column",
             "text": "Pending bank ops",
-            "x": 904,
+            "x": 833,
             "y": 13,
             "w": 139,
             "h": 34
@@ -558,9 +558,9 @@
           {
             "role": "column",
             "text": "FX unsettled",
-            "x": 1043,
+            "x": 972,
             "y": 13,
-            "w": 138,
+            "w": 109,
             "h": 34
           },
           {
@@ -575,7 +575,7 @@
             "role": "status",
             "text": "EUR",
             "x": 11,
-            "y": 159,
+            "y": 195,
             "w": 42,
             "h": 21
           }
@@ -710,13 +710,13 @@
             "text": "Task",
             "x": 15,
             "y": 27,
-            "w": 342,
+            "w": 352,
             "h": 34
           },
           {
             "role": "column",
             "text": "Status",
-            "x": 357,
+            "x": 367,
             "y": 27,
             "w": 114,
             "h": 34
@@ -724,7 +724,7 @@
           {
             "role": "column",
             "text": "Priority",
-            "x": 471,
+            "x": 481,
             "y": 27,
             "w": 79,
             "h": 34
@@ -732,25 +732,25 @@
           {
             "role": "column",
             "text": "Due",
-            "x": 550,
+            "x": 560,
             "y": 27,
-            "w": 125,
+            "w": 129,
             "h": 34
           },
           {
             "role": "column",
             "text": "Related object",
-            "x": 675,
+            "x": 689,
             "y": 27,
-            "w": 211,
+            "w": 195,
             "h": 34
           },
           {
             "role": "column",
             "text": "Updated",
-            "x": 886,
+            "x": 883,
             "y": 27,
-            "w": 131,
+            "w": 134,
             "h": 34
           },
           {
@@ -782,7 +782,7 @@
             "text": "Review revised primary-market risk acknowledgement templateDocument Review",
             "x": 25,
             "y": 245,
-            "w": 322,
+            "w": 332,
             "h": 56
           },
           {
@@ -796,7 +796,7 @@
           {
             "role": "status",
             "text": "Open",
-            "x": 367,
+            "x": 377,
             "y": 71,
             "w": 59,
             "h": 21
@@ -804,7 +804,7 @@
           {
             "role": "status",
             "text": "Urgent",
-            "x": 481,
+            "x": 491,
             "y": 71,
             "w": 57,
             "h": 21
@@ -812,7 +812,7 @@
           {
             "role": "status",
             "text": "In Progress",
-            "x": 367,
+            "x": 377,
             "y": 129,
             "w": 94,
             "h": 21
@@ -820,7 +820,7 @@
           {
             "role": "status",
             "text": "Urgent",
-            "x": 481,
+            "x": 491,
             "y": 129,
             "w": 57,
             "h": 21
@@ -828,7 +828,7 @@
           {
             "role": "status",
             "text": "Waiting",
-            "x": 367,
+            "x": 377,
             "y": 187,
             "w": 72,
             "h": 21
@@ -836,7 +836,7 @@
           {
             "role": "status",
             "text": "High",
-            "x": 481,
+            "x": 491,
             "y": 187,
             "w": 45,
             "h": 21
@@ -844,7 +844,7 @@
           {
             "role": "status",
             "text": "Open",
-            "x": 367,
+            "x": 377,
             "y": 245,
             "w": 59,
             "h": 21
@@ -852,7 +852,7 @@
           {
             "role": "status",
             "text": "Normal",
-            "x": 481,
+            "x": 491,
             "y": 245,
             "w": 59,
             "h": 21
@@ -860,7 +860,7 @@
           {
             "role": "status",
             "text": "Resolved",
-            "x": 367,
+            "x": 377,
             "y": 321,
             "w": 81,
             "h": 21
@@ -868,9 +868,450 @@
           {
             "role": "status",
             "text": "Normal",
-            "x": 481,
+            "x": 491,
             "y": 321,
             "w": 59,
+            "h": 21
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "key": "users",
+    "nav": "Users",
+    "label": "Users",
+    "figures": [
+      {
+        "id": "users-0-user-accounts",
+        "kind": "card",
+        "title": "User accounts",
+        "cssWidth": 1032,
+        "cssHeight": 968,
+        "scale": 2,
+        "items": [
+          {
+            "role": "heading",
+            "text": "User accounts",
+            "x": 19,
+            "y": 19,
+            "w": 620,
+            "h": 30
+          },
+          {
+            "role": "column",
+            "text": "Name",
+            "x": 19,
+            "y": 150,
+            "w": 140,
+            "h": 34
+          },
+          {
+            "role": "column",
+            "text": "Email",
+            "x": 159,
+            "y": 150,
+            "w": 190,
+            "h": 34
+          },
+          {
+            "role": "column",
+            "text": "User ID",
+            "x": 349,
+            "y": 150,
+            "w": 258,
+            "h": 34
+          },
+          {
+            "role": "column",
+            "text": "Reference",
+            "x": 607,
+            "y": 150,
+            "w": 89,
+            "h": 34
+          },
+          {
+            "role": "column",
+            "text": "Type",
+            "x": 697,
+            "y": 150,
+            "w": 247,
+            "h": 34
+          },
+          {
+            "role": "column",
+            "text": "Status",
+            "x": 944,
+            "y": 150,
+            "w": 119,
+            "h": 34
+          },
+          {
+            "role": "column",
+            "text": "Phone verification",
+            "x": 1063,
+            "y": 150,
+            "w": 149,
+            "h": 34
+          },
+          {
+            "role": "column",
+            "text": "Created",
+            "x": 1212,
+            "y": 150,
+            "w": 75,
+            "h": 34
+          },
+          {
+            "role": "column",
+            "text": "Actions",
+            "x": 1287,
+            "y": 150,
+            "w": 134,
+            "h": 34
+          },
+          {
+            "role": "field",
+            "text": "Account type",
+            "x": 19,
+            "y": 94,
+            "w": 491,
+            "h": 18
+          },
+          {
+            "role": "field",
+            "text": "Account status",
+            "x": 522,
+            "y": 94,
+            "w": 491,
+            "h": 18
+          },
+          {
+            "role": "input",
+            "text": "-Natural Person LenderLegal Entity Lender RepresentativeAdminSuperadmin",
+            "x": 19,
+            "y": 117,
+            "w": 491,
+            "h": 21
+          },
+          {
+            "role": "input",
+            "text": "-Pending KycActiveRestrictedLockedClosed",
+            "x": 522,
+            "y": 117,
+            "w": 491,
+            "h": 21
+          },
+          {
+            "role": "button",
+            "text": "Create admin",
+            "x": 892,
+            "y": 61,
+            "w": 121,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Access controls",
+            "x": 1297,
+            "y": 194,
+            "w": 114,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Documents",
+            "x": 1297,
+            "y": 230,
+            "w": 88,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Read-only view",
+            "x": 1297,
+            "y": 266,
+            "w": 111,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Access controls",
+            "x": 1297,
+            "y": 315,
+            "w": 114,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Documents",
+            "x": 1297,
+            "y": 351,
+            "w": 88,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Read-only view",
+            "x": 1297,
+            "y": 387,
+            "w": 111,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Access controls",
+            "x": 1297,
+            "y": 436,
+            "w": 114,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Documents",
+            "x": 1297,
+            "y": 472,
+            "w": 88,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Read-only view",
+            "x": 1297,
+            "y": 508,
+            "w": 111,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Access controls",
+            "x": 1297,
+            "y": 557,
+            "w": 114,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Documents",
+            "x": 1297,
+            "y": 593,
+            "w": 88,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Read-only view",
+            "x": 1297,
+            "y": 629,
+            "w": 111,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Access controls",
+            "x": 1297,
+            "y": 678,
+            "w": 114,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Documents",
+            "x": 1297,
+            "y": 714,
+            "w": 88,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Read-only view",
+            "x": 1297,
+            "y": 750,
+            "w": 111,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Access controls",
+            "x": 1297,
+            "y": 799,
+            "w": 114,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Documents",
+            "x": 1297,
+            "y": 835,
+            "w": 88,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Read-only view",
+            "x": 1297,
+            "y": 871,
+            "w": 111,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Previous",
+            "x": 807,
+            "y": 921,
+            "w": 72,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Next",
+            "x": 964,
+            "y": 921,
+            "w": 49,
+            "h": 28
+          },
+          {
+            "role": "status",
+            "text": "Natural Person Lender",
+            "x": 707,
+            "y": 194,
+            "w": 156,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Active",
+            "x": 954,
+            "y": 194,
+            "w": 65,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Phone verified",
+            "x": 1073,
+            "y": 194,
+            "w": 111,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Natural Person Lender",
+            "x": 707,
+            "y": 315,
+            "w": 156,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Active",
+            "x": 954,
+            "y": 315,
+            "w": 65,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Phone verified",
+            "x": 1073,
+            "y": 315,
+            "w": 111,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Natural Person Lender",
+            "x": 707,
+            "y": 436,
+            "w": 156,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Pending Kyc",
+            "x": 954,
+            "y": 436,
+            "w": 99,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Phone unverified",
+            "x": 1073,
+            "y": 436,
+            "w": 125,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Legal Entity Lender Representative",
+            "x": 707,
+            "y": 557,
+            "w": 227,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Restricted",
+            "x": 954,
+            "y": 557,
+            "w": 88,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Phone verified",
+            "x": 1073,
+            "y": 557,
+            "w": 111,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Admin",
+            "x": 707,
+            "y": 678,
+            "w": 65,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Active",
+            "x": 954,
+            "y": 678,
+            "w": 65,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Phone unverified",
+            "x": 1073,
+            "y": 678,
+            "w": 125,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Superadmin",
+            "x": 707,
+            "y": 799,
+            "w": 98,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Active",
+            "x": 954,
+            "y": 799,
+            "w": 65,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Phone unverified",
+            "x": 1073,
+            "y": 799,
+            "w": 125,
             "h": 21
           }
         ]
@@ -931,8 +1372,8 @@
         "id": "compliance-5-kyc-manual-review",
         "kind": "card",
         "title": "KYC manual review",
-        "cssWidth": 508,
-        "cssHeight": 553,
+        "cssWidth": 1032,
+        "cssHeight": 771,
         "scale": 2,
         "items": [
           {
@@ -940,103 +1381,263 @@
             "text": "KYC manual review",
             "x": 19,
             "y": 19,
-            "w": 369,
+            "w": 893,
             "h": 30
           },
           {
             "role": "column",
-            "text": "Subject",
+            "text": "Name",
             "x": 19,
-            "y": 122,
-            "w": 242,
+            "y": 103,
+            "w": 126,
+            "h": 34
+          },
+          {
+            "role": "column",
+            "text": "Email",
+            "x": 145,
+            "y": 103,
+            "w": 223,
+            "h": 34
+          },
+          {
+            "role": "column",
+            "text": "Reference",
+            "x": 368,
+            "y": 103,
+            "w": 99,
             "h": 34
           },
           {
             "role": "column",
             "text": "Status",
-            "x": 261,
-            "y": 122,
-            "w": 153,
+            "x": 467,
+            "y": 103,
+            "w": 169,
             "h": 34
           },
           {
             "role": "column",
             "text": "Risk",
-            "x": 414,
-            "y": 122,
-            "w": 67,
+            "x": 637,
+            "y": 103,
+            "w": 74,
             "h": 34
           },
           {
             "role": "column",
             "text": "Flags",
-            "x": 480,
-            "y": 122,
-            "w": 163,
-            "h": 34
-          },
-          {
-            "role": "column",
-            "text": "Provider refs",
-            "x": 644,
-            "y": 122,
-            "w": 128,
+            "x": 711,
+            "y": 103,
+            "w": 197,
             "h": 34
           },
           {
             "role": "column",
             "text": "Updated",
-            "x": 772,
-            "y": 122,
-            "w": 107,
+            "x": 907,
+            "y": 103,
+            "w": 152,
             "h": 34
           },
           {
             "role": "button",
             "text": "Refresh",
-            "x": 400,
-            "y": 50,
+            "x": 924,
+            "y": 41,
             "w": 89,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Previous",
+            "x": 805,
+            "y": 724,
+            "w": 72,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Next",
+            "x": 964,
+            "y": 724,
+            "w": 49,
             "h": 28
           },
           {
             "role": "status",
             "text": "Pep Hit",
-            "x": 271,
-            "y": 166,
+            "x": 477,
+            "y": 147,
             "w": 70,
             "h": 21
           },
           {
             "role": "status",
             "text": "Pep Hit",
-            "x": 490,
-            "y": 166,
+            "x": 721,
+            "y": 147,
             "w": 70,
             "h": 21
           },
           {
             "role": "status",
             "text": "High Risk",
-            "x": 490,
-            "y": 187,
+            "x": 795,
+            "y": 147,
             "w": 83,
             "h": 21
           },
           {
             "role": "status",
             "text": "Adverse Media Hit",
-            "x": 271,
-            "y": 246,
+            "x": 477,
+            "y": 205,
             "w": 133,
             "h": 21
           },
           {
             "role": "status",
             "text": "Adverse Media Hit",
-            "x": 490,
-            "y": 246,
+            "x": 721,
+            "y": 205,
             "w": 133,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Manual Review",
+            "x": 477,
+            "y": 262,
+            "w": 114,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Document Review",
+            "x": 721,
+            "y": 262,
+            "w": 131,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "High Risk",
+            "x": 477,
+            "y": 320,
+            "w": 83,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "High Risk",
+            "x": 721,
+            "y": 320,
+            "w": 83,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Pep Hit",
+            "x": 477,
+            "y": 377,
+            "w": 70,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Pep Hit",
+            "x": 721,
+            "y": 377,
+            "w": 70,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Manual Review",
+            "x": 477,
+            "y": 435,
+            "w": 114,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Document Review",
+            "x": 721,
+            "y": 435,
+            "w": 131,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Adverse Media Hit",
+            "x": 477,
+            "y": 492,
+            "w": 133,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Adverse Media Hit",
+            "x": 721,
+            "y": 492,
+            "w": 133,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "High Risk",
+            "x": 477,
+            "y": 550,
+            "w": 83,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "High Risk",
+            "x": 721,
+            "y": 550,
+            "w": 83,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Pep Hit",
+            "x": 807,
+            "y": 550,
+            "w": 70,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Manual Review",
+            "x": 477,
+            "y": 607,
+            "w": 114,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Document Review",
+            "x": 721,
+            "y": 607,
+            "w": 131,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Manual Review",
+            "x": 477,
+            "y": 665,
+            "w": 114,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Address Review",
+            "x": 721,
+            "y": 665,
+            "w": 119,
             "h": 21
           }
         ]
@@ -1045,8 +1646,8 @@
         "id": "compliance-6-record-aml-decision",
         "kind": "card",
         "title": "Record AML decision",
-        "cssWidth": 508,
-        "cssHeight": 553,
+        "cssWidth": 1032,
+        "cssHeight": 738,
         "scale": 2,
         "items": [
           {
@@ -1054,154 +1655,96 @@
             "text": "Record AML decision",
             "x": 19,
             "y": 19,
-            "w": 470,
+            "w": 994,
             "h": 30
           },
           {
             "role": "field",
             "text": "KYC case",
             "x": 19,
-            "y": 102,
-            "w": 470,
+            "y": 82,
+            "w": 994,
             "h": 18
           },
           {
             "role": "field",
             "text": "Decision",
             "x": 19,
-            "y": 186,
-            "w": 229,
+            "y": 372,
+            "w": 491,
             "h": 18
           },
           {
             "role": "field",
             "text": "Reason code",
-            "x": 260,
-            "y": 186,
-            "w": 229,
+            "x": 522,
+            "y": 372,
+            "w": 491,
             "h": 18
           },
           {
             "role": "field",
             "text": "Officer note",
             "x": 19,
-            "y": 243,
-            "w": 470,
+            "y": 429,
+            "w": 994,
             "h": 18
           },
           {
             "role": "field",
             "text": "Evidence summary",
             "x": 19,
-            "y": 371,
-            "w": 470,
+            "y": 557,
+            "w": 994,
             "h": 18
           },
           {
             "role": "input",
             "text": "ApproveDeclineRequest ReverificationReopen",
             "x": 19,
-            "y": 209,
-            "w": 229,
+            "y": 395,
+            "w": 491,
             "h": 21
           },
           {
             "role": "input",
             "text": "Pep ReviewHigh Risk ReviewAdverse Media ReviewSanctions ReviewProvider Decline ReviewIncon",
-            "x": 260,
-            "y": 209,
-            "w": 229,
+            "x": 522,
+            "y": 395,
+            "w": 491,
             "h": 21
           },
           {
             "role": "button",
             "text": "Submit KYC decision",
             "x": 19,
-            "y": 500,
-            "w": 470,
+            "y": 685,
+            "w": 994,
             "h": 34
-          }
-        ]
-      },
-      {
-        "id": "compliance-7-account-access-controls",
-        "kind": "card",
-        "title": "Account access controls",
-        "cssWidth": 1032,
-        "cssHeight": 566,
-        "scale": 2,
-        "items": [
-          {
-            "role": "heading",
-            "text": "Account access controls",
-            "x": 19,
-            "y": 19,
-            "w": 956,
-            "h": 30
           },
           {
-            "role": "field",
-            "text": "User account",
-            "x": 19,
-            "y": 84,
-            "w": 491,
-            "h": 18
+            "role": "status",
+            "text": "Pep Hit",
+            "x": 928,
+            "y": 187,
+            "w": 70,
+            "h": 21
           },
           {
-            "role": "field",
-            "text": "New account status",
-            "x": 522,
-            "y": 84,
-            "w": 491,
-            "h": 18
-          },
-          {
-            "role": "field",
-            "text": "Reason code",
-            "x": 19,
-            "y": 167,
-            "w": 491,
-            "h": 18
-          },
-          {
-            "role": "field",
-            "text": "Admin note",
-            "x": 19,
+            "role": "status",
+            "text": "Pep Hit",
+            "x": 34,
             "y": 225,
-            "w": 994,
-            "h": 18
-          },
-          {
-            "role": "field",
-            "text": "Evidence summary",
-            "x": 19,
-            "y": 353,
-            "w": 994,
-            "h": 18
-          },
-          {
-            "role": "input",
-            "text": "ActiveRestrictedLockedClosed",
-            "x": 522,
-            "y": 107,
-            "w": 491,
+            "w": 70,
             "h": 21
           },
           {
-            "role": "input",
-            "text": "Kyc Aml ReviewCompliance HoldEmail RecoverySupport RequestAccount ClosureAdmin CorrectionO",
-            "x": 19,
-            "y": 191,
-            "w": 491,
+            "role": "status",
+            "text": "High Risk",
+            "x": 108,
+            "y": 225,
+            "w": 83,
             "h": 21
-          },
-          {
-            "role": "button",
-            "text": "Apply access change",
-            "x": 19,
-            "y": 513,
-            "w": 994,
-            "h": 34
           }
         ]
       }
@@ -1792,7 +2335,7 @@
         "kind": "kpi",
         "title": "Key metrics",
         "cssWidth": 1032,
-        "cssHeight": 113,
+        "cssHeight": 163,
         "scale": 2,
         "items": []
       },
@@ -1801,7 +2344,7 @@
         "kind": "card",
         "title": "",
         "cssWidth": 249,
-        "cssHeight": 113,
+        "cssHeight": 163,
         "scale": 2,
         "items": []
       },
@@ -1810,7 +2353,7 @@
         "kind": "card",
         "title": "",
         "cssWidth": 249,
-        "cssHeight": 113,
+        "cssHeight": 163,
         "scale": 2,
         "items": []
       },
@@ -1819,7 +2362,7 @@
         "kind": "card",
         "title": "",
         "cssWidth": 249,
-        "cssHeight": 113,
+        "cssHeight": 163,
         "scale": 2,
         "items": []
       },
@@ -1828,7 +2371,7 @@
         "kind": "card",
         "title": "",
         "cssWidth": 249,
-        "cssHeight": 113,
+        "cssHeight": 163,
         "scale": 2,
         "items": []
       },
@@ -1837,7 +2380,7 @@
         "kind": "card",
         "title": "Borrowers",
         "cssWidth": 1032,
-        "cssHeight": 281,
+        "cssHeight": 287,
         "scale": 2,
         "items": [
           {
@@ -1853,39 +2396,47 @@
             "text": "Entity",
             "x": 19,
             "y": 106,
-            "w": 391,
+            "w": 204,
+            "h": 34
+          },
+          {
+            "role": "column",
+            "text": "Classification",
+            "x": 223,
+            "y": 106,
+            "w": 254,
             "h": 34
           },
           {
             "role": "column",
             "text": "KYB",
-            "x": 410,
+            "x": 477,
             "y": 106,
-            "w": 152,
+            "w": 147,
             "h": 34
           },
           {
             "role": "column",
             "text": "Country",
-            "x": 562,
+            "x": 624,
             "y": 106,
-            "w": 90,
+            "w": 86,
             "h": 34
           },
           {
             "role": "column",
             "text": "Financials",
-            "x": 651,
+            "x": 710,
             "y": 106,
-            "w": 221,
+            "w": 213,
             "h": 34
           },
           {
             "role": "column",
             "text": "Actions",
-            "x": 873,
+            "x": 924,
             "y": 106,
-            "w": 140,
+            "w": 135,
             "h": 34
           },
           {
@@ -1915,7 +2466,7 @@
           {
             "role": "button",
             "text": "Edit",
-            "x": 883,
+            "x": 934,
             "y": 150,
             "w": 44,
             "h": 28
@@ -1923,24 +2474,40 @@
           {
             "role": "button",
             "text": "Edit",
-            "x": 883,
-            "y": 212,
+            "x": 934,
+            "y": 214,
             "w": 44,
             "h": 28
           },
           {
             "role": "status",
+            "text": "Public",
+            "x": 233,
+            "y": 172,
+            "w": 234,
+            "h": 21
+          },
+          {
+            "role": "status",
             "text": "Approved",
-            "x": 420,
+            "x": 487,
             "y": 150,
             "w": 84,
             "h": 21
           },
           {
             "role": "status",
+            "text": "Internal",
+            "x": 233,
+            "y": 237,
+            "w": 234,
+            "h": 21
+          },
+          {
+            "role": "status",
             "text": "Manual Review",
-            "x": 420,
-            "y": 212,
+            "x": 487,
+            "y": 214,
             "w": 114,
             "h": 21
           }
@@ -1951,7 +2518,7 @@
         "kind": "card",
         "title": "Loans",
         "cssWidth": 1032,
-        "cssHeight": 301,
+        "cssHeight": 273,
         "scale": 2,
         "items": [
           {
@@ -1967,55 +2534,55 @@
             "text": "Loan",
             "x": 19,
             "y": 106,
-            "w": 288,
+            "w": 224,
             "h": 34
           },
           {
             "role": "column",
             "text": "Status",
-            "x": 307,
+            "x": 243,
             "y": 106,
-            "w": 105,
+            "w": 113,
             "h": 34
           },
           {
             "role": "column",
             "text": "Amount",
-            "x": 412,
+            "x": 356,
             "y": 106,
-            "w": 130,
+            "w": 151,
             "h": 34
           },
           {
             "role": "column",
             "text": "Rate",
-            "x": 543,
+            "x": 507,
             "y": 106,
-            "w": 56,
+            "w": 60,
             "h": 34
           },
           {
             "role": "column",
             "text": "LTV",
-            "x": 599,
+            "x": 567,
             "y": 106,
-            "w": 58,
+            "w": 62,
             "h": 34
           },
           {
             "role": "column",
             "text": "Funding deadline",
-            "x": 657,
+            "x": 630,
             "y": 106,
-            "w": 138,
+            "w": 148,
             "h": 34
           },
           {
             "role": "column",
             "text": "Actions",
-            "x": 794,
+            "x": 778,
             "y": 106,
-            "w": 219,
+            "w": 281,
             "h": 34
           },
           {
@@ -2045,7 +2612,7 @@
           {
             "role": "button",
             "text": "Edit",
-            "x": 804,
+            "x": 788,
             "y": 150,
             "w": 44,
             "h": 28
@@ -2053,7 +2620,7 @@
           {
             "role": "button",
             "text": "Manage",
-            "x": 857,
+            "x": 840,
             "y": 150,
             "w": 68,
             "h": 28
@@ -2061,23 +2628,23 @@
           {
             "role": "button",
             "text": "Edit",
-            "x": 804,
-            "y": 235,
+            "x": 788,
+            "y": 208,
             "w": 44,
             "h": 28
           },
           {
             "role": "button",
             "text": "Manage",
-            "x": 857,
-            "y": 235,
+            "x": 840,
+            "y": 208,
             "w": 68,
             "h": 28
           },
           {
             "role": "status",
             "text": "Published",
-            "x": 317,
+            "x": 253,
             "y": 150,
             "w": 85,
             "h": 21
@@ -2085,8 +2652,8 @@
           {
             "role": "status",
             "text": "Late",
-            "x": 317,
-            "y": 235,
+            "x": 253,
+            "y": 208,
             "w": 54,
             "h": 21
           }
@@ -2568,31 +3135,31 @@
             "text": "When",
             "x": 19,
             "y": 84,
-            "w": 108,
+            "w": 96,
             "h": 34
           },
           {
             "role": "column",
             "text": "Action",
-            "x": 127,
+            "x": 115,
             "y": 84,
-            "w": 185,
+            "w": 125,
             "h": 34
           },
           {
             "role": "column",
             "text": "Actor",
-            "x": 312,
+            "x": 240,
             "y": 84,
-            "w": 265,
+            "w": 198,
             "h": 34
           },
           {
             "role": "column",
             "text": "Target",
-            "x": 577,
+            "x": 439,
             "y": 84,
-            "w": 302,
+            "w": 220,
             "h": 34
           },
           {
@@ -2617,7 +3184,7 @@
         "kind": "card",
         "title": "Document templates",
         "cssWidth": 1032,
-        "cssHeight": 261,
+        "cssHeight": 234,
         "scale": 2,
         "items": [
           {
@@ -2633,47 +3200,47 @@
             "text": "Template",
             "x": 19,
             "y": 124,
-            "w": 313,
+            "w": 228,
             "h": 34
           },
           {
             "role": "column",
             "text": "Status",
-            "x": 332,
+            "x": 247,
             "y": 124,
-            "w": 93,
+            "w": 106,
             "h": 34
           },
           {
             "role": "column",
             "text": "Version",
-            "x": 425,
+            "x": 354,
             "y": 124,
-            "w": 73,
+            "w": 84,
             "h": 34
           },
           {
             "role": "column",
             "text": "Published",
-            "x": 498,
+            "x": 438,
             "y": 124,
-            "w": 127,
+            "w": 152,
             "h": 34
           },
           {
             "role": "column",
             "text": "Hash",
-            "x": 625,
+            "x": 590,
             "y": 124,
-            "w": 210,
+            "w": 257,
             "h": 34
           },
           {
             "role": "column",
             "text": "Actions",
-            "x": 835,
+            "x": 846,
             "y": 124,
-            "w": 178,
+            "w": 213,
             "h": 34
           },
           {
@@ -2686,7 +3253,7 @@
           },
           {
             "role": "input",
-            "text": "RegistrationPrimary Market InvestmentSecondary Market PurchaseSecondary Market Listing",
+            "text": "RegistrationPrimary Market InvestmentSecondary Market PurchaseSecondary Market ListingRisk",
             "x": 806,
             "y": 42,
             "w": 207,
@@ -2711,7 +3278,7 @@
           {
             "role": "button",
             "text": "Publish / clone",
-            "x": 845,
+            "x": 856,
             "y": 168,
             "w": 106,
             "h": 28
@@ -2719,7 +3286,7 @@
           {
             "role": "status",
             "text": "Current",
-            "x": 342,
+            "x": 257,
             "y": 168,
             "w": 73,
             "h": 21
@@ -2727,110 +3294,20 @@
         ]
       },
       {
-        "id": "settings-1-user-accounts",
+        "id": "settings-1-user-account-administration",
         "kind": "card",
-        "title": "User accounts",
-        "cssWidth": 508,
-        "cssHeight": 620,
+        "title": "User account administration",
+        "cssWidth": 1032,
+        "cssHeight": 112,
         "scale": 2,
         "items": [
           {
             "role": "heading",
-            "text": "User accounts",
+            "text": "User account administration",
             "x": 19,
             "y": 19,
-            "w": 96,
-            "h": 61
-          },
-          {
-            "role": "button",
-            "text": "Create admin",
-            "x": 368,
-            "y": 61,
-            "w": 121,
-            "h": 28
-          }
-        ]
-      },
-      {
-        "id": "settings-2-account-access-controls",
-        "kind": "card",
-        "title": "Account access controls",
-        "cssWidth": 508,
-        "cssHeight": 620,
-        "scale": 2,
-        "items": [
-          {
-            "role": "heading",
-            "text": "Account access controls",
-            "x": 19,
-            "y": 19,
-            "w": 470,
+            "w": 789,
             "h": 30
-          },
-          {
-            "role": "field",
-            "text": "User account",
-            "x": 19,
-            "y": 122,
-            "w": 229,
-            "h": 18
-          },
-          {
-            "role": "field",
-            "text": "New account status",
-            "x": 260,
-            "y": 122,
-            "w": 229,
-            "h": 18
-          },
-          {
-            "role": "field",
-            "text": "Reason code",
-            "x": 19,
-            "y": 222,
-            "w": 229,
-            "h": 18
-          },
-          {
-            "role": "field",
-            "text": "Admin note",
-            "x": 19,
-            "y": 279,
-            "w": 470,
-            "h": 18
-          },
-          {
-            "role": "field",
-            "text": "Evidence summary",
-            "x": 19,
-            "y": 407,
-            "w": 470,
-            "h": 18
-          },
-          {
-            "role": "input",
-            "text": "ActiveRestrictedLockedClosed",
-            "x": 260,
-            "y": 145,
-            "w": 229,
-            "h": 21
-          },
-          {
-            "role": "input",
-            "text": "Kyc Aml ReviewCompliance HoldEmail RecoverySupport RequestAccount ClosureAdmin CorrectionO",
-            "x": 19,
-            "y": 245,
-            "w": 229,
-            "h": 21
-          },
-          {
-            "role": "button",
-            "text": "Apply access change",
-            "x": 19,
-            "y": 567,
-            "w": 470,
-            "h": 34
           }
         ]
       }

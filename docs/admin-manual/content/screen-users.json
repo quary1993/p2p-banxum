@@ -1,0 +1,47 @@
+{
+  "key": "users",
+  "title": "Users",
+  "intro": [
+    "This screen is the account directory for the whole platform. Every account that exists on BANXUM appears here: investors (lenders), legal-entity lender representatives, admin staff, and superadmins.",
+    "It answers the everyday support questions: does this person have an account, what state is it in, is their phone verified, what documents have they accepted, and what may they currently do? It is also where account-level decisions are made - creating admin staff, restricting or closing accounts, and opening a read-only view of an investor's portal.",
+    "Everything you do here is audited. Account actions are the most sensitive tools in the console: they change what a real person can do with their money. The console records who did what, to whom, and why.",
+    "One important thing this screen does not do: it never shows or edits money. Balances, deposits and withdrawals live in Finance operations. This screen is about identity, access and evidence."
+  ],
+  "whatYouDoHere": [
+    "Look up any account by name, email, investor reference or UUID, and filter by account type or status.",
+    "Create new admin staff accounts (superadmin only). There is no self-service admin signup and no 'forgot password' - a superadmin creates the account and resets passwords.",
+    "Open 'Access controls' on an account to restrict, lock, reactivate or close it, with a reason code, a note, and an evidence summary. Closing requires confirming the account is clean (empty).",
+    "Open 'Documents' to see every legal document a user has accepted (agreement versions, timestamps) and generate the evidence PDF or CSV.",
+    "Start a 'Read-only view' of an investor account (superadmin only) to see exactly what that investor sees, without being able to change anything."
+  ],
+  "figures": [
+    {
+      "id": "users-0-user-accounts",
+      "caption": "The user directory: search, filters, and per-account actions.",
+      "summary": "One table for every platform account. The search box matches name, email, investor reference or UUID as you type. Each row shows who the account belongs to, what kind of account it is, its current standing, and three action buttons. The list is paginated - use Previous/Next to move through pages.",
+      "annotations": [
+        { "item": 0, "label": "User accounts heading", "text": "The directory card. The description under the title reminds you that account-level actions taken here are audited." },
+        { "item": 1, "label": "Name column", "text": "The person's registered full name. For admin staff this is the name the superadmin entered when creating the account." },
+        { "item": 2, "label": "Email column", "text": "The account's login email. Investors sign in with magic links sent to this address; admins receive their one-time login codes here. If a user reports missing emails, check they are looking at this exact mailbox." },
+        { "item": 4, "label": "Reference column", "text": "The investor reference - the short permanent code (starting with L) used in deposit payment references such as BX-CHF-L4F8K2Q9R. Staff accounts have no reference because they never hold money." },
+        { "item": 6, "label": "Status column", "text": "The account's standing: Pending KYC (registered but not yet verified), Active (normal use), Restricted (limited while under review), Locked (cannot sign in or act), Closed (permanently ended). Restricted and Locked both block financial actions." },
+        { "item": 7, "label": "Phone verification column", "text": "Whether the mandatory SMS phone verification is complete. An investor without a verified phone cannot reach the financial parts of the portal, even if their email works." },
+        { "item": 10, "label": "Account type filter", "text": "Narrow the list to one kind of account: natural-person lenders, legal-entity lender representatives, admins, or superadmins." },
+        { "item": 11, "label": "Account status filter", "text": "Narrow the list to one standing, for example all Restricted accounts when reviewing open compliance holds." },
+        { "item": 14, "label": "Create admin button", "text": "Superadmin only. Opens the form to create a new staff account: email, full name, role (admin or superadmin) and an initial password. Admins sign in with email + password + an emailed one-time code. There is no self-service password reset - only a superadmin can set a new password." },
+        { "item": 15, "label": "Access controls (row action)", "text": "Opens the account-access form for that user. You choose a new status (Active, Restricted, Locked or Closed), pick a reason code, and write an admin note plus an evidence summary. Closing an account additionally requires ticking the clean/empty-account confirmation - the attestation that you checked the balance is zero. Every change lands in the audit trail." },
+        { "item": 16, "label": "Documents (row action)", "text": "Opens the user's accepted-document history: which agreement versions they accepted, when, and in what context (registration, an investment order, a secondary-market trade). From here you can generate the evidence PDF or CSV that reproduces exactly what was accepted - useful for support questions and audits." },
+        { "item": 17, "label": "Read-only view (row action)", "text": "Superadmin only, and only for non-staff accounts. Opens the investor portal in a new tab exactly as that investor sees it - same dashboard, balances, portfolio and documents - but every change attempt is rejected: it is strictly read-only. Access uses a short-lived signed token (about 30 minutes) tied to your own superadmin session, and every start is recorded as a high-risk audit event. Admin and superadmin accounts can never be viewed this way." },
+        { "item": 33, "label": "Previous page", "text": "The directory is paginated. Use Previous/Next to page through accounts; the search and filters apply across all pages." },
+        { "item": 34, "label": "Next page", "text": "Moves one page forward through the filtered account list." }
+      ],
+      "notes": [
+        "Every action on this screen is audit-logged with actor, target, reason and timestamp. Assume everything you do here will be reviewed.",
+        "Restricted and Locked accounts cannot sign in or move money; use Restricted while investigating and Locked for hard blocks.",
+        "Account closure is only for clean (empty) accounts - the form makes you confirm you checked. Financial records, documents and the audit trail are always retained.",
+        "Read-only views exist so support can see what an investor sees without asking for screenshots. They cannot click, submit, or change anything on the investor's behalf.",
+        "There is no impersonation with write access anywhere on the platform, and no way to view another admin's account."
+      ]
+    }
+  ]
+}

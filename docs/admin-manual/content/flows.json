@@ -245,6 +245,30 @@
         "Do not ignore Overdue (SLA) rows - they are past their deadline and should be cleared before fresh work.",
         "Refresh after acting; counts do not update live while you are away in a module."
       ]
+    },
+    {
+      "title": "Run a staging fast-forward QA test and revert it",
+      "goal": "Safely test time-based behavior such as day-30/day-60 balance ageing, forced withdrawals, penalty mode, late/default transitions, campaign expiry, and scheduled notices without waiting real days.",
+      "actor": "Superadmin on staging only.",
+      "preconditions": [
+        "You are on the staging deployment (staging.nxnarena.com), not production. QA mode is blocked in production.",
+        "You have a clear test plan: which investor, loan, balance lot, or campaign you are going to observe, and what date outcome you expect.",
+        "You understand that revert restores database state only. External emails/SMS/provider calls already sent, downloaded files, object-storage artifacts, and anything outside the database are not rolled back."
+      ],
+      "steps": [
+        { "n": 1, "screen": "QA mode", "action": "Open the QA mode section and read the current environment/status.", "detail": "If the section is unavailable, you are either not a superadmin or the deployment has QA mode disabled. Do not try to test time travel on production." },
+        { "n": 2, "screen": "QA mode", "action": "Click the control to enter QA mode.", "detail": "Entering QA mode captures a database snapshot. This snapshot is the point the system will return to when you revert. From this point on, treat the environment as temporary test state." },
+        { "n": 3, "screen": "Relevant module before fast-forward", "action": "Create or select the records you want to test.", "detail": "Examples: declare a deposit with a known value date, publish a campaign with a short deadline, create a funded loan with due installments, or register a payout instruction before testing forced withdrawals." },
+        { "n": 4, "screen": "QA mode", "action": "Enter the number of days to advance and run the fast-forward.", "detail": "The system advances simulated business time day by day. For every crossed Europe/Zurich business date it runs the daily scheduled jobs: balance ageing and penalty charging, servicing status scan, primary funding-expiry scan, reconciliation-break task sync, and due email dispatch." },
+        { "n": 5, "screen": "Daily dashboard / Finance ops / Loans", "action": "Inspect the effects exactly as you would in normal operations.", "detail": "Check that ageing buckets changed, forced withdrawals appeared, penalty-mode lots charged, loans moved to late/defaulted, campaigns expired, reconciliation tasks synced, and expected notifications were queued or sent." },
+        { "n": 6, "screen": "QA mode", "action": "When testing is complete, click Revert QA mode and confirm.", "detail": "Revert restores the database snapshot captured at entry and clears the simulated clock. Your session may reset. Any record or ID created during the QA window should be considered gone after revert." }
+      ],
+      "outcome": "The staging environment behaves as if real time passed, daily jobs run for the advanced dates, and then the database returns to its entry state when reverted.",
+      "pitfalls": [
+        "Do not use QA mode with real customer funds or any test where sent emails/SMS/provider calls would create confusion. Database revert does not unsend messages.",
+        "Do not run normal scheduled jobs concurrently with a manual fast-forward test unless instructed by the runbook; fast-forward already runs the relevant daily jobs.",
+        "Always revert at the end of a QA session. Leaving staging in simulated time makes later tests hard to interpret."
+      ]
     }
   ]
 }
