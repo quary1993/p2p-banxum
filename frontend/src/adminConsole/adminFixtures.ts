@@ -875,6 +875,20 @@ export const auditEventsFixture: AuditEvent[] = [
   }
 ];
 
+export const adminUserDirectoryFixture = {
+  count: 6,
+  limit: 25,
+  offset: 0,
+  results: [
+    { id: "0d9f2a71-1111-4a52-9d10-visitor00001", email: "lukas.brunner@example.ch", full_name: "Lukas Brunner", investor_reference: "L4F8K2Q9R", account_type: "natural_person_lender", status: "active", phone_verified: true, is_staff: false, is_active: true, date_joined: "2026-03-02T09:14:00Z", can_impersonate_readonly: true },
+    { id: "1b7c3e82-2222-4b63-8e21-visitor00002", email: "marie.dupont@example.fr", full_name: "Marie Dupont", investor_reference: "L7MPX3TDA", account_type: "natural_person_lender", status: "active", phone_verified: true, is_staff: false, is_active: true, date_joined: "2026-03-18T14:41:00Z", can_impersonate_readonly: true },
+    { id: "2c8d4f93-3333-4c74-9f32-visitor00003", email: "jonas.keller@example.ch", full_name: "Jonas Keller", investor_reference: "L9QWB5HNE", account_type: "natural_person_lender", status: "pending_kyc", phone_verified: false, is_staff: false, is_active: true, date_joined: "2026-06-21T08:03:00Z", can_impersonate_readonly: true },
+    { id: "3d9e5fa4-4444-4d85-af43-visitor00004", email: "treasury@alpenfonds.example", full_name: "Alpen Fonds AG (representative)", investor_reference: "L2ZRC8VKM", account_type: "legal_entity_lender_representative", status: "restricted", phone_verified: true, is_staff: false, is_active: true, date_joined: "2026-04-09T11:26:00Z", can_impersonate_readonly: true },
+    { id: "4eaf60b5-5555-4e96-b054-visitor00005", email: "ops.admin@banxum.example", full_name: "Petra Steiner", investor_reference: "", account_type: "admin", status: "active", phone_verified: false, is_staff: true, is_active: true, date_joined: "2026-02-12T10:00:00Z", can_impersonate_readonly: false },
+    { id: "5fb071c6-6666-4fa7-c165-visitor00006", email: "hq@banxum.example", full_name: "BANXUM HQ Superadmin", investor_reference: "", account_type: "superadmin", status: "active", phone_verified: false, is_staff: true, is_active: true, date_joined: "2026-01-05T08:00:00Z", can_impersonate_readonly: false }
+  ]
+};
+
 export const adminFormDefaults = {
   investorUserId: "00000000-0000-4000-8000-000000002048",
   borrowerId: "borrower-helvetic-wohnbau",

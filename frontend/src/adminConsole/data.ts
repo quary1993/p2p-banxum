@@ -52,7 +52,8 @@ import {
   kycManualReviewFixture,
   loansFixture,
   adminTaskEventsFixture,
-  adminTasksFixture
+  adminTasksFixture,
+  adminUserDirectoryFixture
 } from "./adminFixtures";
 
 const adminQueryDefaults = {
@@ -95,10 +96,9 @@ export function useAdminTasksData(params: V1AdminOpsTasksListParams = { limit: 1
 export function useAdminUsersDirectoryData(params: V1AdminOpsUsersRetrieveParams = { limit: 25, offset: 0 }) {
   return useV1AdminOpsUsersRetrieve(params, {
     query: adminPreviewQuery({
-      count: 0,
+      ...adminUserDirectoryFixture,
       limit: params.limit ?? 25,
-      offset: params.offset ?? 0,
-      results: []
+      offset: params.offset ?? 0
     })
   });
 }
