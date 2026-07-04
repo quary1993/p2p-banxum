@@ -145,6 +145,9 @@ def _event_metadata_for_borrower(borrower: BorrowerEntity) -> dict[str, Any]:
         "kyb_status": borrower.kyb_status,
         "compliance_hold": borrower.compliance_hold,
         "country": borrower.country,
+        "business_classification_public": borrower.business_classification_public,
+        "registered_address_public": borrower.registered_address_public,
+        "contact_info_public": borrower.contact_info_public,
     }
 
 
@@ -185,14 +188,21 @@ class CreateBorrowerEntityCommand:
     compliance_hold: bool = False
     country: str = ""
     registration_number: str = ""
+    business_classification: str = ""
+    business_classification_public: bool = False
     registered_address: str = ""
+    registered_address_public: bool = False
     operating_address: str = ""
+    contact_info: str = ""
+    contact_info_public: bool = False
     industry_activity: str = ""
     ownership_structure: str = ""
     beneficial_owners: list[dict[str, Any]] | None = None
     directors_officers: list[dict[str, Any]] | None = None
     authorized_signatories: list[dict[str, Any]] | None = None
     bank_account_details: dict[str, Any] | None = None
+    kyb_aml_observations: str = ""
+    financial_risk: str = ""
     financials_currency: str = ""
     assets_minor: int | None = None
     liabilities_minor: int | None = None
@@ -213,14 +223,21 @@ class UpdateBorrowerEntityCommand:
     compliance_hold: bool | None = None
     country: str | None = None
     registration_number: str | None = None
+    business_classification: str | None = None
+    business_classification_public: bool | None = None
     registered_address: str | None = None
+    registered_address_public: bool | None = None
     operating_address: str | None = None
+    contact_info: str | None = None
+    contact_info_public: bool | None = None
     industry_activity: str | None = None
     ownership_structure: str | None = None
     beneficial_owners: list[dict[str, Any]] | None = None
     directors_officers: list[dict[str, Any]] | None = None
     authorized_signatories: list[dict[str, Any]] | None = None
     bank_account_details: dict[str, Any] | None = None
+    kyb_aml_observations: str | None = None
+    financial_risk: str | None = None
     financials_currency: str | None = None
     assets_minor: int | None = None
     liabilities_minor: int | None = None
@@ -266,14 +283,21 @@ def create_borrower_entity(command: CreateBorrowerEntityCommand) -> BorrowerEnti
         compliance_hold=command.compliance_hold,
         country=command.country.strip(),
         registration_number=command.registration_number.strip(),
+        business_classification=command.business_classification.strip(),
+        business_classification_public=command.business_classification_public,
         registered_address=command.registered_address.strip(),
+        registered_address_public=command.registered_address_public,
         operating_address=command.operating_address.strip(),
+        contact_info=command.contact_info.strip(),
+        contact_info_public=command.contact_info_public,
         industry_activity=command.industry_activity.strip(),
         ownership_structure=command.ownership_structure.strip(),
         beneficial_owners=command.beneficial_owners or [],
         directors_officers=command.directors_officers or [],
         authorized_signatories=command.authorized_signatories or [],
         bank_account_details=command.bank_account_details or {},
+        kyb_aml_observations=command.kyb_aml_observations.strip(),
+        financial_risk=command.financial_risk.strip(),
         financials_currency=financials_currency,
         assets_minor=command.assets_minor,
         liabilities_minor=command.liabilities_minor,
@@ -373,10 +397,14 @@ def update_borrower_entity(command: UpdateBorrowerEntityCommand) -> BorrowerEnti
     for field_name in (
         "country",
         "registration_number",
+        "business_classification",
         "registered_address",
         "operating_address",
+        "contact_info",
         "industry_activity",
         "ownership_structure",
+        "kyb_aml_observations",
+        "financial_risk",
     ):
         command_value = _optional_clean(cast(str | None, getattr(command, field_name)))
         if command_value is not None:
@@ -384,6 +412,19 @@ def update_borrower_entity(command: UpdateBorrowerEntityCommand) -> BorrowerEnti
                 borrower=borrower,
                 field=field_name,
                 value=command_value,
+                changes=changes,
+            )
+    for field_name in (
+        "business_classification_public",
+        "registered_address_public",
+        "contact_info_public",
+    ):
+        command_value = getattr(command, field_name)
+        if command_value is not None:
+            _set_if_changed(
+                borrower=borrower,
+                field=field_name,
+                value=bool(command_value),
                 changes=changes,
             )
     for field_name in (
@@ -454,14 +495,21 @@ def update_borrower_entity(command: UpdateBorrowerEntityCommand) -> BorrowerEnti
             "compliance_hold",
             "country",
             "registration_number",
+            "business_classification",
+            "business_classification_public",
             "registered_address",
+            "registered_address_public",
             "operating_address",
+            "contact_info",
+            "contact_info_public",
             "industry_activity",
             "ownership_structure",
             "beneficial_owners",
             "directors_officers",
             "authorized_signatories",
             "bank_account_details",
+            "kyb_aml_observations",
+            "financial_risk",
             "financials_currency",
             "assets_minor",
             "liabilities_minor",
@@ -576,6 +624,15 @@ def borrower_investor_disclosure(borrower: BorrowerEntity) -> dict[str, Any]:
         "legal_name": borrower.legal_name,
         "year_founded": borrower.year_founded,
     }
+    selected_public_fields = (
+        ("business_classification", borrower.business_classification_public),
+        ("registered_address", borrower.registered_address_public),
+        ("contact_info", borrower.contact_info_public),
+    )
+    for field, is_public in selected_public_fields:
+        value = getattr(borrower, field)
+        if is_public and value not in {"", None}:
+            disclosure[field] = value
     for field in (
         "country",
         "financials_currency",

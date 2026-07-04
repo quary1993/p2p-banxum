@@ -194,6 +194,10 @@ def _model(app_label: str, model_name: str) -> Any:
     return apps.get_model(app_label, model_name)
 
 
+def _entities_services() -> Any:
+    return import_module("backend.apps.entities.services")
+
+
 def _loan_for_update(loan_id: str) -> Model:
     loan_model = _model("loans", "Loan")
     loan = cast(Model | None, loan_model.objects.select_for_update().filter(id=loan_id).first())
@@ -1567,10 +1571,13 @@ def public_marketplace_listing_payload(loan: Model) -> dict[str, Any]:
 
 def full_marketplace_listing_payload(loan: Model) -> dict[str, Any]:
     loan_ref = cast(Any, loan)
+    borrower = cast(Model, loan_ref.borrower)
+    entities_services = _entities_services()
     payload = public_marketplace_listing_payload(loan)
     payload.update(
         {
             "borrower_id": str(loan_ref.borrower_id),
+            "borrower_disclosure": entities_services.borrower_investor_disclosure(borrower),
             "investor_summary": str(loan_ref.investor_summary),
             "purpose_description": str(loan_ref.purpose_description),
             "collateral_value_minor": int(loan_ref.collateral_value_minor),

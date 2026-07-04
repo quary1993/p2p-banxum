@@ -250,6 +250,9 @@ def lookup_borrowers(
         Q(id_text__icontains=cleaned)
         | Q(legal_name__icontains=cleaned)
         | Q(registration_number__icontains=cleaned)
+        | Q(business_classification__icontains=cleaned)
+        | Q(registered_address__icontains=cleaned)
+        | Q(contact_info__icontains=cleaned)
         | Q(country__icontains=cleaned)
     )
     if status:
@@ -264,11 +267,17 @@ def lookup_borrowers(
                 "meta": (
                     f"{getattr(borrower, 'country', '') or 'country n/a'} / "
                     f"{getattr(borrower, 'kyb_status', '') or 'KYB n/a'} / "
+                    f"{getattr(borrower, 'business_classification', '') or 'classification n/a'} / "
                     f"{getattr(borrower, 'registration_number', '') or 'reg n/a'}"
                 ),
                 "payload": {
                     "legal_name": str(getattr(borrower, "legal_name", "")),
                     "registration_number": str(getattr(borrower, "registration_number", "")),
+                    "business_classification": str(
+                        getattr(borrower, "business_classification", "")
+                    ),
+                    "registered_address": str(getattr(borrower, "registered_address", "")),
+                    "contact_info": str(getattr(borrower, "contact_info", "")),
                     "country": str(getattr(borrower, "country", "")),
                     "kyb_status": str(getattr(borrower, "kyb_status", "")),
                     "compliance_hold": bool(getattr(borrower, "compliance_hold", False)),

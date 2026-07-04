@@ -4850,10 +4850,20 @@ components:
           type: string
         registration_number:
           type: string
+        business_classification:
+          type: string
+        business_classification_public:
+          type: boolean
         registered_address:
           type: string
+        registered_address_public:
+          type: boolean
         operating_address:
           type: string
+        contact_info:
+          type: string
+        contact_info_public:
+          type: boolean
         industry_activity:
           type: string
         ownership_structure:
@@ -4862,6 +4872,10 @@ components:
         directors_officers: {}
         authorized_signatories: {}
         bank_account_details: {}
+        kyb_aml_observations:
+          type: string
+        financial_risk:
+          type: string
         financials_currency:
           type: string
         assets_minor:
@@ -4894,16 +4908,22 @@ components:
       - authorized_signatories
       - bank_account_details
       - beneficial_owners
+      - business_classification
+      - business_classification_public
       - can_transact
       - compliance_hold
+      - contact_info
+      - contact_info_public
       - country
       - created_at
       - created_by_admin_id
       - directors_officers
       - entity_type
+      - financial_risk
       - financials_currency
       - id
       - industry_activity
+      - kyb_aml_observations
       - kyb_status
       - legal_name
       - liabilities_minor
@@ -4911,6 +4931,7 @@ components:
       - ownership_structure
       - profit_last_year_minor
       - registered_address
+      - registered_address_public
       - registration_number
       - revenue_last_year_minor
       - updated_at
@@ -4941,10 +4962,23 @@ components:
         registration_number:
           type: string
           maxLength: 128
+        business_classification:
+          type: string
+        business_classification_public:
+          type: boolean
+          default: false
         registered_address:
           type: string
+        registered_address_public:
+          type: boolean
+          default: false
         operating_address:
           type: string
+        contact_info:
+          type: string
+        contact_info_public:
+          type: boolean
+          default: false
         industry_activity:
           type: string
         ownership_structure:
@@ -4967,6 +5001,10 @@ components:
         bank_account_details:
           type: object
           additionalProperties: {}
+        kyb_aml_observations:
+          type: string
+        financial_risk:
+          type: string
         financials_currency:
           type: string
           maxLength: 3
@@ -5050,6 +5088,12 @@ components:
           type: string
         year_founded:
           type: integer
+        business_classification:
+          type: string
+        registered_address:
+          type: string
+        contact_info:
+          type: string
         country:
           type: string
         financials_currency:
@@ -8394,6 +8438,9 @@ components:
         borrower_id:
           type: string
           format: uuid
+        borrower_disclosure:
+          type: object
+          additionalProperties: {}
         investor_summary:
           type: string
         purpose_description:
@@ -8417,6 +8464,7 @@ components:
         schedule_version:
           type: integer
       required:
+      - borrower_disclosure
       - borrower_id
       - collateral_description
       - collateral_type
@@ -8608,10 +8656,20 @@ components:
         registration_number:
           type: string
           maxLength: 128
+        business_classification:
+          type: string
+        business_classification_public:
+          type: boolean
         registered_address:
           type: string
+        registered_address_public:
+          type: boolean
         operating_address:
           type: string
+        contact_info:
+          type: string
+        contact_info_public:
+          type: boolean
         industry_activity:
           type: string
         ownership_structure:
@@ -8634,6 +8692,10 @@ components:
         bank_account_details:
           type: object
           additionalProperties: {}
+        kyb_aml_observations:
+          type: string
+        financial_risk:
+          type: string
         financials_currency:
           type: string
           maxLength: 3

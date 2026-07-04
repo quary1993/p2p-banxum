@@ -169,6 +169,31 @@ function intValue(value: string, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function bankAccountDetailsText(value: unknown) {
+  if (!value || typeof value !== "object") return "";
+  const maybeNotes = (value as { notes?: unknown }).notes;
+  if (typeof maybeNotes === "string") return maybeNotes;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return "";
+  }
+}
+
+function bankAccountDetailsPayload(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return {};
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+    } catch {
+      return { notes: trimmed };
+    }
+  }
+  return { notes: trimmed };
+}
+
 type DownloadableArtifact = Pick<
   ReportGenerateResponse | AdminUserDocumentArtifactResponse,
   "content" | "content_encoding" | "content_type" | "filename"
@@ -1904,7 +1929,7 @@ export function LoansPanel() {
             }
             onSearch={setBorrowerSearch}
             search={borrowerSearch}
-            searchPlaceholder="Search legal name, registration, country, UUID"
+            searchPlaceholder="Search legal name, registration, classification, address, contact, country, UUID"
             title="Borrowers"
           />
           {borrowersQuery.error ? <Banner tone="bad" title="Could not load borrowers">{errorMessage(borrowersQuery.error)}</Banner> : null}
@@ -1914,6 +1939,7 @@ export function LoansPanel() {
                 <thead>
                   <tr>
                     <th>Entity</th>
+                    <th>Classification</th>
                     <th>KYB</th>
                     <th>Country</th>
                     <th>Financials</th>
@@ -1928,6 +1954,14 @@ export function LoansPanel() {
                       onClick={() => setSelectedBorrowerId(borrower.id)}
                     >
                       <td><strong>{borrower.legal_name}</strong><span className="mono muted">{borrower.id}</span></td>
+                      <td>
+                        {borrower.business_classification ? (
+                          <div className="col gap-4">
+                            <span>{borrower.business_classification}</span>
+                            {borrower.business_classification_public ? <Chip tone="ok">Public</Chip> : <Chip tone="neutral">Internal</Chip>}
+                          </div>
+                        ) : "-"}
+                      </td>
                       <td><Chip tone={statusTone(borrower.kyb_status)}>{labelize(borrower.kyb_status)}</Chip></td>
                       <td>{borrower.country || "-"}</td>
                       <td>
@@ -2100,6 +2134,17 @@ function BorrowerCreateForm({ onCreated }: { onCreated?: () => void }) {
   const [entityType, setEntityType] = useState<BorrowerEntityType>(BorrowerEntityTypeEnum.swiss_company);
   const [kybStatus, setKybStatus] = useState<BorrowerKybStatus>(BorrowerKybStatusEnum.pending);
   const [country, setCountry] = useState("CH");
+  const [registrationNumber, setRegistrationNumber] = useState("");
+  const [businessClassification, setBusinessClassification] = useState("");
+  const [businessClassificationPublic, setBusinessClassificationPublic] = useState(false);
+  const [registeredAddress, setRegisteredAddress] = useState("");
+  const [registeredAddressPublic, setRegisteredAddressPublic] = useState(false);
+  const [contactInfo, setContactInfo] = useState("");
+  const [contactInfoPublic, setContactInfoPublic] = useState(false);
+  const [ownershipStructure, setOwnershipStructure] = useState("");
+  const [bankAccounts, setBankAccounts] = useState("");
+  const [kybAmlObservations, setKybAmlObservations] = useState("");
+  const [financialRisk, setFinancialRisk] = useState("");
   const [financialsCurrency, setFinancialsCurrency] = useState("CHF");
   const [assets, setAssets] = useState("");
   const [note, setNote] = useState("");
@@ -2122,6 +2167,17 @@ function BorrowerCreateForm({ onCreated }: { onCreated?: () => void }) {
       entity_type: entityType,
       kyb_status: kybStatus,
       country,
+      registration_number: registrationNumber,
+      business_classification: businessClassification,
+      business_classification_public: businessClassificationPublic,
+      registered_address: registeredAddress,
+      registered_address_public: registeredAddressPublic,
+      contact_info: contactInfo,
+      contact_info_public: contactInfoPublic,
+      ownership_structure: ownershipStructure,
+      bank_account_details: bankAccountDetailsPayload(bankAccounts),
+      kyb_aml_observations: kybAmlObservations,
+      financial_risk: financialRisk,
       financials_currency: financialsCurrency,
       assets_minor: assets ? intValue(assets) : null,
       note
@@ -2143,9 +2199,29 @@ function BorrowerCreateForm({ onCreated }: { onCreated?: () => void }) {
           <SelectInput label="Entity type" onChange={setEntityType} options={Object.values(BorrowerEntityTypeEnum)} value={entityType} />
           <SelectInput label="KYB status" onChange={setKybStatus} options={Object.values(BorrowerKybStatusEnum)} value={kybStatus} />
           <TextInput label="Country" onChange={setCountry} value={country} />
+          <TextInput label="Registration number" onChange={setRegistrationNumber} value={registrationNumber} />
+          <TextInput label="Business classification" onChange={setBusinessClassification} value={businessClassification} />
           <TextInput label="Financials currency" onChange={setFinancialsCurrency} value={financialsCurrency} />
           <MoneyMinorInput currency={financialsCurrency} label="Assets minor units" onChange={setAssets} value={assets} />
         </FieldGrid>
+        <label className="check-row">
+          <input checked={businessClassificationPublic} onChange={(event) => setBusinessClassificationPublic(event.target.checked)} type="checkbox" />
+          Show business classification to lenders.
+        </label>
+        <TextAreaInput label="Registered address" onChange={setRegisteredAddress} value={registeredAddress} />
+        <label className="check-row">
+          <input checked={registeredAddressPublic} onChange={(event) => setRegisteredAddressPublic(event.target.checked)} type="checkbox" />
+          Show registered address to lenders.
+        </label>
+        <TextAreaInput label="Contact info" onChange={setContactInfo} value={contactInfo} />
+        <label className="check-row">
+          <input checked={contactInfoPublic} onChange={(event) => setContactInfoPublic(event.target.checked)} type="checkbox" />
+          Show contact info to lenders.
+        </label>
+        <TextAreaInput hint="Internal only." label="Ownership" onChange={setOwnershipStructure} value={ownershipStructure} />
+        <TextAreaInput hint="Internal only. Plain notes are stored under bank_account_details.notes; JSON objects are accepted for structured details." label="Bank accounts" onChange={setBankAccounts} value={bankAccounts} />
+        <TextAreaInput hint="Internal only." label="KYB/AML observations" onChange={setKybAmlObservations} value={kybAmlObservations} />
+        <TextAreaInput hint="Internal only." label="Financial risk" onChange={setFinancialRisk} value={financialRisk} />
         <TextAreaInput label="Admin note" onChange={setNote} value={note} />
         <ActionFooter mutation={mutation} previewMessage={preview} successMessage={success} submitLabel="Create borrower" />
       </form>
@@ -2161,6 +2237,16 @@ function BorrowerEditForm({ borrower, onSaved }: { borrower: BorrowerEntity; onS
   const [complianceHold, setComplianceHold] = useState(borrower.compliance_hold);
   const [country, setCountry] = useState(borrower.country || "CH");
   const [registrationNumber, setRegistrationNumber] = useState(borrower.registration_number || "");
+  const [businessClassification, setBusinessClassification] = useState(borrower.business_classification || "");
+  const [businessClassificationPublic, setBusinessClassificationPublic] = useState(borrower.business_classification_public);
+  const [registeredAddress, setRegisteredAddress] = useState(borrower.registered_address || "");
+  const [registeredAddressPublic, setRegisteredAddressPublic] = useState(borrower.registered_address_public);
+  const [contactInfo, setContactInfo] = useState(borrower.contact_info || "");
+  const [contactInfoPublic, setContactInfoPublic] = useState(borrower.contact_info_public);
+  const [ownershipStructure, setOwnershipStructure] = useState(borrower.ownership_structure || "");
+  const [bankAccounts, setBankAccounts] = useState(bankAccountDetailsText(borrower.bank_account_details));
+  const [kybAmlObservations, setKybAmlObservations] = useState(borrower.kyb_aml_observations || "");
+  const [financialRisk, setFinancialRisk] = useState(borrower.financial_risk || "");
   const [financialsCurrency, setFinancialsCurrency] = useState(borrower.financials_currency || "CHF");
   const [assets, setAssets] = useState(borrower.assets_minor === null ? "" : String(borrower.assets_minor));
   const [liabilities, setLiabilities] = useState(borrower.liabilities_minor === null ? "" : String(borrower.liabilities_minor));
@@ -2189,6 +2275,16 @@ function BorrowerEditForm({ borrower, onSaved }: { borrower: BorrowerEntity; onS
       compliance_hold: complianceHold,
       country,
       registration_number: registrationNumber,
+      business_classification: businessClassification,
+      business_classification_public: businessClassificationPublic,
+      registered_address: registeredAddress,
+      registered_address_public: registeredAddressPublic,
+      contact_info: contactInfo,
+      contact_info_public: contactInfoPublic,
+      ownership_structure: ownershipStructure,
+      bank_account_details: bankAccountDetailsPayload(bankAccounts),
+      kyb_aml_observations: kybAmlObservations,
+      financial_risk: financialRisk,
       financials_currency: financialsCurrency,
       assets_minor: assets ? intValue(assets) : null,
       liabilities_minor: liabilities ? intValue(liabilities) : null,
@@ -2223,12 +2319,31 @@ function BorrowerEditForm({ borrower, onSaved }: { borrower: BorrowerEntity; onS
           <SelectInput label="KYB status" onChange={setKybStatus} options={Object.values(BorrowerKybStatusEnum)} value={kybStatus} />
           <TextInput label="Country" onChange={setCountry} value={country} />
           <TextInput label="Registration number" onChange={setRegistrationNumber} value={registrationNumber} />
+          <TextInput label="Business classification" onChange={setBusinessClassification} value={businessClassification} />
           <TextInput label="Financials currency" onChange={setFinancialsCurrency} value={financialsCurrency} />
           <MoneyMinorInput currency={financialsCurrency} label="Assets minor units" onChange={setAssets} value={assets} />
           <MoneyMinorInput currency={financialsCurrency} label="Liabilities minor units" onChange={setLiabilities} value={liabilities} />
           <MoneyMinorInput currency={financialsCurrency} label="Revenue last year minor" onChange={setRevenue} value={revenue} />
           <MoneyMinorInput currency={financialsCurrency} label="Profit last year minor" onChange={setProfit} value={profit} />
         </FieldGrid>
+        <label className="check-row">
+          <input checked={businessClassificationPublic} onChange={(event) => setBusinessClassificationPublic(event.target.checked)} type="checkbox" />
+          Show business classification to lenders.
+        </label>
+        <TextAreaInput label="Registered address" onChange={setRegisteredAddress} value={registeredAddress} />
+        <label className="check-row">
+          <input checked={registeredAddressPublic} onChange={(event) => setRegisteredAddressPublic(event.target.checked)} type="checkbox" />
+          Show registered address to lenders.
+        </label>
+        <TextAreaInput label="Contact info" onChange={setContactInfo} value={contactInfo} />
+        <label className="check-row">
+          <input checked={contactInfoPublic} onChange={(event) => setContactInfoPublic(event.target.checked)} type="checkbox" />
+          Show contact info to lenders.
+        </label>
+        <TextAreaInput hint="Internal only." label="Ownership" onChange={setOwnershipStructure} value={ownershipStructure} />
+        <TextAreaInput hint="Internal only. Plain notes are stored under bank_account_details.notes; JSON objects are accepted for structured details." label="Bank accounts" onChange={setBankAccounts} value={bankAccounts} />
+        <TextAreaInput hint="Internal only." label="KYB/AML observations" onChange={setKybAmlObservations} value={kybAmlObservations} />
+        <TextAreaInput hint="Internal only." label="Financial risk" onChange={setFinancialRisk} value={financialRisk} />
         <label className="check-row">
           <input checked={complianceHold} onChange={(event) => setComplianceHold(event.target.checked)} type="checkbox" />
           Compliance hold is active.

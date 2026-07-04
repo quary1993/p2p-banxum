@@ -33,6 +33,7 @@ from backend.apps.marketplace_primary.services import (
     cancel_primary_loan_funding,
     close_primary_loan_funding,
     create_primary_investment_order,
+    get_full_marketplace_loan,
     release_primary_order_balance,
     scan_expired_primary_loan_funding,
 )
@@ -289,6 +290,39 @@ def _create_and_allocate_order(
             **_sensitive_code_payload(investor, "primary_investment"),
         )
     )
+
+
+@pytest.mark.django_db
+def test_full_marketplace_loan_includes_selected_borrower_disclosure(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_published_loan(admin_user)
+    borrower = cast(Any, loan).borrower
+    borrower.business_classification = "Real-estate project finance"
+    borrower.business_classification_public = True
+    borrower.registered_address = "Zugerstrasse 18, 6300 Zug"
+    borrower.registered_address_public = True
+    borrower.contact_info = "borrower-relations@example.test"
+    borrower.contact_info_public = False
+    borrower.ownership_structure = "Internal ownership notes."
+    borrower.bank_account_details = {"notes": "Internal borrower account notes."}
+    borrower.kyb_aml_observations = "Internal KYB observations."
+    borrower.financial_risk = "Internal financial risk notes."
+    borrower.save()
+
+    payload = get_full_marketplace_loan(actor=investor, loan_id=str(cast(Any, loan).id))
+    disclosure = payload["borrower_disclosure"]
+
+    assert disclosure["legal_name"] == "Marketplace Borrower AG"
+    assert disclosure["business_classification"] == "Real-estate project finance"
+    assert disclosure["registered_address"] == "Zugerstrasse 18, 6300 Zug"
+    assert "contact_info" not in disclosure
+    assert "ownership_structure" not in disclosure
+    assert "bank_account_details" not in disclosure
+    assert "kyb_aml_observations" not in disclosure
+    assert "financial_risk" not in disclosure
 
 
 @pytest.mark.django_db

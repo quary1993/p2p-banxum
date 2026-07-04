@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+from django.db import models
 from django.db.models import Model, QuerySet
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
@@ -54,7 +55,14 @@ def _borrower_queryset_from_query(data: dict[str, Any]) -> QuerySet[BorrowerEnti
         queryset = queryset.filter(compliance_hold=data["compliance_hold"])
     if data.get("q"):
         query = data["q"]
-        queryset = queryset.filter(legal_name__icontains=query)
+        queryset = queryset.filter(
+            models.Q(legal_name__icontains=query)
+            | models.Q(registration_number__icontains=query)
+            | models.Q(country__icontains=query)
+            | models.Q(business_classification__icontains=query)
+            | models.Q(registered_address__icontains=query)
+            | models.Q(contact_info__icontains=query)
+        )
     return queryset
 
 
@@ -98,14 +106,23 @@ class BorrowerEntityListCreateView(APIView):
                     compliance_hold=data["compliance_hold"],
                     country=data.get("country", ""),
                     registration_number=data.get("registration_number", ""),
+                    business_classification=data.get("business_classification", ""),
+                    business_classification_public=data.get(
+                        "business_classification_public", False
+                    ),
                     registered_address=data.get("registered_address", ""),
+                    registered_address_public=data.get("registered_address_public", False),
                     operating_address=data.get("operating_address", ""),
+                    contact_info=data.get("contact_info", ""),
+                    contact_info_public=data.get("contact_info_public", False),
                     industry_activity=data.get("industry_activity", ""),
                     ownership_structure=data.get("ownership_structure", ""),
                     beneficial_owners=data.get("beneficial_owners"),
                     directors_officers=data.get("directors_officers"),
                     authorized_signatories=data.get("authorized_signatories"),
                     bank_account_details=data.get("bank_account_details"),
+                    kyb_aml_observations=data.get("kyb_aml_observations", ""),
+                    financial_risk=data.get("financial_risk", ""),
                     financials_currency=data.get("financials_currency", ""),
                     assets_minor=data.get("assets_minor"),
                     liabilities_minor=data.get("liabilities_minor"),
@@ -159,14 +176,21 @@ class BorrowerEntityDetailView(APIView):
                     compliance_hold=data.get("compliance_hold"),
                     country=data.get("country"),
                     registration_number=data.get("registration_number"),
+                    business_classification=data.get("business_classification"),
+                    business_classification_public=data.get("business_classification_public"),
                     registered_address=data.get("registered_address"),
+                    registered_address_public=data.get("registered_address_public"),
                     operating_address=data.get("operating_address"),
+                    contact_info=data.get("contact_info"),
+                    contact_info_public=data.get("contact_info_public"),
                     industry_activity=data.get("industry_activity"),
                     ownership_structure=data.get("ownership_structure"),
                     beneficial_owners=data.get("beneficial_owners"),
                     directors_officers=data.get("directors_officers"),
                     authorized_signatories=data.get("authorized_signatories"),
                     bank_account_details=data.get("bank_account_details"),
+                    kyb_aml_observations=data.get("kyb_aml_observations"),
+                    financial_risk=data.get("financial_risk"),
                     financials_currency=data.get("financials_currency"),
                     assets_minor=data.get("assets_minor"),
                     liabilities_minor=data.get("liabilities_minor"),

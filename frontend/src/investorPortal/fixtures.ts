@@ -431,6 +431,37 @@ export const marketplaceLoansFixture: MarketplaceLoanPreview[] = [
 export const loanDetailsFixture: MarketplaceLoanDetail[] = marketplaceLoansFixture.map((loan) => ({
   ...loan,
   borrower_id: `borrower-${loan.loan_id}`,
+  borrower_disclosure: {
+    legal_name: loan.title,
+    year_founded: loan.loan_id === "GA-2402" ? 2018 : 2011,
+    business_classification:
+      loan.loan_id === "GA-2402"
+        ? "Renewable-energy bridge finance"
+        : "Real-estate backed corporate borrower",
+    registered_address:
+      loan.currency === "CHF" ? "Zugerstrasse 18, 6300 Zug, Switzerland" : "Kaiserstrasse 12, 60311 Frankfurt am Main, Germany",
+    contact_info: "Investor-facing contact is handled through Garanta Finanzgruppe AG.",
+    country: loan.currency === "CHF" ? "CH" : "DE",
+    financials_currency: loan.currency,
+    assets_minor: loan.loan_id === "GA-2402" ? amount(5_800_000) : amount(12_400_000),
+    liabilities_minor: loan.loan_id === "GA-2402" ? amount(2_900_000) : amount(7_200_000),
+    revenue_last_year_minor: loan.loan_id === "GA-2402" ? amount(1_240_000) : amount(3_800_000),
+    profit_last_year_minor: loan.loan_id === "GA-2402" ? amount(160_000) : amount(420_000),
+    documents: [
+      {
+        id: `${loan.loan_id}-borrower-presentation`,
+        document_type: "borrower_presentation",
+        display_name: "Borrower presentation",
+        description: "Investor-visible borrower overview linked by Garanta."
+      },
+      {
+        id: `${loan.loan_id}-financial-summary`,
+        document_type: "financial_summary",
+        display_name: "Borrower financial summary",
+        description: "Clean-scanned financial summary available to lenders."
+      }
+    ]
+  },
   investor_summary:
     "Admin-entered borrower disclosure. Optional fields are omitted by the backend when absent.",
   purpose_description:

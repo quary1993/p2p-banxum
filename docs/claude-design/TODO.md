@@ -302,3 +302,11 @@ Before launch, Claude Design should produce or implement:
 - Design decision: closed-market FX should feel like a clear operational unavailability state, not a failed trade. Copy must explain that BANXUM cannot issue executable quotes when live FX market rates are not published, while keeping exchange history readable.
 - Suggested improvement: Claude Design should polish the weekend/holiday banner placement, mobile spacing, disabled-form affordance, and whether the exchange form should collapse into a read-only explanatory panel during market closures.
 - Priority: important.
+
+## 2026-07-04: Borrower Disclosure On Loan Detail
+
+- Screen or component: authenticated marketplace loan detail, Overview and Documents tabs.
+- Current first-version behavior: loan detail now renders the backend-projected borrower disclosure. Legal business name is always public; business classification, registered address, and contact info appear only when Garanta marks that field public for the specific borrower. Internal ownership, bank-account details, KYB/AML observations, and financial-risk notes are not returned to the investor UI. Borrower documents shown in the Documents tab come only from investor-visible, clean-scanned borrower files in the backend disclosure projection.
+- Design decision: do not duplicate disclosure visibility rules in the frontend. Hide absent optional fields completely; do not show "unknown" or empty labels. Keep borrower disclosure factual and operational, not promotional.
+- Suggested improvement: Claude Design should polish the borrower disclosure section for scanability, especially long address/contact text, financial-metric alignment, document-list hierarchy, and mobile layout inside the loan detail tabs.
+- Priority: important.

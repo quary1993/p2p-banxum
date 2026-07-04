@@ -29,6 +29,7 @@ class MarketplaceLoanPreviewSerializer(serializers.Serializer[Any]):
 
 class MarketplaceLoanDetailSerializer(MarketplaceLoanPreviewSerializer):
     borrower_id = serializers.UUIDField()
+    borrower_disclosure = serializers.DictField()
     investor_summary = serializers.CharField()
     purpose_description = serializers.CharField()
     collateral_value_minor = serializers.IntegerField()

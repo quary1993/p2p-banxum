@@ -2322,7 +2322,7 @@ function LoanDetailScreen({
           <div style={{ paddingTop: 16 }}>
             {tab === "overview" ? <LoanOverview loan={loan} /> : null}
             {tab === "terms" ? <LoanTerms loan={loan} /> : null}
-            {tab === "docs" ? <LoanDocuments /> : null}
+            {tab === "docs" ? <LoanDocuments loan={loan} /> : null}
             {tab === "risk" ? <RiskDisclosure /> : null}
           </div>
         </div>
@@ -2360,15 +2360,75 @@ function LoanDetailScreen({
   );
 }
 
+type BorrowerDisclosureDocument = {
+  id?: string;
+  document_type?: string;
+  display_name?: string;
+  description?: string;
+};
+
+type BorrowerDisclosure = {
+  legal_name?: string;
+  year_founded?: number;
+  business_classification?: string;
+  registered_address?: string;
+  contact_info?: string;
+  country?: string;
+  financials_currency?: string;
+  assets_minor?: number;
+  liabilities_minor?: number;
+  revenue_last_year_minor?: number;
+  profit_last_year_minor?: number;
+  documents?: BorrowerDisclosureDocument[];
+};
+
+function borrowerDisclosureForLoan(loan: MarketplaceLoanDetail): BorrowerDisclosure {
+  const raw = (loan as MarketplaceLoanDetail & { borrower_disclosure?: unknown }).borrower_disclosure;
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as BorrowerDisclosure) : {};
+}
+
+function disclosureMoney(value: number | undefined, currency: string | undefined) {
+  if (value === undefined || currency === undefined || currency === "") return undefined;
+  return `${currency} ${formatMoneyMinor(value, currency)}`;
+}
+
 function LoanOverview({ loan }: { loan: MarketplaceLoanDetail }) {
+  const borrowerDisclosure = borrowerDisclosureForLoan(loan);
+  const borrowerName = borrowerDisclosure.legal_name || loan.title;
+  const financialsCurrency = borrowerDisclosure.financials_currency || loan.currency;
+  const borrowerRows: Array<[string, ReactNode, boolean?]> = [
+    ["Legal business name", borrowerName],
+    ["Business classification", borrowerDisclosure.business_classification],
+    ["Country", borrowerDisclosure.country],
+    ["Year founded", borrowerDisclosure.year_founded],
+    ["Registered address", borrowerDisclosure.registered_address],
+    ["Contact info", borrowerDisclosure.contact_info],
+    ["Assets", disclosureMoney(borrowerDisclosure.assets_minor, financialsCurrency), true],
+    ["Liabilities", disclosureMoney(borrowerDisclosure.liabilities_minor, financialsCurrency), true],
+    ["Revenue last year", disclosureMoney(borrowerDisclosure.revenue_last_year_minor, financialsCurrency), true],
+    ["Profit last year", disclosureMoney(borrowerDisclosure.profit_last_year_minor, financialsCurrency), true]
+  ];
+
   return (
     <Card padded>
       <div className="eyebrow" style={{ marginBottom: 6 }}>Purpose</div>
       <p className="muted-2" style={{ lineHeight: 1.6, maxWidth: 680 }}>{loan.purpose_description}</p>
       <div className="hr" style={{ margin: "16px 0" }} />
+      <div className="eyebrow" style={{ marginBottom: 6 }}>Borrower disclosure</div>
+      <dl className="kv">
+        {borrowerRows.map(([label, value, mono]) =>
+          value !== undefined && value !== "" ? (
+            <KeyValueRow key={label} label={label} mono={mono} value={value} />
+          ) : null
+        )}
+      </dl>
+      <p className="muted" style={{ fontSize: 11.5, lineHeight: 1.5, marginTop: 10 }}>
+        Borrower optional fields are shown only when Garanta has marked the field public for this borrower.
+      </p>
+      <div className="hr" style={{ margin: "16px 0" }} />
       <dl className="kv">
         <KeyValueRow label="Loan reference" value={<CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" />} />
-        <KeyValueRow label="Borrower" value={loan.title} />
+        <KeyValueRow label="Borrower" value={borrowerName} />
         <KeyValueRow label="Currency" value={loan.currency} />
         <KeyValueRow label="Repayment type" value={loan.repayment_type} />
         <KeyValueRow label="Risk rating" value={loan.risk_rating} />
@@ -2394,13 +2454,35 @@ function LoanTerms({ loan }: { loan: MarketplaceLoanDetail }) {
   );
 }
 
-function LoanDocuments() {
+function LoanDocuments({ loan }: { loan: MarketplaceLoanDetail }) {
+  const documents = borrowerDisclosureForLoan(loan).documents ?? [];
+  if (documents.length === 0) {
+    return (
+      <Card>
+        <Empty icon="doc" title="No borrower documents available">
+          Investor-visible borrower documents appear here after Garanta links a clean-scanned borrower file to the loan borrower.
+        </Empty>
+      </Card>
+    );
+  }
+
   return (
     <Card>
-      {["Borrower presentation", "Borrower financial summary", "Loan claim assignment template", "Risk disclosure"].map((title, index) => (
-        <div className="row spread" key={title} style={{ borderBottom: index < 3 ? "1px solid var(--line)" : 0, padding: "12px 16px" }}>
-          <span className="row gap-8"><Icon className="muted" name="doc" size={16} />{title}</span>
-          <Button icon="download" size="sm" variant="ghost">PDF</Button>
+      {documents.map((document, index) => (
+        <div
+          className="row spread"
+          key={document.id ?? `${document.display_name}-${index}`}
+          style={{ alignItems: "flex-start", borderBottom: index < documents.length - 1 ? "1px solid var(--line)" : 0, gap: 16, padding: "12px 16px" }}
+        >
+          <span className="row gap-8" style={{ alignItems: "flex-start" }}>
+            <Icon className="muted" name="doc" size={16} />
+            <span className="col gap-4">
+              <strong>{document.display_name || "Borrower document"}</strong>
+              {document.description ? <span className="muted" style={{ fontSize: 12 }}>{document.description}</span> : null}
+              {document.document_type ? <span className="tag">{humanizeToken(document.document_type)}</span> : null}
+            </span>
+          </span>
+          {document.id ? <CopyIdButton ariaLabel="Copy document ID" id={document.id} label="Copy document ID" /> : null}
         </div>
       ))}
     </Card>

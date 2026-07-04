@@ -182,3 +182,21 @@ Each entry should include:
 - Current first-version behavior: admins can open a selected user's accepted-document history from the Users table. The modal lists historical clickwrap acceptances with human-readable identifiers, template titles, accepted timestamps, context labels, and content-hash prefixes. PDF/CSV artifacts are generated on demand through admin-scoped endpoints, and the rendered artifact is audited to the admin actor rather than the user. Legal terms and transaction-agreement PDFs are not emailed by default.
 - Required admin-console improvement: update the admin manual screenshots/workflows to include the Users document-history action. Add a future evidence drawer with recent `DocumentRenderedArtifact` rows, full checksum/manifest display, and links from related orders/listings/loans back to the accepted document.
 - Priority: important.
+
+## 2026-07-04: Borrower Selected-Public Disclosure Fields
+
+- Screen or component: Loans module, Borrowers table and borrower create/edit modals.
+- Current first-version behavior: borrower records now include selected-public business classification, registered address, and contact-info fields, plus internal-only ownership, bank-account, KYB/AML-observation, and financial-risk notes. The borrower table shows classification and whether it is public; create/edit modals expose per-field public checkboxes for the selected-public fields and internal-only text areas for the operational notes.
+- Required admin-console improvement: add a borrower detail drawer with a side-by-side "internal record" and "investor disclosure preview" so admins can verify exactly what lenders will see before publishing loans. Add richer validation/copy for structured bank-account details if Garanta standardizes a schema beyond free-form notes/JSON.
+- Priority: important.
+
+## Borrower document download path
+
+- Borrower documents are metadata references to the shared stored-file foundation; no
+  object-storage byte upload/download path exists yet anywhere in the platform (S3 Zurich
+  integration pending, see admin_todo_tech.md "Object Storage and KYC Evidence Storage").
+- Once file bytes are servable, wire an investor-scoped download for investor-visible,
+  clean-scanned borrower documents (extend `download_investor_document` with a
+  `borrower_document` kind) and replace the loan-detail Documents tab's copy-ID affordance
+  with a real download button; add the matching admin-side download in the borrower
+  documents workspace.

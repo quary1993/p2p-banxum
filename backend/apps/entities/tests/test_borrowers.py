@@ -216,6 +216,55 @@ def test_borrower_document_visibility_requires_clean_file(admin_user: Model) -> 
 
 
 @pytest.mark.django_db
+def test_borrower_selected_public_fields_control_investor_disclosure(
+    admin_user: Model,
+) -> None:
+    borrower = create_borrower_entity(
+        CreateBorrowerEntityCommand(
+            actor=admin_user,
+            legal_name="Selected Public Borrower AG",
+            year_founded=2019,
+            country="Switzerland",
+            business_classification="Residential bridge finance",
+            business_classification_public=True,
+            registered_address="Zugerstrasse 18, 6300 Zug",
+            registered_address_public=False,
+            contact_info="borrower-relations@example.test",
+            contact_info_public=True,
+            ownership_structure="Internal ownership notes.",
+            bank_account_details={"notes": "Internal borrower IBAN notes."},
+            kyb_aml_observations="Internal KYB observations.",
+            financial_risk="Internal financial risk notes.",
+        )
+    )
+
+    disclosure = borrower_investor_disclosure(borrower)
+
+    assert disclosure["legal_name"] == "Selected Public Borrower AG"
+    assert disclosure["business_classification"] == "Residential bridge finance"
+    assert disclosure["contact_info"] == "borrower-relations@example.test"
+    assert "registered_address" not in disclosure
+    assert "ownership_structure" not in disclosure
+    assert "bank_account_details" not in disclosure
+    assert "kyb_aml_observations" not in disclosure
+    assert "financial_risk" not in disclosure
+
+    updated = update_borrower_entity(
+        UpdateBorrowerEntityCommand(
+            actor=admin_user,
+            borrower_id=str(borrower.id),
+            registered_address_public=True,
+            contact_info_public=False,
+            note="Adjust borrower disclosure flags.",
+        )
+    )
+    disclosure_after_update = borrower_investor_disclosure(updated)
+
+    assert disclosure_after_update["registered_address"] == "Zugerstrasse 18, 6300 Zug"
+    assert "contact_info" not in disclosure_after_update
+
+
+@pytest.mark.django_db
 def test_borrower_document_must_link_borrower_owned_file(admin_user: Model) -> None:
     borrower = create_borrower_entity(
         CreateBorrowerEntityCommand(
