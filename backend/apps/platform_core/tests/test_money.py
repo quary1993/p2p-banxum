@@ -57,3 +57,13 @@ def test_split_evenly_preserves_total() -> None:
 
     assert [money.amount_minor for money in result] == [3, 2]
     assert sum(money.amount_minor for money in result) == 5
+
+
+def test_format_amount_minor_uses_swiss_grouping() -> None:
+    from backend.apps.platform_core.domain.money import format_amount_minor
+
+    assert format_amount_minor(4_694_130, "CHF") == "CHF 46'941.30"
+    assert format_amount_minor(100, "eur") == "EUR 1.00"
+    assert format_amount_minor(0, "CHF") == "CHF 0.00"
+    assert format_amount_minor(-1_234_567_89, "CHF") == "CHF -1'234'567.89"
+    assert format_amount_minor(5, "JPY", minor_units=0) == "JPY 5"

@@ -18,7 +18,12 @@ from backend.apps.platform_core.domain.access import (
     is_admin_actor,
     user_can_access_financial_features,
 )
-from backend.apps.platform_core.domain.money import Money, MoneyError, normalize_currency
+from backend.apps.platform_core.domain.money import (
+    Money,
+    MoneyError,
+    format_amount_minor,
+    normalize_currency,
+)
 from backend.apps.platform_core.domain.time import business_date, now_utc, to_business_time
 from backend.apps.platform_core.models import Currency
 from backend.apps.platform_core.selectors.settings import get_platform_setting_value
@@ -986,8 +991,9 @@ def _create_secondary_market_listing_after_sensitive_code(
         body_text=(
             f"Your {settings.PLATFORM_BRAND_NAME} secondary-market listing for loan "
             f"{loan_ref.title} is {status_label}.\n\n"
-            f"Current principal: {pricing.current_principal_minor} minor units {currency.code}.\n"
-            f"Transfer price: {pricing.transfer_price_minor} minor units {currency.code}.\n"
+            f"Current principal: "
+            f"{format_amount_minor(pricing.current_principal_minor, currency.code)}.\n"
+            f"Transfer price: {format_amount_minor(pricing.transfer_price_minor, currency.code)}.\n"
             f"Loan status disclosed at listing: {pricing.loan_status_at_listing}."
         ),
         template_key="secondary_market.listing_status.v1",
@@ -1769,12 +1775,16 @@ def _purchase_secondary_market_listing_after_sensitive_code(
         body_text=(
             f"You purchased a secondary-market holding in {settings.PLATFORM_BRAND_NAME} "
             f"loan {loan_ref.title}.\n\n"
-            f"Principal transferred: {pricing.current_principal_minor} minor units "
-            f"{listing.currency_id}.\n"
-            f"Transfer price: {pricing.transfer_price_minor} minor units {listing.currency_id}.\n"
-            f"Accrued interest paid to seller: {pricing.accrued_interest_minor} minor units.\n"
-            f"Taker fee: {pricing.taker_fee_minor} minor units.\n"
-            f"Total cost: {pricing.buyer_total_cost_minor} minor units."
+            f"Principal transferred: "
+            f"{format_amount_minor(pricing.current_principal_minor, str(listing.currency_id))}.\n"
+            f"Transfer price: "
+            f"{format_amount_minor(pricing.transfer_price_minor, str(listing.currency_id))}.\n"
+            f"Accrued interest paid to seller: "
+            f"{format_amount_minor(pricing.accrued_interest_minor, str(listing.currency_id))}.\n"
+            f"Taker fee: "
+            f"{format_amount_minor(pricing.taker_fee_minor, str(listing.currency_id))}.\n"
+            f"Total cost: "
+            f"{format_amount_minor(pricing.buyer_total_cost_minor, str(listing.currency_id))}."
         ),
         template_key="secondary_market.purchase_confirmation.buyer.v1",
         idempotency_key=f"email:secondary-purchase:{purchase.id}:buyer",
@@ -1786,18 +1796,21 @@ def _purchase_secondary_market_listing_after_sensitive_code(
     )
     _enqueue_investor_email(
         investor_user_id=seller_user_id,
-        topic="email.secondary_market_purchase_confirmation",
+        topic="email.secondary_market_sale_confirmation",
         subject=f"{settings.PLATFORM_BRAND_NAME} secondary-market sale completed",
         body_text=(
             f"Your secondary-market sale in {settings.PLATFORM_BRAND_NAME} loan "
             f"{loan_ref.title} has completed.\n\n"
-            f"Principal transferred: {pricing.current_principal_minor} minor units "
-            f"{listing.currency_id}.\n"
-            f"Transfer price: {pricing.transfer_price_minor} minor units {listing.currency_id}.\n"
-            f"Accrued interest paid to you: {pricing.accrued_interest_minor} minor units.\n"
-            f"Maker fee: {pricing.maker_fee_minor} minor units.\n"
-            f"Net proceeds credited to your balance: {pricing.seller_net_proceeds_minor} "
-            "minor units."
+            f"Principal transferred: "
+            f"{format_amount_minor(pricing.current_principal_minor, str(listing.currency_id))}.\n"
+            f"Transfer price: "
+            f"{format_amount_minor(pricing.transfer_price_minor, str(listing.currency_id))}.\n"
+            f"Accrued interest paid to you: "
+            f"{format_amount_minor(pricing.accrued_interest_minor, str(listing.currency_id))}.\n"
+            f"Maker fee: "
+            f"{format_amount_minor(pricing.maker_fee_minor, str(listing.currency_id))}.\n"
+            f"Net proceeds credited to your balance: "
+            f"{format_amount_minor(pricing.seller_net_proceeds_minor, str(listing.currency_id))}."
         ),
         template_key="secondary_market.purchase_confirmation.seller.v1",
         idempotency_key=f"email:secondary-purchase:{purchase.id}:seller",

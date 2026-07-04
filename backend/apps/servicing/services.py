@@ -23,6 +23,7 @@ from backend.apps.platform_core.domain.money import (
     Money,
     MoneyError,
     allocate_by_weights,
+    format_amount_minor,
     normalize_currency,
 )
 from backend.apps.platform_core.domain.time import business_timezone, now_utc
@@ -1597,9 +1598,11 @@ def record_borrower_repayment(
             subject=f"{settings.PLATFORM_BRAND_NAME} repayment credited",
             body_text=(
                 f"Your {settings.PLATFORM_BRAND_NAME} balance has been credited with "
-                f"{line.amount_minor} minor units in {currency.code} for loan {loan_ref.title}.\n\n"
-                f"Principal component: {line.principal_minor} minor units.\n"
-                f"Interest component: {line.interest_minor} minor units.\n"
+                f"{format_amount_minor(line.amount_minor, currency.code)} "
+                f"for loan {loan_ref.title}.\n\n"
+                f"Principal component: "
+                f"{format_amount_minor(line.principal_minor, currency.code)}.\n"
+                f"Interest component: {format_amount_minor(line.interest_minor, currency.code)}.\n"
                 f"Value date: {command.value_date.isoformat()}."
             ),
             template_key="servicing.repayment_distribution_credited.v1",
@@ -1962,13 +1965,19 @@ def record_loan_recovery_payment(
             subject=f"{settings.PLATFORM_BRAND_NAME} recovery distribution credited",
             body_text=(
                 f"Your {settings.PLATFORM_BRAND_NAME} balance has been credited with "
-                f"{line.amount_minor} minor units in {currency.code} from a recovery payment "
+                f"{format_amount_minor(line.amount_minor, currency.code)} from a recovery payment "
                 f"for loan {loan_ref.title}.\n\n"
-                f"Principal recovered: {line.principal_minor} minor units.\n"
-                f"Contractual interest recovered: {line.contractual_interest_minor} minor units.\n"
-                f"Default/penalty interest recovered: {line.default_interest_minor} minor units.\n"
-                f"Penalties and other costs recovered: "
-                f"{line.penalties_minor + line.other_costs_minor} minor units.\n"
+                f"Principal recovered: "
+                f"{format_amount_minor(line.principal_minor, currency.code)}.\n"
+                f"Contractual interest recovered: "
+                f"{format_amount_minor(line.contractual_interest_minor, currency.code)}.\n"
+                f"Default/penalty interest recovered: "
+                f"{format_amount_minor(line.default_interest_minor, currency.code)}.\n"
+                "Penalties and other costs recovered: "
+                + format_amount_minor(
+                    line.penalties_minor + line.other_costs_minor, currency.code
+                )
+                + ".\n"
                 f"Value date: {command.value_date.isoformat()}."
             ),
             template_key="servicing.recovery_distribution_credited.v1",

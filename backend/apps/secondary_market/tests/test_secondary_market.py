@@ -1024,12 +1024,17 @@ def test_purchase_listing_settles_ledger_transfers_holding_and_is_idempotent(
     assert postings[("investor_balance_liability", str(investor.pk), "credit")] == 952_557
     assert postings[("platform_fee_revenue", "platform", "credit")] == 9_500
     purchase_emails = OutboxMessage.objects.filter(
-        topic="email.secondary_market_purchase_confirmation"
+        topic__in=[
+            "email.secondary_market_purchase_confirmation",
+            "email.secondary_market_sale_confirmation",
+        ]
     ).order_by("idempotency_key")
     assert purchase_emails.count() == 2
-    assert {message.payload["user_id"] for message in purchase_emails} == {
-        str(investor.pk),
-        str(other_investor.pk),
+    assert {
+        (message.topic, message.payload["user_id"]) for message in purchase_emails
+    } == {
+        ("email.secondary_market_sale_confirmation", str(investor.pk)),
+        ("email.secondary_market_purchase_confirmation", str(other_investor.pk)),
     }
 
     replay = purchase_secondary_market_listing(
@@ -1044,7 +1049,12 @@ def test_purchase_listing_settles_ledger_transfers_holding_and_is_idempotent(
     assert replay.id == purchase.id
     assert SecondaryMarketPurchase.objects.count() == 1
     assert (
-        OutboxMessage.objects.filter(topic="email.secondary_market_purchase_confirmation").count()
+        OutboxMessage.objects.filter(
+            topic__in=[
+                "email.secondary_market_purchase_confirmation",
+                "email.secondary_market_sale_confirmation",
+            ]
+        ).count()
         == 2
     )
     assert SecondaryMarketListingEvent.objects.filter(

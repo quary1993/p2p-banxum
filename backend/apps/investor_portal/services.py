@@ -25,6 +25,7 @@ PORTAL_BODY_VISIBLE_EMAIL_TOPICS = frozenset(
         "email.primary_investment_confirmation",
         "email.secondary_market_listing_status",
         "email.secondary_market_purchase_confirmation",
+        "email.secondary_market_sale_confirmation",
         "email.fx_exchange_confirmation",
         "email.repayment_distribution_credited",
         "email.recovery_distribution_credited",
@@ -725,25 +726,31 @@ def get_investor_portfolio(
     investor_user_id = _require_financial_access(actor)
     as_of_value = as_of or now_utc()
     holding_model = _model("holdings", "InvestorLoanHolding")
-    holdings_query = holding_model.objects.filter(investor_user_id=investor_user_id).select_related(
-        "loan",
-        "loan__borrower",
-        "currency",
+    all_holdings = list(
+        holding_model.objects.filter(investor_user_id=investor_user_id)
+        .select_related("loan", "loan__borrower", "currency")
+        .order_by("loan__title", "created_at", "id")
     )
-    if not include_inactive:
-        holdings_query = holdings_query.filter(status="active", current_principal_minor__gt=0)
-    holdings = list(holdings_query.order_by("loan__title", "created_at", "id"))
-    holding_ids = [str(holding.pk) for holding in holdings]
+    holdings = (
+        all_holdings
+        if include_inactive
+        else [
+            holding
+            for holding in all_holdings
+            if str(holding.status) == "active" and int(holding.current_principal_minor) > 0
+        ]
+    )
+    all_holding_ids = [str(holding.pk) for holding in all_holdings]
     repayment_totals = _aggregate_by_holding(
         model_label=("servicing", "InvestorRepaymentDistributionLine"),
         investor_user_id=investor_user_id,
-        holding_ids=holding_ids,
+        holding_ids=all_holding_ids,
         fields=["amount_minor", "principal_minor", "interest_minor", "fee_minor"],
     )
     recovery_totals = _aggregate_by_holding(
         model_label=("servicing", "InvestorRecoveryDistributionLine"),
         investor_user_id=investor_user_id,
-        holding_ids=holding_ids,
+        holding_ids=all_holding_ids,
         fields=[
             "amount_minor",
             "principal_minor",
@@ -799,21 +806,28 @@ def get_investor_portfolio(
             )
             for holding in active_holdings
         ),
+        # Lifetime figures cover every holding the investor ever had — a
+        # holding sold on the secondary market or repaid to zero must keep
+        # contributing its invested principal and received interest.
         "original_principal_by_currency": _currency_totals(
             (
                 _currency_code(holding.currency),
                 int(holding.original_principal_minor),
             )
-            for holding in holdings
+            for holding in all_holdings
         ),
         "realized_interest_by_currency": _currency_totals(
             (
-                item["currency"],
-                int(item["received_interest_minor"])
-                + int(item["recovered_contractual_interest_minor"])
-                + int(item["recovered_default_interest_minor"]),
+                _currency_code(holding.currency),
+                repayment_totals.get(str(holding.pk), {}).get("interest_minor", 0)
+                + recovery_totals.get(str(holding.pk), {}).get(
+                    "contractual_interest_minor", 0
+                )
+                + recovery_totals.get(str(holding.pk), {}).get(
+                    "default_interest_minor", 0
+                ),
             )
-            for item in holding_payloads
+            for holding in all_holdings
         ),
         "late_or_defaulted_exposure_by_currency": _currency_totals(
             (

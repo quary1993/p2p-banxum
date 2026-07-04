@@ -1167,12 +1167,67 @@ def test_withdrawal_request_requires_financial_access(
     assert InvestorWithdrawalRequest.objects.count() == 0
 
 
+def _register_verified_iban(
+    admin_user: Model,
+    investor: Model,
+    *,
+    iban: str = "CH9300762011623852957",
+    currency: str = "CHF",
+) -> None:
+    # Withdrawals only settle to Garanta-verified accounts; admin registration
+    # records the instruction as verified usable.
+    register_investor_payout_instruction(
+        RegisterInvestorPayoutInstructionCommand(
+            actor=admin_user,
+            investor_user_id=str(investor.pk),
+            currency=currency,
+            destination_iban=iban,
+            destination_account_name="Ledger Investor",
+        )
+    )
+
+
+@pytest.mark.django_db
+def test_withdrawal_request_rejects_unverified_destination_iban(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    declare_lender_deposit(_deposit_command(admin_user, investor))
+    # Self-declared instructions start unverified; withdrawals must not settle
+    # to them until Garanta verifies the account.
+    register_investor_self_service_payout_instruction(
+        RegisterInvestorSelfServicePayoutInstructionCommand(
+            actor=investor,
+            currency="CHF",
+            destination_iban="CH9300762011623852957",
+            destination_account_name="Ledger Investor",
+            **_sensitive_code_payload(investor, "bank_account_change"),
+        )
+    )
+
+    with pytest.raises(LedgerValidationError, match="Garanta-verified bank account"):
+        request_investor_withdrawal(
+            RequestInvestorWithdrawalCommand(
+                actor=investor,
+                amount_minor=60_00,
+                currency="CHF",
+                destination_iban="CH9300762011623852957",
+                destination_account_name="Ledger Investor",
+                idempotency_key="withdrawal-request-unverified",
+                **_sensitive_code_payload(investor, "withdrawal"),
+            )
+        )
+    assert InvestorWithdrawalRequest.objects.count() == 0
+
+
 @pytest.mark.django_db
 def test_withdrawal_request_moves_balance_to_withdrawal_payable(
     admin_user: Model,
     investor: Model,
 ) -> None:
     _approve_financial_access(investor)
+    _register_verified_iban(admin_user, investor)
     declare_lender_deposit(_deposit_command(admin_user, investor))
 
     withdrawal_request = request_investor_withdrawal(
@@ -1314,6 +1369,7 @@ def test_withdrawal_request_idempotency_rejects_different_payload(
     investor: Model,
 ) -> None:
     _approve_financial_access(investor)
+    _register_verified_iban(admin_user, investor)
     declare_lender_deposit(_deposit_command(admin_user, investor))
     request_investor_withdrawal(
         RequestInvestorWithdrawalCommand(
@@ -1347,6 +1403,7 @@ def test_admin_finalizes_withdrawal_and_reconciliation_reflects_cash_out(
     investor: Model,
 ) -> None:
     _approve_financial_access(investor)
+    _register_verified_iban(admin_user, investor)
     declare_lender_deposit(_deposit_command(admin_user, investor))
     withdrawal_request = request_investor_withdrawal(
         RequestInvestorWithdrawalCommand(
@@ -1679,6 +1736,7 @@ def test_admin_cancels_requested_withdrawal_and_restores_balance(
     investor: Model,
 ) -> None:
     _approve_financial_access(investor)
+    _register_verified_iban(admin_user, investor)
     declare_lender_deposit(_deposit_command(admin_user, investor))
     withdrawal_request = request_investor_withdrawal(
         RequestInvestorWithdrawalCommand(
@@ -1760,6 +1818,7 @@ def test_withdrawal_cancellation_restores_penalty_mode_lot_status(
     investor: Model,
 ) -> None:
     _approve_financial_access(investor)
+    _register_verified_iban(admin_user, investor)
     deposit = declare_lender_deposit(_deposit_command(admin_user, investor))
     InvestorBalanceLot.objects.filter(id=deposit.balance_lot.id).update(
         status=BalanceLotStatus.PENALTY_MODE.value,
@@ -1793,6 +1852,7 @@ def test_withdrawal_cancellation_restores_penalty_mode_lot_status(
 @pytest.mark.django_db
 def test_finalized_withdrawal_cannot_be_cancelled(admin_user: Model, investor: Model) -> None:
     _approve_financial_access(investor)
+    _register_verified_iban(admin_user, investor)
     declare_lender_deposit(_deposit_command(admin_user, investor))
     withdrawal_request = request_investor_withdrawal(
         RequestInvestorWithdrawalCommand(
@@ -1833,6 +1893,7 @@ def test_withdrawal_request_and_finalization_api(
     investor: Model,
 ) -> None:
     _approve_financial_access(investor)
+    _register_verified_iban(admin_user, investor)
     declare_lender_deposit(_deposit_command(admin_user, investor))
     client.force_login(cast(Any, investor))
 
@@ -1915,6 +1976,7 @@ def test_withdrawal_cancellation_api(
     investor: Model,
 ) -> None:
     _approve_financial_access(investor)
+    _register_verified_iban(admin_user, investor)
     declare_lender_deposit(_deposit_command(admin_user, investor))
     client.force_login(cast(Any, investor))
     request_response = client.post(

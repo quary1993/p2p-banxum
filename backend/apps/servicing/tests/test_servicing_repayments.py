@@ -314,6 +314,36 @@ def _approve_financial_access(investor: Model) -> None:
 
 
 @pytest.mark.django_db
+def test_portfolio_lifetime_interest_survives_holding_transfer(
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+    record_borrower_repayment(_repayment_command(admin_user, loan))
+    _approve_financial_access(investor_one)
+
+    holding_model = apps.get_model("holdings", "InvestorLoanHolding")
+    holding = holding_model.objects.get(loan=loan, investor_user_id=investor_one.pk)
+    holding.status = "transferred"
+    holding.current_principal_minor = 0
+    holding.save(update_fields=["status", "current_principal_minor"])
+
+    portal = import_module("backend.apps.investor_portal.services")
+    payload = portal.get_investor_portfolio(actor=investor_one)
+
+    # The holding was sold, so it leaves the active list — but lifetime
+    # invested principal and received interest must keep counting it.
+    assert payload["summary"]["active_holding_count"] == 0
+    assert payload["summary"]["original_principal_by_currency"] == [
+        {"currency": "CHF", "amount_minor": 10_000_00}
+    ]
+    assert payload["summary"]["realized_interest_by_currency"] == [
+        {"currency": "CHF", "amount_minor": 100_00}
+    ]
+
+
+@pytest.mark.django_db
 def test_record_borrower_repayment_distributes_to_lender_balances(
     admin_user: Model,
     investor_one: Model,

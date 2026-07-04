@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from importlib import import_module
 from typing import Any, cast
 
@@ -36,6 +36,7 @@ from backend.apps.marketplace_primary.services import (
     release_primary_order_balance,
     scan_expired_primary_loan_funding,
 )
+from backend.apps.platform_core.domain.time import business_date
 from backend.apps.platform_core.models import AuditEvent, Currency, DomainEvent
 from backend.apps.platform_core.models.base import AppendOnlyViolation
 from backend.apps.platform_core.services.impersonation import (
@@ -161,9 +162,13 @@ def _declare_deposit(
     investor: Model,
     *,
     amount_minor: int = 50_000_00,
-    value_date: date = date(2026, 6, 2),
+    value_date: date | None = None,
     idempotency_key: str = "market-deposit-1",
 ) -> Any:
+    if value_date is None:
+        # Relative to the real clock: allocation checks the lot's 30-day
+        # investment window against now, so a fixed date goes stale.
+        value_date = business_date(timezone.now())
     ledger = import_module("backend.apps.ledger.services")
     return ledger.declare_lender_deposit(
         ledger.DeclareLenderDepositCommand(
@@ -471,12 +476,15 @@ def test_balance_allocation_allows_pledge_before_lot_investment_deadline(
     investor: Model,
 ) -> None:
     _approve_financial_access(investor)
-    loan = _create_published_loan(admin_user, funding_deadline=date(2026, 7, 10))
+    today = business_date(timezone.now())
+    # Lot investment deadline (value date + 30d) falls BEFORE the loan funding
+    # deadline; the pledge must still be accepted while the lot window is open.
+    loan = _create_published_loan(admin_user, funding_deadline=today + timedelta(days=14))
     _declare_deposit(
         admin_user,
         investor,
         amount_minor=25_000_00,
-        value_date=date(2026, 6, 1),
+        value_date=today - timedelta(days=25),
         idempotency_key="market-deposit-expiring",
     )
     order = create_primary_investment_order(

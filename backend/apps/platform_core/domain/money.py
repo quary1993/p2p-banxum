@@ -64,6 +64,25 @@ def minor_units_to_decimal(amount_minor: int, *, minor_units: int) -> Decimal:
     return Decimal(amount_minor) / divisor
 
 
+def format_amount_minor(amount_minor: int, currency: str, *, minor_units: int = 2) -> str:
+    """Human-readable amount for user-facing text, e.g. "CHF 46'941.30".
+
+    Swiss apostrophe grouping to match the web app's number formatting.
+    """
+    code = normalize_currency(currency)
+    sign = "-" if amount_minor < 0 else ""
+    value = abs(minor_units_to_decimal(amount_minor, minor_units=minor_units))
+    quantized = f"{value:.{minor_units}f}"
+    units, _, fraction = quantized.partition(".")
+    groups: list[str] = []
+    while units:
+        groups.append(units[-3:])
+        units = units[:-3]
+    grouped = "'".join(reversed(groups))
+    suffix = f".{fraction}" if fraction else ""
+    return f"{code} {sign}{grouped}{suffix}"
+
+
 @dataclass(frozen=True, slots=True)
 class Rate:
     value: Decimal

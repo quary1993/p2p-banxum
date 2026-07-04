@@ -38,7 +38,12 @@ from backend.apps.platform_core.domain.access import (
     is_lender_actor,
     user_can_access_financial_features,
 )
-from backend.apps.platform_core.domain.money import Money, MoneyError, normalize_currency
+from backend.apps.platform_core.domain.money import (
+    Money,
+    MoneyError,
+    format_amount_minor,
+    normalize_currency,
+)
 from backend.apps.platform_core.domain.time import (
     business_date,
     business_timezone,
@@ -1988,6 +1993,28 @@ def _request_investor_withdrawal_after_sensitive_code(
     if existing is not None:
         return existing
 
+    # Withdrawals may only go to a bank account Garanta has verified
+    # (an active, verified-usable payout instruction for this currency
+    # whose IBAN matches the requested destination).
+    verified_instruction = (
+        InvestorPayoutInstruction.objects.filter(
+            investor_user_id=investor_id,
+            currency=currency,
+            status=InvestorPayoutInstructionStatus.ACTIVE,
+            is_verified_usable=True,
+            destination_iban=destination_iban,
+        )
+        .order_by("-verified_at", "-created_at", "-id")
+        .first()
+    )
+    if verified_instruction is None:
+        raise LedgerValidationError(
+            "Withdrawals can only be sent to a Garanta-verified bank account. "
+            "The destination IBAN has no verified payout instruction for this "
+            "currency yet; Garanta must verify it before a withdrawal can be "
+            "requested."
+        )
+
     requested_at = now_utc()
     value_date = to_business_time(requested_at).date()
     metadata = {REQUEST_FINGERPRINT_METADATA_KEY: request_fingerprint}
@@ -3370,9 +3397,11 @@ def _record_balance_ageing_reminder_due(
         subject=f"{settings.PLATFORM_BRAND_NAME} balance deadline reminder",
         body_text=(
             f"Your {settings.PLATFORM_BRAND_NAME} {lot.currency_id} balance source has "
-            f"{lot.available_amount_minor} minor units available and has reached day {day} "
-            "of the balance holding period.\n\n"
-            f"Withdrawal deadline: {lot.withdrawal_deadline_at.isoformat()}.\n"
+            f"{format_amount_minor(lot.available_amount_minor, str(lot.currency_id))} available "
+            f"and has reached day {day} of the balance holding period.\n\n"
+            "Withdrawal deadline: "
+            f"{to_business_time(lot.withdrawal_deadline_at).date().isoformat()} "
+            "(end of day, Europe/Zurich).\n"
             "You can invest eligible funds, exchange eligible funds, or withdraw them before "
             "the applicable deadline. The 60-day limit cannot be extended."
         ),
