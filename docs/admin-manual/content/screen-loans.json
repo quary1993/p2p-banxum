@@ -6,12 +6,12 @@
     "A quick mental model of the product. Individual investors (called lenders) put money into their BANXUM account. The platform then funds loans to vetted business borrowers. Borrowers repay over time with interest. Lenders earn that interest and can later withdraw.",
     "Borrowers are companies, not people with logins. There is no borrower portal. An admin types in every borrower's details by hand. The borrower never sees this screen.",
     "Two jargon terms you will see everywhere. The primary market is where a brand-new loan is first funded by investors. The secondary market is where an investor who already owns a slice of a loan sells that slice to another investor. This screen handles admin tasks for both.",
-    "This page is laid out top to bottom as: key metrics, then a Borrowers table, then a Loans table, then four action panels (Primary marketplace operations, Secondary-market approvals, and Servicing and recovery)."
+    "This page is laid out top to bottom as: key metrics, then a Borrowers table, then a Loans table, then two panels (Secondary-market approvals, and Servicing and recovery). Primary-market actions - publish, close funding, cancel funding, expiry scan, order release - live in the Manage dialog you open from a loan row."
   ],
   "whatYouDoHere": [
     "Add and edit borrower companies, and watch their KYB status (the company-level identity and compliance check).",
     "Create loan drafts, edit them, and review their status, amount, interest rate, LTV and funding deadline.",
-    "Publish a loan to the marketplace so investors can fund it, then close or cancel its funding, run an expiry scan, or release a stuck investor order.",
+    "Open Manage on a loan row to publish it to the marketplace so investors can fund it, then close or cancel its funding, run an expiry scan, or release a stuck investor order.",
     "Approve, reject or remove non-standard secondary-market listings (investor-to-investor resales).",
     "Service live loans: record borrower repayments, run a status scan that flags late or defaulted loans, publish public notes to investors, and record recovery payments on defaulted loans."
   ],
@@ -188,7 +188,7 @@
         {
           "item": 12,
           "label": "Manage button (row action)",
-          "text": "Selects this loan so the operation panels below (Primary marketplace operations, Servicing and recovery) act on it. Use this to line up a loan before publishing, closing or recording a repayment."
+          "text": "Opens the Manage dialog for this loan: a menu of the primary-market actions valid for its current status (publish for drafts; close funding, cancel funding, expiry scan and order release for published loans). Choosing an action shows only that action's fields. It also selects the loan for the Servicing and recovery panel below."
         },
         {
           "item": 15,
@@ -208,109 +208,85 @@
       ]
     },
     {
-      "id": "loans-7-primary-marketplace-operations",
-      "caption": "Primary marketplace operations: publish a loan, close or cancel its funding, run an expiry scan, and release a stuck order.",
-      "summary": "This panel runs the live primary-market actions on a single selected loan. The primary market is the first round of funding, where investors put money into a new loan. The panel reads the loan you selected in the table above, and most actions ask you to confirm before they run.",
+      "id": "loans-9-manage-loan-actions",
+      "caption": "The Manage dialog: pick the action to apply to this loan.",
+      "summary": "Clicking Manage on a loan row opens this dialog. The bar at the top restates the loan you are acting on: its status chip, funding deadline, committed versus total amount, and ID. Below it is the action menu - only actions that are valid for the loan's current status are listed, each with a one-line explanation. Draft loans offer 'Publish loan'; published loans offer the four actions shown here; statuses with no primary-market actions (for example Late or Funded) show a note pointing you to the Servicing and recovery panel instead.",
       "annotations": [
         {
-          "item": 1,
-          "label": "Loan field",
-          "text": "The loan this panel acts on. It defaults to the loan selected in the Loans table, but you can search and pick a different one. Every button below targets this loan."
-        },
-        {
-          "item": 2,
-          "label": "Publish note field",
-          "text": "An optional free-text note saved with the publish action for the audit record. It does not change anything about the loan itself."
-        },
-        {
-          "item": 13,
-          "label": "Publish loan button",
-          "text": "Moves a Draft loan to Published so investors can start funding it. It only works on Draft loans, and only if the borrower's KYB is Approved with no compliance hold, the funding deadline is valid (today through 29 days out), and the repayment schedule is complete. Otherwise it fails with a specific reason."
-        },
-        {
-          "item": 3,
-          "label": "Funding close reason field",
-          "text": "A required reason recorded when you close funding. Closing funding is the normal happy-path end of a campaign: it locks in the investors who funded the loan and creates their holdings."
-        },
-        {
-          "item": 4,
-          "label": "Investor message field",
-          "text": "The message shown to investors when funding closes. It is required for a partial close (where less than the full amount was raised, so the loan amount is lowered to what was actually committed)."
-        },
-        {
-          "item": 14,
-          "label": "Close funding button",
-          "text": "Ends the funding campaign for a Published loan. It creates investor holdings, moves the escrowed money into a borrower payable plus Garanta's fee revenue, and blocks any later order releases for this loan. It only works on Published loans whose borrower can transact and that have allocated orders matching the committed principal. A confirmation dialog summarises the action first."
-        },
-        {
-          "item": 5,
-          "label": "Cancellation reason field",
-          "text": "A required reason recorded when you cancel funding. Cancelling is the unwind path: it ends a campaign before it closes and returns money to investors."
-        },
-        {
-          "item": 6,
-          "label": "Cancellation investor message field",
-          "text": "The message to investors explaining the cancellation. It is required whenever there are pending or allocated investor orders on the loan."
-        },
-        {
-          "item": 15,
-          "label": "Cancel funding button",
-          "text": "Cancels a Published loan's funding. It releases every allocated reservation back to investors, closes pending intents as 'not invested', moves the loan to Cancelled, and records immutable evidence. It only works before funding has been closed, and only on Published loans. This is a destructive action, so it asks for confirmation."
-        },
-        {
-          "item": 7,
-          "label": "Expiry scan as-of date field",
-          "text": "The date the expiry scan compares funding deadlines against. Any published campaign whose funding deadline is before this date is treated as expired."
-        },
-        {
-          "item": 8,
-          "label": "Scan selected loan only checkbox",
-          "text": "When ticked, the scan only looks at the loan selected above. Untick it to scan every expired published campaign at once. Allocation here means the investor money matched to a loan; the scan only acts on expired campaigns."
-        },
-        {
-          "item": 9,
-          "label": "Expiry scan reason override field",
-          "text": "Optional. If left blank, the backend uses its standard expiry reason. Fill it in only when you want a custom reason recorded on the cancellations the scan produces."
+          "item": 0,
+          "label": "Dialog title",
+          "text": "Names the loan you are managing, so you cannot mix up rows. Everything you do in this dialog applies to this loan only."
         },
         {
           "item": 10,
-          "label": "Expiry scan investor message override field",
-          "text": "Optional. If left blank, the backend uses its standard investor message. Use it to override the wording investors receive when their expired campaign is cancelled."
+          "label": "Loan context bar",
+          "text": "The loan's current status ('Published' here), funding deadline and committed/total amounts. Check this before acting - the menu is built from this status."
         },
         {
-          "item": 16,
-          "label": "Run expiry scan button",
-          "text": "Finds published campaigns past their funding deadline and cancels them using the same safe cancellation path as the Cancel funding button. After it runs, a message reports how many campaigns were cancelled and how many were skipped. It asks for confirmation first."
+          "item": 1,
+          "label": "Close funding",
+          "text": "Ends the funding round. Allocated orders become holdings, escrow moves to the borrower payable and Garanta fee revenue, and the loan activates. If less than the full amount was raised, this is the partial close: the accepted amount becomes the final principal and the schedule is regenerated."
         },
         {
-          "item": 11,
-          "label": "Primary order field",
-          "text": "The specific investor order to release. An order is one investor's commitment to fund part of a loan. Use this when a single investor's order is stuck and needs unwinding without touching the rest of the campaign."
+          "item": 2,
+          "label": "Cancel funding",
+          "text": "Stops the campaign before close. Reserved balances are released back to investors, pending orders close as not invested, and the loan moves to cancelled. Only valid before funding close. The 'Confirmation required' tag means a summary dialog asks you to confirm before anything runs."
         },
         {
-          "item": 12,
-          "label": "Release reason field",
-          "text": "A required reason recorded against the order release for the audit trail."
+          "item": 3,
+          "label": "Run funding expiry scan",
+          "text": "Cancels published campaigns whose funding deadline has passed. A checkbox in the form limits the scan to this loan (default) or widens it to all expired published campaigns."
         },
         {
-          "item": 17,
-          "label": "Release order balance button",
-          "text": "Unwinds one investor order. A still-pending order is simply closed as 'not invested'; an allocated order has its reserved balance restored to the investor and its loan-funding escrow reversed (the loan must still be Published). Orders on a loan whose funding is already closed cannot be released. Confirmation is required."
+          "item": 4,
+          "label": "Release an order's balance",
+          "text": "Returns one allocated order's reserved balance to its investor without touching the rest of the campaign - used when a single order must be unwound, for example after a validation problem."
         },
         {
-          "item": 18,
-          "label": "Status chip (context)",
-          "text": "Shows the current status of the selected loan inside this panel (for example 'Published'), so you can confirm you are acting on the right loan before pressing a button."
+          "item": 5,
+          "label": "Close (X)",
+          "text": "Closes the dialog without doing anything. Nothing runs until you pick an action and confirm it inside the form."
         }
       ],
       "notes": [
-        "Each action carries an idempotency key behind the scenes. That means clicking twice will not run the same operation twice; a repeat of the exact same request is safely ignored.",
-        "Think of it as: Publish opens funding, Close ends it successfully, Cancel ends it by unwinding, the Expiry scan auto-cancels deadlines that have passed, and Release fixes a single order.",
-        "Close, Cancel, Expiry scan and Release all show a confirmation dialog summarising the loan, reason and message before they run."
+        "The menu is status-aware: a draft loan only offers Publish; a published loan offers Close/Cancel/Expiry scan/Release; loans past funding (Funded, Late, Defaulted, Repaid) have no primary-market actions - their day-to-day work happens in Servicing and recovery.",
+        "Dangerous actions carry a 'Confirmation required' tag: after filling the form you still get a summary dialog restating loan, reason and message before the backend is called.",
+        "Publishing is subject to backend gates: borrower KYB approved, no compliance hold, complete loan data and a valid funding deadline."
       ]
     },
     {
-      "id": "loans-8-secondary-market-approvals",
+      "id": "loans-10-manage-close-funding",
+      "caption": "After choosing an action, only that action's fields appear.",
+      "summary": "The second step of the Manage dialog, shown here for Close funding. The context bar stays visible, a back link returns to the action list, and the form contains only the fields this action needs. Other actions follow the same pattern - Cancel funding asks for a cancellation reason and investor message, the expiry scan asks for an as-of date and scope, and the order release asks for the order and a reason.",
+      "annotations": [
+        {
+          "item": 4,
+          "label": "All actions (back)",
+          "text": "Returns to the action menu without running anything. Use it if you picked the wrong action."
+        },
+        {
+          "item": 1,
+          "label": "Funding close reason",
+          "text": "The operator-facing reason recorded with the close - part of the immutable evidence for why funding ended."
+        },
+        {
+          "item": 2,
+          "label": "Investor message",
+          "text": "The message investors receive about the close. For a partial close, explain that the funded amount became the final loan amount."
+        },
+        {
+          "item": 5,
+          "label": "Close funding button",
+          "text": "Opens the confirmation summary (loan, reason, message). Confirming runs the close: holdings are created, escrow moves, and the loan activates. The result banner appears in this dialog."
+        }
+      ],
+      "notes": [
+        "Success, preview-mode and error messages appear at the bottom of the dialog, and the loan table refreshes automatically after a successful action.",
+        "In preview/demo mode the buttons record a 'Preview action' note instead of calling the backend."
+      ]
+    },
+    {
+      "id": "loans-7-secondary-market-approvals",
       "caption": "Secondary-market approvals: act on investor-to-investor resale listings.",
       "summary": "The secondary market is where an investor who already owns part of a loan lists that slice for sale to another investor. Most listings go live automatically, but non-standard ones (for example on a non-performing loan) need an admin to approve them with a disclosure note. This panel approves, rejects or removes those listings.",
       "annotations": [
@@ -352,7 +328,7 @@
       ]
     },
     {
-      "id": "loans-9-servicing-and-recovery",
+      "id": "loans-8-servicing-and-recovery",
       "caption": "Servicing and recovery: record repayments, scan loan health, post public notes, and handle defaults.",
       "summary": "Servicing means running a loan after it is funded: recording the borrower's repayments and keeping its status accurate. Recovery handles loans that have defaulted (gone badly past due) by recording money clawed back. This panel acts on the loan selected in the table above.",
       "annotations": [

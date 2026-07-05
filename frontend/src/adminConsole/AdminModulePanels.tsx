@@ -1860,6 +1860,7 @@ export function LoansPanel() {
   const loans = useMemo(() => loansQuery.data ?? [], [loansQuery.data]);
   const [selectedBorrowerId, setSelectedBorrowerId] = useState("");
   const [selectedLoanId, setSelectedLoanId] = useState("");
+  const [managingLoan, setManagingLoan] = useState<Loan | null>(null);
   const [showBorrowerCreate, setShowBorrowerCreate] = useState(false);
   const [showLoanCreate, setShowLoanCreate] = useState(false);
   const [editingBorrower, setEditingBorrower] = useState<BorrowerEntity | null>(null);
@@ -2047,8 +2048,17 @@ export function LoansPanel() {
                       <td>
                         <div className="row gap-8 wrap" onClick={(event) => event.stopPropagation()}>
                           <Button onClick={() => setEditingLoan(loan)} size="sm">Edit</Button>
-                          <Button onClick={() => setSelectedLoanId(loan.id)} size="sm">Manage</Button>
-                          {loan.status === "published" ? <span className="admin-action-note">Cancel via operations</span> : <UnsupportedRemoveNote label="Loan" />}
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            onClick={() => {
+                              setSelectedLoanId(loan.id);
+                              setManagingLoan(loan);
+                            }}
+                          >
+                            Manage
+                          </Button>
+                          {loan.status !== "published" ? <UnsupportedRemoveNote label="Loan" /> : null}
                         </div>
                       </td>
                     </tr>
@@ -2065,15 +2075,6 @@ export function LoansPanel() {
       </section>
 
       <section className="admin-module-grid">
-        <LoanPublishCloseForm
-          defaultCommittedPrincipalMinor={selectedLoan?.committed_principal_minor ?? 0}
-          defaultFundingDeadline={selectedLoan?.funding_deadline ?? ""}
-          defaultLoanCurrency={selectedLoan?.currency ?? "CHF"}
-          defaultLoanId={selectedLoan?.id ?? ""}
-          defaultLoanPrincipalMinor={selectedLoan?.principal_minor ?? 0}
-          defaultLoanStatus={selectedLoan?.status ?? ""}
-          defaultLoanTitle={selectedLoan?.title ?? ""}
-        />
         <SecondaryMarketAdminForm />
         <ServicingOpsForm
           defaultLoanCurrency={selectedLoan?.currency ?? "CHF"}
@@ -2081,6 +2082,13 @@ export function LoansPanel() {
           defaultLoanTitle={selectedLoan?.title ?? ""}
         />
       </section>
+      {managingLoan ? (
+        <ManageLoanModal
+          loan={loans.find((item) => item.id === managingLoan.id) ?? managingLoan}
+          onChanged={() => refetchLive(loansQuery.refetch)}
+          onClose={() => setManagingLoan(null)}
+        />
+      ) : null}
       {showBorrowerCreate ? (
         <Modal title="Create borrower" onClose={() => setShowBorrowerCreate(false)}>
           <BorrowerCreateForm
@@ -2541,25 +2549,64 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
   );
 }
 
-function LoanPublishCloseForm({
-  defaultCommittedPrincipalMinor,
-  defaultFundingDeadline,
-  defaultLoanCurrency,
-  defaultLoanId,
-  defaultLoanPrincipalMinor,
-  defaultLoanStatus,
-  defaultLoanTitle
+type ManageLoanActionId = "publish" | "close" | "cancel" | "expiry" | "release";
+
+const MANAGE_LOAN_ACTIONS: Array<{
+  id: ManageLoanActionId;
+  title: string;
+  description: string;
+  statuses: string[];
+  danger?: boolean;
+}> = [
+  {
+    id: "publish",
+    title: "Publish loan",
+    description: "Put this draft live on the primary market so investors can place orders.",
+    statuses: ["draft"]
+  },
+  {
+    id: "close",
+    title: "Close funding",
+    description:
+      "End the funding round: allocated orders become holdings, escrow moves on, and the loan activates (full or partial close).",
+    statuses: ["published"]
+  },
+  {
+    id: "cancel",
+    title: "Cancel funding",
+    description:
+      "Stop the campaign before close: reserved balances are released and pending orders close as not invested.",
+    statuses: ["published"],
+    danger: true
+  },
+  {
+    id: "expiry",
+    title: "Run funding expiry scan",
+    description:
+      "Cancel published campaigns whose funding deadline has passed - just this loan, or all expired campaigns.",
+    statuses: ["published"],
+    danger: true
+  },
+  {
+    id: "release",
+    title: "Release an order's balance",
+    description:
+      "Return one allocated order's reserved balance to its investor without touching the rest of the campaign.",
+    statuses: ["published"],
+    danger: true
+  }
+];
+
+function ManageLoanModal({
+  loan,
+  onChanged,
+  onClose
 }: {
-  defaultCommittedPrincipalMinor: number;
-  defaultFundingDeadline: string;
-  defaultLoanCurrency: string;
-  defaultLoanId: string;
-  defaultLoanPrincipalMinor: number;
-  defaultLoanStatus: string;
-  defaultLoanTitle: string;
+  loan: Loan;
+  onChanged: () => void;
+  onClose: () => void;
 }) {
-  const [loanId, setLoanId] = useState(defaultLoanId);
-  const [loanQuery, setLoanQuery] = useState(defaultLoanId);
+  const [action, setAction] = useState<ManageLoanActionId | null>(null);
   const [note, setNote] = useState("");
   const [closeReason, setCloseReason] = useState("Accepted funding close after admin review.");
   const [investorMessage, setInvestorMessage] = useState("Loan funding has closed. Your assigned claim is now active.");
@@ -2576,28 +2623,41 @@ function LoanPublishCloseForm({
   const [releaseReason, setReleaseReason] = useState("Campaign closed or order not funded.");
   const [preview, setPreview] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | undefined>();
-  const publish = useV1LoansAdminLoansPublishCreate();
+  const loanId = loan.id;
+  const succeed = (message: string) => {
+    setSuccess(message);
+    onChanged();
+  };
+  const publish = useV1LoansAdminLoansPublishCreate({
+    mutation: { onSuccess: () => succeed("The loan is now published on the primary market.") }
+  });
   const closeFunding = useV1MarketplacePrimaryAdminLoansCloseFundingCreate({
-    mutation: { onSuccess: () => setSuccess("Funding close was submitted.") }
+    mutation: { onSuccess: () => succeed("Funding close was submitted.") }
   });
   const cancelFunding = useV1MarketplacePrimaryAdminLoansCancelFundingCreate({
-    mutation: { onSuccess: () => setSuccess("Funding cancellation was submitted.") }
+    mutation: { onSuccess: () => succeed("Funding cancellation was submitted.") }
   });
   const expiryScan = useV1MarketplacePrimaryAdminLoansExpiryScanCreate({
     mutation: {
       onSuccess: (data) => {
-        setSuccess(
-          `Expiry scan cancelled ${data.cancelled_count} campaign(s) and skipped ${data.skipped_count}.`
-        );
+        succeed(`Expiry scan cancelled ${data.cancelled_count} campaign(s) and skipped ${data.skipped_count}.`);
       }
     }
   });
-  const releaseOrder = useV1MarketplacePrimaryAdminOrdersReleaseBalanceCreate();
+  const releaseOrder = useV1MarketplacePrimaryAdminOrdersReleaseBalanceCreate({
+    mutation: { onSuccess: () => succeed("The order's reserved balance was released.") }
+  });
 
-  useEffect(() => {
-    setLoanId(defaultLoanId);
-    setLoanQuery(defaultLoanId);
-  }, [defaultLoanId]);
+  const available = MANAGE_LOAN_ACTIONS.filter((item) => item.statuses.includes(loan.status));
+  const active = MANAGE_LOAN_ACTIONS.find((item) => item.id === action) ?? null;
+  const anyError =
+    publish.error || closeFunding.error || cancelFunding.error || expiryScan.error || releaseOrder.error;
+
+  function choose(id: ManageLoanActionId) {
+    setPreview(null);
+    setSuccess(undefined);
+    setAction(id);
+  }
 
   function publishLoan() {
     if (isFixturePreview) {
@@ -2636,14 +2696,14 @@ function LoanPublishCloseForm({
   function scanExpiredCampaigns() {
     const data: PrimaryLoanExpiryScanRequest = {
       as_of_date: expiryAsOfDate,
-      loan_ids: scanSelectedOnly && loanId ? [loanId] : undefined,
+      loan_ids: scanSelectedOnly ? [loanId] : undefined,
       reason: expiryReason || undefined,
       investor_message: expiryInvestorMessage || undefined,
       idempotency_key: idempotencyKey("expiry-scan")
     };
     if (isFixturePreview) {
       setPreview(
-        scanSelectedOnly && loanId
+        scanSelectedOnly
           ? `Expiry scan would evaluate selected loan ${loanId}.`
           : "Expiry scan would evaluate all expired published campaigns."
       );
@@ -2665,139 +2725,181 @@ function LoanPublishCloseForm({
   }
 
   return (
-    <Card padded>
-      <h2>Primary marketplace operations</h2>
+    <Modal title={`Manage loan - ${loan.title}`} wide onClose={onClose}>
       <div className="admin-action-form">
         <div className="admin-context-bar">
-          <span>Selected loan</span>
-          <strong>{defaultLoanTitle || "No loan selected"}</strong>
-          <code>{loanId || "-"}</code>
-        </div>
-        <div className="admin-context-bar">
-          <span>Status</span>
-          <Chip tone={statusTone(defaultLoanStatus || "draft")}>
-            {labelize(defaultLoanStatus || "draft")}
-          </Chip>
-          <span>Funding deadline {defaultFundingDeadline ? formatDate(defaultFundingDeadline) : "-"}</span>
+          <Chip tone={statusTone(loan.status)}>{labelize(loan.status)}</Chip>
+          <span>Funding deadline {loan.funding_deadline ? formatDate(loan.funding_deadline) : "-"}</span>
           <span>
-            Committed{" "}
-            <Money amountMinor={defaultCommittedPrincipalMinor} currency={defaultLoanCurrency} /> /{" "}
-            <Money amountMinor={defaultLoanPrincipalMinor} currency={defaultLoanCurrency} />
+            Committed <Money amountMinor={loan.committed_principal_minor} currency={loan.currency} /> /{" "}
+            <Money amountMinor={loan.principal_minor} currency={loan.currency} />
           </span>
+          <code>{loanId}</code>
         </div>
-        <LoanLookupInput
-          onChange={setLoanId}
-          onQueryChange={setLoanQuery}
-          query={loanQuery}
-          required
-          value={loanId}
-        />
-        <TextAreaInput label="Publish note" onChange={setNote} value={note} />
-        <Button disabled={publish.isPending} onClick={publishLoan} variant="primary">Publish loan</Button>
-        <TextAreaInput label="Funding close reason" onChange={setCloseReason} value={closeReason} />
-        <TextAreaInput label="Investor message" onChange={setInvestorMessage} value={investorMessage} />
-        <OperationConfirmButton
-          confirmLabel="Close funding"
-          description="Closing funding creates holdings, moves escrow into borrower payable and Garanta fee revenue, and blocks later order releases for the closed loan."
-          details={[
-            { label: "Loan", value: loanId || "-" },
-            { label: "Reason", value: closeReason },
-            { label: "Investor message", value: investorMessage }
-          ]}
-          disabled={closeFunding.isPending || !loanId}
-          onConfirm={closeLoan}
-          title="Confirm primary funding close"
-          variant="primary"
-        >
-          Close funding
-        </OperationConfirmButton>
-        <TextAreaInput label="Cancellation reason" onChange={setCancelReason} required value={cancelReason} />
-        <TextAreaInput
-          hint="Required when investors have pending or allocated orders. This is the operator-facing source for later notifications."
-          label="Cancellation investor message"
-          onChange={setCancelInvestorMessage}
-          value={cancelInvestorMessage}
-        />
-        <OperationConfirmButton
-          confirmLabel="Cancel funding"
-          description="Cancelling funding releases allocated reservations, closes pending intents as not invested, moves the loan to cancelled, and records immutable evidence. This is only valid before funding close."
-          details={[
-            { label: "Loan", value: loanId || "-" },
-            { label: "Status", value: labelize(defaultLoanStatus || "-") },
-            { label: "Committed principal", value: `${defaultCommittedPrincipalMinor} minor units` },
-            { label: "Reason", value: cancelReason },
-            { label: "Investor message", value: cancelInvestorMessage || "-" }
-          ]}
-          disabled={cancelFunding.isPending || !loanId}
-          onConfirm={cancelLoan}
-          title="Confirm primary funding cancellation"
-          variant="danger"
-        >
-          Cancel funding
-        </OperationConfirmButton>
-        <FieldGrid>
-          <TextInput label="Expiry scan as-of date" onChange={setExpiryAsOfDate} type="date" value={expiryAsOfDate} />
-          <Field hint="When enabled, only the selected loan ID is scanned. Disable to scan all expired published campaigns.">
-            <label className="check-row">
-              <input checked={scanSelectedOnly} onChange={(event) => setScanSelectedOnly(event.target.checked)} type="checkbox" />
-              Scan selected loan only
-            </label>
-          </Field>
-        </FieldGrid>
-        <TextAreaInput
-          hint="Optional. If blank, the backend uses the standard expiry reason."
-          label="Expiry scan reason override"
-          onChange={setExpiryReason}
-          value={expiryReason}
-        />
-        <TextAreaInput
-          hint="Optional. If blank, the backend uses the standard investor message."
-          label="Expiry scan investor message override"
-          onChange={setExpiryInvestorMessage}
-          value={expiryInvestorMessage}
-        />
-        <OperationConfirmButton
-          confirmLabel="Run expiry scan"
-          description="The scan cancels published campaigns whose funding deadline is before the as-of date by calling the same conservation-checked cancellation backend primitive."
-          details={[
-            { label: "As-of date", value: expiryAsOfDate },
-            { label: "Scope", value: scanSelectedOnly && loanId ? `Selected loan ${loanId}` : "All expired published campaigns" }
-          ]}
-          disabled={expiryScan.isPending || (scanSelectedOnly && !loanId)}
-          onConfirm={scanExpiredCampaigns}
-          title="Confirm funding expiry scan"
-          variant="danger"
-        >
-          Run expiry scan
-        </OperationConfirmButton>
-        <FieldGrid>
-          <PrimaryOrderLookupInput
-            onChange={setOrderId}
-            onQueryChange={setOrderQuery}
-            query={orderQuery}
-            value={orderId}
-          />
-          <TextInput label="Release reason" onChange={setReleaseReason} value={releaseReason} />
-        </FieldGrid>
-        <OperationConfirmButton
-          confirmLabel="Release balance"
-          description="Releasing an allocated order restores the original investor balance lots and reverses the loan-funding escrow reservation."
-          details={[
-            { label: "Order", value: orderId || "-" },
-            { label: "Reason", value: releaseReason }
-          ]}
-          disabled={releaseOrder.isPending || !orderId}
-          onConfirm={releaseBalance}
-          title="Confirm order balance release"
-          variant="danger"
-        >
-          Release order balance
-        </OperationConfirmButton>
-        {publish.error || closeFunding.error || cancelFunding.error || expiryScan.error || releaseOrder.error ? <Banner tone="bad" title="Marketplace operation failed">{errorMessage(publish.error || closeFunding.error || cancelFunding.error || expiryScan.error || releaseOrder.error)}</Banner> : null}
+
+        {active === null ? (
+          available.length > 0 ? (
+            <div className="admin-manage-menu">
+              <p className="muted admin-manage-hint">
+                Choose the action to apply to this loan. Only actions valid for its current status are listed.
+              </p>
+              {available.map((item) => (
+                <button className="admin-manage-option" key={item.id} onClick={() => choose(item.id)} type="button">
+                  <span className="admin-manage-option-title">
+                    {item.title}
+                    {item.danger ? <Chip tone="warn">Confirmation required</Chip> : null}
+                  </span>
+                  <span className="admin-manage-option-desc">{item.description}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <Empty icon="docs" title="No primary-market actions for this status">
+              {labelize(loan.status)} loans have no primary-market operations. Repayments, status scans, risk
+              notes and recoveries live in the Servicing and recovery panel below the loan table.
+            </Empty>
+          )
+        ) : (
+          <>
+            <div className="admin-manage-step">
+              <Button onClick={() => setAction(null)} size="sm" variant="ghost">
+                &#8592; All actions
+              </Button>
+              <strong>{active.title}</strong>
+            </div>
+
+            {action === "publish" ? (
+              <>
+                <TextAreaInput label="Publish note" onChange={setNote} value={note} />
+                <Button disabled={publish.isPending} onClick={publishLoan} variant="primary">Publish loan</Button>
+              </>
+            ) : null}
+
+            {action === "close" ? (
+              <>
+                <TextAreaInput label="Funding close reason" onChange={setCloseReason} value={closeReason} />
+                <TextAreaInput label="Investor message" onChange={setInvestorMessage} value={investorMessage} />
+                <OperationConfirmButton
+                  confirmLabel="Close funding"
+                  description="Closing funding creates holdings, moves escrow into borrower payable and Garanta fee revenue, and blocks later order releases for the closed loan."
+                  details={[
+                    { label: "Loan", value: loanId },
+                    { label: "Reason", value: closeReason },
+                    { label: "Investor message", value: investorMessage }
+                  ]}
+                  disabled={closeFunding.isPending}
+                  onConfirm={closeLoan}
+                  title="Confirm primary funding close"
+                  variant="primary"
+                >
+                  Close funding
+                </OperationConfirmButton>
+              </>
+            ) : null}
+
+            {action === "cancel" ? (
+              <>
+                <TextAreaInput label="Cancellation reason" onChange={setCancelReason} required value={cancelReason} />
+                <TextAreaInput
+                  hint="Required when investors have pending or allocated orders. This is the operator-facing source for later notifications."
+                  label="Cancellation investor message"
+                  onChange={setCancelInvestorMessage}
+                  value={cancelInvestorMessage}
+                />
+                <OperationConfirmButton
+                  confirmLabel="Cancel funding"
+                  description="Cancelling funding releases allocated reservations, closes pending intents as not invested, moves the loan to cancelled, and records immutable evidence. This is only valid before funding close."
+                  details={[
+                    { label: "Loan", value: loanId },
+                    { label: "Status", value: labelize(loan.status) },
+                    { label: "Reason", value: cancelReason },
+                    { label: "Investor message", value: cancelInvestorMessage || "-" }
+                  ]}
+                  disabled={cancelFunding.isPending}
+                  onConfirm={cancelLoan}
+                  title="Confirm primary funding cancellation"
+                  variant="danger"
+                >
+                  Cancel funding
+                </OperationConfirmButton>
+              </>
+            ) : null}
+
+            {action === "expiry" ? (
+              <>
+                <FieldGrid>
+                  <TextInput label="Expiry scan as-of date" onChange={setExpiryAsOfDate} type="date" value={expiryAsOfDate} />
+                  <Field hint="When enabled, only this loan is scanned. Disable to scan all expired published campaigns.">
+                    <label className="check-row">
+                      <input checked={scanSelectedOnly} onChange={(event) => setScanSelectedOnly(event.target.checked)} type="checkbox" />
+                      Scan this loan only
+                    </label>
+                  </Field>
+                </FieldGrid>
+                <TextAreaInput
+                  hint="Optional. If blank, the backend uses the standard expiry reason."
+                  label="Expiry scan reason override"
+                  onChange={setExpiryReason}
+                  value={expiryReason}
+                />
+                <TextAreaInput
+                  hint="Optional. If blank, the backend uses the standard investor message."
+                  label="Expiry scan investor message override"
+                  onChange={setExpiryInvestorMessage}
+                  value={expiryInvestorMessage}
+                />
+                <OperationConfirmButton
+                  confirmLabel="Run expiry scan"
+                  description="The scan cancels published campaigns whose funding deadline is before the as-of date by calling the same conservation-checked cancellation backend primitive."
+                  details={[
+                    { label: "As-of date", value: expiryAsOfDate },
+                    { label: "Scope", value: scanSelectedOnly ? `Selected loan ${loanId}` : "All expired published campaigns" }
+                  ]}
+                  disabled={expiryScan.isPending}
+                  onConfirm={scanExpiredCampaigns}
+                  title="Confirm funding expiry scan"
+                  variant="danger"
+                >
+                  Run expiry scan
+                </OperationConfirmButton>
+              </>
+            ) : null}
+
+            {action === "release" ? (
+              <>
+                <FieldGrid>
+                  <PrimaryOrderLookupInput
+                    onChange={setOrderId}
+                    onQueryChange={setOrderQuery}
+                    query={orderQuery}
+                    value={orderId}
+                  />
+                  <TextInput label="Release reason" onChange={setReleaseReason} value={releaseReason} />
+                </FieldGrid>
+                <OperationConfirmButton
+                  confirmLabel="Release balance"
+                  description="Releasing an allocated order restores the original investor balance lots and reverses the loan-funding escrow reservation."
+                  details={[
+                    { label: "Order", value: orderId || "-" },
+                    { label: "Reason", value: releaseReason }
+                  ]}
+                  disabled={releaseOrder.isPending || !orderId}
+                  onConfirm={releaseBalance}
+                  title="Confirm order balance release"
+                  variant="danger"
+                >
+                  Release order balance
+                </OperationConfirmButton>
+              </>
+            ) : null}
+          </>
+        )}
+
+        {anyError ? <Banner tone="bad" title="Marketplace operation failed">{errorMessage(anyError)}</Banner> : null}
         {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
         {success ? <Banner tone="ok" title="Marketplace operation submitted">{success}</Banner> : null}
       </div>
-    </Card>
+    </Modal>
   );
 }
 

@@ -3206,3 +3206,31 @@ textarea.input {
 .legal-doc-table { border-collapse: collapse; margin: 0 0 12px; width: 100%; }
 .legal-doc-table th, .legal-doc-table td { border: 1px solid var(--line); font-size: 12px; padding: 6px 8px; text-align: left; vertical-align: top; }
 .legal-doc-table th { background: var(--paper-2); }
+
+/* Manage-loan action menu (admin primary marketplace operations) */
+.admin-manage-hint { font-size: 12.5px; margin: 0; }
+.admin-manage-menu { display: flex; flex-direction: column; gap: 10px; }
+.admin-manage-option {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  text-align: left;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.admin-manage-option:hover { background: var(--paper-2); border-color: var(--accent); }
+.admin-manage-option-title {
+  align-items: center;
+  display: flex;
+  font-size: 13.5px;
+  font-weight: 650;
+  gap: 10px;
+  justify-content: space-between;
+}
+.admin-manage-option-desc { color: var(--ink-2); font-size: 12px; line-height: 1.45; }
+.admin-manage-step { align-items: center; display: flex; gap: 12px; }
+.admin-manage-step strong { font-size: 13.5px; }

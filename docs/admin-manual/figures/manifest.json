@@ -2534,55 +2534,55 @@
             "text": "Loan",
             "x": 19,
             "y": 106,
-            "w": 224,
+            "w": 239,
             "h": 34
           },
           {
             "role": "column",
             "text": "Status",
-            "x": 243,
+            "x": 258,
             "y": 106,
-            "w": 113,
+            "w": 121,
             "h": 34
           },
           {
             "role": "column",
             "text": "Amount",
-            "x": 356,
+            "x": 379,
             "y": 106,
-            "w": 151,
+            "w": 161,
             "h": 34
           },
           {
             "role": "column",
             "text": "Rate",
-            "x": 507,
+            "x": 541,
             "y": 106,
-            "w": 60,
+            "w": 64,
             "h": 34
           },
           {
             "role": "column",
             "text": "LTV",
-            "x": 567,
+            "x": 605,
             "y": 106,
-            "w": 62,
+            "w": 67,
             "h": 34
           },
           {
             "role": "column",
             "text": "Funding deadline",
-            "x": 630,
+            "x": 672,
             "y": 106,
-            "w": 148,
+            "w": 159,
             "h": 34
           },
           {
             "role": "column",
             "text": "Actions",
-            "x": 778,
+            "x": 830,
             "y": 106,
-            "w": 281,
+            "w": 229,
             "h": 34
           },
           {
@@ -2612,7 +2612,7 @@
           {
             "role": "button",
             "text": "Edit",
-            "x": 788,
+            "x": 840,
             "y": 150,
             "w": 44,
             "h": 28
@@ -2620,7 +2620,7 @@
           {
             "role": "button",
             "text": "Manage",
-            "x": 840,
+            "x": 893,
             "y": 150,
             "w": 68,
             "h": 28
@@ -2628,7 +2628,7 @@
           {
             "role": "button",
             "text": "Edit",
-            "x": 788,
+            "x": 840,
             "y": 208,
             "w": 44,
             "h": 28
@@ -2636,7 +2636,7 @@
           {
             "role": "button",
             "text": "Manage",
-            "x": 840,
+            "x": 893,
             "y": 208,
             "w": 68,
             "h": 28
@@ -2644,7 +2644,7 @@
           {
             "role": "status",
             "text": "Published",
-            "x": 253,
+            "x": 268,
             "y": 150,
             "w": 85,
             "h": 21
@@ -2652,7 +2652,7 @@
           {
             "role": "status",
             "text": "Late",
-            "x": 253,
+            "x": 268,
             "y": 208,
             "w": 54,
             "h": 21
@@ -2660,169 +2660,7 @@
         ]
       },
       {
-        "id": "loans-7-primary-marketplace-operations",
-        "kind": "card",
-        "title": "Primary marketplace operations",
-        "cssWidth": 508,
-        "cssHeight": 1689,
-        "scale": 2,
-        "items": [
-          {
-            "role": "heading",
-            "text": "Primary marketplace operations",
-            "x": 19,
-            "y": 19,
-            "w": 470,
-            "h": 30
-          },
-          {
-            "role": "field",
-            "text": "Loan",
-            "x": 19,
-            "y": 198,
-            "w": 470,
-            "h": 18
-          },
-          {
-            "role": "field",
-            "text": "Publish note",
-            "x": 19,
-            "y": 282,
-            "w": 470,
-            "h": 18
-          },
-          {
-            "role": "field",
-            "text": "Funding close reason",
-            "x": 19,
-            "y": 457,
-            "w": 470,
-            "h": 18
-          },
-          {
-            "role": "field",
-            "text": "Investor message",
-            "x": 19,
-            "y": 585,
-            "w": 470,
-            "h": 18
-          },
-          {
-            "role": "field",
-            "text": "Cancellation reason",
-            "x": 19,
-            "y": 760,
-            "w": 470,
-            "h": 18
-          },
-          {
-            "role": "field",
-            "text": "Cancellation investor message",
-            "x": 19,
-            "y": 888,
-            "w": 470,
-            "h": 18
-          },
-          {
-            "role": "field",
-            "text": "Expiry scan as-of date",
-            "x": 19,
-            "y": 1102,
-            "w": 229,
-            "h": 18
-          },
-          {
-            "role": "field",
-            "text": "Scan selected loan only",
-            "x": 260,
-            "y": 1102,
-            "w": 229,
-            "h": 19
-          },
-          {
-            "role": "field",
-            "text": "Expiry scan reason override",
-            "x": 19,
-            "y": 1189,
-            "w": 470,
-            "h": 18
-          },
-          {
-            "role": "field",
-            "text": "Expiry scan investor message override",
-            "x": 19,
-            "y": 1339,
-            "w": 470,
-            "h": 18
-          },
-          {
-            "role": "field",
-            "text": "Primary order",
-            "x": 19,
-            "y": 1535,
-            "w": 229,
-            "h": 18
-          },
-          {
-            "role": "field",
-            "text": "Release reason",
-            "x": 260,
-            "y": 1535,
-            "w": 229,
-            "h": 18
-          },
-          {
-            "role": "button",
-            "text": "Publish loan",
-            "x": 19,
-            "y": 410,
-            "w": 470,
-            "h": 34
-          },
-          {
-            "role": "button",
-            "text": "Close funding",
-            "x": 19,
-            "y": 713,
-            "w": 470,
-            "h": 34
-          },
-          {
-            "role": "button",
-            "text": "Cancel funding",
-            "x": 19,
-            "y": 1055,
-            "w": 470,
-            "h": 34
-          },
-          {
-            "role": "button",
-            "text": "Run expiry scan",
-            "x": 19,
-            "y": 1488,
-            "w": 470,
-            "h": 34
-          },
-          {
-            "role": "button",
-            "text": "Release order balance",
-            "x": 19,
-            "y": 1636,
-            "w": 470,
-            "h": 34
-          },
-          {
-            "role": "status",
-            "text": "Published",
-            "x": 86,
-            "y": 128,
-            "w": 93,
-            "h": 21
-          }
-        ]
-      },
-      {
-        "id": "loans-8-secondary-market-approvals",
+        "id": "loans-7-secondary-market-approvals",
         "kind": "card",
         "title": "Secondary-market approvals",
         "cssWidth": 508,
@@ -2888,7 +2726,7 @@
         ]
       },
       {
-        "id": "loans-9-servicing-and-recovery",
+        "id": "loans-8-servicing-and-recovery",
         "kind": "card",
         "title": "Servicing and recovery",
         "cssWidth": 1032,
@@ -2990,6 +2828,194 @@
             "y": 549,
             "w": 131,
             "h": 34
+          }
+        ]
+      },
+      {
+        "id": "loans-9-manage-loan-actions",
+        "kind": "modal",
+        "title": "Manage loan - choose an action",
+        "cssWidth": 720,
+        "cssHeight": 549,
+        "scale": 2,
+        "items": [
+          {
+            "role": "heading",
+            "text": "Manage loan - Zug Park II bridge facility",
+            "x": 21,
+            "y": 20,
+            "w": 306,
+            "h": 24
+          },
+          {
+            "role": "action",
+            "text": "Close funding",
+            "x": 36,
+            "y": 221,
+            "w": 648,
+            "h": 20
+          },
+          {
+            "role": "action",
+            "text": "Cancel fundingConfirmation required",
+            "x": 36,
+            "y": 316,
+            "w": 648,
+            "h": 21
+          },
+          {
+            "role": "action",
+            "text": "Run funding expiry scanConfirmation required",
+            "x": 36,
+            "y": 394,
+            "w": 648,
+            "h": 21
+          },
+          {
+            "role": "action",
+            "text": "Release an order's balanceConfirmation required",
+            "x": 36,
+            "y": 473,
+            "w": 648,
+            "h": 21
+          },
+          {
+            "role": "button",
+            "text": "Close",
+            "x": 669,
+            "y": 17,
+            "w": 30,
+            "h": 30
+          },
+          {
+            "role": "button",
+            "text": "Close fundingEnd the funding round: allocated orders become holdings, escrow moves on, and",
+            "x": 21,
+            "y": 208,
+            "w": 678,
+            "h": 84
+          },
+          {
+            "role": "button",
+            "text": "Cancel fundingConfirmation requiredStop the campaign before close: reserved balances are r",
+            "x": 21,
+            "y": 303,
+            "w": 678,
+            "h": 68
+          },
+          {
+            "role": "button",
+            "text": "Run funding expiry scanConfirmation requiredCancel published campaigns whose funding deadl",
+            "x": 21,
+            "y": 381,
+            "w": 678,
+            "h": 68
+          },
+          {
+            "role": "button",
+            "text": "Release an order's balanceConfirmation requiredReturn one allocated order's reserved balan",
+            "x": 21,
+            "y": 460,
+            "w": 678,
+            "h": 68
+          },
+          {
+            "role": "status",
+            "text": "Published",
+            "x": 34,
+            "y": 107,
+            "w": 93,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Confirmation required",
+            "x": 530,
+            "y": 316,
+            "w": 154,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Confirmation required",
+            "x": 530,
+            "y": 394,
+            "w": 154,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Confirmation required",
+            "x": 530,
+            "y": 473,
+            "w": 154,
+            "h": 21
+          }
+        ]
+      },
+      {
+        "id": "loans-10-manage-close-funding",
+        "kind": "modal",
+        "title": "Manage loan - close funding",
+        "cssWidth": 720,
+        "cssHeight": 533,
+        "scale": 2,
+        "items": [
+          {
+            "role": "heading",
+            "text": "Manage loan - Zug Park II bridge facility",
+            "x": 21,
+            "y": 20,
+            "w": 306,
+            "h": 24
+          },
+          {
+            "role": "field",
+            "text": "Funding close reason",
+            "x": 21,
+            "y": 221,
+            "w": 678,
+            "h": 18
+          },
+          {
+            "role": "field",
+            "text": "Investor message",
+            "x": 21,
+            "y": 349,
+            "w": 678,
+            "h": 18
+          },
+          {
+            "role": "button",
+            "text": "Close",
+            "x": 669,
+            "y": 17,
+            "w": 30,
+            "h": 30
+          },
+          {
+            "role": "button",
+            "text": "← All actions",
+            "x": 21,
+            "y": 180,
+            "w": 97,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Close funding",
+            "x": 21,
+            "y": 478,
+            "w": 678,
+            "h": 34
+          },
+          {
+            "role": "status",
+            "text": "Published",
+            "x": 34,
+            "y": 107,
+            "w": 93,
+            "h": 21
           }
         ]
       }

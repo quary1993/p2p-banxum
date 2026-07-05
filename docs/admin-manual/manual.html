@@ -91,7 +91,7 @@ figcaption { font-size:15.4px; font-weight:600; margin-bottom:3px; break-after:a
     <div class="meta">
       <span class="conf">Internal &amp; confidential</span><br/><br/>
       This manual teaches the BANXUM peer-to-peer lending model from zero and walks through every screen of the internal admin console, with annotated screenshots and end-to-end workflows.<br/>
-      Version dated 4 July 2026. Screenshots captured in preview mode; all names and figures shown are demo data.
+      Version dated 5 July 2026. Screenshots captured in preview mode; all names and figures shown are demo data.
     </div>
   </div>
   <div class="toc">
@@ -1015,8 +1015,8 @@ figcaption { font-size:15.4px; font-weight:600; margin-bottom:3px; break-after:a
   </section>
 <section class="screen" id="screen-loans">
     <div class="sec-head"><span class="eyebrow">Section 8</span><h2>Loans &amp; Marketplace</h2></div>
-    <div class="lead-copy"><p>This screen is the lending engine of BANXUM. It is where you set up the companies that borrow money, build the loans they want, and run those loans from the moment they go live until they are fully repaid or written off.</p><p>A quick mental model of the product. Individual investors (called lenders) put money into their BANXUM account. The platform then funds loans to vetted business borrowers. Borrowers repay over time with interest. Lenders earn that interest and can later withdraw.</p><p>Borrowers are companies, not people with logins. There is no borrower portal. An admin types in every borrower's details by hand. The borrower never sees this screen.</p><p>Two jargon terms you will see everywhere. The primary market is where a brand-new loan is first funded by investors. The secondary market is where an investor who already owns a slice of a loan sells that slice to another investor. This screen handles admin tasks for both.</p><p>This page is laid out top to bottom as: key metrics, then a Borrowers table, then a Loans table, then four action panels (Primary marketplace operations, Secondary-market approvals, and Servicing and recovery).</p></div>
-    <div class="callout"><div class="callout-h">What you do on this screen</div><ul><li>Add and edit borrower companies, and watch their KYB status (the company-level identity and compliance check).</li><li>Create loan drafts, edit them, and review their status, amount, interest rate, LTV and funding deadline.</li><li>Publish a loan to the marketplace so investors can fund it, then close or cancel its funding, run an expiry scan, or release a stuck investor order.</li><li>Approve, reject or remove non-standard secondary-market listings (investor-to-investor resales).</li><li>Service live loans: record borrower repayments, run a status scan that flags late or defaulted loans, publish public notes to investors, and record recovery payments on defaulted loans.</li></ul></div>
+    <div class="lead-copy"><p>This screen is the lending engine of BANXUM. It is where you set up the companies that borrow money, build the loans they want, and run those loans from the moment they go live until they are fully repaid or written off.</p><p>A quick mental model of the product. Individual investors (called lenders) put money into their BANXUM account. The platform then funds loans to vetted business borrowers. Borrowers repay over time with interest. Lenders earn that interest and can later withdraw.</p><p>Borrowers are companies, not people with logins. There is no borrower portal. An admin types in every borrower's details by hand. The borrower never sees this screen.</p><p>Two jargon terms you will see everywhere. The primary market is where a brand-new loan is first funded by investors. The secondary market is where an investor who already owns a slice of a loan sells that slice to another investor. This screen handles admin tasks for both.</p><p>This page is laid out top to bottom as: key metrics, then a Borrowers table, then a Loans table, then two panels (Secondary-market approvals, and Servicing and recovery). Primary-market actions - publish, close funding, cancel funding, expiry scan, order release - live in the Manage dialog you open from a loan row.</p></div>
+    <div class="callout"><div class="callout-h">What you do on this screen</div><ul><li>Add and edit borrower companies, and watch their KYB status (the company-level identity and compliance check).</li><li>Create loan drafts, edit them, and review their status, amount, interest rate, LTV and funding deadline.</li><li>Open Manage on a loan row to publish it to the marketplace so investors can fund it, then close or cancel its funding, run an expiry scan, or release a stuck investor order.</li><li>Approve, reject or remove non-standard secondary-market listings (investor-to-investor resales).</li><li>Service live loans: record borrower repayments, run a status scan that flags late or defaulted loans, publish public notes to investors, and record recovery payments on defaulted loans.</li></ul></div>
     <figure class="fig">
     <div class="figtop">
       <figcaption><span class="figlabel">Figure 8.1</span> The four summary tiles across the top of the Loans screen.</figcaption>
@@ -1118,39 +1118,39 @@ figcaption { font-size:15.4px; font-weight:600; margin-bottom:3px; break-after:a
       <div class="figcanvas"><svg class="figsvg" data-fig="loans-6-loans" viewBox="0 0 1164 273" width="980" height="229.84536082474227" xmlns="http://www.w3.org/2000/svg">
     <defs><marker id="ahloans-6-loans" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9c3127"/></marker></defs>
     <image href="figures/loans-6-loans.png" x="66" y="0" width="1032" height="273"/>
-    <rect class="hl" x="82" y="103" width="230" height="40" rx="6"/>
+    <rect class="hl" x="82" y="103" width="245" height="40" rx="6"/>
 <path class="lead" d="M 33 113 L 84 123" marker-end="url(#ahloans-6-loans)"/>
 <circle class="badge" cx="33" cy="113" r="15"/>
 <text class="bnum" x="33" y="113.5">1</text>
-<rect class="hl" x="306" y="103" width="119" height="40" rx="6"/>
-<path class="lead" d="M 33 149 L 308 123" marker-end="url(#ahloans-6-loans)"/>
+<rect class="hl" x="321" y="103" width="127" height="40" rx="6"/>
+<path class="lead" d="M 33 149 L 323 123" marker-end="url(#ahloans-6-loans)"/>
 <circle class="badge" cx="33" cy="149" r="15"/>
 <text class="bnum" x="33" y="149.5">2</text>
-<rect class="hl" x="419" y="103" width="157" height="40" rx="6"/>
-<path class="lead" d="M 33 185 L 421 123" marker-end="url(#ahloans-6-loans)"/>
+<rect class="hl" x="442" y="103" width="167" height="40" rx="6"/>
+<path class="lead" d="M 33 185 L 444 123" marker-end="url(#ahloans-6-loans)"/>
 <circle class="badge" cx="33" cy="185" r="15"/>
 <text class="bnum" x="33" y="185.5">3</text>
-<rect class="hl" x="316" y="147" width="91" height="27" rx="6"/>
-<path class="lead" d="M 33 221 L 318 160.5" marker-end="url(#ahloans-6-loans)"/>
+<rect class="hl" x="331" y="147" width="91" height="27" rx="6"/>
+<path class="lead" d="M 33 221 L 333 160.5" marker-end="url(#ahloans-6-loans)"/>
 <circle class="badge" cx="33" cy="221" r="15"/>
 <text class="bnum" x="33" y="221.5">13</text>
-<rect class="hl" x="316" y="205" width="60" height="27" rx="6"/>
-<path class="lead" d="M 33 257 L 318 218.5" marker-end="url(#ahloans-6-loans)"/>
+<rect class="hl" x="331" y="205" width="60" height="27" rx="6"/>
+<path class="lead" d="M 33 257 L 333 218.5" marker-end="url(#ahloans-6-loans)"/>
 <circle class="badge" cx="33" cy="257" r="15"/>
 <text class="bnum" x="33" y="257.5">14</text>
-<rect class="hl" x="570" y="103" width="66" height="40" rx="6"/>
-<path class="lead" d="M 1131 77 L 634 123" marker-end="url(#ahloans-6-loans)"/>
+<rect class="hl" x="604" y="103" width="70" height="40" rx="6"/>
+<path class="lead" d="M 1131 77 L 672 123" marker-end="url(#ahloans-6-loans)"/>
 <circle class="badge" cx="1131" cy="77" r="15"/>
 <text class="bnum" x="1131" y="77.5">4</text>
-<rect class="hl" x="630" y="103" width="68" height="40" rx="6"/>
-<path class="lead" d="M 1131 113 L 696 123" marker-end="url(#ahloans-6-loans)"/>
+<rect class="hl" x="668" y="103" width="73" height="40" rx="6"/>
+<path class="lead" d="M 1131 113 L 739 123" marker-end="url(#ahloans-6-loans)"/>
 <circle class="badge" cx="1131" cy="113" r="15"/>
 <text class="bnum" x="1131" y="113.5">5</text>
-<rect class="hl" x="693" y="103" width="154" height="40" rx="6"/>
-<path class="lead" d="M 1131 149 L 845 123" marker-end="url(#ahloans-6-loans)"/>
+<rect class="hl" x="735" y="103" width="165" height="40" rx="6"/>
+<path class="lead" d="M 1131 149 L 898 123" marker-end="url(#ahloans-6-loans)"/>
 <circle class="badge" cx="1131" cy="149" r="15"/>
 <text class="bnum" x="1131" y="149.5">6</text>
-<rect class="hl" x="841" y="103" width="287" height="40" rx="6"/>
+<rect class="hl" x="893" y="103" width="235" height="40" rx="6"/>
 <path class="lead" d="M 1131 185 L 1126 123" marker-end="url(#ahloans-6-loans)"/>
 <circle class="badge" cx="1131" cy="185" r="15"/>
 <text class="bnum" x="1131" y="185.5">7</text>
@@ -1166,130 +1166,113 @@ figcaption { font-size:15.4px; font-weight:600; margin-bottom:3px; break-after:a
 <path class="lead" d="M 1131 41 L 1080 75" marker-end="url(#ahloans-6-loans)"/>
 <circle class="badge" cx="1131" cy="41" r="15"/>
 <text class="bnum" x="1131" y="41.5">10</text>
-<rect class="hl" x="851" y="147" width="50" height="34" rx="6"/>
-<path class="lead" d="M 1131 221 L 899 164" marker-end="url(#ahloans-6-loans)"/>
+<rect class="hl" x="903" y="147" width="50" height="34" rx="6"/>
+<path class="lead" d="M 1131 221 L 951 164" marker-end="url(#ahloans-6-loans)"/>
 <circle class="badge" cx="1131" cy="221" r="15"/>
 <text class="bnum" x="1131" y="221.5">11</text>
-<rect class="hl" x="903" y="147" width="74" height="34" rx="6"/>
-<path class="lead" d="M 1131 257 L 975 164" marker-end="url(#ahloans-6-loans)"/>
+<rect class="hl" x="956" y="147" width="74" height="34" rx="6"/>
+<path class="lead" d="M 1131 257 L 1028 164" marker-end="url(#ahloans-6-loans)"/>
 <circle class="badge" cx="1131" cy="257" r="15"/>
 <text class="bnum" x="1131" y="257.5">12</text>
   </svg></div>
     </div>
-    <ol class="legend"><li><span class="lnum">1</span><div><strong>Loan column</strong> The loan title with its unique ID (UUID) underneath. Click a row to select it; the selected loan becomes the default target for the action panels lower on the page (publish, close, servicing, etc.).</div></li><li><span class="lnum">2</span><div><strong>Status column</strong> The loan's lifecycle status as a coloured chip. The values are: Draft, Published, Funded, Late, Defaulted, Repaid, Written off, and Cancelled. Status controls what you are allowed to do: for example only Draft loans can be published, only Published loans can be closed or cancelled, only Funded/Late loans accept repayments, and only Defaulted loans accept recoveries.</div></li><li><span class="lnum">3</span><div><strong>Amount column</strong> The loan principal: the total amount the borrower wants to raise, shown formatted in the loan's currency. (Principal means the borrowed sum itself, before interest.)</div></li><li><span class="lnum">4</span><div><strong>Rate column</strong> The annual interest rate the borrower pays, shown as a percentage. Internally it is stored in basis points (bps), where 100 bps = 1%.</div></li><li><span class="lnum">5</span><div><strong>LTV column</strong> LTV means Loan-to-Value: the loan amount divided by the value of the collateral backing it, shown as a percentage. A lower LTV is safer because the collateral comfortably covers the loan. A dash means no LTV is recorded.</div></li><li><span class="lnum">6</span><div><strong>Funding deadline column</strong> The date by which investors must finish funding the loan. After this date the campaign is expired and can be cancelled by the expiry scan. To publish a loan, the deadline must be no earlier than today and no more than 29 days out (so end-of-window investor funds can still settle inside the platform's 60-day operating limit).</div></li><li><span class="lnum">7</span><div><strong>Actions column</strong> Holds the per-row Edit and Manage buttons. Published loans show a note that cancellation is done via the operations panel below, rather than from this row.</div></li><li><span class="lnum">8</span><div><strong>Filter loans by status</strong> A dropdown to show only loans in a chosen status (Draft, Published, Funded, Late, Defaulted, Repaid, Written off, Cancelled), or all of them. Handy for finding, say, every Late loan that needs servicing.</div></li><li><span class="lnum">9</span><div><strong>Refresh button</strong> Reloads the loans list from the backend. Use it after creating, editing or running an operation if the table looks stale.</div></li><li><span class="lnum">10</span><div><strong>Create loan button</strong> Opens the loan draft form. You pick a borrower, set the amount, rate, term, repayment type, collateral and funding deadline. The system builds the repayment schedule automatically. New loans always start as a Draft; they are not live until you publish them.</div></li><li><span class="lnum">11</span><div><strong>Edit button (row action)</strong> Opens the loan edit form. Note the safety rule: once investors have committed money to the loan, you can only lower the total amount (and not below what is already committed), and you must include an investor message. Other fields lock after commitments exist.</div></li><li><span class="lnum">12</span><div><strong>Manage button (row action)</strong> Selects this loan so the operation panels below (Primary marketplace operations, Servicing and recovery) act on it. Use this to line up a loan before publishing, closing or recording a repayment.</div></li><li><span class="lnum">13</span><div><strong>Published status chip</strong> Example of a 'Published' chip: this loan is live on the marketplace and investors can fund it now. From here you can close funding, cancel funding, or release individual orders.</div></li><li><span class="lnum">14</span><div><strong>Late status chip</strong> Example of a 'Late' chip: at least one installment is 5 or more days past due. If it reaches 16 or more days past due, the status scan moves it to Defaulted. Late loans still accept repayments.</div></li></ol>
+    <ol class="legend"><li><span class="lnum">1</span><div><strong>Loan column</strong> The loan title with its unique ID (UUID) underneath. Click a row to select it; the selected loan becomes the default target for the action panels lower on the page (publish, close, servicing, etc.).</div></li><li><span class="lnum">2</span><div><strong>Status column</strong> The loan's lifecycle status as a coloured chip. The values are: Draft, Published, Funded, Late, Defaulted, Repaid, Written off, and Cancelled. Status controls what you are allowed to do: for example only Draft loans can be published, only Published loans can be closed or cancelled, only Funded/Late loans accept repayments, and only Defaulted loans accept recoveries.</div></li><li><span class="lnum">3</span><div><strong>Amount column</strong> The loan principal: the total amount the borrower wants to raise, shown formatted in the loan's currency. (Principal means the borrowed sum itself, before interest.)</div></li><li><span class="lnum">4</span><div><strong>Rate column</strong> The annual interest rate the borrower pays, shown as a percentage. Internally it is stored in basis points (bps), where 100 bps = 1%.</div></li><li><span class="lnum">5</span><div><strong>LTV column</strong> LTV means Loan-to-Value: the loan amount divided by the value of the collateral backing it, shown as a percentage. A lower LTV is safer because the collateral comfortably covers the loan. A dash means no LTV is recorded.</div></li><li><span class="lnum">6</span><div><strong>Funding deadline column</strong> The date by which investors must finish funding the loan. After this date the campaign is expired and can be cancelled by the expiry scan. To publish a loan, the deadline must be no earlier than today and no more than 29 days out (so end-of-window investor funds can still settle inside the platform's 60-day operating limit).</div></li><li><span class="lnum">7</span><div><strong>Actions column</strong> Holds the per-row Edit and Manage buttons. Published loans show a note that cancellation is done via the operations panel below, rather than from this row.</div></li><li><span class="lnum">8</span><div><strong>Filter loans by status</strong> A dropdown to show only loans in a chosen status (Draft, Published, Funded, Late, Defaulted, Repaid, Written off, Cancelled), or all of them. Handy for finding, say, every Late loan that needs servicing.</div></li><li><span class="lnum">9</span><div><strong>Refresh button</strong> Reloads the loans list from the backend. Use it after creating, editing or running an operation if the table looks stale.</div></li><li><span class="lnum">10</span><div><strong>Create loan button</strong> Opens the loan draft form. You pick a borrower, set the amount, rate, term, repayment type, collateral and funding deadline. The system builds the repayment schedule automatically. New loans always start as a Draft; they are not live until you publish them.</div></li><li><span class="lnum">11</span><div><strong>Edit button (row action)</strong> Opens the loan edit form. Note the safety rule: once investors have committed money to the loan, you can only lower the total amount (and not below what is already committed), and you must include an investor message. Other fields lock after commitments exist.</div></li><li><span class="lnum">12</span><div><strong>Manage button (row action)</strong> Opens the Manage dialog for this loan: a menu of the primary-market actions valid for its current status (publish for drafts; close funding, cancel funding, expiry scan and order release for published loans). Choosing an action shows only that action's fields. It also selects the loan for the Servicing and recovery panel below.</div></li><li><span class="lnum">13</span><div><strong>Published status chip</strong> Example of a 'Published' chip: this loan is live on the marketplace and investors can fund it now. From here you can close funding, cancel funding, or release individual orders.</div></li><li><span class="lnum">14</span><div><strong>Late status chip</strong> Example of a 'Late' chip: at least one installment is 5 or more days past due. If it reaches 16 or more days past due, the status scan moves it to Defaulted. Late loans still accept repayments.</div></li></ol>
     <div class="notes"><div class="notes-h">Notes &amp; rules</div><ul><li>Publishing a loan runs four gates at once: required fields present, the repayment schedule is complete (one installment per month of the term and the principal pieces add up to the loan amount), the funding deadline is valid for publishing, and the borrower's KYB is Approved with no compliance hold. If any gate fails, publishing is refused with a message.</li><li>Status is not just a label; it is enforced. The action panels will reject operations that do not match the loan's current status.</li><li>The search box lets you find a loan by title, borrower, status or UUID.</li></ul></div>
   </figure><figure class="fig">
     <div class="figtop">
-      <figcaption><span class="figlabel">Figure 8.4</span> Primary marketplace operations: publish a loan, close or cancel its funding, run an expiry scan, and release a stuck order.</figcaption>
-      <p class="figsummary">This panel runs the live primary-market actions on a single selected loan. The primary market is the first round of funding, where investors put money into a new loan. The panel reads the loan you selected in the table above, and most actions ask you to confirm before they run.</p>
-      <div class="figcanvas"><svg class="figsvg" data-fig="loans-7-primary-marketplace-operations" viewBox="0 0 640 1689" width="424.39313203078746" height="1120" xmlns="http://www.w3.org/2000/svg">
-    <defs><marker id="ahloans-7-primary-marketplace-operations" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9c3127"/></marker></defs>
-    <image href="figures/loans-7-primary-marketplace-operations.png" x="66" y="0" width="508" height="1689"/>
-    <rect class="hl" x="82" y="1099" width="235" height="24" rx="6"/>
-<path class="lead" d="M 33 1111 L 84 1111" marker-end="url(#ahloans-7-primary-marketplace-operations)"/>
-<circle class="badge" cx="33" cy="1111" r="15"/>
-<text class="bnum" x="33" y="1111.5">10</text>
-<rect class="hl" x="82" y="1532" width="235" height="24" rx="6"/>
-<path class="lead" d="M 33 1544 L 84 1544" marker-end="url(#ahloans-7-primary-marketplace-operations)"/>
-<circle class="badge" cx="33" cy="1544" r="15"/>
-<text class="bnum" x="33" y="1544.5">15</text>
-<rect class="hl" x="149" y="125" width="99" height="27" rx="6"/>
-<path class="lead" d="M 33 138.5 L 151 138.5" marker-end="url(#ahloans-7-primary-marketplace-operations)"/>
-<circle class="badge" cx="33" cy="138.5" r="15"/>
-<text class="bnum" x="33" y="139">18</text>
-<rect class="hl" x="82" y="195" width="476" height="24" rx="6"/>
-<path class="lead" d="M 607 207 L 556 207" marker-end="url(#ahloans-7-primary-marketplace-operations)"/>
-<circle class="badge" cx="607" cy="207" r="15"/>
-<text class="bnum" x="607" y="207.5">1</text>
-<rect class="hl" x="82" y="279" width="476" height="24" rx="6"/>
-<path class="lead" d="M 607 291 L 556 291" marker-end="url(#ahloans-7-primary-marketplace-operations)"/>
-<circle class="badge" cx="607" cy="291" r="15"/>
-<text class="bnum" x="607" y="291.5">2</text>
-<rect class="hl" x="82" y="407" width="476" height="40" rx="6"/>
-<path class="lead" d="M 607 427 L 556 427" marker-end="url(#ahloans-7-primary-marketplace-operations)"/>
-<circle class="badge" cx="607" cy="427" r="15"/>
-<text class="bnum" x="607" y="427.5">3</text>
-<rect class="hl" x="82" y="454" width="476" height="24" rx="6"/>
-<path class="lead" d="M 607 466 L 556 466" marker-end="url(#ahloans-7-primary-marketplace-operations)"/>
-<circle class="badge" cx="607" cy="466" r="15"/>
-<text class="bnum" x="607" y="466.5">4</text>
-<rect class="hl" x="82" y="582" width="476" height="24" rx="6"/>
-<path class="lead" d="M 607 594 L 556 594" marker-end="url(#ahloans-7-primary-marketplace-operations)"/>
-<circle class="badge" cx="607" cy="594" r="15"/>
-<text class="bnum" x="607" y="594.5">5</text>
-<rect class="hl" x="82" y="710" width="476" height="40" rx="6"/>
-<path class="lead" d="M 607 730 L 556 730" marker-end="url(#ahloans-7-primary-marketplace-operations)"/>
-<circle class="badge" cx="607" cy="730" r="15"/>
-<text class="bnum" x="607" y="730.5">6</text>
-<rect class="hl" x="82" y="757" width="476" height="24" rx="6"/>
-<path class="lead" d="M 607 769 L 556 769" marker-end="url(#ahloans-7-primary-marketplace-operations)"/>
-<circle class="badge" cx="607" cy="769" r="15"/>
-<text class="bnum" x="607" y="769.5">7</text>
-<rect class="hl" x="82" y="885" width="476" height="24" rx="6"/>
-<path class="lead" d="M 607 897 L 556 897" marker-end="url(#ahloans-7-primary-marketplace-operations)"/>
-<circle class="badge" cx="607" cy="897" r="15"/>
-<text class="bnum" x="607" y="897.5">8</text>
-<rect class="hl" x="82" y="1052" width="476" height="40" rx="6"/>
-<path class="lead" d="M 607 1072 L 556 1072" marker-end="url(#ahloans-7-primary-marketplace-operations)"/>
-<circle class="badge" cx="607" cy="1072" r="15"/>
-<text class="bnum" x="607" y="1072.5">9</text>
-<rect class="hl" x="323" y="1099" width="235" height="25" rx="6"/>
-<path class="lead" d="M 607 1111.5 L 556 1111.5" marker-end="url(#ahloans-7-primary-marketplace-operations)"/>
-<circle class="badge" cx="607" cy="1111.5" r="15"/>
-<text class="bnum" x="607" y="1112">11</text>
-<rect class="hl" x="82" y="1186" width="476" height="24" rx="6"/>
-<path class="lead" d="M 607 1198 L 556 1198" marker-end="url(#ahloans-7-primary-marketplace-operations)"/>
-<circle class="badge" cx="607" cy="1198" r="15"/>
-<text class="bnum" x="607" y="1198.5">12</text>
-<rect class="hl" x="82" y="1336" width="476" height="24" rx="6"/>
-<path class="lead" d="M 607 1348 L 556 1348" marker-end="url(#ahloans-7-primary-marketplace-operations)"/>
-<circle class="badge" cx="607" cy="1348" r="15"/>
-<text class="bnum" x="607" y="1348.5">13</text>
-<rect class="hl" x="82" y="1485" width="476" height="40" rx="6"/>
-<path class="lead" d="M 607 1505 L 556 1505" marker-end="url(#ahloans-7-primary-marketplace-operations)"/>
-<circle class="badge" cx="607" cy="1505" r="15"/>
-<text class="bnum" x="607" y="1505.5">14</text>
-<rect class="hl" x="323" y="1532" width="235" height="24" rx="6"/>
-<path class="lead" d="M 607 1544 L 556 1544" marker-end="url(#ahloans-7-primary-marketplace-operations)"/>
-<circle class="badge" cx="607" cy="1544" r="15"/>
-<text class="bnum" x="607" y="1544.5">16</text>
-<rect class="hl" x="82" y="1633" width="476" height="40" rx="6"/>
-<path class="lead" d="M 607 1653 L 556 1653" marker-end="url(#ahloans-7-primary-marketplace-operations)"/>
-<circle class="badge" cx="607" cy="1653" r="15"/>
-<text class="bnum" x="607" y="1653.5">17</text>
+      <figcaption><span class="figlabel">Figure 8.4</span> The Manage dialog: pick the action to apply to this loan.</figcaption>
+      <p class="figsummary">Clicking Manage on a loan row opens this dialog. The bar at the top restates the loan you are acting on: its status chip, funding deadline, committed versus total amount, and ID. Below it is the action menu - only actions that are valid for the loan's current status are listed, each with a one-line explanation. Draft loans offer 'Publish loan'; published loans offer the four actions shown here; statuses with no primary-market actions (for example Late or Funded) show a note pointing you to the Servicing and recovery panel instead.</p>
+      <div class="figcanvas"><svg class="figsvg" data-fig="loans-9-manage-loan-actions" viewBox="0 0 852 549" width="852" height="549" xmlns="http://www.w3.org/2000/svg">
+    <defs><marker id="ahloans-9-manage-loan-actions" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9c3127"/></marker></defs>
+    <image href="figures/loans-9-manage-loan-actions.png" x="66" y="0" width="720" height="549"/>
+    <rect class="hl" x="84" y="17" width="312" height="30" rx="6"/>
+<path class="lead" d="M 33 32 L 86 32" marker-end="url(#ahloans-9-manage-loan-actions)"/>
+<circle class="badge" cx="33" cy="32" r="15"/>
+<text class="bnum" x="33" y="32.5">1</text>
+<rect class="hl" x="97" y="104" width="99" height="27" rx="6"/>
+<path class="lead" d="M 33 117.5 L 99 117.5" marker-end="url(#ahloans-9-manage-loan-actions)"/>
+<circle class="badge" cx="33" cy="117.5" r="15"/>
+<text class="bnum" x="33" y="118">2</text>
+<rect class="hl" x="99" y="218" width="654" height="26" rx="6"/>
+<path class="lead" d="M 819 231 L 751 231" marker-end="url(#ahloans-9-manage-loan-actions)"/>
+<circle class="badge" cx="819" cy="231" r="15"/>
+<text class="bnum" x="819" y="231.5">3</text>
+<rect class="hl" x="99" y="313" width="654" height="27" rx="6"/>
+<path class="lead" d="M 819 326.5 L 751 326.5" marker-end="url(#ahloans-9-manage-loan-actions)"/>
+<circle class="badge" cx="819" cy="326.5" r="15"/>
+<text class="bnum" x="819" y="327">4</text>
+<rect class="hl" x="99" y="391" width="654" height="27" rx="6"/>
+<path class="lead" d="M 819 404.5 L 751 404.5" marker-end="url(#ahloans-9-manage-loan-actions)"/>
+<circle class="badge" cx="819" cy="404.5" r="15"/>
+<text class="bnum" x="819" y="405">5</text>
+<rect class="hl" x="99" y="470" width="654" height="27" rx="6"/>
+<path class="lead" d="M 819 483.5 L 751 483.5" marker-end="url(#ahloans-9-manage-loan-actions)"/>
+<circle class="badge" cx="819" cy="483.5" r="15"/>
+<text class="bnum" x="819" y="484">6</text>
+<rect class="hl" x="732" y="14" width="36" height="36" rx="6"/>
+<path class="lead" d="M 819 32 L 766 32" marker-end="url(#ahloans-9-manage-loan-actions)"/>
+<circle class="badge" cx="819" cy="32" r="15"/>
+<text class="bnum" x="819" y="32.5">7</text>
   </svg></div>
     </div>
-    <ol class="legend"><li><span class="lnum">1</span><div><strong>Loan field</strong> The loan this panel acts on. It defaults to the loan selected in the Loans table, but you can search and pick a different one. Every button below targets this loan.</div></li><li><span class="lnum">2</span><div><strong>Publish note field</strong> An optional free-text note saved with the publish action for the audit record. It does not change anything about the loan itself.</div></li><li><span class="lnum">3</span><div><strong>Publish loan button</strong> Moves a Draft loan to Published so investors can start funding it. It only works on Draft loans, and only if the borrower's KYB is Approved with no compliance hold, the funding deadline is valid (today through 29 days out), and the repayment schedule is complete. Otherwise it fails with a specific reason.</div></li><li><span class="lnum">4</span><div><strong>Funding close reason field</strong> A required reason recorded when you close funding. Closing funding is the normal happy-path end of a campaign: it locks in the investors who funded the loan and creates their holdings.</div></li><li><span class="lnum">5</span><div><strong>Investor message field</strong> The message shown to investors when funding closes. It is required for a partial close (where less than the full amount was raised, so the loan amount is lowered to what was actually committed).</div></li><li><span class="lnum">6</span><div><strong>Close funding button</strong> Ends the funding campaign for a Published loan. It creates investor holdings, moves the escrowed money into a borrower payable plus Garanta's fee revenue, and blocks any later order releases for this loan. It only works on Published loans whose borrower can transact and that have allocated orders matching the committed principal. A confirmation dialog summarises the action first.</div></li><li><span class="lnum">7</span><div><strong>Cancellation reason field</strong> A required reason recorded when you cancel funding. Cancelling is the unwind path: it ends a campaign before it closes and returns money to investors.</div></li><li><span class="lnum">8</span><div><strong>Cancellation investor message field</strong> The message to investors explaining the cancellation. It is required whenever there are pending or allocated investor orders on the loan.</div></li><li><span class="lnum">9</span><div><strong>Cancel funding button</strong> Cancels a Published loan's funding. It releases every allocated reservation back to investors, closes pending intents as 'not invested', moves the loan to Cancelled, and records immutable evidence. It only works before funding has been closed, and only on Published loans. This is a destructive action, so it asks for confirmation.</div></li><li><span class="lnum">10</span><div><strong>Expiry scan as-of date field</strong> The date the expiry scan compares funding deadlines against. Any published campaign whose funding deadline is before this date is treated as expired.</div></li><li><span class="lnum">11</span><div><strong>Scan selected loan only checkbox</strong> When ticked, the scan only looks at the loan selected above. Untick it to scan every expired published campaign at once. Allocation here means the investor money matched to a loan; the scan only acts on expired campaigns.</div></li><li><span class="lnum">12</span><div><strong>Expiry scan reason override field</strong> Optional. If left blank, the backend uses its standard expiry reason. Fill it in only when you want a custom reason recorded on the cancellations the scan produces.</div></li><li><span class="lnum">13</span><div><strong>Expiry scan investor message override field</strong> Optional. If left blank, the backend uses its standard investor message. Use it to override the wording investors receive when their expired campaign is cancelled.</div></li><li><span class="lnum">14</span><div><strong>Run expiry scan button</strong> Finds published campaigns past their funding deadline and cancels them using the same safe cancellation path as the Cancel funding button. After it runs, a message reports how many campaigns were cancelled and how many were skipped. It asks for confirmation first.</div></li><li><span class="lnum">15</span><div><strong>Primary order field</strong> The specific investor order to release. An order is one investor's commitment to fund part of a loan. Use this when a single investor's order is stuck and needs unwinding without touching the rest of the campaign.</div></li><li><span class="lnum">16</span><div><strong>Release reason field</strong> A required reason recorded against the order release for the audit trail.</div></li><li><span class="lnum">17</span><div><strong>Release order balance button</strong> Unwinds one investor order. A still-pending order is simply closed as 'not invested'; an allocated order has its reserved balance restored to the investor and its loan-funding escrow reversed (the loan must still be Published). Orders on a loan whose funding is already closed cannot be released. Confirmation is required.</div></li><li><span class="lnum">18</span><div><strong>Status chip (context)</strong> Shows the current status of the selected loan inside this panel (for example 'Published'), so you can confirm you are acting on the right loan before pressing a button.</div></li></ol>
-    <div class="notes"><div class="notes-h">Notes &amp; rules</div><ul><li>Each action carries an idempotency key behind the scenes. That means clicking twice will not run the same operation twice; a repeat of the exact same request is safely ignored.</li><li>Think of it as: Publish opens funding, Close ends it successfully, Cancel ends it by unwinding, the Expiry scan auto-cancels deadlines that have passed, and Release fixes a single order.</li><li>Close, Cancel, Expiry scan and Release all show a confirmation dialog summarising the loan, reason and message before they run.</li></ul></div>
+    <ol class="legend"><li><span class="lnum">1</span><div><strong>Dialog title</strong> Names the loan you are managing, so you cannot mix up rows. Everything you do in this dialog applies to this loan only.</div></li><li><span class="lnum">2</span><div><strong>Loan context bar</strong> The loan's current status ('Published' here), funding deadline and committed/total amounts. Check this before acting - the menu is built from this status.</div></li><li><span class="lnum">3</span><div><strong>Close funding</strong> Ends the funding round. Allocated orders become holdings, escrow moves to the borrower payable and Garanta fee revenue, and the loan activates. If less than the full amount was raised, this is the partial close: the accepted amount becomes the final principal and the schedule is regenerated.</div></li><li><span class="lnum">4</span><div><strong>Cancel funding</strong> Stops the campaign before close. Reserved balances are released back to investors, pending orders close as not invested, and the loan moves to cancelled. Only valid before funding close. The 'Confirmation required' tag means a summary dialog asks you to confirm before anything runs.</div></li><li><span class="lnum">5</span><div><strong>Run funding expiry scan</strong> Cancels published campaigns whose funding deadline has passed. A checkbox in the form limits the scan to this loan (default) or widens it to all expired published campaigns.</div></li><li><span class="lnum">6</span><div><strong>Release an order's balance</strong> Returns one allocated order's reserved balance to its investor without touching the rest of the campaign - used when a single order must be unwound, for example after a validation problem.</div></li><li><span class="lnum">7</span><div><strong>Close (X)</strong> Closes the dialog without doing anything. Nothing runs until you pick an action and confirm it inside the form.</div></li></ol>
+    <div class="notes"><div class="notes-h">Notes &amp; rules</div><ul><li>The menu is status-aware: a draft loan only offers Publish; a published loan offers Close/Cancel/Expiry scan/Release; loans past funding (Funded, Late, Defaulted, Repaid) have no primary-market actions - their day-to-day work happens in Servicing and recovery.</li><li>Dangerous actions carry a 'Confirmation required' tag: after filling the form you still get a summary dialog restating loan, reason and message before the backend is called.</li><li>Publishing is subject to backend gates: borrower KYB approved, no compliance hold, complete loan data and a valid funding deadline.</li></ul></div>
   </figure><figure class="fig">
     <div class="figtop">
-      <figcaption><span class="figlabel">Figure 8.5</span> Secondary-market approvals: act on investor-to-investor resale listings.</figcaption>
+      <figcaption><span class="figlabel">Figure 8.5</span> After choosing an action, only that action's fields appear.</figcaption>
+      <p class="figsummary">The second step of the Manage dialog, shown here for Close funding. The context bar stays visible, a back link returns to the action list, and the form contains only the fields this action needs. Other actions follow the same pattern - Cancel funding asks for a cancellation reason and investor message, the expiry scan asks for an as-of date and scope, and the order release asks for the order and a reason.</p>
+      <div class="figcanvas"><svg class="figsvg" data-fig="loans-10-manage-close-funding" viewBox="0 0 852 533" width="852" height="533" xmlns="http://www.w3.org/2000/svg">
+    <defs><marker id="ahloans-10-manage-close-funding" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9c3127"/></marker></defs>
+    <image href="figures/loans-10-manage-close-funding.png" x="66" y="0" width="720" height="533"/>
+    <rect class="hl" x="84" y="177" width="103" height="34" rx="6"/>
+<path class="lead" d="M 33 194 L 86 194" marker-end="url(#ahloans-10-manage-close-funding)"/>
+<circle class="badge" cx="33" cy="194" r="15"/>
+<text class="bnum" x="33" y="194.5">1</text>
+<rect class="hl" x="84" y="218" width="684" height="24" rx="6"/>
+<path class="lead" d="M 819 230 L 766 230" marker-end="url(#ahloans-10-manage-close-funding)"/>
+<circle class="badge" cx="819" cy="230" r="15"/>
+<text class="bnum" x="819" y="230.5">2</text>
+<rect class="hl" x="84" y="346" width="684" height="24" rx="6"/>
+<path class="lead" d="M 819 358 L 766 358" marker-end="url(#ahloans-10-manage-close-funding)"/>
+<circle class="badge" cx="819" cy="358" r="15"/>
+<text class="bnum" x="819" y="358.5">3</text>
+<rect class="hl" x="84" y="475" width="684" height="40" rx="6"/>
+<path class="lead" d="M 819 495 L 766 495" marker-end="url(#ahloans-10-manage-close-funding)"/>
+<circle class="badge" cx="819" cy="495" r="15"/>
+<text class="bnum" x="819" y="495.5">4</text>
+  </svg></div>
+    </div>
+    <ol class="legend"><li><span class="lnum">1</span><div><strong>All actions (back)</strong> Returns to the action menu without running anything. Use it if you picked the wrong action.</div></li><li><span class="lnum">2</span><div><strong>Funding close reason</strong> The operator-facing reason recorded with the close - part of the immutable evidence for why funding ended.</div></li><li><span class="lnum">3</span><div><strong>Investor message</strong> The message investors receive about the close. For a partial close, explain that the funded amount became the final loan amount.</div></li><li><span class="lnum">4</span><div><strong>Close funding button</strong> Opens the confirmation summary (loan, reason, message). Confirming runs the close: holdings are created, escrow moves, and the loan activates. The result banner appears in this dialog.</div></li></ol>
+    <div class="notes"><div class="notes-h">Notes &amp; rules</div><ul><li>Success, preview-mode and error messages appear at the bottom of the dialog, and the loan table refreshes automatically after a successful action.</li><li>In preview/demo mode the buttons record a 'Preview action' note instead of calling the backend.</li></ul></div>
+  </figure><figure class="fig">
+    <div class="figtop">
+      <figcaption><span class="figlabel">Figure 8.6</span> Secondary-market approvals: act on investor-to-investor resale listings.</figcaption>
       <p class="figsummary">The secondary market is where an investor who already owns part of a loan lists that slice for sale to another investor. Most listings go live automatically, but non-standard ones (for example on a non-performing loan) need an admin to approve them with a disclosure note. This panel approves, rejects or removes those listings.</p>
-      <div class="figcanvas"><svg class="figsvg" data-fig="loans-8-secondary-market-approvals" viewBox="0 0 640 455" width="640" height="455" xmlns="http://www.w3.org/2000/svg">
-    <defs><marker id="ahloans-8-secondary-market-approvals" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9c3127"/></marker></defs>
-    <image href="figures/loans-8-secondary-market-approvals.png" x="66" y="0" width="508" height="455"/>
+      <div class="figcanvas"><svg class="figsvg" data-fig="loans-7-secondary-market-approvals" viewBox="0 0 640 455" width="640" height="455" xmlns="http://www.w3.org/2000/svg">
+    <defs><marker id="ahloans-7-secondary-market-approvals" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9c3127"/></marker></defs>
+    <image href="figures/loans-7-secondary-market-approvals.png" x="66" y="0" width="508" height="455"/>
     <rect class="hl" x="82" y="399" width="129" height="40" rx="6"/>
-<path class="lead" d="M 33 403 L 84 419" marker-end="url(#ahloans-8-secondary-market-approvals)"/>
+<path class="lead" d="M 33 403 L 84 419" marker-end="url(#ahloans-7-secondary-market-approvals)"/>
 <circle class="badge" cx="33" cy="403" r="15"/>
 <text class="bnum" x="33" y="403.5">4</text>
 <rect class="hl" x="213" y="399" width="75" height="40" rx="6"/>
-<path class="lead" d="M 33 439 L 215 419" marker-end="url(#ahloans-8-secondary-market-approvals)"/>
+<path class="lead" d="M 33 439 L 215 419" marker-end="url(#ahloans-7-secondary-market-approvals)"/>
 <circle class="badge" cx="33" cy="439" r="15"/>
 <text class="bnum" x="33" y="439.5">5</text>
 <rect class="hl" x="82" y="58" width="476" height="24" rx="6"/>
-<path class="lead" d="M 607 70 L 556 70" marker-end="url(#ahloans-8-secondary-market-approvals)"/>
+<path class="lead" d="M 607 70 L 556 70" marker-end="url(#ahloans-7-secondary-market-approvals)"/>
 <circle class="badge" cx="607" cy="70" r="15"/>
 <text class="bnum" x="607" y="70.5">1</text>
 <rect class="hl" x="82" y="143" width="476" height="24" rx="6"/>
-<path class="lead" d="M 607 155 L 556 155" marker-end="url(#ahloans-8-secondary-market-approvals)"/>
+<path class="lead" d="M 607 155 L 556 155" marker-end="url(#ahloans-7-secondary-market-approvals)"/>
 <circle class="badge" cx="607" cy="155" r="15"/>
 <text class="bnum" x="607" y="155.5">2</text>
 <rect class="hl" x="82" y="271" width="476" height="24" rx="6"/>
-<path class="lead" d="M 607 283 L 556 283" marker-end="url(#ahloans-8-secondary-market-approvals)"/>
+<path class="lead" d="M 607 283 L 556 283" marker-end="url(#ahloans-7-secondary-market-approvals)"/>
 <circle class="badge" cx="607" cy="283" r="15"/>
 <text class="bnum" x="607" y="283.5">3</text>
 <rect class="hl" x="290" y="399" width="85" height="40" rx="6"/>
-<path class="lead" d="M 607 419 L 373 419" marker-end="url(#ahloans-8-secondary-market-approvals)"/>
+<path class="lead" d="M 607 419 L 373 419" marker-end="url(#ahloans-7-secondary-market-approvals)"/>
 <circle class="badge" cx="607" cy="419" r="15"/>
 <text class="bnum" x="607" y="419.5">6</text>
   </svg></div>
@@ -1298,53 +1281,53 @@ figcaption { font-size:15.4px; font-weight:600; margin-bottom:3px; break-after:a
     <div class="notes"><div class="notes-h">Notes &amp; rules</div><ul><li>Approve and Reject are first-decision actions: they only apply to a listing still awaiting a decision. Remove is the way to pull a listing that is already active.</li><li>Approving notifies the seller that the listing is live; rejecting and removing notify the seller of the decision and reason.</li><li>The same Reason and Disclosure note fields are reused across all three buttons, so set them to match the action you are about to take.</li></ul></div>
   </figure><figure class="fig">
     <div class="figtop">
-      <figcaption><span class="figlabel">Figure 8.6</span> Servicing and recovery: record repayments, scan loan health, post public notes, and handle defaults.</figcaption>
+      <figcaption><span class="figlabel">Figure 8.7</span> Servicing and recovery: record repayments, scan loan health, post public notes, and handle defaults.</figcaption>
       <p class="figsummary">Servicing means running a loan after it is funded: recording the borrower's repayments and keeping its status accurate. Recovery handles loans that have defaulted (gone badly past due) by recording money clawed back. This panel acts on the loan selected in the table above.</p>
-      <div class="figcanvas"><svg class="figsvg" data-fig="loans-9-servicing-and-recovery" viewBox="0 0 1164 621" width="980" height="522.8350515463917" xmlns="http://www.w3.org/2000/svg">
-    <defs><marker id="ahloans-9-servicing-and-recovery" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9c3127"/></marker></defs>
-    <image href="figures/loans-9-servicing-and-recovery.png" x="66" y="0" width="1032" height="621"/>
+      <div class="figcanvas"><svg class="figsvg" data-fig="loans-8-servicing-and-recovery" viewBox="0 0 1164 621" width="980" height="522.8350515463917" xmlns="http://www.w3.org/2000/svg">
+    <defs><marker id="ahloans-8-servicing-and-recovery" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9c3127"/></marker></defs>
+    <image href="figures/loans-8-servicing-and-recovery.png" x="66" y="0" width="1032" height="621"/>
     <rect class="hl" x="82" y="114" width="497" height="24" rx="6"/>
-<path class="lead" d="M 33 119 L 84 126" marker-end="url(#ahloans-9-servicing-and-recovery)"/>
+<path class="lead" d="M 33 119 L 84 126" marker-end="url(#ahloans-8-servicing-and-recovery)"/>
 <circle class="badge" cx="33" cy="119" r="15"/>
 <text class="bnum" x="33" y="119.5">1</text>
 <rect class="hl" x="82" y="197" width="497" height="24" rx="6"/>
-<path class="lead" d="M 33 202 L 84 209" marker-end="url(#ahloans-9-servicing-and-recovery)"/>
+<path class="lead" d="M 33 202 L 84 209" marker-end="url(#ahloans-8-servicing-and-recovery)"/>
 <circle class="badge" cx="33" cy="202" r="15"/>
 <text class="bnum" x="33" y="202.5">3</text>
 <rect class="hl" x="82" y="258" width="497" height="24" rx="6"/>
-<path class="lead" d="M 33 263 L 84 270" marker-end="url(#ahloans-9-servicing-and-recovery)"/>
+<path class="lead" d="M 33 263 L 84 270" marker-end="url(#ahloans-8-servicing-and-recovery)"/>
 <circle class="badge" cx="33" cy="263" r="15"/>
 <text class="bnum" x="33" y="263.5">5</text>
 <rect class="hl" x="82" y="353" width="150" height="40" rx="6"/>
-<path class="lead" d="M 33 366 L 84 373" marker-end="url(#ahloans-9-servicing-and-recovery)"/>
+<path class="lead" d="M 33 366 L 84 373" marker-end="url(#ahloans-8-servicing-and-recovery)"/>
 <circle class="badge" cx="33" cy="366" r="15"/>
 <text class="bnum" x="33" y="366.5">6</text>
 <rect class="hl" x="234" y="353" width="135" height="40" rx="6"/>
-<path class="lead" d="M 33 402 L 236 373" marker-end="url(#ahloans-9-servicing-and-recovery)"/>
+<path class="lead" d="M 33 402 L 236 373" marker-end="url(#ahloans-8-servicing-and-recovery)"/>
 <circle class="badge" cx="33" cy="402" r="15"/>
 <text class="bnum" x="33" y="402.5">7</text>
 <rect class="hl" x="82" y="546" width="154" height="40" rx="6"/>
-<path class="lead" d="M 33 569 L 84 566" marker-end="url(#ahloans-9-servicing-and-recovery)"/>
+<path class="lead" d="M 33 569 L 84 566" marker-end="url(#ahloans-8-servicing-and-recovery)"/>
 <circle class="badge" cx="33" cy="569" r="15"/>
 <text class="bnum" x="33" y="569.5">9</text>
 <rect class="hl" x="238" y="528" width="195" height="24" rx="6"/>
-<path class="lead" d="M 33 533 L 240 540" marker-end="url(#ahloans-9-servicing-and-recovery)"/>
+<path class="lead" d="M 33 533 L 240 540" marker-end="url(#ahloans-8-servicing-and-recovery)"/>
 <circle class="badge" cx="33" cy="533" r="15"/>
 <text class="bnum" x="33" y="533.5">10</text>
 <rect class="hl" x="435" y="546" width="137" height="40" rx="6"/>
-<path class="lead" d="M 33 605 L 437 566" marker-end="url(#ahloans-9-servicing-and-recovery)"/>
+<path class="lead" d="M 33 605 L 437 566" marker-end="url(#ahloans-8-servicing-and-recovery)"/>
 <circle class="badge" cx="33" cy="605" r="15"/>
 <text class="bnum" x="33" y="605.5">11</text>
 <rect class="hl" x="585" y="114" width="497" height="24" rx="6"/>
-<path class="lead" d="M 1131 126 L 1080 126" marker-end="url(#ahloans-9-servicing-and-recovery)"/>
+<path class="lead" d="M 1131 126 L 1080 126" marker-end="url(#ahloans-8-servicing-and-recovery)"/>
 <circle class="badge" cx="1131" cy="126" r="15"/>
 <text class="bnum" x="1131" y="126.5">2</text>
 <rect class="hl" x="585" y="197" width="497" height="24" rx="6"/>
-<path class="lead" d="M 1131 209 L 1080 209" marker-end="url(#ahloans-9-servicing-and-recovery)"/>
+<path class="lead" d="M 1131 209 L 1080 209" marker-end="url(#ahloans-8-servicing-and-recovery)"/>
 <circle class="badge" cx="1131" cy="209" r="15"/>
 <text class="bnum" x="1131" y="209.5">4</text>
 <rect class="hl" x="82" y="400" width="1000" height="24" rx="6"/>
-<path class="lead" d="M 1131 412 L 1080 412" marker-end="url(#ahloans-9-servicing-and-recovery)"/>
+<path class="lead" d="M 1131 412 L 1080 412" marker-end="url(#ahloans-8-servicing-and-recovery)"/>
 <circle class="badge" cx="1131" cy="412" r="15"/>
 <text class="bnum" x="1131" y="412.5">8</text>
   </svg></div>
@@ -1545,7 +1528,7 @@ figcaption { font-size:15.4px; font-weight:600; margin-bottom:3px; break-after:a
       <div class="flow-head"><span class="flow-n">1</span><h3>Onboard a borrower and publish their first loan</h3></div>
       <p class="flow-goal"><strong>Goal:</strong> Take a brand-new business borrower from nothing to a live, investable loan on the marketplace. &nbsp;·&nbsp; <strong>Who:</strong> Operations admin (any active admin can do every step).</p>
       <div class="flow-pre"><strong>Before you start:</strong><ul><li>You are signed in to the ops console (email + password, then a 6-digit code sent to your admin email).</li><li>Jargon: 'borrower' = the business that wants to borrow money. 'KYB' = Know Your Business, the compliance check that proves the company is real and allowed to transact. 'KYB status' values are not_started, pending, approved, declined, manual_review, expired, reverification_required. The blocking 'no' value is 'declined' (not 'rejected'). Only 'approved' (with compliance hold off) lets a loan publish. 'Loan draft' = a loan that exists but is not yet visible to investors. 'Publish' = make the loan visible on the primary marketplace so investors can fund it.</li><li>You have the borrower's legal details (legal name, year founded, country) and the loan terms (amount, rate, term, collateral).</li><li>A current Primary Market Investment document template is published in Superadmin Settings. Without it, investors cannot complete the investment clickwrap because the server cannot load the project investment confirmation / claim assignment agreement.</li></ul></div>
-      <ol class="flow-steps"><li><span class="step-screen">Loans (left nav 'Loans')</span><div><span class="step-action">Open the Loans module and go to the 'Borrowers' card.</span><div class="step-detail">The Borrowers table lists every business entity. Borrowers are admin-entered only; borrowers do NOT have their own login. If the company is not in the list, you must create it.</div></div></li><li><span class="step-screen">Loans &gt; Borrowers</span><div><span class="step-action">Click 'Create borrower' (top-right of the Borrowers card).</span><div class="step-detail">A modal opens. Fill Legal name, Year founded, Entity type, KYB status, Country, Financials currency, Assets. New borrowers normally start with KYB status 'Pending'. Click 'Create borrower' to save.</div></div></li><li><span class="step-screen">Loans &gt; Borrowers</span><div><span class="step-action">Run the KYB review, then set the borrower's KYB status to 'Approved' via the 'Edit' button on that borrower's row.</span><div class="step-detail">GATE: a loan can only be published when the borrower 'can transact', which means KYB status = approved AND compliance hold is OFF. In the Edit modal, set KYB status to Approved and make sure 'Compliance hold is active' is unchecked. A KYB status change is rejected unless you also type an Admin note OR an Evidence summary - the backend requires one of them for any KYB change. Save.</div></div></li><li><span class="step-screen">Loans &gt; Loans card</span><div><span class="step-action">With the approved borrower selected, click 'Create loan' (top-right of the Loans card).</span><div class="step-detail">A 'Create loan draft' modal opens. It shows the selected borrower only as a 'Selected borrower' context bar - it does NOT lock the loan to that row; you must set/confirm the borrower in the editable Borrower lookup inside the form. The visible create fields are: Borrower, Title, Principal minor units (e.g. 100000000 = CHF 1,000,000.00), Currency, Interest bps (950 = 9.50%), Term months, Purpose, Repayment type, Collateral type, Collateral value minor, Risk rating, Funding deadline, First payment date, and Investor summary. Click 'Create loan draft'.</div></div></li><li><span class="step-screen">Loans &gt; Loans card</span><div><span class="step-action">Confirm the new loan appears with status 'Draft'.</span><div class="step-detail">Server-side validations already ran: principal must be 1,000-1,000,000,000 in the loan currency, term 1-600 months, funding deadline not in the past and at most 60 days out, first payment date after the funding deadline, and a complete repayment schedule that sums to the principal. If any fail, the draft is not created and you get an error.</div></div></li><li><span class="step-screen">Loans &gt; Primary marketplace operations</span><div><span class="step-action">Select the draft loan (click its row, or use the 'Loan' lookup inside the 'Primary marketplace operations' card), optionally type a 'Publish note', then click 'Publish loan'.</span><div class="step-detail">PUBLISH GATES (all enforced server-side; publish fails if any is false): (1) loan status must be 'Draft'; (2) borrower must be approved KYB and free of compliance hold; (3) funding deadline must be today or later AND no more than 29 days out (the publish limit is stricter than the 60-day create limit, so funds pledged late in an investor's 30-day window still settle inside the 60-day operating limit); (4) the repayment schedule must be complete and match the principal. On success the loan flips to 'Published' and becomes an open marketplace opportunity.</div></div></li></ol>
+      <ol class="flow-steps"><li><span class="step-screen">Loans (left nav 'Loans')</span><div><span class="step-action">Open the Loans module and go to the 'Borrowers' card.</span><div class="step-detail">The Borrowers table lists every business entity. Borrowers are admin-entered only; borrowers do NOT have their own login. If the company is not in the list, you must create it.</div></div></li><li><span class="step-screen">Loans &gt; Borrowers</span><div><span class="step-action">Click 'Create borrower' (top-right of the Borrowers card).</span><div class="step-detail">A modal opens. Fill Legal name, Year founded, Entity type, KYB status, Country, Financials currency, Assets. New borrowers normally start with KYB status 'Pending'. Click 'Create borrower' to save.</div></div></li><li><span class="step-screen">Loans &gt; Borrowers</span><div><span class="step-action">Run the KYB review, then set the borrower's KYB status to 'Approved' via the 'Edit' button on that borrower's row.</span><div class="step-detail">GATE: a loan can only be published when the borrower 'can transact', which means KYB status = approved AND compliance hold is OFF. In the Edit modal, set KYB status to Approved and make sure 'Compliance hold is active' is unchecked. A KYB status change is rejected unless you also type an Admin note OR an Evidence summary - the backend requires one of them for any KYB change. Save.</div></div></li><li><span class="step-screen">Loans &gt; Loans card</span><div><span class="step-action">With the approved borrower selected, click 'Create loan' (top-right of the Loans card).</span><div class="step-detail">A 'Create loan draft' modal opens. It shows the selected borrower only as a 'Selected borrower' context bar - it does NOT lock the loan to that row; you must set/confirm the borrower in the editable Borrower lookup inside the form. The visible create fields are: Borrower, Title, Principal minor units (e.g. 100000000 = CHF 1,000,000.00), Currency, Interest bps (950 = 9.50%), Term months, Purpose, Repayment type, Collateral type, Collateral value minor, Risk rating, Funding deadline, First payment date, and Investor summary. Click 'Create loan draft'.</div></div></li><li><span class="step-screen">Loans &gt; Loans card</span><div><span class="step-action">Confirm the new loan appears with status 'Draft'.</span><div class="step-detail">Server-side validations already ran: principal must be 1,000-1,000,000,000 in the loan currency, term 1-600 months, funding deadline not in the past and at most 60 days out, first payment date after the funding deadline, and a complete repayment schedule that sums to the principal. If any fail, the draft is not created and you get an error.</div></div></li><li><span class="step-screen">Loans &gt; Manage (loan row)</span><div><span class="step-action">Click 'Manage' on the draft loan's row, choose 'Publish loan' from the action menu, optionally type a 'Publish note', then click 'Publish loan'.</span><div class="step-detail">PUBLISH GATES (all enforced server-side; publish fails if any is false): (1) loan status must be 'Draft'; (2) borrower must be approved KYB and free of compliance hold; (3) funding deadline must be today or later AND no more than 29 days out (the publish limit is stricter than the 60-day create limit, so funds pledged late in an investor's 30-day window still settle inside the 60-day operating limit); (4) the repayment schedule must be complete and match the principal. On success the loan flips to 'Published' and becomes an open marketplace opportunity.</div></div></li></ol>
       <p class="flow-out"><strong>Result:</strong> The loan is 'Published' and visible to investors on the primary marketplace; investors can now pledge funds to it.</p>
       <div class="flow-pit"><strong>Watch out for</strong><ul><li>If publish fails with 'Borrower KYB must be approved and free of compliance hold', go back to the borrower's Edit form - either KYB is not 'approved' or 'Compliance hold' is still ticked.</li><li>If publish fails on the funding deadline, the deadline is more than 29 days away (or already passed). Edit the loan and set a deadline within 29 days.</li><li>Borrowers cannot be deleted - only edited. A 'No delete' note marks this; records are kept for audit.</li></ul></div>
     </div>
@@ -1600,10 +1583,10 @@ figcaption { font-size:15.4px; font-weight:600; margin-bottom:3px; break-after:a
     <div class="flow">
       <div class="flow-head"><span class="flow-n">8</span><h3>Disburse a funded loan to the borrower</h3></div>
       <p class="flow-goal"><strong>Goal:</strong> Pay out the raised money to the borrower once a loan has finished funding. &nbsp;·&nbsp; <strong>Who:</strong> Operations admin (finance).</p>
-      <div class="flow-pre"><strong>Before you start:</strong><ul><li>Jargon: 'funded' = the loan's funding campaign closed and investor money has been committed; the loan now owes a payout to the borrower. 'Disbursement' = the bank transfer that sends the principal to the borrower. 'Close funding' is the upstream step (in Primary marketplace operations) that turns a fully-pledged published loan into 'funded'.</li><li>The loan status is 'funded' (close its funding first, in Primary marketplace operations, if it is still 'published').</li></ul></div>
+      <div class="flow-pre"><strong>Before you start:</strong><ul><li>Jargon: 'funded' = the loan's funding campaign closed and investor money has been committed; the loan now owes a payout to the borrower. 'Disbursement' = the bank transfer that sends the principal to the borrower. 'Close funding' is the upstream step (in the loan row's Manage dialog) that turns a fully-pledged published loan into 'funded'.</li><li>The loan status is 'funded' (close its funding first via Manage on the loan row, if it is still 'published').</li></ul></div>
       <ol class="flow-steps"><li><span class="step-screen">Finance ops &gt; Borrower disbursement</span><div><span class="step-action">Open Finance ops and go to the 'Borrower disbursement' card.</span><div class="step-detail">This records the external payout of an accepted, funded loan to the borrower.</div></div></li><li><span class="step-screen">Finance ops &gt; Borrower disbursement</span><div><span class="step-action">Pick the loan in the 'Loan' lookup.</span><div class="step-detail">Selecting the loan automatically fills in the Borrower (read-only) and the Currency from that loan. The borrower field becomes read-only and shows the derived borrower ID - you do not pick the borrower separately when a loan is chosen.</div></div></li><li><span class="step-screen">Finance ops &gt; Borrower disbursement</span><div><span class="step-action">Enter Amount (minor units), confirm Currency, set Booking/Value dates, and enter Payee name and Payee account.</span><div class="step-detail">The Amount is NOT free entry: it must EXACTLY equal the loan's outstanding borrower-disbursement payable balance - you cannot part-pay or over-pay. That payable is created upstream by 'Close funding'; if it is zero, disbursement is blocked ('Loan has no borrower disbursement payable balance.'). Use the 'Formatted amount' helper to confirm the figure. The payee is the borrower's bank account that receives the money.</div></div></li><li><span class="step-screen">Finance ops &gt; Borrower disbursement</span><div><span class="step-action">Click 'Finalize disbursement'.</span><div class="step-detail">GATES (all enforced server-side): the loan must be 'funded'; the loan currency must match the disbursement currency; the borrower MUST match the loan (the borrower derived from the loan is what is sent - this is why the borrower field is auto-filled and read-only); and the borrower must be able to transact (approved KYB, no compliance hold). Two further gates: the entered Amount must EQUAL the outstanding disbursement payable exactly ('Borrower disbursement amount must equal the outstanding payable balance.'), and the collection cash balance must be at least the amount ('Collection cash balance is insufficient for borrower disbursement.'). On success the borrower-payable is cleared against collection cash.</div></div></li></ol>
       <p class="flow-out"><strong>Result:</strong> The borrower receives the principal; the loan's borrower-payable is cleared in the ledger and the action is audited.</p>
-      <div class="flow-pit"><strong>Watch out for</strong><ul><li>If you see 'Loan must be funded before borrower disbursement', the campaign has not been closed yet - close funding in Primary marketplace operations first.</li><li>'Borrower does not match loan' means the loan/borrower pair is wrong; re-select the loan so the borrower derives correctly.</li><li>Amount is in minor units - double-check the formatted preview before finalizing a large transfer.</li></ul></div>
+      <div class="flow-pit"><strong>Watch out for</strong><ul><li>If you see 'Loan must be funded before borrower disbursement', the campaign has not been closed yet - close funding via the loan row's Manage dialog first.</li><li>'Borrower does not match loan' means the loan/borrower pair is wrong; re-select the loan so the borrower derives correctly.</li><li>Amount is in minor units - double-check the formatted preview before finalizing a large transfer.</li></ul></div>
     </div>
     <div class="flow">
       <div class="flow-head"><span class="flow-n">9</span><h3>Generate a regulatory report and find an action in the audit log</h3></div>
@@ -1625,7 +1608,7 @@ figcaption { font-size:15.4px; font-weight:600; margin-bottom:3px; break-after:a
       <div class="flow-head"><span class="flow-n">11</span><h3>Work the daily dashboard from open to empty</h3></div>
       <p class="flow-goal"><strong>Goal:</strong> Start your shift, read every queue, triage by priority, and jump to the right module to clear each item. &nbsp;·&nbsp; <strong>Who:</strong> Operations admin (any).</p>
       <div class="flow-pre"><strong>Before you start:</strong><ul><li>Jargon: 'queue' = a short list of pending work in one area. 'SLA' = service-level deadline; an item past its due date is 'Overdue'. 'priority' = Urgent/High/Normal/Low. The dashboard is read-and-route: you read context here, then go to the module that owns the action.</li><li>You are signed in. The dashboard is the default landing screen ('Daily dashboard' in the nav).</li></ul></div>
-      <ol class="flow-steps"><li><span class="step-screen">Daily dashboard (KPI tiles)</span><div><span class="step-action">Read the four tiles at the top: Open queue items, High priority (with urgent count), Overdue SLA, and Finance actions.</span><div class="step-detail">'Finance actions' sums bank exceptions, withdrawals, forced withdrawals, FX settlement, and reconciliation breaks - your money-movement load for the day.</div></div></li><li><span class="step-screen">Daily dashboard (Queues list)</span><div><span class="step-action">Scan the left-hand queue tabs and their counts: Admin tasks, KYC reviews, Bank exceptions, Withdrawals, Forced withdrawals, Balance ageing, Funding loans, Servicing due, Loan risk, Secondary approvals, FX settlement, Failed emails, Reconciliation breaks.</span><div class="step-detail">Each tab shows a short label, its group (General/Compliance/Finance/Marketplace/Servicing/Comms), and an open count. Click a tab to load its items on the right.</div></div></li><li><span class="step-screen">Daily dashboard (Queue panel)</span><div><span class="step-action">Open each non-empty queue; work Urgent and Overdue (highlighted) rows first.</span><div class="step-detail">Each row shows Item title, Status, Priority, Due, Amount, and the underlying Object (type + id). Overdue rows are visually flagged. Click a row to open a drawer with full metadata and context.</div></div></li><li><span class="step-screen">Daily dashboard &gt; queue drawer</span><div><span class="step-action">Use the drawer's Object reference (type/id) to know exactly which record to act on, then go to that module.</span><div class="step-detail">ROUTING: KYC reviews -&gt; Compliance (Record AML decision). Bank exceptions / Withdrawals / Forced withdrawals / Balance ageing / FX settlement -&gt; Finance ops. Funding loans / Loan risk / Servicing due -&gt; Loans (Primary marketplace operations or Servicing and recovery). Secondary approvals -&gt; Loans (Secondary-market approvals). Admin tasks -&gt; Tasks. The drawer itself is context-only; the action lives in the module.</div></div></li><li><span class="step-screen">Daily dashboard (Reconciliation breaks queue)</span><div><span class="step-action">When the 'Reconciliation breaks' tab is selected, click 'Create tasks' to turn current breaks into trackable admin tasks, then refresh.</span><div class="step-detail">'Create tasks' syncs reconciliation-break snapshots into the task list (it reports how many were created vs already existed) so nothing falls through the cracks.</div></div></li><li><span class="step-screen">Daily dashboard</span><div><span class="step-action">After acting in each module, return to the dashboard and click 'Refresh'; repeat until counts reach zero.</span><div class="step-detail">Also scan the 'Currency operations' table at the bottom (per-currency Available, Investable, Withdraw-only, Overdue, Frozen, Penalty, Pending withdrawals, Pending bank ops, FX unsettled) to confirm money positions look sane before you finish.</div></div></li></ol>
+      <ol class="flow-steps"><li><span class="step-screen">Daily dashboard (KPI tiles)</span><div><span class="step-action">Read the four tiles at the top: Open queue items, High priority (with urgent count), Overdue SLA, and Finance actions.</span><div class="step-detail">'Finance actions' sums bank exceptions, withdrawals, forced withdrawals, FX settlement, and reconciliation breaks - your money-movement load for the day.</div></div></li><li><span class="step-screen">Daily dashboard (Queues list)</span><div><span class="step-action">Scan the left-hand queue tabs and their counts: Admin tasks, KYC reviews, Bank exceptions, Withdrawals, Forced withdrawals, Balance ageing, Funding loans, Servicing due, Loan risk, Secondary approvals, FX settlement, Failed emails, Reconciliation breaks.</span><div class="step-detail">Each tab shows a short label, its group (General/Compliance/Finance/Marketplace/Servicing/Comms), and an open count. Click a tab to load its items on the right.</div></div></li><li><span class="step-screen">Daily dashboard (Queue panel)</span><div><span class="step-action">Open each non-empty queue; work Urgent and Overdue (highlighted) rows first.</span><div class="step-detail">Each row shows Item title, Status, Priority, Due, Amount, and the underlying Object (type + id). Overdue rows are visually flagged. Click a row to open a drawer with full metadata and context.</div></div></li><li><span class="step-screen">Daily dashboard &gt; queue drawer</span><div><span class="step-action">Use the drawer's Object reference (type/id) to know exactly which record to act on, then go to that module.</span><div class="step-detail">ROUTING: KYC reviews -&gt; Compliance (Record AML decision). Bank exceptions / Withdrawals / Forced withdrawals / Balance ageing / FX settlement -&gt; Finance ops. Funding loans / Loan risk / Servicing due -&gt; Loans (Manage on the loan row, or Servicing and recovery). Secondary approvals -&gt; Loans (Secondary-market approvals). Admin tasks -&gt; Tasks. The drawer itself is context-only; the action lives in the module.</div></div></li><li><span class="step-screen">Daily dashboard (Reconciliation breaks queue)</span><div><span class="step-action">When the 'Reconciliation breaks' tab is selected, click 'Create tasks' to turn current breaks into trackable admin tasks, then refresh.</span><div class="step-detail">'Create tasks' syncs reconciliation-break snapshots into the task list (it reports how many were created vs already existed) so nothing falls through the cracks.</div></div></li><li><span class="step-screen">Daily dashboard</span><div><span class="step-action">After acting in each module, return to the dashboard and click 'Refresh'; repeat until counts reach zero.</span><div class="step-detail">Also scan the 'Currency operations' table at the bottom (per-currency Available, Investable, Withdraw-only, Overdue, Frozen, Penalty, Pending withdrawals, Pending bank ops, FX unsettled) to confirm money positions look sane before you finish.</div></div></li></ol>
       <p class="flow-out"><strong>Result:</strong> Every queue is empty or down to non-actionable items; urgent and overdue work is cleared first; reconciliation breaks are converted into tracked tasks.</p>
       <div class="flow-pit"><strong>Watch out for</strong><ul><li>The dashboard does not let you DO the action - it routes you. Use the Object id, then act in the owning module.</li><li>Do not ignore Overdue (SLA) rows - they are past their deadline and should be cleared before fresh work.</li><li>Refresh after acting; counts do not update live while you are away in a module.</li></ul></div>
     </div>

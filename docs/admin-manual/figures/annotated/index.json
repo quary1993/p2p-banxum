@@ -100,17 +100,22 @@
     "h": 230
   },
   {
-    "id": "loans-7-primary-marketplace-operations",
-    "w": 424,
-    "h": 1120
+    "id": "loans-9-manage-loan-actions",
+    "w": 852,
+    "h": 549
   },
   {
-    "id": "loans-8-secondary-market-approvals",
+    "id": "loans-10-manage-close-funding",
+    "w": 852,
+    "h": 533
+  },
+  {
+    "id": "loans-7-secondary-market-approvals",
     "w": 640,
     "h": 455
   },
   {
-    "id": "loans-9-servicing-and-recovery",
+    "id": "loans-8-servicing-and-recovery",
     "w": 980,
     "h": 523
   },

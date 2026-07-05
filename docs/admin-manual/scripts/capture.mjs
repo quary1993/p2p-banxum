@@ -124,12 +124,65 @@ const captureScreen = async (navLabel, key, opts = {}) => {
   console.log(`captured ${key}: ${screenFigures.length} figures`);
 };
 
+
+// Capture a modal dialog as an extra figure appended to the last screen section.
+const captureModalFigure = async (key, slug, fallbackTitle) => {
+  const fig = await evaluate(`(() => {
+    const vis = (el) => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el); return r.width > 4 && r.height > 4 && s.visibility !== 'hidden' && s.display !== 'none'; };
+    const txt = (el) => (el.getAttribute('aria-label') || el.textContent || el.placeholder || '').replace(/\\s+/g,' ').trim().slice(0,90);
+    const root = document.querySelector('.modal-card, .modal [role="dialog"], .modal');
+    if (!root || !vis(root)) return null;
+    const r = root.getBoundingClientRect();
+    const base = { x: r.left, y: r.top };
+    const items = [];
+    const seen = new Set();
+    const add = (node, role) => {
+      if (!node || seen.has(node) || !vis(node)) return;
+      seen.add(node);
+      const nr = node.getBoundingClientRect();
+      const t = txt(node);
+      if (!t && role !== 'input') return;
+      items.push({ role, text: t, x: Math.round(nr.left - base.x), y: Math.round(nr.top - base.y), w: Math.round(nr.width), h: Math.round(nr.height) });
+    };
+    root.querySelectorAll('h1,h2,h3').forEach(n => add(n, 'heading'));
+    root.querySelectorAll('.admin-manage-option-title').forEach(n => add(n, 'action'));
+    root.querySelectorAll('thead th').forEach(n => add(n, 'column'));
+    root.querySelectorAll('.field > label, label.field-label, .field-label').forEach(n => add(n, 'field'));
+    root.querySelectorAll('select').forEach(n => add(n, 'input'));
+    root.querySelectorAll('button').forEach(n => add(n, 'button'));
+    root.querySelectorAll('.chip, .pill, .tag, .badge').forEach(n => add(n, 'status'));
+    return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height), items };
+  })()`);
+  if (!fig) { console.log("modal capture skipped:", slug); return; }
+  const section = manifest[manifest.length - 1];
+  const index = section.figures.length;
+  const id = `${key}-${index}-${slug}`;
+  const shot = await send("Page.captureScreenshot", {
+    format: "png",
+    captureBeyondViewport: true,
+    clip: { x: fig.x, y: fig.y, width: fig.w, height: fig.h, scale: SCALE }
+  }, sid);
+  if (!shot.result?.data) return;
+  fs.writeFileSync(path.join(outDir, id + ".png"), Buffer.from(shot.result.data, "base64"));
+  section.figures.push({ id, kind: "modal", title: fallbackTitle, cssWidth: fig.w, cssHeight: fig.h, scale: SCALE, items: fig.items });
+  console.log("captured modal figure:", id);
+};
+
 await captureScreen(null, "dashboard", { label: "Daily dashboard", wait: 1800 });
 await captureScreen("Tasks", "tasks", {});
 await captureScreen("Users", "users", {});
 await captureScreen("Compliance", "compliance", {});
 await captureScreen("Finance ops", "finance", {});
 await captureScreen("Loans", "loans", {});
+// Manage-loan modal: action menu, then one action form
+await clickButtonByText("Manage");
+await sleep(900);
+await captureModalFigure("loans", "manage-loan-actions", "Manage loan - choose an action");
+await evaluate(`(() => { const b = [...document.querySelectorAll('.admin-manage-option')].find(x => x.textContent.includes('Close funding')); if (b) b.click(); })()`);
+await sleep(700);
+await captureModalFigure("loans", "manage-close-funding", "Manage loan - close funding");
+await evaluate(`(() => { const b = document.querySelector('.modal-close') || [...document.querySelectorAll('button')].find(x => (x.getAttribute('aria-label')||'') === 'Close'); if (b) b.click(); })()`);
+await sleep(500);
 await captureScreen("Reports", "reports", {});
 await captureScreen("Superadmin settings", "settings", {});
 
