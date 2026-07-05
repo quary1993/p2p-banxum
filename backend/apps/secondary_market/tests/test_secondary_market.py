@@ -853,6 +853,54 @@ def test_secondary_market_api_create_list_and_approve(
 
 
 @pytest.mark.django_db
+def test_admin_secondary_listing_table_lists_and_filters(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_funded_loan(admin_user, status="late")
+    _create_current_installment(loan, due_date=date(2026, 1, 1))
+    holding = _create_holding(admin_user, investor, loan)
+    acceptance = _create_listing_acceptance(investor, holding)
+    listing = create_secondary_market_listing(
+        CreateSecondaryMarketListingCommand(
+            actor=investor,
+            holding_id=str(cast(Any, holding).id),
+            price_bps=9000,
+            document_acceptance_id=str(acceptance.pk),
+            idempotency_key="secondary-admin-table",
+            **_sensitive_code_payload(investor, "secondary_market_listing"),
+        )
+    )
+
+    client = Client()
+    client.force_login(cast(Any, admin_user))
+    response = client.get("/api/v1/marketplace/secondary/admin/listings/")
+    assert response.status_code == 200
+    rows = response.json()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["id"] == str(listing.id)
+    assert row["status"] == "approval_requested"
+    assert row["loan_title"] == "Secondary bridge loan"
+    assert row["loan_status"] == "late"
+    assert row["seller_email"] == cast(Any, investor).email
+    assert row["seller_full_name"]
+    assert "created_at" in row
+
+    filtered = client.get("/api/v1/marketplace/secondary/admin/listings/?status=active")
+    assert filtered.status_code == 200
+    assert filtered.json() == []
+
+    bad_filter = client.get("/api/v1/marketplace/secondary/admin/listings/?status=bogus")
+    assert bad_filter.status_code == 400
+
+    client.force_login(cast(Any, investor))
+    forbidden = client.get("/api/v1/marketplace/secondary/admin/listings/")
+    assert forbidden.status_code == 403
+
+
+@pytest.mark.django_db
 def test_secondary_market_list_uses_readonly_impersonation_target(
     admin_user: Model,
     investor: Model,

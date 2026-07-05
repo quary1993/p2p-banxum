@@ -97,7 +97,7 @@
   {
     "id": "loans-6-loans",
     "w": 980,
-    "h": 230
+    "h": 279
   },
   {
     "id": "loans-9-manage-loan-actions",
@@ -111,13 +111,18 @@
   },
   {
     "id": "loans-7-secondary-market-approvals",
-    "w": 640,
-    "h": 455
+    "w": 980,
+    "h": 329
   },
   {
     "id": "loans-8-servicing-and-recovery",
     "w": 980,
-    "h": 523
+    "h": 516
+  },
+  {
+    "id": "loans-11-manage-record-recovery",
+    "w": 852,
+    "h": 941
   },
   {
     "id": "reports-0-report-generation",

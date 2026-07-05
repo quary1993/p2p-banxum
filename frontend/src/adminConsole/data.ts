@@ -41,7 +41,9 @@ import {
   type V1FxAdminRealizedSettlementReportRetrieveParams,
   type V1LedgerAdminInvestorBalanceSummaryRetrieveParams,
   type V1LoansAdminLoansListParams,
-  type V1ServicingAdminRiskNotesListParams
+  type V1ServicingAdminRiskNotesListParams,
+  useV1MarketplaceSecondaryAdminListingsList,
+  type V1MarketplaceSecondaryAdminListingsListParams
 } from "../api/generated/banxumApi";
 import { isFixturePreview } from "../investorPortal/data";
 import {
@@ -53,7 +55,8 @@ import {
   loansFixture,
   adminTaskEventsFixture,
   adminTasksFixture,
-  adminUserDirectoryFixture
+  adminUserDirectoryFixture,
+  adminSecondaryListingsFixture
 } from "./adminFixtures";
 
 const adminQueryDefaults = {
@@ -90,6 +93,16 @@ export function useAdminOperationsDashboardData(
 export function useAdminTasksData(params: V1AdminOpsTasksListParams = { limit: 100 }) {
   return useV1AdminOpsTasksList(params, {
     query: adminPreviewQuery(adminTasksFixture)
+  });
+}
+
+export function useAdminSecondaryListingsData(params: V1MarketplaceSecondaryAdminListingsListParams = { limit: 100 }) {
+  return useV1MarketplaceSecondaryAdminListingsList(params, {
+    query: adminPreviewQuery(
+      params.status
+        ? adminSecondaryListingsFixture.filter((row) => row.status === params.status)
+        : adminSecondaryListingsFixture
+    )
   });
 }
 

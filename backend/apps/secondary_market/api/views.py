@@ -16,6 +16,8 @@ from backend.apps.platform_core.api.impersonation import (
 )
 from backend.apps.platform_core.api.request_meta import client_ip, user_agent
 from backend.apps.secondary_market.api.serializers import (
+    AdminSecondaryMarketListingListQuerySerializer,
+    AdminSecondaryMarketListingRowSerializer,
     SecondaryMarketBuyerListingSerializer,
     SecondaryMarketListingApproveRequestSerializer,
     SecondaryMarketListingCancelRequestSerializer,
@@ -43,6 +45,7 @@ from backend.apps.secondary_market.services import (
     cancel_secondary_market_listing,
     create_secondary_market_listing,
     list_active_secondary_market_listings,
+    list_admin_secondary_market_listings,
     purchase_secondary_market_listing,
     reject_secondary_market_listing,
     remove_secondary_market_listing,
@@ -110,6 +113,31 @@ class SecondaryMarketListingListCreateView(APIView):
         except (SecondaryMarketAuthorizationError, SecondaryMarketValidationError) as exc:
             return _error_response(exc)
         return Response(serialize_secondary_listing(listing), status=status.HTTP_201_CREATED)
+
+
+class AdminSecondaryMarketListingListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        parameters=[AdminSecondaryMarketListingListQuerySerializer],
+        responses={200: AdminSecondaryMarketListingRowSerializer(many=True)},
+    )
+    def get(self, request: Request) -> Response:
+        serializer = AdminSecondaryMarketListingListQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            listings = list_admin_secondary_market_listings(
+                actor=cast(Model, request.user),
+                status=data.get("status", ""),
+                limit=data.get("limit", 100),
+            )
+        except (SecondaryMarketAuthorizationError, SecondaryMarketValidationError) as exc:
+            return _error_response(exc)
+        return Response(
+            AdminSecondaryMarketListingRowSerializer(listings, many=True).data,
+            status=status.HTTP_200_OK,
+        )
 
 
 class SecondaryMarketListingApproveView(APIView):

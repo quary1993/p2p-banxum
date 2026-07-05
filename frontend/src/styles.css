@@ -3234,3 +3234,7 @@ textarea.input {
 .admin-manage-option-desc { color: var(--ink-2); font-size: 12px; line-height: 1.45; }
 .admin-manage-step { align-items: center; display: flex; gap: 12px; }
 .admin-manage-step strong { font-size: 13.5px; }
+
+/* Recovery conservation summary inside the Manage-loan dialog */
+.admin-recovery-summary { flex-wrap: wrap; gap: 14px; }
+.admin-recovery-summary strong { color: var(--ink); }

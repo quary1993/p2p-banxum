@@ -47,6 +47,8 @@ export const documentVersionsFixture: DocumentTemplateVersion[] = [];
 
 export const auditEventsFixture: AuditEvent[] = [];
 
+export const adminSecondaryListingsFixture: never[] = [];
+
 export const adminUserDirectoryFixture = { count: 0, limit: 25, offset: 0, results: [] };
 
 export const adminFormDefaults = {

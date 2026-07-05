@@ -2518,7 +2518,7 @@
         "kind": "card",
         "title": "Loans",
         "cssWidth": 1032,
-        "cssHeight": 273,
+        "cssHeight": 331,
         "scale": 2,
         "items": [
           {
@@ -2642,6 +2642,22 @@
             "h": 28
           },
           {
+            "role": "button",
+            "text": "Edit",
+            "x": 840,
+            "y": 265,
+            "w": 44,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Manage",
+            "x": 893,
+            "y": 265,
+            "w": 68,
+            "h": 28
+          },
+          {
             "role": "status",
             "text": "Published",
             "x": 268,
@@ -2656,6 +2672,14 @@
             "y": 208,
             "w": 54,
             "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Defaulted",
+            "x": 268,
+            "y": 265,
+            "w": 85,
+            "h": 21
           }
         ]
       },
@@ -2663,8 +2687,8 @@
         "id": "loans-7-secondary-market-approvals",
         "kind": "card",
         "title": "Secondary-market approvals",
-        "cssWidth": 508,
-        "cssHeight": 455,
+        "cssWidth": 1032,
+        "cssHeight": 391,
         "scale": 2,
         "items": [
           {
@@ -2672,56 +2696,160 @@
             "text": "Secondary-market approvals",
             "x": 19,
             "y": 19,
-            "w": 470,
+            "w": 620,
             "h": 30
           },
           {
-            "role": "field",
-            "text": "Secondary listing",
+            "role": "column",
+            "text": "Loan / listing",
             "x": 19,
-            "y": 61,
-            "w": 470,
-            "h": 18
+            "y": 106,
+            "w": 199,
+            "h": 34
           },
           {
-            "role": "field",
-            "text": "Reason",
-            "x": 19,
-            "y": 146,
-            "w": 470,
-            "h": 18
+            "role": "column",
+            "text": "Seller",
+            "x": 218,
+            "y": 106,
+            "w": 169,
+            "h": 34
           },
           {
-            "role": "field",
-            "text": "Buyer disclosure note",
-            "x": 19,
-            "y": 274,
-            "w": 470,
-            "h": 18
+            "role": "column",
+            "text": "Price",
+            "x": 387,
+            "y": 106,
+            "w": 115,
+            "h": 34
+          },
+          {
+            "role": "column",
+            "text": "Loan status",
+            "x": 502,
+            "y": 106,
+            "w": 105,
+            "h": 34
+          },
+          {
+            "role": "column",
+            "text": "DPD",
+            "x": 607,
+            "y": 106,
+            "w": 45,
+            "h": 34
+          },
+          {
+            "role": "column",
+            "text": "Status",
+            "x": 652,
+            "y": 106,
+            "w": 164,
+            "h": 34
+          },
+          {
+            "role": "column",
+            "text": "Created",
+            "x": 816,
+            "y": 106,
+            "w": 93,
+            "h": 34
+          },
+          {
+            "role": "column",
+            "text": "Actions",
+            "x": 908,
+            "y": 106,
+            "w": 151,
+            "h": 34
+          },
+          {
+            "role": "input",
+            "text": "Filter listings by status",
+            "x": 653,
+            "y": 19,
+            "w": 360,
+            "h": 34
           },
           {
             "role": "button",
-            "text": "Approve listing",
-            "x": 19,
-            "y": 402,
-            "w": 123,
-            "h": 34
+            "text": "Refresh",
+            "x": 946,
+            "y": 61,
+            "w": 67,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Approve",
+            "x": 918,
+            "y": 150,
+            "w": 70,
+            "h": 28
           },
           {
             "role": "button",
             "text": "Reject",
-            "x": 150,
-            "y": 402,
-            "w": 69,
-            "h": 34
+            "x": 918,
+            "y": 186,
+            "w": 58,
+            "h": 28
           },
           {
             "role": "button",
             "text": "Remove",
-            "x": 227,
-            "y": 402,
-            "w": 79,
-            "h": 34
+            "x": 918,
+            "y": 235,
+            "w": 68,
+            "h": 28
+          },
+          {
+            "role": "status",
+            "text": "Late",
+            "x": 512,
+            "y": 150,
+            "w": 54,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Approval Requested",
+            "x": 662,
+            "y": 150,
+            "w": 144,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Published",
+            "x": 512,
+            "y": 235,
+            "w": 85,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Active",
+            "x": 662,
+            "y": 235,
+            "w": 65,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Published",
+            "x": 512,
+            "y": 309,
+            "w": 85,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Sold",
+            "x": 662,
+            "y": 309,
+            "w": 54,
+            "h": 21
           }
         ]
       },
@@ -2730,7 +2858,7 @@
         "kind": "card",
         "title": "Servicing and recovery",
         "cssWidth": 1032,
-        "cssHeight": 621,
+        "cssHeight": 613,
         "scale": 2,
         "items": [
           {
@@ -2790,14 +2918,6 @@
             "h": 18
           },
           {
-            "role": "field",
-            "text": "Recovery gross minor",
-            "x": 175,
-            "y": 531,
-            "w": 189,
-            "h": 18
-          },
-          {
             "role": "button",
             "text": "Record repayment",
             "x": 19,
@@ -2817,16 +2937,8 @@
             "role": "button",
             "text": "Publish public note",
             "x": 19,
-            "y": 549,
+            "y": 531,
             "w": 148,
-            "h": 34
-          },
-          {
-            "role": "button",
-            "text": "Record recovery",
-            "x": 372,
-            "y": 549,
-            "w": 131,
             "h": 34
           }
         ]
@@ -3015,6 +3127,152 @@
             "x": 34,
             "y": 107,
             "w": 93,
+            "h": 21
+          }
+        ]
+      },
+      {
+        "id": "loans-11-manage-record-recovery",
+        "kind": "modal",
+        "title": "Manage loan - record a recovery payment",
+        "cssWidth": 720,
+        "cssHeight": 941,
+        "scale": 2,
+        "items": [
+          {
+            "role": "heading",
+            "text": "Manage loan - Luzern Quartier renovation",
+            "x": 21,
+            "y": 20,
+            "w": 320,
+            "h": 24
+          },
+          {
+            "role": "field",
+            "text": "Gross recovered",
+            "x": 21,
+            "y": 289,
+            "w": 333,
+            "h": 18
+          },
+          {
+            "role": "field",
+            "text": "Externally deducted costs",
+            "x": 366,
+            "y": 289,
+            "w": 333,
+            "h": 18
+          },
+          {
+            "role": "field",
+            "text": "Third-party costs (from received)",
+            "x": 21,
+            "y": 373,
+            "w": 333,
+            "h": 18
+          },
+          {
+            "role": "field",
+            "text": "Apply Garanta recovery fee",
+            "x": 366,
+            "y": 373,
+            "w": 333,
+            "h": 19
+          },
+          {
+            "role": "field",
+            "text": "Principal recovered",
+            "x": 21,
+            "y": 509,
+            "w": 333,
+            "h": 18
+          },
+          {
+            "role": "field",
+            "text": "Contractual interest recovered",
+            "x": 366,
+            "y": 509,
+            "w": 333,
+            "h": 18
+          },
+          {
+            "role": "field",
+            "text": "Default/penalty interest recovered",
+            "x": 21,
+            "y": 593,
+            "w": 333,
+            "h": 18
+          },
+          {
+            "role": "field",
+            "text": "Penalties recovered",
+            "x": 366,
+            "y": 593,
+            "w": 333,
+            "h": 18
+          },
+          {
+            "role": "field",
+            "text": "Other costs recovered",
+            "x": 21,
+            "y": 677,
+            "w": 678,
+            "h": 18
+          },
+          {
+            "role": "field",
+            "text": "Booking date",
+            "x": 21,
+            "y": 761,
+            "w": 333,
+            "h": 18
+          },
+          {
+            "role": "field",
+            "text": "Value date",
+            "x": 366,
+            "y": 761,
+            "w": 333,
+            "h": 18
+          },
+          {
+            "role": "field",
+            "text": "Payer name",
+            "x": 21,
+            "y": 824,
+            "w": 678,
+            "h": 18
+          },
+          {
+            "role": "button",
+            "text": "Close",
+            "x": 669,
+            "y": 17,
+            "w": 30,
+            "h": 30
+          },
+          {
+            "role": "button",
+            "text": "← All actions",
+            "x": 21,
+            "y": 180,
+            "w": 97,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Record recovery",
+            "x": 21,
+            "y": 886,
+            "w": 678,
+            "h": 34
+          },
+          {
+            "role": "status",
+            "text": "Defaulted",
+            "x": 34,
+            "y": 107,
+            "w": 94,
             "h": 21
           }
         ]

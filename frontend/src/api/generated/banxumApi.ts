@@ -212,6 +212,68 @@ export interface AdminOperationsDashboard {
   queues: AdminDashboardQueues;
 }
 
+export interface AdminSecondaryMarketListingRow {
+  id: string;
+  holding_id: string;
+  loan_id: string;
+  seller_user_id: string;
+  status: string;
+  publication_type: string;
+  current_principal_minor: number;
+  currency: string;
+  price_bps: number;
+  transfer_price_minor: number;
+  discount_premium_bps: number;
+  accrued_interest_minor: number;
+  /** @nullable */
+  accrued_interest_from_date: string | null;
+  accrued_interest_to_date: string;
+  maker_fee_bps: number;
+  taker_fee_bps: number;
+  minimum_maker_fee_minor: number;
+  minimum_taker_fee_minor: number;
+  maker_fee_minor: number;
+  taker_fee_minor: number;
+  seller_net_proceeds_minor: number;
+  buyer_total_cost_minor: number;
+  loan_status_at_listing: string;
+  days_past_due: number;
+  /** @nullable */
+  last_payment_date: string | null;
+  risk_acknowledgement_required: boolean;
+  document_acceptance_id: string;
+  public_disclosure_note: string;
+  /** @nullable */
+  listed_at: string | null;
+  /** @nullable */
+  approved_by_admin_id: string | null;
+  /** @nullable */
+  approved_at: string | null;
+  approval_reason: string;
+  /** @nullable */
+  rejected_by_admin_id: string | null;
+  /** @nullable */
+  rejected_at: string | null;
+  rejection_reason: string;
+  /** @nullable */
+  removed_by_admin_id: string | null;
+  /** @nullable */
+  removed_at: string | null;
+  removal_reason: string;
+  /** @nullable */
+  cancelled_by_user_id: string | null;
+  /** @nullable */
+  cancelled_at: string | null;
+  cancellation_reason: string;
+  created_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+  loan_title: string;
+  loan_status: string;
+  seller_email: string;
+  seller_full_name: string;
+}
+
 export interface AdminTask {
   id: string;
   task_type: string;
@@ -4065,6 +4127,18 @@ export type V1MarketplacePrimaryLoansListParams = {
  * @maximum 250
  */
 limit?: number;
+};
+
+export type V1MarketplaceSecondaryAdminListingsListParams = {
+/**
+ * @minimum 1
+ * @maximum 250
+ */
+limit?: number;
+/**
+ * @maxLength 32
+ */
+status?: string;
 };
 
 export type V1MarketplaceSecondaryListingsListParams = {
@@ -11048,6 +11122,94 @@ const {mutation: mutationOptions} = options ?
       return useMutation(mutationOptions, queryClient);
     }
 
+export const v1MarketplaceSecondaryAdminListingsList = (
+    params?: V1MarketplaceSecondaryAdminListingsListParams,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<AdminSecondaryMarketListingRow[]>(
+      {url: `/api/v1/marketplace/secondary/admin/listings/`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+
+
+
+
+export const getV1MarketplaceSecondaryAdminListingsListQueryKey = (params?: V1MarketplaceSecondaryAdminListingsListParams,) => {
+    return [
+    `/api/v1/marketplace/secondary/admin/listings/`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+
+export const getV1MarketplaceSecondaryAdminListingsListQueryOptions = <TData = Awaited<ReturnType<typeof v1MarketplaceSecondaryAdminListingsList>>, TError = unknown>(params?: V1MarketplaceSecondaryAdminListingsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplaceSecondaryAdminListingsList>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1MarketplaceSecondaryAdminListingsListQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1MarketplaceSecondaryAdminListingsList>>> = ({ signal }) => v1MarketplaceSecondaryAdminListingsList(params, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1MarketplaceSecondaryAdminListingsList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1MarketplaceSecondaryAdminListingsListQueryResult = NonNullable<Awaited<ReturnType<typeof v1MarketplaceSecondaryAdminListingsList>>>
+export type V1MarketplaceSecondaryAdminListingsListQueryError = unknown
+
+
+export function useV1MarketplaceSecondaryAdminListingsList<TData = Awaited<ReturnType<typeof v1MarketplaceSecondaryAdminListingsList>>, TError = unknown>(
+ params: undefined |  V1MarketplaceSecondaryAdminListingsListParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplaceSecondaryAdminListingsList>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1MarketplaceSecondaryAdminListingsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1MarketplaceSecondaryAdminListingsList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1MarketplaceSecondaryAdminListingsList<TData = Awaited<ReturnType<typeof v1MarketplaceSecondaryAdminListingsList>>, TError = unknown>(
+ params?: V1MarketplaceSecondaryAdminListingsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplaceSecondaryAdminListingsList>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1MarketplaceSecondaryAdminListingsList>>,
+          TError,
+          Awaited<ReturnType<typeof v1MarketplaceSecondaryAdminListingsList>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1MarketplaceSecondaryAdminListingsList<TData = Awaited<ReturnType<typeof v1MarketplaceSecondaryAdminListingsList>>, TError = unknown>(
+ params?: V1MarketplaceSecondaryAdminListingsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplaceSecondaryAdminListingsList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1MarketplaceSecondaryAdminListingsList<TData = Awaited<ReturnType<typeof v1MarketplaceSecondaryAdminListingsList>>, TError = unknown>(
+ params?: V1MarketplaceSecondaryAdminListingsListParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1MarketplaceSecondaryAdminListingsList>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1MarketplaceSecondaryAdminListingsListQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
 export const v1MarketplaceSecondaryAdminListingsApproveCreate = (
     listingId: string,
     secondaryMarketListingApproveRequest: SecondaryMarketListingApproveRequest,
@@ -12478,6 +12640,8 @@ export const getV1MarketplacePrimaryOrdersCreateResponseMock = (overrideResponse
 
 export const getV1MarketplacePrimaryOrdersAllocateBalanceCreateResponseMock = (overrideResponse: Partial< PrimaryInvestmentOrder > = {}): PrimaryInvestmentOrder => ({id: faker.string.uuid(), loan_id: faker.string.uuid(), investor_user_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), requested_amount_minor: faker.number.int({min: undefined, max: undefined}), allocated_amount_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), document_acceptance_id: faker.helpers.arrayElement([faker.string.uuid(), null]), reservation_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), release_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), lot_allocations: {}, created_by_user_id: faker.string.uuid(), allocated_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), released_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), closed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), closed_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), notes: faker.string.alpha({length: {min: 10, max: 20}}), admin_notes: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
 
+export const getV1MarketplaceSecondaryAdminListingsListResponseMock = (): AdminSecondaryMarketListingRow[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), holding_id: faker.string.uuid(), loan_id: faker.string.uuid(), seller_user_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), publication_type: faker.string.alpha({length: {min: 10, max: 20}}), current_principal_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), price_bps: faker.number.int({min: undefined, max: undefined}), transfer_price_minor: faker.number.int({min: undefined, max: undefined}), discount_premium_bps: faker.number.int({min: undefined, max: undefined}), accrued_interest_minor: faker.number.int({min: undefined, max: undefined}), accrued_interest_from_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), accrued_interest_to_date: faker.date.past().toISOString().split('T')[0], maker_fee_bps: faker.number.int({min: undefined, max: undefined}), taker_fee_bps: faker.number.int({min: undefined, max: undefined}), minimum_maker_fee_minor: faker.number.int({min: undefined, max: undefined}), minimum_taker_fee_minor: faker.number.int({min: undefined, max: undefined}), maker_fee_minor: faker.number.int({min: undefined, max: undefined}), taker_fee_minor: faker.number.int({min: undefined, max: undefined}), seller_net_proceeds_minor: faker.number.int({min: undefined, max: undefined}), buyer_total_cost_minor: faker.number.int({min: undefined, max: undefined}), loan_status_at_listing: faker.string.alpha({length: {min: 10, max: 20}}), days_past_due: faker.number.int({min: undefined, max: undefined}), last_payment_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), risk_acknowledgement_required: faker.datatype.boolean(), document_acceptance_id: faker.string.uuid(), public_disclosure_note: faker.string.alpha({length: {min: 10, max: 20}}), listed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), approved_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), approved_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), approval_reason: faker.string.alpha({length: {min: 10, max: 20}}), rejected_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), rejected_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), rejection_reason: faker.string.alpha({length: {min: 10, max: 20}}), removed_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), removed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), removal_reason: faker.string.alpha({length: {min: 10, max: 20}}), cancelled_by_user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), cancelled_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), cancellation_reason: faker.string.alpha({length: {min: 10, max: 20}}), created_by_user_id: faker.string.uuid(), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, loan_title: faker.string.alpha({length: {min: 10, max: 20}}), loan_status: faker.string.alpha({length: {min: 10, max: 20}}), seller_email: faker.string.alpha({length: {min: 10, max: 20}}), seller_full_name: faker.string.alpha({length: {min: 10, max: 20}})})))
+
 export const getV1MarketplaceSecondaryAdminListingsApproveCreateResponseMock = (overrideResponse: Partial< SecondaryMarketListing > = {}): SecondaryMarketListing => ({id: faker.string.uuid(), holding_id: faker.string.uuid(), loan_id: faker.string.uuid(), seller_user_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), publication_type: faker.string.alpha({length: {min: 10, max: 20}}), current_principal_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), price_bps: faker.number.int({min: undefined, max: undefined}), transfer_price_minor: faker.number.int({min: undefined, max: undefined}), discount_premium_bps: faker.number.int({min: undefined, max: undefined}), accrued_interest_minor: faker.number.int({min: undefined, max: undefined}), accrued_interest_from_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), accrued_interest_to_date: faker.date.past().toISOString().split('T')[0], maker_fee_bps: faker.number.int({min: undefined, max: undefined}), taker_fee_bps: faker.number.int({min: undefined, max: undefined}), minimum_maker_fee_minor: faker.number.int({min: undefined, max: undefined}), minimum_taker_fee_minor: faker.number.int({min: undefined, max: undefined}), maker_fee_minor: faker.number.int({min: undefined, max: undefined}), taker_fee_minor: faker.number.int({min: undefined, max: undefined}), seller_net_proceeds_minor: faker.number.int({min: undefined, max: undefined}), buyer_total_cost_minor: faker.number.int({min: undefined, max: undefined}), loan_status_at_listing: faker.string.alpha({length: {min: 10, max: 20}}), days_past_due: faker.number.int({min: undefined, max: undefined}), last_payment_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), risk_acknowledgement_required: faker.datatype.boolean(), document_acceptance_id: faker.string.uuid(), public_disclosure_note: faker.string.alpha({length: {min: 10, max: 20}}), listed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), approved_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), approved_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), approval_reason: faker.string.alpha({length: {min: 10, max: 20}}), rejected_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), rejected_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), rejection_reason: faker.string.alpha({length: {min: 10, max: 20}}), removed_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), removed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), removal_reason: faker.string.alpha({length: {min: 10, max: 20}}), cancelled_by_user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), cancelled_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), cancellation_reason: faker.string.alpha({length: {min: 10, max: 20}}), created_by_user_id: faker.string.uuid(), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
 
 export const getV1MarketplaceSecondaryAdminListingsRejectCreateResponseMock = (overrideResponse: Partial< SecondaryMarketListing > = {}): SecondaryMarketListing => ({id: faker.string.uuid(), holding_id: faker.string.uuid(), loan_id: faker.string.uuid(), seller_user_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), publication_type: faker.string.alpha({length: {min: 10, max: 20}}), current_principal_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), price_bps: faker.number.int({min: undefined, max: undefined}), transfer_price_minor: faker.number.int({min: undefined, max: undefined}), discount_premium_bps: faker.number.int({min: undefined, max: undefined}), accrued_interest_minor: faker.number.int({min: undefined, max: undefined}), accrued_interest_from_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), accrued_interest_to_date: faker.date.past().toISOString().split('T')[0], maker_fee_bps: faker.number.int({min: undefined, max: undefined}), taker_fee_bps: faker.number.int({min: undefined, max: undefined}), minimum_maker_fee_minor: faker.number.int({min: undefined, max: undefined}), minimum_taker_fee_minor: faker.number.int({min: undefined, max: undefined}), maker_fee_minor: faker.number.int({min: undefined, max: undefined}), taker_fee_minor: faker.number.int({min: undefined, max: undefined}), seller_net_proceeds_minor: faker.number.int({min: undefined, max: undefined}), buyer_total_cost_minor: faker.number.int({min: undefined, max: undefined}), loan_status_at_listing: faker.string.alpha({length: {min: 10, max: 20}}), days_past_due: faker.number.int({min: undefined, max: undefined}), last_payment_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), risk_acknowledgement_required: faker.datatype.boolean(), document_acceptance_id: faker.string.uuid(), public_disclosure_note: faker.string.alpha({length: {min: 10, max: 20}}), listed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), approved_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), approved_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), approval_reason: faker.string.alpha({length: {min: 10, max: 20}}), rejected_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), rejected_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), rejection_reason: faker.string.alpha({length: {min: 10, max: 20}}), removed_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), removed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), removal_reason: faker.string.alpha({length: {min: 10, max: 20}}), cancelled_by_user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), cancelled_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), cancellation_reason: faker.string.alpha({length: {min: 10, max: 20}}), created_by_user_id: faker.string.uuid(), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
@@ -13653,6 +13817,18 @@ export const getV1MarketplacePrimaryOrdersAllocateBalanceCreateMockHandler = (ov
   }, options)
 }
 
+export const getV1MarketplaceSecondaryAdminListingsListMockHandler = (overrideResponse?: AdminSecondaryMarketListingRow[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AdminSecondaryMarketListingRow[]> | AdminSecondaryMarketListingRow[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/marketplace/secondary/admin/listings/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1MarketplaceSecondaryAdminListingsListResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
 export const getV1MarketplaceSecondaryAdminListingsApproveCreateMockHandler = (overrideResponse?: SecondaryMarketListing | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<SecondaryMarketListing> | SecondaryMarketListing), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/marketplace/secondary/admin/listings/:listingId/approve/', async (info) => {await delay(1000);
 
@@ -13976,6 +14152,7 @@ export const getBanxumApiMock = () => [
   getV1MarketplacePrimaryLoansRetrieveMockHandler(),
   getV1MarketplacePrimaryOrdersCreateMockHandler(),
   getV1MarketplacePrimaryOrdersAllocateBalanceCreateMockHandler(),
+  getV1MarketplaceSecondaryAdminListingsListMockHandler(),
   getV1MarketplaceSecondaryAdminListingsApproveCreateMockHandler(),
   getV1MarketplaceSecondaryAdminListingsRejectCreateMockHandler(),
   getV1MarketplaceSecondaryAdminListingsRemoveCreateMockHandler(),

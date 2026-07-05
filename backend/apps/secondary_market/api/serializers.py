@@ -146,6 +146,19 @@ class SecondaryMarketPurchaseSerializer(serializers.Serializer[Any]):
     purchased_at = serializers.DateTimeField()
 
 
+class AdminSecondaryMarketListingRowSerializer(SecondaryMarketListingSerializer):
+    loan_title = serializers.CharField(source="loan.title")
+    loan_status = serializers.CharField(source="loan.status")
+    seller_email = serializers.CharField()
+    seller_full_name = serializers.CharField()
+    created_at = serializers.DateTimeField()
+
+
+class AdminSecondaryMarketListingListQuerySerializer(serializers.Serializer[Any]):
+    status = serializers.CharField(required=False, allow_blank=True, max_length=32)
+    limit = serializers.IntegerField(required=False, min_value=1, max_value=250, default=100)
+
+
 def serialize_secondary_listing(listing: SecondaryMarketListing) -> dict[str, Any]:
     return dict(SecondaryMarketListingSerializer(listing).data)
 

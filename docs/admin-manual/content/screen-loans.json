@@ -6,7 +6,7 @@
     "A quick mental model of the product. Individual investors (called lenders) put money into their BANXUM account. The platform then funds loans to vetted business borrowers. Borrowers repay over time with interest. Lenders earn that interest and can later withdraw.",
     "Borrowers are companies, not people with logins. There is no borrower portal. An admin types in every borrower's details by hand. The borrower never sees this screen.",
     "Two jargon terms you will see everywhere. The primary market is where a brand-new loan is first funded by investors. The secondary market is where an investor who already owns a slice of a loan sells that slice to another investor. This screen handles admin tasks for both.",
-    "This page is laid out top to bottom as: key metrics, then a Borrowers table, then a Loans table, then two panels (Secondary-market approvals, and Servicing and recovery). Primary-market actions - publish, close funding, cancel funding, expiry scan, order release - live in the Manage dialog you open from a loan row."
+    "This page is laid out top to bottom as: key metrics, then a Borrowers table, then a Loans table, then a Secondary-market approvals table, then a Servicing and recovery panel. Primary-market actions - publish, close funding, cancel funding, expiry scan, order release - plus recording a recovery on a defaulted loan live in the Manage dialog you open from a loan row."
   ],
   "whatYouDoHere": [
     "Add and edit borrower companies, and watch their KYB status (the company-level identity and compliance check).",
@@ -188,7 +188,7 @@
         {
           "item": 12,
           "label": "Manage button (row action)",
-          "text": "Opens the Manage dialog for this loan: a menu of the primary-market actions valid for its current status (publish for drafts; close funding, cancel funding, expiry scan and order release for published loans). Choosing an action shows only that action's fields. It also selects the loan for the Servicing and recovery panel below."
+          "text": "Opens the Manage dialog for this loan: a menu of the primary-market actions valid for its current status (publish for drafts; close funding, cancel funding, expiry scan and order release for published loans; record a recovery payment for defaulted loans). Choosing an action shows only that action's fields. It also selects the loan for the Servicing and recovery panel below."
         },
         {
           "item": 15,
@@ -249,7 +249,7 @@
         }
       ],
       "notes": [
-        "The menu is status-aware: a draft loan only offers Publish; a published loan offers Close/Cancel/Expiry scan/Release; loans past funding (Funded, Late, Defaulted, Repaid) have no primary-market actions - their day-to-day work happens in Servicing and recovery.",
+        "The menu is status-aware: a draft loan only offers Publish; a published loan offers Close/Cancel/Expiry scan/Release; loans past funding (Funded, Late, Repaid) have no primary-market actions; a Defaulted loan offers 'Record a recovery payment'. Day-to-day servicing happens in the Servicing and recovery panel.",
         "Dangerous actions carry a 'Confirmation required' tag: after filling the form you still get a summary dialog restating loan, reason and message before the backend is called.",
         "Publishing is subject to backend gates: borrower KYB approved, no compliance hold, complete loan data and a valid funding deadline."
       ]
@@ -287,49 +287,80 @@
     },
     {
       "id": "loans-7-secondary-market-approvals",
-      "caption": "Secondary-market approvals: act on investor-to-investor resale listings.",
-      "summary": "The secondary market is where an investor who already owns part of a loan lists that slice for sale to another investor. Most listings go live automatically, but non-standard ones (for example on a non-performing loan) need an admin to approve them with a disclosure note. This panel approves, rejects or removes those listings.",
+      "caption": "Secondary-market approvals: the table of investor-to-investor resale listings.",
+      "summary": "Every secondary-market listing, newest first. The secondary market is where an investor who already owns a slice of a loan sells it to another investor. Standard (performing-loan) listings publish automatically and appear here as 'Active'; non-standard listings (late, defaulted, or otherwise flagged) wait as 'Approval requested' until an admin approves them with a buyer disclosure note. The status filter narrows the table, and the action buttons on each row open a confirmation dialog.",
       "annotations": [
         {
           "item": 1,
-          "label": "Secondary listing field",
-          "text": "The listing this panel acts on. Search and select the listing ID. All three buttons below target this listing."
+          "label": "Loan / listing column",
+          "text": "The loan the listed slice belongs to, with the listing's own ID underneath."
         },
         {
           "item": 2,
-          "label": "Reason field",
-          "text": "A required reason recorded with whichever action you take (approve, reject or remove). It is stored in the audit trail."
+          "label": "Seller column",
+          "text": "The investor selling the slice (name and email). Buyers never see this - seller identity is redacted on the buyer-facing side - but admins need it here to review the listing."
         },
         {
           "item": 3,
-          "label": "Buyer disclosure note field",
-          "text": "The note that will be shown to potential buyers when a listing is approved. It is required to approve a listing and is meant to flag risks (for example that the loan is non-performing) before someone buys."
+          "label": "Price column",
+          "text": "The transfer price and whether it is a discount or premium to the current principal. Accrued interest and fees are added at settlement."
         },
         {
           "item": 4,
-          "label": "Approve listing button",
-          "text": "Makes the listing visible to eligible buyers with the disclosure note attached. It only works on a listing that is in the 'approval requested' state. After approval, buyers see the listing and the disclosure. Confirmation is required."
+          "label": "Loan status column",
+          "text": "The underlying loan's status (Published, Late, Defaulted...). This is what makes a listing 'standard' or 'non-standard': a late or defaulted loan needs your approval and a disclosure note before buyers can see it."
         },
         {
           "item": 5,
-          "label": "Reject button",
-          "text": "Refuses the listing so it stays hidden, and records the decision. Like Approve, it only works on a listing that is in the 'approval requested' state. This is a destructive action and asks for confirmation."
+          "label": "DPD column",
+          "text": "Days past due on the underlying loan. A non-zero value is a signal to review carefully and disclose the risk to buyers."
         },
         {
           "item": 6,
-          "label": "Remove button",
-          "text": "Takes a listing out of buyer visibility. Unlike Approve and Reject, Remove works on a listing that is either Active (already live) or still in 'approval requested', letting you pull a listing back after it has gone live. The reason is recorded."
+          "label": "Status column",
+          "text": "The listing's own status: Approval requested (waiting for you), Active (visible to buyers), Sold, Rejected, Removed, or Cancelled."
+        },
+        {
+          "item": 9,
+          "label": "Status filter",
+          "text": "Narrows the table to one listing status - for example show only 'Approval requested' to work through the queue of listings needing a decision."
+        },
+        {
+          "item": 11,
+          "label": "Approve (row action)",
+          "text": "On an 'Approval requested' row, opens a dialog to approve the listing. You provide a reason and a buyer disclosure note (shown to buyers as the public disclosure), then confirm. The listing becomes Active and visible to eligible buyers with an extra risk acknowledgement."
+        },
+        {
+          "item": 12,
+          "label": "Reject (row action)",
+          "text": "On an 'Approval requested' row, opens a dialog to reject the listing with a reason. It stays hidden from buyers and the decision is audit-logged."
+        },
+        {
+          "item": 13,
+          "label": "Remove (row action)",
+          "text": "On an 'Active' row, opens a dialog to take a live listing out of buyer visibility with an operational reason - used when a listing must be pulled after it went live."
+        },
+        {
+          "item": 15,
+          "label": "Approval requested chip",
+          "text": "This listing is non-standard and waiting for your decision. Only rows in this state show Approve/Reject."
+        },
+        {
+          "item": 17,
+          "label": "Active chip",
+          "text": "This listing is live and visible to buyers. Active rows show a Remove action; sold, rejected and removed rows show no actions."
         }
       ],
       "notes": [
-        "Approve and Reject are first-decision actions: they only apply to a listing still awaiting a decision. Remove is the way to pull a listing that is already active.",
-        "Approving notifies the seller that the listing is live; rejecting and removing notify the seller of the decision and reason.",
-        "The same Reason and Disclosure note fields are reused across all three buttons, so set them to match the action you are about to take."
+        "Standard (performing-loan) listings publish automatically and never need approval; they appear here as Active so you can still Remove one if needed.",
+        "Approving a non-standard listing requires a buyer disclosure note - the public text buyers must read and additionally acknowledge before purchase.",
+        "Approve, reject and remove are all confirmed in a dialog and recorded in the audit trail with your reason.",
+        "Rejected, removed, sold and cancelled listings stay in the table for evidence but offer no further actions."
       ]
     },
     {
       "id": "loans-8-servicing-and-recovery",
-      "caption": "Servicing and recovery: record repayments, scan loan health, post public notes, and handle defaults.",
+      "caption": "Servicing and recovery: record repayments, scan loan health, and post public notes.",
       "summary": "Servicing means running a loan after it is funded: recording the borrower's repayments and keeping its status accurate. Recovery handles loans that have defaulted (gone badly past due) by recording money clawed back. This panel acts on the loan selected in the table above.",
       "annotations": [
         {
@@ -358,12 +389,12 @@
           "text": "The name on the incoming bank payment. Recorded as evidence of who paid."
         },
         {
-          "item": 8,
+          "item": 7,
           "label": "Record repayment button",
           "text": "Records a borrower repayment and automatically splits it across all active investor holdings (interest first, then principal). It only works when the loan is Funded or Late and the borrower can transact. Important gotcha: if the amount does not exactly equal the next installment due, in EITHER direction (under OR over), you must tick the warning-acknowledged box first. Paying MORE than due (an early/extra principal payment) is only allowed when the loan status is Funded, not Late."
         },
         {
-          "item": 9,
+          "item": 8,
           "label": "Run status scan button",
           "text": "Re-checks the loan's health as of the value date and updates its status. A loan with an installment 5+ days past due becomes Late; 16+ days past due becomes Defaulted; fully paid becomes Repaid. The scan is the only thing that escalates a loan into Defaulted; recording a repayment never does."
         },
@@ -373,26 +404,82 @@
           "text": "The text of a public update to investors about this loan (for example explaining a delay). This is the message that gets published when you press Publish public note."
         },
         {
-          "item": 10,
+          "item": 9,
           "label": "Publish public note button",
           "text": "Posts a public risk note that investors holding this loan can read. Public notes are only allowed on loans that are in an active portfolio status (Funded, Late, Defaulted, Repaid or Written off), not on drafts or unfunded loans."
-        },
-        {
-          "item": 7,
-          "label": "Recovery gross minor field",
-          "text": "The gross amount recovered, in minor units, used by Record recovery. Gross means before any deducted recovery costs or fees."
-        },
-        {
-          "item": 11,
-          "label": "Record recovery button",
-          "text": "Records money clawed back on a defaulted loan and distributes the net amount to affected investors following the recovery waterfall, reducing their outstanding principal. It only works on loans whose status is Defaulted. This is a sensitive financial action, so it asks for confirmation."
         }
       ],
       "notes": [
         "The warning-acknowledged checkbox is the key gotcha on this panel: tick it for any repayment that is not exactly the next amount due (whether short or over). Over-payments are only accepted on Funded loans.",
-        "Repayments and recoveries are split automatically across investors by their share of the loan; you do not allocate them by hand here.",
         "Each action uses an idempotency key, so an accidental double-submit is safely ignored rather than processed twice.",
-        "Order of a defaulting loan's life: a missed payment moves it Late, then Defaulted (via status scan), then recoveries are recorded against it, and finally any unrecovered balance is written off elsewhere."
+        "Recovery payments on a defaulted loan are recorded from the loan row's Manage dialog (Record a recovery payment), not here."
+      ]
+    },
+    {
+      "id": "loans-11-manage-record-recovery",
+      "caption": "Manage > Record a recovery payment (defaulted loans only).",
+      "summary": "The recovery action appears in the Manage dialog only when the loan is Defaulted. It records money recovered on the loan and distributes it to lenders through the recovery waterfall. The key rule: the gross recovered, minus external and third-party costs and the optional Garanta recovery fee, gives the 'net to distribute'; the five category amounts you enter below must add up to exactly that net figure. A running summary shows the arithmetic and a warning appears until the split balances.",
+      "annotations": [
+        {
+          "item": 16,
+          "label": "Defaulted status",
+          "text": "The recovery action only exists for a Defaulted loan. On any other status the Manage menu does not offer it (repayments on healthy or late loans are recorded in the Servicing and recovery panel instead)."
+        },
+        {
+          "item": 1,
+          "label": "Gross recovered",
+          "text": "The total amount recovered on the loan before any deductions - for example proceeds from enforcing collateral."
+        },
+        {
+          "item": 2,
+          "label": "Externally deducted costs",
+          "text": "Costs already taken out before the money reached Garanta (deducted from the gross). Net received = gross minus these."
+        },
+        {
+          "item": 3,
+          "label": "Third-party costs (from received)",
+          "text": "External legal or recovery costs paid out of the received funds. These come off before the Garanta fee and the lender distribution."
+        },
+        {
+          "item": 4,
+          "label": "Apply Garanta recovery fee",
+          "text": "Tick to apply Garanta's recovery fee. A basis-points field appears; the fee is charged on the net-of-third-party base and becomes Garanta revenue."
+        },
+        {
+          "item": 5,
+          "label": "Principal recovered",
+          "text": "The part of the net distribution assigned to principal. This and the next four fields are the waterfall split."
+        },
+        {
+          "item": 6,
+          "label": "Contractual interest recovered",
+          "text": "The part assigned to contractual interest accrued up to default."
+        },
+        {
+          "item": 7,
+          "label": "Default/penalty interest recovered",
+          "text": "The part assigned to default or penalty interest."
+        },
+        {
+          "item": 8,
+          "label": "Penalties recovered",
+          "text": "The part assigned to penalties."
+        },
+        {
+          "item": 9,
+          "label": "Other costs recovered",
+          "text": "The part assigned to any other recoverable costs. The five split fields together must equal the net-to-distribute figure shown in the running summary above them."
+        },
+        {
+          "item": 15,
+          "label": "Record recovery",
+          "text": "Opens the confirmation summary, then records the recovery: affected investor balance lots are credited via the waterfall, holding principal is reduced, and any recovery fee is posted as Garanta revenue. Disabled until the category split matches the net amount - the form guards the same conservation rule the backend enforces."
+        }
+      ],
+      "notes": [
+        "Recovery is only valid on a Defaulted loan; regular and partial repayments on funded/late loans go through 'Record repayment' in the Servicing and recovery panel.",
+        "The running summary (Net received / Fee / Net to distribute) mirrors the backend math; the Record recovery button stays disabled while the category split does not equal the net amount.",
+        "In preview/demo mode the button records a 'Preview action' note instead of calling the backend."
       ]
     }
   ]

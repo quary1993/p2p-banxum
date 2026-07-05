@@ -181,7 +181,15 @@ await captureModalFigure("loans", "manage-loan-actions", "Manage loan - choose a
 await evaluate(`(() => { const b = [...document.querySelectorAll('.admin-manage-option')].find(x => x.textContent.includes('Close funding')); if (b) b.click(); })()`);
 await sleep(700);
 await captureModalFigure("loans", "manage-close-funding", "Manage loan - close funding");
-await evaluate(`(() => { const b = document.querySelector('.modal-close') || [...document.querySelectorAll('button')].find(x => (x.getAttribute('aria-label')||'') === 'Close'); if (b) b.click(); })()`);
+await evaluate(`(() => { const b = document.querySelector('.x-btn, .modal-close') || [...document.querySelectorAll('button')].find(x => (x.getAttribute('aria-label')||'') === 'Close'); if (b) b.click(); })()`);
+await sleep(500);
+// Recovery action: open Manage on the defaulted loan, choose Record recovery
+await evaluate(`(() => { const rows=[...document.querySelectorAll('tr')]; const r=rows.find(x=>x.textContent.includes('Luzern Quartier')); if(!r) return; const m=[...r.querySelectorAll('button')].find(b=>b.textContent.trim()==='Manage'); if(m) m.click(); })()`);
+await sleep(900);
+await evaluate(`(() => { const o=[...document.querySelectorAll('.admin-manage-option')].find(x=>x.textContent.includes('recovery')); if(o) o.click(); })()`);
+await sleep(700);
+await captureModalFigure("loans", "manage-record-recovery", "Manage loan - record a recovery payment");
+await evaluate(`(() => { const b = document.querySelector('.x-btn, .modal-close') || [...document.querySelectorAll('button')].find(x => (x.getAttribute('aria-label')||'') === 'Close'); if (b) b.click(); })()`);
 await sleep(500);
 await captureScreen("Reports", "reports", {});
 await captureScreen("Superadmin settings", "settings", {});

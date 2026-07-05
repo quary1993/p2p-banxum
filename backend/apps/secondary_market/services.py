@@ -10,6 +10,7 @@ from typing import Any, cast
 
 from django.apps import apps
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.db.models import F, Model, Sum
 
@@ -1024,6 +1025,39 @@ def _ensure_transition_idempotency(
 
 
 @transaction.atomic
+def list_admin_secondary_market_listings(
+    *,
+    actor: Model,
+    status: str = "",
+    limit: int = 100,
+) -> list[SecondaryMarketListing]:
+    """Admin table listing of secondary-market listings, newest first."""
+    _require_admin_actor(actor)
+    queryset = SecondaryMarketListing.objects.select_related("currency", "loan").order_by(
+        "-created_at", "-id"
+    )
+    cleaned_status = status.strip().lower()
+    if cleaned_status:
+        valid = {choice.value for choice in SecondaryMarketListingStatus}
+        if cleaned_status not in valid:
+            raise SecondaryMarketValidationError("Unknown listing status filter.")
+        queryset = queryset.filter(status=cleaned_status)
+    listings = list(queryset[: max(1, min(int(limit), 250))])
+    user_model = get_user_model()
+    sellers = {
+        str(user.pk): user
+        for user in user_model.objects.filter(
+            id__in={listing.seller_user_id for listing in listings}
+        )
+    }
+    for listing in listings:
+        listing_ref = cast(Any, listing)
+        seller = sellers.get(str(listing_ref.seller_user_id))
+        listing_ref.seller_email = str(getattr(seller, "email", "") or "")
+        listing_ref.seller_full_name = str(getattr(seller, "full_name", "") or "")
+    return listings
+
+
 def approve_secondary_market_listing(
     command: ApproveSecondaryMarketListingCommand,
 ) -> SecondaryMarketListing:

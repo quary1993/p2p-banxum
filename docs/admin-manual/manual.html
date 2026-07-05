@@ -1015,7 +1015,7 @@ figcaption { font-size:15.4px; font-weight:600; margin-bottom:3px; break-after:a
   </section>
 <section class="screen" id="screen-loans">
     <div class="sec-head"><span class="eyebrow">Section 8</span><h2>Loans &amp; Marketplace</h2></div>
-    <div class="lead-copy"><p>This screen is the lending engine of BANXUM. It is where you set up the companies that borrow money, build the loans they want, and run those loans from the moment they go live until they are fully repaid or written off.</p><p>A quick mental model of the product. Individual investors (called lenders) put money into their BANXUM account. The platform then funds loans to vetted business borrowers. Borrowers repay over time with interest. Lenders earn that interest and can later withdraw.</p><p>Borrowers are companies, not people with logins. There is no borrower portal. An admin types in every borrower's details by hand. The borrower never sees this screen.</p><p>Two jargon terms you will see everywhere. The primary market is where a brand-new loan is first funded by investors. The secondary market is where an investor who already owns a slice of a loan sells that slice to another investor. This screen handles admin tasks for both.</p><p>This page is laid out top to bottom as: key metrics, then a Borrowers table, then a Loans table, then two panels (Secondary-market approvals, and Servicing and recovery). Primary-market actions - publish, close funding, cancel funding, expiry scan, order release - live in the Manage dialog you open from a loan row.</p></div>
+    <div class="lead-copy"><p>This screen is the lending engine of BANXUM. It is where you set up the companies that borrow money, build the loans they want, and run those loans from the moment they go live until they are fully repaid or written off.</p><p>A quick mental model of the product. Individual investors (called lenders) put money into their BANXUM account. The platform then funds loans to vetted business borrowers. Borrowers repay over time with interest. Lenders earn that interest and can later withdraw.</p><p>Borrowers are companies, not people with logins. There is no borrower portal. An admin types in every borrower's details by hand. The borrower never sees this screen.</p><p>Two jargon terms you will see everywhere. The primary market is where a brand-new loan is first funded by investors. The secondary market is where an investor who already owns a slice of a loan sells that slice to another investor. This screen handles admin tasks for both.</p><p>This page is laid out top to bottom as: key metrics, then a Borrowers table, then a Loans table, then a Secondary-market approvals table, then a Servicing and recovery panel. Primary-market actions - publish, close funding, cancel funding, expiry scan, order release - plus recording a recovery on a defaulted loan live in the Manage dialog you open from a loan row.</p></div>
     <div class="callout"><div class="callout-h">What you do on this screen</div><ul><li>Add and edit borrower companies, and watch their KYB status (the company-level identity and compliance check).</li><li>Create loan drafts, edit them, and review their status, amount, interest rate, LTV and funding deadline.</li><li>Open Manage on a loan row to publish it to the marketplace so investors can fund it, then close or cancel its funding, run an expiry scan, or release a stuck investor order.</li><li>Approve, reject or remove non-standard secondary-market listings (investor-to-investor resales).</li><li>Service live loans: record borrower repayments, run a status scan that flags late or defaulted loans, publish public notes to investors, and record recovery payments on defaulted loans.</li></ul></div>
     <figure class="fig">
     <div class="figtop">
@@ -1115,45 +1115,37 @@ figcaption { font-size:15.4px; font-weight:600; margin-bottom:3px; break-after:a
     <div class="figtop">
       <figcaption><span class="figlabel">Figure 8.3</span> The Loans table: each loan with its status, amount, rate, LTV and funding deadline.</figcaption>
       <p class="figsummary">Each row is one loan. A loan is created as a draft, then published so investors can fund it. A loan can only be published when its required fields, repayment schedule, funding window and the borrower's KYB all pass their checks.</p>
-      <div class="figcanvas"><svg class="figsvg" data-fig="loans-6-loans" viewBox="0 0 1164 273" width="980" height="229.84536082474227" xmlns="http://www.w3.org/2000/svg">
+      <div class="figcanvas"><svg class="figsvg" data-fig="loans-6-loans" viewBox="0 0 1164 331" width="980" height="278.6769759450172" xmlns="http://www.w3.org/2000/svg">
     <defs><marker id="ahloans-6-loans" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9c3127"/></marker></defs>
-    <image href="figures/loans-6-loans.png" x="66" y="0" width="1032" height="273"/>
+    <image href="figures/loans-6-loans.png" x="66" y="0" width="1032" height="331"/>
     <rect class="hl" x="82" y="103" width="245" height="40" rx="6"/>
-<path class="lead" d="M 33 113 L 84 123" marker-end="url(#ahloans-6-loans)"/>
-<circle class="badge" cx="33" cy="113" r="15"/>
-<text class="bnum" x="33" y="113.5">1</text>
+<path class="lead" d="M 33 123 L 84 123" marker-end="url(#ahloans-6-loans)"/>
+<circle class="badge" cx="33" cy="123" r="15"/>
+<text class="bnum" x="33" y="123.5">1</text>
 <rect class="hl" x="321" y="103" width="127" height="40" rx="6"/>
-<path class="lead" d="M 33 149 L 323 123" marker-end="url(#ahloans-6-loans)"/>
-<circle class="badge" cx="33" cy="149" r="15"/>
-<text class="bnum" x="33" y="149.5">2</text>
+<path class="lead" d="M 33 159 L 323 123" marker-end="url(#ahloans-6-loans)"/>
+<circle class="badge" cx="33" cy="159" r="15"/>
+<text class="bnum" x="33" y="159.5">2</text>
 <rect class="hl" x="442" y="103" width="167" height="40" rx="6"/>
-<path class="lead" d="M 33 185 L 444 123" marker-end="url(#ahloans-6-loans)"/>
-<circle class="badge" cx="33" cy="185" r="15"/>
-<text class="bnum" x="33" y="185.5">3</text>
-<rect class="hl" x="331" y="147" width="91" height="27" rx="6"/>
-<path class="lead" d="M 33 221 L 333 160.5" marker-end="url(#ahloans-6-loans)"/>
-<circle class="badge" cx="33" cy="221" r="15"/>
-<text class="bnum" x="33" y="221.5">13</text>
-<rect class="hl" x="331" y="205" width="60" height="27" rx="6"/>
-<path class="lead" d="M 33 257 L 333 218.5" marker-end="url(#ahloans-6-loans)"/>
-<circle class="badge" cx="33" cy="257" r="15"/>
-<text class="bnum" x="33" y="257.5">14</text>
+<path class="lead" d="M 33 195 L 444 123" marker-end="url(#ahloans-6-loans)"/>
+<circle class="badge" cx="33" cy="195" r="15"/>
+<text class="bnum" x="33" y="195.5">3</text>
 <rect class="hl" x="604" y="103" width="70" height="40" rx="6"/>
-<path class="lead" d="M 1131 77 L 672 123" marker-end="url(#ahloans-6-loans)"/>
-<circle class="badge" cx="1131" cy="77" r="15"/>
-<text class="bnum" x="1131" y="77.5">4</text>
+<path class="lead" d="M 1131 63 L 672 123" marker-end="url(#ahloans-6-loans)"/>
+<circle class="badge" cx="1131" cy="63" r="15"/>
+<text class="bnum" x="1131" y="63.5">4</text>
 <rect class="hl" x="668" y="103" width="73" height="40" rx="6"/>
-<path class="lead" d="M 1131 113 L 739 123" marker-end="url(#ahloans-6-loans)"/>
-<circle class="badge" cx="1131" cy="113" r="15"/>
-<text class="bnum" x="1131" y="113.5">5</text>
+<path class="lead" d="M 1131 99 L 739 123" marker-end="url(#ahloans-6-loans)"/>
+<circle class="badge" cx="1131" cy="99" r="15"/>
+<text class="bnum" x="1131" y="99.5">5</text>
 <rect class="hl" x="735" y="103" width="165" height="40" rx="6"/>
-<path class="lead" d="M 1131 149 L 898 123" marker-end="url(#ahloans-6-loans)"/>
-<circle class="badge" cx="1131" cy="149" r="15"/>
-<text class="bnum" x="1131" y="149.5">6</text>
+<path class="lead" d="M 1131 135 L 898 123" marker-end="url(#ahloans-6-loans)"/>
+<circle class="badge" cx="1131" cy="135" r="15"/>
+<text class="bnum" x="1131" y="135.5">6</text>
 <rect class="hl" x="893" y="103" width="235" height="40" rx="6"/>
-<path class="lead" d="M 1131 185 L 1126 123" marker-end="url(#ahloans-6-loans)"/>
-<circle class="badge" cx="1131" cy="185" r="15"/>
-<text class="bnum" x="1131" y="185.5">7</text>
+<path class="lead" d="M 1131 171 L 1126 123" marker-end="url(#ahloans-6-loans)"/>
+<circle class="badge" cx="1131" cy="171" r="15"/>
+<text class="bnum" x="1131" y="171.5">7</text>
 <rect class="hl" x="938" y="16" width="144" height="40" rx="6"/>
 <path class="lead" d="M 1131 16 L 1080 36" marker-end="url(#ahloans-6-loans)"/>
 <circle class="badge" cx="1131" cy="16" r="15"/>
@@ -1163,20 +1155,28 @@ figcaption { font-size:15.4px; font-weight:600; margin-bottom:3px; break-after:a
 <circle class="badge" cx="1131" cy="16" r="15"/>
 <text class="bnum" x="1131" y="16.5">9</text>
 <rect class="hl" x="966" y="58" width="116" height="34" rx="6"/>
-<path class="lead" d="M 1131 41 L 1080 75" marker-end="url(#ahloans-6-loans)"/>
-<circle class="badge" cx="1131" cy="41" r="15"/>
-<text class="bnum" x="1131" y="41.5">10</text>
+<path class="lead" d="M 1131 27 L 1080 75" marker-end="url(#ahloans-6-loans)"/>
+<circle class="badge" cx="1131" cy="27" r="15"/>
+<text class="bnum" x="1131" y="27.5">10</text>
 <rect class="hl" x="903" y="147" width="50" height="34" rx="6"/>
-<path class="lead" d="M 1131 221 L 951 164" marker-end="url(#ahloans-6-loans)"/>
-<circle class="badge" cx="1131" cy="221" r="15"/>
-<text class="bnum" x="1131" y="221.5">11</text>
+<path class="lead" d="M 1131 207 L 951 164" marker-end="url(#ahloans-6-loans)"/>
+<circle class="badge" cx="1131" cy="207" r="15"/>
+<text class="bnum" x="1131" y="207.5">11</text>
 <rect class="hl" x="956" y="147" width="74" height="34" rx="6"/>
-<path class="lead" d="M 1131 257 L 1028 164" marker-end="url(#ahloans-6-loans)"/>
-<circle class="badge" cx="1131" cy="257" r="15"/>
-<text class="bnum" x="1131" y="257.5">12</text>
+<path class="lead" d="M 1131 243 L 1028 164" marker-end="url(#ahloans-6-loans)"/>
+<circle class="badge" cx="1131" cy="243" r="15"/>
+<text class="bnum" x="1131" y="243.5">12</text>
+<rect class="hl" x="903" y="262" width="50" height="34" rx="6"/>
+<path class="lead" d="M 1131 279 L 951 279" marker-end="url(#ahloans-6-loans)"/>
+<circle class="badge" cx="1131" cy="279" r="15"/>
+<text class="bnum" x="1131" y="279.5">13</text>
+<rect class="hl" x="956" y="262" width="74" height="34" rx="6"/>
+<path class="lead" d="M 1131 315 L 1028 279" marker-end="url(#ahloans-6-loans)"/>
+<circle class="badge" cx="1131" cy="315" r="15"/>
+<text class="bnum" x="1131" y="315.5">14</text>
   </svg></div>
     </div>
-    <ol class="legend"><li><span class="lnum">1</span><div><strong>Loan column</strong> The loan title with its unique ID (UUID) underneath. Click a row to select it; the selected loan becomes the default target for the action panels lower on the page (publish, close, servicing, etc.).</div></li><li><span class="lnum">2</span><div><strong>Status column</strong> The loan's lifecycle status as a coloured chip. The values are: Draft, Published, Funded, Late, Defaulted, Repaid, Written off, and Cancelled. Status controls what you are allowed to do: for example only Draft loans can be published, only Published loans can be closed or cancelled, only Funded/Late loans accept repayments, and only Defaulted loans accept recoveries.</div></li><li><span class="lnum">3</span><div><strong>Amount column</strong> The loan principal: the total amount the borrower wants to raise, shown formatted in the loan's currency. (Principal means the borrowed sum itself, before interest.)</div></li><li><span class="lnum">4</span><div><strong>Rate column</strong> The annual interest rate the borrower pays, shown as a percentage. Internally it is stored in basis points (bps), where 100 bps = 1%.</div></li><li><span class="lnum">5</span><div><strong>LTV column</strong> LTV means Loan-to-Value: the loan amount divided by the value of the collateral backing it, shown as a percentage. A lower LTV is safer because the collateral comfortably covers the loan. A dash means no LTV is recorded.</div></li><li><span class="lnum">6</span><div><strong>Funding deadline column</strong> The date by which investors must finish funding the loan. After this date the campaign is expired and can be cancelled by the expiry scan. To publish a loan, the deadline must be no earlier than today and no more than 29 days out (so end-of-window investor funds can still settle inside the platform's 60-day operating limit).</div></li><li><span class="lnum">7</span><div><strong>Actions column</strong> Holds the per-row Edit and Manage buttons. Published loans show a note that cancellation is done via the operations panel below, rather than from this row.</div></li><li><span class="lnum">8</span><div><strong>Filter loans by status</strong> A dropdown to show only loans in a chosen status (Draft, Published, Funded, Late, Defaulted, Repaid, Written off, Cancelled), or all of them. Handy for finding, say, every Late loan that needs servicing.</div></li><li><span class="lnum">9</span><div><strong>Refresh button</strong> Reloads the loans list from the backend. Use it after creating, editing or running an operation if the table looks stale.</div></li><li><span class="lnum">10</span><div><strong>Create loan button</strong> Opens the loan draft form. You pick a borrower, set the amount, rate, term, repayment type, collateral and funding deadline. The system builds the repayment schedule automatically. New loans always start as a Draft; they are not live until you publish them.</div></li><li><span class="lnum">11</span><div><strong>Edit button (row action)</strong> Opens the loan edit form. Note the safety rule: once investors have committed money to the loan, you can only lower the total amount (and not below what is already committed), and you must include an investor message. Other fields lock after commitments exist.</div></li><li><span class="lnum">12</span><div><strong>Manage button (row action)</strong> Opens the Manage dialog for this loan: a menu of the primary-market actions valid for its current status (publish for drafts; close funding, cancel funding, expiry scan and order release for published loans). Choosing an action shows only that action's fields. It also selects the loan for the Servicing and recovery panel below.</div></li><li><span class="lnum">13</span><div><strong>Published status chip</strong> Example of a 'Published' chip: this loan is live on the marketplace and investors can fund it now. From here you can close funding, cancel funding, or release individual orders.</div></li><li><span class="lnum">14</span><div><strong>Late status chip</strong> Example of a 'Late' chip: at least one installment is 5 or more days past due. If it reaches 16 or more days past due, the status scan moves it to Defaulted. Late loans still accept repayments.</div></li></ol>
+    <ol class="legend"><li><span class="lnum">1</span><div><strong>Loan column</strong> The loan title with its unique ID (UUID) underneath. Click a row to select it; the selected loan becomes the default target for the action panels lower on the page (publish, close, servicing, etc.).</div></li><li><span class="lnum">2</span><div><strong>Status column</strong> The loan's lifecycle status as a coloured chip. The values are: Draft, Published, Funded, Late, Defaulted, Repaid, Written off, and Cancelled. Status controls what you are allowed to do: for example only Draft loans can be published, only Published loans can be closed or cancelled, only Funded/Late loans accept repayments, and only Defaulted loans accept recoveries.</div></li><li><span class="lnum">3</span><div><strong>Amount column</strong> The loan principal: the total amount the borrower wants to raise, shown formatted in the loan's currency. (Principal means the borrowed sum itself, before interest.)</div></li><li><span class="lnum">4</span><div><strong>Rate column</strong> The annual interest rate the borrower pays, shown as a percentage. Internally it is stored in basis points (bps), where 100 bps = 1%.</div></li><li><span class="lnum">5</span><div><strong>LTV column</strong> LTV means Loan-to-Value: the loan amount divided by the value of the collateral backing it, shown as a percentage. A lower LTV is safer because the collateral comfortably covers the loan. A dash means no LTV is recorded.</div></li><li><span class="lnum">6</span><div><strong>Funding deadline column</strong> The date by which investors must finish funding the loan. After this date the campaign is expired and can be cancelled by the expiry scan. To publish a loan, the deadline must be no earlier than today and no more than 29 days out (so end-of-window investor funds can still settle inside the platform's 60-day operating limit).</div></li><li><span class="lnum">7</span><div><strong>Actions column</strong> Holds the per-row Edit and Manage buttons. Published loans show a note that cancellation is done via the operations panel below, rather than from this row.</div></li><li><span class="lnum">8</span><div><strong>Filter loans by status</strong> A dropdown to show only loans in a chosen status (Draft, Published, Funded, Late, Defaulted, Repaid, Written off, Cancelled), or all of them. Handy for finding, say, every Late loan that needs servicing.</div></li><li><span class="lnum">9</span><div><strong>Refresh button</strong> Reloads the loans list from the backend. Use it after creating, editing or running an operation if the table looks stale.</div></li><li><span class="lnum">10</span><div><strong>Create loan button</strong> Opens the loan draft form. You pick a borrower, set the amount, rate, term, repayment type, collateral and funding deadline. The system builds the repayment schedule automatically. New loans always start as a Draft; they are not live until you publish them.</div></li><li><span class="lnum">11</span><div><strong>Edit button (row action)</strong> Opens the loan edit form. Note the safety rule: once investors have committed money to the loan, you can only lower the total amount (and not below what is already committed), and you must include an investor message. Other fields lock after commitments exist.</div></li><li><span class="lnum">12</span><div><strong>Manage button (row action)</strong> Opens the Manage dialog for this loan: a menu of the primary-market actions valid for its current status (publish for drafts; close funding, cancel funding, expiry scan and order release for published loans; record a recovery payment for defaulted loans). Choosing an action shows only that action's fields. It also selects the loan for the Servicing and recovery panel below.</div></li><li><span class="lnum">13</span><div><strong>Published status chip</strong> Example of a 'Published' chip: this loan is live on the marketplace and investors can fund it now. From here you can close funding, cancel funding, or release individual orders.</div></li><li><span class="lnum">14</span><div><strong>Late status chip</strong> Example of a 'Late' chip: at least one installment is 5 or more days past due. If it reaches 16 or more days past due, the status scan moves it to Defaulted. Late loans still accept repayments.</div></li></ol>
     <div class="notes"><div class="notes-h">Notes &amp; rules</div><ul><li>Publishing a loan runs four gates at once: required fields present, the repayment schedule is complete (one installment per month of the term and the principal pieces add up to the loan amount), the funding deadline is valid for publishing, and the borrower's KYB is Approved with no compliance hold. If any gate fails, publishing is refused with a message.</li><li>Status is not just a label; it is enforced. The action panels will reject operations that do not match the loan's current status.</li><li>The search box lets you find a loan by title, borrower, status or UUID.</li></ul></div>
   </figure><figure class="fig">
     <div class="figtop">
@@ -1216,7 +1216,7 @@ figcaption { font-size:15.4px; font-weight:600; margin-bottom:3px; break-after:a
   </svg></div>
     </div>
     <ol class="legend"><li><span class="lnum">1</span><div><strong>Dialog title</strong> Names the loan you are managing, so you cannot mix up rows. Everything you do in this dialog applies to this loan only.</div></li><li><span class="lnum">2</span><div><strong>Loan context bar</strong> The loan's current status ('Published' here), funding deadline and committed/total amounts. Check this before acting - the menu is built from this status.</div></li><li><span class="lnum">3</span><div><strong>Close funding</strong> Ends the funding round. Allocated orders become holdings, escrow moves to the borrower payable and Garanta fee revenue, and the loan activates. If less than the full amount was raised, this is the partial close: the accepted amount becomes the final principal and the schedule is regenerated.</div></li><li><span class="lnum">4</span><div><strong>Cancel funding</strong> Stops the campaign before close. Reserved balances are released back to investors, pending orders close as not invested, and the loan moves to cancelled. Only valid before funding close. The 'Confirmation required' tag means a summary dialog asks you to confirm before anything runs.</div></li><li><span class="lnum">5</span><div><strong>Run funding expiry scan</strong> Cancels published campaigns whose funding deadline has passed. A checkbox in the form limits the scan to this loan (default) or widens it to all expired published campaigns.</div></li><li><span class="lnum">6</span><div><strong>Release an order's balance</strong> Returns one allocated order's reserved balance to its investor without touching the rest of the campaign - used when a single order must be unwound, for example after a validation problem.</div></li><li><span class="lnum">7</span><div><strong>Close (X)</strong> Closes the dialog without doing anything. Nothing runs until you pick an action and confirm it inside the form.</div></li></ol>
-    <div class="notes"><div class="notes-h">Notes &amp; rules</div><ul><li>The menu is status-aware: a draft loan only offers Publish; a published loan offers Close/Cancel/Expiry scan/Release; loans past funding (Funded, Late, Defaulted, Repaid) have no primary-market actions - their day-to-day work happens in Servicing and recovery.</li><li>Dangerous actions carry a 'Confirmation required' tag: after filling the form you still get a summary dialog restating loan, reason and message before the backend is called.</li><li>Publishing is subject to backend gates: borrower KYB approved, no compliance hold, complete loan data and a valid funding deadline.</li></ul></div>
+    <div class="notes"><div class="notes-h">Notes &amp; rules</div><ul><li>The menu is status-aware: a draft loan only offers Publish; a published loan offers Close/Cancel/Expiry scan/Release; loans past funding (Funded, Late, Repaid) have no primary-market actions; a Defaulted loan offers 'Record a recovery payment'. Day-to-day servicing happens in the Servicing and recovery panel.</li><li>Dangerous actions carry a 'Confirmation required' tag: after filling the form you still get a summary dialog restating loan, reason and message before the backend is called.</li><li>Publishing is subject to backend gates: borrower KYB approved, no compliance hold, complete loan data and a valid funding deadline.</li></ul></div>
   </figure><figure class="fig">
     <div class="figtop">
       <figcaption><span class="figlabel">Figure 8.5</span> After choosing an action, only that action's fields appear.</figcaption>
@@ -1246,78 +1246,94 @@ figcaption { font-size:15.4px; font-weight:600; margin-bottom:3px; break-after:a
     <div class="notes"><div class="notes-h">Notes &amp; rules</div><ul><li>Success, preview-mode and error messages appear at the bottom of the dialog, and the loan table refreshes automatically after a successful action.</li><li>In preview/demo mode the buttons record a 'Preview action' note instead of calling the backend.</li></ul></div>
   </figure><figure class="fig">
     <div class="figtop">
-      <figcaption><span class="figlabel">Figure 8.6</span> Secondary-market approvals: act on investor-to-investor resale listings.</figcaption>
-      <p class="figsummary">The secondary market is where an investor who already owns part of a loan lists that slice for sale to another investor. Most listings go live automatically, but non-standard ones (for example on a non-performing loan) need an admin to approve them with a disclosure note. This panel approves, rejects or removes those listings.</p>
-      <div class="figcanvas"><svg class="figsvg" data-fig="loans-7-secondary-market-approvals" viewBox="0 0 640 455" width="640" height="455" xmlns="http://www.w3.org/2000/svg">
+      <figcaption><span class="figlabel">Figure 8.6</span> Secondary-market approvals: the table of investor-to-investor resale listings.</figcaption>
+      <p class="figsummary">Every secondary-market listing, newest first. The secondary market is where an investor who already owns a slice of a loan sells it to another investor. Standard (performing-loan) listings publish automatically and appear here as 'Active'; non-standard listings (late, defaulted, or otherwise flagged) wait as 'Approval requested' until an admin approves them with a buyer disclosure note. The status filter narrows the table, and the action buttons on each row open a confirmation dialog.</p>
+      <div class="figcanvas"><svg class="figsvg" data-fig="loans-7-secondary-market-approvals" viewBox="0 0 1164 391" width="980" height="329.192439862543" xmlns="http://www.w3.org/2000/svg">
     <defs><marker id="ahloans-7-secondary-market-approvals" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9c3127"/></marker></defs>
-    <image href="figures/loans-7-secondary-market-approvals.png" x="66" y="0" width="508" height="455"/>
-    <rect class="hl" x="82" y="399" width="129" height="40" rx="6"/>
-<path class="lead" d="M 33 403 L 84 419" marker-end="url(#ahloans-7-secondary-market-approvals)"/>
-<circle class="badge" cx="33" cy="403" r="15"/>
-<text class="bnum" x="33" y="403.5">4</text>
-<rect class="hl" x="213" y="399" width="75" height="40" rx="6"/>
-<path class="lead" d="M 33 439 L 215 419" marker-end="url(#ahloans-7-secondary-market-approvals)"/>
-<circle class="badge" cx="33" cy="439" r="15"/>
-<text class="bnum" x="33" y="439.5">5</text>
-<rect class="hl" x="82" y="58" width="476" height="24" rx="6"/>
-<path class="lead" d="M 607 70 L 556 70" marker-end="url(#ahloans-7-secondary-market-approvals)"/>
-<circle class="badge" cx="607" cy="70" r="15"/>
-<text class="bnum" x="607" y="70.5">1</text>
-<rect class="hl" x="82" y="143" width="476" height="24" rx="6"/>
-<path class="lead" d="M 607 155 L 556 155" marker-end="url(#ahloans-7-secondary-market-approvals)"/>
-<circle class="badge" cx="607" cy="155" r="15"/>
-<text class="bnum" x="607" y="155.5">2</text>
-<rect class="hl" x="82" y="271" width="476" height="24" rx="6"/>
-<path class="lead" d="M 607 283 L 556 283" marker-end="url(#ahloans-7-secondary-market-approvals)"/>
-<circle class="badge" cx="607" cy="283" r="15"/>
-<text class="bnum" x="607" y="283.5">3</text>
-<rect class="hl" x="290" y="399" width="85" height="40" rx="6"/>
-<path class="lead" d="M 607 419 L 373 419" marker-end="url(#ahloans-7-secondary-market-approvals)"/>
-<circle class="badge" cx="607" cy="419" r="15"/>
-<text class="bnum" x="607" y="419.5">6</text>
+    <image href="figures/loans-7-secondary-market-approvals.png" x="66" y="0" width="1032" height="391"/>
+    <rect class="hl" x="82" y="103" width="205" height="40" rx="6"/>
+<path class="lead" d="M 33 123 L 84 123" marker-end="url(#ahloans-7-secondary-market-approvals)"/>
+<circle class="badge" cx="33" cy="123" r="15"/>
+<text class="bnum" x="33" y="123.5">1</text>
+<rect class="hl" x="281" y="103" width="175" height="40" rx="6"/>
+<path class="lead" d="M 33 159 L 283 123" marker-end="url(#ahloans-7-secondary-market-approvals)"/>
+<circle class="badge" cx="33" cy="159" r="15"/>
+<text class="bnum" x="33" y="159.5">2</text>
+<rect class="hl" x="450" y="103" width="121" height="40" rx="6"/>
+<path class="lead" d="M 33 195 L 452 123" marker-end="url(#ahloans-7-secondary-market-approvals)"/>
+<circle class="badge" cx="33" cy="195" r="15"/>
+<text class="bnum" x="33" y="195.5">3</text>
+<rect class="hl" x="565" y="103" width="111" height="40" rx="6"/>
+<path class="lead" d="M 1131 123 L 674 123" marker-end="url(#ahloans-7-secondary-market-approvals)"/>
+<circle class="badge" cx="1131" cy="123" r="15"/>
+<text class="bnum" x="1131" y="123.5">4</text>
+<rect class="hl" x="670" y="103" width="51" height="40" rx="6"/>
+<path class="lead" d="M 1131 159 L 719 123" marker-end="url(#ahloans-7-secondary-market-approvals)"/>
+<circle class="badge" cx="1131" cy="159" r="15"/>
+<text class="bnum" x="1131" y="159.5">5</text>
+<rect class="hl" x="715" y="103" width="170" height="40" rx="6"/>
+<path class="lead" d="M 1131 195 L 883 123" marker-end="url(#ahloans-7-secondary-market-approvals)"/>
+<circle class="badge" cx="1131" cy="195" r="15"/>
+<text class="bnum" x="1131" y="195.5">6</text>
+<rect class="hl" x="716" y="16" width="366" height="40" rx="6"/>
+<path class="lead" d="M 1131 36 L 1080 36" marker-end="url(#ahloans-7-secondary-market-approvals)"/>
+<circle class="badge" cx="1131" cy="36" r="15"/>
+<text class="bnum" x="1131" y="36.5">7</text>
+<rect class="hl" x="981" y="147" width="76" height="34" rx="6"/>
+<path class="lead" d="M 1131 267 L 1055 164" marker-end="url(#ahloans-7-secondary-market-approvals)"/>
+<circle class="badge" cx="1131" cy="267" r="15"/>
+<text class="bnum" x="1131" y="267.5">8</text>
+<rect class="hl" x="981" y="183" width="64" height="34" rx="6"/>
+<path class="lead" d="M 1131 303 L 1043 200" marker-end="url(#ahloans-7-secondary-market-approvals)"/>
+<circle class="badge" cx="1131" cy="303" r="15"/>
+<text class="bnum" x="1131" y="303.5">9</text>
+<rect class="hl" x="981" y="232" width="74" height="34" rx="6"/>
+<path class="lead" d="M 1131 375 L 1053 249" marker-end="url(#ahloans-7-secondary-market-approvals)"/>
+<circle class="badge" cx="1131" cy="375" r="15"/>
+<text class="bnum" x="1131" y="375.5">10</text>
+<rect class="hl" x="725" y="147" width="150" height="27" rx="6"/>
+<path class="lead" d="M 1131 231 L 873 160.5" marker-end="url(#ahloans-7-secondary-market-approvals)"/>
+<circle class="badge" cx="1131" cy="231" r="15"/>
+<text class="bnum" x="1131" y="231.5">11</text>
+<rect class="hl" x="725" y="232" width="71" height="27" rx="6"/>
+<path class="lead" d="M 1131 339 L 794 245.5" marker-end="url(#ahloans-7-secondary-market-approvals)"/>
+<circle class="badge" cx="1131" cy="339" r="15"/>
+<text class="bnum" x="1131" y="339.5">12</text>
   </svg></div>
     </div>
-    <ol class="legend"><li><span class="lnum">1</span><div><strong>Secondary listing field</strong> The listing this panel acts on. Search and select the listing ID. All three buttons below target this listing.</div></li><li><span class="lnum">2</span><div><strong>Reason field</strong> A required reason recorded with whichever action you take (approve, reject or remove). It is stored in the audit trail.</div></li><li><span class="lnum">3</span><div><strong>Buyer disclosure note field</strong> The note that will be shown to potential buyers when a listing is approved. It is required to approve a listing and is meant to flag risks (for example that the loan is non-performing) before someone buys.</div></li><li><span class="lnum">4</span><div><strong>Approve listing button</strong> Makes the listing visible to eligible buyers with the disclosure note attached. It only works on a listing that is in the 'approval requested' state. After approval, buyers see the listing and the disclosure. Confirmation is required.</div></li><li><span class="lnum">5</span><div><strong>Reject button</strong> Refuses the listing so it stays hidden, and records the decision. Like Approve, it only works on a listing that is in the 'approval requested' state. This is a destructive action and asks for confirmation.</div></li><li><span class="lnum">6</span><div><strong>Remove button</strong> Takes a listing out of buyer visibility. Unlike Approve and Reject, Remove works on a listing that is either Active (already live) or still in 'approval requested', letting you pull a listing back after it has gone live. The reason is recorded.</div></li></ol>
-    <div class="notes"><div class="notes-h">Notes &amp; rules</div><ul><li>Approve and Reject are first-decision actions: they only apply to a listing still awaiting a decision. Remove is the way to pull a listing that is already active.</li><li>Approving notifies the seller that the listing is live; rejecting and removing notify the seller of the decision and reason.</li><li>The same Reason and Disclosure note fields are reused across all three buttons, so set them to match the action you are about to take.</li></ul></div>
+    <ol class="legend"><li><span class="lnum">1</span><div><strong>Loan / listing column</strong> The loan the listed slice belongs to, with the listing's own ID underneath.</div></li><li><span class="lnum">2</span><div><strong>Seller column</strong> The investor selling the slice (name and email). Buyers never see this - seller identity is redacted on the buyer-facing side - but admins need it here to review the listing.</div></li><li><span class="lnum">3</span><div><strong>Price column</strong> The transfer price and whether it is a discount or premium to the current principal. Accrued interest and fees are added at settlement.</div></li><li><span class="lnum">4</span><div><strong>Loan status column</strong> The underlying loan's status (Published, Late, Defaulted...). This is what makes a listing 'standard' or 'non-standard': a late or defaulted loan needs your approval and a disclosure note before buyers can see it.</div></li><li><span class="lnum">5</span><div><strong>DPD column</strong> Days past due on the underlying loan. A non-zero value is a signal to review carefully and disclose the risk to buyers.</div></li><li><span class="lnum">6</span><div><strong>Status column</strong> The listing's own status: Approval requested (waiting for you), Active (visible to buyers), Sold, Rejected, Removed, or Cancelled.</div></li><li><span class="lnum">7</span><div><strong>Status filter</strong> Narrows the table to one listing status - for example show only 'Approval requested' to work through the queue of listings needing a decision.</div></li><li><span class="lnum">8</span><div><strong>Approve (row action)</strong> On an 'Approval requested' row, opens a dialog to approve the listing. You provide a reason and a buyer disclosure note (shown to buyers as the public disclosure), then confirm. The listing becomes Active and visible to eligible buyers with an extra risk acknowledgement.</div></li><li><span class="lnum">9</span><div><strong>Reject (row action)</strong> On an 'Approval requested' row, opens a dialog to reject the listing with a reason. It stays hidden from buyers and the decision is audit-logged.</div></li><li><span class="lnum">10</span><div><strong>Remove (row action)</strong> On an 'Active' row, opens a dialog to take a live listing out of buyer visibility with an operational reason - used when a listing must be pulled after it went live.</div></li><li><span class="lnum">11</span><div><strong>Approval requested chip</strong> This listing is non-standard and waiting for your decision. Only rows in this state show Approve/Reject.</div></li><li><span class="lnum">12</span><div><strong>Active chip</strong> This listing is live and visible to buyers. Active rows show a Remove action; sold, rejected and removed rows show no actions.</div></li></ol>
+    <div class="notes"><div class="notes-h">Notes &amp; rules</div><ul><li>Standard (performing-loan) listings publish automatically and never need approval; they appear here as Active so you can still Remove one if needed.</li><li>Approving a non-standard listing requires a buyer disclosure note - the public text buyers must read and additionally acknowledge before purchase.</li><li>Approve, reject and remove are all confirmed in a dialog and recorded in the audit trail with your reason.</li><li>Rejected, removed, sold and cancelled listings stay in the table for evidence but offer no further actions.</li></ul></div>
   </figure><figure class="fig">
     <div class="figtop">
-      <figcaption><span class="figlabel">Figure 8.7</span> Servicing and recovery: record repayments, scan loan health, post public notes, and handle defaults.</figcaption>
+      <figcaption><span class="figlabel">Figure 8.7</span> Servicing and recovery: record repayments, scan loan health, and post public notes.</figcaption>
       <p class="figsummary">Servicing means running a loan after it is funded: recording the borrower's repayments and keeping its status accurate. Recovery handles loans that have defaulted (gone badly past due) by recording money clawed back. This panel acts on the loan selected in the table above.</p>
-      <div class="figcanvas"><svg class="figsvg" data-fig="loans-8-servicing-and-recovery" viewBox="0 0 1164 621" width="980" height="522.8350515463917" xmlns="http://www.w3.org/2000/svg">
+      <div class="figcanvas"><svg class="figsvg" data-fig="loans-8-servicing-and-recovery" viewBox="0 0 1164 613" width="980" height="516.0996563573883" xmlns="http://www.w3.org/2000/svg">
     <defs><marker id="ahloans-8-servicing-and-recovery" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9c3127"/></marker></defs>
-    <image href="figures/loans-8-servicing-and-recovery.png" x="66" y="0" width="1032" height="621"/>
+    <image href="figures/loans-8-servicing-and-recovery.png" x="66" y="0" width="1032" height="613"/>
     <rect class="hl" x="82" y="114" width="497" height="24" rx="6"/>
-<path class="lead" d="M 33 119 L 84 126" marker-end="url(#ahloans-8-servicing-and-recovery)"/>
-<circle class="badge" cx="33" cy="119" r="15"/>
-<text class="bnum" x="33" y="119.5">1</text>
+<path class="lead" d="M 33 126 L 84 126" marker-end="url(#ahloans-8-servicing-and-recovery)"/>
+<circle class="badge" cx="33" cy="126" r="15"/>
+<text class="bnum" x="33" y="126.5">1</text>
 <rect class="hl" x="82" y="197" width="497" height="24" rx="6"/>
-<path class="lead" d="M 33 202 L 84 209" marker-end="url(#ahloans-8-servicing-and-recovery)"/>
-<circle class="badge" cx="33" cy="202" r="15"/>
-<text class="bnum" x="33" y="202.5">3</text>
+<path class="lead" d="M 33 209 L 84 209" marker-end="url(#ahloans-8-servicing-and-recovery)"/>
+<circle class="badge" cx="33" cy="209" r="15"/>
+<text class="bnum" x="33" y="209.5">3</text>
 <rect class="hl" x="82" y="258" width="497" height="24" rx="6"/>
-<path class="lead" d="M 33 263 L 84 270" marker-end="url(#ahloans-8-servicing-and-recovery)"/>
-<circle class="badge" cx="33" cy="263" r="15"/>
-<text class="bnum" x="33" y="263.5">5</text>
+<path class="lead" d="M 33 270 L 84 270" marker-end="url(#ahloans-8-servicing-and-recovery)"/>
+<circle class="badge" cx="33" cy="270" r="15"/>
+<text class="bnum" x="33" y="270.5">5</text>
 <rect class="hl" x="82" y="353" width="150" height="40" rx="6"/>
-<path class="lead" d="M 33 366 L 84 373" marker-end="url(#ahloans-8-servicing-and-recovery)"/>
-<circle class="badge" cx="33" cy="366" r="15"/>
-<text class="bnum" x="33" y="366.5">6</text>
+<path class="lead" d="M 33 373 L 84 373" marker-end="url(#ahloans-8-servicing-and-recovery)"/>
+<circle class="badge" cx="33" cy="373" r="15"/>
+<text class="bnum" x="33" y="373.5">6</text>
 <rect class="hl" x="234" y="353" width="135" height="40" rx="6"/>
-<path class="lead" d="M 33 402 L 236 373" marker-end="url(#ahloans-8-servicing-and-recovery)"/>
-<circle class="badge" cx="33" cy="402" r="15"/>
-<text class="bnum" x="33" y="402.5">7</text>
-<rect class="hl" x="82" y="546" width="154" height="40" rx="6"/>
-<path class="lead" d="M 33 569 L 84 566" marker-end="url(#ahloans-8-servicing-and-recovery)"/>
-<circle class="badge" cx="33" cy="569" r="15"/>
-<text class="bnum" x="33" y="569.5">9</text>
-<rect class="hl" x="238" y="528" width="195" height="24" rx="6"/>
-<path class="lead" d="M 33 533 L 240 540" marker-end="url(#ahloans-8-servicing-and-recovery)"/>
-<circle class="badge" cx="33" cy="533" r="15"/>
-<text class="bnum" x="33" y="533.5">10</text>
-<rect class="hl" x="435" y="546" width="137" height="40" rx="6"/>
-<path class="lead" d="M 33 605 L 437 566" marker-end="url(#ahloans-8-servicing-and-recovery)"/>
-<circle class="badge" cx="33" cy="605" r="15"/>
-<text class="bnum" x="33" y="605.5">11</text>
+<path class="lead" d="M 33 409 L 236 373" marker-end="url(#ahloans-8-servicing-and-recovery)"/>
+<circle class="badge" cx="33" cy="409" r="15"/>
+<text class="bnum" x="33" y="409.5">7</text>
+<rect class="hl" x="82" y="528" width="154" height="40" rx="6"/>
+<path class="lead" d="M 33 548 L 84 548" marker-end="url(#ahloans-8-servicing-and-recovery)"/>
+<circle class="badge" cx="33" cy="548" r="15"/>
+<text class="bnum" x="33" y="548.5">9</text>
 <rect class="hl" x="585" y="114" width="497" height="24" rx="6"/>
 <path class="lead" d="M 1131 126 L 1080 126" marker-end="url(#ahloans-8-servicing-and-recovery)"/>
 <circle class="badge" cx="1131" cy="126" r="15"/>
@@ -1332,8 +1348,63 @@ figcaption { font-size:15.4px; font-weight:600; margin-bottom:3px; break-after:a
 <text class="bnum" x="1131" y="412.5">8</text>
   </svg></div>
     </div>
-    <ol class="legend"><li><span class="lnum">1</span><div><strong>Loan field</strong> The loan being serviced. It defaults to the selected loan but can be changed by search. Repayments and recoveries are applied to this loan and split across its investors.</div></li><li><span class="lnum">2</span><div><strong>Amount minor units field</strong> The repayment amount the borrower paid, in minor units (the smallest currency unit, e.g. cents). This is matched against the next installment that is due.</div></li><li><span class="lnum">3</span><div><strong>Booking date field</strong> The date the bank booked the incoming payment. Recorded on the repayment for the financial trail.</div></li><li><span class="lnum">4</span><div><strong>Value date field</strong> The date the money is treated as effective. The status scan and any status change use this date to judge how late the loan is.</div></li><li><span class="lnum">5</span><div><strong>Payer name field</strong> The name on the incoming bank payment. Recorded as evidence of who paid.</div></li><li><span class="lnum">6</span><div><strong>Record repayment button</strong> Records a borrower repayment and automatically splits it across all active investor holdings (interest first, then principal). It only works when the loan is Funded or Late and the borrower can transact. Important gotcha: if the amount does not exactly equal the next installment due, in EITHER direction (under OR over), you must tick the warning-acknowledged box first. Paying MORE than due (an early/extra principal payment) is only allowed when the loan status is Funded, not Late.</div></li><li><span class="lnum">7</span><div><strong>Run status scan button</strong> Re-checks the loan's health as of the value date and updates its status. A loan with an installment 5+ days past due becomes Late; 16+ days past due becomes Defaulted; fully paid becomes Repaid. The scan is the only thing that escalates a loan into Defaulted; recording a repayment never does.</div></li><li><span class="lnum">8</span><div><strong>Risk note body field</strong> The text of a public update to investors about this loan (for example explaining a delay). This is the message that gets published when you press Publish public note.</div></li><li><span class="lnum">9</span><div><strong>Publish public note button</strong> Posts a public risk note that investors holding this loan can read. Public notes are only allowed on loans that are in an active portfolio status (Funded, Late, Defaulted, Repaid or Written off), not on drafts or unfunded loans.</div></li><li><span class="lnum">10</span><div><strong>Recovery gross minor field</strong> The gross amount recovered, in minor units, used by Record recovery. Gross means before any deducted recovery costs or fees.</div></li><li><span class="lnum">11</span><div><strong>Record recovery button</strong> Records money clawed back on a defaulted loan and distributes the net amount to affected investors following the recovery waterfall, reducing their outstanding principal. It only works on loans whose status is Defaulted. This is a sensitive financial action, so it asks for confirmation.</div></li></ol>
-    <div class="notes"><div class="notes-h">Notes &amp; rules</div><ul><li>The warning-acknowledged checkbox is the key gotcha on this panel: tick it for any repayment that is not exactly the next amount due (whether short or over). Over-payments are only accepted on Funded loans.</li><li>Repayments and recoveries are split automatically across investors by their share of the loan; you do not allocate them by hand here.</li><li>Each action uses an idempotency key, so an accidental double-submit is safely ignored rather than processed twice.</li><li>Order of a defaulting loan's life: a missed payment moves it Late, then Defaulted (via status scan), then recoveries are recorded against it, and finally any unrecovered balance is written off elsewhere.</li></ul></div>
+    <ol class="legend"><li><span class="lnum">1</span><div><strong>Loan field</strong> The loan being serviced. It defaults to the selected loan but can be changed by search. Repayments and recoveries are applied to this loan and split across its investors.</div></li><li><span class="lnum">2</span><div><strong>Amount minor units field</strong> The repayment amount the borrower paid, in minor units (the smallest currency unit, e.g. cents). This is matched against the next installment that is due.</div></li><li><span class="lnum">3</span><div><strong>Booking date field</strong> The date the bank booked the incoming payment. Recorded on the repayment for the financial trail.</div></li><li><span class="lnum">4</span><div><strong>Value date field</strong> The date the money is treated as effective. The status scan and any status change use this date to judge how late the loan is.</div></li><li><span class="lnum">5</span><div><strong>Payer name field</strong> The name on the incoming bank payment. Recorded as evidence of who paid.</div></li><li><span class="lnum">6</span><div><strong>Record repayment button</strong> Records a borrower repayment and automatically splits it across all active investor holdings (interest first, then principal). It only works when the loan is Funded or Late and the borrower can transact. Important gotcha: if the amount does not exactly equal the next installment due, in EITHER direction (under OR over), you must tick the warning-acknowledged box first. Paying MORE than due (an early/extra principal payment) is only allowed when the loan status is Funded, not Late.</div></li><li><span class="lnum">7</span><div><strong>Run status scan button</strong> Re-checks the loan's health as of the value date and updates its status. A loan with an installment 5+ days past due becomes Late; 16+ days past due becomes Defaulted; fully paid becomes Repaid. The scan is the only thing that escalates a loan into Defaulted; recording a repayment never does.</div></li><li><span class="lnum">8</span><div><strong>Risk note body field</strong> The text of a public update to investors about this loan (for example explaining a delay). This is the message that gets published when you press Publish public note.</div></li><li><span class="lnum">9</span><div><strong>Publish public note button</strong> Posts a public risk note that investors holding this loan can read. Public notes are only allowed on loans that are in an active portfolio status (Funded, Late, Defaulted, Repaid or Written off), not on drafts or unfunded loans.</div></li></ol>
+    <div class="notes"><div class="notes-h">Notes &amp; rules</div><ul><li>The warning-acknowledged checkbox is the key gotcha on this panel: tick it for any repayment that is not exactly the next amount due (whether short or over). Over-payments are only accepted on Funded loans.</li><li>Each action uses an idempotency key, so an accidental double-submit is safely ignored rather than processed twice.</li><li>Recovery payments on a defaulted loan are recorded from the loan row's Manage dialog (Record a recovery payment), not here.</li></ul></div>
+  </figure><figure class="fig">
+    <div class="figtop">
+      <figcaption><span class="figlabel">Figure 8.8</span> Manage &gt; Record a recovery payment (defaulted loans only).</figcaption>
+      <p class="figsummary">The recovery action appears in the Manage dialog only when the loan is Defaulted. It records money recovered on the loan and distributes it to lenders through the recovery waterfall. The key rule: the gross recovered, minus external and third-party costs and the optional Garanta recovery fee, gives the 'net to distribute'; the five category amounts you enter below must add up to exactly that net figure. A running summary shows the arithmetic and a warning appears until the split balances.</p>
+      <div class="figcanvas"><svg class="figsvg" data-fig="loans-11-manage-record-recovery" viewBox="0 0 852 941" width="852" height="941" xmlns="http://www.w3.org/2000/svg">
+    <defs><marker id="ahloans-11-manage-record-recovery" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9c3127"/></marker></defs>
+    <image href="figures/loans-11-manage-record-recovery.png" x="66" y="0" width="720" height="941"/>
+    <rect class="hl" x="97" y="104" width="100" height="27" rx="6"/>
+<path class="lead" d="M 33 117.5 L 99 117.5" marker-end="url(#ahloans-11-manage-record-recovery)"/>
+<circle class="badge" cx="33" cy="117.5" r="15"/>
+<text class="bnum" x="33" y="118">1</text>
+<rect class="hl" x="84" y="286" width="339" height="24" rx="6"/>
+<path class="lead" d="M 33 298 L 86 298" marker-end="url(#ahloans-11-manage-record-recovery)"/>
+<circle class="badge" cx="33" cy="298" r="15"/>
+<text class="bnum" x="33" y="298.5">2</text>
+<rect class="hl" x="84" y="370" width="339" height="24" rx="6"/>
+<path class="lead" d="M 33 382 L 86 382" marker-end="url(#ahloans-11-manage-record-recovery)"/>
+<circle class="badge" cx="33" cy="382" r="15"/>
+<text class="bnum" x="33" y="382.5">4</text>
+<rect class="hl" x="84" y="506" width="339" height="24" rx="6"/>
+<path class="lead" d="M 33 518 L 86 518" marker-end="url(#ahloans-11-manage-record-recovery)"/>
+<circle class="badge" cx="33" cy="518" r="15"/>
+<text class="bnum" x="33" y="518.5">6</text>
+<rect class="hl" x="84" y="590" width="339" height="24" rx="6"/>
+<path class="lead" d="M 33 602 L 86 602" marker-end="url(#ahloans-11-manage-record-recovery)"/>
+<circle class="badge" cx="33" cy="602" r="15"/>
+<text class="bnum" x="33" y="602.5">8</text>
+<rect class="hl" x="429" y="286" width="339" height="24" rx="6"/>
+<path class="lead" d="M 819 298 L 766 298" marker-end="url(#ahloans-11-manage-record-recovery)"/>
+<circle class="badge" cx="819" cy="298" r="15"/>
+<text class="bnum" x="819" y="298.5">3</text>
+<rect class="hl" x="429" y="370" width="339" height="25" rx="6"/>
+<path class="lead" d="M 819 382.5 L 766 382.5" marker-end="url(#ahloans-11-manage-record-recovery)"/>
+<circle class="badge" cx="819" cy="382.5" r="15"/>
+<text class="bnum" x="819" y="383">5</text>
+<rect class="hl" x="429" y="506" width="339" height="24" rx="6"/>
+<path class="lead" d="M 819 518 L 766 518" marker-end="url(#ahloans-11-manage-record-recovery)"/>
+<circle class="badge" cx="819" cy="518" r="15"/>
+<text class="bnum" x="819" y="518.5">7</text>
+<rect class="hl" x="429" y="590" width="339" height="24" rx="6"/>
+<path class="lead" d="M 819 602 L 766 602" marker-end="url(#ahloans-11-manage-record-recovery)"/>
+<circle class="badge" cx="819" cy="602" r="15"/>
+<text class="bnum" x="819" y="602.5">9</text>
+<rect class="hl" x="84" y="674" width="684" height="24" rx="6"/>
+<path class="lead" d="M 819 686 L 766 686" marker-end="url(#ahloans-11-manage-record-recovery)"/>
+<circle class="badge" cx="819" cy="686" r="15"/>
+<text class="bnum" x="819" y="686.5">10</text>
+<rect class="hl" x="84" y="883" width="684" height="40" rx="6"/>
+<path class="lead" d="M 819 903 L 766 903" marker-end="url(#ahloans-11-manage-record-recovery)"/>
+<circle class="badge" cx="819" cy="903" r="15"/>
+<text class="bnum" x="819" y="903.5">11</text>
+  </svg></div>
+    </div>
+    <ol class="legend"><li><span class="lnum">1</span><div><strong>Defaulted status</strong> The recovery action only exists for a Defaulted loan. On any other status the Manage menu does not offer it (repayments on healthy or late loans are recorded in the Servicing and recovery panel instead).</div></li><li><span class="lnum">2</span><div><strong>Gross recovered</strong> The total amount recovered on the loan before any deductions - for example proceeds from enforcing collateral.</div></li><li><span class="lnum">3</span><div><strong>Externally deducted costs</strong> Costs already taken out before the money reached Garanta (deducted from the gross). Net received = gross minus these.</div></li><li><span class="lnum">4</span><div><strong>Third-party costs (from received)</strong> External legal or recovery costs paid out of the received funds. These come off before the Garanta fee and the lender distribution.</div></li><li><span class="lnum">5</span><div><strong>Apply Garanta recovery fee</strong> Tick to apply Garanta's recovery fee. A basis-points field appears; the fee is charged on the net-of-third-party base and becomes Garanta revenue.</div></li><li><span class="lnum">6</span><div><strong>Principal recovered</strong> The part of the net distribution assigned to principal. This and the next four fields are the waterfall split.</div></li><li><span class="lnum">7</span><div><strong>Contractual interest recovered</strong> The part assigned to contractual interest accrued up to default.</div></li><li><span class="lnum">8</span><div><strong>Default/penalty interest recovered</strong> The part assigned to default or penalty interest.</div></li><li><span class="lnum">9</span><div><strong>Penalties recovered</strong> The part assigned to penalties.</div></li><li><span class="lnum">10</span><div><strong>Other costs recovered</strong> The part assigned to any other recoverable costs. The five split fields together must equal the net-to-distribute figure shown in the running summary above them.</div></li><li><span class="lnum">11</span><div><strong>Record recovery</strong> Opens the confirmation summary, then records the recovery: affected investor balance lots are credited via the waterfall, holding principal is reduced, and any recovery fee is posted as Garanta revenue. Disabled until the category split matches the net amount - the form guards the same conservation rule the backend enforces.</div></li></ol>
+    <div class="notes"><div class="notes-h">Notes &amp; rules</div><ul><li>Recovery is only valid on a Defaulted loan; regular and partial repayments on funded/late loans go through 'Record repayment' in the Servicing and recovery panel.</li><li>The running summary (Net received / Fee / Net to distribute) mirrors the backend math; the Record recovery button stays disabled while the category split does not equal the net amount.</li><li>In preview/demo mode the button records a 'Preview action' note instead of calling the backend.</li></ul></div>
   </figure>
   </section>
 <section class="screen" id="screen-reports">

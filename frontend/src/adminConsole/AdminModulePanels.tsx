@@ -60,6 +60,7 @@ import {
   type AdminLookupResult,
   type AdminUserDocument,
   type AdminUserDocumentArtifactResponse,
+  type AdminSecondaryMarketListingRow,
   type AdminUserDirectoryRow,
   type AdminUserCreateRequest,
   type BalanceAgeingScanRequest,
@@ -104,9 +105,6 @@ import {
   type ReportGenerateResponse,
   type ReportTypeEnum as AdminReportType,
   type RiskRatingEnum as LoanRiskRating,
-  type SecondaryMarketListingApproveRequest,
-  type SecondaryMarketListingRejectRequest,
-  type SecondaryMarketListingRemoveRequest,
   type V1EntitiesAdminBorrowersListKybStatus as BorrowerListKybStatus,
   type V1LoansAdminLoansListStatus as LoanListStatus
 } from "../api/generated/banxumApi";
@@ -123,8 +121,8 @@ import {
   useAdminKycCaseLookupData,
   useAdminLoanLookupData,
   useAdminPrimaryOrderLookupData,
-  useAdminSecondaryListingLookupData,
   useAdminUserLookupData,
+  useAdminSecondaryListingsData,
   useAdminUsersDirectoryData,
   useAdminWithdrawalLookupData,
   useBorrowersData,
@@ -678,38 +676,6 @@ function PrimaryOrderLookupInput({
       onQueryChange={onQueryChange}
       options={lookup.data ?? []}
       placeholder="Investor, loan title, or order UUID"
-      query={query}
-      required={required}
-      value={value}
-    />
-  );
-}
-
-function SecondaryListingLookupInput({
-  value,
-  onChange,
-  query,
-  onQueryChange,
-  required = false
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  query: string;
-  onQueryChange: (value: string) => void;
-  required?: boolean;
-}) {
-  const debouncedQuery = useDebouncedValue(query);
-  const lookup = useAdminSecondaryListingLookupData({ q: debouncedQuery, limit: 20 });
-  return (
-    <AdminLookupInput
-      error={lookup.error}
-      hint="Search by loan title, seller name/email/reference, or listing UUID."
-      label="Secondary listing"
-      loading={lookup.isFetching}
-      onChange={onChange}
-      onQueryChange={onQueryChange}
-      options={lookup.data ?? []}
-      placeholder="Loan, seller, or listing UUID"
       query={query}
       required={required}
       value={value}
@@ -2074,8 +2040,8 @@ export function LoansPanel() {
         </Card>
       </section>
 
-      <section className="admin-module-grid">
-        <SecondaryMarketAdminForm />
+      <section className="admin-stack">
+        <SecondaryMarketApprovalsTable />
         <ServicingOpsForm
           defaultLoanCurrency={selectedLoan?.currency ?? "CHF"}
           defaultLoanId={selectedLoan?.id ?? ""}
@@ -2549,7 +2515,7 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
   );
 }
 
-type ManageLoanActionId = "publish" | "close" | "cancel" | "expiry" | "release";
+type ManageLoanActionId = "publish" | "close" | "cancel" | "expiry" | "release" | "recovery";
 
 const MANAGE_LOAN_ACTIONS: Array<{
   id: ManageLoanActionId;
@@ -2594,6 +2560,14 @@ const MANAGE_LOAN_ACTIONS: Array<{
       "Return one allocated order's reserved balance to its investor without touching the rest of the campaign.",
     statuses: ["published"],
     danger: true
+  },
+  {
+    id: "recovery",
+    title: "Record a recovery payment",
+    description:
+      "For a defaulted loan: record recovered funds and distribute them to lenders through the recovery waterfall.",
+    statuses: ["defaulted"],
+    danger: true
   }
 ];
 
@@ -2621,6 +2595,19 @@ function ManageLoanModal({
   const [orderId, setOrderId] = useState("");
   const [orderQuery, setOrderQuery] = useState("");
   const [releaseReason, setReleaseReason] = useState("Campaign closed or order not funded.");
+  const [recGross, setRecGross] = useState("1000000");
+  const [recExternalCosts, setRecExternalCosts] = useState("0");
+  const [recThirdPartyCosts, setRecThirdPartyCosts] = useState("0");
+  const [recFeeApplied, setRecFeeApplied] = useState(false);
+  const [recFeeBps, setRecFeeBps] = useState("0");
+  const [recPrincipal, setRecPrincipal] = useState("1000000");
+  const [recContractualInterest, setRecContractualInterest] = useState("0");
+  const [recDefaultInterest, setRecDefaultInterest] = useState("0");
+  const [recPenalties, setRecPenalties] = useState("0");
+  const [recOtherCosts, setRecOtherCosts] = useState("0");
+  const [recBookingDate, setRecBookingDate] = useState(today);
+  const [recValueDate, setRecValueDate] = useState(today);
+  const [recPayerName, setRecPayerName] = useState(loan.title);
   const [preview, setPreview] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | undefined>();
   const loanId = loan.id;
@@ -2647,11 +2634,33 @@ function ManageLoanModal({
   const releaseOrder = useV1MarketplacePrimaryAdminOrdersReleaseBalanceCreate({
     mutation: { onSuccess: () => succeed("The order's reserved balance was released.") }
   });
+  const recordRecovery = useV1ServicingAdminRecoveriesCreate({
+    mutation: { onSuccess: () => succeed("The recovery payment was distributed to lenders.") }
+  });
+
+  // Recovery conservation preview (mirrors the backend waterfall math):
+  // net received = gross - external costs; fee base = net - third-party costs;
+  // net available to distribute = fee base - recovery fee. The category split
+  // (principal + interest + penalties + other) must equal net available.
+  const recGrossMinor = intValue(recGross);
+  const recExternalMinor = intValue(recExternalCosts);
+  const recThirdPartyMinor = intValue(recThirdPartyCosts);
+  const recNetReceivedMinor = recGrossMinor - recExternalMinor;
+  const recFeeBaseMinor = recNetReceivedMinor - recThirdPartyMinor;
+  const recFeeMinor = recFeeApplied ? Math.round((recFeeBaseMinor * intValue(recFeeBps)) / 10000) : 0;
+  const recNetAvailableMinor = recFeeBaseMinor - recFeeMinor;
+  const recSplitMinor =
+    intValue(recPrincipal) +
+    intValue(recContractualInterest) +
+    intValue(recDefaultInterest) +
+    intValue(recPenalties) +
+    intValue(recOtherCosts);
+  const recSplitBalanced = recNetAvailableMinor > 0 && recSplitMinor === recNetAvailableMinor;
 
   const available = MANAGE_LOAN_ACTIONS.filter((item) => item.statuses.includes(loan.status));
   const active = MANAGE_LOAN_ACTIONS.find((item) => item.id === action) ?? null;
   const anyError =
-    publish.error || closeFunding.error || cancelFunding.error || expiryScan.error || releaseOrder.error;
+    publish.error || closeFunding.error || cancelFunding.error || expiryScan.error || releaseOrder.error || recordRecovery.error;
 
   function choose(id: ManageLoanActionId) {
     setPreview(null);
@@ -2710,6 +2719,32 @@ function ManageLoanModal({
       return;
     }
     expiryScan.mutate({ data });
+  }
+
+  function recordRecoveryPayment() {
+    const data: LoanRecoveryPaymentRecordRequest = {
+      loan_id: loanId,
+      gross_recovered_minor: recGrossMinor,
+      externally_deducted_costs_minor: recExternalMinor,
+      third_party_costs_from_received_minor: recThirdPartyMinor,
+      recovery_fee_applied: recFeeApplied,
+      recovery_fee_bps: recFeeApplied ? intValue(recFeeBps) : 0,
+      principal_recovered_minor: intValue(recPrincipal),
+      contractual_interest_recovered_minor: intValue(recContractualInterest),
+      default_interest_recovered_minor: intValue(recDefaultInterest),
+      penalties_recovered_minor: intValue(recPenalties),
+      other_costs_recovered_minor: intValue(recOtherCosts),
+      booking_date: recBookingDate,
+      value_date: recValueDate,
+      collection_account_identifier: defaultCollectionAccount,
+      payer_name: recPayerName,
+      idempotency_key: idempotencyKey("recovery")
+    };
+    if (isFixturePreview) {
+      setPreview(`Recovery payment of ${recGrossMinor} minor units would be distributed for ${loanId}.`);
+      return;
+    }
+    recordRecovery.mutate({ data });
   }
 
   function releaseBalance() {
@@ -2892,6 +2927,76 @@ function ManageLoanModal({
                 </OperationConfirmButton>
               </>
             ) : null}
+
+            {action === "recovery" ? (
+              <>
+                <p className="muted admin-manage-hint">
+                  Record funds recovered on this defaulted loan. The recovered amount, minus external and
+                  third-party costs and the optional Garanta recovery fee, is distributed to lenders through
+                  the recovery waterfall. The category split below must equal the net amount available.
+                </p>
+                <FieldGrid>
+                  <MoneyMinorInput currency={loan.currency} label="Gross recovered" onChange={setRecGross} value={recGross} />
+                  <MoneyMinorInput currency={loan.currency} label="Externally deducted costs" onChange={setRecExternalCosts} value={recExternalCosts} />
+                </FieldGrid>
+                <FieldGrid>
+                  <MoneyMinorInput currency={loan.currency} label="Third-party costs (from received)" onChange={setRecThirdPartyCosts} value={recThirdPartyCosts} />
+                  <Field hint="Applies the configured Garanta recovery fee on the net-of-third-party base.">
+                    <label className="check-row">
+                      <input checked={recFeeApplied} onChange={(event) => setRecFeeApplied(event.target.checked)} type="checkbox" />
+                      Apply Garanta recovery fee
+                    </label>
+                  </Field>
+                </FieldGrid>
+                {recFeeApplied ? (
+                  <TextInput hint="Basis points, e.g. 500 = 5%." label="Recovery fee bps" onChange={setRecFeeBps} value={recFeeBps} />
+                ) : null}
+                <div className="admin-context-bar admin-recovery-summary">
+                  <span>Net received <Money amountMinor={recNetReceivedMinor} currency={loan.currency} /></span>
+                  <span>Fee <Money amountMinor={recFeeMinor} currency={loan.currency} /></span>
+                  <span>
+                    Net to distribute <strong><Money amountMinor={recNetAvailableMinor} currency={loan.currency} /></strong>
+                  </span>
+                </div>
+                <FieldGrid>
+                  <MoneyMinorInput currency={loan.currency} label="Principal recovered" onChange={setRecPrincipal} value={recPrincipal} />
+                  <MoneyMinorInput currency={loan.currency} label="Contractual interest recovered" onChange={setRecContractualInterest} value={recContractualInterest} />
+                </FieldGrid>
+                <FieldGrid>
+                  <MoneyMinorInput currency={loan.currency} label="Default/penalty interest recovered" onChange={setRecDefaultInterest} value={recDefaultInterest} />
+                  <MoneyMinorInput currency={loan.currency} label="Penalties recovered" onChange={setRecPenalties} value={recPenalties} />
+                </FieldGrid>
+                <MoneyMinorInput currency={loan.currency} label="Other costs recovered" onChange={setRecOtherCosts} value={recOtherCosts} />
+                <FieldGrid>
+                  <TextInput label="Booking date" onChange={setRecBookingDate} type="date" value={recBookingDate} />
+                  <TextInput label="Value date" onChange={setRecValueDate} type="date" value={recValueDate} />
+                </FieldGrid>
+                <TextInput label="Payer name" onChange={setRecPayerName} value={recPayerName} />
+                {!recSplitBalanced ? (
+                  <Banner tone="warn" title="Category split does not balance">
+                    The split currently totals {recSplitMinor} minor units but the net amount available to
+                    distribute is {recNetAvailableMinor} minor units. Adjust the categories so they match
+                    before recording.
+                  </Banner>
+                ) : null}
+                <OperationConfirmButton
+                  confirmLabel="Record recovery"
+                  description="Recording a recovery credits affected investor balance lots via the recovery waterfall, reduces current holding principal, and posts Garanta recovery-fee revenue. Recovery is only valid on a defaulted loan."
+                  details={[
+                    { label: "Loan", value: loanId },
+                    { label: "Gross recovered", value: `${recGrossMinor} minor units` },
+                    { label: "Net to distribute", value: `${recNetAvailableMinor} minor units` },
+                    { label: "Fee applied", value: recFeeApplied ? `Yes (${intValue(recFeeBps)} bps)` : "No" }
+                  ]}
+                  disabled={recordRecovery.isPending || !recSplitBalanced}
+                  onConfirm={recordRecoveryPayment}
+                  title="Confirm recovery payment"
+                  variant="danger"
+                >
+                  Record recovery
+                </OperationConfirmButton>
+              </>
+            ) : null}
           </>
         )}
 
@@ -2920,12 +3025,10 @@ function ServicingOpsForm({
   const [payerName, setPayerName] = useState(adminFormDefaults.borrowerName);
   const [warningAck, setWarningAck] = useState(true);
   const [riskBody, setRiskBody] = useState("Public servicing update for affected investors.");
-  const [recoveryGross, setRecoveryGross] = useState("1000000");
   const [preview, setPreview] = useState<string | null>(null);
   const repayment = useV1ServicingAdminBorrowerRepaymentsCreate();
   const scan = useV1ServicingAdminStatusScanCreate();
   const riskNote = useV1ServicingAdminRiskNotesCreate();
-  const recovery = useV1ServicingAdminRecoveriesCreate();
 
   useEffect(() => {
     setLoanId(defaultLoanId);
@@ -2975,28 +3078,6 @@ function ServicingOpsForm({
     riskNote.mutate({ data });
   }
 
-  function submitRecovery() {
-    const gross = intValue(recoveryGross);
-    const data: LoanRecoveryPaymentRecordRequest = {
-      loan_id: loanId,
-      gross_recovered_minor: gross,
-      externally_deducted_costs_minor: 0,
-      third_party_costs_from_received_minor: 0,
-      recovery_fee_applied: false,
-      principal_recovered_minor: gross,
-      booking_date: bookingDate,
-      value_date: valueDate,
-      collection_account_identifier: defaultCollectionAccount,
-      payer_name: payerName,
-      idempotency_key: idempotencyKey("recovery")
-    };
-    if (isFixturePreview) {
-      setPreview(`Recovery payment would be distributed for ${loanId}.`);
-      return;
-    }
-    recovery.mutate({ data });
-  }
-
   return (
     <Card padded className="admin-wide-card">
       <h2>Servicing and recovery</h2>
@@ -3030,26 +3111,13 @@ function ServicingOpsForm({
         <TextAreaInput label="Risk note body" onChange={setRiskBody} value={riskBody} />
         <div className="row gap-8 wrap">
           <Button disabled={riskNote.isPending} onClick={submitRiskNote}>Publish public note</Button>
-          <MoneyMinorInput currency={defaultLoanCurrency} label="Recovery gross minor" onChange={setRecoveryGross} value={recoveryGross} />
-          <OperationConfirmButton
-            confirmLabel="Record recovery"
-            description="Recording a recovery credits affected investor balance lots, applies the recovery waterfall, and reduces current holding principal according to backend allocation rules."
-            details={[
-              { label: "Loan", value: loanId || "-" },
-              { label: "Gross recovery", value: `${recoveryGross} minor units` },
-              { label: "Value date", value: valueDate }
-            ]}
-            disabled={recovery.isPending || !loanId}
-            onConfirm={submitRecovery}
-            title="Confirm recovery payment"
-            variant="primary"
-          >
-            Record recovery
-          </OperationConfirmButton>
         </div>
-        {repayment.error || scan.error || riskNote.error || recovery.error ? (
+        <p className="muted" style={{ fontSize: 11.5 }}>
+          Recording a recovery payment for a defaulted loan is done from the loan row: use <strong>Manage &rarr; Record a recovery payment</strong>.
+        </p>
+        {repayment.error || scan.error || riskNote.error ? (
           <Banner tone="bad" title="Servicing action failed">
-            {errorMessage(repayment.error || scan.error || riskNote.error || recovery.error)}
+            {errorMessage(repayment.error || scan.error || riskNote.error)}
           </Banner>
         ) : null}
         {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
@@ -3058,103 +3126,226 @@ function ServicingOpsForm({
   );
 }
 
-function SecondaryMarketAdminForm() {
-  const [listingId, setListingId] = useState(adminFormDefaults.secondaryListingId);
-  const [listingQuery, setListingQuery] = useState(adminFormDefaults.secondaryListingId);
-  const [reason, setReason] = useState("Admin-reviewed non-standard listing disclosure.");
-  const [disclosure, setDisclosure] = useState("Loan is non-performing. Review public note and days-past-due before purchase.");
+type ListingDecision = "approve" | "reject" | "remove";
+
+function listingStatusTone(status: string): Tone {
+  if (status === "active") return "ok";
+  if (status === "approval_requested") return "warn";
+  if (status === "sold") return "info";
+  return "neutral";
+}
+
+function listingPriceLabel(row: AdminSecondaryMarketListingRow) {
+  const bps = row.discount_premium_bps;
+  if (bps === 0) return "At par";
+  const pct = (Math.abs(bps) / 100).toFixed(2).replace(/\.?0+$/, "");
+  return bps > 0 ? `+${pct}% premium` : `-${pct}% discount`;
+}
+
+function ListingDecisionModal({
+  decision,
+  listing,
+  onClose,
+  onDone
+}: {
+  decision: ListingDecision;
+  listing: AdminSecondaryMarketListingRow;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [reason, setReason] = useState(
+    decision === "approve"
+      ? "Admin-reviewed non-standard listing disclosure."
+      : decision === "reject"
+        ? "Listing rejected after admin review."
+        : "Listing removed for operational reasons."
+  );
+  const [disclosure, setDisclosure] = useState(
+    "Loan is non-performing. Review public note and days-past-due before purchase."
+  );
   const [preview, setPreview] = useState<string | null>(null);
-  const approve = useV1MarketplaceSecondaryAdminListingsApproveCreate();
-  const reject = useV1MarketplaceSecondaryAdminListingsRejectCreate();
-  const remove = useV1MarketplaceSecondaryAdminListingsRemoveCreate();
+  const [success, setSuccess] = useState<string | undefined>();
+  const done = (message: string) => {
+    setSuccess(message);
+    onDone();
+  };
+  const approve = useV1MarketplaceSecondaryAdminListingsApproveCreate({
+    mutation: { onSuccess: () => done("The listing is approved and visible to buyers with the disclosure note.") }
+  });
+  const reject = useV1MarketplaceSecondaryAdminListingsRejectCreate({
+    mutation: { onSuccess: () => done("The listing was rejected and stays hidden from buyers.") }
+  });
+  const remove = useV1MarketplaceSecondaryAdminListingsRemoveCreate({
+    mutation: { onSuccess: () => done("The listing was removed from buyer visibility.") }
+  });
+  const anyError = approve.error || reject.error || remove.error;
+  const titles: Record<ListingDecision, string> = {
+    approve: "Approve listing",
+    reject: "Reject listing",
+    remove: "Remove listing"
+  };
 
-  function approveListing() {
-    const data: SecondaryMarketListingApproveRequest = { reason, disclosure_note: disclosure, idempotency_key: idempotencyKey("sm-approve") };
+  function submit() {
     if (isFixturePreview) {
-      setPreview(`Listing ${listingId} would be approved with disclosure.`);
+      setPreview(`Listing ${listing.id} would be ${decision}d.`);
       return;
     }
-    approve.mutate({ listingId, data });
-  }
-
-  function rejectListing() {
-    const data: SecondaryMarketListingRejectRequest = { reason, idempotency_key: idempotencyKey("sm-reject") };
-    if (isFixturePreview) {
-      setPreview(`Listing ${listingId} would be rejected.`);
-      return;
+    if (decision === "approve") {
+      approve.mutate({
+        listingId: listing.id,
+        data: { reason, disclosure_note: disclosure, idempotency_key: idempotencyKey("sm-approve") }
+      });
+    } else if (decision === "reject") {
+      reject.mutate({ listingId: listing.id, data: { reason, idempotency_key: idempotencyKey("sm-reject") } });
+    } else {
+      remove.mutate({ listingId: listing.id, data: { reason, idempotency_key: idempotencyKey("sm-remove") } });
     }
-    reject.mutate({ listingId, data });
-  }
-
-  function removeListing() {
-    const data: SecondaryMarketListingRemoveRequest = { reason, idempotency_key: idempotencyKey("sm-remove") };
-    if (isFixturePreview) {
-      setPreview(`Listing ${listingId} would be removed.`);
-      return;
-    }
-    remove.mutate({ listingId, data });
   }
 
   return (
-    <Card padded>
-      <h2>Secondary-market approvals</h2>
+    <Modal title={`${titles[decision]} - ${listing.loan_title}`} onClose={onClose}>
       <div className="admin-action-form">
-        <SecondaryListingLookupInput
-          onChange={setListingId}
-          onQueryChange={setListingQuery}
-          query={listingQuery}
-          required
-          value={listingId}
-        />
-        <TextAreaInput label="Reason" onChange={setReason} value={reason} />
-        <TextAreaInput label="Buyer disclosure note" onChange={setDisclosure} value={disclosure} />
-        <div className="row gap-8 wrap">
-          <OperationConfirmButton
-            confirmLabel="Approve listing"
-            description="Approving a non-standard listing makes it visible to eligible buyers with the provided disclosure note and additional acknowledgement."
-            details={[
-              { label: "Listing", value: listingId || "-" },
-              { label: "Reason", value: reason },
-              { label: "Disclosure", value: disclosure }
-            ]}
-            disabled={approve.isPending || !listingId}
-            onConfirm={approveListing}
-            title="Confirm secondary listing approval"
-            variant="primary"
-          >
-            Approve listing
-          </OperationConfirmButton>
-          <OperationConfirmButton
-            confirmLabel="Reject listing"
-            description="Rejecting a listing keeps it hidden and records the admin decision in the audit trail."
-            details={[
-              { label: "Listing", value: listingId || "-" },
-              { label: "Reason", value: reason }
-            ]}
-            disabled={reject.isPending || !listingId}
-            onConfirm={rejectListing}
-            title="Confirm listing rejection"
-            variant="danger"
-          >
-            Reject
-          </OperationConfirmButton>
-          <OperationConfirmButton
-            confirmLabel="Remove listing"
-            description="Removing a listing takes it out of buyer visibility and records the operational reason."
-            details={[
-              { label: "Listing", value: listingId || "-" },
-              { label: "Reason", value: reason }
-            ]}
-            disabled={remove.isPending || !listingId}
-            onConfirm={removeListing}
-            title="Confirm listing removal"
-          >
-            Remove
-          </OperationConfirmButton>
+        <div className="admin-context-bar">
+          <Chip tone={listingStatusTone(listing.status)}>{labelize(listing.status)}</Chip>
+          <span>{listing.seller_full_name || listing.seller_email}</span>
+          <span>
+            <Money amountMinor={listing.transfer_price_minor} currency={listing.currency} /> ({listingPriceLabel(listing)})
+          </span>
+          {listing.days_past_due > 0 ? <span>{listing.days_past_due} days past due</span> : null}
+          <code>{listing.id}</code>
         </div>
-        {approve.error || reject.error || remove.error ? <Banner tone="bad" title="Secondary action failed">{errorMessage(approve.error || reject.error || remove.error)}</Banner> : null}
+        <TextAreaInput label="Reason" onChange={setReason} required value={reason} />
+        {decision === "approve" ? (
+          <TextAreaInput
+            hint="Shown to buyers as the public disclosure for this non-standard listing."
+            label="Buyer disclosure note"
+            onChange={setDisclosure}
+            required
+            value={disclosure}
+          />
+        ) : null}
+        <OperationConfirmButton
+          confirmLabel={titles[decision]}
+          description={
+            decision === "approve"
+              ? "Approving a non-standard listing makes it visible to eligible buyers with the provided disclosure note and additional acknowledgement."
+              : decision === "reject"
+                ? "Rejecting a listing keeps it hidden and records the admin decision in the audit trail."
+                : "Removing a listing takes it out of buyer visibility and records the operational reason."
+          }
+          details={[
+            { label: "Listing", value: listing.id },
+            { label: "Loan", value: listing.loan_title },
+            { label: "Reason", value: reason },
+            ...(decision === "approve" ? [{ label: "Disclosure", value: disclosure }] : [])
+          ]}
+          disabled={approve.isPending || reject.isPending || remove.isPending}
+          onConfirm={submit}
+          title={`Confirm secondary listing ${decision}`}
+          variant={decision === "approve" ? "primary" : "danger"}
+        >
+          {titles[decision]}
+        </OperationConfirmButton>
+        {anyError ? <Banner tone="bad" title="Listing action failed">{errorMessage(anyError)}</Banner> : null}
         {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
+        {success ? <Banner tone="ok" title="Listing action submitted">{success}</Banner> : null}
       </div>
+    </Modal>
+  );
+}
+
+function SecondaryMarketApprovalsTable() {
+  const [statusFilter, setStatusFilter] = useState("");
+  const [decision, setDecision] = useState<{ listing: AdminSecondaryMarketListingRow; decision: ListingDecision } | null>(null);
+  const listingsQuery = useAdminSecondaryListingsData({
+    status: statusFilter || undefined,
+    limit: 100
+  });
+  const listings = listingsQuery.data ?? [];
+
+  return (
+    <Card padded>
+      <EntityTableHeader
+        description="Every secondary-market listing, newest first. Non-standard listings wait here as 'Approval requested' until an admin approves them with a buyer disclosure note."
+        title="Secondary-market approvals"
+        filters={
+          <select
+            aria-label="Filter listings by status"
+            className="select"
+            onChange={(event) => setStatusFilter(event.target.value)}
+            value={statusFilter}
+          >
+            <option value="">All statuses</option>
+            <option value="approval_requested">Approval requested</option>
+            <option value="active">Active</option>
+            <option value="sold">Sold</option>
+            <option value="rejected">Rejected</option>
+            <option value="removed">Removed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        }
+        action={<Button size="sm" onClick={() => refetchLive(listingsQuery.refetch)}>Refresh</Button>}
+      />
+      {listings.length > 0 ? (
+        <div className="admin-table-wrap">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Loan / listing</th>
+                <th>Seller</th>
+                <th>Price</th>
+                <th>Loan status</th>
+                <th>DPD</th>
+                <th>Status</th>
+                <th>Created</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {listings.map((row) => (
+                <tr key={row.id}>
+                  <td><strong>{row.loan_title}</strong><span className="mono muted">{row.id}</span></td>
+                  <td>{row.seller_full_name || "-"}<span className="mono muted">{row.seller_email}</span></td>
+                  <td>
+                    <Money amountMinor={row.transfer_price_minor} currency={row.currency} />
+                    <span className="muted" style={{ display: "block", fontSize: 11.5 }}>{listingPriceLabel(row)}</span>
+                  </td>
+                  <td><Chip tone={statusTone(row.loan_status)}>{labelize(row.loan_status)}</Chip></td>
+                  <td>{row.days_past_due > 0 ? row.days_past_due : "-"}</td>
+                  <td><Chip tone={listingStatusTone(row.status)}>{labelize(row.status)}</Chip></td>
+                  <td>{formatDate(row.created_at)}</td>
+                  <td>
+                    <div className="row gap-8 wrap">
+                      {row.status === "approval_requested" ? (
+                        <>
+                          <Button size="sm" variant="primary" onClick={() => setDecision({ listing: row, decision: "approve" })}>Approve</Button>
+                          <Button size="sm" variant="danger" onClick={() => setDecision({ listing: row, decision: "reject" })}>Reject</Button>
+                        </>
+                      ) : row.status === "active" ? (
+                        <Button size="sm" variant="danger" onClick={() => setDecision({ listing: row, decision: "remove" })}>Remove</Button>
+                      ) : (
+                        <span className="muted" style={{ fontSize: 12 }}>No actions</span>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <Empty icon="docs" title="No listings">
+          {statusFilter ? "No listings match this status filter." : "Secondary-market listings will appear here once investors list holdings."}
+        </Empty>
+      )}
+      {decision ? (
+        <ListingDecisionModal
+          decision={decision.decision}
+          listing={decision.listing}
+          onClose={() => setDecision(null)}
+          onDone={() => refetchLive(listingsQuery.refetch)}
+        />
+      ) : null}
     </Card>
   );
 }

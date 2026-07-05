@@ -3,6 +3,7 @@ from __future__ import annotations
 from django.urls import path
 
 from backend.apps.secondary_market.api.views import (
+    AdminSecondaryMarketListingListView,
     SecondaryMarketListingApproveView,
     SecondaryMarketListingCancelView,
     SecondaryMarketListingListCreateView,
@@ -16,6 +17,11 @@ urlpatterns = [
         "listings/",
         SecondaryMarketListingListCreateView.as_view(),
         name="secondary-market-listings",
+    ),
+    path(
+        "admin/listings/",
+        AdminSecondaryMarketListingListView.as_view(),
+        name="secondary-market-admin-listing-list",
     ),
     path(
         "admin/listings/<uuid:listing_id>/approve/",
