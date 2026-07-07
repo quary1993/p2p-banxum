@@ -2560,6 +2560,88 @@ textarea.input {
   overflow-wrap: anywhere;
 }
 
+.admin-table tfoot th {
+  background: #f7f8f4;
+  border-top: 1px solid var(--line-2);
+  padding: 10px;
+  text-align: left;
+}
+
+.admin-schedule-review {
+  background: #fffefb;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.admin-subsection-header {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.admin-subsection-header h4 {
+  font-size: 15px;
+  margin: 0 0 4px;
+}
+
+.admin-schedule-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.admin-schedule-totals {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.admin-schedule-reconcile {
+  background: #f7f8f4;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 10px;
+}
+
+.admin-schedule-reconcile div {
+  display: grid;
+  gap: 2px;
+}
+
+.admin-schedule-reconcile span,
+.admin-schedule-reconcile small {
+  color: var(--muted);
+}
+
+.admin-checkbox-line {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+}
+
+.admin-checkbox-line.compact {
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.admin-checkbox-line input {
+  accent-color: var(--accent);
+  height: 16px;
+  width: 16px;
+}
+
+.admin-schedule-table {
+  min-width: 980px;
+}
+
 .admin-user-name-cell {
   min-width: 140px;
 }
@@ -3178,6 +3260,22 @@ textarea.input {
   .admin-panel-head .row .btn {
     flex: 1 1 auto;
     min-height: 40px;
+  }
+
+  .admin-subsection-header {
+    flex-direction: column;
+  }
+
+  .admin-schedule-summary {
+    justify-content: flex-start;
+  }
+
+  .admin-schedule-totals {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-schedule-reconcile {
+    grid-template-columns: 1fr;
   }
 }
 

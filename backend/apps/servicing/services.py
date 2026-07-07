@@ -613,6 +613,14 @@ def _locked_repayable_loan(loan_id: str) -> Model:
 
 def _installment_paid_totals(installment: Model) -> tuple[int, int]:
     installment_ref = cast(Any, installment)
+    loan = getattr(installment_ref, "loan", None)
+    if loan is None:
+        loan = apps.get_model("loans", "Loan").objects.filter(id=installment_ref.loan_id).first()
+    pre_publication_paid = getattr(loan, "pre_publication_paid_installments", []) or []
+    if int(installment_ref.installment_number) in {
+        int(value) for value in pre_publication_paid if isinstance(value, int)
+    }:
+        return int(installment_ref.principal_minor), int(installment_ref.interest_minor)
     aggregate = BorrowerRepaymentEvent.objects.filter(
         loan_id=installment_ref.loan_id,
         installment__installment_number=installment_ref.installment_number,

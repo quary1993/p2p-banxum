@@ -190,6 +190,13 @@ Each entry should include:
 - Required admin-console improvement: add a borrower detail drawer with a side-by-side "internal record" and "investor disclosure preview" so admins can verify exactly what lenders will see before publishing loans. Add richer validation/copy for structured bank-account details if Garanta standardizes a schema beyond free-form notes/JSON.
 - Priority: important.
 
+## 2026-07-07: Publish-Time Schedule Review
+
+- Screen or component: Loans module, row-level Manage dialog, draft-loan publish action.
+- Current first-version behavior: choosing `Publish loan` now shows the contractual repayment schedule before the final publish button. The table lists instalment number, due date, paid-before-publication checkbox, instalment amount, principal, interest, outstanding principal after the instalment, and generated/manual source, with original principal, financeable principal, scheduled principal/interest/total, already-paid, and remaining-principal reconciliation summaries. Past due rows default to selected as paid before publication; toggling keeps the selection as a contiguous prefix. Live mode blocks final publish if the current server-generated schedule cannot be loaded or if original scheduled principal minus selected paid principal does not equal the financeable principal.
+- Required admin-console improvement: when Garanta approves manual schedule changes, extend this same schedule review area into a controlled edit workflow with reason codes, validation against principal totals, schedule-version preview, audit evidence, and maker-checker if required. Add a clearer imported/ongoing-loan wizard if this becomes a frequent operational workflow. Do not allow arbitrary free-form schedule edits outside this audited workflow.
+- Priority: important.
+
 ## Borrower document download path
 
 - Borrower documents are metadata references to the shared stored-file foundation; no

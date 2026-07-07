@@ -30,14 +30,17 @@ class LoanSerializer(serializers.Serializer[Any]):
     investor_summary = serializers.CharField()
     purpose = serializers.CharField()
     purpose_description = serializers.CharField()
+    original_principal_minor = serializers.IntegerField()
     principal_minor = serializers.IntegerField()
     currency = serializers.CharField(source="currency.code")
     interest_rate_bps = serializers.IntegerField()
     term_months = serializers.IntegerField()
     repayment_type = serializers.CharField()
     interest_only_months = serializers.IntegerField()
+    loan_start_date = serializers.DateField()
     funding_deadline = serializers.DateField()
     first_payment_date = serializers.DateField()
+    pre_publication_paid_installments = serializers.ListField(child=serializers.IntegerField())
     collateral_type = serializers.CharField()
     collateral_value_minor = serializers.IntegerField()
     collateral_description = serializers.CharField()
@@ -66,6 +69,7 @@ class LoanCreateRequestSerializer(serializers.Serializer[Any]):
     investor_summary = serializers.CharField()
     purpose = serializers.ChoiceField(choices=LoanPurpose.choices)
     purpose_description = serializers.CharField(required=False, allow_blank=True)
+    original_principal_minor = serializers.IntegerField(required=False)
     principal_minor = serializers.IntegerField()
     currency = serializers.CharField(max_length=3)
     interest_rate_bps = serializers.IntegerField()
@@ -75,6 +79,7 @@ class LoanCreateRequestSerializer(serializers.Serializer[Any]):
         default=RepaymentType.EQUAL_INSTALLMENTS,
     )
     interest_only_months = serializers.IntegerField(required=False, default=0)
+    loan_start_date = serializers.DateField(required=False)
     funding_deadline = serializers.DateField(required=False)
     first_payment_date = serializers.DateField(required=False)
     collateral_type = serializers.ChoiceField(
@@ -102,11 +107,13 @@ class LoanUpdateRequestSerializer(serializers.Serializer[Any]):
     investor_summary = serializers.CharField(required=False)
     purpose = serializers.ChoiceField(required=False, choices=LoanPurpose.choices)
     purpose_description = serializers.CharField(required=False, allow_blank=True)
+    original_principal_minor = serializers.IntegerField(required=False)
     principal_minor = serializers.IntegerField(required=False)
     interest_rate_bps = serializers.IntegerField(required=False)
     term_months = serializers.IntegerField(required=False)
     repayment_type = serializers.ChoiceField(required=False, choices=RepaymentType.choices)
     interest_only_months = serializers.IntegerField(required=False)
+    loan_start_date = serializers.DateField(required=False)
     funding_deadline = serializers.DateField(required=False)
     first_payment_date = serializers.DateField(required=False)
     collateral_type = serializers.ChoiceField(required=False, choices=CollateralType.choices)
@@ -144,6 +151,11 @@ class LoanListQuerySerializer(serializers.Serializer[Any]):
 
 
 class PublishLoanRequestSerializer(serializers.Serializer[Any]):
+    pre_publication_paid_installment_numbers = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        required=False,
+        allow_empty=True,
+    )
     note = serializers.CharField(required=False, allow_blank=True)
 
 
@@ -157,9 +169,18 @@ class LoanInstallmentSerializer(serializers.Serializer[Any]):
     interest_minor = serializers.IntegerField()
     total_minor = serializers.IntegerField()
     admin_overridden = serializers.BooleanField()
+    pre_publication_paid = serializers.SerializerMethodField()
     metadata = serializers.JSONField()
     created_at = serializers.DateTimeField()
     updated_at = serializers.DateTimeField()
+
+    def get_pre_publication_paid(self, installment: LoanInstallment) -> bool:
+        paid = getattr(installment.loan, "pre_publication_paid_installments", [])
+        if not isinstance(paid, list):
+            return False
+        return int(installment.installment_number) in {
+            int(value) for value in paid if isinstance(value, int)
+        }
 
 
 class LoanEventSerializer(serializers.Serializer[Any]):

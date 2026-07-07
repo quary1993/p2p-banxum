@@ -320,6 +320,7 @@ Finalize lender notification wording, accountant-approved recovery report labels
 - Version schedule changes.
 - Allow controlled event-driven edits to generated schedules with reason and audit metadata.
 - Track due date, principal due, interest due, fees due, paid amounts, late amounts, and status.
+- For loans imported after their contractual start, installments marked paid before publication are treated as already settled for servicing-status purposes without creating borrower-repayment cash events. They must be a contiguous prefix of past-due schedule rows, and the remaining scheduled principal must equal the financeable principal funded by investors.
 - Recalculate expected investor distributions when schedules change.
 - Preserve historical schedule versions for audit and reporting.
 

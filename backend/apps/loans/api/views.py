@@ -112,12 +112,14 @@ class LoanListCreateView(APIView):
                     investor_summary=data["investor_summary"],
                     purpose=data["purpose"],
                     purpose_description=data.get("purpose_description", ""),
+                    original_principal_minor=data.get("original_principal_minor"),
                     principal_minor=data["principal_minor"],
                     currency=data["currency"],
                     interest_rate_bps=data["interest_rate_bps"],
                     term_months=data["term_months"],
                     repayment_type=data["repayment_type"],
                     interest_only_months=data.get("interest_only_months", 0),
+                    loan_start_date=data.get("loan_start_date"),
                     funding_deadline=data.get("funding_deadline"),
                     first_payment_date=data.get("first_payment_date"),
                     collateral_type=data["collateral_type"],
@@ -173,11 +175,13 @@ class LoanDetailView(APIView):
                     investor_summary=data.get("investor_summary"),
                     purpose=data.get("purpose"),
                     purpose_description=data.get("purpose_description"),
+                    original_principal_minor=data.get("original_principal_minor"),
                     principal_minor=data.get("principal_minor"),
                     interest_rate_bps=data.get("interest_rate_bps"),
                     term_months=data.get("term_months"),
                     repayment_type=data.get("repayment_type"),
                     interest_only_months=data.get("interest_only_months"),
+                    loan_start_date=data.get("loan_start_date"),
                     funding_deadline=data.get("funding_deadline"),
                     first_payment_date=data.get("first_payment_date"),
                     collateral_type=data.get("collateral_type"),
@@ -221,6 +225,9 @@ class PublishLoanView(APIView):
                 PublishLoanCommand(
                     actor=cast(Model, request.user),
                     loan_id=loan_id,
+                    pre_publication_paid_installment_numbers=data.get(
+                        "pre_publication_paid_installment_numbers"
+                    ),
                     note=data.get("note", ""),
                 )
             )
@@ -241,7 +248,9 @@ class LoanScheduleView(APIView):
         loan = Loan.objects.filter(id=loan_id).first()
         if loan is None:
             return Response({"detail": "Loan does not exist."}, status=status.HTTP_404_NOT_FOUND)
-        installments = loan.installments.filter(schedule_version=loan.schedule_version)
+        installments = loan.installments.select_related("loan").filter(
+            schedule_version=loan.schedule_version
+        )
         return Response(
             [serialize_installment(installment) for installment in installments],
             status=status.HTTP_200_OK,

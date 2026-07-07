@@ -482,7 +482,9 @@ export const loanDetailsFixture: MarketplaceLoanDetail[] = marketplaceLoansFixtu
         ? 4900
         : 5800,
   ltv_warnings: loan.collateral_type === "Unsecured exception" ? ["No LTV shown for unsecured loan."] : [],
+  original_principal_minor: loan.principal_minor,
   repayment_type: loan.term_months >= 24 ? "bullet" : "equal_installments",
+  loan_start_date: "2026-06-30",
   first_payment_date: "2026-07-31",
   schedule_version: 1
 }));
@@ -571,8 +573,10 @@ export const portfolioFixture: InvestorPortfolio = {
         term_months: 24,
         repayment_type: "equal_installments",
         currency: "CHF",
+        original_principal_minor: amount(100000),
         principal_minor: amount(100000),
         funding_deadline: "2026-01-31",
+        loan_start_date: "2026-01-31",
         first_payment_date: "2026-02-28",
         ltv_bps: 6100,
         days_past_due: 0
@@ -610,8 +614,10 @@ export const portfolioFixture: InvestorPortfolio = {
         term_months: 36,
         repayment_type: "bullet",
         currency: "EUR",
+        original_principal_minor: amount(800000),
         principal_minor: amount(800000),
         funding_deadline: "2025-11-30",
+        loan_start_date: "2025-11-30",
         first_payment_date: "2025-12-31",
         ltv_bps: 6500,
         days_past_due: 21
@@ -654,8 +660,10 @@ export const portfolioFixture: InvestorPortfolio = {
         term_months: 24,
         repayment_type: "bullet",
         currency: "EUR",
+        original_principal_minor: amount(400000),
         principal_minor: amount(400000),
         funding_deadline: "2025-09-15",
+        loan_start_date: "2025-09-15",
         first_payment_date: "2025-10-31",
         ltv_bps: 7000,
         days_past_due: 64
@@ -698,8 +706,10 @@ export const portfolioFixture: InvestorPortfolio = {
         term_months: 24,
         repayment_type: "equal_installments",
         currency: "CHF",
+        original_principal_minor: amount(250000),
         principal_minor: amount(250000),
         funding_deadline: "2025-06-15",
+        loan_start_date: "2025-06-15",
         first_payment_date: "2025-07-31",
         ltv_bps: 7500,
         days_past_due: 142

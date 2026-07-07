@@ -203,12 +203,16 @@ Launch schedule and funding defaults are:
 - Monthly installments are the default installment frequency.
 - Installment calculations round each installment line to the currency minor unit.
 - The final installment absorbs rounding residue.
+- Every loan has a `loan_start_date`, the contractual/economic start date of the loan.
+- The existing `first_payment_date` field means the first scheduled installment pay/due date, not the loan start date.
+- A loan can be imported as an ongoing loan for funding. In that case the admin records the original contractual principal separately from the financeable remaining principal, and marks the contiguous prefix of installments already paid before publication.
+- On publish, the platform validates that scheduled principal equals original contractual principal, and that original scheduled principal minus paid-before-publication principal equals the financeable principal shown to investors and used for marketplace capacity/holdings.
 - Every loan has an admin-set funding deadline.
 - Draft/admin planning records may carry a funding deadline up to 60 days.
 - A loan cannot be published/opened to investors if the funding deadline is in the past or more than 29 calendar days from the Europe/Zurich business date. The launch publishable default is therefore 29 calendar days from that business date.
 
 Rationale:
-These defaults make schedule generation, arrears status, investor display, and funding-campaign monitoring deterministic for v1 while preserving admin planning flexibility inside a controlled range. The publish-time campaign cap lets investors pledge balance lots until day 30 while still keeping the campaign settlement window inside the 60-day operating limit.
+These defaults make schedule generation, arrears status, investor display, and funding-campaign monitoring deterministic for v1 while preserving admin planning flexibility inside a controlled range. Separate loan start and first installment dates avoid overloading a due-date field with lifecycle meaning. Supporting an already-running loan requires preserving the full contractual repayment schedule while funding only the remaining principal; the paid-prefix validation prevents a mismatch between borrower schedule history and investor-facing capacity. The publish-time campaign cap lets investors pledge balance lots until day 30 while still keeping the campaign settlement window inside the 60-day operating limit.
 
 Follow-ups:
 If Garanta later needs other day-count conventions, frequencies, or interest structures, add them as explicit product configuration with schedule golden tests.

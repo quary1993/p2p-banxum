@@ -1584,7 +1584,9 @@ def full_marketplace_listing_payload(loan: Model) -> dict[str, Any]:
             "collateral_description": str(loan_ref.collateral_description),
             "ltv_bps": loan_ref.ltv_bps,
             "ltv_warnings": loan_ref.ltv_warnings,
+            "original_principal_minor": int(loan_ref.original_principal_minor),
             "repayment_type": str(loan_ref.repayment_type),
+            "loan_start_date": loan_ref.loan_start_date,
             "first_payment_date": loan_ref.first_payment_date,
             "schedule_version": int(loan_ref.schedule_version),
         }

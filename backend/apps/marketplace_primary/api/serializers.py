@@ -36,7 +36,9 @@ class MarketplaceLoanDetailSerializer(MarketplaceLoanPreviewSerializer):
     collateral_description = serializers.CharField()
     ltv_bps = serializers.IntegerField(allow_null=True)
     ltv_warnings = serializers.ListField(child=serializers.CharField())
+    original_principal_minor = serializers.IntegerField()
     repayment_type = serializers.CharField()
+    loan_start_date = serializers.DateField()
     first_payment_date = serializers.DateField()
     schedule_version = serializers.IntegerField()
 

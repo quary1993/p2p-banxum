@@ -39,6 +39,7 @@ import {
   useV1LoansAdminLoansCreate,
   useV1LoansAdminLoansPartialUpdate,
   useV1LoansAdminLoansPublishCreate,
+  useV1LoansAdminLoansScheduleList,
   useV1MarketplacePrimaryAdminLoansCancelFundingCreate,
   useV1MarketplacePrimaryAdminLoansCloseFundingCreate,
   useV1MarketplacePrimaryAdminLoansExpiryScanCreate,
@@ -84,6 +85,7 @@ import {
   type LenderDepositDeclareRequest,
   type Loan,
   type LoanCreateRequest,
+  type LoanInstallment,
   type LoanRecoveryPaymentRecordRequest,
   type LoanRiskNoteCreateRequest,
   type LoanServicingStatusScanRequest,
@@ -303,6 +305,57 @@ function MoneyMinorInput({
       />
     </Field>
   );
+}
+
+function addMonthsToDateString(value: string, months: number) {
+  const [yearRaw, monthRaw, dayRaw] = value.split("-").map((part) => Number.parseInt(part, 10));
+  const year = Number.isFinite(yearRaw) ? yearRaw : new Date().getUTCFullYear();
+  const month = Number.isFinite(monthRaw) ? monthRaw : 1;
+  const day = Number.isFinite(dayRaw) ? dayRaw : 1;
+  const targetMonthIndex = month - 1 + months;
+  const lastDay = new Date(Date.UTC(year, targetMonthIndex + 1, 0)).getUTCDate();
+  const date = new Date(Date.UTC(year, targetMonthIndex, Math.min(day, lastDay)));
+  return date.toISOString().slice(0, 10);
+}
+
+function splitMinorAmount(totalMinor: number, parts: number, index: number) {
+  if (parts <= 0) return 0;
+  const base = Math.trunc(totalMinor / parts);
+  const remainder = totalMinor - base * parts;
+  return base + (index < remainder ? 1 : 0);
+}
+
+function previewScheduleRows(loan: Loan): LoanInstallment[] {
+  const term = Math.max(1, loan.term_months || 1);
+  const firstDueDate =
+    loan.first_payment_date || addMonthsToDateString(loan.loan_start_date || loan.funding_deadline || today, 1);
+  const schedulePrincipalMinor = loan.original_principal_minor || loan.principal_minor;
+  const totalInterestMinor =
+    loan.total_scheduled_interest_minor ||
+    Math.round((schedulePrincipalMinor * loan.interest_rate_bps * term) / 120000);
+  return Array.from({ length: term }, (_, index) => {
+    const principalMinor = splitMinorAmount(schedulePrincipalMinor, term, index);
+    const interestMinor = splitMinorAmount(totalInterestMinor, term, index);
+    return {
+      id: `${loan.id}-preview-installment-${index + 1}`,
+      loan_id: loan.id,
+      schedule_version: loan.schedule_version || 1,
+      installment_number: index + 1,
+      due_date: addMonthsToDateString(firstDueDate, index),
+      principal_minor: principalMinor,
+      interest_minor: interestMinor,
+      total_minor: principalMinor + interestMinor,
+      admin_overridden: false,
+      pre_publication_paid: loan.pre_publication_paid_installments.includes(index + 1),
+      metadata: { preview: true },
+      created_at: loan.created_at,
+      updated_at: loan.updated_at
+    };
+  });
+}
+
+function isPastBusinessDate(value: string) {
+  return value < today;
 }
 
 function lookupDisplay(option: AdminLookupResult) {
@@ -2336,6 +2389,7 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
   const [title, setTitle] = useState("New real-estate backed facility");
   const [summary, setSummary] = useState("Admin-entered investor summary for the loan.");
   const [principal, setPrincipal] = useState(isFixturePreview ? "100000000" : "");
+  const [originalPrincipal, setOriginalPrincipal] = useState("");
   const [currency, setCurrency] = useState("CHF");
   const [rateBps, setRateBps] = useState("950");
   const [termMonths, setTermMonths] = useState("12");
@@ -2344,6 +2398,7 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
   const [collateralType, setCollateralType] = useState<LoanCollateralType>(CollateralTypeEnum.real_estate);
   const [collateralValue, setCollateralValue] = useState(isFixturePreview ? "160000000" : "");
   const [riskRating, setRiskRating] = useState<LoanRiskRating>(RiskRatingEnum.BBB);
+  const [loanStartDate, setLoanStartDate] = useState("");
   const [fundingDeadline, setFundingDeadline] = useState("");
   const [firstPaymentDate, setFirstPaymentDate] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
@@ -2369,11 +2424,13 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
       title,
       investor_summary: summary,
       purpose,
+      original_principal_minor: originalPrincipal.trim() ? intValue(originalPrincipal) : undefined,
       principal_minor: intValue(principal),
       currency,
       interest_rate_bps: intValue(rateBps),
       term_months: intValue(termMonths),
       repayment_type: repaymentType,
+      loan_start_date: loanStartDate || undefined,
       funding_deadline: fundingDeadline || undefined,
       first_payment_date: firstPaymentDate || undefined,
       collateral_type: collateralType,
@@ -2404,7 +2461,14 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
             value={borrowerId}
           />
           <TextInput label="Title" onChange={setTitle} required value={title} />
-          <MoneyMinorInput currency={currency} label="Principal minor units" onChange={setPrincipal} required value={principal} />
+          <MoneyMinorInput currency={currency} label="Financeable principal minor units" onChange={setPrincipal} required value={principal} />
+          <MoneyMinorInput
+            currency={currency}
+            label="Original contractual principal minor units"
+            onChange={setOriginalPrincipal}
+            placeholder="Defaults to financeable principal"
+            value={originalPrincipal}
+          />
           <TextInput label="Currency" onChange={setCurrency} required value={currency} />
           <TextInput label="Interest bps" onChange={setRateBps} required value={rateBps} />
           <TextInput label="Term months" onChange={setTermMonths} required value={termMonths} />
@@ -2413,8 +2477,9 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
           <SelectInput label="Collateral type" onChange={setCollateralType} options={Object.values(CollateralTypeEnum)} value={collateralType} />
           <MoneyMinorInput currency={currency} label="Collateral value minor" onChange={setCollateralValue} required value={collateralValue} />
           <SelectInput label="Risk rating" onChange={setRiskRating} options={Object.values(RiskRatingEnum)} value={riskRating} />
+          <TextInput label="Loan start date" onChange={setLoanStartDate} type="date" value={loanStartDate} />
           <TextInput label="Funding deadline" onChange={setFundingDeadline} type="date" value={fundingDeadline} />
-          <TextInput label="First payment date" onChange={setFirstPaymentDate} type="date" value={firstPaymentDate} />
+          <TextInput label="First installment pay date" onChange={setFirstPaymentDate} type="date" value={firstPaymentDate} />
         </FieldGrid>
         <TextAreaInput label="Investor summary" onChange={setSummary} required value={summary} />
         <ActionFooter mutation={mutation} previewMessage={preview} successMessage={success} submitLabel="Create loan draft" />
@@ -2427,6 +2492,7 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
   const [title, setTitle] = useState(loan.title);
   const [summary, setSummary] = useState(loan.investor_summary);
   const [principal, setPrincipal] = useState(String(loan.principal_minor));
+  const [originalPrincipal, setOriginalPrincipal] = useState(String(loan.original_principal_minor));
   const [rateBps, setRateBps] = useState(String(loan.interest_rate_bps));
   const [termMonths, setTermMonths] = useState(String(loan.term_months));
   const [purpose, setPurpose] = useState<LoanPurpose>(loan.purpose as LoanPurpose);
@@ -2434,6 +2500,7 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
   const [collateralType, setCollateralType] = useState<LoanCollateralType>(loan.collateral_type as LoanCollateralType);
   const [collateralValue, setCollateralValue] = useState(String(loan.collateral_value_minor));
   const [riskRating, setRiskRating] = useState<LoanRiskRating>(loan.risk_rating as LoanRiskRating);
+  const [loanStartDate, setLoanStartDate] = useState(loan.loan_start_date);
   const [fundingDeadline, setFundingDeadline] = useState(loan.funding_deadline);
   const [firstPaymentDate, setFirstPaymentDate] = useState(loan.first_payment_date);
   const [investorMessage, setInvestorMessage] = useState("");
@@ -2455,10 +2522,12 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
       title,
       investor_summary: summary,
       purpose,
+      original_principal_minor: intValue(originalPrincipal),
       principal_minor: intValue(principal),
       interest_rate_bps: intValue(rateBps),
       term_months: intValue(termMonths),
       repayment_type: repaymentType,
+      loan_start_date: loanStartDate,
       funding_deadline: fundingDeadline,
       first_payment_date: firstPaymentDate,
       collateral_type: collateralType,
@@ -2490,7 +2559,14 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
         ) : null}
         <FieldGrid>
           <TextInput label="Title" onChange={setTitle} required value={title} />
-          <MoneyMinorInput currency={loan.currency} label="Principal minor units" onChange={setPrincipal} required value={principal} />
+          <MoneyMinorInput currency={loan.currency} label="Financeable principal minor units" onChange={setPrincipal} required value={principal} />
+          <MoneyMinorInput
+            currency={loan.currency}
+            label="Original contractual principal minor units"
+            onChange={setOriginalPrincipal}
+            required
+            value={originalPrincipal}
+          />
           <TextInput label="Interest bps" onChange={setRateBps} required value={rateBps} />
           <TextInput label="Term months" onChange={setTermMonths} required value={termMonths} />
           <SelectInput label="Purpose" onChange={setPurpose} options={Object.values(PurposeEnum)} value={purpose} />
@@ -2498,8 +2574,9 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
           <SelectInput label="Collateral type" onChange={setCollateralType} options={Object.values(CollateralTypeEnum)} value={collateralType} />
           <MoneyMinorInput currency={loan.currency} label="Collateral value minor" onChange={setCollateralValue} required value={collateralValue} />
           <SelectInput label="Risk rating" onChange={setRiskRating} options={Object.values(RiskRatingEnum)} value={riskRating} />
+          <TextInput label="Loan start date" onChange={setLoanStartDate} type="date" value={loanStartDate} />
           <TextInput label="Funding deadline" onChange={setFundingDeadline} type="date" value={fundingDeadline} />
-          <TextInput label="First payment date" onChange={setFirstPaymentDate} type="date" value={firstPaymentDate} />
+          <TextInput label="First installment pay date" onChange={setFirstPaymentDate} type="date" value={firstPaymentDate} />
         </FieldGrid>
         <TextAreaInput label="Investor summary" onChange={setSummary} required value={summary} />
         <TextAreaInput
@@ -2571,6 +2648,167 @@ const MANAGE_LOAN_ACTIONS: Array<{
   }
 ];
 
+function LoanScheduleReview({
+  paidInstallmentNumbers,
+  loan,
+  onTogglePaidInstallment,
+  rows,
+  loading,
+  error
+}: {
+  paidInstallmentNumbers: number[];
+  loan: Loan;
+  onTogglePaidInstallment: (installmentNumber: number) => void;
+  rows: LoanInstallment[];
+  loading: boolean;
+  error: unknown;
+}) {
+  let cumulativePrincipal = 0;
+  const paidSet = new Set(paidInstallmentNumbers);
+  const totals = rows.reduce(
+    (acc, row) => {
+      acc.principal += row.principal_minor;
+      acc.interest += row.interest_minor;
+      acc.total += row.total_minor;
+      if (paidSet.has(row.installment_number)) {
+        acc.paidPrincipal += row.principal_minor;
+        acc.paidInterest += row.interest_minor;
+      }
+      return acc;
+    },
+    { principal: 0, interest: 0, total: 0, paidPrincipal: 0, paidInterest: 0 }
+  );
+  const remainingFinanceablePrincipal = totals.principal - totals.paidPrincipal;
+  const scheduleMatchesOriginal = totals.principal === loan.original_principal_minor;
+  const financeableMatchesSelectedPaid = remainingFinanceablePrincipal === loan.principal_minor;
+  const selectedPaidCount = paidInstallmentNumbers.length;
+
+  return (
+    <div className="admin-schedule-review">
+      <div className="admin-subsection-header">
+        <div>
+          <h4>Repayment schedule review</h4>
+          <p className="muted">
+            Review the contractual schedule before publishing. Past installments can be marked as already paid for
+            ongoing loans; future schedule override tooling should be added here with audit reasons and validation.
+          </p>
+        </div>
+        <div className="admin-schedule-summary">
+          <Chip tone="neutral">Version {loan.schedule_version}</Chip>
+          <Chip tone="neutral">{labelize(loan.repayment_type)}</Chip>
+          <Chip tone="neutral">{loan.term_months} instalments</Chip>
+        </div>
+      </div>
+
+      <div className="admin-schedule-totals">
+        <StatLike label="Original contractual principal" value={<Money amountMinor={loan.original_principal_minor} currency={loan.currency} />} />
+        <StatLike label="Financeable principal" value={<Money amountMinor={loan.principal_minor} currency={loan.currency} />} />
+        <StatLike label="Scheduled principal" value={<Money amountMinor={totals.principal} currency={loan.currency} />} />
+        <StatLike label="Scheduled interest" value={<Money amountMinor={totals.interest} currency={loan.currency} />} />
+        <StatLike label="Total borrower payments" value={<Money amountMinor={totals.total} currency={loan.currency} />} />
+      </div>
+
+      <div className="admin-schedule-reconcile">
+        <div>
+          <span>Paid before publication</span>
+          <strong><Money amountMinor={totals.paidPrincipal} currency={loan.currency} /></strong>
+          <small>
+            {selectedPaidCount} instalment{selectedPaidCount === 1 ? "" : "s"} selected
+            {totals.paidInterest > 0 ? `, ${formatMoneyMinor(totals.paidInterest, loan.currency)} interest already paid` : ""}
+          </small>
+        </div>
+        <div>
+          <span>Remaining financeable principal</span>
+          <strong><Money amountMinor={remainingFinanceablePrincipal} currency={loan.currency} /></strong>
+          <small>Must equal the loan's financeable principal before publication.</small>
+        </div>
+      </div>
+
+      {loading ? <Banner tone="info" title="Loading schedule">Fetching the current server-generated schedule.</Banner> : null}
+      {error ? <Banner tone="bad" title="Schedule unavailable">{errorMessage(error)}</Banner> : null}
+      {!loading && !error && rows.length === 0 ? (
+        <Banner tone="bad" title="No schedule rows">The loan has no current schedule rows. Publishing is blocked until a schedule exists.</Banner>
+      ) : null}
+      {!loading && !error && rows.length > 0 && !scheduleMatchesOriginal ? (
+        <Banner tone="bad" title="Schedule principal mismatch">
+          The schedule principal must equal the original contractual principal before publishing.
+        </Banner>
+      ) : null}
+      {!loading && !error && rows.length > 0 && scheduleMatchesOriginal && !financeableMatchesSelectedPaid ? (
+        <Banner tone="bad" title="Financeable principal mismatch">
+          The original scheduled principal less paid-before-publication principal must equal the financeable principal.
+          Adjust the paid installment selections or edit the loan amount before publishing.
+        </Banner>
+      ) : null}
+      {!loading && !error && rows.length > 0 && scheduleMatchesOriginal && financeableMatchesSelectedPaid ? (
+        <Banner tone="ok" title="Schedule reconciles">
+          The selected paid-before-publication installments reconcile the original schedule to the financeable amount.
+        </Banner>
+      ) : null}
+
+      {rows.length ? (
+        <div className="table-wrap admin-table-wrap">
+          <table className="admin-table admin-schedule-table">
+            <thead>
+              <tr>
+                <th>Instalment #</th>
+                <th>Due date</th>
+                <th>Paid before publication</th>
+                <th>Instalment amount</th>
+                <th>Principal repaid</th>
+                <th>Interest paid</th>
+                <th>Outstanding after</th>
+                <th>Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => {
+                cumulativePrincipal += row.principal_minor;
+                const outstandingAfter = Math.max(0, loan.original_principal_minor - cumulativePrincipal);
+                const canMarkPaid = isPastBusinessDate(row.due_date);
+                return (
+                  <tr key={row.id}>
+                    <td>{row.installment_number}</td>
+                    <td>{formatDate(row.due_date)}</td>
+                    <td>
+                      <label className="admin-checkbox-line compact">
+                        <input
+                          aria-label={`Mark installment ${row.installment_number} paid before publication`}
+                          checked={paidSet.has(row.installment_number)}
+                          disabled={!canMarkPaid}
+                          onChange={() => onTogglePaidInstallment(row.installment_number)}
+                          type="checkbox"
+                        />
+                        <span>{canMarkPaid ? "Paid" : "Future"}</span>
+                      </label>
+                    </td>
+                    <td><Money amountMinor={row.total_minor} currency={loan.currency} /></td>
+                    <td><Money amountMinor={row.principal_minor} currency={loan.currency} /></td>
+                    <td><Money amountMinor={row.interest_minor} currency={loan.currency} /></td>
+                    <td><Money amountMinor={outstandingAfter} currency={loan.currency} /></td>
+                    <td>{row.admin_overridden ? <Chip tone="warn">Manual</Chip> : <Chip tone="neutral">Generated</Chip>}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr>
+                <th colSpan={2}>Totals</th>
+                <th>{selectedPaidCount} selected</th>
+                <th><Money amountMinor={totals.total} currency={loan.currency} /></th>
+                <th><Money amountMinor={totals.principal} currency={loan.currency} /></th>
+                <th><Money amountMinor={totals.interest} currency={loan.currency} /></th>
+                <th><Money amountMinor={Math.max(0, loan.original_principal_minor - totals.principal)} currency={loan.currency} /></th>
+                <th />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ManageLoanModal({
   loan,
   onChanged,
@@ -2608,9 +2846,34 @@ function ManageLoanModal({
   const [recBookingDate, setRecBookingDate] = useState(today);
   const [recValueDate, setRecValueDate] = useState(today);
   const [recPayerName, setRecPayerName] = useState(loan.title);
+  const [prePublicationPaidNumbers, setPrePublicationPaidNumbers] = useState<number[]>(
+    loan.pre_publication_paid_installments ?? []
+  );
+  const [scheduleInitializedFor, setScheduleInitializedFor] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | undefined>();
   const loanId = loan.id;
+  const scheduleQuery = useV1LoansAdminLoansScheduleList(loanId, {
+    query: { enabled: !isFixturePreview && action === "publish", staleTime: 0 }
+  });
+  const fixtureScheduleRows = useMemo(() => previewScheduleRows(loan), [loan]);
+  const scheduleRows = useMemo(
+    () => (isFixturePreview ? fixtureScheduleRows : scheduleQuery.data ?? []),
+    [fixtureScheduleRows, scheduleQuery.data]
+  );
+  const selectedPaidPrincipal = scheduleRows.reduce(
+    (sum, row) => sum + (prePublicationPaidNumbers.includes(row.installment_number) ? row.principal_minor : 0),
+    0
+  );
+  const scheduledPrincipal = scheduleRows.reduce((sum, row) => sum + row.principal_minor, 0);
+  const scheduleReconciles =
+    scheduleRows.length > 0 &&
+    scheduledPrincipal === loan.original_principal_minor &&
+    scheduledPrincipal - selectedPaidPrincipal === loan.principal_minor;
+  const scheduleBlocksPublish =
+    (!isFixturePreview && (scheduleQuery.isFetching || Boolean(scheduleQuery.error))) ||
+    scheduleRows.length === 0 ||
+    !scheduleReconciles;
   const succeed = (message: string) => {
     setSuccess(message);
     onChanged();
@@ -2637,6 +2900,27 @@ function ManageLoanModal({
   const recordRecovery = useV1ServicingAdminRecoveriesCreate({
     mutation: { onSuccess: () => succeed("The recovery payment was distributed to lenders.") }
   });
+
+  useEffect(() => {
+    if (action !== "publish" || scheduleRows.length === 0) return;
+    const scheduleKey = `${loan.id}:${loan.schedule_version}:${scheduleRows
+      .map((row) => `${row.installment_number}:${row.due_date}:${row.principal_minor}`)
+      .join("|")}`;
+    if (scheduleInitializedFor === scheduleKey) return;
+    const storedPaid = loan.pre_publication_paid_installments ?? [];
+    const defaultPaid = storedPaid.length
+      ? storedPaid
+      : scheduleRows.filter((row) => isPastBusinessDate(row.due_date)).map((row) => row.installment_number);
+    setPrePublicationPaidNumbers(defaultPaid);
+    setScheduleInitializedFor(scheduleKey);
+  }, [
+    action,
+    loan.id,
+    loan.pre_publication_paid_installments,
+    loan.schedule_version,
+    scheduleInitializedFor,
+    scheduleRows
+  ]);
 
   // Recovery conservation preview (mirrors the backend waterfall math):
   // net received = gross - external costs; fee base = net - third-party costs;
@@ -2668,12 +2952,28 @@ function ManageLoanModal({
     setAction(id);
   }
 
+  function togglePrePublicationPaidInstallment(installmentNumber: number) {
+    const pastNumbers = scheduleRows
+      .filter((row) => isPastBusinessDate(row.due_date))
+      .map((row) => row.installment_number)
+      .sort((a, b) => a - b);
+    setPrePublicationPaidNumbers((current) => {
+      if (current.includes(installmentNumber)) {
+        return pastNumbers.filter((number) => number < installmentNumber);
+      }
+      return pastNumbers.filter((number) => number <= installmentNumber);
+    });
+  }
+
   function publishLoan() {
     if (isFixturePreview) {
       setPreview(`Loan ${loanId} would be published.`);
       return;
     }
-    publish.mutate({ loanId, data: { note } });
+    publish.mutate({
+      loanId,
+      data: { note, pre_publication_paid_installment_numbers: prePublicationPaidNumbers }
+    });
   }
 
   function closeLoan() {
@@ -2767,8 +3067,11 @@ function ManageLoanModal({
           <span>Funding deadline {loan.funding_deadline ? formatDate(loan.funding_deadline) : "-"}</span>
           <span>
             Committed <Money amountMinor={loan.committed_principal_minor} currency={loan.currency} /> /{" "}
-            <Money amountMinor={loan.principal_minor} currency={loan.currency} />
+            financeable <Money amountMinor={loan.principal_minor} currency={loan.currency} />
           </span>
+          {loan.original_principal_minor !== loan.principal_minor ? (
+            <span>Original <Money amountMinor={loan.original_principal_minor} currency={loan.currency} /></span>
+          ) : null}
           <code>{loanId}</code>
         </div>
 
@@ -2805,8 +3108,18 @@ function ManageLoanModal({
 
             {action === "publish" ? (
               <>
+                <LoanScheduleReview
+                  error={scheduleQuery.error}
+                  loading={!isFixturePreview && scheduleQuery.isFetching && scheduleRows.length === 0}
+                  loan={loan}
+                  onTogglePaidInstallment={togglePrePublicationPaidInstallment}
+                  paidInstallmentNumbers={prePublicationPaidNumbers}
+                  rows={scheduleRows}
+                />
                 <TextAreaInput label="Publish note" onChange={setNote} value={note} />
-                <Button disabled={publish.isPending} onClick={publishLoan} variant="primary">Publish loan</Button>
+                <Button disabled={publish.isPending || scheduleBlocksPublish} onClick={publishLoan} variant="primary">
+                  Publish loan after schedule review
+                </Button>
               </>
             ) : null}
 

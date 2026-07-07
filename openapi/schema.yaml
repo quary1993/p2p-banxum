@@ -7852,6 +7852,8 @@ components:
           type: string
         purpose_description:
           type: string
+        original_principal_minor:
+          type: integer
         principal_minor:
           type: integer
         currency:
@@ -7864,12 +7866,19 @@ components:
           type: string
         interest_only_months:
           type: integer
+        loan_start_date:
+          type: string
+          format: date
         funding_deadline:
           type: string
           format: date
         first_payment_date:
           type: string
           format: date
+        pre_publication_paid_installments:
+          type: array
+          items:
+            type: integer
         collateral_type:
           type: string
         collateral_value_minor:
@@ -7938,8 +7947,11 @@ components:
       - interest_rate_bps
       - investor_summary
       - lender_payment_fee_minor
+      - loan_start_date
       - ltv_bps
       - ltv_warnings
+      - original_principal_minor
+      - pre_publication_paid_installments
       - principal_minor
       - published_at
       - purpose
@@ -7971,6 +7983,8 @@ components:
           $ref: '#/components/schemas/PurposeEnum'
         purpose_description:
           type: string
+        original_principal_minor:
+          type: integer
         principal_minor:
           type: integer
         currency:
@@ -7987,6 +8001,9 @@ components:
         interest_only_months:
           type: integer
           default: 0
+        loan_start_date:
+          type: string
+          format: date
         funding_deadline:
           type: string
           format: date
@@ -8096,6 +8113,9 @@ components:
           type: integer
         admin_overridden:
           type: boolean
+        pre_publication_paid:
+          type: boolean
+          readOnly: true
         metadata: {}
         created_at:
           type: string
@@ -8112,6 +8132,7 @@ components:
       - interest_minor
       - loan_id
       - metadata
+      - pre_publication_paid
       - principal_minor
       - schedule_version
       - total_minor
@@ -8664,8 +8685,13 @@ components:
           type: array
           items:
             type: string
+        original_principal_minor:
+          type: integer
         repayment_type:
           type: string
+        loan_start_date:
+          type: string
+          format: date
         first_payment_date:
           type: string
           format: date
@@ -8684,8 +8710,10 @@ components:
       - interest_rate_bps
       - investor_summary
       - loan_id
+      - loan_start_date
       - ltv_bps
       - ltv_warnings
+      - original_principal_minor
       - principal_minor
       - purpose
       - purpose_description
@@ -8947,6 +8975,8 @@ components:
           $ref: '#/components/schemas/PurposeEnum'
         purpose_description:
           type: string
+        original_principal_minor:
+          type: integer
         principal_minor:
           type: integer
         interest_rate_bps:
@@ -8957,6 +8987,9 @@ components:
           $ref: '#/components/schemas/RepaymentTypeEnum'
         interest_only_months:
           type: integer
+        loan_start_date:
+          type: string
+          format: date
         funding_deadline:
           type: string
           format: date
@@ -9167,9 +9200,14 @@ components:
           type: string
         currency:
           type: string
+        original_principal_minor:
+          type: integer
         principal_minor:
           type: integer
         funding_deadline:
+          type: string
+          format: date
+        loan_start_date:
           type: string
           format: date
         first_payment_date:
@@ -9191,9 +9229,11 @@ components:
       - funding_deadline
       - interest_rate_bps
       - loan_id
+      - loan_start_date
       - loan_status
       - loan_title
       - ltv_bps
+      - original_principal_minor
       - principal_minor
       - purpose
       - repayment_type
@@ -9663,6 +9703,11 @@ components:
     PublishLoanRequest:
       type: object
       properties:
+        pre_publication_paid_installment_numbers:
+          type: array
+          items:
+            type: integer
+            minimum: 1
         note:
           type: string
     PurposeEnum:

@@ -113,6 +113,7 @@ class Loan(TimestampedModel):
     investor_summary = models.TextField()
     purpose = models.CharField(max_length=64, choices=LoanPurpose.choices)
     purpose_description = models.TextField(blank=True)
+    original_principal_minor = models.BigIntegerField()
     principal_minor = models.BigIntegerField()
     currency = models.ForeignKey(
         "platform_core.Currency",
@@ -123,8 +124,10 @@ class Loan(TimestampedModel):
     term_months = models.PositiveSmallIntegerField()
     repayment_type = models.CharField(max_length=64, choices=RepaymentType.choices)
     interest_only_months = models.PositiveSmallIntegerField(default=0)
+    loan_start_date = models.DateField()
     funding_deadline = models.DateField()
     first_payment_date = models.DateField()
+    pre_publication_paid_installments = models.JSONField(default=list, blank=True)
     collateral_type = models.CharField(
         max_length=64,
         choices=CollateralType.choices,
@@ -155,6 +158,10 @@ class Loan(TimestampedModel):
                     & models.Q(committed_principal_minor__lte=models.F("principal_minor"))
                 ),
                 name="loan_committed_principal_within_principal",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(original_principal_minor__gte=models.F("principal_minor")),
+                name="loan_original_principal_not_below_financeable",
             ),
         ]
         indexes = [

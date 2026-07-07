@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Any, cast
 
 import pytest
@@ -241,6 +241,84 @@ def test_default_funding_deadline_is_publishable(admin_user: Model) -> None:
     published = publish_loan(PublishLoanCommand(actor=admin_user, loan_id=str(loan.id)))
 
     assert published.status == LoanStatus.PUBLISHED
+
+
+def _ongoing_manual_schedule_rows(today: date) -> list[ManualScheduleRowCommand]:
+    return [
+        ManualScheduleRowCommand(
+            due_date=today - timedelta(days=60),
+            principal_minor=400_00,
+            interest_minor=30_00,
+        ),
+        ManualScheduleRowCommand(
+            due_date=today + timedelta(days=30),
+            principal_minor=500_00,
+            interest_minor=20_00,
+        ),
+        ManualScheduleRowCommand(
+            due_date=today + timedelta(days=60),
+            principal_minor=600_00,
+            interest_minor=10_00,
+        ),
+    ]
+
+
+@pytest.mark.django_db
+def test_publish_ongoing_loan_defaults_past_installments_paid(admin_user: Model) -> None:
+    borrower = _borrower(admin_user)
+    today = timezone.localdate()
+    loan = create_loan(
+        replace(
+            _loan_command(admin_user, borrower),
+            original_principal_minor=1500_00,
+            principal_minor=1100_00,
+            term_months=3,
+            loan_start_date=today - timedelta(days=95),
+            funding_deadline=today + timedelta(days=20),
+            first_payment_date=today - timedelta(days=60),
+            manual_schedule_rows=_ongoing_manual_schedule_rows(today),
+        )
+    )
+
+    published = publish_loan(PublishLoanCommand(actor=admin_user, loan_id=str(loan.id)))
+
+    assert published.status == LoanStatus.PUBLISHED
+    assert published.original_principal_minor == 1500_00
+    assert published.principal_minor == 1100_00
+    assert published.total_scheduled_principal_minor == 1500_00
+    assert published.pre_publication_paid_installments == [1]
+
+
+@pytest.mark.django_db
+def test_publish_ongoing_loan_rejects_financeable_principal_mismatch(
+    admin_user: Model,
+) -> None:
+    borrower = _borrower(admin_user)
+    today = timezone.localdate()
+    loan = create_loan(
+        replace(
+            _loan_command(admin_user, borrower),
+            original_principal_minor=1500_00,
+            principal_minor=1100_00,
+            term_months=3,
+            loan_start_date=today - timedelta(days=95),
+            funding_deadline=today + timedelta(days=20),
+            first_payment_date=today - timedelta(days=60),
+            manual_schedule_rows=_ongoing_manual_schedule_rows(today),
+        )
+    )
+
+    with pytest.raises(LoanValidationError, match="Financeable principal"):
+        publish_loan(
+            PublishLoanCommand(
+                actor=admin_user,
+                loan_id=str(loan.id),
+                pre_publication_paid_installment_numbers=[],
+            )
+        )
+
+    loan.refresh_from_db()
+    assert loan.status == LoanStatus.DRAFT
 
 
 @pytest.mark.django_db

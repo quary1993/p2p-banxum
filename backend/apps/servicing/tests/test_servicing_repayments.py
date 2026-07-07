@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from importlib import import_module
 from typing import Any, cast
 
@@ -112,11 +112,13 @@ def _funded_loan_with_holdings(
             title="Servicing Loan",
             investor_summary="Servicing test loan.",
             purpose="working_capital",
+            original_principal_minor=30_000_00,
             principal_minor=30_000_00,
             currency=currency,
             interest_rate_bps=1_000,
             term_months=2,
             repayment_type="equal_installments",
+            loan_start_date=date(2026, 1, 31),
             funding_deadline=date(2026, 1, 31),
             first_payment_date=date(2026, 2, 28),
             collateral_type="real_estate",
@@ -203,11 +205,13 @@ def _funded_amortizing_loan_with_holdings(
             title="Servicing Amortizing Loan",
             investor_summary="Servicing amortizing test loan.",
             purpose="working_capital",
+            original_principal_minor=30_000_00,
             principal_minor=30_000_00,
             currency=currency,
             interest_rate_bps=1_000,
             term_months=4,
             repayment_type="amortizing_principal_interest",
+            loan_start_date=date(2026, 1, 31),
             funding_deadline=date(2026, 1, 31),
             first_payment_date=date(2026, 2, 28),
             collateral_type="real_estate",
@@ -846,6 +850,78 @@ def test_servicing_status_snapshot_reports_days_past_due_without_mutating_loan(
         event_type="LoanServicingStatusChanged",
         aggregate_id=str(loan.pk),
     ).exists()
+
+
+@pytest.mark.django_db
+def test_pre_publication_paid_installments_are_skipped_by_servicing(
+    admin_user: Model,
+) -> None:
+    currency = Currency.objects.get(code="CHF")
+    borrower_model = apps.get_model("entities", "BorrowerEntity")
+    borrower = borrower_model.objects.create(
+        legal_name="Ongoing Servicing Borrower AG",
+        year_founded=2018,
+        kyb_status="approved",
+        compliance_hold=False,
+        country="Switzerland",
+        created_by_admin_id=admin_user.pk,
+    )
+    today = timezone.localdate()
+    loan_model = apps.get_model("loans", "Loan")
+    loan = cast(
+        Model,
+        loan_model.objects.create(
+            borrower=borrower,
+            status="funded",
+            title="Ongoing imported loan",
+            investor_summary="A loan imported after its first installment was paid.",
+            purpose="working_capital",
+            original_principal_minor=1500_00,
+            principal_minor=1100_00,
+            currency=currency,
+            interest_rate_bps=1_000,
+            term_months=2,
+            repayment_type="equal_installments",
+            loan_start_date=today - timedelta(days=70),
+            funding_deadline=today - timedelta(days=10),
+            first_payment_date=today - timedelta(days=40),
+            pre_publication_paid_installments=[1],
+            collateral_type="real_estate",
+            collateral_value_minor=3_000_00,
+            risk_rating="BBB",
+            borrower_success_fee_bps=200,
+            committed_principal_minor=1100_00,
+            total_scheduled_principal_minor=1500_00,
+            total_scheduled_interest_minor=50_00,
+            created_by_admin_id=admin_user.pk,
+        ),
+    )
+    installment_model = apps.get_model("loans", "LoanInstallment")
+    installment_model.objects.create(
+        loan=loan,
+        schedule_version=1,
+        installment_number=1,
+        due_date=today - timedelta(days=40),
+        principal_minor=400_00,
+        interest_minor=30_00,
+        total_minor=430_00,
+    )
+    future_due_date = today + timedelta(days=20)
+    installment_model.objects.create(
+        loan=loan,
+        schedule_version=1,
+        installment_number=2,
+        due_date=future_due_date,
+        principal_minor=1100_00,
+        interest_minor=20_00,
+        total_minor=1120_00,
+    )
+
+    snapshot = get_loan_servicing_status_snapshot(loan=loan, as_of_date=today)
+
+    assert snapshot.status == "funded"
+    assert snapshot.triggering_due_date == future_due_date
+    assert snapshot.outstanding_minor == 1120_00
 
 
 @pytest.mark.django_db
