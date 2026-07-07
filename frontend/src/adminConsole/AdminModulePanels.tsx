@@ -2690,7 +2690,7 @@ function LoanScheduleReview({
           <h4>Repayment schedule review</h4>
           <p className="muted">
             Review the contractual schedule before publishing. Past installments can be marked as already paid for
-            ongoing loans; future schedule override tooling should be added here with audit reasons and validation.
+            ongoing loans.
           </p>
         </div>
         <div className="admin-schedule-summary">
@@ -2700,27 +2700,35 @@ function LoanScheduleReview({
         </div>
       </div>
 
-      <div className="admin-schedule-totals">
-        <StatLike label="Original contractual principal" value={<Money amountMinor={loan.original_principal_minor} currency={loan.currency} />} />
-        <StatLike label="Financeable principal" value={<Money amountMinor={loan.principal_minor} currency={loan.currency} />} />
-        <StatLike label="Scheduled principal" value={<Money amountMinor={totals.principal} currency={loan.currency} />} />
-        <StatLike label="Scheduled interest" value={<Money amountMinor={totals.interest} currency={loan.currency} />} />
-        <StatLike label="Total borrower payments" value={<Money amountMinor={totals.total} currency={loan.currency} />} />
-      </div>
-
-      <div className="admin-schedule-reconcile">
-        <div>
+      <div className="admin-schedule-metrics">
+        <div className="admin-schedule-metric">
+          <span>Original principal</span>
+          <strong><Money amountMinor={loan.original_principal_minor} currency={loan.currency} /></strong>
+        </div>
+        <div className="admin-schedule-metric">
+          <span>Scheduled principal</span>
+          <strong><Money amountMinor={totals.principal} currency={loan.currency} /></strong>
+        </div>
+        <div className="admin-schedule-metric">
+          <span>Scheduled interest</span>
+          <strong><Money amountMinor={totals.interest} currency={loan.currency} /></strong>
+        </div>
+        <div className="admin-schedule-metric">
+          <span>Total payments</span>
+          <strong><Money amountMinor={totals.total} currency={loan.currency} /></strong>
+        </div>
+        <div className="admin-schedule-metric emphasis">
           <span>Paid before publication</span>
           <strong><Money amountMinor={totals.paidPrincipal} currency={loan.currency} /></strong>
           <small>
             {selectedPaidCount} instalment{selectedPaidCount === 1 ? "" : "s"} selected
-            {totals.paidInterest > 0 ? `, ${formatMoneyMinor(totals.paidInterest, loan.currency)} interest already paid` : ""}
+            {totals.paidInterest > 0 ? `, ${formatMoneyMinor(totals.paidInterest, loan.currency)} interest` : ""}
           </small>
         </div>
-        <div>
-          <span>Remaining financeable principal</span>
+        <div className="admin-schedule-metric emphasis">
+          <span>Remaining financeable</span>
           <strong><Money amountMinor={remainingFinanceablePrincipal} currency={loan.currency} /></strong>
-          <small>Must equal the loan's financeable principal before publication.</small>
+          <small>Must equal financeable <Money amountMinor={loan.principal_minor} currency={loan.currency} /></small>
         </div>
       </div>
 
@@ -2751,13 +2759,13 @@ function LoanScheduleReview({
           <table className="admin-table admin-schedule-table">
             <thead>
               <tr>
-                <th>Instalment #</th>
+                <th>#</th>
                 <th>Due date</th>
                 <th>Paid before publication</th>
-                <th>Instalment amount</th>
-                <th>Principal repaid</th>
-                <th>Interest paid</th>
-                <th>Outstanding after</th>
+                <th className="num">Instalment</th>
+                <th className="num">Principal</th>
+                <th className="num">Interest</th>
+                <th className="num">Outstanding after</th>
                 <th>Source</th>
               </tr>
             </thead>
@@ -2782,10 +2790,10 @@ function LoanScheduleReview({
                         <span>{canMarkPaid ? "Paid" : "Future"}</span>
                       </label>
                     </td>
-                    <td><Money amountMinor={row.total_minor} currency={loan.currency} /></td>
-                    <td><Money amountMinor={row.principal_minor} currency={loan.currency} /></td>
-                    <td><Money amountMinor={row.interest_minor} currency={loan.currency} /></td>
-                    <td><Money amountMinor={outstandingAfter} currency={loan.currency} /></td>
+                    <td className="num"><Money amountMinor={row.total_minor} currency={loan.currency} /></td>
+                    <td className="num"><Money amountMinor={row.principal_minor} currency={loan.currency} /></td>
+                    <td className="num"><Money amountMinor={row.interest_minor} currency={loan.currency} /></td>
+                    <td className="num"><Money amountMinor={outstandingAfter} currency={loan.currency} /></td>
                     <td>{row.admin_overridden ? <Chip tone="warn">Manual</Chip> : <Chip tone="neutral">Generated</Chip>}</td>
                   </tr>
                 );
@@ -2795,10 +2803,10 @@ function LoanScheduleReview({
               <tr>
                 <th colSpan={2}>Totals</th>
                 <th>{selectedPaidCount} selected</th>
-                <th><Money amountMinor={totals.total} currency={loan.currency} /></th>
-                <th><Money amountMinor={totals.principal} currency={loan.currency} /></th>
-                <th><Money amountMinor={totals.interest} currency={loan.currency} /></th>
-                <th><Money amountMinor={Math.max(0, loan.original_principal_minor - totals.principal)} currency={loan.currency} /></th>
+                <th className="num"><Money amountMinor={totals.total} currency={loan.currency} /></th>
+                <th className="num"><Money amountMinor={totals.principal} currency={loan.currency} /></th>
+                <th className="num"><Money amountMinor={totals.interest} currency={loan.currency} /></th>
+                <th className="num"><Money amountMinor={Math.max(0, loan.original_principal_minor - totals.principal)} currency={loan.currency} /></th>
                 <th />
               </tr>
             </tfoot>
@@ -3060,7 +3068,7 @@ function ManageLoanModal({
   }
 
   return (
-    <Modal title={`Manage loan - ${loan.title}`} wide onClose={onClose}>
+    <Modal title={`Manage loan - ${loan.title}`} wide xwide={action === "publish"} onClose={onClose}>
       <div className="admin-action-form">
         <div className="admin-context-bar">
           <Chip tone={statusTone(loan.status)}>{labelize(loan.status)}</Chip>

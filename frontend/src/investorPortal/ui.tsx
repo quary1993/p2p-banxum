@@ -396,6 +396,7 @@ export function Modal({
   children,
   footer,
   wide = false,
+  xwide = false,
   drawer = false
 }: {
   title: string;
@@ -403,6 +404,7 @@ export function Modal({
   children: ReactNode;
   footer?: ReactNode;
   wide?: boolean;
+  xwide?: boolean;
   drawer?: boolean;
 }) {
   useEffect(() => {
@@ -419,7 +421,7 @@ export function Modal({
 
   return (
     <div className="scrim" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div aria-label={title} aria-modal="true" className={`modal ${wide ? "wide" : ""} ${drawer ? "drawer" : ""}`} role="dialog">
+      <div aria-label={title} aria-modal="true" className={`modal ${wide ? "wide" : ""} ${xwide ? "xwide" : ""} ${drawer ? "drawer" : ""}`} role="dialog">
         <div className="modal-head">
           <h3>{title}</h3>
           <button aria-label="Close" className="x-btn" onClick={onClose} type="button">
