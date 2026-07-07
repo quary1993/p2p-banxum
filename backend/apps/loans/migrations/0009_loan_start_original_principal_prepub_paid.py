@@ -15,6 +15,8 @@ def backfill_loan_schedule_fields(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
+    atomic = False
+
     dependencies = [
         ("loans", "0008_alter_loanevent_event_type"),
     ]
