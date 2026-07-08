@@ -1500,6 +1500,7 @@ def test_borrower_disbursement_finalization_clears_payable(admin_user: Model) ->
             loan_id=str(loan_id),
             borrower_id=str(borrower_id),
             amount_minor=98_000_00,
+            fee_minor=2_000_00,
             currency="CHF",
             booking_date=date(2026, 1, 2),
             value_date=date(2026, 1, 2),
@@ -1524,8 +1525,10 @@ def test_borrower_disbursement_finalization_clears_payable(admin_user: Model) ->
     )
 
     assert pending_snapshot.reconciliation_difference_minor == 0
-    assert pending_snapshot.metadata["borrower_disbursement_payable_minor"] == 98_000_00
-    assert pending_snapshot.garanta_accrued_revenue_minor == 2_000_00
+    # The fee is no longer accrued at funding close: the full funded principal
+    # sits in the borrower payable until disbursement.
+    assert pending_snapshot.metadata["borrower_disbursement_payable_minor"] == 100_000_00
+    assert pending_snapshot.garanta_accrued_revenue_minor == 0
     assert result.bank_operation.operation_type == "borrower_loan_disbursement"
     assert result.bank_operation.linked_object_type == "loan"
     assert result.bank_operation.linked_object_id == str(loan_id)
@@ -1533,13 +1536,17 @@ def test_borrower_disbursement_finalization_clears_payable(admin_user: Model) ->
     assert result.journal_entry.direction == "out"
     assert str(result.journal_entry.borrower_id) == str(borrower_id)
     assert str(result.journal_entry.loan_id) == str(loan_id)
-    assert [(posting.side, posting.amount_minor) for posting in postings] == [
+    assert sorted(
+        (posting.side, posting.amount_minor) for posting in postings
+    ) == [
+        ("credit", 2_000_00),
         ("credit", 98_000_00),
-        ("debit", 98_000_00),
+        ("debit", 100_000_00),
     ]
     assert {posting.account.account_type for posting in postings} == {
         LedgerAccountType.BORROWER_DISBURSEMENT_PAYABLE,
         LedgerAccountType.COLLECTION_CASH,
+        LedgerAccountType.GARANTA_ACCRUED_REVENUE,
     }
     assert final_snapshot.reconciliation_difference_minor == 0
     assert final_snapshot.metadata["borrower_disbursement_payable_minor"] == 0
@@ -1561,6 +1568,7 @@ def test_borrower_disbursement_finalization_is_idempotent_and_rejects_mismatch(
         loan_id=str(loan_id),
         borrower_id=str(borrower_id),
         amount_minor=98_000_00,
+        fee_minor=2_000_00,
         currency="CHF",
         booking_date=date(2026, 1, 2),
         value_date=date(2026, 1, 2),
@@ -1583,12 +1591,14 @@ def test_borrower_disbursement_finalization_is_idempotent_and_rejects_mismatch(
                 loan_id=str(loan_id),
                 borrower_id=str(borrower_id),
                 amount_minor=97_999_00,
+                fee_minor=2_000_00,
                 currency="CHF",
                 booking_date=date(2026, 1, 2),
                 value_date=date(2026, 1, 2),
                 collection_account_identifier="CH00GARANTALEDGER",
                 payee_name="Borrower AG",
                 payee_account_identifier="CH22BORROWER",
+                override_note="Withheld CHF 10 for bank charges.",
                 idempotency_key="borrower-disbursement-2",
             )
         )
@@ -1606,6 +1616,7 @@ def test_borrower_disbursement_finalization_is_idempotent_and_rejects_mismatch(
                 loan_id=str(loan_id),
                 borrower_id=str(borrower_id),
                 amount_minor=98_000_00,
+                fee_minor=2_000_00,
                 currency="CHF",
                 booking_date=date(2026, 1, 2),
                 value_date=date(2026, 1, 2),
@@ -1620,28 +1631,135 @@ def test_borrower_disbursement_finalization_is_idempotent_and_rejects_mismatch(
     ).count() == 1
 
 
+def _disbursement_command(
+    admin_user: Model,
+    loan_id: Any,
+    borrower_id: Any,
+    *,
+    amount_minor: int,
+    fee_minor: int,
+    override_note: str = "",
+    idempotency_key: str,
+) -> FinalizeBorrowerDisbursementCommand:
+    return FinalizeBorrowerDisbursementCommand(
+        actor=admin_user,
+        loan_id=str(loan_id),
+        borrower_id=str(borrower_id),
+        amount_minor=amount_minor,
+        fee_minor=fee_minor,
+        currency="CHF",
+        booking_date=date(2026, 1, 2),
+        value_date=date(2026, 1, 2),
+        collection_account_identifier="CH00GARANTALEDGER",
+        payee_name="Borrower AG",
+        payee_account_identifier="CH22BORROWER",
+        override_note=override_note,
+        idempotency_key=idempotency_key,
+    )
+
+
 @pytest.mark.django_db
-def test_borrower_disbursement_rejects_amount_that_differs_from_payable(
+def test_borrower_disbursement_amount_and_fee_validations(
     admin_user: Model,
 ) -> None:
     loan_id, borrower_id = _closed_primary_loan_funding(admin_user)
 
-    with pytest.raises(LedgerValidationError, match="outstanding payable"):
+    # Transfer plus fee cannot exceed the funded amount.
+    with pytest.raises(LedgerValidationError, match="cannot exceed the funded amount"):
         finalize_borrower_disbursement(
-            FinalizeBorrowerDisbursementCommand(
-                actor=admin_user,
-                loan_id=str(loan_id),
-                borrower_id=str(borrower_id),
-                amount_minor=97_999_00,
-                currency="CHF",
-                booking_date=date(2026, 1, 2),
-                value_date=date(2026, 1, 2),
-                collection_account_identifier="CH00GARANTALEDGER",
-                payee_name="Borrower AG",
-                payee_account_identifier="CH22BORROWER",
-                idempotency_key="borrower-disbursement-wrong-amount",
+            _disbursement_command(
+                admin_user,
+                loan_id,
+                borrower_id,
+                amount_minor=99_000_00,
+                fee_minor=2_000_00,
+                override_note="Attempted overpayment.",
+                idempotency_key="borrower-disbursement-over-funded",
             )
         )
+
+    # The fee must stay within 0-10% of the funded amount.
+    with pytest.raises(LedgerValidationError, match="between 0 and 10%"):
+        finalize_borrower_disbursement(
+            _disbursement_command(
+                admin_user,
+                loan_id,
+                borrower_id,
+                amount_minor=89_000_00,
+                fee_minor=10_000_01,
+                override_note="Fee too high.",
+                idempotency_key="borrower-disbursement-fee-too-high",
+            )
+        )
+
+    # Overriding the default amounts requires an explanation note.
+    with pytest.raises(LedgerValidationError, match="explanation note is required"):
+        finalize_borrower_disbursement(
+            _disbursement_command(
+                admin_user,
+                loan_id,
+                borrower_id,
+                amount_minor=97_000_00,
+                fee_minor=2_000_00,
+                idempotency_key="borrower-disbursement-override-no-note",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_borrower_disbursement_override_with_note_must_clear_payable(
+    admin_user: Model,
+) -> None:
+    loan_id, borrower_id = _closed_primary_loan_funding(admin_user)
+
+    with pytest.raises(LedgerValidationError, match="must clear the outstanding payable"):
+        finalize_borrower_disbursement(
+            _disbursement_command(
+                admin_user,
+                loan_id,
+                borrower_id,
+                amount_minor=97_000_00,
+                fee_minor=2_500_00,
+                override_note="Negotiated higher structuring fee with borrower.",
+                idempotency_key="borrower-disbursement-under-clear",
+            )
+        )
+
+    result = finalize_borrower_disbursement(
+        _disbursement_command(
+            admin_user,
+            loan_id,
+            borrower_id,
+            amount_minor=97_500_00,
+            fee_minor=2_500_00,
+            override_note="Negotiated higher structuring fee with borrower.",
+            idempotency_key="borrower-disbursement-override",
+        )
+    )
+    postings = list(result.journal_entry.postings.select_related("account"))
+
+    assert sorted(
+        (posting.side, posting.amount_minor) for posting in postings
+    ) == [
+        ("credit", 2_500_00),
+        ("credit", 97_500_00),
+        ("debit", 100_000_00),
+    ]
+    assert result.journal_entry.metadata["amounts_overridden"] is True
+    assert result.journal_entry.metadata["override_note"] == (
+        "Negotiated higher structuring fee with borrower."
+    )
+    assert result.journal_entry.tax_metadata["garanta_revenue_minor"] == 2_500_00
+    snapshot = create_reconciliation_snapshot(
+        CreateReconciliationSnapshotCommand(
+            actor=admin_user,
+            currency="CHF",
+            as_of_date=date(2026, 1, 2),
+            bank_stated_balance_minor=2_500_00,
+        )
+    )
+    assert snapshot.metadata["borrower_disbursement_payable_minor"] == 0
+    assert snapshot.garanta_accrued_revenue_minor == 2_500_00
 
 
 @pytest.mark.django_db
@@ -1669,6 +1787,7 @@ def test_borrower_disbursement_rejects_borrower_that_does_not_match_loan(
                 loan_id=str(loan_id),
                 borrower_id=str(other_borrower.pk),
                 amount_minor=98_000_00,
+                fee_minor=2_000_00,
                 currency="CHF",
                 booking_date=date(2026, 1, 2),
                 value_date=date(2026, 1, 2),
@@ -1695,6 +1814,7 @@ def test_borrower_disbursement_requires_funded_loan_status(
                 loan_id=str(loan_id),
                 borrower_id=str(borrower_id),
                 amount_minor=98_000_00,
+                fee_minor=2_000_00,
                 currency="CHF",
                 booking_date=date(2026, 1, 2),
                 value_date=date(2026, 1, 2),
@@ -1721,6 +1841,7 @@ def test_borrower_disbursement_requires_borrower_can_still_transact(
                 loan_id=str(loan_id),
                 borrower_id=str(borrower_id),
                 amount_minor=98_000_00,
+                fee_minor=2_000_00,
                 currency="CHF",
                 booking_date=date(2026, 1, 2),
                 value_date=date(2026, 1, 2),
@@ -1949,6 +2070,7 @@ def test_borrower_disbursement_finalization_api(
             "loan_id": str(loan_id),
             "borrower_id": str(borrower_id),
             "amount_minor": 98_000_00,
+            "fee_minor": 2_000_00,
             "currency": "CHF",
             "booking_date": "2026-01-02",
             "value_date": "2026-01-02",

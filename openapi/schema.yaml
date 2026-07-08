@@ -2710,6 +2710,29 @@ paths:
                 items:
                   $ref: '#/components/schemas/LoanEvent'
           description: ''
+  /api/v1/loans/admin/loans/{loan_id}/original-schedule/:
+    get:
+      operationId: v1_loans_admin_loans_original_schedule_list
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OriginalLoanScheduleRow'
+          description: ''
   /api/v1/loans/admin/loans/{loan_id}/publish/:
     post:
       operationId: v1_loans_admin_loans_publish_create
@@ -3379,6 +3402,32 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BorrowerRepaymentRecordResponse'
+          description: ''
+  /api/v1/servicing/admin/borrower-repayments/advance-preview/:
+    post:
+      operationId: v1_servicing_admin_borrower_repayments_advance_preview_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BorrowerRepaymentAdvancePreviewRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BorrowerRepaymentAdvancePreviewRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BorrowerRepaymentAdvancePreviewRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BorrowerRepaymentAdvancePreviewResponse'
           description: ''
   /api/v1/servicing/admin/recoveries/:
     post:
@@ -4502,6 +4551,26 @@ components:
       - disclaimer
       - documents
       - user
+    AdvanceRepaymentScheduleRow:
+      type: object
+      properties:
+        installment_number:
+          type: integer
+        due_date:
+          type: string
+          format: date
+        principal_minor:
+          type: integer
+        interest_minor:
+          type: integer
+        total_minor:
+          type: integer
+      required:
+      - due_date
+      - installment_number
+      - interest_minor
+      - principal_minor
+      - total_minor
     AmountByCurrency:
       type: object
       properties:
@@ -4906,6 +4975,9 @@ components:
         amount_minor:
           type: integer
           minimum: 1
+        fee_minor:
+          type: integer
+          minimum: 0
         currency:
           type: string
           maxLength: 3
@@ -4924,6 +4996,8 @@ components:
         payee_account_identifier:
           type: string
           maxLength: 128
+        override_note:
+          type: string
         bank_reference:
           type: string
           maxLength: 160
@@ -4944,6 +5018,7 @@ components:
       - borrower_id
       - collection_account_identifier
       - currency
+      - fee_minor
       - idempotency_key
       - loan_id
       - payee_account_identifier
@@ -5340,6 +5415,71 @@ components:
         * `manual_review` - Manual review
         * `expired` - Expired
         * `reverification_required` - Re-verification required
+    BorrowerRepaymentAdvancePreviewRequest:
+      type: object
+      properties:
+        loan_id:
+          type: string
+          format: uuid
+        amount_minor:
+          type: integer
+          minimum: 1
+        borrower_repayment_bank_date:
+          type: string
+          format: date
+      required:
+      - amount_minor
+      - borrower_repayment_bank_date
+      - loan_id
+    BorrowerRepaymentAdvancePreviewResponse:
+      type: object
+      properties:
+        loan_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+        amount_minor:
+          type: integer
+        bank_date:
+          type: string
+          format: date
+        scheduled_interest_due_minor:
+          type: integer
+        accrued_interest_minor:
+          type: integer
+        interest_applied_minor:
+          type: integer
+        principal_applied_minor:
+          type: integer
+        outstanding_principal_before_minor:
+          type: integer
+        outstanding_principal_after_minor:
+          type: integer
+        anchor_installment_number:
+          type: integer
+        old_schedule_rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdvanceRepaymentScheduleRow'
+        new_schedule_rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdvanceRepaymentScheduleRow'
+      required:
+      - accrued_interest_minor
+      - amount_minor
+      - anchor_installment_number
+      - bank_date
+      - currency
+      - interest_applied_minor
+      - loan_id
+      - new_schedule_rows
+      - old_schedule_rows
+      - outstanding_principal_after_minor
+      - outstanding_principal_before_minor
+      - principal_applied_minor
+      - scheduled_interest_due_minor
     BorrowerRepaymentEvent:
       type: object
       properties:
@@ -5467,9 +5607,13 @@ components:
           maxLength: 255
         admin_notes:
           type: string
-        warning_acknowledged:
+        repayment_in_advance:
           type: boolean
           default: false
+        borrower_repayment_bank_date:
+          type: string
+          format: date
+          nullable: true
         idempotency_key:
           type: string
           maxLength: 160
@@ -7852,8 +7996,27 @@ components:
           type: string
         purpose_description:
           type: string
+        is_refinancing:
+          type: boolean
         original_principal_minor:
           type: integer
+        original_interest_rate_bps:
+          type: integer
+          nullable: true
+        original_term_months:
+          type: integer
+          nullable: true
+        original_repayment_type:
+          type: string
+          nullable: true
+          readOnly: true
+        original_interest_only_months:
+          type: integer
+          nullable: true
+        original_loan_start_date:
+          type: string
+          format: date
+          nullable: true
         principal_minor:
           type: integer
         currency:
@@ -7946,11 +8109,17 @@ components:
       - interest_only_months
       - interest_rate_bps
       - investor_summary
+      - is_refinancing
       - lender_payment_fee_minor
       - loan_start_date
       - ltv_bps
       - ltv_warnings
+      - original_interest_only_months
+      - original_interest_rate_bps
+      - original_loan_start_date
       - original_principal_minor
+      - original_repayment_type
+      - original_term_months
       - pre_publication_paid_installments
       - principal_minor
       - published_at
@@ -7983,8 +8152,22 @@ components:
           $ref: '#/components/schemas/PurposeEnum'
         purpose_description:
           type: string
+        is_refinancing:
+          type: boolean
+          default: false
         original_principal_minor:
           type: integer
+        original_interest_rate_bps:
+          type: integer
+        original_term_months:
+          type: integer
+        original_repayment_type:
+          $ref: '#/components/schemas/OriginalRepaymentTypeEnum'
+        original_interest_only_months:
+          type: integer
+        original_loan_start_date:
+          type: string
+          format: date
         principal_minor:
           type: integer
         currency:
@@ -8005,9 +8188,6 @@ components:
           type: string
           format: date
         funding_deadline:
-          type: string
-          format: date
-        first_payment_date:
           type: string
           format: date
         collateral_type:
@@ -8111,11 +8291,20 @@ components:
           type: integer
         total_minor:
           type: integer
+        paid_principal_minor:
+          type: integer
+        paid_interest_minor:
+          type: integer
+        outstanding_principal_minor:
+          type: integer
+        outstanding_interest_minor:
+          type: integer
+        outstanding_total_minor:
+          type: integer
+        is_paid:
+          type: boolean
         admin_overridden:
           type: boolean
-        pre_publication_paid:
-          type: boolean
-          readOnly: true
         metadata: {}
         created_at:
           type: string
@@ -8132,7 +8321,6 @@ components:
       - interest_minor
       - loan_id
       - metadata
-      - pre_publication_paid
       - principal_minor
       - schedule_version
       - total_minor
@@ -8664,6 +8852,8 @@ components:
           type: integer
         remaining_capacity_minor:
           type: integer
+        is_refinancing:
+          type: boolean
         borrower_id:
           type: string
           format: uuid
@@ -8687,6 +8877,26 @@ components:
             type: string
         original_principal_minor:
           type: integer
+        original_interest_rate_bps:
+          type: integer
+          nullable: true
+        original_term_months:
+          type: integer
+          nullable: true
+        original_repayment_type:
+          type: string
+          nullable: true
+        original_interest_only_months:
+          type: integer
+          nullable: true
+        original_loan_start_date:
+          type: string
+          format: date
+          nullable: true
+        original_loan_schedule:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketplaceOriginalLoanScheduleRow'
         repayment_type:
           type: string
         loan_start_date:
@@ -8709,11 +8919,17 @@ components:
       - funding_deadline
       - interest_rate_bps
       - investor_summary
+      - is_refinancing
       - loan_id
       - loan_start_date
       - ltv_bps
       - ltv_warnings
+      - original_interest_only_months
+      - original_interest_rate_bps
+      - original_loan_start_date
       - original_principal_minor
+      - original_repayment_type
+      - original_term_months
       - principal_minor
       - purpose
       - purpose_description
@@ -8755,12 +8971,15 @@ components:
           type: integer
         remaining_capacity_minor:
           type: integer
+        is_refinancing:
+          type: boolean
       required:
       - collateral_type
       - committed_principal_minor
       - currency
       - funding_deadline
       - interest_rate_bps
+      - is_refinancing
       - loan_id
       - principal_minor
       - purpose
@@ -8769,6 +8988,32 @@ components:
       - status
       - term_months
       - title
+    MarketplaceOriginalLoanScheduleRow:
+      type: object
+      properties:
+        installment_number:
+          type: integer
+        due_date:
+          type: string
+          format: date
+        principal_minor:
+          type: integer
+        interest_minor:
+          type: integer
+        total_minor:
+          type: integer
+        outstanding_after_minor:
+          type: integer
+        paid_before_publication:
+          type: boolean
+      required:
+      - due_date
+      - installment_number
+      - interest_minor
+      - outstanding_after_minor
+      - paid_before_publication
+      - principal_minor
+      - total_minor
     NaturalPersonRegistrationRequest:
       type: object
       properties:
@@ -8842,6 +9087,46 @@ components:
         * `default_update` - Default update
         * `recovery_update` - Recovery update
         * `document_note` - Document note
+    OriginalLoanScheduleRow:
+      type: object
+      properties:
+        installment_number:
+          type: integer
+        due_date:
+          type: string
+          format: date
+        principal_minor:
+          type: integer
+        interest_minor:
+          type: integer
+        total_minor:
+          type: integer
+        outstanding_after_minor:
+          type: integer
+        paid_before_publication:
+          type: boolean
+      required:
+      - due_date
+      - installment_number
+      - interest_minor
+      - outstanding_after_minor
+      - paid_before_publication
+      - principal_minor
+      - total_minor
+    OriginalRepaymentTypeEnum:
+      enum:
+      - equal_installments
+      - bullet_periodic_interest
+      - amortizing_principal_interest
+      - interest_only_then_bullet
+      - interest_only_then_amortizing
+      type: string
+      description: |-
+        * `equal_installments` - Equal installments
+        * `bullet_periodic_interest` - Bullet principal with periodic interest
+        * `amortizing_principal_interest` - Amortizing principal and interest
+        * `interest_only_then_bullet` - Interest-only then bullet
+        * `interest_only_then_amortizing` - Interest-only then amortizing
     PatchedAdminTaskUpdateRequest:
       type: object
       properties:
@@ -8975,8 +9260,21 @@ components:
           $ref: '#/components/schemas/PurposeEnum'
         purpose_description:
           type: string
+        is_refinancing:
+          type: boolean
         original_principal_minor:
           type: integer
+        original_interest_rate_bps:
+          type: integer
+        original_term_months:
+          type: integer
+        original_repayment_type:
+          $ref: '#/components/schemas/OriginalRepaymentTypeEnum'
+        original_interest_only_months:
+          type: integer
+        original_loan_start_date:
+          type: string
+          format: date
         principal_minor:
           type: integer
         interest_rate_bps:
@@ -8991,9 +9289,6 @@ components:
           type: string
           format: date
         funding_deadline:
-          type: string
-          format: date
-        first_payment_date:
           type: string
           format: date
         collateral_type:
@@ -9200,8 +9495,16 @@ components:
           type: string
         currency:
           type: string
+        is_refinancing:
+          type: boolean
         original_principal_minor:
           type: integer
+        original_repayment_type:
+          type: string
+          nullable: true
+        original_interest_only_months:
+          type: integer
+          nullable: true
         principal_minor:
           type: integer
         funding_deadline:
@@ -9228,12 +9531,15 @@ components:
       - first_payment_date
       - funding_deadline
       - interest_rate_bps
+      - is_refinancing
       - loan_id
       - loan_start_date
       - loan_status
       - loan_title
       - ltv_bps
+      - original_interest_only_months
       - original_principal_minor
+      - original_repayment_type
       - principal_minor
       - purpose
       - repayment_type

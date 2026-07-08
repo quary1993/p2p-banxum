@@ -37,6 +37,7 @@ import {
   useV1LedgerAdminWithdrawalRequestsCancelCreate,
   useV1LedgerAdminWithdrawalRequestsFinalizeCreate,
   useV1LoansAdminLoansCreate,
+  useV1LoansAdminLoansOriginalScheduleList,
   useV1LoansAdminLoansPartialUpdate,
   useV1LoansAdminLoansPublishCreate,
   useV1LoansAdminLoansScheduleList,
@@ -52,6 +53,7 @@ import {
   useV1QaDevModeRetrieve,
   useV1QaDevModeRevertCreate,
   useV1ReportingAdminReportsCreate,
+  useV1ServicingAdminBorrowerRepaymentsAdvancePreviewCreate,
   useV1ServicingAdminBorrowerRepaymentsCreate,
   useV1ServicingAdminRecoveriesCreate,
   useV1ServicingAdminRiskNotesCreate,
@@ -59,6 +61,7 @@ import {
   type AccountAccessChangeRequest,
   type AccountAccessChangeRequestReasonCodeEnum as AccountAccessReasonCode,
   type AdminLookupResult,
+  type AdvanceRepaymentScheduleRow,
   type AdminUserDocument,
   type AdminUserDocumentArtifactResponse,
   type AdminSecondaryMarketListingRow,
@@ -70,6 +73,7 @@ import {
   type BorrowerEntityCreateRequest,
   type BorrowerEntityTypeEnum as BorrowerEntityType,
   type BorrowerKybStatusEnum as BorrowerKybStatus,
+  type BorrowerRepaymentAdvancePreviewResponse,
   type BorrowerRepaymentRecordRequest,
   type CategoryEnum as DocumentCategory,
   type CollateralTypeEnum as LoanCollateralType,
@@ -90,6 +94,7 @@ import {
   type LoanRiskNoteCreateRequest,
   type LoanServicingStatusScanRequest,
   type NewStatusEnum as AccountNewStatus,
+  type OriginalLoanScheduleRow,
   type PatchedBorrowerEntityUpdateRequest,
   type PatchedLoanUpdateRequest,
   type PeriodPresetEnum as ReportPeriodPreset,
@@ -283,7 +288,8 @@ function MoneyMinorInput({
   currency,
   required = false,
   hint,
-  placeholder
+  placeholder,
+  readOnly = false
 }: {
   label: string;
   value: string;
@@ -292,6 +298,7 @@ function MoneyMinorInput({
   required?: boolean;
   hint?: string;
   placeholder?: string;
+  readOnly?: boolean;
 }) {
   const helper = [minorUnitPreview(value, currency), hint].filter(Boolean).join(" ");
   return (
@@ -300,6 +307,7 @@ function MoneyMinorInput({
         inputMode="numeric"
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
+        readOnly={readOnly}
         required={required}
         value={value}
       />
@@ -327,9 +335,10 @@ function splitMinorAmount(totalMinor: number, parts: number, index: number) {
 
 function previewScheduleRows(loan: Loan): LoanInstallment[] {
   const term = Math.max(1, loan.term_months || 1);
+  // The loan's own schedule is generated from the financeable principal.
   const firstDueDate =
     loan.first_payment_date || addMonthsToDateString(loan.loan_start_date || loan.funding_deadline || today, 1);
-  const schedulePrincipalMinor = loan.original_principal_minor || loan.principal_minor;
+  const schedulePrincipalMinor = loan.principal_minor;
   const totalInterestMinor =
     loan.total_scheduled_interest_minor ||
     Math.round((schedulePrincipalMinor * loan.interest_rate_bps * term) / 120000);
@@ -345,13 +354,148 @@ function previewScheduleRows(loan: Loan): LoanInstallment[] {
       principal_minor: principalMinor,
       interest_minor: interestMinor,
       total_minor: principalMinor + interestMinor,
+      paid_principal_minor: 0,
+      paid_interest_minor: 0,
+      outstanding_principal_minor: principalMinor,
+      outstanding_interest_minor: interestMinor,
+      outstanding_total_minor: principalMinor + interestMinor,
+      is_paid: false,
       admin_overridden: false,
-      pre_publication_paid: loan.pre_publication_paid_installments.includes(index + 1),
       metadata: { preview: true },
       created_at: loan.created_at,
       updated_at: loan.updated_at
     };
   });
+}
+
+type ScheduleRowLike = {
+  installment_number: number;
+  due_date: string;
+  principal_minor: number;
+  interest_minor: number;
+  total_minor: number;
+  outstanding_after_minor: number;
+};
+
+function annuityScheduleRows(
+  principalMinor: number,
+  interestRateBps: number,
+  termMonths: number,
+  startDate: string,
+  startNumber = 1,
+  firstDueMonthOffset = 1
+): ScheduleRowLike[] {
+  const term = Math.max(1, Math.trunc(termMonths) || 1);
+  const principal = Math.max(0, Math.trunc(principalMinor) || 0);
+  const monthlyRate = interestRateBps / 120000;
+  const paymentMinor =
+    monthlyRate > 0
+      ? Math.round((principal * monthlyRate) / (1 - Math.pow(1 + monthlyRate, -term)))
+      : Math.round(principal / term);
+  let outstanding = principal;
+  return Array.from({ length: term }, (_, index) => {
+    const interestMinor = Math.round(outstanding * monthlyRate);
+    const isLast = index === term - 1;
+    const principalPortion = isLast ? outstanding : Math.max(0, Math.min(outstanding, paymentMinor - interestMinor));
+    outstanding -= principalPortion;
+    return {
+      installment_number: startNumber + index,
+      due_date: addMonthsToDateString(startDate, firstDueMonthOffset + index),
+      principal_minor: principalPortion,
+      interest_minor: interestMinor,
+      total_minor: principalPortion + interestMinor,
+      outstanding_after_minor: outstanding
+    };
+  });
+}
+
+function originalPreviewScheduleRows(
+  principalMinor: number,
+  interestRateBps: number,
+  termMonths: number,
+  startDate: string,
+  repaymentType: string,
+  interestOnlyMonths: number
+): ScheduleRowLike[] {
+  const term = Math.max(1, Math.trunc(termMonths) || 1);
+  const principal = Math.max(0, Math.trunc(principalMinor) || 0);
+  const monthlyRate = interestRateBps / 120000;
+  const monthlyInterest = Math.round(principal * monthlyRate);
+
+  if (
+    repaymentType === RepaymentTypeEnum.bullet_periodic_interest ||
+    repaymentType === RepaymentTypeEnum.interest_only_then_bullet
+  ) {
+    let outstanding = principal;
+    return Array.from({ length: term }, (_, index) => {
+      const principalPortion = index === term - 1 ? outstanding : 0;
+      outstanding -= principalPortion;
+      return {
+        installment_number: index + 1,
+        due_date: addMonthsToDateString(startDate, index + 1),
+        principal_minor: principalPortion,
+        interest_minor: monthlyInterest,
+        total_minor: principalPortion + monthlyInterest,
+        outstanding_after_minor: outstanding
+      };
+    });
+  }
+
+  if (repaymentType === RepaymentTypeEnum.amortizing_principal_interest) {
+    let outstanding = principal;
+    return Array.from({ length: term }, (_, index) => {
+      const principalPortion = splitMinorAmount(principal, term, index);
+      const interestMinor = Math.round(outstanding * monthlyRate);
+      outstanding -= principalPortion;
+      return {
+        installment_number: index + 1,
+        due_date: addMonthsToDateString(startDate, index + 1),
+        principal_minor: principalPortion,
+        interest_minor: interestMinor,
+        total_minor: principalPortion + interestMinor,
+        outstanding_after_minor: Math.max(0, outstanding)
+      };
+    });
+  }
+
+  if (repaymentType === RepaymentTypeEnum.interest_only_then_amortizing) {
+    const ioMonths = Math.trunc(interestOnlyMonths) || 0;
+    if (ioMonths <= 0 || ioMonths >= term) return [];
+    const interestOnlyRows = Array.from({ length: ioMonths }, (_, index) => ({
+      installment_number: index + 1,
+      due_date: addMonthsToDateString(startDate, index + 1),
+      principal_minor: 0,
+      interest_minor: monthlyInterest,
+      total_minor: monthlyInterest,
+      outstanding_after_minor: principal
+    }));
+    return [
+      ...interestOnlyRows,
+      ...annuityScheduleRows(
+        principal,
+        interestRateBps,
+        term - ioMonths,
+        startDate,
+        ioMonths + 1,
+        ioMonths + 1
+      )
+    ];
+  }
+
+  return annuityScheduleRows(principal, interestRateBps, term, startDate);
+}
+
+function previewOriginalScheduleRows(loan: Loan): OriginalLoanScheduleRow[] {
+  if (!loan.is_refinancing || !loan.original_loan_start_date) return [];
+  const paidNumbers = new Set(loan.pre_publication_paid_installments ?? []);
+  return originalPreviewScheduleRows(
+    loan.original_principal_minor,
+    loan.original_interest_rate_bps ?? 0,
+    loan.original_term_months ?? 1,
+    loan.original_loan_start_date,
+    loan.original_repayment_type ?? loan.repayment_type,
+    loan.original_interest_only_months ?? 0
+  ).map((row) => ({ ...row, paid_before_publication: paidNumbers.has(row.installment_number) }));
 }
 
 function isPastBusinessDate(value: string) {
@@ -1692,6 +1836,8 @@ function BorrowerDisbursementForm() {
   const [borrowerId, setBorrowerId] = useState(adminFormDefaults.borrowerId);
   const [borrowerQuery, setBorrowerQuery] = useState(adminFormDefaults.borrowerName);
   const [amountMinor, setAmountMinor] = useState(isFixturePreview ? "98000000" : "");
+  const [feeMinor, setFeeMinor] = useState(isFixturePreview ? "2000000" : "");
+  const [overrideNote, setOverrideNote] = useState("");
   const [currency, setCurrency] = useState("CHF");
   const [bookingDate, setBookingDate] = useState(today);
   const [valueDate, setValueDate] = useState(today);
@@ -1726,12 +1872,14 @@ function BorrowerDisbursementForm() {
       loan_id: loanId,
       borrower_id: borrowerId,
       amount_minor: intValue(amountMinor),
+      fee_minor: intValue(feeMinor),
       currency,
       booking_date: bookingDate,
       value_date: valueDate,
       collection_account_identifier: defaultCollectionAccount,
       payee_name: payeeName,
       payee_account_identifier: payeeAccount,
+      override_note: overrideNote.trim() || undefined,
       idempotency_key: idempotencyKey("borrower-disbursement")
     };
     if (isFixturePreview) {
@@ -1769,12 +1917,19 @@ function BorrowerDisbursementForm() {
             />
           )}
           <MoneyMinorInput currency={currency} label="Amount minor units" onChange={setAmountMinor} required value={amountMinor} />
+          <MoneyMinorInput currency={currency} label="BANXUM fee minor units" onChange={setFeeMinor} required value={feeMinor} />
           <TextInput label="Currency" onChange={setCurrency} required value={currency} />
           <TextInput label="Booking date" onChange={setBookingDate} required type="date" value={bookingDate} />
           <TextInput label="Value date" onChange={setValueDate} required type="date" value={valueDate} />
           <TextInput label="Payee name" onChange={setPayeeName} required value={payeeName} />
           <TextInput label="Payee account" onChange={setPayeeAccount} required value={payeeAccount} />
         </FieldGrid>
+        <TextAreaInput
+          hint="Contract defaults: fee = principal x success-fee bps, amount = principal - fee. A note is required when amounts differ from those defaults. Prefer Loans -> Manage -> Borrower disbursement for pre-filled defaults."
+          label="Override note"
+          onChange={setOverrideNote}
+          value={overrideNote}
+        />
         <ActionFooter mutation={mutation} previewMessage={preview} successMessage={success} submitLabel="Finalize disbursement" />
       </form>
     </Card>
@@ -2096,7 +2251,6 @@ export function LoansPanel() {
       <section className="admin-stack">
         <SecondaryMarketApprovalsTable />
         <ServicingOpsForm
-          defaultLoanCurrency={selectedLoan?.currency ?? "CHF"}
           defaultLoanId={selectedLoan?.id ?? ""}
           defaultLoanTitle={selectedLoan?.title ?? ""}
         />
@@ -2383,13 +2537,186 @@ function BorrowerEditForm({ borrower, onSaved }: { borrower: BorrowerEntity; onS
   );
 }
 
+function OriginalScheduleInformationalViewer({
+  currency,
+  principalMinor,
+  interestRateBps,
+  termMonths,
+  startDate,
+  repaymentType,
+  interestOnlyMonths
+}: {
+  currency: string;
+  principalMinor: number;
+  interestRateBps: number;
+  termMonths: number;
+  startDate: string;
+  repaymentType: LoanRepaymentType;
+  interestOnlyMonths: number;
+}) {
+  const rows = useMemo(
+    () => originalPreviewScheduleRows(
+      principalMinor,
+      interestRateBps,
+      termMonths,
+      startDate,
+      repaymentType,
+      interestOnlyMonths
+    ),
+    [interestOnlyMonths, interestRateBps, principalMinor, repaymentType, startDate, termMonths]
+  );
+  if (!rows.length) return null;
+  return (
+    <div className="admin-schedule-review">
+      <div className="admin-subsection-header">
+        <div>
+          <h4>Original loan schedule (informational)</h4>
+          <p className="muted">
+            Client-side preview of the original loan contract. The backend computes the authoritative original
+            schedule from the original payment type; installments due before today are tagged.
+          </p>
+        </div>
+        <div className="admin-schedule-summary">
+          <Chip tone="neutral">{termMonths} instalments</Chip>
+          <Chip tone="neutral">{formatRateBps(interestRateBps)}</Chip>
+          <Chip tone="neutral">{labelize(repaymentType)}</Chip>
+          {interestOnlyMonths > 0 ? <Chip tone="neutral">{interestOnlyMonths} IO months</Chip> : null}
+        </div>
+      </div>
+      <div className="table-wrap admin-table-wrap">
+        <table className="admin-table admin-schedule-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Due date</th>
+              <th className="num">Principal</th>
+              <th className="num">Interest</th>
+              <th className="num">Instalment</th>
+              <th className="num">Outstanding after</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.installment_number}>
+                <td>
+                  {row.installment_number}
+                  {isPastBusinessDate(row.due_date) ? <> <Chip tone="warn">Due</Chip></> : null}
+                </td>
+                <td>{formatDate(row.due_date)}</td>
+                <td className="num"><Money amountMinor={row.principal_minor} currency={currency} /></td>
+                <td className="num"><Money amountMinor={row.interest_minor} currency={currency} /></td>
+                <td className="num"><Money amountMinor={row.total_minor} currency={currency} /></td>
+                <td className="num"><Money amountMinor={row.outstanding_after_minor} currency={currency} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function RefinancingFields({
+  currency,
+  isRefinancing,
+  onIsRefinancingChange,
+  originalPrincipal,
+  onOriginalPrincipalChange,
+  originalRateBps,
+  onOriginalRateBpsChange,
+  originalTermMonths,
+  onOriginalTermMonthsChange,
+  originalRepaymentType,
+  onOriginalRepaymentTypeChange,
+  originalInterestOnlyMonths,
+  onOriginalInterestOnlyMonthsChange,
+  originalStartDate,
+  onOriginalStartDateChange
+}: {
+  currency: string;
+  isRefinancing: boolean;
+  onIsRefinancingChange: (value: boolean) => void;
+  originalPrincipal: string;
+  onOriginalPrincipalChange: (value: string) => void;
+  originalRateBps: string;
+  onOriginalRateBpsChange: (value: string) => void;
+  originalTermMonths: string;
+  onOriginalTermMonthsChange: (value: string) => void;
+  originalRepaymentType: LoanRepaymentType;
+  onOriginalRepaymentTypeChange: (value: LoanRepaymentType) => void;
+  originalInterestOnlyMonths: string;
+  onOriginalInterestOnlyMonthsChange: (value: string) => void;
+  originalStartDate: string;
+  onOriginalStartDateChange: (value: string) => void;
+}) {
+  const originalInputsComplete =
+    isRefinancing &&
+    intValue(originalPrincipal) > 0 &&
+    intValue(originalTermMonths) > 0 &&
+    Boolean(originalStartDate);
+  return (
+    <>
+      <label className="check-row">
+        <input checked={isRefinancing} onChange={(event) => onIsRefinancingChange(event.target.checked)} type="checkbox" />
+        Refinancing loan (takes over an ongoing loan contract).
+      </label>
+      {isRefinancing ? (
+        <>
+          <FieldGrid>
+            <MoneyMinorInput
+              currency={currency}
+              label="Original contractual principal minor units"
+              onChange={onOriginalPrincipalChange}
+              required
+              value={originalPrincipal}
+            />
+            <TextInput label="Original interest bps" onChange={onOriginalRateBpsChange} required value={originalRateBps} />
+            <TextInput label="Original term months" onChange={onOriginalTermMonthsChange} required value={originalTermMonths} />
+            <SelectInput
+              label="Original repayment type"
+              onChange={onOriginalRepaymentTypeChange}
+              options={Object.values(RepaymentTypeEnum)}
+              value={originalRepaymentType}
+            />
+            <TextInput
+              hint="Use 0 except for interest-only then amortizing. Bullet interest-only months are inferred from term."
+              label="Original interest-only months"
+              onChange={onOriginalInterestOnlyMonthsChange}
+              required
+              value={originalInterestOnlyMonths}
+            />
+            <TextInput label="Original loan start date" onChange={onOriginalStartDateChange} required type="date" value={originalStartDate} />
+          </FieldGrid>
+          {originalInputsComplete ? (
+            <OriginalScheduleInformationalViewer
+              currency={currency}
+              interestRateBps={intValue(originalRateBps)}
+              principalMinor={intValue(originalPrincipal)}
+              repaymentType={originalRepaymentType}
+              startDate={originalStartDate}
+              interestOnlyMonths={intValue(originalInterestOnlyMonths)}
+              termMonths={intValue(originalTermMonths)}
+            />
+          ) : null}
+        </>
+      ) : null}
+    </>
+  );
+}
+
 function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: string; onCreated?: () => void }) {
   const [borrowerId, setBorrowerId] = useState(defaultBorrowerId);
   const [borrowerQuery, setBorrowerQuery] = useState(defaultBorrowerId);
   const [title, setTitle] = useState("New real-estate backed facility");
   const [summary, setSummary] = useState("Admin-entered investor summary for the loan.");
   const [principal, setPrincipal] = useState(isFixturePreview ? "100000000" : "");
+  const [isRefinancing, setIsRefinancing] = useState(false);
   const [originalPrincipal, setOriginalPrincipal] = useState("");
+  const [originalRateBps, setOriginalRateBps] = useState("");
+  const [originalTermMonths, setOriginalTermMonths] = useState("");
+  const [originalRepaymentType, setOriginalRepaymentType] = useState<LoanRepaymentType>(RepaymentTypeEnum.equal_installments);
+  const [originalInterestOnlyMonths, setOriginalInterestOnlyMonths] = useState("0");
+  const [originalStartDate, setOriginalStartDate] = useState("");
   const [currency, setCurrency] = useState("CHF");
   const [rateBps, setRateBps] = useState("950");
   const [termMonths, setTermMonths] = useState("12");
@@ -2400,7 +2727,6 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
   const [riskRating, setRiskRating] = useState<LoanRiskRating>(RiskRatingEnum.BBB);
   const [loanStartDate, setLoanStartDate] = useState("");
   const [fundingDeadline, setFundingDeadline] = useState("");
-  const [firstPaymentDate, setFirstPaymentDate] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | undefined>();
   const mutation = useV1LoansAdminLoansCreate({
@@ -2424,7 +2750,17 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
       title,
       investor_summary: summary,
       purpose,
-      original_principal_minor: originalPrincipal.trim() ? intValue(originalPrincipal) : undefined,
+      is_refinancing: isRefinancing,
+      ...(isRefinancing
+        ? {
+            original_principal_minor: intValue(originalPrincipal),
+            original_interest_rate_bps: intValue(originalRateBps),
+            original_term_months: intValue(originalTermMonths),
+            original_repayment_type: originalRepaymentType,
+            original_interest_only_months: intValue(originalInterestOnlyMonths),
+            original_loan_start_date: originalStartDate
+          }
+        : {}),
       principal_minor: intValue(principal),
       currency,
       interest_rate_bps: intValue(rateBps),
@@ -2432,7 +2768,6 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
       repayment_type: repaymentType,
       loan_start_date: loanStartDate || undefined,
       funding_deadline: fundingDeadline || undefined,
-      first_payment_date: firstPaymentDate || undefined,
       collateral_type: collateralType,
       collateral_value_minor: intValue(collateralValue),
       risk_rating: riskRating
@@ -2462,13 +2797,6 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
           />
           <TextInput label="Title" onChange={setTitle} required value={title} />
           <MoneyMinorInput currency={currency} label="Financeable principal minor units" onChange={setPrincipal} required value={principal} />
-          <MoneyMinorInput
-            currency={currency}
-            label="Original contractual principal minor units"
-            onChange={setOriginalPrincipal}
-            placeholder="Defaults to financeable principal"
-            value={originalPrincipal}
-          />
           <TextInput label="Currency" onChange={setCurrency} required value={currency} />
           <TextInput label="Interest bps" onChange={setRateBps} required value={rateBps} />
           <TextInput label="Term months" onChange={setTermMonths} required value={termMonths} />
@@ -2477,10 +2805,32 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
           <SelectInput label="Collateral type" onChange={setCollateralType} options={Object.values(CollateralTypeEnum)} value={collateralType} />
           <MoneyMinorInput currency={currency} label="Collateral value minor" onChange={setCollateralValue} required value={collateralValue} />
           <SelectInput label="Risk rating" onChange={setRiskRating} options={Object.values(RiskRatingEnum)} value={riskRating} />
-          <TextInput label="Loan start date" onChange={setLoanStartDate} type="date" value={loanStartDate} />
+          <TextInput
+            hint="First installment: one month after loan start date."
+            label="Loan start date"
+            onChange={setLoanStartDate}
+            type="date"
+            value={loanStartDate}
+          />
           <TextInput label="Funding deadline" onChange={setFundingDeadline} type="date" value={fundingDeadline} />
-          <TextInput label="First installment pay date" onChange={setFirstPaymentDate} type="date" value={firstPaymentDate} />
         </FieldGrid>
+        <RefinancingFields
+          currency={currency}
+          isRefinancing={isRefinancing}
+          onIsRefinancingChange={setIsRefinancing}
+          onOriginalPrincipalChange={setOriginalPrincipal}
+          onOriginalRateBpsChange={setOriginalRateBps}
+          onOriginalRepaymentTypeChange={setOriginalRepaymentType}
+          onOriginalInterestOnlyMonthsChange={setOriginalInterestOnlyMonths}
+          onOriginalStartDateChange={setOriginalStartDate}
+          onOriginalTermMonthsChange={setOriginalTermMonths}
+          originalInterestOnlyMonths={originalInterestOnlyMonths}
+          originalPrincipal={originalPrincipal}
+          originalRateBps={originalRateBps}
+          originalRepaymentType={originalRepaymentType}
+          originalStartDate={originalStartDate}
+          originalTermMonths={originalTermMonths}
+        />
         <TextAreaInput label="Investor summary" onChange={setSummary} required value={summary} />
         <ActionFooter mutation={mutation} previewMessage={preview} successMessage={success} submitLabel="Create loan draft" />
       </form>
@@ -2492,7 +2842,23 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
   const [title, setTitle] = useState(loan.title);
   const [summary, setSummary] = useState(loan.investor_summary);
   const [principal, setPrincipal] = useState(String(loan.principal_minor));
-  const [originalPrincipal, setOriginalPrincipal] = useState(String(loan.original_principal_minor));
+  const [isRefinancing, setIsRefinancing] = useState(loan.is_refinancing);
+  const [originalPrincipal, setOriginalPrincipal] = useState(
+    loan.is_refinancing ? String(loan.original_principal_minor) : ""
+  );
+  const [originalRateBps, setOriginalRateBps] = useState(
+    loan.original_interest_rate_bps === null ? "" : String(loan.original_interest_rate_bps)
+  );
+  const [originalTermMonths, setOriginalTermMonths] = useState(
+    loan.original_term_months === null ? "" : String(loan.original_term_months)
+  );
+  const [originalRepaymentType, setOriginalRepaymentType] = useState<LoanRepaymentType>(
+    (loan.original_repayment_type ?? RepaymentTypeEnum.equal_installments) as LoanRepaymentType
+  );
+  const [originalInterestOnlyMonths, setOriginalInterestOnlyMonths] = useState(
+    loan.original_interest_only_months === null ? "0" : String(loan.original_interest_only_months)
+  );
+  const [originalStartDate, setOriginalStartDate] = useState(loan.original_loan_start_date ?? "");
   const [rateBps, setRateBps] = useState(String(loan.interest_rate_bps));
   const [termMonths, setTermMonths] = useState(String(loan.term_months));
   const [purpose, setPurpose] = useState<LoanPurpose>(loan.purpose as LoanPurpose);
@@ -2502,7 +2868,6 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
   const [riskRating, setRiskRating] = useState<LoanRiskRating>(loan.risk_rating as LoanRiskRating);
   const [loanStartDate, setLoanStartDate] = useState(loan.loan_start_date);
   const [fundingDeadline, setFundingDeadline] = useState(loan.funding_deadline);
-  const [firstPaymentDate, setFirstPaymentDate] = useState(loan.first_payment_date);
   const [investorMessage, setInvestorMessage] = useState("");
   const [note, setNote] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
@@ -2522,14 +2887,23 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
       title,
       investor_summary: summary,
       purpose,
-      original_principal_minor: intValue(originalPrincipal),
+      is_refinancing: isRefinancing,
+      ...(isRefinancing
+        ? {
+            original_principal_minor: intValue(originalPrincipal),
+            original_interest_rate_bps: intValue(originalRateBps),
+            original_term_months: intValue(originalTermMonths),
+            original_repayment_type: originalRepaymentType,
+            original_interest_only_months: intValue(originalInterestOnlyMonths),
+            original_loan_start_date: originalStartDate
+          }
+        : {}),
       principal_minor: intValue(principal),
       interest_rate_bps: intValue(rateBps),
       term_months: intValue(termMonths),
       repayment_type: repaymentType,
       loan_start_date: loanStartDate,
       funding_deadline: fundingDeadline,
-      first_payment_date: firstPaymentDate,
       collateral_type: collateralType,
       collateral_value_minor: intValue(collateralValue),
       risk_rating: riskRating,
@@ -2560,13 +2934,6 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
         <FieldGrid>
           <TextInput label="Title" onChange={setTitle} required value={title} />
           <MoneyMinorInput currency={loan.currency} label="Financeable principal minor units" onChange={setPrincipal} required value={principal} />
-          <MoneyMinorInput
-            currency={loan.currency}
-            label="Original contractual principal minor units"
-            onChange={setOriginalPrincipal}
-            required
-            value={originalPrincipal}
-          />
           <TextInput label="Interest bps" onChange={setRateBps} required value={rateBps} />
           <TextInput label="Term months" onChange={setTermMonths} required value={termMonths} />
           <SelectInput label="Purpose" onChange={setPurpose} options={Object.values(PurposeEnum)} value={purpose} />
@@ -2574,10 +2941,32 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
           <SelectInput label="Collateral type" onChange={setCollateralType} options={Object.values(CollateralTypeEnum)} value={collateralType} />
           <MoneyMinorInput currency={loan.currency} label="Collateral value minor" onChange={setCollateralValue} required value={collateralValue} />
           <SelectInput label="Risk rating" onChange={setRiskRating} options={Object.values(RiskRatingEnum)} value={riskRating} />
-          <TextInput label="Loan start date" onChange={setLoanStartDate} type="date" value={loanStartDate} />
+          <TextInput
+            hint="First installment: one month after loan start date."
+            label="Loan start date"
+            onChange={setLoanStartDate}
+            type="date"
+            value={loanStartDate}
+          />
           <TextInput label="Funding deadline" onChange={setFundingDeadline} type="date" value={fundingDeadline} />
-          <TextInput label="First installment pay date" onChange={setFirstPaymentDate} type="date" value={firstPaymentDate} />
         </FieldGrid>
+        <RefinancingFields
+          currency={loan.currency}
+          isRefinancing={isRefinancing}
+          onIsRefinancingChange={setIsRefinancing}
+          onOriginalPrincipalChange={setOriginalPrincipal}
+          onOriginalRateBpsChange={setOriginalRateBps}
+          onOriginalRepaymentTypeChange={setOriginalRepaymentType}
+          onOriginalInterestOnlyMonthsChange={setOriginalInterestOnlyMonths}
+          onOriginalStartDateChange={setOriginalStartDate}
+          onOriginalTermMonthsChange={setOriginalTermMonths}
+          originalInterestOnlyMonths={originalInterestOnlyMonths}
+          originalPrincipal={originalPrincipal}
+          originalRateBps={originalRateBps}
+          originalRepaymentType={originalRepaymentType}
+          originalStartDate={originalStartDate}
+          originalTermMonths={originalTermMonths}
+        />
         <TextAreaInput label="Investor summary" onChange={setSummary} required value={summary} />
         <TextAreaInput
           hint="Required when lowering principal after committed investments exist."
@@ -2592,7 +2981,7 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
   );
 }
 
-type ManageLoanActionId = "publish" | "close" | "cancel" | "expiry" | "release" | "recovery";
+type ManageLoanActionId = "publish" | "close" | "cancel" | "expiry" | "release" | "disburse" | "servicing" | "recovery";
 
 const MANAGE_LOAN_ACTIONS: Array<{
   id: ManageLoanActionId;
@@ -2639,6 +3028,20 @@ const MANAGE_LOAN_ACTIONS: Array<{
     danger: true
   },
   {
+    id: "disburse",
+    title: "Borrower disbursement",
+    description:
+      "Record the external payout of the funded principal, less the BANXUM success fee, to the borrower.",
+    statuses: ["funded"]
+  },
+  {
+    id: "servicing",
+    title: "Record borrower repayment",
+    description:
+      "Declare a matched incoming borrower payment against the next due installment, or record a repayment in advance with a schedule preview.",
+    statuses: ["funded", "late"]
+  },
+  {
     id: "recovery",
     title: "Record a recovery payment",
     description:
@@ -2648,22 +3051,144 @@ const MANAGE_LOAN_ACTIONS: Array<{
   }
 ];
 
-function LoanScheduleReview({
-  paidInstallmentNumbers,
+function LoanScheduleReadonlyReview({
   loan,
-  onTogglePaidInstallment,
   rows,
   loading,
   error
 }: {
-  paidInstallmentNumbers: number[];
   loan: Loan;
-  onTogglePaidInstallment: (installmentNumber: number) => void;
   rows: LoanInstallment[];
   loading: boolean;
   error: unknown;
 }) {
   let cumulativePrincipal = 0;
+  const totals = rows.reduce(
+    (acc, row) => {
+      acc.principal += row.principal_minor;
+      acc.interest += row.interest_minor;
+      acc.total += row.total_minor;
+      return acc;
+    },
+    { principal: 0, interest: 0, total: 0 }
+  );
+  const scheduleMatchesFinanceable = totals.principal === loan.principal_minor;
+
+  return (
+    <div className="admin-schedule-review">
+      <div className="admin-subsection-header">
+        <div>
+          <h4>Repayment schedule review</h4>
+          <p className="muted">
+            Review the server-generated repayment schedule before publishing. The schedule is derived from the
+            financeable principal.
+          </p>
+        </div>
+        <div className="admin-schedule-summary">
+          <Chip tone="neutral">Version {loan.schedule_version}</Chip>
+          <Chip tone="neutral">{labelize(loan.repayment_type)}</Chip>
+          <Chip tone="neutral">{loan.term_months} instalments</Chip>
+        </div>
+      </div>
+
+      <div className="admin-schedule-metrics">
+        <div className="admin-schedule-metric emphasis">
+          <span>Financeable principal</span>
+          <strong><Money amountMinor={loan.principal_minor} currency={loan.currency} /></strong>
+        </div>
+        <div className="admin-schedule-metric">
+          <span>Scheduled principal</span>
+          <strong><Money amountMinor={totals.principal} currency={loan.currency} /></strong>
+        </div>
+        <div className="admin-schedule-metric">
+          <span>Scheduled interest</span>
+          <strong><Money amountMinor={totals.interest} currency={loan.currency} /></strong>
+        </div>
+        <div className="admin-schedule-metric">
+          <span>Total payments</span>
+          <strong><Money amountMinor={totals.total} currency={loan.currency} /></strong>
+        </div>
+      </div>
+
+      {loading ? <Banner tone="info" title="Loading schedule">Fetching the current server-generated schedule.</Banner> : null}
+      {error ? <Banner tone="bad" title="Schedule unavailable">{errorMessage(error)}</Banner> : null}
+      {!loading && !error && rows.length === 0 ? (
+        <Banner tone="bad" title="No schedule rows">The loan has no current schedule rows. Publishing is blocked until a schedule exists.</Banner>
+      ) : null}
+      {!loading && !error && rows.length > 0 && !scheduleMatchesFinanceable ? (
+        <Banner tone="bad" title="Schedule principal mismatch">
+          The scheduled principal must equal the financeable principal before publishing.
+        </Banner>
+      ) : null}
+      {!loading && !error && rows.length > 0 && scheduleMatchesFinanceable ? (
+        <Banner tone="ok" title="Schedule reconciles">
+          The scheduled principal equals the financeable principal.
+        </Banner>
+      ) : null}
+
+      {rows.length ? (
+        <div className="table-wrap admin-table-wrap">
+          <table className="admin-table admin-schedule-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Due date</th>
+                <th className="num">Instalment</th>
+                <th className="num">Principal</th>
+                <th className="num">Interest</th>
+                <th className="num">Outstanding after</th>
+                <th>Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => {
+                cumulativePrincipal += row.principal_minor;
+                const outstandingAfter = Math.max(0, totals.principal - cumulativePrincipal);
+                return (
+                  <tr key={row.id}>
+                    <td>{row.installment_number}</td>
+                    <td>{formatDate(row.due_date)}</td>
+                    <td className="num"><Money amountMinor={row.total_minor} currency={loan.currency} /></td>
+                    <td className="num"><Money amountMinor={row.principal_minor} currency={loan.currency} /></td>
+                    <td className="num"><Money amountMinor={row.interest_minor} currency={loan.currency} /></td>
+                    <td className="num"><Money amountMinor={outstandingAfter} currency={loan.currency} /></td>
+                    <td>{row.admin_overridden ? <Chip tone="warn">Manual</Chip> : <Chip tone="neutral">Generated</Chip>}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr>
+                <th colSpan={2}>Totals</th>
+                <th className="num"><Money amountMinor={totals.total} currency={loan.currency} /></th>
+                <th className="num"><Money amountMinor={totals.principal} currency={loan.currency} /></th>
+                <th className="num"><Money amountMinor={totals.interest} currency={loan.currency} /></th>
+                <th />
+                <th />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function OriginalScheduleReview({
+  loan,
+  rows,
+  loading,
+  error,
+  paidInstallmentNumbers,
+  onTogglePaidInstallment
+}: {
+  loan: Loan;
+  rows: OriginalLoanScheduleRow[];
+  loading: boolean;
+  error: unknown;
+  paidInstallmentNumbers: number[];
+  onTogglePaidInstallment: (installmentNumber: number) => void;
+}) {
   const paidSet = new Set(paidInstallmentNumbers);
   const totals = rows.reduce(
     (acc, row) => {
@@ -2678,25 +3203,27 @@ function LoanScheduleReview({
     },
     { principal: 0, interest: 0, total: 0, paidPrincipal: 0, paidInterest: 0 }
   );
-  const remainingFinanceablePrincipal = totals.principal - totals.paidPrincipal;
-  const scheduleMatchesOriginal = totals.principal === loan.original_principal_minor;
-  const financeableMatchesSelectedPaid = remainingFinanceablePrincipal === loan.principal_minor;
+  const remainingOutstanding = loan.original_principal_minor - totals.paidPrincipal;
+  const overFinanced = loan.principal_minor > remainingOutstanding;
+  const underFinanced = loan.principal_minor < remainingOutstanding;
   const selectedPaidCount = paidInstallmentNumbers.length;
 
   return (
     <div className="admin-schedule-review">
       <div className="admin-subsection-header">
         <div>
-          <h4>Repayment schedule review</h4>
+          <h4>Original loan schedule review</h4>
           <p className="muted">
-            Review the contractual schedule before publishing. Past installments can be marked as already paid for
-            ongoing loans.
+            This refinancing loan takes over an ongoing contract. Mark the original installments the borrower has
+            already paid to the original lender; they reduce the remaining outstanding that BANXUM finances.
           </p>
         </div>
         <div className="admin-schedule-summary">
-          <Chip tone="neutral">Version {loan.schedule_version}</Chip>
-          <Chip tone="neutral">{labelize(loan.repayment_type)}</Chip>
-          <Chip tone="neutral">{loan.term_months} instalments</Chip>
+          <Chip tone="neutral">{rows.length || loan.original_term_months || 0} instalments</Chip>
+          <Chip tone="neutral">{formatRateBps(loan.original_interest_rate_bps ?? 0)}</Chip>
+          {loan.original_repayment_type ? <Chip tone="neutral">{labelize(loan.original_repayment_type)}</Chip> : null}
+          {loan.original_interest_only_months ? <Chip tone="neutral">{loan.original_interest_only_months} IO months</Chip> : null}
+          {loan.original_loan_start_date ? <Chip tone="neutral">Started {formatDate(loan.original_loan_start_date)}</Chip> : null}
         </div>
       </div>
 
@@ -2706,18 +3233,6 @@ function LoanScheduleReview({
           <strong><Money amountMinor={loan.original_principal_minor} currency={loan.currency} /></strong>
         </div>
         <div className="admin-schedule-metric">
-          <span>Scheduled principal</span>
-          <strong><Money amountMinor={totals.principal} currency={loan.currency} /></strong>
-        </div>
-        <div className="admin-schedule-metric">
-          <span>Scheduled interest</span>
-          <strong><Money amountMinor={totals.interest} currency={loan.currency} /></strong>
-        </div>
-        <div className="admin-schedule-metric">
-          <span>Total payments</span>
-          <strong><Money amountMinor={totals.total} currency={loan.currency} /></strong>
-        </div>
-        <div className="admin-schedule-metric emphasis">
           <span>Paid before publication</span>
           <strong><Money amountMinor={totals.paidPrincipal} currency={loan.currency} /></strong>
           <small>
@@ -2726,31 +3241,38 @@ function LoanScheduleReview({
           </small>
         </div>
         <div className="admin-schedule-metric emphasis">
-          <span>Remaining financeable</span>
-          <strong><Money amountMinor={remainingFinanceablePrincipal} currency={loan.currency} /></strong>
-          <small>Must equal financeable <Money amountMinor={loan.principal_minor} currency={loan.currency} /></small>
+          <span>Remaining outstanding</span>
+          <strong><Money amountMinor={remainingOutstanding} currency={loan.currency} /></strong>
+        </div>
+        <div className="admin-schedule-metric emphasis">
+          <span>Financeable principal</span>
+          <strong><Money amountMinor={loan.principal_minor} currency={loan.currency} /></strong>
         </div>
       </div>
 
-      {loading ? <Banner tone="info" title="Loading schedule">Fetching the current server-generated schedule.</Banner> : null}
-      {error ? <Banner tone="bad" title="Schedule unavailable">{errorMessage(error)}</Banner> : null}
+      {loading ? <Banner tone="info" title="Loading original schedule">Fetching the computed original loan schedule.</Banner> : null}
+      {error ? <Banner tone="bad" title="Original schedule unavailable">{errorMessage(error)}</Banner> : null}
       {!loading && !error && rows.length === 0 ? (
-        <Banner tone="bad" title="No schedule rows">The loan has no current schedule rows. Publishing is blocked until a schedule exists.</Banner>
-      ) : null}
-      {!loading && !error && rows.length > 0 && !scheduleMatchesOriginal ? (
-        <Banner tone="bad" title="Schedule principal mismatch">
-          The schedule principal must equal the original contractual principal before publishing.
+        <Banner tone="bad" title="No original schedule rows">
+          The original loan schedule could not be computed. Check the original principal, interest, term and start
+          date on the loan before publishing.
         </Banner>
       ) : null}
-      {!loading && !error && rows.length > 0 && scheduleMatchesOriginal && !financeableMatchesSelectedPaid ? (
-        <Banner tone="bad" title="Financeable principal mismatch">
-          The original scheduled principal less paid-before-publication principal must equal the financeable principal.
-          Adjust the paid installment selections or edit the loan amount before publishing.
+      {!loading && !error && rows.length > 0 && overFinanced ? (
+        <Banner tone="bad" title="Financeable principal exceeds remaining outstanding">
+          The financeable principal is larger than the remaining outstanding of the original schedule. Reduce the
+          financeable amount or adjust the paid installment selections before publishing.
         </Banner>
       ) : null}
-      {!loading && !error && rows.length > 0 && scheduleMatchesOriginal && financeableMatchesSelectedPaid ? (
+      {!loading && !error && rows.length > 0 && underFinanced ? (
+        <Banner tone="info" title="Financing less than the remaining outstanding">
+          The financeable principal is below the remaining outstanding of the original schedule. This is allowed;
+          the difference stays with the original lender and is not financed on BANXUM.
+        </Banner>
+      ) : null}
+      {!loading && !error && rows.length > 0 && !overFinanced && !underFinanced ? (
         <Banner tone="ok" title="Schedule reconciles">
-          The selected paid-before-publication installments reconcile the original schedule to the financeable amount.
+          The financeable principal equals the remaining outstanding of the original schedule.
         </Banner>
       ) : null}
 
@@ -2761,27 +3283,24 @@ function LoanScheduleReview({
               <tr>
                 <th>#</th>
                 <th>Due date</th>
-                <th>Paid before publication</th>
+                <th>Paid</th>
                 <th className="num">Instalment</th>
                 <th className="num">Principal</th>
                 <th className="num">Interest</th>
                 <th className="num">Outstanding after</th>
-                <th>Source</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => {
-                cumulativePrincipal += row.principal_minor;
-                const outstandingAfter = Math.max(0, loan.original_principal_minor - cumulativePrincipal);
                 const canMarkPaid = isPastBusinessDate(row.due_date);
                 return (
-                  <tr key={row.id}>
+                  <tr key={row.installment_number}>
                     <td>{row.installment_number}</td>
                     <td>{formatDate(row.due_date)}</td>
                     <td>
                       <label className="admin-checkbox-line compact">
                         <input
-                          aria-label={`Mark installment ${row.installment_number} paid before publication`}
+                          aria-label={`Mark original installment ${row.installment_number} paid before publication`}
                           checked={paidSet.has(row.installment_number)}
                           disabled={!canMarkPaid}
                           onChange={() => onTogglePaidInstallment(row.installment_number)}
@@ -2793,8 +3312,7 @@ function LoanScheduleReview({
                     <td className="num"><Money amountMinor={row.total_minor} currency={loan.currency} /></td>
                     <td className="num"><Money amountMinor={row.principal_minor} currency={loan.currency} /></td>
                     <td className="num"><Money amountMinor={row.interest_minor} currency={loan.currency} /></td>
-                    <td className="num"><Money amountMinor={outstandingAfter} currency={loan.currency} /></td>
-                    <td>{row.admin_overridden ? <Chip tone="warn">Manual</Chip> : <Chip tone="neutral">Generated</Chip>}</td>
+                    <td className="num"><Money amountMinor={row.outstanding_after_minor} currency={loan.currency} /></td>
                   </tr>
                 );
               })}
@@ -2806,7 +3324,6 @@ function LoanScheduleReview({
                 <th className="num"><Money amountMinor={totals.total} currency={loan.currency} /></th>
                 <th className="num"><Money amountMinor={totals.principal} currency={loan.currency} /></th>
                 <th className="num"><Money amountMinor={totals.interest} currency={loan.currency} /></th>
-                <th className="num"><Money amountMinor={Math.max(0, loan.original_principal_minor - totals.principal)} currency={loan.currency} /></th>
                 <th />
               </tr>
             </tfoot>
@@ -2857,31 +3374,46 @@ function ManageLoanModal({
   const [prePublicationPaidNumbers, setPrePublicationPaidNumbers] = useState<number[]>(
     loan.pre_publication_paid_installments ?? []
   );
-  const [scheduleInitializedFor, setScheduleInitializedFor] = useState("");
+  const [publishStep, setPublishStep] = useState<"original" | "loan">("original");
+  const [originalPaidInitializedFor, setOriginalPaidInitializedFor] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | undefined>();
   const loanId = loan.id;
   const scheduleQuery = useV1LoansAdminLoansScheduleList(loanId, {
     query: { enabled: !isFixturePreview && action === "publish", staleTime: 0 }
   });
+  const originalScheduleQuery = useV1LoansAdminLoansOriginalScheduleList(loanId, {
+    query: { enabled: !isFixturePreview && action === "publish" && loan.is_refinancing, staleTime: 0 }
+  });
   const fixtureScheduleRows = useMemo(() => previewScheduleRows(loan), [loan]);
   const scheduleRows = useMemo(
     () => (isFixturePreview ? fixtureScheduleRows : scheduleQuery.data ?? []),
     [fixtureScheduleRows, scheduleQuery.data]
   );
-  const selectedPaidPrincipal = scheduleRows.reduce(
+  const fixtureOriginalScheduleRows = useMemo(() => previewOriginalScheduleRows(loan), [loan]);
+  const originalScheduleRows = useMemo(
+    () => (isFixturePreview ? fixtureOriginalScheduleRows : originalScheduleQuery.data ?? []),
+    [fixtureOriginalScheduleRows, originalScheduleQuery.data]
+  );
+  const scheduledPrincipal = scheduleRows.reduce((sum, row) => sum + row.principal_minor, 0);
+  const loanScheduleLoading = !isFixturePreview && scheduleQuery.isFetching && scheduleRows.length === 0;
+  const loanScheduleBlocks =
+    (!isFixturePreview && (scheduleQuery.isFetching || Boolean(scheduleQuery.error))) ||
+    scheduleRows.length === 0 ||
+    scheduledPrincipal !== loan.principal_minor;
+  const originalPaidPrincipal = originalScheduleRows.reduce(
     (sum, row) => sum + (prePublicationPaidNumbers.includes(row.installment_number) ? row.principal_minor : 0),
     0
   );
-  const scheduledPrincipal = scheduleRows.reduce((sum, row) => sum + row.principal_minor, 0);
-  const scheduleReconciles =
-    scheduleRows.length > 0 &&
-    scheduledPrincipal === loan.original_principal_minor &&
-    scheduledPrincipal - selectedPaidPrincipal === loan.principal_minor;
-  const scheduleBlocksPublish =
-    (!isFixturePreview && (scheduleQuery.isFetching || Boolean(scheduleQuery.error))) ||
-    scheduleRows.length === 0 ||
-    !scheduleReconciles;
+  const originalRemainingOutstanding = loan.original_principal_minor - originalPaidPrincipal;
+  const originalScheduleLoading =
+    !isFixturePreview && originalScheduleQuery.isFetching && originalScheduleRows.length === 0;
+  const originalScheduleBlocks =
+    loan.is_refinancing &&
+    ((!isFixturePreview && (originalScheduleQuery.isFetching || Boolean(originalScheduleQuery.error))) ||
+      originalScheduleRows.length === 0 ||
+      loan.principal_minor > originalRemainingOutstanding);
+  const scheduleBlocksPublish = loanScheduleBlocks || originalScheduleBlocks;
   const succeed = (message: string) => {
     setSuccess(message);
     onChanged();
@@ -2910,25 +3442,16 @@ function ManageLoanModal({
   });
 
   useEffect(() => {
-    if (action !== "publish" || scheduleRows.length === 0) return;
-    const scheduleKey = `${loan.id}:${loan.schedule_version}:${scheduleRows
-      .map((row) => `${row.installment_number}:${row.due_date}:${row.principal_minor}`)
+    if (action !== "publish" || !loan.is_refinancing || originalScheduleRows.length === 0) return;
+    const scheduleKey = `${loan.id}:${originalScheduleRows
+      .map((row) => `${row.installment_number}:${row.due_date}:${row.paid_before_publication ? 1 : 0}`)
       .join("|")}`;
-    if (scheduleInitializedFor === scheduleKey) return;
-    const storedPaid = loan.pre_publication_paid_installments ?? [];
-    const defaultPaid = storedPaid.length
-      ? storedPaid
-      : scheduleRows.filter((row) => isPastBusinessDate(row.due_date)).map((row) => row.installment_number);
-    setPrePublicationPaidNumbers(defaultPaid);
-    setScheduleInitializedFor(scheduleKey);
-  }, [
-    action,
-    loan.id,
-    loan.pre_publication_paid_installments,
-    loan.schedule_version,
-    scheduleInitializedFor,
-    scheduleRows
-  ]);
+    if (originalPaidInitializedFor === scheduleKey) return;
+    setPrePublicationPaidNumbers(
+      originalScheduleRows.filter((row) => row.paid_before_publication).map((row) => row.installment_number)
+    );
+    setOriginalPaidInitializedFor(scheduleKey);
+  }, [action, loan.id, loan.is_refinancing, originalPaidInitializedFor, originalScheduleRows]);
 
   // Recovery conservation preview (mirrors the backend waterfall math):
   // net received = gross - external costs; fee base = net - third-party costs;
@@ -2957,11 +3480,12 @@ function ManageLoanModal({
   function choose(id: ManageLoanActionId) {
     setPreview(null);
     setSuccess(undefined);
+    setPublishStep("original");
     setAction(id);
   }
 
   function togglePrePublicationPaidInstallment(installmentNumber: number) {
-    const pastNumbers = scheduleRows
+    const pastNumbers = originalScheduleRows
       .filter((row) => isPastBusinessDate(row.due_date))
       .map((row) => row.installment_number)
       .sort((a, b) => a - b);
@@ -2980,7 +3504,9 @@ function ManageLoanModal({
     }
     publish.mutate({
       loanId,
-      data: { note, pre_publication_paid_installment_numbers: prePublicationPaidNumbers }
+      data: loan.is_refinancing
+        ? { note, pre_publication_paid_installment_numbers: prePublicationPaidNumbers }
+        : { note }
     });
   }
 
@@ -3077,7 +3603,7 @@ function ManageLoanModal({
             Committed <Money amountMinor={loan.committed_principal_minor} currency={loan.currency} /> /{" "}
             financeable <Money amountMinor={loan.principal_minor} currency={loan.currency} />
           </span>
-          {loan.original_principal_minor !== loan.principal_minor ? (
+          {loan.is_refinancing ? (
             <span>Original <Money amountMinor={loan.original_principal_minor} currency={loan.currency} /></span>
           ) : null}
           <code>{loanId}</code>
@@ -3100,9 +3626,9 @@ function ManageLoanModal({
               ))}
             </div>
           ) : (
-            <Empty icon="docs" title="No primary-market actions for this status">
-              {labelize(loan.status)} loans have no primary-market operations. Repayments, status scans, risk
-              notes and recoveries live in the Servicing and recovery panel below the loan table.
+            <Empty icon="docs" title="No manage actions for this status">
+              {labelize(loan.status)} loans have no manage operations. Status scans and risk notes live in the
+              Servicing operations panel below the loan table.
             </Empty>
           )
         ) : (
@@ -3114,20 +3640,71 @@ function ManageLoanModal({
               <strong>{active.title}</strong>
             </div>
 
-            {action === "publish" ? (
+            {action === "publish" && !loan.is_refinancing ? (
               <>
-                <LoanScheduleReview
+                <LoanScheduleReadonlyReview
                   error={scheduleQuery.error}
-                  loading={!isFixturePreview && scheduleQuery.isFetching && scheduleRows.length === 0}
+                  loading={loanScheduleLoading}
                   loan={loan}
-                  onTogglePaidInstallment={togglePrePublicationPaidInstallment}
-                  paidInstallmentNumbers={prePublicationPaidNumbers}
                   rows={scheduleRows}
                 />
                 <TextAreaInput label="Publish note" onChange={setNote} value={note} />
                 <Button disabled={publish.isPending || scheduleBlocksPublish} onClick={publishLoan} variant="primary">
                   Publish loan after schedule review
                 </Button>
+              </>
+            ) : null}
+
+            {action === "publish" && loan.is_refinancing ? (
+              <>
+                <div className="row gap-8 wrap" role="tablist">
+                  <Button
+                    aria-selected={publishStep === "original"}
+                    onClick={() => setPublishStep("original")}
+                    role="tab"
+                    size="sm"
+                    variant={publishStep === "original" ? "primary" : "ghost"}
+                  >
+                    1. Original loan schedule
+                  </Button>
+                  <Button
+                    aria-selected={publishStep === "loan"}
+                    onClick={() => setPublishStep("loan")}
+                    role="tab"
+                    size="sm"
+                    variant={publishStep === "loan" ? "primary" : "ghost"}
+                  >
+                    2. Loan schedule
+                  </Button>
+                </div>
+                {publishStep === "original" ? (
+                  <>
+                    <OriginalScheduleReview
+                      error={originalScheduleQuery.error}
+                      loading={originalScheduleLoading}
+                      loan={loan}
+                      onTogglePaidInstallment={togglePrePublicationPaidInstallment}
+                      paidInstallmentNumbers={prePublicationPaidNumbers}
+                      rows={originalScheduleRows}
+                    />
+                    <Button onClick={() => setPublishStep("loan")} variant="primary">
+                      Continue to loan schedule
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <LoanScheduleReadonlyReview
+                      error={scheduleQuery.error}
+                      loading={loanScheduleLoading}
+                      loan={loan}
+                      rows={scheduleRows}
+                    />
+                    <TextAreaInput label="Publish note" onChange={setNote} value={note} />
+                    <Button disabled={publish.isPending || scheduleBlocksPublish} onClick={publishLoan} variant="primary">
+                      Publish loan after schedule review
+                    </Button>
+                  </>
+                )}
               </>
             ) : null}
 
@@ -3249,6 +3826,10 @@ function ManageLoanModal({
               </>
             ) : null}
 
+            {action === "disburse" ? <ManageDisbursementForm loan={loan} onDone={onChanged} /> : null}
+
+            {action === "servicing" ? <ManageBorrowerRepaymentForm loan={loan} onDone={onChanged} /> : null}
+
             {action === "recovery" ? (
               <>
                 <p className="muted admin-manage-hint">
@@ -3329,25 +3910,481 @@ function ManageLoanModal({
   );
 }
 
+function ManageDisbursementForm({ loan, onDone }: { loan: Loan; onDone: () => void }) {
+  const defaultFeeMinor = Math.round((loan.principal_minor * loan.borrower_success_fee_bps) / 10000);
+  const defaultAmountMinor = loan.principal_minor - defaultFeeMinor;
+  const [override, setOverride] = useState(false);
+  const [amountMinor, setAmountMinor] = useState(String(defaultAmountMinor));
+  const [feeMinor, setFeeMinor] = useState(String(defaultFeeMinor));
+  const [overrideNote, setOverrideNote] = useState("");
+  const [payeeName, setPayeeName] = useState(adminFormDefaults.borrowerName);
+  const [payeeAccount, setPayeeAccount] = useState(adminFormDefaults.borrowerPayeeAccount);
+  const [bookingDate, setBookingDate] = useState(today);
+  const [valueDate, setValueDate] = useState(today);
+  const [bankReference, setBankReference] = useState("");
+  const [paymentReference, setPaymentReference] = useState("");
+  const [evidenceReference, setEvidenceReference] = useState("");
+  const [notes, setNotes] = useState("");
+  const [preview, setPreview] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | undefined>();
+  const mutation = useV1LedgerAdminBorrowerDisbursementsCreate({
+    mutation: {
+      onSuccess: () => {
+        setSuccess("Borrower disbursement payable was cleared against collection cash.");
+        onDone();
+      }
+    }
+  });
+
+  const amount = intValue(amountMinor);
+  const fee = intValue(feeMinor);
+  const feeOutOfRange = fee < 0 || fee * 10 > loan.principal_minor;
+  const amountAndFeeTotal = amount + fee;
+  const amountFeeMismatch = amountAndFeeTotal !== loan.principal_minor;
+  const overrideNoteMissing = override && !overrideNote.trim();
+  const blocked = feeOutOfRange || amountFeeMismatch || overrideNoteMissing || !payeeName.trim() || !payeeAccount.trim();
+
+  function toggleOverride(checked: boolean) {
+    setOverride(checked);
+    if (!checked) {
+      setAmountMinor(String(defaultAmountMinor));
+      setFeeMinor(String(defaultFeeMinor));
+      setOverrideNote("");
+    }
+  }
+
+  function submit() {
+    const data: BorrowerDisbursementFinalizeRequest = {
+      loan_id: loan.id,
+      borrower_id: loan.borrower_id,
+      amount_minor: amount,
+      fee_minor: fee,
+      currency: loan.currency,
+      booking_date: bookingDate,
+      value_date: valueDate,
+      collection_account_identifier: defaultCollectionAccount,
+      payee_name: payeeName,
+      payee_account_identifier: payeeAccount,
+      override_note: override ? overrideNote : undefined,
+      bank_reference: bankReference || undefined,
+      payment_reference: paymentReference || undefined,
+      evidence_reference: evidenceReference || undefined,
+      admin_notes: notes || undefined,
+      idempotency_key: idempotencyKey("borrower-disbursement")
+    };
+    if (isFixturePreview) {
+      setPreview(
+        `Borrower disbursement ${formatMoneyMinor(amount, loan.currency)} ${loan.currency} with fee ${formatMoneyMinor(fee, loan.currency)} ${loan.currency} would be finalized for ${loan.id}.`
+      );
+      return;
+    }
+    mutation.mutate({ data });
+  }
+
+  return (
+    <>
+      <p className="muted admin-manage-hint">
+        Record the external payout of this funded loan to the borrower. Amount and BANXUM fee default to the
+        contractual values (fee = principal &times; success fee bps; amount = principal &minus; fee) and can only be
+        changed with an override note.
+      </p>
+      <div className="admin-context-bar">
+        <span>Financeable <Money amountMinor={loan.principal_minor} currency={loan.currency} /></span>
+        <span>Success fee {formatRateBps(loan.borrower_success_fee_bps)}</span>
+        <span>Default fee <Money amountMinor={defaultFeeMinor} currency={loan.currency} /></span>
+        <span>Default payout <Money amountMinor={defaultAmountMinor} currency={loan.currency} /></span>
+      </div>
+      <FieldGrid>
+        <MoneyMinorInput
+          currency={loan.currency}
+          label="Disbursement amount minor units"
+          onChange={setAmountMinor}
+          readOnly={!override}
+          required
+          value={amountMinor}
+        />
+        <MoneyMinorInput
+          currency={loan.currency}
+          label="BANXUM fee minor units"
+          onChange={setFeeMinor}
+          readOnly={!override}
+          required
+          value={feeMinor}
+        />
+        <TextInput label="Booking date" onChange={setBookingDate} required type="date" value={bookingDate} />
+        <TextInput label="Value date" onChange={setValueDate} required type="date" value={valueDate} />
+        <TextInput label="Payee name" onChange={setPayeeName} required value={payeeName} />
+        <TextInput label="Payee account" onChange={setPayeeAccount} required value={payeeAccount} />
+        <TextInput label="Bank reference" onChange={setBankReference} value={bankReference} />
+        <TextInput label="Payment reference" onChange={setPaymentReference} value={paymentReference} />
+        <TextInput label="Evidence reference" onChange={setEvidenceReference} value={evidenceReference} />
+      </FieldGrid>
+      <label className="check-row">
+        <input checked={override} onChange={(event) => toggleOverride(event.target.checked)} type="checkbox" />
+        Override amounts (requires note).
+      </label>
+      {override ? (
+        <TextAreaInput
+          hint="Required when the amount or fee differs from the contractual defaults."
+          label="Override explanation note"
+          onChange={setOverrideNote}
+          required
+          value={overrideNote}
+        />
+      ) : null}
+      <TextAreaInput label="Admin notes" onChange={setNotes} value={notes} />
+      {feeOutOfRange ? (
+        <Banner tone="bad" title="Fee out of range">
+          The BANXUM fee must be between 0 and 10% of the financeable principal.
+        </Banner>
+      ) : null}
+      {!feeOutOfRange && amountFeeMismatch ? (
+        <Banner tone="bad" title="Amount plus fee must clear payable">
+          The disbursement amount plus the BANXUM fee must equal the financeable principal. Adjust one of the
+          values so the borrower payable clears with no residual balance.
+        </Banner>
+      ) : null}
+      {overrideNoteMissing ? (
+        <Banner tone="warn" title="Override note required">
+          Explain why the disbursement amount or fee differs from the contractual defaults.
+        </Banner>
+      ) : null}
+      <OperationConfirmButton
+        confirmLabel="Finalize disbursement"
+        description="Finalizing the disbursement clears the borrower payable against collection cash and records the BANXUM success fee. This declares an already-executed external bank payout."
+        details={[
+          { label: "Loan", value: loan.id },
+          { label: "Amount", value: <Money amountMinor={amount} currency={loan.currency} /> },
+          { label: "BANXUM fee", value: <Money amountMinor={fee} currency={loan.currency} /> },
+          { label: "Payee", value: payeeName || "-" },
+          { label: "Override", value: override ? overrideNote || "-" : "No" }
+        ]}
+        disabled={mutation.isPending || blocked}
+        onConfirm={submit}
+        title="Confirm borrower disbursement"
+        variant="primary"
+      >
+        Finalize disbursement
+      </OperationConfirmButton>
+      {mutation.error ? <Banner tone="bad" title="Disbursement failed">{errorMessage(mutation.error)}</Banner> : null}
+      {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
+      {success ? <Banner tone="ok" title="Disbursement submitted">{success}</Banner> : null}
+    </>
+  );
+}
+
+function AdvanceScheduleTable({ rows, currency }: { rows: AdvanceRepaymentScheduleRow[]; currency: string }) {
+  return (
+    <div className="table-wrap admin-table-wrap">
+      <table className="admin-table admin-schedule-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Due date</th>
+            <th className="num">Principal</th>
+            <th className="num">Interest</th>
+            <th className="num">Instalment</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.installment_number}>
+              <td>{row.installment_number}</td>
+              <td>{formatDate(row.due_date)}</td>
+              <td className="num"><Money amountMinor={row.principal_minor} currency={currency} /></td>
+              <td className="num"><Money amountMinor={row.interest_minor} currency={currency} /></td>
+              <td className="num"><Money amountMinor={row.total_minor} currency={currency} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ManageBorrowerRepaymentForm({ loan, onDone }: { loan: Loan; onDone: () => void }) {
+  const scheduleQuery = useV1LoansAdminLoansScheduleList(loan.id, {
+    query: { enabled: !isFixturePreview, staleTime: 0 }
+  });
+  const fixtureRows = useMemo(() => previewScheduleRows(loan), [loan]);
+  const scheduleRows = useMemo(
+    () => (isFixturePreview ? fixtureRows : scheduleQuery.data ?? []),
+    [fixtureRows, scheduleQuery.data]
+  );
+  const nextInstallment = scheduleRows.find((row) => (row.outstanding_total_minor ?? row.total_minor) > 0);
+  const defaultAmountMinor = nextInstallment?.outstanding_total_minor ?? nextInstallment?.total_minor ?? 0;
+  const [advance, setAdvance] = useState(false);
+  const [advanceAmountMinor, setAdvanceAmountMinor] = useState("");
+  const [bankDate, setBankDate] = useState(today);
+  const [payerName, setPayerName] = useState(adminFormDefaults.borrowerName);
+  const [payerAccount, setPayerAccount] = useState("");
+  const [bookingDate, setBookingDate] = useState(today);
+  const [valueDate, setValueDate] = useState(today);
+  const [bankReference, setBankReference] = useState("");
+  const [paymentReference, setPaymentReference] = useState("");
+  const [evidenceReference, setEvidenceReference] = useState("");
+  const [notes, setNotes] = useState("");
+  const [advancePlan, setAdvancePlan] = useState<BorrowerRepaymentAdvancePreviewResponse | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | undefined>();
+  const repayment = useV1ServicingAdminBorrowerRepaymentsCreate({
+    mutation: {
+      onSuccess: () => {
+        setAdvancePlan(null);
+        setSuccess("Borrower repayment was recorded and distributed to lenders.");
+        refetchLive(scheduleQuery.refetch);
+        onDone();
+      }
+    }
+  });
+  const advancePreview = useV1ServicingAdminBorrowerRepaymentsAdvancePreviewCreate({
+    mutation: { onSuccess: (plan) => setAdvancePlan(plan) }
+  });
+
+  const amountMinorValue = advance ? intValue(advanceAmountMinor) : defaultAmountMinor;
+  let cumulativePrincipal = 0;
+  const scheduledPrincipal = scheduleRows.reduce((sum, row) => sum + row.principal_minor, 0);
+
+  function toggleAdvance(checked: boolean) {
+    setAdvance(checked);
+    setAdvancePlan(null);
+    if (checked) setAdvanceAmountMinor(String(defaultAmountMinor));
+  }
+
+  function buildRecordRequest(inAdvance: boolean): BorrowerRepaymentRecordRequest {
+    return {
+      loan_id: loan.id,
+      amount_minor: amountMinorValue,
+      booking_date: bookingDate,
+      value_date: valueDate,
+      collection_account_identifier: defaultCollectionAccount,
+      payer_name: payerName,
+      payer_account_identifier: payerAccount || undefined,
+      bank_reference: bankReference || undefined,
+      payment_reference: paymentReference || undefined,
+      evidence_reference: evidenceReference || undefined,
+      admin_notes: notes || undefined,
+      repayment_in_advance: inAdvance,
+      borrower_repayment_bank_date: inAdvance ? bankDate : undefined,
+      idempotency_key: idempotencyKey("borrower-repayment")
+    };
+  }
+
+  function recordRegular() {
+    if (isFixturePreview) {
+      setPreview(
+        `Borrower repayment of ${formatMoneyMinor(amountMinorValue, loan.currency)} ${loan.currency} would be recorded against the next due installment of ${loan.id}.`
+      );
+      return;
+    }
+    repayment.mutate({ data: buildRecordRequest(false) });
+  }
+
+  function requestAdvancePreview() {
+    if (isFixturePreview) {
+      setPreview(
+        `Advance repayment of ${formatMoneyMinor(amountMinorValue, loan.currency)} ${loan.currency} with bank date ${bankDate} would be previewed for ${loan.id}.`
+      );
+      return;
+    }
+    advancePreview.mutate({
+      data: { loan_id: loan.id, amount_minor: amountMinorValue, borrower_repayment_bank_date: bankDate }
+    });
+  }
+
+  function confirmAdvance() {
+    repayment.mutate({ data: buildRecordRequest(true) });
+  }
+
+  return (
+    <>
+      <p className="muted admin-manage-hint">
+        Regular repayments must equal the next outstanding installment exactly; the amount is fixed from the
+        current schedule and recorded repayment history. Use repayment in advance for a different amount - the
+        backend recomputes interest to the bank date and reamortizes the remaining schedule.
+      </p>
+      <div className="admin-schedule-review">
+        <div className="admin-subsection-header">
+          <div>
+            <h4>Current repayment schedule</h4>
+            <p className="muted">Server-generated schedule, version {loan.schedule_version}.</p>
+          </div>
+          <Button icon="refresh" onClick={() => refetchLive(scheduleQuery.refetch)} size="sm">Refresh</Button>
+        </div>
+        {!isFixturePreview && scheduleQuery.isFetching && scheduleRows.length === 0 ? (
+          <Banner tone="info" title="Loading schedule">Fetching the current server-generated schedule.</Banner>
+        ) : null}
+        {scheduleQuery.error ? <Banner tone="bad" title="Schedule unavailable">{errorMessage(scheduleQuery.error)}</Banner> : null}
+        {scheduleRows.length ? (
+          <div className="table-wrap admin-table-wrap">
+            <table className="admin-table admin-schedule-table">
+              <thead>
+	                <tr>
+	                  <th>#</th>
+	                  <th>Due date</th>
+	                  <th className="num">Principal</th>
+	                  <th className="num">Interest</th>
+	                  <th className="num">Instalment</th>
+	                  <th className="num">Remaining due</th>
+	                  <th className="num">Outstanding after</th>
+	                </tr>
+              </thead>
+              <tbody>
+                {scheduleRows.map((row) => {
+                  cumulativePrincipal += row.principal_minor;
+                  const outstandingAfter = Math.max(0, scheduledPrincipal - cumulativePrincipal);
+	                  return (
+	                    <tr key={row.id}>
+	                      <td>
+	                        {row.installment_number}
+	                        {row.is_paid ? <> <Chip tone="ok">Paid</Chip></> : null}
+	                        {!row.is_paid && isPastBusinessDate(row.due_date) ? <> <Chip tone="warn">Due</Chip></> : null}
+	                      </td>
+	                      <td>{formatDate(row.due_date)}</td>
+	                      <td className="num"><Money amountMinor={row.principal_minor} currency={loan.currency} /></td>
+	                      <td className="num"><Money amountMinor={row.interest_minor} currency={loan.currency} /></td>
+	                      <td className="num"><Money amountMinor={row.total_minor} currency={loan.currency} /></td>
+	                      <td className="num">
+	                        <Money amountMinor={row.outstanding_total_minor ?? row.total_minor} currency={loan.currency} />
+	                      </td>
+	                      <td className="num"><Money amountMinor={outstandingAfter} currency={loan.currency} /></td>
+	                    </tr>
+	                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </div>
+      <FieldGrid>
+        <MoneyMinorInput
+	          currency={loan.currency}
+	          hint={advance ? undefined : "Fixed to the next outstanding installment total from the current schedule."}
+          label="Amount minor units"
+          onChange={setAdvanceAmountMinor}
+          readOnly={!advance}
+          required
+          value={advance ? advanceAmountMinor : String(defaultAmountMinor)}
+        />
+        <TextInput label="Payer name" onChange={setPayerName} required value={payerName} />
+        <TextInput label="Payer account" onChange={setPayerAccount} value={payerAccount} />
+        <TextInput label="Booking date" onChange={setBookingDate} required type="date" value={bookingDate} />
+        <TextInput label="Value date" onChange={setValueDate} required type="date" value={valueDate} />
+        <TextInput label="Bank reference" onChange={setBankReference} value={bankReference} />
+        <TextInput label="Payment reference" onChange={setPaymentReference} value={paymentReference} />
+        <TextInput label="Evidence reference" onChange={setEvidenceReference} value={evidenceReference} />
+      </FieldGrid>
+      <TextAreaInput label="Admin notes" onChange={setNotes} value={notes} />
+      <label className="check-row">
+        <input checked={advance} onChange={(event) => toggleAdvance(event.target.checked)} type="checkbox" />
+        Repayment in advance (different amount).
+      </label>
+      {advance ? (
+        <FieldGrid>
+          <TextInput
+            hint="Date the borrower's payment reached the bank. Interest is recomputed to this date."
+            label="Borrower repayment bank date"
+            onChange={setBankDate}
+            required
+            type="date"
+            value={bankDate}
+          />
+        </FieldGrid>
+      ) : null}
+      <div className="row gap-8 wrap">
+        {advance ? (
+          <Button
+            disabled={advancePreview.isPending || amountMinorValue <= 0 || !bankDate || !payerName.trim()}
+            onClick={requestAdvancePreview}
+            variant="primary"
+          >
+            Preview new schedule
+          </Button>
+        ) : (
+          <Button
+            disabled={repayment.isPending || amountMinorValue <= 0 || !payerName.trim()}
+            onClick={recordRegular}
+            variant="primary"
+          >
+            Record repayment
+          </Button>
+        )}
+      </div>
+      {repayment.error ? <Banner tone="bad" title="Repayment failed">{errorMessage(repayment.error)}</Banner> : null}
+      {advancePreview.error ? <Banner tone="bad" title="Advance preview failed">{errorMessage(advancePreview.error)}</Banner> : null}
+      {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
+      {success ? <Banner tone="ok" title="Repayment submitted">{success}</Banner> : null}
+      {advancePlan ? (
+        <Modal title="Confirm repayment in advance" wide onClose={() => setAdvancePlan(null)}>
+          <div className="admin-action-form">
+            <Banner tone="warn" title="Review before recording">
+              Recording this advance repayment applies the interest breakdown below and replaces the remaining
+              schedule with the reamortized version.
+            </Banner>
+            <div className="admin-detail-grid">
+              <div className="admin-review-row">
+                <span>Amount</span>
+                <strong><Money amountMinor={advancePlan.amount_minor} currency={advancePlan.currency} /></strong>
+              </div>
+              <div className="admin-review-row">
+                <span>Bank date</span>
+                <strong>{formatDate(advancePlan.bank_date)}</strong>
+              </div>
+              <div className="admin-review-row">
+                <span>Scheduled interest due</span>
+                <strong><Money amountMinor={advancePlan.scheduled_interest_due_minor} currency={advancePlan.currency} /></strong>
+              </div>
+              <div className="admin-review-row">
+                <span>Accrued interest</span>
+                <strong><Money amountMinor={advancePlan.accrued_interest_minor} currency={advancePlan.currency} /></strong>
+              </div>
+              <div className="admin-review-row">
+                <span>Interest applied</span>
+                <strong><Money amountMinor={advancePlan.interest_applied_minor} currency={advancePlan.currency} /></strong>
+              </div>
+              <div className="admin-review-row">
+                <span>Principal applied</span>
+                <strong><Money amountMinor={advancePlan.principal_applied_minor} currency={advancePlan.currency} /></strong>
+              </div>
+              <div className="admin-review-row">
+                <span>Outstanding before</span>
+                <strong><Money amountMinor={advancePlan.outstanding_principal_before_minor} currency={advancePlan.currency} /></strong>
+              </div>
+              <div className="admin-review-row">
+                <span>Outstanding after</span>
+                <strong><Money amountMinor={advancePlan.outstanding_principal_after_minor} currency={advancePlan.currency} /></strong>
+              </div>
+            </div>
+            <h4>Current schedule</h4>
+            <AdvanceScheduleTable currency={advancePlan.currency} rows={advancePlan.old_schedule_rows} />
+            <h4>New schedule after this payment</h4>
+            <AdvanceScheduleTable currency={advancePlan.currency} rows={advancePlan.new_schedule_rows} />
+            {repayment.error ? <Banner tone="bad" title="Repayment failed">{errorMessage(repayment.error)}</Banner> : null}
+            <div className="modal-foot inline-foot">
+              <Button onClick={() => setAdvancePlan(null)}>Cancel</Button>
+              <Button disabled={repayment.isPending} onClick={confirmAdvance} variant="primary">
+                Confirm and record payment
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+    </>
+  );
+}
+
 function ServicingOpsForm({
-  defaultLoanCurrency,
   defaultLoanId,
   defaultLoanTitle
 }: {
-  defaultLoanCurrency: string;
   defaultLoanId: string;
   defaultLoanTitle: string;
 }) {
   const [loanId, setLoanId] = useState(defaultLoanId);
   const [loanQuery, setLoanQuery] = useState(defaultLoanId);
-  const [amountMinor, setAmountMinor] = useState("1845000");
-  const [bookingDate, setBookingDate] = useState(today);
-  const [valueDate, setValueDate] = useState(today);
-  const [payerName, setPayerName] = useState(adminFormDefaults.borrowerName);
-  const [warningAck, setWarningAck] = useState(true);
+  const [asOfDate, setAsOfDate] = useState(today);
   const [riskBody, setRiskBody] = useState("Public servicing update for affected investors.");
   const [preview, setPreview] = useState<string | null>(null);
-  const repayment = useV1ServicingAdminBorrowerRepaymentsCreate();
   const scan = useV1ServicingAdminStatusScanCreate();
   const riskNote = useV1ServicingAdminRiskNotesCreate();
 
@@ -3356,26 +4393,8 @@ function ServicingOpsForm({
     setLoanQuery(defaultLoanId);
   }, [defaultLoanId]);
 
-  function submitRepayment() {
-    const data: BorrowerRepaymentRecordRequest = {
-      loan_id: loanId,
-      amount_minor: intValue(amountMinor),
-      booking_date: bookingDate,
-      value_date: valueDate,
-      collection_account_identifier: defaultCollectionAccount,
-      payer_name: payerName,
-      warning_acknowledged: warningAck,
-      idempotency_key: idempotencyKey("borrower-repayment")
-    };
-    if (isFixturePreview) {
-      setPreview(`Borrower repayment would be recorded for ${loanId}.`);
-      return;
-    }
-    repayment.mutate({ data });
-  }
-
   function submitScan() {
-    const data: LoanServicingStatusScanRequest = { as_of_date: valueDate, loan_ids: loanId ? [loanId] : undefined };
+    const data: LoanServicingStatusScanRequest = { as_of_date: asOfDate, loan_ids: loanId ? [loanId] : undefined };
     if (isFixturePreview) {
       setPreview(`Servicing status scan would run for ${loanId || "all repayable loans"}.`);
       return;
@@ -3401,7 +4420,7 @@ function ServicingOpsForm({
 
   return (
     <Card padded className="admin-wide-card">
-      <h2>Servicing and recovery</h2>
+      <h2>Servicing operations</h2>
       <div className="admin-action-form">
         <div className="admin-context-bar">
           <span>Selected loan</span>
@@ -3416,17 +4435,9 @@ function ServicingOpsForm({
             required
             value={loanId}
           />
-          <MoneyMinorInput currency={defaultLoanCurrency} label="Amount minor units" onChange={setAmountMinor} value={amountMinor} />
-          <TextInput label="Booking date" onChange={setBookingDate} type="date" value={bookingDate} />
-          <TextInput label="Value date" onChange={setValueDate} type="date" value={valueDate} />
-          <TextInput label="Payer name" onChange={setPayerName} value={payerName} />
+          <TextInput label="Status scan as-of date" onChange={setAsOfDate} type="date" value={asOfDate} />
         </FieldGrid>
-        <label className="check-row">
-          <input checked={warningAck} onChange={(event) => setWarningAck(event.target.checked)} type="checkbox" />
-          Warning acknowledged for partial/irregular borrower repayment.
-        </label>
         <div className="row gap-8 wrap">
-          <Button disabled={repayment.isPending} onClick={submitRepayment} variant="primary">Record repayment</Button>
           <Button disabled={scan.isPending} onClick={submitScan}>Run status scan</Button>
         </div>
         <TextAreaInput label="Risk note body" onChange={setRiskBody} value={riskBody} />
@@ -3434,11 +4445,12 @@ function ServicingOpsForm({
           <Button disabled={riskNote.isPending} onClick={submitRiskNote}>Publish public note</Button>
         </div>
         <p className="muted" style={{ fontSize: 11.5 }}>
-          Recording a recovery payment for a defaulted loan is done from the loan row: use <strong>Manage &rarr; Record a recovery payment</strong>.
+          Borrower repayments are declared from the loan row: use <strong>Manage &rarr; Record borrower repayment</strong>.
+          Recording a recovery payment for a defaulted loan is done via <strong>Manage &rarr; Record a recovery payment</strong>.
         </p>
-        {repayment.error || scan.error || riskNote.error ? (
+        {scan.error || riskNote.error ? (
           <Banner tone="bad" title="Servicing action failed">
-            {errorMessage(repayment.error || scan.error || riskNote.error)}
+            {errorMessage(scan.error || riskNote.error)}
           </Banner>
         ) : null}
         {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}

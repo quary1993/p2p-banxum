@@ -33,8 +33,39 @@ class BorrowerRepaymentRecordRequestSerializer(serializers.Serializer[Any]):
     payment_reference = serializers.CharField(required=False, allow_blank=True, max_length=160)
     evidence_reference = serializers.CharField(required=False, allow_blank=True, max_length=255)
     admin_notes = serializers.CharField(required=False, allow_blank=True)
-    warning_acknowledged = serializers.BooleanField(required=False, default=False)
+    repayment_in_advance = serializers.BooleanField(required=False, default=False)
+    borrower_repayment_bank_date = serializers.DateField(required=False, allow_null=True)
     idempotency_key = serializers.CharField(max_length=160)
+
+
+class BorrowerRepaymentAdvancePreviewRequestSerializer(serializers.Serializer[Any]):
+    loan_id = serializers.UUIDField()
+    amount_minor = serializers.IntegerField(min_value=1)
+    borrower_repayment_bank_date = serializers.DateField()
+
+
+class AdvanceRepaymentScheduleRowSerializer(serializers.Serializer[Any]):
+    installment_number = serializers.IntegerField()
+    due_date = serializers.DateField()
+    principal_minor = serializers.IntegerField()
+    interest_minor = serializers.IntegerField()
+    total_minor = serializers.IntegerField()
+
+
+class BorrowerRepaymentAdvancePreviewResponseSerializer(serializers.Serializer[Any]):
+    loan_id = serializers.UUIDField()
+    currency = serializers.CharField()
+    amount_minor = serializers.IntegerField()
+    bank_date = serializers.DateField()
+    scheduled_interest_due_minor = serializers.IntegerField()
+    accrued_interest_minor = serializers.IntegerField()
+    interest_applied_minor = serializers.IntegerField()
+    principal_applied_minor = serializers.IntegerField()
+    outstanding_principal_before_minor = serializers.IntegerField()
+    outstanding_principal_after_minor = serializers.IntegerField()
+    anchor_installment_number = serializers.IntegerField()
+    old_schedule_rows = AdvanceRepaymentScheduleRowSerializer(many=True)
+    new_schedule_rows = AdvanceRepaymentScheduleRowSerializer(many=True)
 
 
 class BorrowerRepaymentEventSerializer(serializers.Serializer[Any]):

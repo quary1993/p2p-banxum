@@ -34,7 +34,7 @@ Define the financial operations layer that turns loan, payment, fee, balance, FX
 - Full excess refund due.
 - Borrower drawdown.
 - Borrower loan disbursement bank operation.
-- Borrower success fee charged and withheld from disbursement after full funding or admin-approved partial close.
+- Borrower success fee withheld from the borrower disbursement and booked as Garanta revenue at disbursement; at funding close the full accepted principal moves to the borrower payable and the planned fee is recorded as evidence only.
 - Servicing fee charged.
 - Repayment received.
 - Partial repayment received.
@@ -405,7 +405,7 @@ Confirm final accounting account names, Bexio mappings, and tax treatment for FX
 
 1. Answered by FIN-DEC-002: Garanta uses Bexio as its Swiss accounting software.
 2. Answered by FIN-DEC-002: the platform ledger is the immutable transaction-level operational source of truth, and Bexio receives a configurable monthly accounting export; final chart of accounts, import layout, and tax-code mapping remain non-blocking Garanta/accountant TODOs.
-3. Answered by PAY-DEC-006: borrower success fee of 2% to 4% after successful full raise or admin-approved partial close, deducted from disbursement and stored for accounting/net-revenue reporting; lender payment fee configurable per installment distribution, launch value 0.
+3. Answered by PAY-DEC-006: borrower success fee defaults to 2% of the funded principal (overridable between 0 and 10% only together with the disbursement amount and a required note), deducted from disbursement and booked as Garanta revenue at disbursement; lender payment fee configurable per installment distribution, launch value 0.
 4. Answered by FIN-DEC-005: platform stores tax-relevant amounts and tax metadata; VAT/reverse-charge/withholding/other tax calculations are not hardcoded at launch unless later legal/accounting review requires them.
 5. Answered by FIN-DEC-001: annual tax information statements are generated for lenders, borrowers, and Garanta internal finance from the complete annual account statement and immutable transaction-level ledger; tax summaries separate income/cost items from principal/balance movements and are informational only, not tax advice.
 6. Answered by FIN-DEC-004: no invoices are generated at launch; platform generates account statements, annual participant tax information statements, and finance reports.

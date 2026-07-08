@@ -109,6 +109,26 @@
       "definition": "The original loan amount borrowed, before interest. \"Committed principal\" is how much investors have pledged so far toward funding it."
     },
     {
+      "term": "Financeable principal",
+      "definition": "The amount investors fund on a loan (the loan's principal_minor). Every loan's repayment schedule is generated from the financeable principal. If funding closes partially, the financeable principal drops to the actually funded amount and the schedule is regenerated with the same term, interest rate, and percentage BANXUM fee."
+    },
+    {
+      "term": "Refinancing loan",
+      "definition": "A loan where BANXUM lenders refinance part or all of the outstanding principal of an existing loan (ongoing or new). The admin ticks 'Refinancing loan' at creation and declares the original loan data: original contractual principal, original interest rate, original term, and original loan start date. Functionally it behaves exactly like a standard loan - its own schedule comes from the financeable principal. Investors see a 'Refinanced loan' badge and the informational original schedule on the loan detail page."
+    },
+    {
+      "term": "Original loan schedule",
+      "definition": "For a refinancing loan, the purely informational repayment schedule computed from the admin-declared original loan data. It is never persisted and never serviced. During publish, the admin ticks which original installments were already paid before publication (a contiguous prefix of past-due rows); the ticks are investor information only and never affect servicing."
+    },
+    {
+      "term": "Repayment in advance",
+      "definition": "The way to declare any borrower repayment other than the fixed next-due installment (defaulted loans go through recovery instead). The admin ticks 'Repayment in advance' and selects the borrower repayment bank date. The amount pays all unpaid scheduled interest due on or before the bank date, plus pro-rata accrued interest up to that date; the remainder reduces principal, and the future schedule is regenerated as a new version. A preview of the allocation and both schedules must be confirmed before anything is written. A full payoff marks the loan repaid."
+    },
+    {
+      "term": "BANXUM fee (borrower success fee)",
+      "definition": "The percentage fee withheld from the borrower disbursement, default 2% of the funded principal (borrower_success_fee_bps). No fee is accrued at funding close (the planned fee is recorded as evidence only); the fee registers as Garanta/BANXUM revenue at disbursement. The default disbursement amount and fee are readonly and can only be overwritten together with a required explanation note; the fee must stay between 0 and 10% of the funded amount."
+    },
+    {
       "term": "Investor reference",
       "definition": "A short unique code (up to 10 characters) automatically assigned to each lender account. It identifies the investor across the system and is unique per lender."
     },
@@ -150,7 +170,7 @@
     },
     {
       "term": "Disbursement",
-      "definition": "Paying out the loan money to the borrower once a loan is fully funded. Held first in a loan funding escrow account, then released to the borrower (borrower disbursement)."
+      "definition": "Paying out the loan money to the borrower once funding has closed. At close the full accepted principal moves into the borrower disbursement payable; at disbursement the admin by default sends the funded principal minus the BANXUM fee, and the fee books as Garanta revenue. Available from the Loans table (Manage > Borrower disbursement, for funded loans) and from the Finance ops card."
     },
     {
       "term": "Escrow",
@@ -158,7 +178,7 @@
     },
     {
       "term": "Servicing",
-      "definition": "The ongoing management of a live loan: tracking the repayment schedule, collecting each installment from the borrower on its due date, and distributing repayments to investors."
+      "definition": "The ongoing management of a live loan: tracking the repayment schedule, collecting each installment from the borrower on its due date, and distributing repayments to investors. Servicing and recovery actions are recorded from the Loans table Manage dialog; a regular installment is declared at the fixed outstanding amount of the next due installment, and any other amount uses 'Repayment in advance'."
     },
     {
       "term": "Installment",
@@ -344,7 +364,7 @@
     },
     {
       "name": "Loan: Funded",
-      "meaning": "Fully funded by investors. Money moves to the borrower and repayments begin per the schedule."
+      "meaning": "Funding closed, fully or at an admin-accepted partial amount that becomes the final financeable principal. The full accepted principal sits in the borrower disbursement payable until the disbursement is finalized (funded principal minus the BANXUM fee by default), and repayments run per the schedule."
     },
     {
       "name": "Loan: Late",

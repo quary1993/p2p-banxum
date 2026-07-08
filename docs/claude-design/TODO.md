@@ -310,3 +310,19 @@ Before launch, Claude Design should produce or implement:
 - Design decision: do not duplicate disclosure visibility rules in the frontend. Hide absent optional fields completely; do not show "unknown" or empty labels. Keep borrower disclosure factual and operational, not promotional.
 - Suggested improvement: Claude Design should polish the borrower disclosure section for scanability, especially long address/contact text, financial-metric alignment, document-list hierarchy, and mobile layout inside the loan detail tabs.
 - Priority: important.
+
+## 2026-07-08: Refinanced Loan Badge
+
+- Screen or component: public loan preview header, marketplace listing rows, authenticated loan detail header, portfolio holdings rows, and holding detail drawer.
+- Current first-version behavior: loans with `is_refinancing: true` show a small monospace `tag` badge - "Refinanced loan" in headers/drawers and a shorter "Refinanced" variant inline next to the loan title in marketplace and holdings table rows. The badge is purely informational and reuses the existing `.tag` styling used for currency/purpose tags.
+- Design decision: refinancing is provenance information, not a risk warning. The badge must stay visually neutral (no warn/bad tone) and must not crowd out status, rating, or currency chips.
+- Suggested improvement: Claude Design should decide whether the badge deserves a distinct visual treatment from generic currency/purpose tags (for example an outline accent), review truncation/wrapping of the title-plus-tag combination in narrow table cells on mobile, and consider a tooltip or one-line explainer for first-time investors who do not know what a refinanced loan is.
+- Priority: nice-to-have.
+
+## 2026-07-08: Original Loan Section On Refinanced Loan Detail
+
+- Screen or component: authenticated marketplace loan detail, Overview tab (`OriginalLoanSection`).
+- Current first-version behavior: for refinancing loans, the Overview tab renders an "Original loan" card below the purpose/borrower-disclosure card showing original principal, original interest rate (bps rendered as %), original term, original repayment type, original interest-only period where applicable, original loan start date, and a read-only "Original loan repayment schedule" table (#, due date, principal, interest, total, outstanding after, and a green "Paid" chip on installments settled before publication). Copy states the schedule is informational, shows the loan being refinanced, and that investors fund the new loan whose terms are shown above; the financed amount can be lower than the remaining outstanding of the original schedule.
+- Design decision: never present the original schedule as the payment plan investors will receive. Keep the informational disclaimer adjacent to the table, and hide the whole section (not empty labels) when the loan is not a refinancing loan or optional original fields are absent.
+- Suggested improvement: Claude Design should polish long-schedule ergonomics (24+ rows): consider collapsing paid installments behind a "show paid installments" toggle or scroll container, sticky table header, a compact paid/remaining summary line above the table, mobile horizontal-scroll behavior for the seven-column table, and whether the section belongs on Overview or a dedicated tab once real refinancing volume exists.
+- Priority: important.

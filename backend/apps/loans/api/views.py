@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from django.db.models import Model, QuerySet
+from django.apps import apps
+from django.db.models import Model, QuerySet, Sum
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -17,6 +18,7 @@ from backend.apps.loans.api.serializers import (
     LoanListQuerySerializer,
     LoanSerializer,
     LoanUpdateRequestSerializer,
+    OriginalLoanScheduleRowSerializer,
     PublishLoanRequestSerializer,
     serialize_installment,
     serialize_loan,
@@ -31,6 +33,7 @@ from backend.apps.loans.services import (
     PublishLoanCommand,
     UpdateLoanCommand,
     create_loan,
+    original_schedule_payload,
     publish_loan,
     update_loan,
 )
@@ -112,7 +115,13 @@ class LoanListCreateView(APIView):
                     investor_summary=data["investor_summary"],
                     purpose=data["purpose"],
                     purpose_description=data.get("purpose_description", ""),
+                    is_refinancing=data.get("is_refinancing", False),
                     original_principal_minor=data.get("original_principal_minor"),
+                    original_interest_rate_bps=data.get("original_interest_rate_bps"),
+                    original_term_months=data.get("original_term_months"),
+                    original_repayment_type=data.get("original_repayment_type"),
+                    original_interest_only_months=data.get("original_interest_only_months"),
+                    original_loan_start_date=data.get("original_loan_start_date"),
                     principal_minor=data["principal_minor"],
                     currency=data["currency"],
                     interest_rate_bps=data["interest_rate_bps"],
@@ -121,7 +130,6 @@ class LoanListCreateView(APIView):
                     interest_only_months=data.get("interest_only_months", 0),
                     loan_start_date=data.get("loan_start_date"),
                     funding_deadline=data.get("funding_deadline"),
-                    first_payment_date=data.get("first_payment_date"),
                     collateral_type=data["collateral_type"],
                     collateral_value_minor=data["collateral_value_minor"],
                     collateral_description=data.get("collateral_description", ""),
@@ -175,7 +183,13 @@ class LoanDetailView(APIView):
                     investor_summary=data.get("investor_summary"),
                     purpose=data.get("purpose"),
                     purpose_description=data.get("purpose_description"),
+                    is_refinancing=data.get("is_refinancing"),
                     original_principal_minor=data.get("original_principal_minor"),
+                    original_interest_rate_bps=data.get("original_interest_rate_bps"),
+                    original_term_months=data.get("original_term_months"),
+                    original_repayment_type=data.get("original_repayment_type"),
+                    original_interest_only_months=data.get("original_interest_only_months"),
+                    original_loan_start_date=data.get("original_loan_start_date"),
                     principal_minor=data.get("principal_minor"),
                     interest_rate_bps=data.get("interest_rate_bps"),
                     term_months=data.get("term_months"),
@@ -183,7 +197,6 @@ class LoanDetailView(APIView):
                     interest_only_months=data.get("interest_only_months"),
                     loan_start_date=data.get("loan_start_date"),
                     funding_deadline=data.get("funding_deadline"),
-                    first_payment_date=data.get("first_payment_date"),
                     collateral_type=data.get("collateral_type"),
                     collateral_value_minor=data.get("collateral_value_minor"),
                     collateral_description=data.get("collateral_description"),
@@ -248,11 +261,65 @@ class LoanScheduleView(APIView):
         loan = Loan.objects.filter(id=loan_id).first()
         if loan is None:
             return Response({"detail": "Loan does not exist."}, status=status.HTTP_404_NOT_FOUND)
-        installments = loan.installments.select_related("loan").filter(
-            schedule_version=loan.schedule_version
+        installments = list(
+            loan.installments.select_related("loan").filter(
+                schedule_version=loan.schedule_version
+            )
         )
+        installment_ids = [installment.id for installment in installments]
+        repayment_event_model = apps.get_model("servicing", "BorrowerRepaymentEvent")
+        paid_by_installment_id = {
+            str(row["installment_id"]): (
+                int(row["paid_principal_minor"] or 0),
+                int(row["paid_interest_minor"] or 0),
+            )
+            for row in repayment_event_model.objects.filter(
+                installment_id__in=installment_ids,
+            )
+            .values("installment_id")
+            .annotate(
+                paid_principal_minor=Sum("principal_applied_minor"),
+                paid_interest_minor=Sum("interest_applied_minor"),
+            )
+        }
         return Response(
-            [serialize_installment(installment) for installment in installments],
+            [
+                serialize_installment(
+                    installment,
+                    paid_principal_minor=paid_by_installment_id.get(
+                        str(installment.id), (0, 0)
+                    )[0],
+                    paid_interest_minor=paid_by_installment_id.get(
+                        str(installment.id), (0, 0)
+                    )[1],
+                )
+                for installment in installments
+            ],
+            status=status.HTTP_200_OK,
+        )
+
+
+class LoanOriginalScheduleView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: OriginalLoanScheduleRowSerializer(many=True)})
+    def get(self, request: Request, loan_id: str) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        loan = Loan.objects.select_related("currency").filter(id=loan_id).first()
+        if loan is None:
+            return Response({"detail": "Loan does not exist."}, status=status.HTTP_404_NOT_FOUND)
+        if not loan.is_refinancing:
+            return Response(
+                {"detail": "Loan is not a refinancing loan."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            payload = original_schedule_payload(loan)
+        except LoanValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            [dict(OriginalLoanScheduleRowSerializer(row).data) for row in payload],
             status=status.HTTP_200_OK,
         )
 

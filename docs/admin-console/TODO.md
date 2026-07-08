@@ -197,6 +197,41 @@ Each entry should include:
 - Required admin-console improvement: when Garanta approves manual schedule changes, extend this same schedule review area into a controlled edit workflow with reason codes, validation against principal totals, schedule-version preview, audit evidence, and maker-checker if required. Add a clearer imported/ongoing-loan wizard if this becomes a frequent operational workflow. Do not allow arbitrary free-form schedule edits outside this audited workflow.
 - Priority: important.
 
+## 2026-07-08: Refinancing Fields And Original-Schedule Viewer In Loan Forms
+
+- Screen or component: Loans module, loan create/edit modals, refinancing checkbox section.
+- Current first-version behavior: the create/edit forms expose a "Refinancing loan" checkbox that reveals original principal/interest/term/repayment-type/interest-only/start-date inputs and renders a readonly client-side preview of the original schedule using the selected original repayment type. The first-payment-date input was removed; the backend derives it as loan start date + 1 month. Payloads only carry original fields when the checkbox is on.
+- Required admin-console improvement: the preview duplicates backend schedule math client-side and can drift from the authoritative computation. Add a draft-preview endpoint (or reuse the original-schedule endpoint pre-publication) so the form viewer always shows the server-computed original schedule, and surface backend validation errors inline per original field.
+- Priority: nice-to-have.
+
+## 2026-07-08: Refinancing Publish Wizard Step Gating
+
+- Screen or component: Loans module, Manage dialog, publish action for refinancing loans.
+- Current first-version behavior: publishing a refinancing loan is a two-tab review ("1. Original loan schedule" with the paid-before-publication checkboxes and remaining-outstanding reconciliation, "2. Loan schedule" readonly with the publish button). Step 1 is the default and a "Continue to loan schedule" button advances, but the step-2 tab can also be clicked directly, so "visited step 1" is implicit rather than enforced.
+- Required admin-console improvement: add an explicit confirmation affordance on step 1 (for example a "reviewed original schedule" checkbox or disabling the step-2 tab until continue is pressed) and show a compact summary of the step-1 selections (paid count, remaining outstanding) next to the publish button on step 2.
+- Priority: nice-to-have.
+
+## 2026-07-08: Manage Borrower Repayment Prefill Uses Earliest Schedule Row
+
+- Screen or component: Loans module, Manage dialog, "Record borrower repayment" action.
+- Current first-version behavior: the schedule endpoint does not expose per-installment paid state, so the fixed regular-payment amount prefills from the earliest schedule row's total. For loans with already-settled installments the admin relies on the backend's exact-amount validation error to notice the mismatch, then refreshes the schedule after each declaration.
+- Required admin-console improvement: expose paid/outstanding state per installment (or a "next due installment" summary) on the admin schedule endpoint and prefill from the true next unpaid installment, marking settled rows in the readonly schedule table.
+- Priority: important.
+
+## 2026-07-08: Finance Ops Disbursement Form Has No Prefilled Defaults
+
+- Screen or component: Finance ops module, Borrower disbursement card.
+- Current first-version behavior: the form was minimally updated for the new contract (required BANXUM fee input plus optional override note) but the admin must type both amounts manually because the loan lookup payload does not carry principal and success-fee bps; the Manage-dialog disbursement action is the guided path with readonly defaults and override gating.
+- Required admin-console improvement: either enrich the loan lookup payload with principal and success-fee bps so this card can prefill and mirror the same override rules, or reduce the card to a pointer at Loans -> Manage -> Borrower disbursement to avoid a second, less-guarded entry point for the same money movement.
+- Priority: important.
+
+## 2026-07-08: Admin Manual PDF And Figure Recapture After Refinancing-Loans Slice
+
+- Screen or component: `docs/admin-manual/` rendered outputs (`BANXUM-Admin-Manual.pdf`, captured figures).
+- Current first-version behavior: the manual content JSONs were updated for the refinancing-loans slice (refinancing checkbox + original loan data in loan create, two-step publish review, borrower disbursement in Manage with fee-at-disbursement defaults and override note, fixed-amount repayments plus repayment-in-advance with preview, Servicing operations card reduced to scan + risk notes). `manual.html` and `manual-print.html` were regenerated from the content JSONs with `node scripts/render.mjs` and `node scripts/build-print.mjs`. `BANXUM-Admin-Manual.pdf` was NOT regenerated because the PDF pipeline needs headless Chrome (`scripts/build.sh`), so the shipped PDF still contains the pre-refinancing text.
+- Required admin-console improvement: re-run `docs/admin-manual/scripts/build.sh` on a machine with Chrome to regenerate the PDF, and recapture the affected screenshots/figures (loan create modal, publish wizard, Manage dialog, Servicing operations card, borrower disbursement form) since the UI changed; the annotated figure PNGs still show the old field layout.
+- Priority: important.
+
 ## Borrower document download path
 
 - Borrower documents are metadata references to the shared stored-file foundation; no

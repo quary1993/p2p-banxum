@@ -8,6 +8,7 @@ import type {
   InvestorPortfolio,
   MarketplaceLoanDetail,
   MarketplaceLoanPreview,
+  MarketplaceOriginalLoanScheduleRow,
   PortfolioExposure,
   PortfolioSummary,
   PrimaryOrdersPortal,
@@ -364,7 +365,8 @@ export const marketplaceLoansFixture: MarketplaceLoanPreview[] = [
     currency: "CHF",
     principal_minor: amount(1450000),
     committed_principal_minor: amount(1087500),
-    remaining_capacity_minor: amount(362500)
+    remaining_capacity_minor: amount(362500),
+    is_refinancing: true
   },
   {
     loan_id: "GA-2399",
@@ -379,7 +381,8 @@ export const marketplaceLoansFixture: MarketplaceLoanPreview[] = [
     currency: "CHF",
     principal_minor: amount(620000),
     committed_principal_minor: amount(558000),
-    remaining_capacity_minor: amount(62000)
+    remaining_capacity_minor: amount(62000),
+    is_refinancing: false
   },
   {
     loan_id: "GA-2402",
@@ -394,7 +397,8 @@ export const marketplaceLoansFixture: MarketplaceLoanPreview[] = [
     currency: "EUR",
     principal_minor: amount(1980000),
     committed_principal_minor: amount(415800),
-    remaining_capacity_minor: amount(1564200)
+    remaining_capacity_minor: amount(1564200),
+    is_refinancing: false
   },
   {
     loan_id: "GA-2395",
@@ -409,7 +413,8 @@ export const marketplaceLoansFixture: MarketplaceLoanPreview[] = [
     currency: "EUR",
     principal_minor: amount(540000),
     committed_principal_minor: amount(540000),
-    remaining_capacity_minor: 0
+    remaining_capacity_minor: 0,
+    is_refinancing: false
   },
   {
     loan_id: "GA-2390",
@@ -424,9 +429,39 @@ export const marketplaceLoansFixture: MarketplaceLoanPreview[] = [
     currency: "CHF",
     principal_minor: amount(300000),
     committed_principal_minor: amount(270000),
-    remaining_capacity_minor: amount(30000)
+    remaining_capacity_minor: amount(30000),
+    is_refinancing: false
   }
 ];
+
+// Original loan being refinanced by GA-2401 (Helvetia Logistik AG). Equal-installment
+// schedule: CHF 2,400,000 over 24 months at 8.4% p.a. (0.7% per month on outstanding),
+// CHF 100,000 principal per installment. The borrower paid the first 9 installments
+// before publication, leaving CHF 1,500,000 outstanding; BANXUM lenders refinance
+// CHF 1,450,000 of it (financeable principal may be less than remaining outstanding).
+const refinancedOriginalPrincipalMinor = amount(2_400_000);
+const refinancedOriginalInterestRateBps = 840;
+const refinancedOriginalTermMonths = 24;
+const refinancedOriginalLoanStartDate = "2025-08-29";
+
+const refinancedOriginalScheduleFixture: MarketplaceOriginalLoanScheduleRow[] = Array.from(
+  { length: refinancedOriginalTermMonths },
+  (_, index) => {
+    const outstandingBeforeMinor = refinancedOriginalPrincipalMinor - index * amount(100_000);
+    const principalMinor = amount(100_000);
+    const interestMinor = Math.round(outstandingBeforeMinor * 0.007);
+    return {
+      installment_number: index + 1,
+      // Last day of each month from 2025-09-30 onwards.
+      due_date: new Date(Date.UTC(2025, 9 + index, 0)).toISOString().slice(0, 10),
+      principal_minor: principalMinor,
+      interest_minor: interestMinor,
+      total_minor: principalMinor + interestMinor,
+      outstanding_after_minor: outstandingBeforeMinor - principalMinor,
+      paid_before_publication: index < 9
+    };
+  }
+);
 
 export const loanDetailsFixture: MarketplaceLoanDetail[] = marketplaceLoansFixture.map((loan) => ({
   ...loan,
@@ -482,7 +517,13 @@ export const loanDetailsFixture: MarketplaceLoanDetail[] = marketplaceLoansFixtu
         ? 4900
         : 5800,
   ltv_warnings: loan.collateral_type === "Unsecured exception" ? ["No LTV shown for unsecured loan."] : [],
-  original_principal_minor: loan.principal_minor,
+  original_principal_minor: loan.is_refinancing ? refinancedOriginalPrincipalMinor : 0,
+  original_interest_rate_bps: loan.is_refinancing ? refinancedOriginalInterestRateBps : null,
+  original_term_months: loan.is_refinancing ? refinancedOriginalTermMonths : null,
+  original_repayment_type: loan.is_refinancing ? "amortizing_principal_interest" : null,
+  original_interest_only_months: loan.is_refinancing ? 0 : null,
+  original_loan_start_date: loan.is_refinancing ? refinancedOriginalLoanStartDate : null,
+  original_loan_schedule: loan.is_refinancing ? refinancedOriginalScheduleFixture : [],
   repayment_type: loan.term_months >= 24 ? "bullet" : "equal_installments",
   loan_start_date: "2026-06-30",
   first_payment_date: "2026-07-31",
@@ -573,7 +614,10 @@ export const portfolioFixture: InvestorPortfolio = {
         term_months: 24,
         repayment_type: "equal_installments",
         currency: "CHF",
+        is_refinancing: true,
         original_principal_minor: amount(100000),
+        original_repayment_type: "equal_installments",
+        original_interest_only_months: 0,
         principal_minor: amount(100000),
         funding_deadline: "2026-01-31",
         loan_start_date: "2026-01-31",
@@ -614,7 +658,10 @@ export const portfolioFixture: InvestorPortfolio = {
         term_months: 36,
         repayment_type: "bullet",
         currency: "EUR",
+        is_refinancing: false,
         original_principal_minor: amount(800000),
+        original_repayment_type: null,
+        original_interest_only_months: null,
         principal_minor: amount(800000),
         funding_deadline: "2025-11-30",
         loan_start_date: "2025-11-30",
@@ -660,7 +707,10 @@ export const portfolioFixture: InvestorPortfolio = {
         term_months: 24,
         repayment_type: "bullet",
         currency: "EUR",
+        is_refinancing: false,
         original_principal_minor: amount(400000),
+        original_repayment_type: null,
+        original_interest_only_months: null,
         principal_minor: amount(400000),
         funding_deadline: "2025-09-15",
         loan_start_date: "2025-09-15",
@@ -706,7 +756,10 @@ export const portfolioFixture: InvestorPortfolio = {
         term_months: 24,
         repayment_type: "equal_installments",
         currency: "CHF",
+        is_refinancing: false,
         original_principal_minor: amount(250000),
+        original_repayment_type: null,
+        original_interest_only_months: null,
         principal_minor: amount(250000),
         funding_deadline: "2025-06-15",
         loan_start_date: "2025-06-15",

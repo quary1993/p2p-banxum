@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Any, cast
 
 from django.db.models import Model
@@ -12,6 +13,8 @@ from rest_framework.views import APIView
 
 from backend.apps.platform_core.domain.access import is_admin_actor
 from backend.apps.servicing.api.serializers import (
+    BorrowerRepaymentAdvancePreviewRequestSerializer,
+    BorrowerRepaymentAdvancePreviewResponseSerializer,
     BorrowerRepaymentRecordRequestSerializer,
     BorrowerRepaymentRecordResponseSerializer,
     LoanRecoveryPaymentRecordRequestSerializer,
@@ -37,6 +40,7 @@ from backend.apps.servicing.api.serializers import (
 )
 from backend.apps.servicing.services import (
     AddLoanRiskNoteCommand,
+    PreviewAdvanceRepaymentCommand,
     RecordBorrowerRepaymentCommand,
     RecordLoanRecoveryPaymentCommand,
     RecordLoanWriteOffCommand,
@@ -46,6 +50,7 @@ from backend.apps.servicing.services import (
     add_loan_risk_note,
     list_admin_loan_risk_notes,
     list_public_loan_risk_notes,
+    preview_borrower_repayment_in_advance,
     record_borrower_repayment,
     record_loan_recovery_payment,
     record_loan_write_off,
@@ -88,7 +93,8 @@ class BorrowerRepaymentRecordView(APIView):
                     payment_reference=data.get("payment_reference", ""),
                     evidence_reference=data.get("evidence_reference", ""),
                     admin_notes=data.get("admin_notes", ""),
-                    warning_acknowledged=data.get("warning_acknowledged", False),
+                    repayment_in_advance=data.get("repayment_in_advance", False),
+                    borrower_repayment_bank_date=data.get("borrower_repayment_bank_date"),
                     idempotency_key=data["idempotency_key"],
                 )
             )
@@ -106,6 +112,38 @@ class BorrowerRepaymentRecordView(APIView):
                 ],
             },
             status=status.HTTP_201_CREATED,
+        )
+
+
+class BorrowerRepaymentAdvancePreviewView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=BorrowerRepaymentAdvancePreviewRequestSerializer,
+        responses={200: BorrowerRepaymentAdvancePreviewResponseSerializer},
+    )
+    def post(self, request: Request) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = BorrowerRepaymentAdvancePreviewRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            plan = preview_borrower_repayment_in_advance(
+                PreviewAdvanceRepaymentCommand(
+                    actor=cast(Model, request.user),
+                    loan_id=str(data["loan_id"]),
+                    amount_minor=data["amount_minor"],
+                    borrower_repayment_bank_date=data["borrower_repayment_bank_date"],
+                )
+            )
+        except ServicingAuthorizationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except ServicingValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            dict(BorrowerRepaymentAdvancePreviewResponseSerializer(asdict(plan)).data),
+            status=status.HTTP_200_OK,
         )
 
 

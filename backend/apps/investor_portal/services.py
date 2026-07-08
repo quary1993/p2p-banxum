@@ -611,7 +611,18 @@ def _loan_projection(loan: Any, *, as_of: datetime) -> dict[str, Any]:
         "term_months": int(loan.term_months),
         "repayment_type": str(loan.repayment_type),
         "currency": _currency_code(loan.currency),
+        "is_refinancing": bool(loan.is_refinancing),
         "original_principal_minor": int(loan.original_principal_minor),
+        "original_repayment_type": (
+            str(loan.original_repayment_type)
+            if getattr(loan, "original_repayment_type", "")
+            else None
+        ),
+        "original_interest_only_months": (
+            int(loan.original_interest_only_months)
+            if getattr(loan, "original_interest_only_months", None) is not None
+            else None
+        ),
         "principal_minor": int(loan.principal_minor),
         "funding_deadline": loan.funding_deadline,
         "loan_start_date": loan.loan_start_date,

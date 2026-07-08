@@ -25,6 +25,17 @@ class MarketplaceLoanPreviewSerializer(serializers.Serializer[Any]):
     principal_minor = serializers.IntegerField()
     committed_principal_minor = serializers.IntegerField()
     remaining_capacity_minor = serializers.IntegerField()
+    is_refinancing = serializers.BooleanField()
+
+
+class MarketplaceOriginalLoanScheduleRowSerializer(serializers.Serializer[Any]):
+    installment_number = serializers.IntegerField()
+    due_date = serializers.DateField()
+    principal_minor = serializers.IntegerField()
+    interest_minor = serializers.IntegerField()
+    total_minor = serializers.IntegerField()
+    outstanding_after_minor = serializers.IntegerField()
+    paid_before_publication = serializers.BooleanField()
 
 
 class MarketplaceLoanDetailSerializer(MarketplaceLoanPreviewSerializer):
@@ -37,6 +48,15 @@ class MarketplaceLoanDetailSerializer(MarketplaceLoanPreviewSerializer):
     ltv_bps = serializers.IntegerField(allow_null=True)
     ltv_warnings = serializers.ListField(child=serializers.CharField())
     original_principal_minor = serializers.IntegerField()
+    original_interest_rate_bps = serializers.IntegerField(allow_null=True)
+    original_term_months = serializers.IntegerField(allow_null=True)
+    original_repayment_type = serializers.CharField(allow_null=True)
+    original_interest_only_months = serializers.IntegerField(allow_null=True)
+    original_loan_start_date = serializers.DateField(allow_null=True)
+    original_loan_schedule = MarketplaceOriginalLoanScheduleRowSerializer(
+        many=True,
+        required=False,
+    )
     repayment_type = serializers.CharField()
     loan_start_date = serializers.DateField()
     first_payment_date = serializers.DateField()

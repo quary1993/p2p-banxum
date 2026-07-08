@@ -1,6 +1,6 @@
 # Loan Servicing and Repayments
 
-Status: Draft. Updated with payment, balance, servicing, and configurable recovery waterfall decisions on 2026-06-01.
+Status: Draft. Updated with payment, balance, servicing, and configurable recovery waterfall decisions on 2026-06-01, and with the fixed-amount installment / repayment-in-advance servicing model on 2026-07-08.
 
 ## Purpose
 
@@ -56,10 +56,8 @@ Repayment schedules are generated automatically from loan terms and repayment ty
 
 Examples of controlled events:
 
-- Regular installment payment.
-- Partial installment payment.
-- Multiple-installment payment for a late/default loan.
-- Early repayment for a healthy loan.
+- Regular installment payment at the fixed next-due amount.
+- Repayment in advance with a borrower repayment bank date, covering partial, multi-installment, and early repayment amounts.
 - Installment buyback.
 - Execution/recovery event.
 
@@ -74,21 +72,21 @@ Define event types, override permissions, reason codes, audit fields, recalculat
 ### SERV-DEC-003: Borrower Repayment Matching
 
 Status: Accepted.
-Date: 2026-05-16.
+Date: 2026-05-16. Updated 2026-07-08 for fixed-amount installments and repayment in advance.
 Owner: Garanta finance / operations.
 
 Decision:
-When a borrower payment arrives, admin enters the received amount. The system correlates the payment with the next due installment by default.
+Borrower repayments are declared from the Loans table through Manage > "Record borrower repayment", which shows the loan's current schedule. Declaring a regular installment payment uses a fixed amount: it must equal the outstanding amount of the next due installment and cannot be edited.
 
-If the amount is lower or higher than the next due installment, the system shows a warning. If admin proceeds, the system accepts the entered amount and recalculates the schedule properly.
+To declare any other amount (except for defaulted loans, which go through the recovery workflow), the admin checks "Repayment in advance" and selects a "Borrower repayment bank date". The declared amount is then allocated through the repayment-in-advance waterfall (SERV-DEC-007) and the future schedule is regenerated as a new schedule version. Before anything is written, the admin gets a preview/confirmation dialog showing the allocation and both the old and the new schedule.
 
-A received payment can represent a regular installment, partial installment, multiple installments for a late/default loan, or early repayment for a healthy loan.
+The old free-amount declaration with a "warning acknowledged" checkbox for partial payments and overpayments was removed.
 
 Rationale:
-The next-due-installment default keeps operations simple while warnings protect against accidental mismatch, partial repayment, overpayment, or multi-installment payment cases.
+The fixed next-due-installment amount keeps regular operations simple and mistake-proof, while the explicit repayment-in-advance flow with bank date, deterministic allocation, and a mandatory preview replaces ad-hoc warnings for irregular amounts.
 
 Follow-ups:
-Define warning thresholds, exact recalculation behavior, and how payments covering multiple installments are displayed.
+Define how payments covering multiple installments are displayed in investor-facing history.
 
 ### SERV-DEC-004: Repayment Allocation Waterfall
 
@@ -109,7 +107,7 @@ Late fees are not charged at launch, so late-fee allocation is inactive unless a
 
 Borrower-side penalties remain configurable in the data model but are set to 0/inactive at launch until Garanta finalizes business and legal policy. While penalties are 0, the penalty waterfall step has no monetary effect.
 
-For a healthy loan with a CHF 1,000 regular installment, if admin declares a CHF 3,000 received payment, the system treats the excess as early repayment after covering current installment interest and current installment principal. The remaining excess reduces future outstanding principal. The loan is then recalculated for the same remaining period using the new outstanding principal.
+For a healthy loan with a CHF 1,000 regular installment, if the borrower pays CHF 3,000, admin declares it as a repayment in advance with the borrower repayment bank date. The system pays all unpaid scheduled interest of installments due on or before the bank date, plus pro-rata accrued interest on the outstanding principal for the days since the last installment due date up to the bank date; the remainder reduces outstanding principal. The future schedule is then regenerated as a new schedule version for the same remaining due dates using the new outstanding principal.
 
 Rationale:
 The waterfall preserves fee/penalty priority while keeping loan economics tied to the agreed schedule.
@@ -135,36 +133,40 @@ Keep late-fee support as a future configurable extension if business/legal polic
 ### SERV-DEC-006: Partial Borrower Repayments
 
 Status: Accepted.
-Date: 2026-05-16.
+Date: 2026-05-16. Updated 2026-07-08 for the repayment-in-advance model.
 Owner: Garanta operations / finance.
 
 Decision:
-Partial borrower repayments are accepted case by case. If admin records a paid credit amount, the platform credits the related lender distribution to investor balances. The system calculates the pro-rata lender distribution for the received amount and updates the schedule accordingly.
+Partial borrower repayments are accepted case by case, but they are no longer declared as a free amount against the next installment. Any amount that differs from the outstanding amount of the next due installment is declared through the "Repayment in advance" flow with a borrower repayment bank date (defaulted loans go through recovery instead). The platform allocates the amount through the repayment-in-advance waterfall, regenerates the future schedule as a new version, credits the related lender distribution to investor balances pro rata, and requires admin confirmation of the previewed allocation before anything is written.
 
 Rationale:
-The launch model is manual/admin-controlled, and partial repayment handling must match actual cash movement and lender balance credits.
+The launch model is manual/admin-controlled, and partial repayment handling must match actual cash movement and lender balance credits. Routing irregular amounts through one deterministic flow removes the ambiguity of warned free-amount declarations.
 
 Follow-ups:
-Define how partial payments affect installment status, arrears amount, interest accrual, balance source ageing, and lender notification wording.
+Define how partial payments affect arrears displays, balance source ageing edge cases, and lender notification wording.
 
-### SERV-DEC-007: Early Repayment
+### SERV-DEC-007: Early Repayment (Repayment in Advance)
 
 Status: Accepted.
-Date: 2026-05-16.
+Date: 2026-05-16. Updated 2026-07-08 for the repayment-in-advance model.
 Owner: Garanta operations / finance / legal.
 
 Decision:
 Early repayment is allowed at launch. Both full and partial early repayment are allowed. No early repayment fee is charged.
 
-For partial early repayment, the schedule is recalculated with the same remaining period and lower remaining principal unless an operational event dictates another treatment.
+Early repayment is declared as a "Repayment in advance": admin checks the repayment-in-advance option in Manage > "Record borrower repayment", enters the received amount, and selects the "Borrower repayment bank date". The waterfall then pays:
 
-Early repayment is triggered by a declared received payment that exceeds the currently due scheduled amount for a healthy loan after fees, penalties, current interest, and current principal are allocated.
+1. All unpaid scheduled interest of installments due on or before the bank date.
+2. Pro-rata accrued interest on the outstanding principal for the days since the last installment due date up to the bank date: outstanding x monthly rate x days elapsed / days in period, where monthly rate = annual bps / 120000.
+3. The remainder reduces outstanding principal.
+
+The future schedule is then regenerated as a new immutable schedule version: only future rows are regenerated, original due dates are preserved, and the first regenerated installment's interest is prorated for the remainder of the current period. Before anything is written, the admin gets a preview/confirmation dialog showing the allocation and both the old and the new schedule (backend endpoint `POST /api/v1/servicing/admin/borrower-repayments/advance-preview/`). A full payoff through repayment in advance marks the loan repaid.
 
 Rationale:
-Early repayment flexibility matches expected loan operations and avoids unnecessary penalty complexity at launch.
+Early repayment flexibility matches expected loan operations and avoids unnecessary penalty complexity at launch. The explicit bank date makes interest accrual deterministic, and the mandatory preview lets admin verify the allocation and resulting schedule before the ledger is touched.
 
 Follow-ups:
-Define lender notification wording. Launch recalculation uses the same remaining period with lower remaining principal, annual nominal interest, monthly installment defaults, currency minor-unit rounding, and final installment rounding-residue absorption.
+Define lender notification wording. Launch recalculation preserves the remaining due dates with lower remaining principal, annual nominal interest, monthly installment defaults, currency minor-unit rounding, and final installment rounding-residue absorption.
 
 ### SERV-DEC-008: Late and Default Status Timing
 
@@ -320,7 +322,7 @@ Finalize lender notification wording, accountant-approved recovery report labels
 - Version schedule changes.
 - Allow controlled event-driven edits to generated schedules with reason and audit metadata.
 - Track due date, principal due, interest due, fees due, paid amounts, late amounts, and status.
-- For loans imported after their contractual start, installments marked paid before publication are treated as already settled for servicing-status purposes without creating borrower-repayment cash events. They must be a contiguous prefix of past-due schedule rows, and the remaining scheduled principal must equal the financeable principal funded by investors.
+- For refinancing loans, the original loan schedule computed from the admin-declared original loan data is purely informational for investors: it is never persisted and never serviced. The installments ticked as "paid before publication" during the publish review must be a contiguous prefix of past-due original-schedule rows, but they have no effect on servicing. The serviced schedule is always generated from the financeable principal, exactly as for a standard loan.
 - Recalculate expected investor distributions when schedules change.
 - Preserve historical schedule versions for audit and reporting.
 
@@ -328,16 +330,18 @@ Finalize lender notification wording, accountant-approved recovery report labels
 
 Launch waterfall:
 
-1. Match borrower repayment to the next due installment by default.
-2. Allocate to fees.
-3. Allocate to penalties.
-4. Allocate to current installment interest.
-5. Allocate to current installment principal.
-6. Allocate excess to future outstanding principal where the event is an early repayment or multi-installment payment.
-7. Recalculate the schedule for the same future period using remaining outstanding principal where required.
-8. Calculate each lender's pro-rata distribution.
-9. Apply configured `lender_payment_fee` per lender distribution. Launch value is 0.
-10. Put unmatched, surplus, or unexplained amounts into suspense until admin resolves them.
+1. A regular installment declaration uses the fixed outstanding amount of the next due installment; it is allocated to that installment's fees, penalties, interest, and principal.
+2. Any other amount (except for defaulted loans, which go through recovery) is declared as a repayment in advance with a borrower repayment bank date.
+3. For a repayment in advance, allocate to fees.
+4. Allocate to penalties.
+5. Allocate to all unpaid scheduled interest of installments due on or before the bank date.
+6. Allocate to pro-rata accrued interest on the outstanding principal for the days since the last installment due date up to the bank date (outstanding x monthly rate x days elapsed / days in period, monthly rate = annual bps / 120000).
+7. Allocate the remainder to outstanding principal.
+8. Regenerate the future schedule as a new schedule version: only future rows, original due dates preserved, first regenerated installment interest prorated for the remainder of the current period. A full payoff marks the loan repaid.
+9. Require admin confirmation of the previewed allocation and old/new schedules before any ledger write.
+10. Calculate each lender's pro-rata distribution.
+11. Apply configured `lender_payment_fee` per lender distribution. Launch value is 0.
+12. Put unmatched, surplus, or unexplained amounts into suspense until admin resolves them.
 
 Investor-facing treatment must match contracts.
 
@@ -368,9 +372,10 @@ For default recovery events, the project-specific recovery waterfall is applied 
 ## Controls
 
 - Repayment matching must be traceable to external payment references.
-- Admin enters the borrower amount received before distributions are generated.
-- System matches to the next due installment by default and warns if the amount is lower or higher.
-- Admin may proceed after warning; the system uses the received amount, classifies the payment event, and recalculates the schedule where required.
+- Admin declares borrower repayments from the Loans table through Manage > "Record borrower repayment", which shows the loan's current schedule, before distributions are generated.
+- A regular installment declaration uses the fixed outstanding amount of the next due installment; the amount cannot be edited.
+- Any other amount (except for defaulted loans, which go through recovery) requires the "Repayment in advance" checkbox and a borrower repayment bank date; the system allocates it through the repayment-in-advance waterfall and regenerates the future schedule as a new version.
+- Repayment-in-advance declarations require admin confirmation of a preview showing the allocation and both the old and the new schedule before anything is written.
 - System must produce the lender distribution list with lender, balance currency, reference, and amount due.
 - System may generate internal balance-credit records and account statements for admin processing/evidence.
 - Lender distribution artifacts are internal and are not sent to lenders as files by default.
@@ -395,10 +400,10 @@ For default recovery events, the project-specific recovery waterfall is applied 
 ## Q/A Backlog
 
 1. Answered by SERV-DEC-001: all standard generated repayment types except custom/manual schedule as a repayment type.
-2. Updated by SERV-DEC-003 and PAY-DEC-005/PAY-DEC-006/PAY-DEC-017: admin enters borrower amount received; system calculates lender pro-rata balance credits and configurable lender payment fee, initially 0; credited balances are subject to ageing rules.
+2. Updated by SERV-DEC-003 and PAY-DEC-005/PAY-DEC-006/PAY-DEC-017: admin declares regular installments at the fixed next-due amount and other amounts as repayments in advance; system calculates lender pro-rata balance credits and configurable lender payment fee, initially 0; credited balances are subject to ageing rules.
 3. Answered by SERV-DEC-005: no late fees at launch.
-4. Answered by SERV-DEC-007: full and partial early repayment are allowed, with no early repayment fee.
-5. Answered by SERV-DEC-006: partial repayments are accepted case by case.
+4. Answered by SERV-DEC-007: full and partial early repayment are allowed through the repayment-in-advance flow, with no early repayment fee.
+5. Answered by SERV-DEC-006: partial repayments are accepted case by case through the repayment-in-advance flow.
 6. Answered by SERV-DEC-008: day 5 late, day 16 default, using Europe/Zurich calendar days.
 7. Answered by SERV-DEC-009: no direct free-form restructuring; changes happen through defined operational events.
 8. Answered by SERV-DEC-010: no detailed covenant tracking at launch; generic notes/document upload only.

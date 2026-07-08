@@ -122,7 +122,7 @@
         {
           "item": 14,
           "label": "Queue tab: Servicing due (Servicing)",
-          "text": "Borrower repayments (installments) that fall due inside the look-ahead window. Servicing means managing a live loan's repayments. Computed by checking each funded/late loan's repayment schedule against the due window; the amount shown is the outstanding amount on that installment. Handle in Loans (Servicing and recovery)."
+          "text": "Borrower repayments (installments) that fall due inside the look-ahead window. Servicing means managing a live loan's repayments. Computed by checking each funded/late loan's repayment schedule against the due window; the amount shown is the outstanding amount on that installment. Handle in Loans (Manage on the loan row > Record borrower repayment)."
         },
         {
           "item": 15,

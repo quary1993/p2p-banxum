@@ -113,7 +113,18 @@ class Loan(TimestampedModel):
     investor_summary = models.TextField()
     purpose = models.CharField(max_length=64, choices=LoanPurpose.choices)
     purpose_description = models.TextField(blank=True)
+    is_refinancing = models.BooleanField(default=False)
     original_principal_minor = models.BigIntegerField()
+    original_interest_rate_bps = models.PositiveIntegerField(null=True, blank=True)
+    original_term_months = models.PositiveSmallIntegerField(null=True, blank=True)
+    original_repayment_type = models.CharField(
+        max_length=64,
+        choices=RepaymentType.choices,
+        blank=True,
+        default="",
+    )
+    original_interest_only_months = models.PositiveSmallIntegerField(null=True, blank=True)
+    original_loan_start_date = models.DateField(null=True, blank=True)
     principal_minor = models.BigIntegerField()
     currency = models.ForeignKey(
         "platform_core.Currency",
@@ -162,6 +173,19 @@ class Loan(TimestampedModel):
             models.CheckConstraint(
                 condition=models.Q(original_principal_minor__gte=models.F("principal_minor")),
                 name="loan_original_principal_not_below_financeable",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(is_refinancing=False)
+                    | (
+                        models.Q(original_interest_rate_bps__isnull=False)
+                        & models.Q(original_term_months__isnull=False)
+                        & ~models.Q(original_repayment_type="")
+                        & models.Q(original_interest_only_months__isnull=False)
+                        & models.Q(original_loan_start_date__isnull=False)
+                    )
+                ),
+                name="loan_refinancing_requires_original_terms",
             ),
         ]
         indexes = [

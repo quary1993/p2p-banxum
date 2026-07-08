@@ -48,8 +48,9 @@ Legal-entity lenders do not self-register. Their registration and KYC/KYB/AML ar
 2. After registration-time KYC approval, browse full loan data.
 3. Filter by product type, duration, yield, rating, geography, sector, collateral, and availability.
 4. Open loan detail page.
-5. Review borrower/entity details, loan terms, risk rating, documents, repayment schedule, collateral, fees, and disclosures.
-6. Mark interest or create investment order.
+5. Review borrower/entity details, loan terms, risk rating, documents, repayment schedule, collateral, fees, and disclosures. The repayment schedule is always generated from the financeable principal.
+6. For refinancing loans, the loan detail page shows a "Refinanced loan" badge plus the informational original loan data (original contractual principal, original interest rate, original term, original loan start date) and the computed original schedule, including which original installments were paid before publication. This original schedule is informational only and is never serviced.
+7. Mark interest or create investment order.
 
 ### Invest
 
@@ -103,7 +104,7 @@ Website balances and ordinary amounts display 2 decimals. During FX quote and co
 
 1. View principal outstanding, expected interest, realized interest, arrears, defaults, and pending transfer statuses.
 2. Drill into loan-level performance, including current loan status and days past due where applicable.
-3. View received balance-credit history, including partial installment, full installment, multiple-installment, late/default recovery, and early repayment distributions. Recovery entries should show the lender credited amount and available split between principal, contractual interest, default/penalty interest, recovery costs/fees where disclosed, other penalties/costs, and rounding difference.
+3. View received balance-credit history, including full installment, repayment-in-advance (partial, multi-installment, or early repayment), and late/default recovery distributions. Recovery entries should show the lender credited amount and available split between principal, contractual interest, default/penalty interest, recovery costs/fees where disclosed, other penalties/costs, and rounding difference.
 4. Receive email notification when a lender balance credit is made.
 5. View admin-published public notes on late, defaulted, recovery, or operationally changed loans where admin has added them.
 6. Download investor statements and tax documents.

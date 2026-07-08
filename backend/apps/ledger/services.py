@@ -250,12 +250,14 @@ class FinalizeBorrowerDisbursementCommand:
     loan_id: str
     borrower_id: str
     amount_minor: int
+    fee_minor: int
     currency: str
     booking_date: date
     value_date: date
     collection_account_identifier: str
     payee_name: str
     payee_account_identifier: str
+    override_note: str = ""
     bank_reference: str = ""
     payment_reference: str = ""
     evidence_reference: str = ""
@@ -1061,6 +1063,8 @@ def _borrower_disbursement_finalization_fingerprint(
             "loan_id": str(command.loan_id),
             "borrower_id": str(command.borrower_id),
             "amount_minor": amount_minor,
+            "fee_minor": command.fee_minor,
+            "override_note": command.override_note.strip(),
             "currency": currency_code,
             "booking_date": command.booking_date.isoformat(),
             "value_date": command.value_date.isoformat(),
@@ -2331,6 +2335,11 @@ def finalize_borrower_disbursement(
     _require_admin_actor(command.actor)
     currency = _enabled_currency(command.currency)
     amount_minor = _validate_money(command.amount_minor, currency.code, "Disbursement amount")
+    fee_minor = _validate_nonnegative_money(
+        command.fee_minor,
+        currency.code,
+        "BANXUM disbursement fee",
+    )
     idempotency_key = _clean_idempotency_key(command.idempotency_key)
     collection_account_identifier = _clean_required(
         command.collection_account_identifier,
@@ -2354,11 +2363,32 @@ def finalize_borrower_disbursement(
     if existing is not None:
         return existing
 
-    _locked_funded_loan_for_disbursement(
+    loan = _locked_funded_loan_for_disbursement(
         loan_id=str(command.loan_id),
         borrower_id=str(command.borrower_id),
         currency_code=currency.code,
     )
+    funded_principal_minor = int(getattr(loan, "principal_minor", 0))
+    fee_bps = int(getattr(loan, "borrower_success_fee_bps", 0))
+    default_fee_minor = int(
+        (Decimal(funded_principal_minor) * Decimal(fee_bps) / Decimal(10_000)).quantize(
+            Decimal("1"), rounding=ROUND_HALF_UP
+        )
+    )
+    default_amount_minor = funded_principal_minor - default_fee_minor
+    if fee_minor * 10 > funded_principal_minor:
+        raise LedgerValidationError(
+            "BANXUM disbursement fee must be between 0 and 10% of the funded amount."
+        )
+    if amount_minor + fee_minor > funded_principal_minor:
+        raise LedgerValidationError(
+            "Borrower transfer plus BANXUM fee cannot exceed the funded amount."
+        )
+    is_override = amount_minor != default_amount_minor or fee_minor != default_fee_minor
+    if is_override and not command.override_note.strip():
+        raise LedgerValidationError(
+            "An explanation note is required to override the default disbursement amounts."
+        )
     borrower_disbursement_account = get_or_create_ledger_account(
         account_type=LedgerAccountType.BORROWER_DISBURSEMENT_PAYABLE,
         currency=currency,
@@ -2369,9 +2399,13 @@ def finalize_borrower_disbursement(
     payable_balance = _credit_balance_for_account(borrower_disbursement_account)
     if payable_balance <= 0:
         raise LedgerValidationError("Loan has no borrower disbursement payable balance.")
-    if amount_minor != payable_balance:
+    if amount_minor + fee_minor > payable_balance:
         raise LedgerValidationError(
-            "Borrower disbursement amount must equal the outstanding payable balance."
+            "Borrower transfer plus BANXUM fee cannot exceed the outstanding payable balance."
+        )
+    if amount_minor + fee_minor != payable_balance:
+        raise LedgerValidationError(
+            "Borrower transfer plus BANXUM fee must clear the outstanding payable balance."
         )
     collection_cash_balance = _account_group_balance_minor(
         currency=currency,
@@ -2388,6 +2422,11 @@ def finalize_borrower_disbursement(
         "loan_id": str(command.loan_id),
         "borrower_id": str(command.borrower_id),
         "payable_balance_before_disbursement_minor": payable_balance,
+        "fee_minor": fee_minor,
+        "default_amount_minor": default_amount_minor,
+        "default_fee_minor": default_fee_minor,
+        "amounts_overridden": is_override,
+        "override_note": command.override_note.strip(),
     }
     try:
         with transaction.atomic():
@@ -2430,13 +2469,43 @@ def finalize_borrower_disbursement(
         currency=currency,
         name=f"{currency.code} collection cash",
     )
+    postings = [
+        PostingCommand(
+            account=borrower_disbursement_account,
+            side=LedgerPostingSide.DEBIT,
+            amount_minor=amount_minor + fee_minor,
+            memo="Borrower disbursement payable cleared",
+        ),
+        PostingCommand(
+            account=collection_cash_account,
+            side=LedgerPostingSide.CREDIT,
+            amount_minor=amount_minor,
+            memo="Cash paid to borrower from collection account",
+        ),
+    ]
+    if fee_minor > 0:
+        garanta_revenue_account = get_or_create_ledger_account(
+            account_type=LedgerAccountType.GARANTA_ACCRUED_REVENUE,
+            currency=currency,
+            owner_type="garanta",
+            owner_id="platform",
+            name=f"{currency.code} Garanta accrued revenue",
+        )
+        postings.append(
+            PostingCommand(
+                account=garanta_revenue_account,
+                side=LedgerPostingSide.CREDIT,
+                amount_minor=fee_minor,
+                memo="BANXUM fee recognized as revenue at borrower disbursement",
+            )
+        )
     journal_entry = post_journal_entry(
         PostJournalEntryCommand(
             actor=command.actor,
             event_type="borrower_loan_disbursement_finalized",
             direction=LedgerDirection.OUT,
             currency=currency.code,
-            gross_amount_minor=amount_minor,
+            gross_amount_minor=amount_minor + fee_minor,
             net_amount_minor=amount_minor,
             booking_date=command.booking_date,
             value_date=command.value_date,
@@ -2450,28 +2519,21 @@ def finalize_borrower_disbursement(
             bank_reference=command.bank_reference,
             evidence_reference=command.evidence_reference,
             idempotency_key=_derived_idempotency_key("ledger", idempotency_key),
-            postings=[
-                PostingCommand(
-                    account=borrower_disbursement_account,
-                    side=LedgerPostingSide.DEBIT,
-                    amount_minor=amount_minor,
-                    memo="Borrower disbursement payable cleared",
-                ),
-                PostingCommand(
-                    account=collection_cash_account,
-                    side=LedgerPostingSide.CREDIT,
-                    amount_minor=amount_minor,
-                    memo="Cash paid to borrower from collection account",
-                ),
-            ],
+            postings=postings,
             tax_metadata={
                 "client_money_flow_minor": amount_minor,
+                "garanta_revenue_minor": fee_minor,
             },
             metadata={
                 "bank_operation_type": BankOperationType.BORROWER_LOAN_DISBURSEMENT,
                 "loan_id": str(command.loan_id),
                 "borrower_id": str(command.borrower_id),
                 "payable_balance_before_disbursement_minor": payable_balance,
+                "fee_minor": fee_minor,
+                "default_amount_minor": default_amount_minor,
+                "default_fee_minor": default_fee_minor,
+                "amounts_overridden": is_override,
+                "override_note": command.override_note.strip(),
             },
         )
     )
@@ -2487,6 +2549,8 @@ def finalize_borrower_disbursement(
                 "borrower_id": str(command.borrower_id),
                 "currency": currency.code,
                 "amount_minor": amount_minor,
+                "fee_minor": fee_minor,
+                "amounts_overridden": is_override,
                 "journal_entry_id": str(journal_entry.id),
             },
         )
@@ -2501,6 +2565,7 @@ def finalize_borrower_disbursement(
                 "borrower_id": str(command.borrower_id),
                 "currency": currency.code,
                 "amount_minor": amount_minor,
+                "fee_minor": fee_minor,
                 "journal_entry_id": str(journal_entry.id),
             },
             idempotency_key=f"bank-operation:{bank_operation.id}:borrower-disbursement-finalized",
@@ -5678,6 +5743,9 @@ def close_primary_loan_funding(
     source_id = _clean_required(command.source_id, "Source id")
     as_of = command.as_of or now_utc()
     value_date = business_date(as_of)
+    # The BANXUM/Garanta fee is recognized as revenue at borrower disbursement,
+    # not at funding close. The full accepted principal moves into the borrower
+    # payable; the planned fee is recorded as evidence only.
     borrower_success_fee = int(
         (
             Decimal(accepted_principal)
@@ -5685,9 +5753,7 @@ def close_primary_loan_funding(
             / Decimal(10_000)
         ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
     )
-    borrower_disbursement_payable = accepted_principal - borrower_success_fee
-    if borrower_disbursement_payable < 0:
-        raise LedgerValidationError("Borrower disbursement payable cannot be negative.")
+    borrower_disbursement_payable = accepted_principal
     journal_idempotency_key = _derived_idempotency_key(
         "ledger-primary-loan-close",
         idempotency_key,
@@ -5729,34 +5795,15 @@ def close_primary_loan_funding(
             account=loan_funding_escrow_account,
             side=LedgerPostingSide.DEBIT,
             amount_minor=accepted_principal,
-            memo="Loan funding escrow closed into borrower payable and platform revenue",
-        )
+            memo="Loan funding escrow closed into borrower payable",
+        ),
+        PostingCommand(
+            account=borrower_disbursement_account,
+            side=LedgerPostingSide.CREDIT,
+            amount_minor=borrower_disbursement_payable,
+            memo="Borrower disbursement payable for full funded principal",
+        ),
     ]
-    if borrower_disbursement_payable > 0:
-        postings.append(
-            PostingCommand(
-                account=borrower_disbursement_account,
-                side=LedgerPostingSide.CREDIT,
-                amount_minor=borrower_disbursement_payable,
-                memo="Borrower disbursement payable after success fee",
-            )
-        )
-    if borrower_success_fee > 0:
-        garanta_revenue_account = get_or_create_ledger_account(
-            account_type=LedgerAccountType.GARANTA_ACCRUED_REVENUE,
-            currency=currency,
-            owner_type="garanta",
-            owner_id="platform",
-            name=f"{currency.code} Garanta accrued revenue",
-        )
-        postings.append(
-            PostingCommand(
-                account=garanta_revenue_account,
-                side=LedgerPostingSide.CREDIT,
-                amount_minor=borrower_success_fee,
-                memo="Borrower success fee accrued at funding close",
-            )
-        )
     try:
         journal_entry = post_journal_entry(
             PostJournalEntryCommand(
@@ -5777,13 +5824,14 @@ def close_primary_loan_funding(
                 idempotency_key=journal_idempotency_key,
                 postings=postings,
                 tax_metadata={
-                    "garanta_revenue_minor": borrower_success_fee,
+                    "garanta_revenue_minor": 0,
                     "client_money_flow_minor": accepted_principal,
                 },
                 metadata={
                     PRIMARY_LOAN_CLOSE_FINGERPRINT_METADATA_KEY: request_fingerprint,
                     "borrower_success_fee_bps": command.borrower_success_fee_bps,
-                    "borrower_success_fee_minor": borrower_success_fee,
+                    "planned_borrower_success_fee_minor": borrower_success_fee,
+                    "fee_booking_policy": "at_disbursement",
                     "borrower_disbursement_payable_minor": borrower_disbursement_payable,
                     "escrow_balance_before_close_minor": escrow_balance,
                 },

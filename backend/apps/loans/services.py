@@ -84,12 +84,17 @@ class CreateLoanCommand:
     collateral_type: str
     collateral_value_minor: int
     risk_rating: str
+    is_refinancing: bool = False
     original_principal_minor: int | None = None
+    original_interest_rate_bps: int | None = None
+    original_term_months: int | None = None
+    original_repayment_type: str | None = None
+    original_interest_only_months: int | None = None
+    original_loan_start_date: date | None = None
     purpose_description: str = ""
     collateral_description: str = ""
     loan_start_date: date | None = None
     funding_deadline: date | None = None
-    first_payment_date: date | None = None
     interest_only_months: int = 0
     borrower_success_fee_bps: int = 200
     lender_payment_fee_minor: int = 0
@@ -108,7 +113,13 @@ class UpdateLoanCommand:
     investor_summary: str | None = None
     purpose: str | None = None
     purpose_description: str | None = None
+    is_refinancing: bool | None = None
     original_principal_minor: int | None = None
+    original_interest_rate_bps: int | None = None
+    original_term_months: int | None = None
+    original_repayment_type: str | None = None
+    original_interest_only_months: int | None = None
+    original_loan_start_date: date | None = None
     principal_minor: int | None = None
     interest_rate_bps: int | None = None
     term_months: int | None = None
@@ -119,7 +130,6 @@ class UpdateLoanCommand:
     risk_rating: str | None = None
     loan_start_date: date | None = None
     funding_deadline: date | None = None
-    first_payment_date: date | None = None
     interest_only_months: int | None = None
     borrower_success_fee_bps: int | None = None
     lender_payment_fee_minor: int | None = None
@@ -215,6 +225,34 @@ def _validate_term(term_months: int) -> int:
     return term_months
 
 
+def _validate_interest_only_months_for_repayment(
+    *,
+    repayment_type: RepaymentType,
+    interest_only_months: int,
+    term_months: int,
+    label: str = "Interest-only months",
+) -> int:
+    if type(interest_only_months) is not int or interest_only_months < 0:
+        raise LoanValidationError(f"{label} must be a non-negative integer.")
+    if repayment_type in {
+        RepaymentType.EQUAL_INSTALLMENTS,
+        RepaymentType.AMORTIZING_PRINCIPAL_INTEREST,
+        RepaymentType.BULLET_PERIODIC_INTEREST,
+    }:
+        if interest_only_months != 0:
+            raise LoanValidationError(
+                f"{label} are only valid for interest-only repayment types."
+            )
+        return 0
+    if repayment_type == RepaymentType.INTEREST_ONLY_THEN_BULLET:
+        return term_months - 1
+    if interest_only_months <= 0 or interest_only_months >= term_months:
+        raise LoanValidationError(
+            f"{label} must be between 1 and term_months - 1."
+        )
+    return interest_only_months
+
+
 def _validate_rate_bps(value: int, label: str, *, allow_zero: bool = False) -> int:
     if type(value) is not int:
         raise LoanValidationError(f"{label} must be an integer bps value.")
@@ -238,16 +276,19 @@ def _validate_minor_nonnegative(value: int, label: str) -> int:
 
 
 def _validate_original_principal(value: int | None, financeable_principal_minor: int) -> int:
-    original = financeable_principal_minor if value is None else value
-    if type(original) is not int or original <= 0:
+    if value is None:
+        raise LoanValidationError(
+            "Original contractual principal is required for refinancing loans."
+        )
+    if type(value) is not int or value <= 0:
         raise LoanValidationError(
             "Original contractual principal must be a positive minor-unit amount."
         )
-    if original < financeable_principal_minor:
+    if value < financeable_principal_minor:
         raise LoanValidationError(
             "Original contractual principal cannot be lower than the financeable principal."
         )
-    return original
+    return value
 
 
 def _business_today() -> date:
@@ -285,11 +326,73 @@ def _resolve_loan_start_date(value: date | None, funding_deadline: date) -> date
     return value or funding_deadline
 
 
-def _resolve_first_payment_date(value: date | None, loan_start_date: date) -> date:
-    first_payment_date = value or add_months(loan_start_date, 1)
-    if first_payment_date <= loan_start_date:
-        raise LoanValidationError("First installment pay date must be after the loan start date.")
-    return first_payment_date
+def _derive_first_payment_date(loan_start_date: date) -> date:
+    return add_months(loan_start_date, 1)
+
+
+def _validate_original_loan_terms(
+    *,
+    is_refinancing: bool,
+    original_principal_minor: int | None,
+    original_interest_rate_bps: int | None,
+    original_term_months: int | None,
+    original_repayment_type: str | None,
+    original_interest_only_months: int | None,
+    original_loan_start_date: date | None,
+    principal_minor: int,
+    loan_start_date: date,
+) -> tuple[int, int | None, int | None, str, int | None, date | None]:
+    original_repayment_type = original_repayment_type or None
+    if not is_refinancing:
+        if any(
+            value is not None
+            for value in (
+                original_principal_minor,
+                original_interest_rate_bps,
+                original_term_months,
+                original_repayment_type,
+                original_interest_only_months,
+                original_loan_start_date,
+            )
+        ):
+            raise LoanValidationError(
+                "Original loan data is only allowed for refinancing loans."
+            )
+        return principal_minor, None, None, "", None, None
+    original_principal = _validate_original_principal(original_principal_minor, principal_minor)
+    if original_interest_rate_bps is None:
+        raise LoanValidationError("Original interest rate is required for refinancing loans.")
+    original_rate = _validate_rate_bps(original_interest_rate_bps, "Original interest rate")
+    if original_term_months is None:
+        raise LoanValidationError("Original term is required for refinancing loans.")
+    original_term = _validate_term(original_term_months)
+    if original_repayment_type is None:
+        raise LoanValidationError("Original repayment type is required for refinancing loans.")
+    original_repayment = _repayment_type(original_repayment_type)
+    if original_interest_only_months is None:
+        raise LoanValidationError(
+            "Original interest-only months are required for refinancing loans."
+        )
+    original_interest_only = _validate_interest_only_months_for_repayment(
+        repayment_type=original_repayment,
+        interest_only_months=original_interest_only_months,
+        term_months=original_term,
+        label="Original interest-only months",
+    )
+    if original_loan_start_date is None:
+        raise LoanValidationError("Original loan start date is required for refinancing loans.")
+    if original_loan_start_date >= loan_start_date:
+        raise LoanValidationError(
+            "Original loan start date must be before the refinancing loan start date."
+        )
+    return (
+        original_principal,
+        original_rate,
+        original_term,
+        original_repayment,
+        original_interest_only,
+        original_loan_start_date,
+    )
 
 
 def _borrower_for_id(borrower_id: str) -> Model:
@@ -345,12 +448,11 @@ def generate_schedule_for_terms(
             raise LoanValidationError(str(exc)) from exc
 
     repayment = _repayment_type(repayment_type)
-    if repayment in {
-        RepaymentType.EQUAL_INSTALLMENTS,
-        RepaymentType.AMORTIZING_PRINCIPAL_INTEREST,
-        RepaymentType.BULLET_PERIODIC_INTEREST,
-    } and interest_only_months != 0:
-        raise LoanValidationError("Interest-only months are only valid for interest-only types.")
+    effective_interest_only_months = _validate_interest_only_months_for_repayment(
+        repayment_type=repayment,
+        interest_only_months=interest_only_months,
+        term_months=term_months,
+    )
 
     try:
         if repayment == RepaymentType.EQUAL_INSTALLMENTS:
@@ -387,7 +489,7 @@ def generate_schedule_for_terms(
                     annual_interest_bps=annual_interest_bps,
                     first_due_date=first_payment_date,
                 ),
-                term_months - 1 if repayment == RepaymentType.INTEREST_ONLY_THEN_BULLET else 0,
+                effective_interest_only_months,
             )
         return (
             generate_interest_only_then_amortizing_schedule(
@@ -396,12 +498,76 @@ def generate_schedule_for_terms(
                 term_months=term_months,
                 annual_interest_bps=annual_interest_bps,
                 first_due_date=first_payment_date,
-                interest_only_months=interest_only_months,
+                interest_only_months=effective_interest_only_months,
             ),
-            interest_only_months,
+            effective_interest_only_months,
         )
     except ScheduleGenerationError as exc:
         raise LoanValidationError(str(exc)) from exc
+
+
+def original_schedule_for_loan(loan: Loan) -> list[ScheduleInstallmentDraft]:
+    """Informational schedule of the original (refinanced) loan.
+
+    Computed on demand from the declared original loan terms. Never persisted and
+    never used for servicing; it exists so admins and investors can see the history
+    of a refinanced loan.
+    """
+    if not loan.is_refinancing:
+        return []
+    if (
+        loan.original_interest_rate_bps is None
+        or loan.original_term_months is None
+        or not loan.original_repayment_type
+        or loan.original_interest_only_months is None
+        or loan.original_loan_start_date is None
+    ):
+        raise LoanValidationError("Refinancing loan is missing original loan terms.")
+    schedule_rows, _ = generate_schedule_for_terms(
+        principal_minor=loan.original_principal_minor,
+        currency=loan.currency_id,
+        term_months=loan.original_term_months,
+        annual_interest_bps=loan.original_interest_rate_bps,
+        repayment_type=loan.original_repayment_type,
+        first_payment_date=_derive_first_payment_date(loan.original_loan_start_date),
+        interest_only_months=loan.original_interest_only_months,
+    )
+    return schedule_rows
+
+
+def default_pre_publication_paid_installments(
+    schedule_rows: list[ScheduleInstallmentDraft],
+) -> list[int]:
+    today = _business_today()
+    return [int(row.installment_number) for row in schedule_rows if row.due_date < today]
+
+
+def original_schedule_payload(loan: Loan) -> list[dict[str, Any]]:
+    schedule_rows = original_schedule_for_loan(loan)
+    if loan.status == LoanStatus.DRAFT:
+        paid_numbers = set(default_pre_publication_paid_installments(schedule_rows))
+    else:
+        paid_numbers = {
+            int(value)
+            for value in (loan.pre_publication_paid_installments or [])
+            if isinstance(value, int)
+        }
+    outstanding = loan.original_principal_minor
+    payload: list[dict[str, Any]] = []
+    for row in schedule_rows:
+        outstanding -= row.principal_minor
+        payload.append(
+            {
+                "installment_number": row.installment_number,
+                "due_date": row.due_date,
+                "principal_minor": row.principal_minor,
+                "interest_minor": row.interest_minor,
+                "total_minor": row.total_minor,
+                "outstanding_after_minor": outstanding,
+                "paid_before_publication": int(row.installment_number) in paid_numbers,
+            }
+        )
+    return payload
 
 
 def _schedule_summary(schedule_rows: list[ScheduleInstallmentDraft]) -> dict[str, Any]:
@@ -469,7 +635,13 @@ def _loan_metadata(
     metadata: dict[str, Any] = {
         "borrower_id": str(loan.borrower_id),
         "status": loan.status,
+        "is_refinancing": loan.is_refinancing,
         "original_principal_minor": loan.original_principal_minor,
+        "original_interest_rate_bps": loan.original_interest_rate_bps,
+        "original_term_months": loan.original_term_months,
+        "original_loan_start_date": (
+            loan.original_loan_start_date.isoformat() if loan.original_loan_start_date else None
+        ),
         "principal_minor": loan.principal_minor,
         "currency": loan.currency_id,
         "interest_rate_bps": loan.interest_rate_bps,
@@ -491,30 +663,23 @@ def _loan_metadata(
 def _normalize_pre_publication_paid_installments(
     values: list[int] | None,
     *,
-    installments: list[LoanInstallment],
+    schedule_rows: list[ScheduleInstallmentDraft],
 ) -> list[int]:
     if values is None:
-        today = _business_today()
-        values = [
-            int(installment.installment_number)
-            for installment in installments
-            if installment.due_date < today
-        ]
+        values = default_pre_publication_paid_installments(schedule_rows)
     cleaned: list[int] = []
     seen: set[int] = set()
-    installment_by_number = {
-        int(installment.installment_number): installment for installment in installments
-    }
+    row_by_number = {int(row.installment_number): row for row in schedule_rows}
     today = _business_today()
     for value in values:
         if type(value) is not int or value <= 0:
             raise LoanValidationError("Pre-publication paid installments must be positive numbers.")
         if value in seen:
             continue
-        installment = installment_by_number.get(value)
-        if installment is None:
+        row = row_by_number.get(value)
+        if row is None:
             raise LoanValidationError("Pre-publication paid installment does not exist.")
-        if installment.due_date >= today:
+        if row.due_date >= today:
             raise LoanValidationError(
                 "Only installments with pay dates before today's Zurich business date can be "
                 "marked paid before publication."
@@ -529,11 +694,7 @@ def _normalize_pre_publication_paid_installments(
     return cleaned
 
 
-def _assert_current_schedule_complete(
-    loan: Loan,
-    *,
-    pre_publication_paid_installments: list[int] | None = None,
-) -> list[int]:
+def _assert_current_schedule_complete(loan: Loan) -> None:
     installments = list(
         loan.installments.filter(schedule_version=loan.schedule_version).order_by(
             "installment_number"
@@ -542,26 +703,43 @@ def _assert_current_schedule_complete(
     if len(installments) != loan.term_months:
         raise LoanValidationError("Loan repayment schedule is incomplete.")
     principal_sum = sum(installment.principal_minor for installment in installments)
-    if principal_sum != loan.original_principal_minor:
+    if principal_sum != loan.principal_minor:
         raise LoanValidationError(
-            "Loan repayment schedule principal does not match original contractual principal."
+            "Loan repayment schedule principal does not match the financeable principal."
         )
+
+
+def _validate_publication_original_loan_state(
+    loan: Loan,
+    *,
+    pre_publication_paid_installments: list[int] | None = None,
+) -> tuple[list[int], dict[str, Any]]:
+    if not loan.is_refinancing:
+        if pre_publication_paid_installments:
+            raise LoanValidationError(
+                "Paid-before-publication installments are only valid for refinancing loans."
+            )
+        return [], {}
+    schedule_rows = original_schedule_for_loan(loan)
     paid_numbers = _normalize_pre_publication_paid_installments(
         pre_publication_paid_installments,
-        installments=installments,
+        schedule_rows=schedule_rows,
     )
+    paid_set = set(paid_numbers)
     paid_principal = sum(
-        installment.principal_minor
-        for installment in installments
-        if int(installment.installment_number) in set(paid_numbers)
+        row.principal_minor for row in schedule_rows if int(row.installment_number) in paid_set
     )
-    remaining_principal = principal_sum - paid_principal
-    if remaining_principal != loan.principal_minor:
+    remaining_principal = loan.original_principal_minor - paid_principal
+    if loan.principal_minor > remaining_principal:
         raise LoanValidationError(
-            "Financeable principal must equal original scheduled principal less principal "
-            "already paid before publication."
+            "Financeable principal cannot exceed the remaining outstanding principal of the "
+            "original loan schedule."
         )
-    return paid_numbers
+    return paid_numbers, {
+        "original_remaining_principal_minor": remaining_principal,
+        "original_paid_principal_minor": paid_principal,
+        "financeable_below_original_remaining": loan.principal_minor < remaining_principal,
+    }
 
 
 def _save_loan_totals_from_schedule(
@@ -580,15 +758,29 @@ def create_loan(command: CreateLoanCommand) -> Loan:
     currency = _enabled_currency(command.currency)
     funding_deadline = _resolve_funding_deadline(command.funding_deadline)
     loan_start_date = _resolve_loan_start_date(command.loan_start_date, funding_deadline)
-    first_payment_date = _resolve_first_payment_date(command.first_payment_date, loan_start_date)
+    first_payment_date = _derive_first_payment_date(loan_start_date)
     purpose = _purpose(command.purpose)
     collateral_type = _collateral_type(command.collateral_type)
     repayment_type = _repayment_type(command.repayment_type)
     risk_rating = _risk_rating(command.risk_rating)
     principal_minor = _validate_principal(command.principal_minor, currency)
-    original_principal_minor = _validate_original_principal(
-        command.original_principal_minor,
-        principal_minor,
+    (
+        original_principal_minor,
+        original_interest_rate_bps,
+        original_term_months,
+        original_repayment_type,
+        original_interest_only_months,
+        original_loan_start_date,
+    ) = _validate_original_loan_terms(
+        is_refinancing=command.is_refinancing,
+        original_principal_minor=command.original_principal_minor,
+        original_interest_rate_bps=command.original_interest_rate_bps,
+        original_term_months=command.original_term_months,
+        original_repayment_type=command.original_repayment_type,
+        original_interest_only_months=command.original_interest_only_months,
+        original_loan_start_date=command.original_loan_start_date,
+        principal_minor=principal_minor,
+        loan_start_date=loan_start_date,
     )
     term_months = _validate_term(command.term_months)
     interest_rate_bps = _validate_rate_bps(command.interest_rate_bps, "Interest rate")
@@ -611,7 +803,7 @@ def create_loan(command: CreateLoanCommand) -> Loan:
     )
     recovery_fee_bps = _validate_fee_bps(command.recovery_fee_bps, "Recovery fee")
     schedule_rows, effective_interest_only_months = generate_schedule_for_terms(
-        principal_minor=original_principal_minor,
+        principal_minor=principal_minor,
         currency=currency.code,
         term_months=term_months,
         annual_interest_bps=interest_rate_bps,
@@ -626,7 +818,13 @@ def create_loan(command: CreateLoanCommand) -> Loan:
         investor_summary=_clean_required(command.investor_summary, "Investor summary"),
         purpose=purpose,
         purpose_description=command.purpose_description.strip(),
+        is_refinancing=command.is_refinancing,
         original_principal_minor=original_principal_minor,
+        original_interest_rate_bps=original_interest_rate_bps,
+        original_term_months=original_term_months,
+        original_repayment_type=original_repayment_type,
+        original_interest_only_months=original_interest_only_months,
+        original_loan_start_date=original_loan_start_date,
         principal_minor=principal_minor,
         currency=currency,
         interest_rate_bps=interest_rate_bps,
@@ -653,6 +851,9 @@ def create_loan(command: CreateLoanCommand) -> Loan:
         created_by_admin_id=command.actor.pk,
     )
     _write_schedule(loan=loan, schedule_rows=schedule_rows, schedule_version=loan.schedule_version)
+    if loan.is_refinancing:
+        # Fail fast if the declared original terms cannot produce an informational schedule.
+        original_schedule_for_loan(loan)
     metadata = _loan_metadata(loan, schedule_rows)
     _record_loan_event(
         loan=loan,
@@ -690,7 +891,13 @@ def _post_commit_change_keys(command: UpdateLoanCommand) -> set[str]:
         "investor_summary": command.investor_summary,
         "purpose": command.purpose,
         "purpose_description": command.purpose_description,
+        "is_refinancing": command.is_refinancing,
         "original_principal_minor": command.original_principal_minor,
+        "original_interest_rate_bps": command.original_interest_rate_bps,
+        "original_term_months": command.original_term_months,
+        "original_repayment_type": command.original_repayment_type,
+        "original_interest_only_months": command.original_interest_only_months,
+        "original_loan_start_date": command.original_loan_start_date,
         "interest_rate_bps": command.interest_rate_bps,
         "term_months": command.term_months,
         "repayment_type": command.repayment_type,
@@ -700,7 +907,6 @@ def _post_commit_change_keys(command: UpdateLoanCommand) -> set[str]:
         "risk_rating": command.risk_rating,
         "loan_start_date": command.loan_start_date,
         "funding_deadline": command.funding_deadline,
-        "first_payment_date": command.first_payment_date,
         "interest_only_months": command.interest_only_months,
         "borrower_success_fee_bps": command.borrower_success_fee_bps,
         "lender_payment_fee_minor": command.lender_payment_fee_minor,
@@ -788,24 +994,6 @@ def update_loan(command: UpdateLoanCommand) -> Loan:
             value=new_principal,
             changes=changes,
         )
-        if command.original_principal_minor is None:
-            _set_if_changed(
-                loan=loan,
-                field="original_principal_minor",
-                value=new_principal,
-                changes=changes,
-            )
-        schedule_needs_regeneration = True
-    if command.original_principal_minor is not None:
-        _set_if_changed(
-            loan=loan,
-            field="original_principal_minor",
-            value=_validate_original_principal(
-                command.original_principal_minor,
-                loan.principal_minor,
-            ),
-            changes=changes,
-        )
         schedule_needs_regeneration = True
     if command.interest_rate_bps is not None:
         _set_if_changed(
@@ -875,12 +1063,10 @@ def update_loan(command: UpdateLoanCommand) -> Loan:
             value=command.loan_start_date,
             changes=changes,
         )
-        schedule_needs_regeneration = True
-    if command.first_payment_date is not None:
         _set_if_changed(
             loan=loan,
             field="first_payment_date",
-            value=_resolve_first_payment_date(command.first_payment_date, loan.loan_start_date),
+            value=_derive_first_payment_date(loan.loan_start_date),
             changes=changes,
         )
         schedule_needs_regeneration = True
@@ -936,13 +1122,87 @@ def update_loan(command: UpdateLoanCommand) -> Loan:
             changes=changes,
         )
 
-    if loan.first_payment_date <= loan.loan_start_date:
-        raise LoanValidationError("First installment pay date must be after the loan start date.")
+    if command.is_refinancing is not None:
+        _set_if_changed(
+            loan=loan,
+            field="is_refinancing",
+            value=bool(command.is_refinancing),
+            changes=changes,
+        )
+    if not loan.is_refinancing and any(
+        value is not None
+        for value in (
+                command.original_principal_minor,
+                command.original_interest_rate_bps,
+                command.original_term_months,
+                command.original_repayment_type,
+                command.original_interest_only_months,
+                command.original_loan_start_date,
+            )
+        ):
+        raise LoanValidationError("Original loan data is only allowed for refinancing loans.")
+    if loan.is_refinancing:
+        for field, value in (
+            ("original_principal_minor", command.original_principal_minor),
+            ("original_interest_rate_bps", command.original_interest_rate_bps),
+            ("original_term_months", command.original_term_months),
+            ("original_repayment_type", command.original_repayment_type),
+            ("original_interest_only_months", command.original_interest_only_months),
+            ("original_loan_start_date", command.original_loan_start_date),
+        ):
+            if value is not None:
+                _set_if_changed(loan=loan, field=field, value=value, changes=changes)
+        (
+            _original_principal,
+            _original_rate,
+            _original_term,
+            original_repayment_type,
+            original_interest_only_months,
+            _original_start,
+        ) = _validate_original_loan_terms(
+            is_refinancing=True,
+            original_principal_minor=loan.original_principal_minor,
+            original_interest_rate_bps=loan.original_interest_rate_bps,
+            original_term_months=loan.original_term_months,
+            original_repayment_type=loan.original_repayment_type,
+            original_interest_only_months=loan.original_interest_only_months,
+            original_loan_start_date=loan.original_loan_start_date,
+            principal_minor=loan.principal_minor,
+            loan_start_date=loan.loan_start_date,
+        )
+        _set_if_changed(
+            loan=loan,
+            field="original_repayment_type",
+            value=original_repayment_type,
+            changes=changes,
+        )
+        _set_if_changed(
+            loan=loan,
+            field="original_interest_only_months",
+            value=original_interest_only_months,
+            changes=changes,
+        )
+        original_schedule_for_loan(loan)
+    else:
+        _set_if_changed(
+            loan=loan,
+            field="original_principal_minor",
+            value=loan.principal_minor,
+            changes=changes,
+        )
+        for cleared_field in (
+            "original_interest_rate_bps",
+            "original_term_months",
+            "original_interest_only_months",
+            "original_loan_start_date",
+        ):
+            _set_if_changed(loan=loan, field=cleared_field, value=None, changes=changes)
+        _set_if_changed(loan=loan, field="original_repayment_type", value="", changes=changes)
 
     schedule_rows: list[ScheduleInstallmentDraft] | None = None
     if schedule_needs_regeneration:
         schedule_rows, effective_interest_only_months = generate_schedule_for_terms(
-            principal_minor=loan.original_principal_minor,
+            principal_minor=loan.principal_minor,
             currency=loan.currency_id,
             term_months=loan.term_months,
             annual_interest_bps=loan.interest_rate_bps,
@@ -1027,7 +1287,8 @@ def publish_loan(command: PublishLoanCommand) -> Loan:
     if not _borrower_can_transact(cast(Model, loan.borrower)):
         raise LoanValidationError("Borrower KYB must be approved and free of compliance hold.")
     _assert_publishable_funding_deadline(loan.funding_deadline)
-    paid_installments = _assert_current_schedule_complete(
+    _assert_current_schedule_complete(loan)
+    paid_installments, original_loan_state = _validate_publication_original_loan_state(
         loan,
         pre_publication_paid_installments=command.pre_publication_paid_installment_numbers,
     )
@@ -1046,7 +1307,7 @@ def publish_loan(command: PublishLoanCommand) -> Loan:
             "updated_at",
         ]
     )
-    metadata = _loan_metadata(loan)
+    metadata = {**_loan_metadata(loan), **original_loan_state}
     _record_loan_event(
         loan=loan,
         actor=command.actor,

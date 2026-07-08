@@ -1094,8 +1094,10 @@ def test_close_full_funding_creates_holdings_and_moves_escrow(
 
     assert close.close_type == PrimaryLoanCloseType.FULL
     assert close.accepted_principal_minor == 30_000_00
+    # The fee recorded at close is the planned default; it is booked as revenue
+    # at borrower disbursement, so the payable carries the full funded amount.
     assert close.borrower_success_fee_minor == 600_00
-    assert close.borrower_disbursement_payable_minor == 29_400_00
+    assert close.borrower_disbursement_payable_minor == 30_000_00
     assert close.allocated_order_count == 2
     assert close.closed_not_invested_order_count == 1
     assert cast(Any, loan).status == "funded"

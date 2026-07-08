@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import date, timedelta
+from datetime import timedelta
 from typing import Any, cast
 
 import pytest
@@ -103,7 +103,6 @@ def _loan_command(
         repayment_type=repayment_type,
         interest_only_months=interest_only_months,
         funding_deadline=funding_deadline,
-        first_payment_date=add_months(funding_deadline, 1),
         collateral_type=CollateralType.REAL_ESTATE,
         collateral_value_minor=2400_00,
         risk_rating=RiskRating.BBB,
@@ -152,7 +151,6 @@ def test_manual_schedule_override_must_match_principal(admin_user: Model) -> Non
             replace(
                 base_command,
                 term_months=2,
-                first_payment_date=add_months(funding_deadline, 1),
                 manual_schedule_rows=[
                     ManualScheduleRowCommand(
                         due_date=add_months(funding_deadline, 1),
@@ -232,7 +230,6 @@ def test_default_funding_deadline_is_publishable(admin_user: Model) -> None:
         replace(
             _loan_command(admin_user, borrower),
             funding_deadline=None,
-            first_payment_date=None,
         )
     )
 
@@ -243,82 +240,147 @@ def test_default_funding_deadline_is_publishable(admin_user: Model) -> None:
     assert published.status == LoanStatus.PUBLISHED
 
 
-def _ongoing_manual_schedule_rows(today: date) -> list[ManualScheduleRowCommand]:
-    return [
-        ManualScheduleRowCommand(
-            due_date=today - timedelta(days=60),
-            principal_minor=400_00,
-            interest_minor=30_00,
-        ),
-        ManualScheduleRowCommand(
-            due_date=today + timedelta(days=30),
-            principal_minor=500_00,
-            interest_minor=20_00,
-        ),
-        ManualScheduleRowCommand(
-            due_date=today + timedelta(days=60),
-            principal_minor=600_00,
-            interest_minor=10_00,
-        ),
-    ]
+def _refinancing_command(
+    admin_user: Model,
+    borrower: Model,
+    *,
+    principal_minor: int = 1100_00,
+    original_principal_minor: int = 1500_00,
+    original_repayment_type: str = RepaymentType.EQUAL_INSTALLMENTS,
+    original_interest_only_months: int = 0,
+) -> CreateLoanCommand:
+    today = timezone.localdate()
+    return replace(
+        _loan_command(admin_user, borrower),
+        principal_minor=principal_minor,
+        is_refinancing=True,
+        original_principal_minor=original_principal_minor,
+        original_interest_rate_bps=1200,
+        original_term_months=12,
+        original_repayment_type=original_repayment_type,
+        original_interest_only_months=original_interest_only_months,
+        original_loan_start_date=today - timedelta(days=95),
+        funding_deadline=today + timedelta(days=20),
+    )
 
 
 @pytest.mark.django_db
-def test_publish_ongoing_loan_defaults_past_installments_paid(admin_user: Model) -> None:
+def test_create_rejects_original_loan_data_without_refinancing_flag(admin_user: Model) -> None:
     borrower = _borrower(admin_user)
-    today = timezone.localdate()
+
+    with pytest.raises(LoanValidationError, match="only allowed for refinancing"):
+        create_loan(
+            replace(
+                _loan_command(admin_user, borrower),
+                original_principal_minor=1500_00,
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_refinancing_loan_schedule_is_generated_from_financeable_principal(
+    admin_user: Model,
+) -> None:
+    borrower = _borrower(admin_user)
+    loan = create_loan(_refinancing_command(admin_user, borrower))
+    installments = list(
+        loan.installments.filter(schedule_version=loan.schedule_version)
+    )
+
+    assert loan.is_refinancing is True
+    assert loan.original_principal_minor == 1500_00
+    assert loan.principal_minor == 1100_00
+    assert sum(row.principal_minor for row in installments) == 1100_00
+
+    from backend.apps.loans.services import original_schedule_payload
+
+    original_rows = original_schedule_payload(loan)
+    assert len(original_rows) == 12
+    assert sum(row["principal_minor"] for row in original_rows) == 1500_00
+    # Installments of the original loan that are already due default to paid.
+    paid_numbers = [
+        row["installment_number"] for row in original_rows if row["paid_before_publication"]
+    ]
+    assert paid_numbers == [1, 2, 3]
+
+
+@pytest.mark.django_db
+def test_refinancing_original_schedule_uses_original_repayment_type(
+    admin_user: Model,
+) -> None:
+    borrower = _borrower(admin_user)
     loan = create_loan(
-        replace(
-            _loan_command(admin_user, borrower),
-            original_principal_minor=1500_00,
-            principal_minor=1100_00,
-            term_months=3,
-            loan_start_date=today - timedelta(days=95),
-            funding_deadline=today + timedelta(days=20),
-            first_payment_date=today - timedelta(days=60),
-            manual_schedule_rows=_ongoing_manual_schedule_rows(today),
+        _refinancing_command(
+            admin_user,
+            borrower,
+            original_repayment_type=RepaymentType.BULLET_PERIODIC_INTEREST,
+            original_interest_only_months=0,
         )
     )
+
+    from backend.apps.loans.services import original_schedule_payload
+
+    original_rows = original_schedule_payload(loan)
+    current_rows = list(loan.installments.filter(schedule_version=loan.schedule_version))
+
+    assert loan.repayment_type == RepaymentType.EQUAL_INSTALLMENTS
+    assert loan.original_repayment_type == RepaymentType.BULLET_PERIODIC_INTEREST
+    assert current_rows[0].principal_minor > 0
+    assert original_rows[0]["principal_minor"] == 0
+    assert original_rows[-1]["principal_minor"] == 1500_00
+    assert sum(row["principal_minor"] for row in original_rows) == 1500_00
+
+
+@pytest.mark.django_db
+def test_publish_refinancing_loan_defaults_past_installments_paid(admin_user: Model) -> None:
+    borrower = _borrower(admin_user)
+    loan = create_loan(_refinancing_command(admin_user, borrower))
 
     published = publish_loan(PublishLoanCommand(actor=admin_user, loan_id=str(loan.id)))
 
     assert published.status == LoanStatus.PUBLISHED
     assert published.original_principal_minor == 1500_00
     assert published.principal_minor == 1100_00
-    assert published.total_scheduled_principal_minor == 1500_00
-    assert published.pre_publication_paid_installments == [1]
+    # The loan's own schedule covers exactly the financeable principal.
+    assert published.total_scheduled_principal_minor == 1100_00
+    assert published.pre_publication_paid_installments == [1, 2, 3]
+    publish_event = LoanEvent.objects.get(loan=published, event_type="published")
+    assert publish_event.metadata["financeable_below_original_remaining"] is True
+    assert publish_event.metadata["original_remaining_principal_minor"] > 1100_00
 
 
 @pytest.mark.django_db
-def test_publish_ongoing_loan_rejects_financeable_principal_mismatch(
-    admin_user: Model,
-) -> None:
+def test_publish_rejects_financeable_above_original_remaining(admin_user: Model) -> None:
     borrower = _borrower(admin_user)
-    today = timezone.localdate()
     loan = create_loan(
-        replace(
-            _loan_command(admin_user, borrower),
+        _refinancing_command(
+            admin_user,
+            borrower,
+            principal_minor=1500_00,
             original_principal_minor=1500_00,
-            principal_minor=1100_00,
-            term_months=3,
-            loan_start_date=today - timedelta(days=95),
-            funding_deadline=today + timedelta(days=20),
-            first_payment_date=today - timedelta(days=60),
-            manual_schedule_rows=_ongoing_manual_schedule_rows(today),
         )
     )
 
-    with pytest.raises(LoanValidationError, match="Financeable principal"):
+    with pytest.raises(LoanValidationError, match="cannot exceed the remaining outstanding"):
+        publish_loan(PublishLoanCommand(actor=admin_user, loan_id=str(loan.id)))
+
+    loan.refresh_from_db()
+    assert loan.status == LoanStatus.DRAFT
+
+
+@pytest.mark.django_db
+def test_publish_rejects_paid_installments_for_non_refinancing_loan(admin_user: Model) -> None:
+    borrower = _borrower(admin_user)
+    loan = create_loan(_loan_command(admin_user, borrower))
+
+    with pytest.raises(LoanValidationError, match="only valid for refinancing"):
         publish_loan(
             PublishLoanCommand(
                 actor=admin_user,
                 loan_id=str(loan.id),
-                pre_publication_paid_installment_numbers=[],
+                pre_publication_paid_installment_numbers=[1],
             )
         )
-
-    loan.refresh_from_db()
-    assert loan.status == LoanStatus.DRAFT
 
 
 @pytest.mark.django_db
@@ -343,7 +405,6 @@ def test_publish_rejects_funding_deadline_at_thirty_day_cutoff(admin_user: Model
         replace(
             _loan_command(admin_user, borrower),
             funding_deadline=funding_deadline,
-            first_payment_date=add_months(funding_deadline, 1),
         )
     )
 
@@ -419,7 +480,6 @@ def test_loan_admin_api_create_publish_schedule_and_events(
             "term_months": 6,
             "repayment_type": RepaymentType.EQUAL_INSTALLMENTS,
             "funding_deadline": funding_deadline.isoformat(),
-            "first_payment_date": add_months(funding_deadline, 1).isoformat(),
             "collateral_type": CollateralType.REAL_ESTATE,
             "collateral_value_minor": 3000_00,
             "risk_rating": RiskRating.A,

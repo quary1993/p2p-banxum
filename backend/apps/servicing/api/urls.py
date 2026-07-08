@@ -3,6 +3,7 @@ from __future__ import annotations
 from django.urls import path
 
 from backend.apps.servicing.api.views import (
+    BorrowerRepaymentAdvancePreviewView,
     BorrowerRepaymentRecordView,
     LoanRecoveryPaymentRecordView,
     LoanRiskNoteAdminListCreateView,
@@ -16,6 +17,11 @@ urlpatterns = [
         "admin/borrower-repayments/",
         BorrowerRepaymentRecordView.as_view(),
         name="servicing-borrower-repayment-record",
+    ),
+    path(
+        "admin/borrower-repayments/advance-preview/",
+        BorrowerRepaymentAdvancePreviewView.as_view(),
+        name="servicing-borrower-repayment-advance-preview",
     ),
     path(
         "admin/status-scan/",

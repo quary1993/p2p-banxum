@@ -203,9 +203,10 @@ Legal-entity lender evidence must be recorded before financial activation. Exact
 - Approve, reject, or remove non-standard secondary-market listing requests with reason and disclosure note.
 - Change borrower or lender bank account details.
 - Change Garanta collection account/IBAN details.
-- Mark repayment as received or corrected.
+- Mark repayment as received or corrected. Regular installments are declared at the fixed next-due amount; other amounts use the repayment-in-advance flow with a bank date and preview confirmation.
 - Override generated repayment schedule.
-- Record early repayment, partial repayment, or operational loan change.
+- Record repayment in advance (early, partial, or multi-installment borrower repayment) or operational loan change.
+- Finalize borrower disbursement from the Loans table Manage action or the Finance ops card, including any explained override of the default amount and BANXUM fee.
 - Record default recovery event with gross recovered amount, externally deducted legal/recovery costs, third-party recovery costs declared at recovery time, Garanta recovery fee application decision/amount, net amount received, waterfall category split, evidence, and recovery rounding difference.
 - Publish public loan note or send bulk investor email for material loan changes.
 - Choose public loan note only, bulk email only, or both for material loan changes.
@@ -247,7 +248,7 @@ No high-risk action requires dual approval at launch. Each high-risk action shou
 - Enter borrower repayment amount and generate lender distribution: admin.
 - Attach lender payment evidence/bank statement: admin.
 - Override generated repayment schedule: admin, subject to workflow rules.
-- Record early repayment, partial repayment, or operational loan change: admin, subject to workflow rules.
+- Record repayment in advance (early, partial, or multi-installment borrower repayment) or operational loan change: admin, subject to workflow rules.
 - Record default recovery event, recovery costs, recovery fee decision, waterfall allocation, and recovered amount details: admin, subject to workflow rules.
 - Publish public loan note or bulk investor email for material loan changes: admin, subject to workflow rules.
 - Validate investment orders after receipt of funds: admin.

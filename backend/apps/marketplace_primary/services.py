@@ -1566,6 +1566,7 @@ def public_marketplace_listing_payload(loan: Model) -> dict[str, Any]:
         "risk_rating": str(loan_ref.risk_rating),
         "funding_deadline": loan_ref.funding_deadline,
         "status": str(loan_ref.status),
+        "is_refinancing": bool(loan_ref.is_refinancing),
     }
 
 
@@ -1585,12 +1586,36 @@ def full_marketplace_listing_payload(loan: Model) -> dict[str, Any]:
             "ltv_bps": loan_ref.ltv_bps,
             "ltv_warnings": loan_ref.ltv_warnings,
             "original_principal_minor": int(loan_ref.original_principal_minor),
+            "original_interest_rate_bps": (
+                int(loan_ref.original_interest_rate_bps)
+                if loan_ref.original_interest_rate_bps is not None
+                else None
+            ),
+            "original_term_months": (
+                int(loan_ref.original_term_months)
+                if loan_ref.original_term_months is not None
+                else None
+            ),
+            "original_repayment_type": (
+                str(loan_ref.original_repayment_type)
+                if loan_ref.original_repayment_type
+                else None
+            ),
+            "original_interest_only_months": (
+                int(loan_ref.original_interest_only_months)
+                if loan_ref.original_interest_only_months is not None
+                else None
+            ),
+            "original_loan_start_date": loan_ref.original_loan_start_date,
             "repayment_type": str(loan_ref.repayment_type),
             "loan_start_date": loan_ref.loan_start_date,
             "first_payment_date": loan_ref.first_payment_date,
             "schedule_version": int(loan_ref.schedule_version),
         }
     )
+    if bool(loan_ref.is_refinancing):
+        loans_services = _loans_services()
+        payload["original_loan_schedule"] = loans_services.original_schedule_payload(loan)
     return payload
 
 

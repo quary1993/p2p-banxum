@@ -192,7 +192,7 @@ Define which settings are superadmin-editable for launch and which require deplo
 ### PROD-DEC-008: Launch Interest, Schedule, Rounding, and Funding Deadline Defaults
 
 Status: Accepted.
-Date: 2026-05-22.
+Date: 2026-05-22. Updated 2026-07-08 for the refinancing-loans model.
 Owner: Garanta product / operations / finance.
 
 Decision:
@@ -203,16 +203,17 @@ Launch schedule and funding defaults are:
 - Monthly installments are the default installment frequency.
 - Installment calculations round each installment line to the currency minor unit.
 - The final installment absorbs rounding residue.
-- Every loan has a `loan_start_date`, the contractual/economic start date of the loan.
-- The existing `first_payment_date` field means the first scheduled installment pay/due date, not the loan start date.
-- A loan can be imported as an ongoing loan for funding. In that case the admin records the original contractual principal separately from the financeable remaining principal, and marks the contiguous prefix of installments already paid before publication.
-- On publish, the platform validates that scheduled principal equals original contractual principal, and that original scheduled principal minus paid-before-publication principal equals the financeable principal shown to investors and used for marketplace capacity/holdings.
+- Every loan has a `loan_start_date`, the contractual/economic start date of the loan. It is declared when the loan is defined and defaults to the funding deadline.
+- There is no separate first-installment-date input anywhere. The first installment is always due one month after the loan start date; it is derived, not entered.
+- Every loan is either a standard loan or a refinancing loan. A standard loan has a single financeable principal (`principal_minor`): there is no separate original contractual principal and no original loan schedule, and the repayment schedule is always generated from the financeable principal.
+- A refinancing loan (admin checks "Refinancing loan" at creation; the refinanced loan may be ongoing or new) lets lenders refinance part or all of the outstanding principal of an existing loan. The admin declares the original loan data: original contractual principal, original interest rate (bps), original term (months), original repayment type, original interest-only period where applicable, and original loan start date. From this data the platform computes a purely informational original loan schedule that is never persisted and never serviced. Functionally a refinancing loan behaves exactly like a standard loan: its own repayment schedule is generated from the financeable principal and can use a different repayment type from the original loan.
+- On publish, the platform validates that scheduled principal equals the financeable principal shown to investors and used for marketplace capacity/holdings. Standard loans get a readonly schedule review without a paid/future column. Refinancing loans get a two-step publish review: first the informational original loan schedule, where the admin ticks which original installments were already paid before publication (default: all installments whose due date is before today; the ticks must form a contiguous prefix and only past-due rows can be ticked), then the readonly new-loan schedule. The financeable principal may not exceed the remaining outstanding of the original schedule (blocking); a financeable principal lower than the remaining outstanding is allowed and only produces an informational notice, because it is economically equivalent to financing the full amount with the difference staying with the original lender. "Paid before publication" ticks are informational for investors and never affect servicing.
 - Every loan has an admin-set funding deadline.
 - Draft/admin planning records may carry a funding deadline up to 60 days.
 - A loan cannot be published/opened to investors if the funding deadline is in the past or more than 29 calendar days from the Europe/Zurich business date. The launch publishable default is therefore 29 calendar days from that business date.
 
 Rationale:
-These defaults make schedule generation, arrears status, investor display, and funding-campaign monitoring deterministic for v1 while preserving admin planning flexibility inside a controlled range. Separate loan start and first installment dates avoid overloading a due-date field with lifecycle meaning. Supporting an already-running loan requires preserving the full contractual repayment schedule while funding only the remaining principal; the paid-prefix validation prevents a mismatch between borrower schedule history and investor-facing capacity. The publish-time campaign cap lets investors pledge balance lots until day 30 while still keeping the campaign settlement window inside the 60-day operating limit.
+These defaults make schedule generation, arrears status, investor display, and funding-campaign monitoring deterministic for v1 while preserving admin planning flexibility inside a controlled range. Deriving the first installment from the loan start date removes a redundant input and keeps schedules deterministic. Refinancing loans keep servicing identical to standard loans: the platform funds and services only the financeable principal, while the declared original loan data and its computed schedule stay informational for investors, who see a "Refinanced loan" badge and the original schedule on the loan detail page. The publish-time paid ticks and remaining-outstanding check prevent investors from financing more than what is actually outstanding on the original loan. The publish-time campaign cap lets investors pledge balance lots until day 30 while still keeping the campaign settlement window inside the 60-day operating limit.
 
 Follow-ups:
 If Garanta later needs other day-count conventions, frequencies, or interest structures, add them as explicit product configuration with schedule golden tests.
@@ -293,7 +294,7 @@ Confirm final legal wording for project recovery fee and default/penalty interes
 - Launch currencies are CHF and EUR, with enabled currencies configurable by superadmin and extendable to additional currencies.
 - Each loan is single-currency.
 - Currency exchange between enabled investor balance currencies is a platform/payment feature, not a loan-product feature.
-- Borrower success fee is configurable in the 2% to 4% range and withheld from borrower disbursement after successful full funding or admin-approved partial close. It is stored for accounting/net-revenue reporting, has no investor/client website impact, and does not affect the borrower repayment schedule.
+- Borrower success fee defaults to 2% of the funded principal (`borrower_success_fee_bps`) and is withheld from the borrower disbursement. At funding close the full accepted principal moves to the borrower disbursement payable and the planned fee is recorded as evidence only; the fee books as Garanta/BANXUM revenue at disbursement. The default disbursement amount and fee are readonly and may only be overwritten together with a required explanation note, subject to borrower transfer + fee <= funded amount and fee between 0 and 10% of the funded amount. The fee has no investor/client website impact and does not affect the borrower repayment schedule.
 - `lender_payment_fee` should be configurable per lender installment distribution; launch value is 0.
 - Default/penalty interest, recovery fee percentage, recovery fee base, and recovery waterfall order are project-level terms used only after default/recovery status.
 - Product constraints are enforced in origination and investment flows.
@@ -328,7 +329,7 @@ Confirm final legal wording for project recovery fee and default/penalty interes
 3. Answered by PROD-DEC-004: admins define amounts/terms with broad sanity checks, e.g. principal between 1,000 and 1,000,000,000 in loan currency; exact term sanity bounds still needed.
 4. Answered by PROD-DEC-005: all listed repayment structures available; equal installments default; picker includes descriptions.
 5. Answered by PROD-DEC-006: rates are set by admin after offline negotiation.
-6. Answered by PAY-DEC-006: borrower success fee 2% to 4%, stored for accounting/net-revenue reporting after full funding or accepted partial close; configurable lender payment fee per installment, launch value 0.
+6. Answered by PAY-DEC-006: borrower success fee defaults to 2% of the funded principal, is withheld from the borrower disbursement, and books as Garanta revenue at disbursement rather than at funding close; configurable lender payment fee per installment, launch value 0.
 7. Launch assumption: usually real-estate backed/secured, with exceptions possible; future products may be secured, unsecured, guaranteed, or mixed.
 8. Answered by PAY-DEC-008/PAY-DEC-014: no fixed minimum funding threshold at launch; admin can proceed with a partial amount case by case and notify lenders.
 9. Answered by PROD-DEC-007: common product settings in superadmin UI; deeper parameters may require deployment/configuration.

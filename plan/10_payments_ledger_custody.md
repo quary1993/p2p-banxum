@@ -1,6 +1,6 @@
 # Payments, Ledger, Custody, and Reconciliation
 
-Status: Draft. Updated with balance, FX, identity, payment, recovery allocation, secondary-market settlement, marketplace, Bexio ledger metadata, and manual bank-operation reconciliation decisions on 2026-06-01.
+Status: Draft. Updated with balance, FX, identity, payment, recovery allocation, secondary-market settlement, marketplace, Bexio ledger metadata, and manual bank-operation reconciliation decisions on 2026-06-01, and with fee-at-disbursement and repayment-in-advance servicing updates on 2026-07-08.
 
 ## Purpose
 
@@ -135,11 +135,11 @@ Bank-specific statement/import fields and evidence labels remain configurable on
 ### PAY-DEC-005: Repayment Distribution
 
 Status: Accepted.
-Date: 2026-05-15.
+Date: 2026-05-15. Updated 2026-07-08 for fixed-amount installments and repayment in advance.
 Owner: Garanta finance / operations.
 
 Decision:
-Repayments are credited to investor balances rather than automatically paid directly to investor bank accounts. Admin enters the borrower amount received, and the system correlates it with the next due installment by default. If the amount is lower or higher than expected, the system warns admin. If admin proceeds, the system classifies the received amount as a regular installment payment, partial installment payment, multiple-installment payment for a late/default loan, or early repayment for a healthy loan. The system accepts that amount, recalculates the schedule where required, and produces the list of lenders due to receive a pro-rata part of that payment as balance credits.
+Repayments are credited to investor balances rather than automatically paid directly to investor bank accounts. Admin declares the borrower repayment from the Loans table through Manage > "Record borrower repayment". A regular installment declaration uses the fixed outstanding amount of the next due installment, which cannot be edited. Any other amount (except for defaulted loans, which go through recovery) is declared as a "Repayment in advance" with a borrower repayment bank date; the system allocates it through the servicing repayment-in-advance waterfall, regenerates the future schedule as a new version, and requires admin confirmation of the previewed allocation before writing. In both cases the system produces the list of lenders due to receive a pro-rata part of that payment as balance credits.
 
 Investors can then withdraw or reinvest credited balances subject to balance ageing/deadline rules.
 
@@ -152,24 +152,32 @@ Define rounding rules, internal distribution artifact/export format, and balance
 ### PAY-DEC-006: Borrower Success Fee and Lender Payment Fee
 
 Status: Accepted.
-Date: 2026-05-15.
+Date: 2026-05-15. Updated 2026-07-08 for fee booking at disbursement.
 Owner: Garanta management / finance.
 
 Decision:
-Garanta charges the borrower a flat success fee of 2% to 4% when the loan is fully financed or accepted by admin as a partial close. The success fee has no investor/client website impact and is stored for accounting/net-revenue reporting. The fee is deducted from the borrower disbursement, while the borrower remains obligated to repay the full funded principal before the success-fee deduction plus agreed interest.
+Garanta charges the borrower a percentage success fee, defaulting to 2% of the funded principal (`borrower_success_fee_bps`). The success fee has no investor/client website impact and is stored for accounting/net-revenue reporting. The fee is deducted from the borrower disbursement, while the borrower remains obligated to repay the full funded principal before the success-fee deduction plus agreed interest.
+
+Fee timing and mechanics:
+
+- At funding close, the ledger moves the full accepted principal into the borrower disbursement payable. No fee is accrued at close; the planned fee is recorded as evidence only.
+- At disbursement, the admin by default sends the funded principal minus the BANXUM fee (default fee = funded principal x `borrower_success_fee_bps`, default 2%). The fee registers as Garanta/BANXUM revenue at disbursement.
+- The default disbursement amount and fee are readonly and can only be overwritten together with a required explanation note.
+- Validations: borrower transfer + fee must not exceed the funded amount, and the fee must be between 0 and 10% of the funded amount.
+- Any unpaid remainder stays in the borrower disbursement payable.
 
 Example:
-If a CHF 100,000 loan is funded by four lenders at CHF 25,000 each and has 10% interest, Garanta disburses CHF 96,000 to CHF 98,000 to the borrower depending on the configured borrower success fee. The borrower still owes CHF 100,000 principal plus the agreed interest.
+If a CHF 100,000 loan is funded by four lenders at CHF 25,000 each and has 10% interest, Garanta by default disburses CHF 98,000 to the borrower (2% fee) and posts CHF 2,000 as Garanta revenue at disbursement. The borrower still owes CHF 100,000 principal plus the agreed interest.
 
 The borrower repayment schedule is not affected by the borrower success fee.
 
 The platform should support a configurable `lender_payment_fee` applied per lender installment distribution to cover bank transaction costs. Launch value is 0.
 
 Rationale:
-The fee model must preserve investor economics, borrower repayment obligations, and schedule calculations while allowing Garanta to track net revenue at disbursement.
+The fee model must preserve investor economics, borrower repayment obligations, and schedule calculations while allowing Garanta to track net revenue at the moment cash actually moves. Booking the fee at disbursement instead of accruing it at funding close keeps the borrower payable equal to the full accepted principal and makes overrides auditable through the required note.
 
 Follow-ups:
-Confirm the exact configurable fee range, tax/VAT/reverse-charge treatment, and whether lender payment fee is deducted from lender distributions or charged separately if activated later. Borrower success fee is withheld from disbursement and tracked in statements/exports; no platform invoice is generated at launch.
+Confirm tax/VAT/reverse-charge treatment, and whether lender payment fee is deducted from lender distributions or charged separately if activated later. Borrower success fee is withheld from disbursement and tracked in statements/exports; no platform invoice is generated at launch.
 
 ### PAY-DEC-007: Overpayments, Wrong References, and Unmatched Funds
 
@@ -201,7 +209,7 @@ Lender reconfirmation is not required for partial funding, because this will be 
 
 There is no fixed minimum partial funding threshold at launch. Admin decides case by case.
 
-If admin accepts a partially funded loan, the accepted funded amount becomes the final loan principal. The borrower success fee applies to the accepted funded principal, and the borrower repays the accepted funded principal plus agreed interest. The repayment schedule is generated or regenerated from the accepted funded principal.
+If admin accepts a partially funded loan, the accepted funded amount becomes the final financeable principal. The repayment schedule is regenerated from the accepted funded principal with the same term, the same interest percentage, and the same percentage BANXUM fee. The borrower success fee applies to the accepted funded principal and books as Garanta revenue at disbursement, and the borrower repays the accepted funded principal plus agreed interest. For refinancing loans, the declared original loan data and informational original schedule are preserved unchanged.
 
 If funds are not used for the loan and are credited back to investor balance, the credited amount receives its own balance ledger entry and ageing deadlines according to the balance policy.
 
@@ -602,7 +610,7 @@ All external bank/PSP/EMI movements are declared by admin at launch as explicit 
 
 - `lender_deposit`: investor funds received into the relevant currency collection account and credited to investor balance after matching.
 - `lender_withdrawal`: investor balance paid out to the investor bank account, including forced withdrawals.
-- `borrower_loan_disbursement`: initial borrower loan payment/drawdown from the collection account to the borrower after funding conditions are met. The disbursement is net of borrower success fee where applicable, while borrower principal obligation remains the accepted funded principal.
+- `borrower_loan_disbursement`: initial borrower loan payment/drawdown from the collection account to the borrower after funding conditions are met. The default disbursement is the funded principal minus the BANXUM borrower fee (default 2%), with the fee booked as Garanta revenue at disbursement; amount and fee can be overwritten only together with a required explanation note, subject to transfer + fee <= funded amount and fee between 0 and 10% of the funded amount. Borrower principal obligation remains the accepted funded principal, and any unpaid remainder stays in the borrower disbursement payable.
 - `borrower_repayment`: borrower installment, early repayment, recovery payment where handled through servicing, or other borrower-originated loan payment received into the collection account.
 - `garanta_out`: transfer of accrued Garanta commissions, FX fees/margin, secondary-market fees, penalties/handling fees if activated, or other Garanta-owned amounts from collection/settlement accounts to Garanta operating accounts.
 - `garanta_in`: transfer of Garanta-owned funds into collection/settlement accounts, reserved for future financing of defaults, guaranteed loans, liquidity support, corrections, or other Garanta-funded support.
@@ -733,21 +741,22 @@ Examples:
 ### Borrower Drawdown
 
 1. Loan reaches funding conditions and any offline contractual prerequisites are confirmed, including borrower KYB/AML approval and no compliance hold.
-2. Admin confirms final release readiness.
-3. Borrower success fee is calculated for accounting/net-revenue tracking and deducted from borrower disbursement.
-4. Payment instruction is sent to borrower bank account for net disbursement.
-5. Admin records a `borrower_loan_disbursement` bank operation and settlement evidence.
-6. Ledger records full borrower principal, borrower success fee revenue, net cash movement, and settlement liability clearance.
-7. Garanta success fee remains as Garanta-owned accrued revenue in the collection-account ledger until transferred to operating cash through a `garanta_out` bank operation.
+2. At funding close, the ledger moves the full accepted principal into the borrower disbursement payable. No fee is accrued at close; the planned fee is recorded as evidence only.
+3. Admin confirms final release readiness and opens the borrower disbursement action (Loans table > Manage > "Borrower disbursement" for funded loans, or the Finance ops card).
+4. The default disbursement amount is the funded principal minus the BANXUM fee (default fee = funded principal x `borrower_success_fee_bps`, default 2%). Amount and fee are readonly and can only be overwritten together with a required explanation note, subject to transfer + fee <= funded amount and fee between 0 and 10% of the funded amount.
+5. Payment instruction is sent to the borrower bank account for the disbursement amount.
+6. Admin records a `borrower_loan_disbursement` bank operation and settlement evidence.
+7. Ledger clears the disbursed amount plus fee from the borrower disbursement payable, records the cash movement, and books the borrower success fee as Garanta revenue at disbursement. Any unpaid remainder stays in the borrower disbursement payable.
+8. Garanta success fee remains as Garanta-owned accrued revenue in the collection-account ledger until transferred to operating cash through a `garanta_out` bank operation.
 
 ### Repayment Distribution
 
 1. Borrower repayment is received into the collection account.
-2. Admin enters the borrower amount received and records a `borrower_repayment` bank operation.
-3. System correlates the amount with the next due installment by default.
-4. If the amount is lower or higher than expected, the system shows a warning.
-5. If admin proceeds, ledger allocates amount to fees, penalties, current installment interest, current installment principal, and then future outstanding principal where the event is an early repayment or multi-installment payment.
-6. System recalculates the schedule for the same future period using remaining outstanding principal when the received amount changes expected principal/interest timing.
+2. Admin declares the repayment from the Loans table through Manage > "Record borrower repayment" and records a `borrower_repayment` bank operation.
+3. A regular installment declaration uses the fixed outstanding amount of the next due installment; the amount cannot be edited.
+4. Any other amount (except for defaulted loans, which go through recovery) is declared as a repayment in advance with a borrower repayment bank date; the admin must confirm a preview of the allocation and the old and new schedules before anything is written.
+5. Ledger allocates the amount to fees, penalties, all unpaid scheduled interest of installments due on or before the bank date, pro-rata accrued interest up to the bank date, and then outstanding principal.
+6. For repayments in advance, the system regenerates the future schedule as a new schedule version, preserving the original due dates and prorating the first regenerated installment's interest; a full payoff marks the loan repaid.
 7. System calculates each lender's proportional distribution and any lender payment fee. Launch lender payment fee is 0.
 8. Ledger credits each lender's investor balance as an `in` movement with a new received timestamp based on the borrower payment bank value date and ageing deadlines.
 9. System presents the distribution list with lenders, amounts, currencies, and balance-credit references.

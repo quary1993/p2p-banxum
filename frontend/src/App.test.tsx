@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { expect, test } from "vitest";
 
@@ -126,6 +126,31 @@ test("published primary-market loans appear in dashboard and marketplace open vi
   expect(screen.getByText("4 loans")).toBeInTheDocument();
   expect(screen.getByText("Helvetia Logistik AG")).toBeInTheDocument();
   expect(screen.getAllByText("Open").length).toBeGreaterThan(0);
+});
+
+test("refinanced marketplace loan shows badge and informational original loan schedule", () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  fireEvent.click(screen.getByRole("button", { name: "Marketplace" }));
+
+  // Listing row of the refinancing loan carries the short tag.
+  expect(screen.getAllByText("Refinanced").length).toBeGreaterThan(0);
+
+  fireEvent.click(screen.getByText("Helvetia Logistik AG"));
+
+  // Detail header badge plus the informational original-loan section.
+  expect(screen.getAllByText("Refinanced loan").length).toBeGreaterThan(0);
+  expect(screen.getByText("Original loan")).toBeInTheDocument();
+  expect(screen.getByText("Original loan repayment schedule")).toBeInTheDocument();
+  expect(screen.getByText(/informational only and show the loan being refinanced/i)).toBeInTheDocument();
+  // Column header plus nine installments settled before publication.
+  expect(screen.getAllByText("Paid").length).toBe(10);
 });
 
 test("portfolio explains allocated orders that are not holdings yet", () => {
@@ -283,7 +308,7 @@ test("admin module navigation renders operational panels", () => {
 
   fireEvent.click(screen.getByRole("button", { name: "Loans" }));
   expect(screen.getByRole("heading", { name: "Borrowers" })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "Servicing and recovery" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Servicing operations" })).toBeInTheDocument();
 
   fireEvent.click(screen.getByRole("button", { name: "Reports" }));
   expect(screen.getByRole("heading", { name: "Report generation" })).toBeInTheDocument();
@@ -296,4 +321,36 @@ test("admin module navigation renders operational panels", () => {
 
   fireEvent.click(screen.getByRole("button", { name: "Superadmin settings" }));
   expect(screen.getByRole("heading", { name: "Document templates" })).toBeInTheDocument();
+});
+
+test("loan manage modal exposes repayment declaration and refinancing publish review", () => {
+  renderApp("/admin");
+
+  fireEvent.click(screen.getByRole("button", { name: "Loans" }));
+
+  // Late fixture loan exposes the new servicing action inside Manage.
+  const lateLoanRow = screen.getAllByText("Basel Riverside refurbishment")[0].closest("tr");
+  expect(lateLoanRow).not.toBeNull();
+  fireEvent.click(within(lateLoanRow as HTMLElement).getByRole("button", { name: "Manage" }));
+  fireEvent.click(screen.getByRole("button", { name: /Record borrower repayment/ }));
+
+  expect(screen.getByText("Current repayment schedule")).toBeInTheDocument();
+  expect(screen.getByText(/Repayment in advance \(different amount\)/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Record repayment" })).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+  // Draft refinancing fixture loan publishes through the two-step schedule review.
+  const draftLoanRow = screen.getAllByText("Seefeld refinancing takeover")[0].closest("tr");
+  expect(draftLoanRow).not.toBeNull();
+  fireEvent.click(within(draftLoanRow as HTMLElement).getByRole("button", { name: "Manage" }));
+  fireEvent.click(screen.getByRole("button", { name: /Publish loan/ }));
+
+  expect(screen.getByRole("tab", { name: "1. Original loan schedule" })).toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: "2. Loan schedule" })).toBeInTheDocument();
+  expect(screen.getByText("Remaining outstanding")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Continue to loan schedule" }));
+  expect(screen.getByText("Repayment schedule review")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Publish loan after schedule review" })).toBeInTheDocument();
 });

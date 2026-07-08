@@ -370,7 +370,7 @@ Owner: Garanta product / finance / operations.
 Decision:
 Every primary-market loan has an admin-set funding deadline. Draft/admin planning records may carry a funding deadline up to 60 days. A loan cannot be published/opened to investors if the funding deadline is in the past or more than 29 calendar days from the Europe/Zurich business date; the launch publishable default is therefore 29 calendar days from that business date.
 
-If admin accepts a partially funded loan, the accepted funded amount becomes the final loan principal. The repayment schedule is generated or regenerated from that accepted funded principal. The borrower success fee applies to the accepted funded principal, and the borrower repays the accepted funded principal plus agreed interest.
+If admin accepts a partially funded loan, the accepted funded amount becomes the final financeable principal. The repayment schedule is regenerated from that accepted funded principal with the same term, the same interest percentage, and the same percentage BANXUM fee. The borrower success fee applies to the accepted funded principal and books as Garanta revenue at disbursement, and the borrower repays the accepted funded principal plus agreed interest. For refinancing loans, the declared original loan data and the informational original schedule are preserved unchanged.
 
 Rationale:
 This keeps partial funding economically clear and avoids borrower schedules based on unfunded amounts.
@@ -488,7 +488,8 @@ Launch requirements:
 - Amount available.
 - Currency.
 - Term.
-- Repayment schedule.
+- Repayment schedule, always generated from the financeable principal.
+- For refinancing loans: a "Refinanced loan" badge plus the informational original loan data (original contractual principal, original interest rate, original term, original repayment type, original interest-only period where applicable, original loan start date) and the computed original schedule with the installments marked as paid before publication.
 - Interest rate/return.
 - Risk grade.
 - Collateral/guarantee summary.
@@ -555,7 +556,7 @@ Investor balance entries are subject to the 30-day investment/reinvestment and 6
 - Closing requires operational, compliance, credit, and payment readiness checks.
 - Closing must respect the maximum 60-day project settlement holding period defined by the operating model.
 - Closing can proceed at a partial funding amount after admin approval and lender notification.
-- If a loan closes partially funded, the accepted funded amount becomes the final loan principal and the schedule is based on that amount.
+- If a loan closes partially funded, the accepted funded amount becomes the final financeable principal and the schedule is regenerated from that amount with the same term, interest percentage, and percentage BANXUM fee; refinancing loans keep their declared original loan data and informational original schedule.
 - Listing publication is blocked by missing mandatory structured loan information, including collateral type, collateral value, interest rate, repayment schedule, or mandatory borrower fields.
 - Secondary-market buyers must pass eligibility checks and accept required disclosures before transfer.
 - Secondary-market buyer acceptance of a current/performing listed price can settle directly without admin approval when eligibility, balance/funding, document acceptance, fee, and validation checks pass.

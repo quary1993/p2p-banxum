@@ -108,6 +108,11 @@ const registrationTermsVersion = import.meta.env.VITE_REGISTRATION_TERMS_VERSION
 const registrationTermsHash =
   import.meta.env.VITE_REGISTRATION_TERMS_HASH ??
   "3b0ba70e0b1d68a6acd2135c832cf114f6db2fb5c8896625c1f28f3ba7bd8dca";
+
+function formatEnumLabel(value: string) {
+  return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 const liveProfileFallback = {
   initials: "IN",
   name: "Investor account",
@@ -136,6 +141,10 @@ function humanizeToken(token: string) {
 
 function countLabel(count: number, singularNoun: string) {
   return `${count} ${singularNoun}${count === 1 ? "" : "s"}`;
+}
+
+function RefinancedTag({ full = false }: { full?: boolean }) {
+  return <span className="tag">{full ? "Refinanced loan" : "Refinanced"}</span>;
 }
 
 const loginFlowStorageKey = "banxum:login-flow:v1";
@@ -1028,6 +1037,7 @@ function PublicLoanPreview({
             <Chip status={loan.status} />
             <span className="tag">{loan.currency}</span>
             <span className="tag">{loan.purpose}</span>
+            {loan.is_refinancing ? <RefinancedTag full /> : null}
           </div>
           <h1>{loan.title}</h1>
           <div className="ph-sub"><CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" /></div>
@@ -2285,6 +2295,7 @@ function LoanDetailScreen({
             <Chip status={loan.status} />
             <Rating value={loan.risk_rating} />
             <span className="tag">{loan.currency}</span>
+            {loan.is_refinancing ? <RefinancedTag full /> : null}
           </div>
           <h1>{loan.title}</h1>
           <div className="ph-sub"><CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" /></div>
@@ -2410,6 +2421,7 @@ function LoanOverview({ loan }: { loan: MarketplaceLoanDetail }) {
   ];
 
   return (
+    <>
     <Card padded>
       <div className="eyebrow" style={{ marginBottom: 6 }}>Purpose</div>
       <p className="muted-2" style={{ lineHeight: 1.6, maxWidth: 680 }}>{loan.purpose_description}</p>
@@ -2435,6 +2447,70 @@ function LoanOverview({ loan }: { loan: MarketplaceLoanDetail }) {
         <KeyValueRow label="Collateral type" value={loan.collateral_type} />
         {loan.ltv_bps !== null ? <KeyValueRow label="Loan-to-value" value={`${(loan.ltv_bps / 100).toFixed(1)}%`} /> : null}
       </dl>
+    </Card>
+    {loan.is_refinancing ? <OriginalLoanSection loan={loan} /> : null}
+    </>
+  );
+}
+
+function OriginalLoanSection({ loan }: { loan: MarketplaceLoanDetail }) {
+  const schedule = loan.original_loan_schedule ?? [];
+  return (
+    <Card className="section" padded>
+      <div className="row gap-8 wrap" style={{ marginBottom: 6 }}>
+        <div className="eyebrow">Original loan</div>
+        <RefinancedTag full />
+      </div>
+      <p className="muted" style={{ fontSize: 12, lineHeight: 1.5, maxWidth: 680 }}>
+        This loan refinances an existing loan of the borrower. The original loan data and repayment
+        schedule below are informational only and show the loan being refinanced; investors fund the
+        new loan whose terms are shown above.
+      </p>
+      <dl className="kv" style={{ marginTop: 10 }}>
+        <KeyValueRow label="Original principal" mono value={`${loan.currency} ${formatMoneyMinor(loan.original_principal_minor, loan.currency)}`} />
+        {loan.original_interest_rate_bps !== null ? <KeyValueRow label="Original interest rate" mono value={`${formatRateBps(loan.original_interest_rate_bps)} p.a.`} /> : null}
+        {loan.original_term_months !== null ? <KeyValueRow label="Original term" value={`${loan.original_term_months} mo`} /> : null}
+        {loan.original_repayment_type ? <KeyValueRow label="Original repayment type" value={formatEnumLabel(loan.original_repayment_type)} /> : null}
+        {loan.original_interest_only_months ? <KeyValueRow label="Original interest-only period" value={`${loan.original_interest_only_months} mo`} /> : null}
+        {loan.original_loan_start_date ? <KeyValueRow label="Original loan start date" value={formatDate(loan.original_loan_start_date)} /> : null}
+      </dl>
+      {schedule.length > 0 ? (
+        <>
+          <div className="eyebrow" style={{ margin: "16px 0 8px" }}>Original loan repayment schedule</div>
+          <div className="tbl-wrap">
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th className="num">#</th>
+                  <th>Due date</th>
+                  <th className="num">Principal</th>
+                  <th className="num">Interest</th>
+                  <th className="num">Total</th>
+                  <th className="num">Outstanding after</th>
+                  <th>Paid</th>
+                </tr>
+              </thead>
+              <tbody>
+                {schedule.map((row) => (
+                  <tr key={row.installment_number}>
+                    <td className="num muted">{row.installment_number}</td>
+                    <td>{formatDate(row.due_date)}</td>
+                    <td className="num">{formatMoneyMinor(row.principal_minor, loan.currency)}</td>
+                    <td className="num">{formatMoneyMinor(row.interest_minor, loan.currency)}</td>
+                    <td className="num col-strong">{formatMoneyMinor(row.total_minor, loan.currency)}</td>
+                    <td className="num">{formatMoneyMinor(row.outstanding_after_minor, loan.currency)}</td>
+                    <td>{row.paid_before_publication ? <Chip dot={false} tone="ok">Paid</Chip> : <span className="muted">-</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="muted" style={{ fontSize: 11.5, lineHeight: 1.5, marginTop: 10 }}>
+            Installments marked Paid were settled by the borrower before this loan was published. The
+            financed amount can be lower than the remaining outstanding of the original schedule.
+          </p>
+        </>
+      ) : null}
     </Card>
   );
 }
@@ -2543,7 +2619,13 @@ function LoansTable({ loans, onOpen, preview = false }: { loans: MarketplaceLoan
           <tbody>
             {loans.map((loan) => (
               <tr className="clickable" key={loan.loan_id} onClick={() => onOpen(loan)}>
-                <td><EntityReference id={loan.loan_id} idLabel="Copy loan ID" title={loan.title} /></td>
+                <td>
+                  <EntityReference
+                    id={loan.loan_id}
+                    idLabel="Copy loan ID"
+                    title={loan.is_refinancing ? <span className="row gap-6 wrap">{loan.title}<RefinancedTag /></span> : loan.title}
+                  />
+                </td>
                 <td>{loan.purpose}</td>
                 <td className="num"><Money amountMinor={loan.principal_minor} currency={loan.currency} /></td>
                 <td className="num col-strong">{formatRateBps(loan.interest_rate_bps)}</td>
@@ -3242,7 +3324,13 @@ function HoldingsTable({
           <tbody>
             {holdings.map((holding) => (
               <tr className="clickable" key={holding.id} onClick={() => onOpen(holding)}>
-                <td><EntityReference id={holding.loan.loan_id} idLabel="Copy loan ID" title={holding.loan.borrower_name} /></td>
+                <td>
+                  <EntityReference
+                    id={holding.loan.loan_id}
+                    idLabel="Copy loan ID"
+                    title={holding.loan.is_refinancing ? <span className="row gap-6 wrap">{holding.loan.borrower_name}<RefinancedTag /></span> : holding.loan.borrower_name}
+                  />
+                </td>
                 <td><Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} /></td>
                 <td className="num"><Money amountMinor={holding.original_principal_minor} currency={holding.currency} /></td>
                 <td className="num col-strong">{formatMoneyMinor(holding.current_principal_minor, holding.currency)}</td>
@@ -3410,7 +3498,7 @@ function HoldingDetail({ holding, onClose, setRoute }: { holding: Holding; onClo
   return (
     <Modal drawer footer={<><Button variant="ghost" onClick={onClose}>Close</Button><Button disabled={holding.loan.loan_status !== "funded"} icon="secondary" variant="primary" onClick={() => { onClose(); goTo(setRoute, "secondary"); }}>List on secondary market</Button></>} onClose={onClose} title={holding.loan.borrower_name}>
       <div className="col gap-16">
-        <div className="row gap-8 wrap"><Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} /><Rating value={holding.loan.risk_rating} /><Country code={holding.loan.borrower_country} /><CopyIdButton ariaLabel="Copy loan ID" id={holding.loan.loan_id} label="Copy loan ID" /></div>
+        <div className="row gap-8 wrap"><Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} /><Rating value={holding.loan.risk_rating} /><Country code={holding.loan.borrower_country} />{holding.loan.is_refinancing ? <RefinancedTag full /> : null}<CopyIdButton ariaLabel="Copy loan ID" id={holding.loan.loan_id} label="Copy loan ID" /></div>
         {impaired ? <Banner tone="warn" title={`${holding.loan.loan_status.replaceAll("_", " ")} - ${holding.loan.days_past_due} DPD`}>This position is not a normal live loan. Review public notes and recovery updates before taking action.</Banner> : null}
         <div className="grid grid-2">
           <Card padded><Stat amountMinor={holding.original_principal_minor} currency={holding.currency} label="Invested" /></Card>

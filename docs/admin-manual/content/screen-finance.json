@@ -264,7 +264,7 @@
     {
       "id": "finance-6-borrower-disbursement",
       "caption": "Borrower disbursement: record paying a funded loan out to the borrower.",
-      "summary": "A 'disbursement' is the outgoing payment of a fully-funded loan to the borrower's bank account. This form records that payout in the ledger, clearing the borrower-disbursement payable against the collection cash. It only works once the loan is in 'funded' status.",
+      "summary": "A 'disbursement' is the outgoing payment of a funded loan to the borrower's bank account. At funding close the FULL accepted principal was moved into the borrower-disbursement payable (no fee accrued at close; the planned fee is evidence only). This form records the payout in the ledger: by default it sends the funded principal minus the BANXUM fee (default 2%), books the fee as Garanta revenue at disbursement, and clears the transfer plus fee against the payable. It only works once the loan is in 'funded' status. The same action is also available from the Loans table via Manage > 'Borrower disbursement'.",
       "annotations": [
         {
           "item": 1,
@@ -279,7 +279,7 @@
         {
           "item": 3,
           "label": "Amount minor units",
-          "text": "The amount to pay the borrower, in cents (minor units). Must be a positive whole number. This is debited against the borrower-disbursement payable and credited out of collection cash."
+          "text": "The amount to pay the borrower, in cents (minor units). It defaults to the funded principal minus the BANXUM fee (default fee = funded principal x borrower_success_fee_bps, default 2%) and is READONLY together with the fee; overriding them requires changing both together and providing a required explanation note. The transfer is debited against the borrower-disbursement payable and credited out of collection cash."
         },
         {
           "item": 4,
@@ -309,11 +309,12 @@
         {
           "item": 9,
           "label": "Finalize disbursement",
-          "text": "Records the disbursement. On success it creates a reconciled outgoing bank-operation and posts the ledger entry clearing the borrower's disbursement payable against collection cash. The success banner confirms the payable was cleared against collection cash."
+          "text": "Records the disbursement. On success it creates a reconciled outgoing bank-operation, posts the ledger entry clearing the transfer plus the BANXUM fee against the borrower's disbursement payable, and books the fee as Garanta/BANXUM revenue at disbursement. Any unpaid remainder stays in the borrower payable. The success banner confirms what was cleared against collection cash."
         }
       ],
       "notes": [
-        "SAFETY RULES enforced by the system: the loan must be in 'funded' status; the loan's currency must equal the disbursement currency; the selected borrower must match the loan's borrower; and the borrower's KYB must be approved with no compliance hold (the borrower must be allowed to transact). Any of these failing blocks the disbursement.",
+        "SAFETY RULES enforced by the system: the loan must be in 'funded' status; the loan's currency must equal the disbursement currency; the selected borrower must match the loan's borrower; the borrower's KYB must be approved with no compliance hold (the borrower must be allowed to transact); borrower transfer + fee must not exceed the funded amount; and the fee must be between 0 and 10% of the funded amount. Any of these failing blocks the disbursement.",
+        "The default amount and fee are readonly: overriding them is only possible together and with a required explanation note, which is stored for audit.",
         "'KYB' (Know Your Business) is the business equivalent of identity verification for the borrowing company.",
         "Only an active admin can finalize, and the automatic idempotency key prevents double-paying the borrower on a repeat click."
       ]
