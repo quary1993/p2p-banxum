@@ -22,6 +22,7 @@ from backend.apps.accounts_auth.api.serializers import (
     AuthenticatedUserResponseSerializer,
     MagicLinkConsumeSerializer,
     MagicLinkRequestSerializer,
+    MarketingConsentUpdateRequestSerializer,
     NaturalPersonRegistrationRequestSerializer,
     NaturalPersonRegistrationResponseSerializer,
     PhoneVerificationConfirmRequestSerializer,
@@ -71,6 +72,7 @@ from backend.apps.accounts_auth.services import (
     SensitiveActionCodeCommand,
     SensitiveActionCodeThrottleError,
     TooManyCodeAttemptsError,
+    UpdateMarketingConsentCommand,
     change_account_access,
     confirm_admin_login,
     confirm_phone_verification,
@@ -81,6 +83,7 @@ from backend.apps.accounts_auth.services import (
     register_natural_person_lender,
     request_phone_verification,
     start_admin_login,
+    update_marketing_consent,
 )
 
 
@@ -110,8 +113,17 @@ class NaturalPersonRegistrationView(APIView):
                         if data.get("registration_document_template_version_id")
                         else None
                     ),
+                    risk_document_template_version_id=(
+                        str(data["risk_document_template_version_id"])
+                        if data.get("risk_document_template_version_id")
+                        else None
+                    ),
                     accepted_checkbox_labels=data.get("accepted_checkbox_labels"),
+                    accepted_risk_checkbox_labels=data.get("accepted_risk_checkbox_labels"),
                     document_idempotency_key=data.get("document_idempotency_key") or None,
+                    risk_document_idempotency_key=(
+                        data.get("risk_document_idempotency_key") or None
+                    ),
                     ip_address=client_ip(request),
                     user_agent=user_agent(request),
                     marketing_consent=data["marketing_consent"],
@@ -379,6 +391,28 @@ class CurrentUserView(APIView):
     @extend_schema(responses={200: AuthenticatedUserResponseSerializer})
     def get(self, request: Request) -> Response:
         return Response({"user": serialize_user(cast(User, request.user))})
+
+
+class MarketingConsentView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=MarketingConsentUpdateRequestSerializer,
+        responses={200: AuthenticatedUserResponseSerializer},
+    )
+    def patch(self, request: Request) -> Response:
+        serializer = MarketingConsentUpdateRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            user = update_marketing_consent(
+                UpdateMarketingConsentCommand(
+                    user=cast(User, request.user),
+                    marketing_consent=serializer.validated_data["marketing_consent"],
+                )
+            )
+        except AccountsAuthError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        return Response({"user": serialize_user(user)})
 
 
 class LogoutView(APIView):

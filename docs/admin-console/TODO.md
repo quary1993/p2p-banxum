@@ -2,6 +2,8 @@
 
 This file captures admin console UI/UX work owned by the Codex implementation agent. Claude Design is not responsible for admin console design or redesign; Claude Design should focus on user-facing/public/investor UX.
 
+Entries are a dated implementation history. Earlier “no UI” entries describe the state of their original backend slice and are superseded by later completion entries; they must not be read as the current product state.
+
 ## Standing Instruction
 
 Admin console screens should be implemented as complete operational UI by Codex during the relevant implementation slices. The admin console should be dense, clear, restrained, auditable, and optimized for repeated operational work rather than marketing-style presentation.

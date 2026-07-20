@@ -309,8 +309,15 @@ def _require_superadmin_actor(actor: Model) -> None:
         raise DocumentAuthorizationError("Only an active superadmin can manage templates.")
 
 
-def _require_lender_acceptance_actor(actor: Model, category: DocumentCategory) -> None:
-    if category == DocumentCategory.REGISTRATION:
+def _require_lender_acceptance_actor(
+    actor: Model,
+    category: DocumentCategory,
+    *,
+    context_type: str,
+) -> None:
+    if category == DocumentCategory.REGISTRATION or (
+        category == DocumentCategory.RISK_DISCLOSURE and context_type == "registration"
+    ):
         if not is_lender_actor(actor):
             raise DocumentAuthorizationError("Only an active lender can accept this document.")
         return
@@ -2388,7 +2395,12 @@ def _existing_acceptance_for_idempotency(
 @transaction.atomic
 def accept_document_terms(command: AcceptDocumentTermsCommand) -> DocumentAcceptanceEvidence:
     category = _category(command.category)
-    _require_lender_acceptance_actor(command.actor, category)
+    context_type = _clean_context(command.context_type, "Context type")
+    _require_lender_acceptance_actor(
+        command.actor,
+        category,
+        context_type=context_type,
+    )
     template_version = get_current_document_template(
         category=category,
         template_key=command.template_key,
@@ -2405,7 +2417,6 @@ def accept_document_terms(command: AcceptDocumentTermsCommand) -> DocumentAccept
     missing = [label for label in required_labels if label not in accepted_labels]
     if missing:
         raise DocumentValidationError("All required checkbox labels must be accepted.")
-    context_type = _clean_context(command.context_type, "Context type")
     context_id = _clean_context(command.context_id, "Context id")
     raw_data_snapshot = command.data_snapshot or {}
     if not isinstance(raw_data_snapshot, dict):

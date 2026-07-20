@@ -2061,7 +2061,7 @@ export interface LoanCreateRequest {
   original_principal_minor?: number;
   original_interest_rate_bps?: number;
   original_term_months?: number;
-  original_repayment_type?: OriginalRepaymentTypeEnum;
+  original_repayment_type?: RepaymentTypeEnum;
   original_interest_only_months?: number;
   original_loan_start_date?: string;
   principal_minor: number;
@@ -2405,9 +2405,13 @@ export interface NaturalPersonRegistrationRequest {
   /** @maxLength 128 */
   terms_hash: string;
   registration_document_template_version_id?: string;
+  risk_document_template_version_id?: string;
   accepted_checkbox_labels?: string[];
+  accepted_risk_checkbox_labels?: string[];
   /** @maxLength 160 */
   document_idempotency_key?: string;
+  /** @maxLength 160 */
+  risk_document_idempotency_key?: string;
   marketing_consent?: boolean;
 }
 
@@ -2461,25 +2465,6 @@ export interface OriginalLoanScheduleRow {
   outstanding_after_minor: number;
   paid_before_publication: boolean;
 }
-
-/**
- * * `equal_installments` - Equal installments
-* `bullet_periodic_interest` - Bullet principal with periodic interest
-* `amortizing_principal_interest` - Amortizing principal and interest
-* `interest_only_then_bullet` - Interest-only then bullet
-* `interest_only_then_amortizing` - Interest-only then amortizing
- */
-export type OriginalRepaymentTypeEnum = typeof OriginalRepaymentTypeEnum[keyof typeof OriginalRepaymentTypeEnum];
-
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const OriginalRepaymentTypeEnum = {
-  equal_installments: 'equal_installments',
-  bullet_periodic_interest: 'bullet_periodic_interest',
-  amortizing_principal_interest: 'amortizing_principal_interest',
-  interest_only_then_bullet: 'interest_only_then_bullet',
-  interest_only_then_amortizing: 'interest_only_then_amortizing',
-} as const;
 
 export interface PatchedAdminTaskUpdateRequest {
   task_type?: AdminTaskTypeEnum;
@@ -2559,7 +2544,7 @@ export interface PatchedLoanUpdateRequest {
   original_principal_minor?: number;
   original_interest_rate_bps?: number;
   original_term_months?: number;
-  original_repayment_type?: OriginalRepaymentTypeEnum;
+  original_repayment_type?: RepaymentTypeEnum;
   original_interest_only_months?: number;
   original_loan_start_date?: string;
   principal_minor?: number;
@@ -2581,6 +2566,10 @@ export interface PatchedLoanUpdateRequest {
   manual_schedule_rows?: ManualScheduleRowRequest[];
   investor_message?: string;
   note?: string;
+}
+
+export interface PatchedMarketingConsentUpdateRequest {
+  marketing_consent?: boolean;
 }
 
 export interface PayoutInstruction {
@@ -6611,6 +6600,64 @@ const {mutation: mutationOptions} = options ?
       > => {
 
       const mutationOptions = getV1AuthPhoneRequestCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+
+export const v1AuthPreferencesMarketingPartialUpdate = (
+    patchedMarketingConsentUpdateRequest: PatchedMarketingConsentUpdateRequest,
+ ) => {
+
+
+      return httpClient<AuthenticatedUserResponse>(
+      {url: `/api/v1/auth/preferences/marketing/`, method: 'PATCH',
+      headers: {'Content-Type': 'application/json', },
+      data: patchedMarketingConsentUpdateRequest
+    },
+      );
+    }
+
+
+
+export const getV1AuthPreferencesMarketingPartialUpdateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthPreferencesMarketingPartialUpdate>>, TError,{data: PatchedMarketingConsentUpdateRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof v1AuthPreferencesMarketingPartialUpdate>>, TError,{data: PatchedMarketingConsentUpdateRequest}, TContext> => {
+
+const mutationKey = ['v1AuthPreferencesMarketingPartialUpdate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AuthPreferencesMarketingPartialUpdate>>, {data: PatchedMarketingConsentUpdateRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AuthPreferencesMarketingPartialUpdate(data,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AuthPreferencesMarketingPartialUpdateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AuthPreferencesMarketingPartialUpdate>>>
+    export type V1AuthPreferencesMarketingPartialUpdateMutationBody = PatchedMarketingConsentUpdateRequest
+    export type V1AuthPreferencesMarketingPartialUpdateMutationError = unknown
+
+    export const useV1AuthPreferencesMarketingPartialUpdate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AuthPreferencesMarketingPartialUpdate>>, TError,{data: PatchedMarketingConsentUpdateRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AuthPreferencesMarketingPartialUpdate>>,
+        TError,
+        {data: PatchedMarketingConsentUpdateRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getV1AuthPreferencesMarketingPartialUpdateMutationOptions(options);
 
       return useMutation(mutationOptions, queryClient);
     }
@@ -12784,6 +12831,8 @@ export const getV1AuthPhoneConfirmCreateResponseMock = (overrideResponse: Partia
 
 export const getV1AuthPhoneRequestCreateResponseMock = (overrideResponse: Partial< PhoneVerificationRequestResponse > = {}): PhoneVerificationRequestResponse => ({challenge_id: faker.helpers.arrayElement([faker.string.uuid(), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), expires_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), phone_verified: faker.datatype.boolean(), ...overrideResponse})
 
+export const getV1AuthPreferencesMarketingPartialUpdateResponseMock = (overrideResponse: Partial< AuthenticatedUserResponse > = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
+
 export const getV1AuthRegisterNaturalPersonCreateResponseMock = (overrideResponse: Partial< NaturalPersonRegistrationResponse > = {}): NaturalPersonRegistrationResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, email_login_sent: faker.datatype.boolean(), ...overrideResponse})
 
 export const getV1AuthSensitiveActionCodeRequestCreateResponseMock = (overrideResponse: Partial< SensitiveActionCodeRequestResponse > = {}): SensitiveActionCodeRequestResponse => ({code_id: faker.string.uuid(), action: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), expires_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
@@ -13326,6 +13375,18 @@ export const getV1AuthPhoneRequestCreateMockHandler = (overrideResponse?: PhoneV
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1AuthPhoneRequestCreateResponseMock()),
       { status: 202,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1AuthPreferencesMarketingPartialUpdateMockHandler = (overrideResponse?: AuthenticatedUserResponse | ((info: Parameters<Parameters<typeof http.patch>[1]>[0]) => Promise<AuthenticatedUserResponse> | AuthenticatedUserResponse), options?: RequestHandlerOptions) => {
+  return http.patch('*/api/v1/auth/preferences/marketing/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AuthPreferencesMarketingPartialUpdateResponseMock()),
+      { status: 200,
         headers: { 'Content-Type': 'application/json' }
       })
   }, options)
@@ -14394,6 +14455,7 @@ export const getBanxumApiMock = () => [
   getV1AuthMeRetrieveMockHandler(),
   getV1AuthPhoneConfirmCreateMockHandler(),
   getV1AuthPhoneRequestCreateMockHandler(),
+  getV1AuthPreferencesMarketingPartialUpdateMockHandler(),
   getV1AuthRegisterNaturalPersonCreateMockHandler(),
   getV1AuthSensitiveActionCodeRequestCreateMockHandler(),
   getV1DocumentsAcceptancesCreateMockHandler(),

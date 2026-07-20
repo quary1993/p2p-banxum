@@ -144,7 +144,7 @@ Stories: SYS-RECON-1, ADM-RECON-1, SYS-AUDIT-1
 | ACC-STATUS-GATE-1 | P0 | Restricted and locked both block login + financial actions; admin can lock/suspend/restrict/close |
 | INV-EMAIL-RECOVERY-1 | P1 | No self-service email recovery; admin re-verifies identity offline; audit records actor, timestamp, reason, old/new email, evidence summary |
 | ADM-SEARCH-1 | P1 | Search returns user/entity/legal-entity-lender/borrower profiles with KYC/KYB status |
-| ADM-NO-IMPERSONATE-1 | P1 | No impersonation feature anywhere (admin portal or API) |
+| ADM-READONLY-IMPERSONATE-1 | P1 | Superadmin-only, short-lived investor impersonation is read-only; admin targets are rejected; every unsafe API method is blocked; reads/downloads remain attributed to the acting superadmin where evidence is generated |
 | BORROWER-NO-LOGIN-1 / BOR-NOLOGIN-1 | P0 | No borrower registration/login path exists; reps/UBOs stored as entity data only |
 
 ### Compliance
@@ -259,7 +259,7 @@ Stories: SYS-RECON-1, ADM-RECON-1, SYS-AUDIT-1
 
 **Auth & access**
 27. Investors: passwordless magic-link only, long-lived revocable sessions, no idle expiry; mandatory phone verification; fresh email code (10 min / 3 attempts / throttled resend) for withdrawal creation, withdrawal bank-account change, FX, primary investment, secondary listing, secondary purchase.
-28. Admin: email + password + email code; no forgot-password; superadmin-only password resets; exactly 2 roles; superadmin env-managed only; collection IBAN changes superadmin-only; no impersonation; no maker-checker at launch.
+28. Admin: email + password + email code; no forgot-password; superadmin-only password resets; exactly 2 roles; superadmin env-managed only; collection IBAN changes superadmin-only; read-only superadmin investor impersonation only; no maker-checker at launch.
 29. Restricted and locked statuses both block login + financial actions; closure only for clean/empty accounts; pseudonymization reversible, records retained.
 
 **Audit, evidence, presentation**
@@ -292,7 +292,7 @@ Stories: SYS-RECON-1, ADM-RECON-1, SYS-AUDIT-1
 
 **Compliance/KYC:** suitability/investor-classification questionnaire (DEC-004); in-platform ongoing AML monitoring automation (KYC-DEC-007); self-service KYB / UBO automation (KYC-DEC-002); KYC appeal/retry path; evidence export manifest/redaction rules; retention beyond 10 years; EU/EEA country block list; accepted legal-entity forms/SPVs; final legal wording (risk warnings DEC-009, bulletin board DEC-008, FX model, assignment templates DOC-DEC-005, recovery fee disclosures PROD-DEC-009); FINMA licence-fit confirmation.
 
-**Auth/accounts:** maker-checker/dual approval (DEC-011) — only future enablement by config; admin step-up auth; admin impersonation; auditor/read-only portal; granular investor permissions (viewer/transaction/balance/approver); legal-entity multi-user/org model; self-service account closure; "log out all devices" (ACC-DEC-007); restricted-vs-locked semantic distinction; auto-locking inactive accounts; support role separation; undefined values (magic-link expiry/rate limits, Twilio retry limits, admin code expiry, resend cooldown seconds, password policy, closure reason codes, break-glass path DEC-010); system-verified closure prerequisites (attestation is acceptable interim behavior).
+**Auth/accounts:** maker-checker/dual approval (DEC-011) — only future enablement by config; admin step-up auth; write-capable impersonation; auditor role; granular investor permissions (viewer/transaction/balance/approver); legal-entity multi-user/org model; self-service account closure; "log out all devices" (ACC-DEC-007); restricted-vs-locked semantic distinction; auto-locking inactive accounts; support role separation; undefined values (magic-link expiry/rate limits, Twilio retry limits, admin code expiry, resend cooldown seconds, password policy, closure reason codes, break-glass path DEC-010). Server-side closure prerequisite checks are implemented; reversible closure-time pseudonymization and offline key custody remain pending.
 
 **Product/origination:** custom/manual repayment schedule; late fees (field exists, inactive); term sanity bounds (PROD-DEC-004); currency-specific amount limits; unsecured-exception reason code (PROD-DEC-002); collateral-type-specific data models (PROD-DEC-003); other day-count conventions/frequencies/interest components; rate auto-derivation from risk grade; platform credit memo (ORIG-DEC-002); draft-loan/rejection tracking (ORIG-DEC-007); collateral valuation policy/LTV constraints (DEC-006); LTV rounding rules; minimum funding threshold (none at launch — admin decides partial closes case-by-case, PAY-DEC-008/014).
 

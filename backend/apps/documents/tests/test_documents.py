@@ -468,6 +468,13 @@ def test_seed_demo_publishes_temporary_secondary_market_terms() -> None:
 
 
 @pytest.mark.django_db
+def test_seed_reference_data_does_not_publish_temporary_legal_templates() -> None:
+    call_command("seed_reference_data", verbosity=0)
+
+    assert DocumentTemplateVersion.objects.count() == 0
+
+
+@pytest.mark.django_db
 def test_seed_demo_does_not_replace_existing_secondary_market_terms(
     superadmin_user: Model,
 ) -> None:

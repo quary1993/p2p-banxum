@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from datetime import date
+from importlib import import_module
+
 import pytest
+from django.apps import apps
 from django.db import DatabaseError, connection, transaction
 from django.test import Client
 
@@ -19,6 +23,7 @@ from backend.apps.accounts_auth.services import (
 )
 from backend.apps.platform_core.models import AuditEvent, DomainEvent
 from backend.apps.platform_core.models.base import AppendOnlyViolation
+from backend.apps.platform_core.services.currencies import seed_launch_currencies
 
 
 @pytest.fixture
@@ -134,6 +139,108 @@ def test_close_account_requires_clean_account_confirmation(
     assert investor.is_active is False
     assert investor.can_login is False
     assert event.clean_account_confirmed is True
+
+
+@pytest.mark.django_db
+def test_close_account_rejects_unresolved_compliance_case(
+    admin_user: User,
+    investor: User,
+) -> None:
+    kyc_case_model = apps.get_model("kyc_compliance", "KycVerificationCase")
+    kyc_case_model.objects.create(
+        user=investor,
+        subject_reference=f"user:{investor.id}",
+        provider_environment="test",
+        status="manual_review",
+    )
+
+    with pytest.raises(AccountAccessControlError, match="unresolved compliance review"):
+        change_account_access(
+            ChangeAccountAccessCommand(
+                actor=admin_user,
+                user_id=str(investor.id),
+                new_status=AccountStatus.CLOSED,
+                reason_code=AccountAccessReason.ACCOUNT_CLOSURE,
+                note="Support request.",
+                clean_account_confirmed=True,
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_close_account_rejects_nonzero_investor_balance(
+    admin_user: User,
+    investor: User,
+) -> None:
+    ledger_services = import_module("backend.apps.ledger.services")
+
+    seed_launch_currencies()
+    ledger_services.declare_lender_deposit(
+        ledger_services.DeclareLenderDepositCommand(
+            actor=admin_user,
+            investor_user_id=str(investor.id),
+            amount_minor=100_00,
+            currency="CHF",
+            booking_date=date(2026, 7, 21),
+            value_date=date(2026, 7, 21),
+            collection_account_identifier="CH11GARANTATEST",
+            payer_name=investor.full_name,
+            payment_reference=f"TEST-{investor.investor_reference}",
+            idempotency_key="account-closure-balance-blocker",
+        )
+    )
+
+    with pytest.raises(AccountAccessControlError, match="non-zero cash balance"):
+        change_account_access(
+            ChangeAccountAccessCommand(
+                actor=admin_user,
+                user_id=str(investor.id),
+                new_status=AccountStatus.CLOSED,
+                reason_code=AccountAccessReason.ACCOUNT_CLOSURE,
+                note="Support request.",
+                clean_account_confirmed=True,
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_marketing_consent_api_is_persisted_and_audited(
+    client: Client,
+    investor: User,
+) -> None:
+    client.force_login(investor)
+
+    response = client.patch(
+        "/api/v1/auth/preferences/marketing/",
+        data={"marketing_consent": True},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    investor.refresh_from_db()
+    assert investor.marketing_consent is True
+    assert response.json()["user"]["marketing_consent"] is True
+    assert AuditEvent.objects.filter(
+        action="account.marketing_consent_changed",
+        target_id=str(investor.id),
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_readonly_impersonation_header_blocks_all_unsafe_api_requests(
+    client: Client,
+    superadmin: User,
+) -> None:
+    client.force_login(superadmin)
+
+    response = client.post(
+        "/api/v1/auth/logout/",
+        HTTP_X_BANXUM_IMPERSONATE="signed-readonly-context",
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Read-only impersonation cannot perform write actions."
+    assert client.get("/api/v1/auth/me/").status_code == 200
 
 
 @pytest.mark.django_db

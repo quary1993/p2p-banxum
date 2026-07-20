@@ -41,6 +41,28 @@ test("renders the FAQ for logged-out visitors", () => {
   expect(screen.getByRole("button", { name: "Create lender account" })).toBeInTheDocument();
 });
 
+test("direct registration and login URLs render the requested public flow", () => {
+  const registration = renderApp("/register");
+
+  expect(screen.getByRole("heading", { name: "Create your lender account" })).toBeInTheDocument();
+  registration.unmount();
+
+  renderApp("/login");
+  expect(screen.getByRole("heading", { name: "Log in" })).toBeInTheDocument();
+});
+
+test("client navigation writes a stable URL and browser history restores the screen", () => {
+  renderApp("/");
+
+  fireEvent.click(screen.getByRole("button", { name: "Register" }));
+  expect(window.location.pathname).toBe("/register");
+  expect(screen.getByRole("heading", { name: "Create your lender account" })).toBeInTheDocument();
+
+  window.history.pushState({}, "", "/faq");
+  fireEvent(window, new PopStateEvent("popstate"));
+  expect(screen.getByRole("heading", { name: "Help & FAQ" })).toBeInTheDocument();
+});
+
 test("login resume sends incomplete accounts back to onboarding", () => {
   expect(
     onboardingStepForUser({

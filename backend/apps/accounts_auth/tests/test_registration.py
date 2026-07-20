@@ -53,6 +53,22 @@ def _published_registration_document() -> Any:
     )
 
 
+def _published_risk_disclosure(superadmin: User) -> Any:
+    documents = import_module("backend.apps.documents.services")
+    return documents.create_document_template_version(
+        documents.CreateDocumentTemplateVersionCommand(
+            actor=superadmin,
+            category="risk_disclosure",
+            name="Lender Risk Disclosure",
+            title="P2P Lending Risk Disclosure",
+            body="Risk disclosure for {{platform.name}} operated by {{operator.name}}.",
+            checkbox_labels=["I acknowledge possible capital loss."],
+            publish_now=True,
+            legal_review_reference="risk-approved-test",
+        )
+    )
+
+
 @pytest.mark.django_db
 def test_register_natural_person_lender_records_terms_and_events(settings: Any) -> None:
     user = register_natural_person_lender(
@@ -117,6 +133,61 @@ def test_register_natural_person_lender_accepts_current_registration_document(
         topic="email.document_acceptance_pdf",
         payload__acceptance_id=str(acceptance.id),
     ).exists()
+
+
+@pytest.mark.django_db
+def test_registration_records_separate_server_versioned_risk_disclosure(settings: Any) -> None:
+    agreement = _published_registration_document()
+    superadmin = User.objects.get(email="registration-docs-superadmin@example.test")
+    risk = _published_risk_disclosure(superadmin)
+
+    user = register_natural_person_lender(
+        RegisterNaturalPersonCommand(
+            email="risk-evidence@example.test",
+            full_name="Risk Evidence Investor",
+            phone_number="+41790000011",
+            terms_version=settings.REGISTRATION_TERMS_VERSION,
+            terms_hash=settings.REGISTRATION_TERMS_HASH,
+            registration_document_template_version_id=str(agreement.id),
+            accepted_checkbox_labels=list(agreement.checkbox_labels),
+            document_idempotency_key="registration-agreement-with-risk",
+            risk_document_template_version_id=str(risk.id),
+            accepted_risk_checkbox_labels=list(risk.checkbox_labels),
+            risk_document_idempotency_key="registration-risk-evidence",
+        )
+    )
+
+    evidence_model = apps.get_model("documents", "DocumentAcceptanceEvidence")
+    evidence = evidence_model.objects.filter(user_id=user.id).order_by("category")
+    assert list(evidence.values_list("category", flat=True)) == [
+        "registration",
+        "risk_disclosure",
+    ]
+    risk_evidence = evidence.get(category="risk_disclosure")
+    assert risk_evidence.template_version_id == risk.id
+    assert risk_evidence.context_type == "registration"
+    assert risk_evidence.accepted_checkbox_labels == list(risk.checkbox_labels)
+
+
+@pytest.mark.django_db
+def test_registration_requires_risk_disclosure_when_published(settings: Any) -> None:
+    agreement = _published_registration_document()
+    superadmin = User.objects.get(email="registration-docs-superadmin@example.test")
+    _published_risk_disclosure(superadmin)
+
+    with pytest.raises(InvalidTermsAcceptanceError, match="risk disclosure"):
+        register_natural_person_lender(
+            RegisterNaturalPersonCommand(
+                email="missing-risk@example.test",
+                full_name="Missing Risk Investor",
+                phone_number="+41790000012",
+                terms_version=settings.REGISTRATION_TERMS_VERSION,
+                terms_hash=settings.REGISTRATION_TERMS_HASH,
+                registration_document_template_version_id=str(agreement.id),
+                accepted_checkbox_labels=list(agreement.checkbox_labels),
+                document_idempotency_key="registration-missing-risk",
+            )
+        )
 
 
 @pytest.mark.django_db

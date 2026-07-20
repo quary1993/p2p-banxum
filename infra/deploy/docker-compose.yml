@@ -33,7 +33,7 @@ services:
       CACHE_URL: redis://redis:6379/0
       DJANGO_STATIC_ROOT: /app/staticfiles
       DJANGO_MEDIA_ROOT: /app/backend/media
-    command: sh -c ".venv/bin/python backend/manage.py migrate --noinput && .venv/bin/python backend/manage.py collectstatic --noinput && .venv/bin/python backend/manage.py seed_demo && .venv/bin/python backend/manage.py bootstrap_superadmin && exec .venv/bin/gunicorn backend.config.wsgi:application --bind 0.0.0.0:8000 --workers ${GUNICORN_WORKERS:-2} --timeout ${GUNICORN_TIMEOUT:-60}"
+    command: sh -c ".venv/bin/python backend/manage.py migrate --noinput && .venv/bin/python backend/manage.py collectstatic --noinput && .venv/bin/python backend/manage.py seed_reference_data && .venv/bin/python backend/manage.py bootstrap_superadmin && exec .venv/bin/gunicorn backend.config.wsgi:application --bind 0.0.0.0:8000 --workers ${GUNICORN_WORKERS:-2} --timeout ${GUNICORN_TIMEOUT:-60}"
     volumes:
       - media_data:/app/backend/media
     depends_on:

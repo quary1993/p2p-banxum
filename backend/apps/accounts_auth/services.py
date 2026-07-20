@@ -6,6 +6,7 @@ from datetime import timedelta
 from importlib import import_module
 from typing import Any, cast
 
+from django.apps import apps
 from django.conf import settings
 from django.contrib.auth.hashers import identify_hasher
 from django.contrib.auth.password_validation import validate_password
@@ -42,6 +43,7 @@ from backend.apps.platform_core.domain.access import (
     has_admin_role,
     has_superadmin_role,
     is_admin_actor,
+    is_lender_actor,
     is_superadmin_actor,
 )
 from backend.apps.platform_core.domain.actors import ActorRef
@@ -201,6 +203,14 @@ def _current_registration_document_template() -> Any | None:
         return None
 
 
+def _current_risk_disclosure_template() -> Any | None:
+    documents = _documents_services_module()
+    try:
+        return documents.get_current_document_template(category="risk_disclosure")
+    except documents.DocumentValidationError:
+        return None
+
+
 def _registration_terms_evidence_values(command: RegisterNaturalPersonCommand) -> tuple[str, str]:
     current_template = _current_registration_document_template()
     if current_template is None:
@@ -259,6 +269,60 @@ def _accept_registration_document_terms(
     )
 
 
+def _validate_registration_risk_disclosure(command: RegisterNaturalPersonCommand) -> Any | None:
+    current_template = _current_risk_disclosure_template()
+    if current_template is None:
+        return None
+    if not command.risk_document_template_version_id:
+        raise InvalidTermsAcceptanceError("Registration risk disclosure is required.")
+    if str(current_template.id) != str(command.risk_document_template_version_id):
+        raise InvalidTermsAcceptanceError("Registration risk disclosure is not current.")
+    accepted_labels = command.accepted_risk_checkbox_labels or []
+    required_labels = list(cast(list[str], current_template.checkbox_labels))
+    if any(label not in accepted_labels for label in required_labels):
+        raise InvalidTermsAcceptanceError("Registration risk disclosure checkbox is required.")
+    return current_template
+
+
+def _accept_registration_risk_disclosure(
+    *,
+    user: User,
+    command: RegisterNaturalPersonCommand,
+    terms_acceptance: RegistrationTermsAcceptance,
+    current_template: Any | None,
+) -> None:
+    if current_template is None:
+        return
+    documents = _documents_services_module()
+    documents.accept_document_terms(
+        documents.AcceptDocumentTermsCommand(
+            actor=user,
+            category="risk_disclosure",
+            template_key=str(current_template.template.template_key),
+            language=str(current_template.template.language),
+            expected_template_version_id=str(current_template.id),
+            accepted_checkbox_labels=list(command.accepted_risk_checkbox_labels or []),
+            context_type="registration",
+            context_id=str(user.id),
+            data_snapshot={
+                "registration": {
+                    "terms_acceptance_id": str(terms_acceptance.id),
+                }
+            },
+            ip_address=command.ip_address,
+            user_agent=command.user_agent,
+            idempotency_key=(
+                command.risk_document_idempotency_key
+                or f"registration-risk:{user.id}:{terms_acceptance.id}"
+            ),
+            metadata={
+                "source": "natural_person_registration",
+                "registration_terms_acceptance_id": str(terms_acceptance.id),
+            },
+        )
+    )
+
+
 def _user_has_started_kyc(user: User) -> bool:
     try:
         kyc_case = user.kyc_verification_case
@@ -285,8 +349,11 @@ class RegisterNaturalPersonCommand:
     terms_version: str
     terms_hash: str
     registration_document_template_version_id: str | None = None
+    risk_document_template_version_id: str | None = None
     accepted_checkbox_labels: list[str] | None = None
+    accepted_risk_checkbox_labels: list[str] | None = None
     document_idempotency_key: str | None = None
+    risk_document_idempotency_key: str | None = None
     ip_address: str | None = None
     user_agent: str = ""
     marketing_consent: bool = False
@@ -404,6 +471,12 @@ class ChangeAccountAccessCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class UpdateMarketingConsentCommand:
+    user: User
+    marketing_consent: bool
+
+
+@dataclass(frozen=True, slots=True)
 class BootstrapEnvSuperadminResult:
     user: User | None
     action: str
@@ -414,6 +487,7 @@ class BootstrapEnvSuperadminResult:
 def register_natural_person_lender(command: RegisterNaturalPersonCommand) -> User:
     email = normalize_email(command.email)
     terms_version, terms_hash = _registration_terms_evidence_values(command)
+    current_risk_template = _validate_registration_risk_disclosure(command)
 
     user = User.objects.select_for_update().filter(email=email).first()
     is_recovered_incomplete_registration = False
@@ -462,6 +536,12 @@ def register_natural_person_lender(command: RegisterNaturalPersonCommand) -> Use
         command=command,
         terms_acceptance=terms_acceptance,
     )
+    _accept_registration_risk_disclosure(
+        user=user,
+        command=command,
+        terms_acceptance=terms_acceptance,
+        current_template=current_risk_template,
+    )
     actor = ActorRef("investor", str(user.id))
     record_audit_event(
         AuditCommand(
@@ -496,6 +576,43 @@ def register_natural_person_lender(command: RegisterNaturalPersonCommand) -> Use
                 if is_recovered_incomplete_registration
                 else f"user:{user.id}:registered"
             ),
+        )
+    )
+    return user
+
+
+@transaction.atomic
+def update_marketing_consent(command: UpdateMarketingConsentCommand) -> User:
+    user = User.objects.select_for_update().filter(id=command.user.id).first()
+    if user is None or not is_lender_actor(user):
+        raise AccountsAuthError("Only an active lender can update communication preferences.")
+    previous_value = user.marketing_consent
+    if previous_value == command.marketing_consent:
+        return user
+    user.marketing_consent = command.marketing_consent
+    user.save(update_fields=["marketing_consent"])
+    record_audit_event(
+        AuditCommand(
+            actor=actor_for_user(user),
+            action="account.marketing_consent_changed",
+            target_type="User",
+            target_id=str(user.id),
+            metadata={
+                "previous_value": previous_value,
+                "new_value": command.marketing_consent,
+            },
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="MarketingConsentChanged",
+            aggregate_type="User",
+            aggregate_id=str(user.id),
+            payload={
+                "previous_value": previous_value,
+                "new_value": command.marketing_consent,
+            },
+            idempotency_key=f"user:{user.id}:marketing-consent:{timezone.now().isoformat()}",
         )
     )
     return user
@@ -1192,6 +1309,64 @@ def create_admin_user(command: CreateAdminUserCommand) -> User:
     return user
 
 
+def _account_closure_blockers(user: User) -> list[str]:
+    """Return live obligations that make an account unsafe to close."""
+
+    user_id = user.id
+    blockers: list[str] = []
+    balance_lot_model = apps.get_model("ledger", "InvestorBalanceLot")
+    holding_model = apps.get_model("holdings", "InvestorLoanHolding")
+    order_model = apps.get_model("marketplace_primary", "PrimaryInvestmentOrder")
+    withdrawal_model = apps.get_model("ledger", "InvestorWithdrawalRequest")
+    listing_model = apps.get_model("secondary_market", "SecondaryMarketListing")
+    kyc_case_model = apps.get_model("kyc_compliance", "KycVerificationCase")
+    task_model = apps.get_model("admin_ops", "AdminTask")
+
+    if balance_lot_model.objects.filter(
+        investor_user_id=user_id,
+        available_amount_minor__gt=0,
+    ).exists():
+        blockers.append("non-zero cash balance")
+    if holding_model.objects.filter(
+        investor_user_id=user_id,
+        current_principal_minor__gt=0,
+    ).exists():
+        blockers.append("active loan holdings")
+    if order_model.objects.filter(
+        investor_user_id=user_id,
+        status__in=["pending", "balance_allocated", "partially_allocated"],
+    ).exists():
+        blockers.append("open primary-market orders")
+    if withdrawal_model.objects.filter(
+        investor_user_id=user_id,
+        status="requested",
+    ).exists():
+        blockers.append("pending withdrawals")
+    if listing_model.objects.filter(
+        seller_user_id=user_id,
+        status__in=["active", "approval_requested"],
+    ).exists():
+        blockers.append("open secondary-market listings")
+    if kyc_case_model.objects.filter(
+        user_id=user_id,
+        status__in=[
+            "manual_review",
+            "high_risk",
+            "sanctions_hit",
+            "pep_hit",
+            "adverse_media_hit",
+        ],
+    ).exists():
+        blockers.append("unresolved compliance review")
+    if task_model.objects.filter(
+        related_object_type="User",
+        related_object_id=str(user_id),
+        status__in=["open", "in_progress", "waiting"],
+    ).exists():
+        blockers.append("open admin tasks")
+    return blockers
+
+
 @transaction.atomic
 def change_account_access(command: ChangeAccountAccessCommand) -> AccountAccessEvent:
     if not is_admin_actor(command.actor):
@@ -1210,8 +1385,14 @@ def change_account_access(command: ChangeAccountAccessCommand) -> AccountAccessE
         raise AccountAccessControlError("Closed accounts cannot be reactivated in v1.")
     if command.new_status == AccountStatus.PENDING_KYC:
         raise AccountAccessControlError("Account access controls cannot set pending KYC.")
-    if command.new_status == AccountStatus.CLOSED and not command.clean_account_confirmed:
-        raise AccountAccessControlError("Account closure requires clean-account confirmation.")
+    if command.new_status == AccountStatus.CLOSED:
+        if not command.clean_account_confirmed:
+            raise AccountAccessControlError("Account closure requires clean-account confirmation.")
+        blockers = _account_closure_blockers(target_user)
+        if blockers:
+            raise AccountAccessControlError(
+                "Account cannot be closed while it has: " + ", ".join(blockers) + "."
+            )
     if command.new_status == target_user.status:
         raise AccountAccessControlError("Account already has the requested status.")
     if not command.note.strip() and not command.evidence_summary.strip():

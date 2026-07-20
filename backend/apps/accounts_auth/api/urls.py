@@ -11,6 +11,7 @@ from backend.apps.accounts_auth.api.views import (
     LogoutView,
     MagicLinkConsumeView,
     MagicLinkRequestView,
+    MarketingConsentView,
     NaturalPersonRegistrationView,
     PhoneVerificationConfirmView,
     PhoneVerificationRequestView,
@@ -37,5 +38,6 @@ urlpatterns = [
         name="auth-sensitive-action-code-request",
     ),
     path("me/", CurrentUserView.as_view(), name="auth-me"),
+    path("preferences/marketing/", MarketingConsentView.as_view(), name="auth-marketing-consent"),
     path("logout/", LogoutView.as_view(), name="auth-logout"),
 ]

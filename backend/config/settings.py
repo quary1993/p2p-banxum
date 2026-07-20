@@ -24,6 +24,8 @@ ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.
 PLATFORM_BRAND_NAME = env("PLATFORM_BRAND_NAME", default="BANXUM")
 LEGAL_OPERATOR_NAME = env("LEGAL_OPERATOR_NAME", default="Garanta Finanzgruppe AG")
 PUBLIC_APP_BASE_URL = env("PUBLIC_APP_BASE_URL", default="http://localhost:5173")
+DJANGO_ADMIN_ENABLED = env.bool("DJANGO_ADMIN_ENABLED", default=ENVIRONMENT == "local")
+API_DOCS_ENABLED = env.bool("API_DOCS_ENABLED", default=ENVIRONMENT == "local")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -59,6 +61,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "backend.apps.platform_core.middleware.RejectReadonlyImpersonationWritesMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -266,15 +269,16 @@ else:
         }
     }
 
+DEFAULT_RENDERER_CLASSES = ["rest_framework.renderers.JSONRenderer"]
+if ENVIRONMENT == "local":
+    DEFAULT_RENDERER_CLASSES.append("rest_framework.renderers.BrowsableAPIRenderer")
+
 REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework.authentication.SessionAuthentication",
     ],
-    "DEFAULT_RENDERER_CLASSES": [
-        "rest_framework.renderers.JSONRenderer",
-        "rest_framework.renderers.BrowsableAPIRenderer",
-    ],
+    "DEFAULT_RENDERER_CLASSES": DEFAULT_RENDERER_CLASSES,
 }
 
 SPECTACULAR_SETTINGS = {
@@ -290,6 +294,7 @@ SPECTACULAR_SETTINGS = {
         "BorrowerEntityTypeEnum": "backend.apps.entities.models.BorrowerEntityType.choices",
         "BorrowerKybStatusEnum": "backend.apps.entities.models.BorrowerKybStatus.choices",
         "KycStatusEnum": "backend.apps.kyc_compliance.models.KycStatus.choices",
+        "RepaymentTypeEnum": "backend.apps.loans.models.RepaymentType.choices",
     },
 }
 

@@ -1,7 +1,7 @@
 # BANXUM Go-Live And Real-Money Readiness Checklist
 
 Status: working launch runbook.
-Last updated: 2026-06-23.
+Last updated: 2026-07-21.
 
 This checklist is the operational gate before BANXUM handles real lender money or real production KYC evidence. It complements `admin_todo_accounts.md`, `admin_todo_garanta.md`, `admin_todo_tech.md`, and `docs/runbooks/server-deployment.md`.
 
@@ -22,12 +22,14 @@ Complete these before calling any environment production-like.
   - `QA_DEV_MODE_ALLOWED=false` in production, and the QA mode admin panel is not used against real
     customer data.
   - Production server and database access are limited to authorized tech users.
+  - `DJANGO_ADMIN_ENABLED=false` and `API_DOCS_ENABLED=false` outside explicitly isolated local development; `/admin/django/`, `/api/docs/`, and `/api/schema/` return 404 publicly.
 - Database, cache, and backups:
   - Production and staging PostgreSQL databases/users/volumes are separate.
   - Redis/cache is shared per environment, not in-process memory, so throttles work across workers.
   - Full backend suite has passed against PostgreSQL.
   - `make test-postgres-hardening` has passed against a disposable/Postgres test database.
-  - Daily encrypted backup is configured and a restore drill has been performed.
+  - Daily encrypted off-host backup is configured with `infra/deploy/backup_postgres.sh`, `BANXUM_BACKUP_REQUIRE_OFFSITE=true`, and a private Zurich-region S3 destination.
+  - `infra/deploy/check_backup_freshness.sh` is monitored and a restore drill into a disposable database has been performed.
 - Provider settings:
   - Didit is in API mode with real workflow ID, webhook signing secret, signed webhooks required, and public callback URL.
   - SendGrid is authenticated for the sender domain and can deliver transactional mail from the approved sender.
@@ -41,8 +43,13 @@ Complete these before calling any environment production-like.
 - Legal and documents:
   - Registration lender user agreement template is counsel-approved, imported, reviewed in Superadmin Settings, and published.
   - Primary-market project investment confirmation / claim-assignment template is counsel-approved, imported, reviewed, and published.
-  - Secondary-market buyer/listing terms are approved and published before enabling secondary-market actions. `seed_demo` currently publishes temporary placeholder buyer/listing terms only when no current secondary-market template exists, so private testing can exercise the flow; these placeholders are explicitly not approved production legal content.
+  - Secondary-market buyer/listing terms and the generic risk disclosure are counsel-approved and published before enabling those actions. `seed_demo` may publish temporary placeholders only when an operator runs it deliberately for private testing; deployed startup runs `seed_reference_data` and never creates legal templates.
+  - Existing private-test placeholder template versions are replaced by counsel-approved current versions before real-money use; stopping automatic seed does not make already-published placeholders legally valid.
   - Generated agreement PDFs/CSVs are rendered on demand from immutable acceptance evidence and are downloadable from investor Documents plus the admin Users document-history modal. Legal terms and transaction-agreement PDFs are not emailed by default.
+- Privacy and retained evidence:
+  - Didit/KYC raw provider payloads are field-encrypted or moved to restricted Swiss evidence storage before production KYC retention; encrypted disks alone are not the final control.
+  - Closure-time reversible pseudonymization, offline private-key custody, and the recovery procedure are implemented and tested before processing a production closure request.
+  - Production data is never copied to staging without an approved anonymization/pseudonymization process.
 - Communications and monitoring:
   - Scheduled jobs are installed for email dispatch, daily balance ageing/penalty charging, servicing status scan, campaign expiry scan, and reconciliation-break task sync.
   - `check_scheduled_jobs` runs at least every 15 minutes and alerts on non-zero exit.

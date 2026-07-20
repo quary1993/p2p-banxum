@@ -115,10 +115,11 @@ all recorded as superseded entries in `results.jsonl`.
    registration with a real phone is now expected to work end-to-end.
 2. **FX live execution E2E** — re-run on a weekday (Zurich market day):
    `BANXUM_DIDIT_WEBHOOK_SECRET=… uv run --with requests staging-lifecycle-driver.py fxsmoke`.
-3. **Spec divergence to ratify**: `plan/06` says "no impersonation feature";
-   the platform now ships an audited, read-only, superadmin-gated
-   impersonation (cannot target admins, mutations blocked). Recommend updating
-   the plan text to match the implemented (safer) design.
+3. ~~**Impersonation specification divergence**~~ **RESOLVED 2026-07-04**:
+   `plan/03_accounts_auth_access.md`, the security plan, and the consistency
+   review now define the shipped audited, short-lived, read-only,
+   superadmin-only impersonation model. Admin targets and every unsafe API
+   method are blocked.
 
 ## Artifacts
 

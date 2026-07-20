@@ -43,8 +43,12 @@ Each environment has its own:
 The frontend nginx container serves the built React app and proxies:
 
 - `/api/` to the backend.
-- `/admin/django/` to the backend.
+- `/admin/django/` to the backend only at the proxy layer; Django returns 404 unless `DJANGO_ADMIN_ENABLED=true` (local-only by default).
 - `/static/` to the backend/WhiteNoise.
+
+Django's framework admin and interactive OpenAPI/schema routes are local-only by default. Keep
+`DJANGO_ADMIN_ENABLED=false` and `API_DOCS_ENABLED=false` in staging and production; the supported
+operator interface is the BANXUM `/admin` SPA.
 
 ## Mandatory HTTPS And Cookie Security
 
@@ -76,6 +80,8 @@ files; store them in a password manager or secrets manager and use environment-m
 - `frontend/Dockerfile.deploy`: production React build served by nginx.
 - `infra/deploy/nginx.conf`: frontend/static/API reverse proxy routing.
 - `infra/deploy/Caddyfile.example`: example host-level TLS reverse proxy routing.
+- `infra/deploy/backup_postgres.sh`: locked, validated PostgreSQL backup with optional encrypted S3 upload.
+- `infra/deploy/check_backup_freshness.sh`: checksum and age monitor for the latest environment backup.
 
 ## Server Directories
 
@@ -98,6 +104,11 @@ The workflow uploads the checked-out commit as a release archive, preserves the 
 environment's existing `infra/deploy/.env`, rebuilds only the BANXUM Compose project, and runs the
 server-local health check. It must use only the configured BANXUM SSH secrets and the directories /
 Compose project names listed below.
+
+Container startup applies migrations, collects static files, runs `seed_reference_data`, and
+synchronizes the environment-managed superadmin. `seed_reference_data` creates only currencies and
+platform settings. Never put `seed_demo` in a deployed startup command: it is an explicit local/private
+QA command and may create temporary, non-approved legal templates.
 
 Use the direct server commands below only for emergency or diagnostic work.
 
@@ -177,6 +188,47 @@ The focused hardening pack verifies production-engine behavior that SQLite canno
 
 CI also runs with PostgreSQL 16 and Redis. `MIGRATION_CHECK_DATABASE_URL` is set to Postgres in CI so
 the migration drift gate uses the production database engine.
+
+## PostgreSQL Backups
+
+Backups must be environment-scoped, encrypted off-host, and monitored. The backup helper acquires a
+per-environment lock, creates a compressed custom-format `pg_dump`, validates it with `pg_restore
+--list`, writes a SHA-256 checksum, uploads both files with S3 server-side encryption, and retains a
+short local recovery window. It never touches another Compose project.
+
+Example production environment file consumed by the cron wrapper (store outside Git):
+
+```env
+BANXUM_APP_DIR=/opt/banxum/production/app
+BANXUM_ENV_FILE=/opt/banxum/production/app/infra/deploy/.env
+BANXUM_COMPOSE_PROJECT=banxum_prod
+BANXUM_BACKUP_DIR=/opt/banxum/production/backups
+BANXUM_BACKUP_S3_URI=s3://REPLACE-WITH-PRIVATE-ZURICH-BUCKET/production/postgres
+BANXUM_BACKUP_KMS_KEY_ID=REPLACE-WITH-KMS-KEY-ID
+BANXUM_BACKUP_REQUIRE_OFFSITE=true
+BANXUM_BACKUP_LOCAL_RETENTION_DAYS=7
+BANXUM_BACKUP_MAX_AGE_HOURS=30
+```
+
+Run once manually and verify the destination before installing cron:
+
+```bash
+set -a; source /etc/banxum/production-backup.env; set +a
+/opt/banxum/production/app/infra/deploy/backup_postgres.sh
+/opt/banxum/production/app/infra/deploy/check_backup_freshness.sh
+```
+
+Recommended schedule (02:30 Europe/Zurich plus freshness monitoring):
+
+```cron
+30 2 * * * set -a; . /etc/banxum/production-backup.env; set +a; /opt/banxum/production/app/infra/deploy/backup_postgres.sh >> /var/log/banxum-production-backup.log 2>&1
+15 8 * * * set -a; . /etc/banxum/production-backup.env; set +a; /opt/banxum/production/app/infra/deploy/check_backup_freshness.sh >> /var/log/banxum-production-backup-monitor.log 2>&1
+```
+
+Use distinct staging paths, prefixes, and credentials. Configure S3 lifecycle expiration at 62 days.
+A successful dump is not a completed backup program: before real money, restore a selected archive
+into a disposable PostgreSQL database, run integrity counts/checks, document the result, and alert on
+any backup or freshness-check non-zero exit.
 
 ## Scheduled Jobs And Monitoring
 

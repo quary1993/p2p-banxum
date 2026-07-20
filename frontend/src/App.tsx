@@ -13,6 +13,7 @@ import {
   useV1AuthMagicLinkRequestCreate,
   useV1AuthPhoneConfirmCreate,
   useV1AuthPhoneRequestCreate,
+  useV1AuthPreferencesMarketingPartialUpdate,
   useV1AuthRegisterNaturalPersonCreate,
   useV1AuthSensitiveActionCodeRequestCreate,
   useV1DocumentsAcceptancesCreate,
@@ -253,6 +254,58 @@ function readStoredRoute(): AppRoute {
   return storedRoute.name && routeNames.includes(storedRoute.name)
     ? { name: storedRoute.name, params: storedRoute.params }
     : { name: "public" };
+}
+
+function routeFromPathname(pathname: string): AppRoute | null {
+  const normalized = pathname.replace(/\/+$/, "") || "/";
+  const directRoutes: Record<string, RouteName> = {
+    "/": "public",
+    "/faq": "publicFaq",
+    "/help": "publicFaq",
+    "/login": "login",
+    "/register": "register",
+    "/verification": "kyc",
+    "/dashboard": "dashboard",
+    "/marketplace": "market",
+    "/portfolio": "portfolio",
+    "/secondary-market": "secondary",
+    "/balances": "balances",
+    "/fx": "fx",
+    "/documents": "documents",
+    "/notifications": "notifications",
+    "/settings": "settings",
+    "/portal/help": "faq"
+  };
+  if (directRoutes[normalized]) return { name: directRoutes[normalized] };
+  const loanMatch = normalized.match(/^\/marketplace\/([^/]+)$/);
+  if (!loanMatch) return null;
+  try {
+    return { name: "loan", params: { loanId: decodeURIComponent(loanMatch[1]) } };
+  } catch {
+    return null;
+  }
+}
+
+function routePath(route: AppRoute) {
+  const paths: Record<RouteName, string> = {
+    public: "/",
+    publicFaq: "/faq",
+    login: "/login",
+    register: "/register",
+    kyc: "/verification",
+    dashboard: "/dashboard",
+    market: "/marketplace",
+    loan: `/marketplace/${encodeURIComponent(route.params?.loanId ?? "")}`,
+    portfolio: "/portfolio",
+    secondary: "/secondary-market",
+    balances: "/balances",
+    fx: "/fx",
+    documents: "/documents",
+    notifications: "/notifications",
+    settings: "/settings",
+    faq: "/portal/help"
+  };
+  return paths[route.name];
 }
 
 function e164PhoneNumber(callingCode: string, nationalNumber: string) {
@@ -741,6 +794,10 @@ function statusTone(status: string) {
 function goTo(setRoute: (route: AppRoute) => void, name: RouteName, params?: Record<string, string>) {
   const nextRoute = { name, params };
   writeStoredObject(appRouteStorageKey, nextRoute);
+  const nextPath = routePath(nextRoute);
+  if (window.location.pathname !== nextPath) {
+    window.history.pushState({}, "", nextPath);
+  }
   setRoute(nextRoute);
   window.scrollTo({ top: 0, behavior: "instant" });
 }
@@ -752,15 +809,26 @@ function clearPortalSessionState(queryClient: ReturnType<typeof useQueryClient>)
 }
 
 export function App() {
+  const pathRoute = routeFromPathname(window.location.pathname);
   const initialRoute: AppRoute = readReadonlyImpersonationToken()
-    ? { name: "dashboard" }
-    : window.location.pathname.startsWith("/faq") || window.location.pathname.startsWith("/help")
-      ? { name: "publicFaq" }
-    : window.location.pathname.startsWith("/login")
-      ? { name: "login" }
-      : readStoredRoute();
+    ? pathRoute && !["public", "publicFaq", "login", "register"].includes(pathRoute.name)
+      ? pathRoute
+      : { name: "dashboard" }
+    : pathRoute?.name === "public"
+      ? readStoredRoute()
+      : pathRoute ?? readStoredRoute();
   const [route, setRoute] = useState<AppRoute>(initialRoute);
   const [demoState, setDemoState] = useState<DemoAccountState>("active");
+
+  useEffect(() => {
+    const onPopState = () => {
+      const nextRoute = routeFromPathname(window.location.pathname) ?? { name: "public" as const };
+      writeStoredObject(appRouteStorageKey, nextRoute);
+      setRoute(nextRoute);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   if (window.location.pathname.startsWith("/admin")) {
     return <AdminApp />;
@@ -826,8 +894,8 @@ function PublicLanding({ setRoute }: { setRoute: (route: AppRoute) => void }) {
         <Wordmark />
         <div className="grow" />
         <nav className="public-nav" aria-label="Public navigation">
-          <a onClick={() => goTo(setRoute, "publicFaq")}>How it works</a>
-          <a onClick={() => goTo(setRoute, "publicFaq")}>FAQ</a>
+          <a href="/faq" onClick={(event) => { event.preventDefault(); goTo(setRoute, "publicFaq"); }}>How it works</a>
+          <a href="/faq" onClick={(event) => { event.preventDefault(); goTo(setRoute, "publicFaq"); }}>FAQ</a>
         </nav>
         <Button variant="ghost" onClick={() => goTo(setRoute, "login")}>
           Log in
@@ -863,7 +931,7 @@ function PublicLanding({ setRoute }: { setRoute: (route: AppRoute) => void }) {
                   investing unlock after registration and identity verification.
                 </div>
                 <p className="lede-line">
-                  Put your capital to work: fund highly collateralised, secured loans and earn monthly interest.
+                  Review project-specific business loans, their repayment schedules, risks, and any disclosed security before deciding whether to invest.
                 </p>
               </div>
             </div>
@@ -913,7 +981,7 @@ function LandingMarketing({ setRoute }: { setRoute: (route: AppRoute) => void })
       n: "01",
       icon: "shield" as const,
       title: "We originate and vet",
-      desc: `${operatorName} sources, underwrites and services business loans across Switzerland and the EU/EEA. Every loan is risk-rated, secured by collateral, and fully documented.`
+      desc: `${operatorName} sources, underwrites and services business loans across Switzerland and the EU/EEA. Each published project carries its own risk, repayment, and security disclosures.`
     },
     {
       n: "02",
@@ -925,15 +993,15 @@ function LandingMarketing({ setRoute }: { setRoute: (route: AppRoute) => void })
       n: "03",
       icon: "trend" as const,
       title: "You earn as they repay",
-      desc: `Interest and principal land in your balance on schedule. Reinvest into new loans, exchange currency, sell early on the secondary market, or withdraw to your bank.`
+      desc: `When borrowers pay, allocated interest and principal are credited to your balance. Repayments can be late or incomplete, and secondary-market liquidity is not guaranteed.`
     }
   ];
 
   const facts: Array<{ fig: ReactNode; k: string; d: string }> = [
     {
-      fig: <>8–18<span className="u">%</span></>,
-      k: "Target annual interest",
-      d: "Target range across loans on the platform. Returns are targets, not guarantees."
+      fig: <>Project-specific</>,
+      k: "Interest and repayment",
+      d: "Rates and repayment structures are disclosed for each loan. Returns are targets, not guarantees."
     },
     {
       fig: <>1,000<span className="u"> +</span></>,
@@ -941,19 +1009,14 @@ function LandingMarketing({ setRoute }: { setRoute: (route: AppRoute) => void })
       d: "CHF or EUR. A low entry point so you can diversify widely from the start."
     },
     {
-      fig: <>Monthly</>,
+      fig: <>Scheduled</>,
       k: "Repayment cash flow",
-      d: "Most loans repay interest and principal on a schedule — income before maturity, not only at the end."
+      d: "Every project shows its contractual schedule and repayment type before you invest."
     },
     {
-      fig: <>10<span className="u">/10</span></>,
-      k: "Secured by collateral",
-      d: "Every loan is backed by real assets — no unsecured lending on the platform."
-    },
-    {
-      fig: <>{"≤ 63"}<span className="u">%</span></>,
-      k: "Conservative loan-to-value",
-      d: "Pledged collateral comfortably exceeds every loan, cushioning against loss for lower risk."
+      fig: <>Disclosed</>,
+      k: "Security and collateral",
+      d: "Collateral, guarantees, and unsecured exceptions are shown per project and never guarantee recovery."
     }
   ];
 
@@ -964,7 +1027,7 @@ function LandingMarketing({ setRoute }: { setRoute: (route: AppRoute) => void })
           <div className="lband-eyebrow">What we do</div>
           <h2 className="lband-title">Private lending, opened up to individuals</h2>
           <p className="lband-lede">
-            {platformName} lets you invest directly in secured business loans — a form of private credit
+            {platformName} lets you invest directly in business-loan claim participations — a form of private credit
             that was, until recently, the preserve of banks and institutional funds. We handle origination,
             underwriting and servicing; you choose where your money goes.
           </p>
@@ -1000,8 +1063,8 @@ function LandingMarketing({ setRoute }: { setRoute: (route: AppRoute) => void })
             ))}
           </div>
           <p className="dark-caveat">
-            Across 10 loans in 6 countries on the platform today. Peer-to-peer lending carries risk:
-            borrowers may pay late or default, collateral may not fully cover losses, capital is at risk,
+            Peer-to-peer lending carries risk: borrowers may pay late or default, collateral or guarantees
+            may be absent or may not fully cover losses, capital is at risk,
             and an early exit on the secondary market is not guaranteed. Platform balances are not bank
             deposits and returns are not guaranteed.
           </p>
@@ -1009,7 +1072,7 @@ function LandingMarketing({ setRoute }: { setRoute: (route: AppRoute) => void })
             <Button size="lg" variant="primary" onClick={() => goTo(setRoute, "register")}>
               Create your investor account
             </Button>
-            <a onClick={() => goTo(setRoute, "publicFaq")}>Read how it works →</a>
+            <a href="/faq" onClick={(event) => { event.preventDefault(); goTo(setRoute, "publicFaq"); }}>Read how it works →</a>
           </div>
         </div>
       </section>
@@ -1162,7 +1225,7 @@ function LoginFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
             </Button>
             <div className="hr" style={{ margin: "18px 0" }} />
             <p className="center muted" style={{ fontSize: 12.5 }}>
-              New to {platformName}? <a onClick={() => goTo(setRoute, "register")}>Register as a lender</a>
+              New to {platformName}? <a href="/register" onClick={(event) => { event.preventDefault(); goTo(setRoute, "register"); }}>Register as a lender</a>
             </p>
           </form>
         ) : (
@@ -1239,7 +1302,7 @@ function KycReturnScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) 
           </p>
           <p className="muted" style={{ fontSize: 11.5 }}>
             Want to continue on this device instead?{" "}
-            <a onClick={() => leaveTo("login")}>Log in here</a>.
+            <a href="/login" onClick={(event) => { event.preventDefault(); leaveTo("login"); }}>Log in here</a>.
           </p>
         </div>
       </div>
@@ -1300,12 +1363,27 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
       }
     }
   );
+  const riskDisclosureQuery = useV1DocumentsTemplatesCurrentRetrieve(
+    {
+      category: CategoryEnum.risk_disclosure,
+      template_key: "default",
+      language: "en"
+    },
+    {
+      query: {
+        enabled: !isFixturePreview,
+        retry: false,
+        staleTime: 0
+      }
+    }
+  );
   const phoneNumber = e164PhoneNumber(phoneCountryCode, phoneNationalNumber);
   const phoneNumberLabel = phoneNumber || "your registered mobile number";
   const phoneCooldownSeconds = Math.max(0, Math.ceil((phoneCooldownUntil - nowMs) / 1000));
   const phoneRequestDisabled = phoneRequestMutation.isPending || phoneCooldownSeconds > 0;
   const emailCooldownSeconds = Math.max(0, Math.ceil((emailCooldownUntil - nowMs) / 1000));
   const registrationLabels = templateLabels(registrationTermsQuery.data);
+  const riskLabels = templateLabels(riskDisclosureQuery.data);
   const allRegistrationTermsAccepted = isFixturePreview
     ? terms
     : registrationLabels.length > 0 &&
@@ -1445,6 +1523,10 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
       setError("The current lender user agreement is not available. Retry once it loads.");
       return;
     }
+    if (!riskDisclosureQuery.data || riskLabels.length === 0) {
+      setError("The current lender risk disclosure is not available. Retry once it loads.");
+      return;
+    }
     registerMutation.mutate(
       {
         data: {
@@ -1456,6 +1538,9 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
           registration_document_template_version_id: registrationTermsQuery.data?.id,
           accepted_checkbox_labels: registrationLabels,
           document_idempotency_key: idempotencyKey("registration-document"),
+          risk_document_template_version_id: riskDisclosureQuery.data.id,
+          accepted_risk_checkbox_labels: riskLabels,
+          risk_document_idempotency_key: idempotencyKey("registration-risk-disclosure"),
           marketing_consent: marketing
         }
       },
@@ -1631,11 +1716,10 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
                 ))
               )}
               <Check checked={risk} id="register-risk" onChange={setRisk}>
-                I acknowledge the{" "}
+                {riskLabels.length === 1 ? riskLabels[0] : "I acknowledge the P2P lending risk disclosure."}{" "}
                 <LegalDocLink category="risk_disclosure">
-                  generic P2P lending risk disclosure
+                  read &amp; download
                 </LegalDocLink>
-                .
               </Check>
               <Check checked={marketing} id="register-marketing" onChange={setMarketing}>I agree to optional marketing communications.</Check>
             </div>
@@ -1646,7 +1730,7 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
                   Acceptance is recorded against server-published v
                   {registrationTermsQuery.data.version_number} (hash{" "}
                   <span className="mono">{registrationTermsQuery.data.content_hash.slice(0, 12)}</span>)
-                  with timestamp and context, and a copy is emailed to you.
+                  with timestamp and context. You can generate the accepted version from My Documents.
                 </>
               ) : (
                 <>Acceptance is recorded with document version, timestamp and context.</>
@@ -1657,8 +1741,13 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
                 The current server-published lender agreement could not be loaded.
               </Banner>
             ) : null}
+            {!isFixturePreview && riskDisclosureQuery.isError ? (
+              <Banner tone="bad" title="Risk disclosure unavailable">
+                The current server-published risk disclosure could not be loaded. Retry before registering.
+              </Banner>
+            ) : null}
             {error ? <Banner tone="bad" title="Could not register">{error}</Banner> : null}
-            <Button block disabled={!allRegistrationTermsAccepted || !risk || !email.includes("@") || !phoneNumber || registerMutation.isPending || (!isFixturePreview && !registrationTermsQuery.data)} style={{ marginTop: 16 }} variant="primary" onClick={submitRegistration}>
+            <Button block disabled={!allRegistrationTermsAccepted || !risk || !email.includes("@") || !phoneNumber || registerMutation.isPending || (!isFixturePreview && (!registrationTermsQuery.data || !riskDisclosureQuery.data))} style={{ marginTop: 16 }} variant="primary" onClick={submitRegistration}>
               {registerMutation.isPending ? "Creating account..." : "Continue"}
             </Button>
           </>
@@ -1810,9 +1899,14 @@ function InvestorShell({
   const logoutMutation = useV1AuthLogoutCreate({
     mutation: { onSettled: finishLogout }
   });
+  const authMeQuery = useV1AuthMeRetrieve({
+    query: { enabled: !isFixturePreview, retry: false, staleTime: 0 }
+  });
+  const sessionUser = authMeQuery.data?.user;
+  const hasPortalSession = isFixturePreview || Boolean(sessionUser);
   const kycGateQuery = useV1KycStatusRetrieve({
     query: {
-      enabled: !isFixturePreview && !readonlyImpersonation.active,
+      enabled: !isFixturePreview && hasPortalSession,
       retry: false,
       staleTime: 0,
       refetchInterval: (query) => {
@@ -1825,7 +1919,7 @@ function InvestorShell({
     }
   });
   const financialAccessAllowed =
-    isFixturePreview || readonlyImpersonation.active || kycGateQuery.data?.financial_access_allowed === true;
+    isFixturePreview || kycGateQuery.data?.financial_access_allowed === true;
   const balances = useBalancesData(financialAccessAllowed).data ?? { summaries: [], lots: [] };
   const notifications = useNotificationsData(20, financialAccessAllowed).data;
   const profile = readonlyImpersonation.active
@@ -1837,7 +1931,35 @@ function InvestorShell({
         phone: "",
         memberSince: ""
       }
-    : displayProfile();
+    : sessionUser
+      ? {
+          initials: sessionUser.full_name
+            .split(/\s+/)
+            .filter(Boolean)
+            .slice(0, 2)
+            .map((part) => part[0]?.toUpperCase())
+            .join("") || "IN",
+          name: sessionUser.full_name,
+          email: sessionUser.email,
+          country: "",
+          phone: "",
+          memberSince: ""
+        }
+      : displayProfile();
+
+  if (!isFixturePreview && authMeQuery.isPending) {
+    return (
+      <AuthShell onClose={() => goTo(setRoute, "public")}>
+        <div className="auth-card"><ScreenLoading title="Checking your session" /></div>
+      </AuthShell>
+    );
+  }
+  if (!isFixturePreview && (!sessionUser || authMeQuery.isError)) {
+    return <LoginFlow setRoute={setRoute} />;
+  }
+  if (!isFixturePreview && sessionUser && ["admin", "superadmin"].includes(sessionUser.account_type) && !readonlyImpersonation.active) {
+    return <AdminApp />;
+  }
 
   const screen = (() => {
     switch (route.name) {
@@ -1878,7 +2000,7 @@ function InvestorShell({
   })();
 
   const gatedScreen =
-    !isFixturePreview && !financialAccessAllowed
+    !isFixturePreview && hasPortalSession && !financialAccessAllowed
       ? kycGateQuery.isPending && !kycGateQuery.data
         ? <ScreenLoading title="Verification" />
         : <KycStatusScreen setRoute={setRoute} />
@@ -2068,7 +2190,7 @@ function Dashboard({ demoState, setRoute }: { demoState: DemoAccountState; setRo
 
       <div className="dash-split">
         <section>
-          <div className="section-head"><h2>Balances</h2><a onClick={() => goTo(setRoute, "balances")}>Manage</a></div>
+          <div className="section-head"><h2>Balances</h2><a href="/balances" onClick={(event) => { event.preventDefault(); goTo(setRoute, "balances"); }}>Manage</a></div>
           <div className="grid grid-2">
             {balances.summaries.map((summary) => <BalanceCard key={summary.currency} summary={summary} setRoute={setRoute} frozen={demoState === "frozen"} />)}
           </div>
@@ -2084,7 +2206,7 @@ function Dashboard({ demoState, setRoute }: { demoState: DemoAccountState; setRo
       </div>
 
       <section className="section">
-        <div className="section-head"><h2>Open opportunities</h2><a onClick={() => goTo(setRoute, "market")}>All loans</a></div>
+        <div className="section-head"><h2>Open opportunities</h2><a href="/marketplace" onClick={(event) => { event.preventDefault(); goTo(setRoute, "market"); }}>All loans</a></div>
         {loansQuery.isError && loans.length === 0 ? (
           <DataErrorCard title="Could not load opportunities" onRetry={() => void loansQuery.refetch()}>
             Your balances and portfolio loaded, but marketplace data is temporarily unavailable.
@@ -2095,7 +2217,7 @@ function Dashboard({ demoState, setRoute }: { demoState: DemoAccountState; setRo
       </section>
 
       <section className="section">
-        <div className="section-head"><h2>Recent activity</h2><a onClick={() => goTo(setRoute, "portfolio")}>Full history</a></div>
+        <div className="section-head"><h2>Recent activity</h2><a href="/portfolio" onClick={(event) => { event.preventDefault(); goTo(setRoute, "portfolio"); }}>Full history</a></div>
         <ActivityTable entries={dashboard.recent_activity.slice(0, 6)} dense />
       </section>
     </main>
@@ -2726,7 +2848,7 @@ function BalancesScreen({ demoState }: { demoState: DemoAccountState }) {
       </section>
       {modal === "deposit" ? <DepositModal currency={currency} onClose={() => setModal(null)} /> : null}
       {modal === "withdraw" ? <WithdrawModal currency={currency} maxMinor={summary.total_available_minor - summary.penalty_mode_minor} payoutInstructions={balances.payout_instructions.filter((instruction) => instruction.currency === currency)} onClose={() => setModal(null)} /> : null}
-      {modal === "iban" ? <IbanModal onClose={() => setModal(null)} /> : null}
+      {modal === "iban" ? <PayoutIbanModal onClose={() => setModal(null)} /> : null}
     </main>
   );
 }
@@ -2836,7 +2958,7 @@ function DepositModal({ currency, onClose }: { currency: string; onClose: () => 
         ) : null}
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>Payment reference - required</div>
-          <div className="codeblock"><span>{instruction.payment_reference}</span><Button icon="copy" size="sm" variant="ghost">Copy</Button></div>
+          <div className="codeblock"><span>{instruction.payment_reference}</span><CopyIdButton ariaLabel="Copy payment reference" id={instruction.payment_reference} label="Copy" /></div>
           <p className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>A new balance lot is created on the bank value date and starts its 30/60-day clock.</p>
           <p className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>{payload.reference_rule}</p>
         </div>
@@ -2975,19 +3097,6 @@ function WithdrawModal({ currency, maxMinor, payoutInstructions, onClose }: { cu
       ) : (
         <SuccessState title="Withdrawal requested">You will receive a confirmation email after operational processing.</SuccessState>
       )}
-    </Modal>
-  );
-}
-
-function IbanModal({ onClose }: { onClose: () => void }) {
-  const profile = displayProfile();
-  return (
-    <Modal footer={<Button variant="primary" onClick={onClose}>Done</Button>} onClose={onClose} title="Payout bank accounts">
-      <div className="col gap-16">
-        <Banner tone="neutral" title="Verification required">New payout accounts are checked before first use. Changing payout details requires a fresh email confirmation code.</Banner>
-        <Field label="IBAN"><input className="input mono" placeholder="CH.. / DE.." /></Field>
-        <Field label="Account name"><input className="input" placeholder={profile.name} /></Field>
-      </div>
     </Modal>
   );
 }
@@ -4040,7 +4149,9 @@ function kycChipTone(status: string) {
 }
 
 function SettingsScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) {
+  const queryClient = useQueryClient();
   const [marketing, setMarketing] = useState(false);
+  const [marketingError, setMarketingError] = useState("");
   const [showPayoutModal, setShowPayoutModal] = useState(false);
   const authMeQuery = useV1AuthMeRetrieve({
     query: { enabled: !isFixturePreview, retry: false, staleTime: 0 }
@@ -4050,6 +4161,7 @@ function SettingsScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) {
   });
   const fixtureProfile = displayProfile();
   const account = authMeQuery.data?.user;
+  const marketingMutation = useV1AuthPreferencesMarketingPartialUpdate();
   const name = isFixturePreview ? fixtureProfile.name : account?.full_name ?? "";
   const email = isFixturePreview ? fixtureProfile.email : account?.email ?? "";
   const country = isFixturePreview ? fixtureProfile.country : "";
@@ -4061,6 +4173,30 @@ function SettingsScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) {
     : kycStatusQuery.data?.phone_verified ?? account?.phone_verified;
   const balances = useBalancesData();
   const payoutInstructions = balances.data?.payout_instructions ?? [];
+  useEffect(() => {
+    if (account) setMarketing(account.marketing_consent);
+  }, [account]);
+
+  const changeMarketingConsent = (nextValue: boolean) => {
+    setMarketingError("");
+    if (isFixturePreview) {
+      setMarketing(nextValue);
+      return;
+    }
+    marketingMutation.mutate(
+      { data: { marketing_consent: nextValue } },
+      {
+        onSuccess: (response) => {
+          setMarketing(response.user.marketing_consent);
+          void queryClient.invalidateQueries();
+        },
+        onError: (mutationError) => {
+          setMarketing(account?.marketing_consent ?? false);
+          setMarketingError(apiErrorMessage(mutationError));
+        }
+      }
+    );
+  };
   return (
     <main className="content narrow">
       <div className="page-head"><div><h1>Settings</h1><div className="ph-sub">Profile, verification, payout accounts and preferences.</div></div></div>
@@ -4087,7 +4223,7 @@ function SettingsScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) {
             <Banner tone="info" title="Verification required">Submitting a new payout IBAN does not make it usable automatically. Garanta must verify the account before it can be used for withdrawals or forced returns.</Banner>
           </div>
         </Card>
-        <Card><div className="card-head"><h3>Communication</h3></div><div className="card-pad"><label className="row spread" style={{ cursor: "pointer" }}><span><div className="col-strong">Product updates and newsletter</div><div className="muted" style={{ fontSize: 12 }}>Transactional emails are mandatory.</div></span><input checked={marketing} onChange={(event) => setMarketing(event.target.checked)} type="checkbox" /></label></div></Card>
+        <Card><div className="card-head"><h3>Communication</h3></div><div className="card-pad col gap-10"><label className="row spread" style={{ cursor: isReadonlyImpersonationActive() ? "not-allowed" : "pointer" }}><span><div className="col-strong">Product updates and newsletter</div><div className="muted" style={{ fontSize: 12 }}>Transactional emails are mandatory.</div></span><input checked={marketing} disabled={isReadonlyImpersonationActive() || marketingMutation.isPending} onChange={(event) => changeMarketingConsent(event.target.checked)} type="checkbox" /></label>{marketingError ? <Banner tone="bad" title="Could not update preference">{marketingError}</Banner> : null}</div></Card>
         <Card><div className="card-head"><h3>Support & account</h3></div><div className="card-pad col gap-12"><div className="row spread"><span className="row gap-8"><Icon className="muted" name="info" size={16} />Help & FAQ</span><Button size="sm" variant="ghost" onClick={() => goTo(setRoute, "faq")}>Open</Button></div><div className="hr" /><div className="row spread"><span>Email support</span><a className="mono" href={`mailto:${supportEmail}`}>{supportEmail}</a></div></div></Card>
       </div>
       {showPayoutModal ? <PayoutIbanModal onClose={() => setShowPayoutModal(false)} /> : null}
@@ -4293,7 +4429,7 @@ type FaqSection = {
 const faqSections: FaqSection[] = [
   {
     title: "How BANXUM works",
-    summary: "The platform connects individual lenders with secured business-loan opportunities.",
+    summary: "The platform connects individual lenders with project-specific business-loan opportunities.",
     items: [
       {
         question: `What is ${platformName}?`,
@@ -4319,8 +4455,9 @@ const faqSections: FaqSection[] = [
         question: "Is every loan secured?",
         answer: (
           <>
-            Loans are intended to be backed by collateral or security described in each project. Security can
-            reduce loss risk, but it does not guarantee repayment or full recovery after a borrower default.
+            Security is disclosed per project. A loan may have collateral, guarantees, other security, or an
+            expressly disclosed unsecured exception. Security can reduce loss risk but never guarantees repayment
+            or full recovery after borrower default.
           </>
         )
       }
@@ -4571,7 +4708,7 @@ function FaqContent() {
           <div className="eyebrow">Before investing</div>
           <h2>Know the operating rules before moving money</h2>
           <p>
-            {platformName} is built for secured peer-to-peer lending. These answers summarize the user-facing
+            {platformName} is built for peer-to-peer business lending. These answers summarize the user-facing
             flow; the legally binding wording is the document version you accept in the platform.
           </p>
         </div>
@@ -4624,8 +4761,8 @@ function PublicFaqPage({ setRoute }: { setRoute: (route: AppRoute) => void }) {
         <Wordmark />
         <div className="grow" />
         <nav className="public-nav" aria-label="Public navigation">
-          <a onClick={() => goTo(setRoute, "public")}>Marketplace preview</a>
-          <a aria-current="page">FAQ</a>
+          <a href="/" onClick={(event) => { event.preventDefault(); goTo(setRoute, "public"); }}>Marketplace preview</a>
+          <span aria-current="page">FAQ</span>
         </nav>
         <Button variant="ghost" onClick={() => goTo(setRoute, "login")}>
           Log in
