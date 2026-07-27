@@ -101,7 +101,7 @@ def test_postgres_lender_deposit_idempotency_survives_concurrent_same_key() -> N
                     value_date=date(2026, 1, 5),
                     collection_account_identifier="CH00POSTGRESHARDENING",
                     payer_name="Postgres Investor",
-                    payer_account_identifier="CH00INVESTOR",
+                    payer_account_identifier="CH9300762011623852957",
                     bank_reference="POSTGRES-RACE",
                     payment_reference="BANXUM-RACE",
                     evidence_reference="postgres-hardening",

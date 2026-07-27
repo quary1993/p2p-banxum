@@ -317,7 +317,7 @@ def _declare_deposit(
             value_date=value_date,
             collection_account_identifier="GARANTA-CHF",
             payer_name="Secondary buyer",
-            payer_account_identifier="CH0000000000000000002",
+            payer_account_identifier="CH9300762011623852957",
             bank_reference=idempotency_key,
             payment_reference=f"PAY-{idempotency_key}",
             evidence_reference="statement-2026-01-10",

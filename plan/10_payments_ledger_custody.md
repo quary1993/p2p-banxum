@@ -531,6 +531,10 @@ Owner: Garanta compliance / finance / operations.
 Decision:
 When a balance source reaches the 60-day holding limit, admin attempts a forced withdrawal if Garanta has a usable verified IBAN for the investor and the balance can be returned.
 
+At launch, an admin declaration of an incoming lender deposit must include the checksum-valid source IBAN observed on the bank statement. That exact investor/currency/IBAN is automatically recorded as a verified payout instruction because ownership/control evidence came from the received bank transfer. Verified source IBANs remain available and are not superseded merely because the investor later requests another payout account.
+
+An investor may request an additional payout IBAN using the `bank_account_change` sensitive-action email code. The additional IBAN is checksum-validated but remains unusable for normal or forced withdrawals until an admin verifies it. Each such request automatically creates or reopens a finance operations task linked to the exact payout instruction; admin verification resolves that task. Multiple verified payout IBANs may coexist for the same investor and currency. Normal withdrawals must use the exact verified destination requested by the investor; forced withdrawals use a usable verified instruction selected by the platform's documented ordering rule.
+
 Final reminders must state that Garanta Finanzgruppe AG needs a usable IBAN to return funds if the investor does not withdraw them before the 60-day deadline.
 
 If no usable IBAN is available, penalty mode is enabled after day 60. Further investor financial actions are frozen, except the action needed to declare or update a usable IBAN. Read-only access remains available for portfolio, documents, tax information statements, notices, and messages. The investor portal must show a blocking banner stating that to unlock financial actions, the user must first declare a usable IBAN account where Garanta can send the due funds.
@@ -543,7 +547,7 @@ Rationale:
 Forced withdrawal is preferred over continuing to hold funds. If Garanta cannot return the funds because no usable IBAN is known, the platform must prevent further financial activity until the return path is resolved while keeping read-only access available.
 
 Follow-ups:
-Define usable IBAN validation rules, forced-withdrawal evidence requirements, and optional note/document fields for offline handling of returned transfers.
+Define forced-withdrawal evidence requirements, a future investor-selectable preferred verified IBAN, and optional note/document fields for offline handling of returned transfers.
 
 ### PAY-DEC-023: Balance Timestamp Rules
 
@@ -727,16 +731,17 @@ Examples:
 
 1. Investor completes registration-time terms and KYC/AML, or admin confirms legal-entity lender KYB/AML approval where the investor is a legal entity.
 2. Investor deposits funds into the relevant currency collection account or uses existing available balance.
-3. Admin manually confirms deposits where needed by recording a `lender_deposit` bank operation.
+3. Admin manually confirms deposits where needed by recording a `lender_deposit` bank operation with the checksum-valid source IBAN shown by the bank transfer.
 4. Ledger records the deposit as an `in` movement and creates or increases the investor balance liability in that currency.
-5. The deposit balance source entry receives a received timestamp based on bank value date, a 30-day investment/reinvestment deadline, and a 60-day withdrawal deadline.
-6. Investor creates a primary-market investment order using available balance.
-7. Pending unfunded order has no effect on loan funding capacity until sufficient eligible balance is reserved or allocated according to order rules.
-8. System checks remaining loan capacity using first-come-first-served order based on balance allocation timestamp or bank value date where external payment timing is relevant.
-9. If the order fits within remaining capacity, ledger debits available investor balance and records loan/funding-campaign settlement liability and funded/validated order state.
-10. If the order partially exceeds remaining capacity, ledger allocates the accepted portion and leaves/recredits the excess to investor balance with appropriate ageing treatment.
-11. If no capacity remains, the order closes in a final non-invested status and funds remain in investor balance or are withdrawn according to investor instruction and balance rules.
-12. Allocated loan funds remain segregated until the funding campaign succeeds, expires, reaches the 60-day limit, or is returned to investor balance/withdrawn.
+5. The exact source IBAN is recorded as a verified, usable payout instruction for that investor and currency without disabling any other verified payout account.
+6. The deposit balance source entry receives a received timestamp based on bank value date, a 30-day investment/reinvestment deadline, and a 60-day withdrawal deadline.
+7. Investor creates a primary-market investment order using available balance.
+8. Pending unfunded order has no effect on loan funding capacity until sufficient eligible balance is reserved or allocated according to order rules.
+9. System checks remaining loan capacity using first-come-first-served order based on balance allocation timestamp or bank value date where external payment timing is relevant.
+10. If the order fits within remaining capacity, ledger debits available investor balance and records loan/funding-campaign settlement liability and funded/validated order state.
+11. If the order partially exceeds remaining capacity, ledger allocates the accepted portion and leaves/recredits the excess to investor balance with appropriate ageing treatment.
+12. If no capacity remains, the order closes in a final non-invested status and funds remain in investor balance or are withdrawn according to investor instruction and balance rules.
+13. Allocated loan funds remain segregated until the funding campaign succeeds, expires, reaches the 60-day limit, or is returned to investor balance/withdrawn.
 
 ### Borrower Drawdown
 
@@ -793,7 +798,7 @@ Examples:
 ### Withdrawal
 
 1. Investor requests withdrawal from an available currency balance.
-2. Platform validates KYC/KYB/AML status, bank account, available balance, currency, and any compliance hold.
+2. Platform validates KYC/KYB/AML status, the exact destination against the investor's verified payout instructions, available balance, currency, and any compliance hold. An investor-requested additional IBAN cannot be used while its linked finance task remains unresolved and the instruction is unverified.
 3. Ledger reserves or debits the selected balance source entries using FIFO consumption.
 4. Admin executes or records the outgoing bank payment.
 5. Admin records a `lender_withdrawal` bank operation.

@@ -150,7 +150,7 @@
     },
     {
       "term": "Payout instruction (IBAN)",
-      "definition": "An investor's saved bank-account details (IBAN and account name) used to send their withdrawals. There can be only one active payout instruction per investor per currency. An admin must verify it before it can be used."
+      "definition": "An investor's saved bank-account details (IBAN and account name) used to send withdrawals. A checksum-valid source IBAN is verified automatically when an admin declares the matching deposit. Additional distinct IBANs are additive and remain unusable until an admin verifies them; verifying one does not disable existing verified accounts."
     },
     {
       "term": "IBAN",

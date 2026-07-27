@@ -359,7 +359,7 @@
       ]
     },
     {
-      "id": "loans-8-servicing-and-recovery",
+      "id": "loans-8-servicing-operations",
       "caption": "Servicing operations: scan loan health and post public notes.",
       "summary": "Servicing means running a loan after it is funded. This panel now holds only the status scan and public investor notes for the loan selected in the table above. Borrower repayments (a fixed regular installment amount, or 'Repayment in advance' with a bank date and a preview dialog) and recovery payments on defaulted loans are recorded from the loan row's Manage dialog.",
       "annotations": [
@@ -369,17 +369,17 @@
           "text": "The loan being scanned or noted. It defaults to the selected loan but can be changed by search."
         },
         {
-          "item": 8,
+          "item": 4,
           "label": "Run status scan button",
           "text": "Re-checks the loan's health and updates its status. A loan with an installment 5+ days past due becomes Late; 16+ days past due becomes Defaulted; fully paid becomes Repaid. The scan is the only thing that escalates a loan into Defaulted; recording a repayment never does."
         },
         {
-          "item": 6,
+          "item": 3,
           "label": "Risk note body field",
           "text": "The text of a public update to investors about this loan (for example explaining a delay). This is the message that gets published when you press Publish public note."
         },
         {
-          "item": 9,
+          "item": 5,
           "label": "Publish public note button",
           "text": "Posts a public risk note that investors holding this loan can read. Public notes are only allowed on loans that are in an active portfolio status (Funded, Late, Defaulted, Repaid or Written off), not on drafts or unfunded loans."
         }

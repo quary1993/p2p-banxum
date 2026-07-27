@@ -361,7 +361,10 @@ test("admin module navigation renders operational panels", () => {
   expect(screen.getByRole("heading", { name: "Record AML decision" })).toBeInTheDocument();
 
   fireEvent.click(screen.getByRole("button", { name: "Finance ops" }));
+  expect(screen.getByRole("heading", { name: "Pending finance operations" })).toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: "Resolve" }).length).toBeGreaterThan(0);
   expect(screen.getByRole("heading", { name: "Lender deposit" })).toBeInTheDocument();
+  expect(screen.getByLabelText("Source IBAN")).toBeRequired();
   expect(screen.getByRole("heading", { name: "FX settlement" })).toBeInTheDocument();
 
   fireEvent.click(screen.getByRole("button", { name: "Loans" }));
@@ -379,6 +382,19 @@ test("admin module navigation renders operational panels", () => {
 
   fireEvent.click(screen.getByRole("button", { name: "Superadmin settings" }));
   expect(screen.getByRole("heading", { name: "Document templates" })).toBeInTheDocument();
+});
+
+test("withdrawal dashboard drawer contains the executable withdrawal form", () => {
+  renderApp("/admin");
+
+  fireEvent.click(screen.getByRole("button", { name: /^Withdrawals:/i }));
+  const withdrawalTitle = screen.getByText("Investor withdrawal awaiting bank execution");
+  fireEvent.click(withdrawalTitle.closest("tr") as HTMLElement);
+
+  expect(screen.getByRole("heading", { name: "Execute or cancel withdrawal" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Finalize withdrawal" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Cancel before execution" })).toBeInTheDocument();
+  expect(screen.queryByText("Module action deferred")).not.toBeInTheDocument();
 });
 
 test("loan manage modal exposes repayment declaration and refinancing publish review", () => {

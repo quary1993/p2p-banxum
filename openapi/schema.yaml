@@ -635,6 +635,11 @@ paths:
           minimum: 1
           default: 100
       - in: query
+        name: pending_only
+        schema:
+          type: boolean
+          default: false
+      - in: query
         name: priority
         schema:
           enum:
@@ -685,6 +690,7 @@ paths:
           - borrower_onboarding
           - loan_setup
           - payment_reconciliation
+          - payout_instruction_verification
           - fx_settlement
           - document_review
           - email_delivery_failure
@@ -699,12 +705,21 @@ paths:
           * `borrower_onboarding` - Borrower onboarding
           * `loan_setup` - Loan setup
           * `payment_reconciliation` - Payment reconciliation
+          * `payout_instruction_verification` - Payout instruction verification
           * `fx_settlement` - FX settlement
           * `document_review` - Document review
           * `email_delivery_failure` - Email delivery failure
           * `reporting` - Reporting
           * `support` - Support
           * `other` - Other
+      - in: query
+        name: workstream
+        schema:
+          enum:
+          - finance
+          type: string
+          minLength: 1
+        description: '* `finance` - Finance'
       tags:
       - v1
       security:
@@ -4354,6 +4369,7 @@ components:
       - borrower_onboarding
       - loan_setup
       - payment_reconciliation
+      - payout_instruction_verification
       - fx_settlement
       - document_review
       - email_delivery_failure
@@ -4367,6 +4383,7 @@ components:
         * `borrower_onboarding` - Borrower onboarding
         * `loan_setup` - Loan setup
         * `payment_reconciliation` - Payment reconciliation
+        * `payout_instruction_verification` - Payout instruction verification
         * `fx_settlement` - FX settlement
         * `document_review` - Document review
         * `email_delivery_failure` - Email delivery failure
@@ -7988,6 +8005,7 @@ components:
       - currency
       - idempotency_key
       - investor_user_id
+      - payer_account_identifier
       - value_date
     LenderDepositDeclareResponse:
       type: object
@@ -7998,10 +8016,15 @@ components:
           $ref: '#/components/schemas/LedgerJournalEntry'
         balance_lot:
           $ref: '#/components/schemas/InvestorBalanceLot'
+        payout_instruction:
+          allOf:
+          - $ref: '#/components/schemas/InvestorPayoutInstruction'
+          nullable: true
       required:
       - balance_lot
       - bank_operation
       - journal_entry
+      - payout_instruction
     Loan:
       type: object
       properties:

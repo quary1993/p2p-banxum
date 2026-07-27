@@ -1756,11 +1756,229 @@
     "label": "Finance ops",
     "figures": [
       {
-        "id": "finance-0-lender-deposit",
+        "id": "finance-0-pending-finance-operations",
+        "kind": "card",
+        "title": "Pending finance operations",
+        "cssWidth": 1032,
+        "cssHeight": 597,
+        "scale": 2,
+        "items": [
+          {
+            "role": "heading",
+            "text": "Pending finance operations",
+            "x": 19,
+            "y": 19,
+            "w": 547,
+            "h": 30
+          },
+          {
+            "role": "column",
+            "text": "Work item",
+            "x": 19,
+            "y": 84,
+            "w": 372,
+            "h": 34
+          },
+          {
+            "role": "column",
+            "text": "Status",
+            "x": 391,
+            "y": 84,
+            "w": 143,
+            "h": 34
+          },
+          {
+            "role": "column",
+            "text": "Priority",
+            "x": 535,
+            "y": 84,
+            "w": 82,
+            "h": 34
+          },
+          {
+            "role": "column",
+            "text": "Due",
+            "x": 616,
+            "y": 84,
+            "w": 160,
+            "h": 34
+          },
+          {
+            "role": "column",
+            "text": "Amount",
+            "x": 777,
+            "y": 84,
+            "w": 129,
+            "h": 34
+          },
+          {
+            "role": "column",
+            "text": "Action",
+            "x": 906,
+            "y": 84,
+            "w": 153,
+            "h": 34
+          },
+          {
+            "role": "button",
+            "text": "Refresh",
+            "x": 924,
+            "y": 32,
+            "w": 89,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Resolve",
+            "x": 916,
+            "y": 301,
+            "w": 67,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Resolve",
+            "x": 916,
+            "y": 359,
+            "w": 67,
+            "h": 28
+          },
+          {
+            "role": "status",
+            "text": "Open",
+            "x": 401,
+            "y": 129,
+            "w": 59,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Urgent",
+            "x": 545,
+            "y": 129,
+            "w": 57,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Waiting",
+            "x": 401,
+            "y": 186,
+            "w": 72,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "High",
+            "x": 545,
+            "y": 186,
+            "w": 45,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Pending Review",
+            "x": 401,
+            "y": 244,
+            "w": 119,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Urgent",
+            "x": 545,
+            "y": 244,
+            "w": 57,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Requested",
+            "x": 401,
+            "y": 301,
+            "w": 90,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Normal",
+            "x": 545,
+            "y": 301,
+            "w": 59,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Requested",
+            "x": 401,
+            "y": 359,
+            "w": 90,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "High",
+            "x": 545,
+            "y": 359,
+            "w": 45,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Unsettled",
+            "x": 401,
+            "y": 416,
+            "w": 85,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "High",
+            "x": 545,
+            "y": 416,
+            "w": 45,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Break",
+            "x": 401,
+            "y": 474,
+            "w": 62,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Urgent",
+            "x": 545,
+            "y": 474,
+            "w": 57,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Integrity Break",
+            "x": 401,
+            "y": 531,
+            "w": 113,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Urgent",
+            "x": 545,
+            "y": 531,
+            "w": 57,
+            "h": 21
+          }
+        ]
+      },
+      {
+        "id": "finance-1-lender-deposit",
         "kind": "card",
         "title": "Lender deposit",
         "cssWidth": 508,
-        "cssHeight": 441,
+        "cssHeight": 558,
         "scale": 2,
         "items": [
           {
@@ -1829,9 +2047,17 @@
           },
           {
             "role": "field",
-            "text": "Payment reference",
+            "text": "Source IBAN",
             "x": 260,
             "y": 326,
+            "w": 229,
+            "h": 18
+          },
+          {
+            "role": "field",
+            "text": "Payment reference",
+            "x": 19,
+            "y": 442,
             "w": 229,
             "h": 18
           },
@@ -1839,18 +2065,18 @@
             "role": "button",
             "text": "Declare deposit",
             "x": 19,
-            "y": 388,
+            "y": 505,
             "w": 470,
             "h": 34
           }
         ]
       },
       {
-        "id": "finance-1-payout-instruction",
+        "id": "finance-2-payout-instruction",
         "kind": "card",
         "title": "Payout instruction",
         "cssWidth": 508,
-        "cssHeight": 457,
+        "cssHeight": 477,
         "scale": 2,
         "items": [
           {
@@ -1865,7 +2091,7 @@
             "role": "field",
             "text": "Investor / payout owner",
             "x": 19,
-            "y": 82,
+            "y": 102,
             "w": 229,
             "h": 18
           },
@@ -1873,7 +2099,7 @@
             "role": "field",
             "text": "Currency",
             "x": 260,
-            "y": 82,
+            "y": 102,
             "w": 229,
             "h": 18
           },
@@ -1881,7 +2107,7 @@
             "role": "field",
             "text": "Destination IBAN",
             "x": 19,
-            "y": 182,
+            "y": 202,
             "w": 229,
             "h": 18
           },
@@ -1889,7 +2115,7 @@
             "role": "field",
             "text": "Account name",
             "x": 260,
-            "y": 182,
+            "y": 202,
             "w": 229,
             "h": 18
           },
@@ -1897,7 +2123,7 @@
             "role": "field",
             "text": "Notes",
             "x": 19,
-            "y": 276,
+            "y": 296,
             "w": 470,
             "h": 18
           },
@@ -1905,14 +2131,14 @@
             "role": "button",
             "text": "Register payout instruction",
             "x": 19,
-            "y": 404,
+            "y": 424,
             "w": 470,
             "h": 34
           }
         ]
       },
       {
-        "id": "finance-2-investor-balance-lookup",
+        "id": "finance-3-investor-balance-lookup",
         "kind": "card",
         "title": "Investor balance lookup",
         "cssWidth": 508,
@@ -1954,7 +2180,7 @@
         ]
       },
       {
-        "id": "finance-3-balance-ageing-scan",
+        "id": "finance-4-balance-ageing-scan",
         "kind": "card",
         "title": "Balance ageing scan",
         "cssWidth": 508,
@@ -1996,7 +2222,7 @@
         ]
       },
       {
-        "id": "finance-4-reconciliation-snapshot",
+        "id": "finance-5-reconciliation-snapshot",
         "kind": "card",
         "title": "Reconciliation snapshot",
         "cssWidth": 508,
@@ -2062,7 +2288,7 @@
         ]
       },
       {
-        "id": "finance-5-withdrawal-execution",
+        "id": "finance-6-withdrawal-execution",
         "kind": "card",
         "title": "Withdrawal execution",
         "cssWidth": 508,
@@ -2136,11 +2362,11 @@
         ]
       },
       {
-        "id": "finance-6-borrower-disbursement",
+        "id": "finance-7-borrower-disbursement",
         "kind": "card",
         "title": "Borrower disbursement",
         "cssWidth": 508,
-        "cssHeight": 441,
+        "cssHeight": 686,
         "scale": 2,
         "items": [
           {
@@ -2177,7 +2403,7 @@
           },
           {
             "role": "field",
-            "text": "Currency",
+            "text": "BANXUM fee minor units",
             "x": 260,
             "y": 182,
             "w": 229,
@@ -2185,8 +2411,16 @@
           },
           {
             "role": "field",
-            "text": "Booking date",
+            "text": "Currency",
             "x": 19,
+            "y": 265,
+            "w": 229,
+            "h": 18
+          },
+          {
+            "role": "field",
+            "text": "Booking date",
+            "x": 260,
             "y": 265,
             "w": 229,
             "h": 18
@@ -2194,15 +2428,15 @@
           {
             "role": "field",
             "text": "Value date",
-            "x": 260,
-            "y": 265,
+            "x": 19,
+            "y": 326,
             "w": 229,
             "h": 18
           },
           {
             "role": "field",
             "text": "Payee name",
-            "x": 19,
+            "x": 260,
             "y": 326,
             "w": 229,
             "h": 18
@@ -2210,23 +2444,31 @@
           {
             "role": "field",
             "text": "Payee account",
-            "x": 260,
-            "y": 326,
+            "x": 19,
+            "y": 387,
             "w": 229,
+            "h": 18
+          },
+          {
+            "role": "field",
+            "text": "Override note",
+            "x": 19,
+            "y": 450,
+            "w": 470,
             "h": 18
           },
           {
             "role": "button",
             "text": "Finalize disbursement",
             "x": 19,
-            "y": 388,
+            "y": 633,
             "w": 470,
             "h": 34
           }
         ]
       },
       {
-        "id": "finance-7-fx-settlement",
+        "id": "finance-8-fx-settlement",
         "kind": "card",
         "title": "FX settlement",
         "cssWidth": 1032,
@@ -2518,7 +2760,7 @@
         "kind": "card",
         "title": "Loans",
         "cssWidth": 1032,
-        "cssHeight": 331,
+        "cssHeight": 388,
         "scale": 2,
         "items": [
           {
@@ -2658,6 +2900,22 @@
             "h": 28
           },
           {
+            "role": "button",
+            "text": "Edit",
+            "x": 840,
+            "y": 323,
+            "w": 44,
+            "h": 28
+          },
+          {
+            "role": "button",
+            "text": "Manage",
+            "x": 893,
+            "y": 323,
+            "w": 68,
+            "h": 28
+          },
+          {
             "role": "status",
             "text": "Published",
             "x": 268,
@@ -2679,6 +2937,14 @@
             "x": 268,
             "y": 265,
             "w": 85,
+            "h": 21
+          },
+          {
+            "role": "status",
+            "text": "Draft",
+            "x": 268,
+            "y": 323,
+            "w": 58,
             "h": 21
           }
         ]
@@ -2854,16 +3120,16 @@
         ]
       },
       {
-        "id": "loans-8-servicing-and-recovery",
+        "id": "loans-8-servicing-operations",
         "kind": "card",
-        "title": "Servicing and recovery",
+        "title": "Servicing operations",
         "cssWidth": 1032,
-        "cssHeight": 613,
+        "cssHeight": 475,
         "scale": 2,
         "items": [
           {
             "role": "heading",
-            "text": "Servicing and recovery",
+            "text": "Servicing operations",
             "x": 19,
             "y": 19,
             "w": 994,
@@ -2879,7 +3145,7 @@
           },
           {
             "role": "field",
-            "text": "Amount minor units",
+            "text": "Status scan as-of date",
             "x": 522,
             "y": 117,
             "w": 491,
@@ -2887,49 +3153,17 @@
           },
           {
             "role": "field",
-            "text": "Booking date",
-            "x": 19,
-            "y": 200,
-            "w": 491,
-            "h": 18
-          },
-          {
-            "role": "field",
-            "text": "Value date",
-            "x": 522,
-            "y": 200,
-            "w": 491,
-            "h": 18
-          },
-          {
-            "role": "field",
-            "text": "Payer name",
-            "x": 19,
-            "y": 261,
-            "w": 491,
-            "h": 18
-          },
-          {
-            "role": "field",
             "text": "Risk note body",
             "x": 19,
-            "y": 403,
+            "y": 248,
             "w": 994,
             "h": 18
           },
           {
             "role": "button",
-            "text": "Record repayment",
-            "x": 19,
-            "y": 356,
-            "w": 144,
-            "h": 34
-          },
-          {
-            "role": "button",
             "text": "Run status scan",
-            "x": 171,
-            "y": 356,
+            "x": 19,
+            "y": 201,
             "w": 129,
             "h": 34
           },
@@ -2937,7 +3171,7 @@
             "role": "button",
             "text": "Publish public note",
             "x": 19,
-            "y": 531,
+            "y": 376,
             "w": 148,
             "h": 34
           }

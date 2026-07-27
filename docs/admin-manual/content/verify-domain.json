@@ -40,7 +40,7 @@
     "Section 4 / Section 5: the 30-day investment deadline and 60-day withdrawal deadline (INVESTMENT_DEADLINE_DAYS=30, WITHDRAWAL_DEADLINE_DAYS=60 in ledger/services.py).",
     "Section 4: reminder days around 25, 46, 53, 58, 59, 60 (BALANCE_AGEING_REMINDER_DAYS = (25, 46, 53, 58, 59, 60)).",
     "Section 4 / Section 5: forced withdrawal when a verified usable payout instruction exists vs penalty mode when none exists (run_balance_ageing_scan branches on _active_verified_payout_instruction, which filters status=ACTIVE and is_verified_usable=True).",
-    "Section 4: 'usable' means an active payout instruction with is_verified_usable True (InvestorPayoutInstruction; _active_verified_payout_instruction).",
+    "Section 4: 'usable' means an active payout instruction with is_verified_usable True (InvestorPayoutInstruction; _active_verified_payout_instruction). Multiple distinct verified IBANs may remain active per investor/currency; deposit source IBANs are verified automatically, while additional investor-requested IBANs open a finance task until admin verification.",
     "Section 4 / Section 5: balance lot statuses available, frozen, penalty_mode, penalty_exhausted, consumed (BalanceLotStatus). Frozen is a distinct administrative status separate from the ageing clock.",
     "Section 5: buckets investable / withdraw_only / overdue / frozen / penalty_mode and that only available-amount > 0 lots count (_balance_bucket and _balance_summaries in investor_portal/services.py; only lots with available_amount_minor > 0 are summed).",
     "Section 6: loan statuses draft, published, funded, late, defaulted, repaid, written_off, cancelled (LoanStatus).",

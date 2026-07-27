@@ -336,9 +336,9 @@ class InvestorPayoutInstruction(TimestampedModel):
         ordering = ["investor_user_id", "currency", "-created_at", "-id"]
         constraints = [
             models.UniqueConstraint(
-                fields=["investor_user_id", "currency"],
+                fields=["investor_user_id", "currency", "destination_iban"],
                 condition=Q(status=InvestorPayoutInstructionStatus.ACTIVE),
-                name="ledger_one_active_payout_instruction_per_currency",
+                name="ledger_unique_active_payout_iban_per_currency",
             ),
         ]
         indexes = [

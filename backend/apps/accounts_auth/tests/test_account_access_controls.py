@@ -185,6 +185,7 @@ def test_close_account_rejects_nonzero_investor_balance(
             value_date=date(2026, 7, 21),
             collection_account_identifier="CH11GARANTATEST",
             payer_name=investor.full_name,
+            payer_account_identifier="CH9300762011623852957",
             payment_reference=f"TEST-{investor.investor_reference}",
             idempotency_key="account-closure-balance-blocker",
         )

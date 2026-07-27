@@ -5,6 +5,7 @@ import json
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal
+from importlib import import_module
 from typing import Any, cast
 
 from django.apps import apps
@@ -38,6 +39,7 @@ from backend.apps.platform_core.domain.access import (
     is_lender_actor,
     user_can_access_financial_features,
 )
+from backend.apps.platform_core.domain.iban import IbanValidationError, normalize_and_validate_iban
 from backend.apps.platform_core.domain.money import (
     Money,
     MoneyError,
@@ -175,7 +177,7 @@ class DeclareLenderDepositCommand:
     value_date: date
     collection_account_identifier: str
     payer_name: str
-    payer_account_identifier: str = ""
+    payer_account_identifier: str
     bank_reference: str = ""
     payment_reference: str = ""
     evidence_reference: str = ""
@@ -188,6 +190,7 @@ class LenderDepositResult:
     bank_operation: BankOperation
     journal_entry: LedgerJournalEntry
     balance_lot: InvestorBalanceLot
+    payout_instruction: InvestorPayoutInstruction | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -687,12 +690,10 @@ def _clean_idempotency_key(value: str) -> str:
 
 
 def _clean_iban(value: str) -> str:
-    iban = "".join(value.upper().split())
-    if len(iban) < 15 or len(iban) > 34:
-        raise LedgerValidationError("Destination IBAN must be between 15 and 34 characters.")
-    if not iban[:2].isalpha() or not iban[2:].isalnum():
-        raise LedgerValidationError("Destination IBAN must look like a valid IBAN.")
-    return iban
+    try:
+        return normalize_and_validate_iban(value)
+    except IbanValidationError as exc:
+        raise LedgerValidationError(f"IBAN is not valid: {exc}") from exc
 
 
 def _derived_idempotency_key(namespace: str, source_key: str) -> str:
@@ -984,6 +985,7 @@ def _deposit_request_fingerprint(
     currency_code: str,
     amount_minor: int,
     idempotency_key: str,
+    payer_account_identifier: str,
 ) -> str:
     return _stable_json_fingerprint(
         {
@@ -994,7 +996,7 @@ def _deposit_request_fingerprint(
             "value_date": command.value_date.isoformat(),
             "collection_account_identifier": command.collection_account_identifier.strip(),
             "payer_name": command.payer_name.strip(),
-            "payer_account_identifier": command.payer_account_identifier.strip(),
+            "payer_account_identifier": payer_account_identifier,
             "bank_reference": command.bank_reference.strip(),
             "payment_reference": command.payment_reference.strip(),
             "evidence_reference": command.evidence_reference.strip(),
@@ -1374,10 +1376,22 @@ def _existing_lender_deposit_result(
     existing_lot = existing_journal.balance_lots.first()
     if existing_lot is None:
         raise LedgerValidationError("Existing lender deposit has no balance lot.")
+    payout_instruction = (
+        InvestorPayoutInstruction.objects.filter(
+            investor_user_id=existing_operation.linked_object_id,
+            currency=existing_operation.currency,
+            destination_iban=existing_operation.payer_account_identifier,
+            status=InvestorPayoutInstructionStatus.ACTIVE,
+            is_verified_usable=True,
+        )
+        .order_by("-verified_at", "-created_at", "-id")
+        .first()
+    )
     return LenderDepositResult(
         cast(BankOperation, existing_operation),
         cast(LedgerJournalEntry, existing_journal),
         cast(InvestorBalanceLot, existing_lot),
+        payout_instruction,
     )
 
 
@@ -1393,24 +1407,75 @@ def _create_investor_payout_instruction(
     notes: str,
     metadata: dict[str, Any],
 ) -> InvestorPayoutInstruction:
-    verified_at = now_utc() if is_verified_usable else None
-    InvestorPayoutInstruction.objects.select_for_update().filter(
-        investor_user_id=investor.pk,
-        currency=currency,
-        status=InvestorPayoutInstructionStatus.ACTIVE,
-    ).update(status=InvestorPayoutInstructionStatus.DISABLED)
-    instruction = InvestorPayoutInstruction.objects.create(
-        investor_user_id=investor.pk,
-        currency=currency,
-        destination_iban=destination_iban,
-        destination_account_name=destination_account_name,
-        is_verified_usable=is_verified_usable,
-        verified_by_admin_id=actor.pk if is_verified_usable else None,
-        verified_at=verified_at,
-        created_by_admin_id=actor.pk,
-        notes=notes,
-        metadata=metadata,
+    operation_at = now_utc()
+    instruction = (
+        InvestorPayoutInstruction.objects.select_for_update()
+        .filter(
+            investor_user_id=investor.pk,
+            currency=currency,
+            destination_iban=destination_iban,
+        )
+        .order_by("-created_at", "-id")
+        .first()
     )
+    if (
+        instruction is not None
+        and not is_verified_usable
+        and instruction.is_verified_usable
+        and instruction.status == InvestorPayoutInstructionStatus.ACTIVE
+    ):
+        return instruction
+
+    created = instruction is None
+    if instruction is None:
+        try:
+            with transaction.atomic():
+                instruction = InvestorPayoutInstruction.objects.create(
+                    investor_user_id=investor.pk,
+                    currency=currency,
+                    destination_iban=destination_iban,
+                    destination_account_name=destination_account_name,
+                    is_verified_usable=is_verified_usable,
+                    verified_by_admin_id=actor.pk if is_verified_usable else None,
+                    verified_at=operation_at if is_verified_usable else None,
+                    created_by_admin_id=actor.pk,
+                    notes=notes,
+                    metadata=metadata,
+                )
+        except IntegrityError:
+            instruction = (
+                InvestorPayoutInstruction.objects.select_for_update()
+                .filter(
+                    investor_user_id=investor.pk,
+                    currency=currency,
+                    destination_iban=destination_iban,
+                    status=InvestorPayoutInstructionStatus.ACTIVE,
+                )
+                .get()
+            )
+            created = False
+
+    if not created:
+        instruction.status = InvestorPayoutInstructionStatus.ACTIVE
+        instruction.destination_account_name = destination_account_name
+        instruction.notes = notes
+        instruction.metadata = {**cast(dict[str, Any], instruction.metadata), **metadata}
+        instruction.is_verified_usable = is_verified_usable
+        instruction.verified_by_admin_id = actor.pk if is_verified_usable else None
+        instruction.verified_at = operation_at if is_verified_usable else None
+        instruction.save(
+            update_fields=[
+                "status",
+                "destination_account_name",
+                "notes",
+                "metadata",
+                "is_verified_usable",
+                "verified_by_admin_id",
+                "verified_at",
+                "updated_at",
+            ]
+        )
+
     actor_ref = actor_ref_for_user(actor)
     event_metadata = {
         "investor_user_id": str(investor.pk),
@@ -1418,11 +1483,23 @@ def _create_investor_payout_instruction(
         "instruction_id": str(instruction.id),
         "is_verified_usable": instruction.is_verified_usable,
         "requires_admin_verification": not instruction.is_verified_usable,
+        "created": created,
+        "source": str(metadata.get("source") or metadata.get("submitted_by") or "admin"),
     }
+    action = (
+        "ledger.investor_payout_instruction_registered"
+        if created
+        else "ledger.investor_payout_instruction_updated"
+    )
+    event_type = (
+        "InvestorPayoutInstructionRegistered"
+        if created
+        else "InvestorPayoutInstructionUpdated"
+    )
     record_audit_event(
         AuditCommand(
             actor=actor_ref,
-            action="ledger.investor_payout_instruction_registered",
+            action=action,
             target_type="InvestorPayoutInstruction",
             target_id=str(instruction.id),
             metadata=event_metadata,
@@ -1430,16 +1507,63 @@ def _create_investor_payout_instruction(
     )
     record_domain_event(
         DomainEventCommand(
-            event_type="InvestorPayoutInstructionRegistered",
+            event_type=event_type,
             aggregate_type="InvestorPayoutInstruction",
             aggregate_id=str(instruction.id),
             payload=event_metadata,
-            idempotency_key=f"payout-instruction:{instruction.id}:registered",
+            idempotency_key=(
+                f"payout-instruction:{instruction.id}:registered"
+                if created
+                else f"payout-instruction:{instruction.id}:updated:{operation_at.isoformat()}"
+            ),
         )
     )
     return instruction
 
 
+def _admin_ops_services() -> Any:
+    return import_module("backend.apps.admin_ops.services")
+
+
+def _ensure_payout_instruction_verification_task(
+    *,
+    requested_by: Model,
+    investor: Model,
+    instruction: InvestorPayoutInstruction,
+) -> None:
+    services = _admin_ops_services()
+    investor_label = (
+        str(getattr(investor, "full_name", "")).strip()
+        or str(getattr(investor, "email", "")).strip()
+        or str(investor.pk)
+    )
+    services.ensure_payout_instruction_verification_task(
+        services.EnsurePayoutInstructionVerificationTaskCommand(
+            requested_by=requested_by,
+            instruction_id=str(instruction.pk),
+            investor_user_id=str(investor.pk),
+            investor_label=investor_label,
+            currency=instruction.currency_id,
+            destination_iban=instruction.destination_iban,
+            destination_account_name=instruction.destination_account_name,
+        )
+    )
+
+
+def _resolve_payout_instruction_verification_task(
+    *,
+    actor: Model,
+    instruction: InvestorPayoutInstruction,
+    completion_note: str,
+) -> None:
+    _admin_ops_services().resolve_payout_instruction_verification_task(
+        actor=actor,
+        instruction_id=str(instruction.pk),
+        completion_note=completion_note,
+    )
+
+
+@transaction.atomic
 def register_investor_payout_instruction(
     command: RegisterInvestorPayoutInstructionCommand,
 ) -> InvestorPayoutInstruction:
@@ -1448,7 +1572,7 @@ def register_investor_payout_instruction(
     currency = _enabled_currency(command.currency)
     destination_iban = _clean_iban(command.destination_iban)
     account_name = _clean_required(command.destination_account_name, "Destination account name")
-    return _create_investor_payout_instruction(
+    instruction = _create_investor_payout_instruction(
         actor=command.actor,
         investor=investor,
         currency=currency,
@@ -1456,8 +1580,15 @@ def register_investor_payout_instruction(
         destination_account_name=account_name,
         is_verified_usable=command.is_verified_usable,
         notes=command.notes.strip(),
-        metadata=command.metadata or {},
+        metadata={"source": "admin_verification", **(command.metadata or {})},
     )
+    if instruction.is_verified_usable:
+        _resolve_payout_instruction_verification_task(
+            actor=command.actor,
+            instruction=instruction,
+            completion_note="IBAN ownership was verified by an administrator.",
+        )
+    return instruction
 
 
 def register_investor_self_service_payout_instruction(
@@ -1479,10 +1610,17 @@ def register_investor_self_service_payout_instruction(
     except SensitiveActionVerificationError as exc:
         raise LedgerValidationError(str(exc)) from exc
 
+    return _register_investor_self_service_payout_instruction_after_sensitive_code(command)
+
+
+@transaction.atomic
+def _register_investor_self_service_payout_instruction_after_sensitive_code(
+    command: RegisterInvestorSelfServicePayoutInstructionCommand,
+) -> InvestorPayoutInstruction:
     currency = _enabled_currency(command.currency)
     destination_iban = _clean_iban(command.destination_iban)
     account_name = _clean_required(command.destination_account_name, "Destination account name")
-    return _create_investor_payout_instruction(
+    instruction = _create_investor_payout_instruction(
         actor=command.actor,
         investor=command.actor,
         currency=currency,
@@ -1495,6 +1633,13 @@ def register_investor_self_service_payout_instruction(
             "requires_admin_verification": True,
         },
     )
+    if not instruction.is_verified_usable:
+        _ensure_payout_instruction_verification_task(
+            requested_by=command.actor,
+            investor=command.actor,
+            instruction=instruction,
+        )
+    return instruction
 
 
 @transaction.atomic
@@ -1503,11 +1648,13 @@ def declare_lender_deposit(command: DeclareLenderDepositCommand) -> LenderDeposi
     idempotency_key = _clean_idempotency_key(command.idempotency_key)
     currency = _enabled_currency(command.currency)
     amount_minor = _validate_money(command.amount_minor, currency.code, "Deposit amount")
+    source_iban = _clean_iban(command.payer_account_identifier)
     request_fingerprint = _deposit_request_fingerprint(
         command,
         currency_code=currency.code,
         amount_minor=amount_minor,
         idempotency_key=idempotency_key,
+        payer_account_identifier=source_iban,
     )
     existing_result = _existing_lender_deposit_result(
         idempotency_key,
@@ -1538,7 +1685,7 @@ def declare_lender_deposit(command: DeclareLenderDepositCommand) -> LenderDeposi
                 value_date=command.value_date,
                 collection_account_identifier=collection_account_identifier,
                 payer_name=command.payer_name.strip(),
-                payer_account_identifier=command.payer_account_identifier.strip(),
+                payer_account_identifier=source_iban,
                 payee_name="Garanta Finanzgruppe AG",
                 payee_account_identifier=collection_account_identifier,
                 bank_reference=command.bank_reference.strip(),
@@ -1630,6 +1777,28 @@ def declare_lender_deposit(command: DeclareLenderDepositCommand) -> LenderDeposi
         available_amount_minor=amount_minor,
         lineage=[{"source_type": "bank_operation", "source_id": str(bank_operation.id)}],
     )
+    payout_instruction = _create_investor_payout_instruction(
+        actor=command.actor,
+        investor=investor,
+        currency=currency,
+        destination_iban=source_iban,
+        destination_account_name=(
+            command.payer_name.strip()
+            or str(getattr(investor, "full_name", "")).strip()
+            or str(getattr(investor, "email", "")).strip()
+        ),
+        is_verified_usable=True,
+        notes="Verified from a matched incoming lender deposit.",
+        metadata={
+            "source": "lender_deposit",
+            "deposit_bank_operation_id": str(bank_operation.id),
+        },
+    )
+    _resolve_payout_instruction_verification_task(
+        actor=command.actor,
+        instruction=payout_instruction,
+        completion_note="IBAN was verified from a matched incoming lender deposit.",
+    )
     actor_ref = actor_ref_for_user(command.actor)
     record_audit_event(
         AuditCommand(
@@ -1642,6 +1811,7 @@ def declare_lender_deposit(command: DeclareLenderDepositCommand) -> LenderDeposi
                 "currency": currency.code,
                 "amount_minor": amount_minor,
                 "balance_lot_id": str(balance_lot.id),
+                "verified_payout_instruction_id": str(payout_instruction.id),
             },
         )
     )
@@ -1656,11 +1826,17 @@ def declare_lender_deposit(command: DeclareLenderDepositCommand) -> LenderDeposi
                 "amount_minor": amount_minor,
                 "balance_lot_id": str(balance_lot.id),
                 "journal_entry_id": str(journal_entry.id),
+                "verified_payout_instruction_id": str(payout_instruction.id),
             },
             idempotency_key=f"bank-operation:{bank_operation.id}:lender-deposit-declared",
         )
     )
-    return LenderDepositResult(bank_operation, journal_entry, balance_lot)
+    return LenderDepositResult(
+        bank_operation,
+        journal_entry,
+        balance_lot,
+        payout_instruction,
+    )
 
 
 def _existing_withdrawal_request_for_idempotency(

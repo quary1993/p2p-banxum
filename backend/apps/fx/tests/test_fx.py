@@ -156,7 +156,7 @@ def _deposit(
             value_date=value_date,
             collection_account_identifier=f"{currency}GARANTAFX",
             payer_name="FX Investor",
-            payer_account_identifier="CH11INVESTOR",
+            payer_account_identifier="CH9300762011623852957",
             bank_reference=f"BANK-{idempotency_key}",
             payment_reference=f"INV-{investor.pk}",
             evidence_reference=f"statement:{idempotency_key}",

@@ -234,13 +234,15 @@ export function Country({ code }: { code: string }) {
 export function Card({
   children,
   padded = false,
-  className = ""
+  className = "",
+  id
 }: {
   children: ReactNode;
   padded?: boolean;
   className?: string;
+  id?: string;
 }) {
-  return <div className={`card ${padded ? "card-pad" : ""} ${className}`}>{children}</div>;
+  return <div className={`card ${padded ? "card-pad" : ""} ${className}`} id={id}>{children}</div>;
 }
 
 export function Stat({

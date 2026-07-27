@@ -93,6 +93,11 @@ class AdminTaskListQuerySerializer(serializers.Serializer[Any]):
     related_object_id = serializers.CharField(required=False, allow_blank=True, max_length=128)
     due_before = serializers.DateTimeField(required=False)
     due_after = serializers.DateTimeField(required=False)
+    pending_only = serializers.BooleanField(required=False, default=False)
+    workstream = serializers.ChoiceField(
+        required=False,
+        choices=[("finance", "Finance")],
+    )
     limit = serializers.IntegerField(required=False, min_value=1, max_value=250, default=100)
 
 

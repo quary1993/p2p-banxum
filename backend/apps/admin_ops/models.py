@@ -14,6 +14,10 @@ class AdminTaskType(models.TextChoices):
     BORROWER_ONBOARDING = "borrower_onboarding", "Borrower onboarding"
     LOAN_SETUP = "loan_setup", "Loan setup"
     PAYMENT_RECONCILIATION = "payment_reconciliation", "Payment reconciliation"
+    PAYOUT_INSTRUCTION_VERIFICATION = (
+        "payout_instruction_verification",
+        "Payout instruction verification",
+    )
     FX_SETTLEMENT = "fx_settlement", "FX settlement"
     DOCUMENT_REVIEW = "document_review", "Document review"
     EMAIL_DELIVERY_FAILURE = "email_delivery_failure", "Email delivery failure"
@@ -102,7 +106,15 @@ class AdminTask(TimestampedModel):
                 ),
                 fields=["task_type", "related_object_type", "related_object_id"],
                 name="unique_reconciliation_snapshot_admin_task",
-            )
+            ),
+            models.UniqueConstraint(
+                condition=models.Q(
+                    task_type=AdminTaskType.PAYOUT_INSTRUCTION_VERIFICATION,
+                    related_object_type="InvestorPayoutInstruction",
+                ),
+                fields=["task_type", "related_object_type", "related_object_id"],
+                name="unique_payout_instruction_verification_task",
+            ),
         ]
 
     @property

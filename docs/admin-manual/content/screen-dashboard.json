@@ -5,14 +5,14 @@
     "The Daily Dashboard is the first screen you see when you open the ops console, and it is the screen you start each shift on. Think of it as a control tower: it gathers the work that needs human attention from every part of the platform into one place, so you can see at a glance what is waiting and how urgent it is. (The ops console is the internal admin tool used by Garanta staff; it is separate from the app that investors and borrowers use.)",
     "The screen has three parts. At the top is a row of four KPI tiles (KPI means 'key performance indicator' - a headline number you watch). Below that is the queues area: a left rail listing 13 work QUEUES, each with a live count, and a table showing the items inside whichever queue you have selected. At the bottom is a multi-currency balance summary table that shows the platform's money position broken down by currency (for example CHF and EUR).",
     "A QUEUE is simply a named list of things that need looking at - for example loans waiting for funding, or investor withdrawals waiting to be paid out. Each item in a queue points at a real record elsewhere in the platform (a loan, a withdrawal, a bank transfer, and so on).",
-    "Important: this screen is read-only triage. You use it to SEE and PRIORITISE work, not to act on it. To actually approve a KYC case, pay a withdrawal, publish a loan, and so on, you go to the matching module screen in the left navigation (Compliance, Finance ops, Loans, etc.). Clicking a queue item here opens a detail drawer that shows context only; it does not yet perform any action."
+    "Most dashboard queues are read-and-route triage: you inspect context, then use the owning module. Withdrawal and forced-withdrawal rows are the deliberate exception. Their drawer embeds the bank-execution form so an admin can finalize an executed payout or cancel it before bank execution without navigating away."
   ],
   "whatYouDoHere": [
     "Read the four KPI tiles to gauge the overall load: how many items are open, how many are high priority, how many are past their deadline, and how many touch money.",
     "Scan the 13 queue tabs in the left rail and note the count badge on each - a non-zero count means there is work waiting in that area.",
     "Select a queue to load its table, then read each row's status, priority, due date and amount to decide what to handle first.",
     "Spot overdue items: rows that are past their due date (and not already finished) are highlighted so you can escalate them.",
-    "Open an item's detail drawer to read its full context and metadata before you switch to the relevant module to act.",
+    "Open an item's detail drawer to read its context and metadata. For withdrawal records, execute or cancel the request there; for other queues, continue in the owning module.",
     "Read the bottom currency table to understand the platform's money position per currency - what is investable, what is locked, what is overdue, and what is pending in bank or FX operations.",
     "On the Reconciliation breaks queue only, use the Create tasks button to turn open reconciliation exceptions into trackable admin tasks; use Refresh to reload the latest numbers."
   ],
@@ -47,7 +47,7 @@
     {
       "id": "dashboard-1-daily-dashboard-queues",
       "caption": "The queues area: the 13-queue rail on the left and the selected-queue table on the right.",
-      "summary": "The main working area. The left rail is a vertical list of 13 work queues, each with a live count. Clicking one loads its items into the table on the right. Each table row is a single piece of work that lives in another part of the platform; clicking a row opens a read-only detail drawer.",
+      "summary": "The main working area. The left rail is a vertical list of 13 work queues, each with a live count. Clicking one loads its items into the table on the right. Each row opens a detail drawer; withdrawal and forced-withdrawal drawers also contain the executable finalize/cancel form.",
       "annotations": [
         {
           "item": 0,
@@ -152,7 +152,7 @@
         {
           "item": 20,
           "label": "Row title button - opens the detail drawer",
-          "text": "The bold item title in the Item column doubles as a button. Clicking it (or anywhere on the row) opens a right-side detail drawer with the item's full context: its kind, the linked object type and ID, due date, amount, and a 'Metadata' block of extra fields. The drawer is read-only - it shows a banner saying 'Module action deferred', meaning the actual action happens in the relevant module screen, not here."
+          "text": "The bold item title in the Item column doubles as a button. Clicking it (or anywhere on the row) opens a right-side detail drawer with the item's full context: kind, linked object, due date, amount, and metadata. A normal or forced withdrawal drawer additionally shows booking date, value date, collection account, admin note, Finalize withdrawal, and Cancel before execution. Other queue drawers remain contextual and route you to their owning module."
         },
         {
           "item": 22,
@@ -176,7 +176,7 @@
         }
       ],
       "notes": [
-        "The dashboard is triage only. None of the rows or the drawer perform an action - to approve, pay, publish or correct anything you must open the matching module from the left navigation (Compliance, Finance ops, Loans, Reports, Settings).",
+        "The dashboard is primarily triage. Withdrawal and forced-withdrawal drawers are actionable; finalize only after the external bank transfer has executed, or cancel before execution to release the reserved balance. Other rows still route to Compliance, Finance ops, Loans, Reports, Settings, or Tasks.",
         "Each queue shows at most a limited number of rows (a per-queue cap). If a queue is busier than that cap, the table is a sample of the most relevant items, not the complete list; use the bottom currency summary and module screens for totals.",
         "Overdue highlighting: a row is flagged overdue when its due date is before the dashboard's as-of date and its status is not completed, finalized or settled.",
         "A Refresh button (top right of the queues area) reloads all queues and counts. When the Reconciliation breaks queue is selected, an extra 'Create tasks' button appears: it scans current reconciliation break snapshots and creates an admin task for each one that does not already have one, reporting how many were created versus already existed. It does not create duplicates.",

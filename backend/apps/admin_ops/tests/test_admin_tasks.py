@@ -175,6 +175,53 @@ def test_admin_task_api_create_filter_update_and_events(
 
 
 @pytest.mark.django_db
+def test_admin_task_api_filters_pending_finance_workstream(
+    client: Client,
+    admin_user: Model,
+) -> None:
+    open_finance = create_admin_task(
+        CreateAdminTaskCommand(
+            actor=admin_user,
+            task_type=AdminTaskType.PAYOUT_INSTRUCTION_VERIFICATION,
+            title="Verify investor payout IBAN",
+            related_object_type="InvestorPayoutInstruction",
+            related_object_id="payout-1",
+        )
+    )
+    create_admin_task(
+        CreateAdminTaskCommand(
+            actor=admin_user,
+            task_type=AdminTaskType.KYC_MANUAL_REVIEW,
+            title="Review investor KYC",
+        )
+    )
+    resolved_finance = create_admin_task(
+        CreateAdminTaskCommand(
+            actor=admin_user,
+            task_type=AdminTaskType.FX_SETTLEMENT,
+            title="Declare settled FX batch",
+        )
+    )
+    update_admin_task(
+        UpdateAdminTaskCommand(
+            actor=admin_user,
+            task_id=str(resolved_finance.id),
+            status=AdminTaskStatus.RESOLVED,
+            completion_note="Settled.",
+        )
+    )
+
+    client.force_login(cast(Any, admin_user))
+    response = client.get(
+        "/api/v1/admin-ops/tasks/",
+        data={"pending_only": "true", "workstream": "finance"},
+    )
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()] == [str(open_finance.id)]
+
+
+@pytest.mark.django_db
 def test_admin_audit_log_endpoint_is_admin_only(
     client: Client,
     admin_user: Model,

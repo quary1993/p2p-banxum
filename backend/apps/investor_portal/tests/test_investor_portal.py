@@ -137,7 +137,7 @@ def _declare_deposit(
             value_date=value_date,
             collection_account_identifier=f"{currency}-COLLECTION",
             payer_name=str(cast(Any, investor).full_name),
-            payer_account_identifier=f"{currency}-INVESTOR-IBAN",
+            payer_account_identifier="CH9300762011623852957",
             bank_reference=f"BANK-{idempotency_key}",
             payment_reference=f"INV-{investor.pk}",
             evidence_reference=f"statement:{idempotency_key}",

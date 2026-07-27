@@ -97,7 +97,7 @@ class LenderDepositDeclareView(APIView):
                     value_date=data["value_date"],
                     collection_account_identifier=data["collection_account_identifier"],
                     payer_name=data.get("payer_name", ""),
-                    payer_account_identifier=data.get("payer_account_identifier", ""),
+                    payer_account_identifier=data["payer_account_identifier"],
                     bank_reference=data.get("bank_reference", ""),
                     payment_reference=data.get("payment_reference", ""),
                     evidence_reference=data.get("evidence_reference", ""),
@@ -114,6 +114,11 @@ class LenderDepositDeclareView(APIView):
                 "bank_operation": serialize_bank_operation(result.bank_operation),
                 "journal_entry": serialize_journal_entry(result.journal_entry),
                 "balance_lot": serialize_balance_lot(result.balance_lot),
+                "payout_instruction": (
+                    serialize_payout_instruction(result.payout_instruction)
+                    if result.payout_instruction is not None
+                    else None
+                ),
             },
             status=status.HTTP_201_CREATED,
         )

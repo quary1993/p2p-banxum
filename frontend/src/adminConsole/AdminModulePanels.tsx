@@ -59,6 +59,8 @@ import {
   useV1ServicingAdminRiskNotesCreate,
   useV1ServicingAdminStatusScanCreate,
   type AccountAccessChangeRequest,
+  type AdminDashboardQueueItem,
+  type AdminTask,
   type AccountAccessChangeRequestReasonCodeEnum as AccountAccessReasonCode,
   type AdminLookupResult,
   type AdvanceRepaymentScheduleRow,
@@ -130,6 +132,8 @@ import {
   useAdminPrimaryOrderLookupData,
   useAdminUserLookupData,
   useAdminSecondaryListingsData,
+  useAdminOperationsDashboardData,
+  useAdminTasksData,
   useAdminUsersDirectoryData,
   useAdminWithdrawalLookupData,
   useBorrowersData,
@@ -261,6 +265,7 @@ function TextInput({
   return (
     <Field hint={hint} label={label}>
       <input
+        aria-label={label}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         required={required}
@@ -1461,17 +1466,129 @@ function AccountAccessForm({
   );
 }
 
+function FinancePendingTasksTable({
+  onSelectWithdrawal
+}: {
+  onSelectWithdrawal: (withdrawalId: string) => void;
+}) {
+  const taskQuery = useAdminTasksData({ pending_only: true, workstream: "finance", limit: 100 });
+  const dashboardQuery = useAdminOperationsDashboardData({ due_window_days: 7, limit: 50 });
+  const tasks = taskQuery.data ?? [];
+  const queues = dashboardQuery.data?.queues;
+  const queueItems: AdminDashboardQueueItem[] = queues
+    ? [
+        ...queues.bank_operations_pending,
+        ...queues.withdrawals_requested,
+        ...queues.forced_withdrawals_requested,
+        ...queues.fx_settlement_deltas,
+        ...queues.reconciliation_breaks
+      ]
+    : [];
+
+  function selectWithdrawal(item: AdminDashboardQueueItem) {
+    onSelectWithdrawal(item.object_id);
+    window.setTimeout(() => {
+      document.getElementById("admin-withdrawal-execution")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start"
+      });
+    }, 0);
+  }
+
+  return (
+    <Card padded>
+      <div className="admin-panel-head">
+        <div>
+          <h2>Pending finance operations</h2>
+          <p>Verification tasks and live bank, withdrawal, FX, and reconciliation queues requiring action.</p>
+        </div>
+        <Button
+          icon="refresh"
+          onClick={() => {
+            refetchLive(taskQuery.refetch);
+            refetchLive(dashboardQuery.refetch);
+          }}
+          size="sm"
+        >
+          Refresh
+        </Button>
+      </div>
+      {taskQuery.error || dashboardQuery.error ? (
+        <Banner tone="bad" title="Could not load pending finance work">
+          {errorMessage(taskQuery.error || dashboardQuery.error)}
+        </Banner>
+      ) : null}
+      {tasks.length || queueItems.length ? (
+        <div className="table-wrap admin-table-wrap">
+          <table className="admin-table admin-finance-work-table">
+            <thead>
+              <tr>
+                <th>Work item</th>
+                <th>Status</th>
+                <th>Priority</th>
+                <th>Due</th>
+                <th>Amount</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tasks.map((task: AdminTask) => (
+                <tr key={`task-${task.id}`}>
+                  <td>
+                    <strong>{task.title}</strong>
+                    <span className="mono muted">{labelize(task.task_type)}</span>
+                  </td>
+                  <td><Chip status={task.status}>{labelize(task.status)}</Chip></td>
+                  <td><Chip dot={false} tone={task.priority === "high" || task.priority === "urgent" ? "warn" : "neutral"}>{labelize(task.priority)}</Chip></td>
+                  <td className="mono">{task.due_at ? formatDateTime(task.due_at) : "-"}</td>
+                  <td className="muted">-</td>
+                  <td><span className="muted">Review in Tasks</span></td>
+                </tr>
+              ))}
+              {queueItems.map((item) => (
+                <tr key={`queue-${item.kind}-${item.id}`}>
+                  <td>
+                    <strong>{item.title}</strong>
+                    <span className="mono muted">{labelize(item.kind)}</span>
+                  </td>
+                  <td><Chip status={item.status}>{labelize(item.status)}</Chip></td>
+                  <td><Chip dot={false} tone={item.priority === "high" || item.priority === "urgent" ? "warn" : "neutral"}>{labelize(item.priority)}</Chip></td>
+                  <td className="mono">{item.due_at ? formatDateTime(item.due_at) : item.due_date ? formatDate(item.due_date) : "-"}</td>
+                  <td>{item.amount_minor === null ? <span className="muted">-</span> : <Money amountMinor={item.amount_minor} currency={item.currency} />}</td>
+                  <td>
+                    {item.object_type === "withdrawal_request" ? (
+                      <Button onClick={() => selectWithdrawal(item)} size="sm">Resolve</Button>
+                    ) : (
+                      <span className="muted">Open from dashboard</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <Empty icon="checkCircle" title="No pending finance operations">
+          No finance task or operational queue currently requires action.
+        </Empty>
+      )}
+    </Card>
+  );
+}
+
 export function FinanceOpsPanel() {
+  const [selectedWithdrawalId, setSelectedWithdrawalId] = useState("");
   return (
     <div className="admin-content">
       <PreviewNotice>Finance forms use dummy IDs in preview. Live submissions post to the ledger, FX and reconciliation services.</PreviewNotice>
+      <FinancePendingTasksTable onSelectWithdrawal={setSelectedWithdrawalId} />
       <section className="admin-module-grid">
         <DepositForm />
         <PayoutInstructionForm />
         <BalanceSummaryLookup />
         <BalanceAgeingScanForm />
         <ReconciliationSnapshotForm />
-        <WithdrawalOpsForm />
+        <WithdrawalOpsForm initialWithdrawalId={selectedWithdrawalId} />
         <BorrowerDisbursementForm />
         <FxAdminOps />
       </section>
@@ -1488,11 +1605,12 @@ function DepositForm() {
   const [valueDate, setValueDate] = useState(today);
   const [collectionAccount, setCollectionAccount] = useState(defaultCollectionAccount);
   const [payerName, setPayerName] = useState("");
+  const [sourceIban, setSourceIban] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | undefined>();
   const mutation = useV1LedgerAdminLenderDepositsCreate({
-    mutation: { onSuccess: () => setSuccess("Deposit was declared, ledgered, and added to investor balance lots.") }
+    mutation: { onSuccess: () => setSuccess("Deposit was ledgered and its source IBAN was added as a verified payout account.") }
   });
 
   function updateInvestorQuery(value: string) {
@@ -1520,6 +1638,7 @@ function DepositForm() {
       value_date: valueDate,
       collection_account_identifier: collectionAccount,
       payer_name: payerName || undefined,
+      payer_account_identifier: sourceIban,
       payment_reference: paymentReference || undefined,
       idempotency_key: idempotencyKey("deposit")
     };
@@ -1533,7 +1652,7 @@ function DepositForm() {
   return (
     <Card padded>
       <h2>Lender deposit</h2>
-      <p>Declare a matched incoming bank transfer and credit the investor liability ledger.</p>
+      <p>Declare a matched incoming transfer. Its valid source IBAN becomes a verified payout account for this investor.</p>
       <form className="admin-action-form" onSubmit={submit}>
         <FieldGrid>
           <InvestorLookupInput
@@ -1553,6 +1672,13 @@ function DepositForm() {
         </FieldGrid>
         <FieldGrid>
           <TextInput label="Payer name" onChange={updatePayerName} value={payerName} />
+          <TextInput
+            hint="Required. Spaces are accepted; the server validates the country length and ISO 13616 checksum."
+            label="Source IBAN"
+            onChange={setSourceIban}
+            required
+            value={sourceIban}
+          />
           <TextInput label="Payment reference" onChange={updatePaymentReference} value={paymentReference} />
         </FieldGrid>
         <ActionFooter mutation={mutation} previewMessage={preview} successMessage={success} submitLabel="Declare deposit" />
@@ -1573,7 +1699,7 @@ function PayoutInstructionForm() {
   const [preview, setPreview] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | undefined>();
   const mutation = useV1LedgerAdminPayoutInstructionsCreate({
-    mutation: { onSuccess: () => setSuccess("Payout instruction was registered and superseded the prior active instruction.") }
+    mutation: { onSuccess: () => setSuccess("Payout IBAN was verified and added without removing existing verified accounts.") }
   });
 
   const ibanCollisionCount = investorMatches.reduce(
@@ -1601,7 +1727,7 @@ function PayoutInstructionForm() {
   return (
     <Card padded>
       <h2>Payout instruction</h2>
-      <p>Register a verified IBAN used for withdrawals and day-60 forced returns.</p>
+      <p>Verify an additional IBAN used for withdrawals and day-60 forced returns. Existing verified IBANs remain usable.</p>
       <form className="admin-action-form" onSubmit={submit}>
         <FieldGrid>
           <InvestorLookupInput
@@ -1762,16 +1888,58 @@ function ReconciliationSnapshotForm() {
   );
 }
 
-function WithdrawalOpsForm() {
-  const [withdrawalId, setWithdrawalId] = useState(adminFormDefaults.withdrawalId);
-  const [withdrawalQuery, setWithdrawalQuery] = useState(adminFormDefaults.withdrawalId);
+function WithdrawalOpsForm({ initialWithdrawalId = "" }: { initialWithdrawalId?: string }) {
+  return (
+    <Card id="admin-withdrawal-execution" padded>
+      <h2>Withdrawal execution</h2>
+      <p>Finalize executed withdrawals or cancel requested withdrawals before bank execution.</p>
+      <WithdrawalExecutionForm initialWithdrawalId={initialWithdrawalId} />
+    </Card>
+  );
+}
+
+export function WithdrawalExecutionForm({
+  initialWithdrawalId = "",
+  allowLookup = true,
+  onCompleted
+}: {
+  initialWithdrawalId?: string;
+  allowLookup?: boolean;
+  onCompleted?: () => void;
+}) {
+  const defaultWithdrawalId = initialWithdrawalId || adminFormDefaults.withdrawalId;
+  const [withdrawalId, setWithdrawalId] = useState(defaultWithdrawalId);
+  const [withdrawalQuery, setWithdrawalQuery] = useState(defaultWithdrawalId);
   const [bookingDate, setBookingDate] = useState(today);
   const [valueDate, setValueDate] = useState(today);
   const [collectionAccount, setCollectionAccount] = useState(defaultCollectionAccount);
   const [reason, setReason] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
-  const finalize = useV1LedgerAdminWithdrawalRequestsFinalizeCreate();
-  const cancel = useV1LedgerAdminWithdrawalRequestsCancelCreate();
+  const [success, setSuccess] = useState<string | null>(null);
+  const finalize = useV1LedgerAdminWithdrawalRequestsFinalizeCreate({
+    mutation: {
+      onSuccess: () => {
+        setSuccess("Withdrawal was finalized after bank execution.");
+        onCompleted?.();
+      }
+    }
+  });
+  const cancel = useV1LedgerAdminWithdrawalRequestsCancelCreate({
+    mutation: {
+      onSuccess: () => {
+        setSuccess("Withdrawal was cancelled and its reserved balance was released.");
+        onCompleted?.();
+      }
+    }
+  });
+
+  useEffect(() => {
+    if (!initialWithdrawalId) return;
+    setWithdrawalId(initialWithdrawalId);
+    setWithdrawalQuery(initialWithdrawalId);
+    setPreview(null);
+    setSuccess(null);
+  }, [initialWithdrawalId]);
 
   function finalizeSubmit(event: FormEvent) {
     event.preventDefault();
@@ -1802,18 +1970,21 @@ function WithdrawalOpsForm() {
   }
 
   return (
-    <Card padded>
-      <h2>Withdrawal execution</h2>
-      <p>Finalize executed withdrawals or cancel requested withdrawals before bank execution.</p>
       <form className="admin-action-form" onSubmit={finalizeSubmit}>
         <FieldGrid>
-          <WithdrawalLookupInput
-            onChange={setWithdrawalId}
-            onQueryChange={setWithdrawalQuery}
-            query={withdrawalQuery}
-            required
-            value={withdrawalId}
-          />
+          {allowLookup ? (
+            <WithdrawalLookupInput
+              onChange={setWithdrawalId}
+              onQueryChange={setWithdrawalQuery}
+              query={withdrawalQuery}
+              required
+              value={withdrawalId}
+            />
+          ) : (
+            <Field label="Withdrawal request">
+              <input readOnly value={withdrawalId} />
+            </Field>
+          )}
           <TextInput label="Booking date" onChange={setBookingDate} required type="date" value={bookingDate} />
           <TextInput label="Value date" onChange={setValueDate} required type="date" value={valueDate} />
           <TextInput label="Collection account" onChange={setCollectionAccount} required value={collectionAccount} />
@@ -1821,12 +1992,12 @@ function WithdrawalOpsForm() {
         <TextAreaInput label="Admin note / cancel reason" onChange={setReason} value={reason} />
         {finalize.error || cancel.error ? <Banner tone="bad" title="Withdrawal action failed">{errorMessage(finalize.error || cancel.error)}</Banner> : null}
         {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
+        {success ? <Banner tone="ok" title="Withdrawal action completed">{success}</Banner> : null}
         <div className="row gap-8 wrap">
           <Button disabled={finalize.isPending} type="submit" variant="primary">Finalize withdrawal</Button>
           <Button disabled={cancel.isPending} onClick={cancelSubmit} variant="danger">Cancel before execution</Button>
         </div>
       </form>
-    </Card>
   );
 }
 

@@ -45,42 +45,47 @@
     "h": 621
   },
   {
-    "id": "finance-0-lender-deposit",
-    "w": 640,
-    "h": 441
+    "id": "finance-0-pending-finance-operations",
+    "w": 980,
+    "h": 503
   },
   {
-    "id": "finance-1-payout-instruction",
+    "id": "finance-1-lender-deposit",
     "w": 640,
-    "h": 457
+    "h": 558
   },
   {
-    "id": "finance-2-investor-balance-lookup",
+    "id": "finance-2-payout-instruction",
+    "w": 640,
+    "h": 477
+  },
+  {
+    "id": "finance-3-investor-balance-lookup",
     "w": 640,
     "h": 459
   },
   {
-    "id": "finance-3-balance-ageing-scan",
+    "id": "finance-4-balance-ageing-scan",
     "w": 640,
     "h": 249
   },
   {
-    "id": "finance-4-reconciliation-snapshot",
+    "id": "finance-5-reconciliation-snapshot",
     "w": 640,
     "h": 429
   },
   {
-    "id": "finance-5-withdrawal-execution",
+    "id": "finance-6-withdrawal-execution",
     "w": 640,
     "h": 429
   },
   {
-    "id": "finance-6-borrower-disbursement",
+    "id": "finance-7-borrower-disbursement",
     "w": 640,
-    "h": 441
+    "h": 686
   },
   {
-    "id": "finance-7-fx-settlement",
+    "id": "finance-8-fx-settlement",
     "w": 980,
     "h": 543
   },
@@ -97,7 +102,7 @@
   {
     "id": "loans-6-loans",
     "w": 980,
-    "h": 279
+    "h": 327
   },
   {
     "id": "loans-9-manage-loan-actions",
@@ -115,9 +120,9 @@
     "h": 329
   },
   {
-    "id": "loans-8-servicing-and-recovery",
+    "id": "loans-8-servicing-operations",
     "w": 980,
-    "h": 516
+    "h": 400
   },
   {
     "id": "loans-11-manage-record-recovery",

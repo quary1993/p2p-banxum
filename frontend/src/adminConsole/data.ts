@@ -91,8 +91,21 @@ export function useAdminOperationsDashboardData(
 }
 
 export function useAdminTasksData(params: V1AdminOpsTasksListParams = { limit: 100 }) {
+  const financeTaskTypes = new Set([
+    "payment_reconciliation",
+    "payout_instruction_verification",
+    "fx_settlement"
+  ]);
+  const fixture = adminTasksFixture.filter((task) => {
+    if (params.status && task.status !== params.status) return false;
+    if (params.task_type && task.task_type !== params.task_type) return false;
+    if (params.priority && task.priority !== params.priority) return false;
+    if (params.pending_only && task.is_terminal) return false;
+    if (params.workstream === "finance" && !financeTaskTypes.has(task.task_type)) return false;
+    return true;
+  });
   return useV1AdminOpsTasksList(params, {
-    query: adminPreviewQuery(adminTasksFixture)
+    query: adminPreviewQuery(fixture)
   });
 }
 

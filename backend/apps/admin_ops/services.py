@@ -60,6 +60,13 @@ BALANCE_FROZEN_STATUS = "frozen"
 BALANCE_PENALTY_MODE_STATUS = "penalty_mode"
 SECONDARY_APPROVAL_REQUESTED_STATUS = "approval_requested"
 OUTBOX_DEAD_LETTER_STATUS = "dead_letter"
+FINANCE_ADMIN_TASK_TYPES = frozenset(
+    {
+        AdminTaskType.PAYMENT_RECONCILIATION,
+        AdminTaskType.PAYOUT_INSTRUCTION_VERIFICATION,
+        AdminTaskType.FX_SETTLEMENT,
+    }
+)
 
 
 def _actor_account_type(actor: Model) -> str:
@@ -351,6 +358,17 @@ class UpdateAdminTaskCommand:
     completion_note: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class EnsurePayoutInstructionVerificationTaskCommand:
+    requested_by: Model
+    instruction_id: str
+    investor_user_id: str
+    investor_label: str
+    currency: str
+    destination_iban: str
+    destination_account_name: str
+
+
 def _document_subject_user(user_id: str) -> Model:
     user = get_user_model().objects.filter(id=user_id).first()
     if user is None:
@@ -619,6 +637,176 @@ def update_admin_task(command: UpdateAdminTaskCommand) -> AdminTask:
         )
     )
     return task
+
+
+def _payout_instruction_task_notes(
+    command: EnsurePayoutInstructionVerificationTaskCommand,
+) -> str:
+    return "\n".join(
+        [
+            "An investor requested verification of an additional payout IBAN.",
+            f"Investor: {command.investor_label}",
+            f"Investor user ID: {command.investor_user_id}",
+            f"Currency: {command.currency}",
+            f"IBAN: {command.destination_iban}",
+            f"Account name: {command.destination_account_name}",
+            "Verify bank-account ownership before marking this instruction usable.",
+        ]
+    )
+
+
+@transaction.atomic
+def ensure_payout_instruction_verification_task(
+    command: EnsurePayoutInstructionVerificationTaskCommand,
+) -> AdminTask:
+    related_type = "InvestorPayoutInstruction"
+    task = (
+        AdminTask.objects.select_for_update()
+        .filter(
+            task_type=AdminTaskType.PAYOUT_INSTRUCTION_VERIFICATION,
+            related_object_type=related_type,
+            related_object_id=command.instruction_id,
+        )
+        .first()
+    )
+    title = f"Verify payout IBAN for {command.investor_label}"
+    notes = _payout_instruction_task_notes(command)
+    if task is None:
+        try:
+            with transaction.atomic():
+                task = AdminTask.objects.create(
+                    task_type=AdminTaskType.PAYOUT_INSTRUCTION_VERIFICATION,
+                    title=title,
+                    priority=AdminTaskPriority.HIGH,
+                    status=AdminTaskStatus.OPEN,
+                    created_by=cast(Any, command.requested_by),
+                    due_at=now_utc(),
+                    notes=notes,
+                    related_object_type=related_type,
+                    related_object_id=command.instruction_id,
+                )
+        except IntegrityError:
+            task = (
+                AdminTask.objects.select_for_update()
+                .filter(
+                    task_type=AdminTaskType.PAYOUT_INSTRUCTION_VERIFICATION,
+                    related_object_type=related_type,
+                    related_object_id=command.instruction_id,
+                )
+                .get()
+            )
+        else:
+            metadata = {
+                "task_type": task.task_type,
+                "priority": task.priority,
+                "status": task.status,
+                "related_object_type": related_type,
+                "related_object_id": command.instruction_id,
+                "investor_user_id": command.investor_user_id,
+                "currency": command.currency,
+            }
+            _record_task_event(
+                task=task,
+                actor=command.requested_by,
+                event_type=AdminTaskEventType.CREATED,
+                new_status=task.status,
+                note=notes,
+                metadata=metadata,
+            )
+            record_audit_event(
+                AuditCommand(
+                    actor=actor_ref_for_user(command.requested_by),
+                    action="admin_task.payout_instruction_verification_requested",
+                    target_type="AdminTask",
+                    target_id=str(task.id),
+                    metadata=metadata,
+                )
+            )
+            record_domain_event(
+                DomainEventCommand(
+                    event_type="PayoutInstructionVerificationTaskCreated",
+                    aggregate_type="AdminTask",
+                    aggregate_id=str(task.id),
+                    payload=metadata,
+                    idempotency_key=f"admin-task:{task.id}:created",
+                )
+            )
+            return task
+
+    previous_status = task.status
+    changed = False
+    if task.title != title:
+        task.title = title
+        changed = True
+    if task.notes != notes:
+        task.notes = notes
+        changed = True
+    if task.status in TERMINAL_ADMIN_TASK_STATUSES:
+        task.status = AdminTaskStatus.OPEN
+        task.completed_at = None
+        task.completion_note = ""
+        task.due_at = now_utc()
+        changed = True
+    if changed:
+        task.save(
+            update_fields=[
+                "title",
+                "notes",
+                "status",
+                "completed_at",
+                "completion_note",
+                "due_at",
+                "updated_at",
+            ]
+        )
+        event = _record_task_event(
+            task=task,
+            actor=command.requested_by,
+            event_type=AdminTaskEventType.STATUS_CHANGED,
+            previous_status=previous_status,
+            new_status=task.status,
+            note="Investor renewed the payout-IBAN verification request.",
+            metadata={"reopened": previous_status in TERMINAL_ADMIN_TASK_STATUSES},
+        )
+        record_domain_event(
+            DomainEventCommand(
+                event_type="PayoutInstructionVerificationTaskUpdated",
+                aggregate_type="AdminTask",
+                aggregate_id=str(task.id),
+                payload={"status": task.status},
+                idempotency_key=f"admin-task:{task.id}:event:{event.id}",
+            )
+        )
+    return task
+
+
+@transaction.atomic
+def resolve_payout_instruction_verification_task(
+    *,
+    actor: Model,
+    instruction_id: str,
+    completion_note: str,
+) -> AdminTask | None:
+    _require_admin_actor(actor)
+    task = (
+        AdminTask.objects.select_for_update()
+        .filter(
+            task_type=AdminTaskType.PAYOUT_INSTRUCTION_VERIFICATION,
+            related_object_type="InvestorPayoutInstruction",
+            related_object_id=instruction_id,
+        )
+        .first()
+    )
+    if task is None or task.status == AdminTaskStatus.RESOLVED:
+        return task
+    return update_admin_task(
+        UpdateAdminTaskCommand(
+            actor=actor,
+            task_id=str(task.id),
+            status=AdminTaskStatus.RESOLVED,
+            completion_note=completion_note,
+        )
+    )
 
 
 def sync_reconciliation_break_tasks(

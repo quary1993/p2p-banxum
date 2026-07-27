@@ -2,14 +2,15 @@
   "key": "finance",
   "title": "Finance Operations",
   "intro": [
-    "Finance Operations is the money-movement cockpit of the admin console. This is where Garanta staff record cash that has actually entered or left the company's bank account, and where the system's internal ledger is kept in step with reality. Nothing here moves money by itself: each form records, in the ledger, a bank transfer that you (or the bank) have already arranged or observed.",
+    "Finance Operations is the money-movement cockpit of the admin console. It starts with Pending finance operations, a bounded working list that combines unresolved finance tasks with bank exceptions, withdrawals, forced withdrawals, FX settlement items, and reconciliation breaks. Below that, Garanta staff record cash that has actually entered or left the company's bank account and keep the internal ledger in step with reality. Most forms record a bank transfer that you (or the bank) already arranged or observed; the live balance-ageing scan is the exception because it can create forced withdrawals and post penalty charges.",
     "A few terms you will see on every form. 'Minor units' means the amount in the smallest currency unit, i.e. cents (rappen for CHF). So 2,500,000 minor units equals 25,000.00 CHF. Always enter whole numbers in minor units, never decimals. The 'collection account' is Garanta's own pooled bank account that holds all lender money before it is invested or paid out. Launch collection accounts are Garanta_CHF (IBAN CH1183019GARANTAFI001, QR IBAN CH8330334GARANTAFI001, BIC YAPECHZ2) and Garanta_EUR (IBAN CH8183019GARANTAFI002, BIC YAPECHZ2). A 'deposit' is incoming money from an investor; a 'disbursement' is outgoing money to a borrower; a 'withdrawal' is outgoing money back to an investor.",
     "Most forms include an 'investor' (or loan/borrower/withdrawal) autocomplete. You type a name, email, investor reference (a code like L7K3M9PQ2), UUID, or IBAN; the box searches the database and lets you pick a real record. When you pick one, the box quietly stores the matching hidden ID and shows 'Selected ID: ...'. If you type text but never pick a result, the form will refuse to submit. The visible text is just for searching; the hidden ID is what actually gets sent.",
     "Because each action posts permanent accounting entries, every submit carries an automatic idempotency key so an accidental double-click cannot double-book a transfer. Watch the success and error banners after each action: they tell you exactly what the ledger did."
   ],
   "whatYouDoHere": [
+    "Start with the pending finance-operations table and open the relevant action or owning module for each unresolved item.",
     "Declare a matched incoming lender deposit and credit it to the investor's balance.",
-    "Register the verified IBAN (payout instruction) Garanta will use to pay an investor.",
+    "Review and add verified payout IBANs without removing verified accounts already established by deposits.",
     "Look up an investor's ledger balance broken into investable, withdraw-only, overdue, frozen and penalty buckets.",
     "Run the balance ageing scan that fires 30/60-day reminders, forced withdrawals, and penalty charges (with a safe dry-run mode).",
     "Create a reconciliation snapshot that compares the bank's stated balance against what the ledger expects.",
@@ -17,9 +18,46 @@
   ],
   "figures": [
     {
-      "id": "finance-0-lender-deposit",
+      "id": "finance-0-pending-finance-operations",
+      "caption": "Pending finance operations: start the day from one consolidated work list.",
+      "summary": "This table combines unresolved finance tasks with actionable bank-operation, withdrawal, forced-withdrawal, FX-settlement, and reconciliation queues. It is a triage surface: resolve withdrawals here, and use the named owning module for the other work types.",
+      "annotations": [
+        {
+          "item": 1,
+          "label": "Work item",
+          "text": "The human-readable task or queue title. The smaller line identifies the underlying work type. Payout-IBAN verification requests created by investors appear here as finance tasks."
+        },
+        {
+          "item": 2,
+          "label": "Status",
+          "text": "Current workflow state, such as Open, Waiting, Pending review, Requested, Unsettled, Break, or Integrity break. Terminal admin tasks are excluded from this table."
+        },
+        {
+          "item": 4,
+          "label": "Due",
+          "text": "Task due timestamp or queue due date. A dash means the source queue has no separate deadline."
+        },
+        {
+          "item": 6,
+          "label": "Action",
+          "text": "Withdrawals expose Resolve here and prefill the execution form below. Other items state which dashboard or owning module to open."
+        },
+        {
+          "item": 8,
+          "label": "Resolve withdrawal",
+          "text": "Scrolls to Withdrawal execution with this request selected. Finalize only after the bank transfer executes; cancel only before execution."
+        }
+      ],
+      "notes": [
+        "The table is bounded for launch and intentionally does not replace the full Tasks or Daily dashboard screens.",
+        "Investor-requested additional IBANs remain unverified until an admin checks ownership in Payout instruction. Verifying the exact instruction resolves its linked task.",
+        "Normal and forced withdrawals use the same conservation-safe finalize/cancel service. A forced withdrawal is still only requested until its bank payment is finalized."
+      ]
+    },
+    {
+      "id": "finance-1-lender-deposit",
       "caption": "Lender deposit: record an incoming bank transfer and credit the investor.",
-      "summary": "This form declares that money from an investor has landed in Garanta's collection account, and credits that investor's balance in the ledger. Use it only when a real incoming transfer has been seen on the bank statement.",
+      "summary": "This form declares that money from an investor has landed in Garanta's collection account, credits that investor's balance, and establishes the checksum-valid source IBAN from the bank statement as a verified payout account. Use it only when a real incoming transfer has been seen on the bank statement.",
       "annotations": [
         {
           "item": 1,
@@ -58,26 +96,32 @@
         },
         {
           "item": 8,
+          "label": "Source IBAN",
+          "text": "Required. Copy the payer IBAN observed on the incoming bank transfer. Spaces are allowed; the service normalizes the value, checks its country-specific length and MOD-97 checksum, and rejects an invalid IBAN before creating any bank operation, ledger entry, balance lot, or payout instruction. A successful declaration verifies this exact investor/currency/IBAN for future payouts."
+        },
+        {
+          "item": 9,
           "label": "Payment reference",
           "text": "The reference text from the bank transfer. Optional. If it contains the investor reference code and you have not yet selected an investor, the form copies that code into the investor search box for you."
         },
         {
-          "item": 9,
+          "item": 10,
           "label": "Declare deposit",
-          "text": "Submits the deposit. On success it does three things at once: it creates a reconciled bank-operation record, posts a balanced ledger entry (debit collection cash, credit the investor's balance liability), and opens a new 'balance lot' of available funds for the investor. The success banner confirms the deposit was ledgered and added to the investor's balance lots."
+          "text": "Submits the deposit. On success it creates a reconciled bank-operation record, posts a balanced ledger entry (debit collection cash, credit the investor's balance liability), opens a new balance lot, and creates or updates that exact source IBAN as an active verified payout instruction in the same transaction."
         }
       ],
       "notes": [
         "Only an active admin can declare a deposit. The chosen account must be a lender account that is not restricted, locked, or closed. A pending-KYC lender may receive a deposit; financial actions remain blocked until onboarding gates pass.",
         "The new balance lot starts the 30-day 'pledge/invest' window and the 60-day 'must withdraw' window from the value date. New loan investments must be pledged before the lot's 30-day deadline; the loan can close later inside its own capped campaign window. These windows drive the ageing scan later.",
         "Investor deposit instructions show the investor-specific payment reference as BX-{currency}-{investor_reference}. The CHF screen also shows the verified Garanta_CHF Swiss QR-bill payload. That QR payload identifies the CHF collector account but does not include the investor's BANXUM payment reference, so the investor must still copy the displayed payment reference into the bank transfer reference/description. The EUR collector currently has IBAN/BIC instructions only; no EUR QR payload has been supplied.",
+        "Source IBAN is mandatory. It must be the account the deposit actually came from and pass full IBAN validation. A successful deposit makes that exact investor/currency IBAN verified and usable for ordinary and forced withdrawals; this is not a separate manual payout-verification step.",
         "Each deposit gets an automatic idempotency key, so resubmitting the same declaration returns the original result rather than crediting the investor twice."
       ]
     },
     {
-      "id": "finance-1-payout-instruction",
+      "id": "finance-2-payout-instruction",
       "caption": "Payout instruction: register the verified IBAN used to pay an investor.",
-      "summary": "A 'payout instruction' is a saved bank account (IBAN) that Garanta is allowed to send an investor's money to. Withdrawals and the day-60 forced returns pay out to the active, verified instruction. Registering a new one replaces (supersedes) the investor's previous active instruction for that currency.",
+      "summary": "A payout instruction is a saved bank account (IBAN) that Garanta is allowed to send an investor's money to. Deposit source IBANs are verified automatically. Use this form when an investor requests another account: verifying it adds that exact IBAN and does not disable their existing verified deposit account.",
       "annotations": [
         {
           "item": 1,
@@ -92,7 +136,7 @@
         {
           "item": 3,
           "label": "Destination IBAN",
-          "text": "The investor's bank account number to pay out to. The system normalizes it (removes spaces, uppercases) and validates it: it must be 15-34 characters, start with two letters, and be otherwise alphanumeric, or it is rejected."
+          "text": "The investor's bank account number to pay out to. The system normalizes it (removes spaces and uppercases it), checks the country-specific IBAN length, and verifies the MOD-97 checksum. A structurally plausible but checksum-invalid IBAN is rejected."
         },
         {
           "item": 4,
@@ -107,18 +151,18 @@
         {
           "item": 6,
           "label": "Register payout instruction",
-          "text": "Saves the instruction. On success the success banner notes it superseded the prior active instruction for that investor and currency (the old one is automatically disabled). If the 'usable and verified' checkbox is ticked, it is immediately usable for payouts; if unticked, it is saved but flagged as needing admin verification before money can go out."
+          "text": "Saves or updates this exact investor/currency/IBAN instruction. It is additive: other verified IBANs remain active. If the 'usable and verified' checkbox is ticked, this IBAN is immediately usable for payouts and any linked investor-request verification task is resolved. If unticked, it remains pending and cannot receive withdrawals."
         }
       ],
       "notes": [
         "A checkbox below the fields, 'IBAN is usable and verified for this investor', is ticked by default. Leave it ticked only when you have confirmed the account belongs to the investor.",
         "GOTCHA - IBAN collision warning: if the IBAN you entered already matches more than one investor in the system, an amber banner 'IBAN matches multiple investors' appears. Review the matches before saving, since paying the wrong person is hard to reverse.",
-        "Registering a new instruction sets the previous active one for that currency to disabled; only one active instruction per investor per currency exists at a time.",
-        "Only an active admin can register an instruction here. (Investors can self-register their own IBAN elsewhere, but that path requires an extra security code.)"
+        "Different IBANs are additive. Do not disable a verified deposit-source account merely because the investor asks to verify another destination account.",
+        "Only an active admin can register an instruction here. Investors can request another IBAN after an email security code; that request is unverified and automatically opens a linked finance task until an admin verifies it."
       ]
     },
     {
-      "id": "finance-2-investor-balance-lookup",
+      "id": "finance-3-investor-balance-lookup",
       "caption": "Investor balance lookup: read an investor's ledger balance buckets.",
       "summary": "A read-only lookup. It shows an investor's available balance split into the buckets the system uses to decide what they can do with their money. Nothing is changed by running it.",
       "annotations": [
@@ -145,7 +189,7 @@
       ]
     },
     {
-      "id": "finance-3-balance-ageing-scan",
+      "id": "finance-4-balance-ageing-scan",
       "caption": "Balance ageing scan: drive the 30/60-day reminders, forced withdrawals and penalties.",
       "summary": "This scan walks every investor's still-available balance lots and applies the ageing rules: it raises reminders as lots approach the 60-day limit, and at/after day 60 it either auto-creates a forced withdrawal (if a verified payout IBAN exists) or moves the lot into penalty mode and charges a daily penalty. It can be run safely as a dry run first.",
       "annotations": [
@@ -173,7 +217,7 @@
       ]
     },
     {
-      "id": "finance-4-reconciliation-snapshot",
+      "id": "finance-5-reconciliation-snapshot",
       "caption": "Reconciliation snapshot: compare the bank's balance to what the ledger expects.",
       "summary": "A 'reconciliation snapshot' is a point-in-time check that the real bank balance matches the sum of everything the ledger says Garanta owes and holds (investor balances, payables, accrued revenue, FX clearing, suspense, plus any pending exceptions you note). It records the difference and raises alerts if anything is off.",
       "annotations": [
@@ -215,9 +259,9 @@
       ]
     },
     {
-      "id": "finance-5-withdrawal-execution",
+      "id": "finance-6-withdrawal-execution",
       "caption": "Withdrawal execution: finalize a paid-out withdrawal or cancel one before it leaves.",
-      "summary": "This form handles an investor withdrawal that the investor already requested. You either finalize it (record that the bank actually paid it and clear the ledger) or cancel it (release the reserved funds back to the investor before the bank sends anything). The lookup only shows withdrawals in 'requested' status.",
+      "summary": "This form handles an investor withdrawal that the investor already requested. You either finalize it (record that the bank actually paid it and clear the ledger) or cancel it (release the reserved funds back to the investor before the bank sends anything). The lookup only shows withdrawals in requested status. The identical form is also available directly in normal and forced-withdrawal dashboard drawers.",
       "annotations": [
         {
           "item": 1,
@@ -262,7 +306,7 @@
       ]
     },
     {
-      "id": "finance-6-borrower-disbursement",
+      "id": "finance-7-borrower-disbursement",
       "caption": "Borrower disbursement: record paying a funded loan out to the borrower.",
       "summary": "A 'disbursement' is the outgoing payment of a funded loan to the borrower's bank account. At funding close the FULL accepted principal was moved into the borrower-disbursement payable (no fee accrued at close; the planned fee is evidence only). This form records the payout in the ledger: by default it sends the funded principal minus the BANXUM fee (default 2%), books the fee as Garanta revenue at disbursement, and clears the transfer plus fee against the payable. It only works once the loan is in 'funded' status. The same action is also available from the Loans table via Manage > 'Borrower disbursement'.",
       "annotations": [
@@ -320,7 +364,7 @@
       ]
     },
     {
-      "id": "finance-7-fx-settlement",
+      "id": "finance-8-fx-settlement",
       "caption": "FX settlement: review currency-exchange deltas and declare the external bank settlement.",
       "summary": "FX means foreign exchange (swapping one currency for another, e.g. CHF to EUR). When investors convert balances inside the platform, Garanta later settles the net amount with a real bank/broker. This wide panel lets you load two reports for a date range and then declare that external settlement.",
       "annotations": [

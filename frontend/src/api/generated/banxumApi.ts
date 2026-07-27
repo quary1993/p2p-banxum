@@ -367,6 +367,7 @@ export const AdminTaskStatusEnum = {
 * `borrower_onboarding` - Borrower onboarding
 * `loan_setup` - Loan setup
 * `payment_reconciliation` - Payment reconciliation
+* `payout_instruction_verification` - Payout instruction verification
 * `fx_settlement` - FX settlement
 * `document_review` - Document review
 * `email_delivery_failure` - Email delivery failure
@@ -384,6 +385,7 @@ export const AdminTaskTypeEnum = {
   borrower_onboarding: 'borrower_onboarding',
   loan_setup: 'loan_setup',
   payment_reconciliation: 'payment_reconciliation',
+  payout_instruction_verification: 'payout_instruction_verification',
   fx_settlement: 'fx_settlement',
   document_review: 'document_review',
   email_delivery_failure: 'email_delivery_failure',
@@ -1977,7 +1979,7 @@ export interface LenderDepositDeclareRequest {
   /** @maxLength 255 */
   payer_name?: string;
   /** @maxLength 128 */
-  payer_account_identifier?: string;
+  payer_account_identifier: string;
   /** @maxLength 160 */
   bank_reference?: string;
   /** @maxLength 160 */
@@ -1989,10 +1991,17 @@ export interface LenderDepositDeclareRequest {
   idempotency_key: string;
 }
 
+/**
+ * @nullable
+ */
+export type LenderDepositDeclareResponsePayoutInstruction = InvestorPayoutInstruction | null;
+
 export interface LenderDepositDeclareResponse {
   bank_operation: BankOperation;
   journal_entry: LedgerJournalEntry;
   balance_lot: InvestorBalanceLot;
+  /** @nullable */
+  payout_instruction: LenderDepositDeclareResponsePayoutInstruction;
 }
 
 export interface Loan {
@@ -3745,6 +3754,7 @@ due_before?: string;
  * @maximum 250
  */
 limit?: number;
+pending_only?: boolean;
 /**
  * * `low` - Low
 * `normal` - Normal
@@ -3776,6 +3786,7 @@ status?: V1AdminOpsTasksListStatus;
 * `borrower_onboarding` - Borrower onboarding
 * `loan_setup` - Loan setup
 * `payment_reconciliation` - Payment reconciliation
+* `payout_instruction_verification` - Payout instruction verification
 * `fx_settlement` - FX settlement
 * `document_review` - Document review
 * `email_delivery_failure` - Email delivery failure
@@ -3785,6 +3796,11 @@ status?: V1AdminOpsTasksListStatus;
  * @minLength 1
  */
 task_type?: V1AdminOpsTasksListTaskType;
+/**
+ * * `finance` - Finance
+ * @minLength 1
+ */
+workstream?: V1AdminOpsTasksListWorkstream;
 };
 
 export type V1AdminOpsTasksListPriority = typeof V1AdminOpsTasksListPriority[keyof typeof V1AdminOpsTasksListPriority];
@@ -3820,12 +3836,21 @@ export const V1AdminOpsTasksListTaskType = {
   borrower_onboarding: 'borrower_onboarding',
   loan_setup: 'loan_setup',
   payment_reconciliation: 'payment_reconciliation',
+  payout_instruction_verification: 'payout_instruction_verification',
   fx_settlement: 'fx_settlement',
   document_review: 'document_review',
   email_delivery_failure: 'email_delivery_failure',
   reporting: 'reporting',
   support: 'support',
   other: 'other',
+} as const;
+
+export type V1AdminOpsTasksListWorkstream = typeof V1AdminOpsTasksListWorkstream[keyof typeof V1AdminOpsTasksListWorkstream];
+
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const V1AdminOpsTasksListWorkstream = {
+  finance: 'finance',
 } as const;
 
 export type V1AdminOpsUsersRetrieveParams = {
@@ -12919,7 +12944,7 @@ export const getV1LedgerAdminBorrowerDisbursementsCreateResponseMock = (override
 
 export const getV1LedgerAdminInvestorBalanceSummaryRetrieveResponseMock = (overrideResponse: Partial< InvestorBalanceSummary > = {}): InvestorBalanceSummary => ({investor_user_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), total_available_minor: faker.number.int({min: undefined, max: undefined}), investable_minor: faker.number.int({min: undefined, max: undefined}), withdraw_only_minor: faker.number.int({min: undefined, max: undefined}), overdue_minor: faker.number.int({min: undefined, max: undefined}), frozen_minor: faker.number.int({min: undefined, max: undefined}), penalty_mode_minor: faker.number.int({min: undefined, max: undefined}), ...overrideResponse})
 
-export const getV1LedgerAdminLenderDepositsCreateResponseMock = (overrideResponse: Partial< LenderDepositDeclareResponse > = {}): LenderDepositDeclareResponse => ({bank_operation: {id: faker.string.uuid(), operation_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), booking_date: faker.date.past().toISOString().split('T')[0], value_date: faker.date.past().toISOString().split('T')[0], collection_account_identifier: faker.string.alpha({length: {min: 10, max: 20}}), payer_name: faker.string.alpha({length: {min: 10, max: 20}}), payer_account_identifier: faker.string.alpha({length: {min: 10, max: 20}}), payee_name: faker.string.alpha({length: {min: 10, max: 20}}), payee_account_identifier: faker.string.alpha({length: {min: 10, max: 20}}), bank_reference: faker.string.alpha({length: {min: 10, max: 20}}), payment_reference: faker.string.alpha({length: {min: 10, max: 20}}), linked_object_type: faker.string.alpha({length: {min: 10, max: 20}}), linked_object_id: faker.string.alpha({length: {min: 10, max: 20}}), evidence_reference: faker.string.alpha({length: {min: 10, max: 20}}), confirmed_by_admin_id: faker.string.uuid(), confirmed_at: `${faker.date.past().toISOString().split('.')[0]}Z`, notes: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, idempotency_key: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, journal_entry: {id: faker.string.uuid(), event_type: faker.string.alpha({length: {min: 10, max: 20}}), direction: faker.string.alpha({length: {min: 10, max: 20}}), booking_date: faker.date.past().toISOString().split('T')[0], value_date: faker.date.past().toISOString().split('T')[0], effective_at: `${faker.date.past().toISOString().split('.')[0]}Z`, received_at: `${faker.date.past().toISOString().split('.')[0]}Z`, currency: faker.string.alpha({length: {min: 10, max: 20}}), gross_amount_minor: faker.number.int({min: undefined, max: undefined}), net_amount_minor: faker.number.int({min: undefined, max: undefined}), source_type: faker.string.alpha({length: {min: 10, max: 20}}), source_id: faker.string.alpha({length: {min: 10, max: 20}}), lender_user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), borrower_id: faker.helpers.arrayElement([faker.string.uuid(), null]), loan_id: faker.helpers.arrayElement([faker.string.uuid(), null]), bank_operation_id: faker.helpers.arrayElement([faker.string.uuid(), null]), bank_reference: faker.string.alpha({length: {min: 10, max: 20}}), evidence_reference: faker.string.alpha({length: {min: 10, max: 20}}), actor_type: faker.string.alpha({length: {min: 10, max: 20}}), actor_id: faker.string.alpha({length: {min: 10, max: 20}}), tax_metadata: {}, metadata: {}, reversal_of_id: faker.helpers.arrayElement([faker.string.uuid(), null]), idempotency_key: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, balance_lot: {id: faker.string.uuid(), investor_user_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), source_journal_entry_id: faker.string.uuid(), source_type: faker.string.alpha({length: {min: 10, max: 20}}), source_id: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), received_at: `${faker.date.past().toISOString().split('.')[0]}Z`, investment_deadline_at: `${faker.date.past().toISOString().split('.')[0]}Z`, withdrawal_deadline_at: `${faker.date.past().toISOString().split('.')[0]}Z`, original_amount_minor: faker.number.int({min: undefined, max: undefined}), available_amount_minor: faker.number.int({min: undefined, max: undefined}), invested_amount_minor: faker.number.int({min: undefined, max: undefined}), converted_amount_minor: faker.number.int({min: undefined, max: undefined}), withdrawn_amount_minor: faker.number.int({min: undefined, max: undefined}), penalized_amount_minor: faker.number.int({min: undefined, max: undefined}), lineage: {}, created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, ...overrideResponse})
+export const getV1LedgerAdminLenderDepositsCreateResponseMock = (overrideResponse: Partial< LenderDepositDeclareResponse > = {}): LenderDepositDeclareResponse => ({bank_operation: {id: faker.string.uuid(), operation_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), booking_date: faker.date.past().toISOString().split('T')[0], value_date: faker.date.past().toISOString().split('T')[0], collection_account_identifier: faker.string.alpha({length: {min: 10, max: 20}}), payer_name: faker.string.alpha({length: {min: 10, max: 20}}), payer_account_identifier: faker.string.alpha({length: {min: 10, max: 20}}), payee_name: faker.string.alpha({length: {min: 10, max: 20}}), payee_account_identifier: faker.string.alpha({length: {min: 10, max: 20}}), bank_reference: faker.string.alpha({length: {min: 10, max: 20}}), payment_reference: faker.string.alpha({length: {min: 10, max: 20}}), linked_object_type: faker.string.alpha({length: {min: 10, max: 20}}), linked_object_id: faker.string.alpha({length: {min: 10, max: 20}}), evidence_reference: faker.string.alpha({length: {min: 10, max: 20}}), confirmed_by_admin_id: faker.string.uuid(), confirmed_at: `${faker.date.past().toISOString().split('.')[0]}Z`, notes: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, idempotency_key: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, journal_entry: {id: faker.string.uuid(), event_type: faker.string.alpha({length: {min: 10, max: 20}}), direction: faker.string.alpha({length: {min: 10, max: 20}}), booking_date: faker.date.past().toISOString().split('T')[0], value_date: faker.date.past().toISOString().split('T')[0], effective_at: `${faker.date.past().toISOString().split('.')[0]}Z`, received_at: `${faker.date.past().toISOString().split('.')[0]}Z`, currency: faker.string.alpha({length: {min: 10, max: 20}}), gross_amount_minor: faker.number.int({min: undefined, max: undefined}), net_amount_minor: faker.number.int({min: undefined, max: undefined}), source_type: faker.string.alpha({length: {min: 10, max: 20}}), source_id: faker.string.alpha({length: {min: 10, max: 20}}), lender_user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), borrower_id: faker.helpers.arrayElement([faker.string.uuid(), null]), loan_id: faker.helpers.arrayElement([faker.string.uuid(), null]), bank_operation_id: faker.helpers.arrayElement([faker.string.uuid(), null]), bank_reference: faker.string.alpha({length: {min: 10, max: 20}}), evidence_reference: faker.string.alpha({length: {min: 10, max: 20}}), actor_type: faker.string.alpha({length: {min: 10, max: 20}}), actor_id: faker.string.alpha({length: {min: 10, max: 20}}), tax_metadata: {}, metadata: {}, reversal_of_id: faker.helpers.arrayElement([faker.string.uuid(), null]), idempotency_key: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, balance_lot: {id: faker.string.uuid(), investor_user_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), source_journal_entry_id: faker.string.uuid(), source_type: faker.string.alpha({length: {min: 10, max: 20}}), source_id: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), received_at: `${faker.date.past().toISOString().split('.')[0]}Z`, investment_deadline_at: `${faker.date.past().toISOString().split('.')[0]}Z`, withdrawal_deadline_at: `${faker.date.past().toISOString().split('.')[0]}Z`, original_amount_minor: faker.number.int({min: undefined, max: undefined}), available_amount_minor: faker.number.int({min: undefined, max: undefined}), invested_amount_minor: faker.number.int({min: undefined, max: undefined}), converted_amount_minor: faker.number.int({min: undefined, max: undefined}), withdrawn_amount_minor: faker.number.int({min: undefined, max: undefined}), penalized_amount_minor: faker.number.int({min: undefined, max: undefined}), lineage: {}, created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, payout_instruction: {...{id: faker.string.uuid(), investor_user_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), destination_iban: faker.string.alpha({length: {min: 10, max: 20}}), destination_account_name: faker.string.alpha({length: {min: 10, max: 20}}), is_verified_usable: faker.datatype.boolean(), verified_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), verified_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), created_by_admin_id: faker.string.uuid(), notes: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`},}, ...overrideResponse})
 
 export const getV1LedgerAdminPayoutInstructionsCreateResponseMock = (overrideResponse: Partial< InvestorPayoutInstructionRegisterResponse > = {}): InvestorPayoutInstructionRegisterResponse => ({payout_instruction: {id: faker.string.uuid(), investor_user_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), destination_iban: faker.string.alpha({length: {min: 10, max: 20}}), destination_account_name: faker.string.alpha({length: {min: 10, max: 20}}), is_verified_usable: faker.datatype.boolean(), verified_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), verified_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), created_by_admin_id: faker.string.uuid(), notes: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`}, ...overrideResponse})
 

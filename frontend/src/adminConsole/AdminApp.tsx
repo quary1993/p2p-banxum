@@ -34,7 +34,8 @@ import {
   QaDevModePanel,
   ReportsPanel,
   SettingsPanel,
-  UserAccountsPanel
+  UserAccountsPanel,
+  WithdrawalExecutionForm
 } from "./AdminModulePanels";
 import { AdminTasksPanel } from "./AdminTasksPanel";
 import { useAdminOperationsDashboardData } from "./data";
@@ -873,6 +874,8 @@ function AdminQueueDrawer({
   queueLabel: string;
 }) {
   const metadata = metadataEntries(item.metadata);
+  const queryClient = useQueryClient();
+  const isWithdrawal = item.object_type === "withdrawal_request";
 
   return (
     <Modal drawer title={item.title} onClose={onClose}>
@@ -909,10 +912,19 @@ function AdminQueueDrawer({
             <p className="muted">No metadata returned for this dashboard item.</p>
           )}
         </div>
-        <Banner tone="info" title="Module action deferred">
-          This drawer provides queue context for the dashboard slice. The next admin slices will connect each
-          item to its module-specific action form and audit timeline.
-        </Banner>
+        {isWithdrawal ? (
+          <div className="admin-drawer-action">
+            <h4>Execute or cancel withdrawal</h4>
+            <p className="muted">
+              Finalize only after the external bank payment has executed. Cancel before execution to release the reserved balance.
+            </p>
+            <WithdrawalExecutionForm
+              allowLookup={false}
+              initialWithdrawalId={item.object_id}
+              onCompleted={() => void queryClient.invalidateQueries()}
+            />
+          </div>
+        ) : null}
       </div>
     </Modal>
   );

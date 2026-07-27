@@ -4411,7 +4411,7 @@ function PayoutIbanModal({ onClose }: { onClose: () => void }) {
   return (
     <Modal footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!canSubmit || mutation.isPending} variant="primary" onClick={submit}>{mutation.isPending ? "Submitting..." : "Submit for verification"}</Button></>} onClose={onClose} title="Add/update payout IBAN">
       <div className="col gap-16">
-        <Banner tone="warn" title="Changing payout details">A newly submitted IBAN replaces the previous active payout instruction and remains pending until Garanta verifies it. The 60-day balance deadline is not extended.</Banner>
+        <Banner tone="warn" title="Adding payout details">A newly submitted IBAN is added to your existing payout accounts and remains unavailable until Garanta verifies it. Existing verified IBANs stay usable. The 60-day balance deadline is not extended.</Banner>
         <Field label="Currency">
           <select value={currency} onChange={(event) => setCurrency(event.target.value)}>
             <option value="CHF">CHF</option>

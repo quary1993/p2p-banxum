@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from datetime import date, datetime, time
 from typing import Any, cast
 from unittest import mock
@@ -143,13 +144,20 @@ def _deposit_command(
         value_date=value_date,
         collection_account_identifier="CH00GARANTALEDGER",
         payer_name="Ledger Investor",
-        payer_account_identifier="CH11INVESTOR",
+        payer_account_identifier="CH9300762011623852957",
         bank_reference=f"BANK-{idempotency_key[:120]}",
         payment_reference=f"INV-{investor.pk}",
         evidence_reference=f"statement:{idempotency_key}",
         notes="Matched manually.",
         idempotency_key=idempotency_key,
     )
+
+
+def _disable_deposit_payout_instruction(result: Any) -> None:
+    instruction = result.payout_instruction
+    assert instruction is not None
+    instruction.status = "disabled"
+    instruction.save(update_fields=["status", "updated_at"])
 
 
 def _journal_command(
@@ -678,7 +686,7 @@ def test_investment_consumption_plan_uses_fifo_and_pledge_deadline(
 
 
 @pytest.mark.django_db
-def test_register_payout_instruction_replaces_prior_active_instruction(
+def test_register_payout_instruction_adds_another_active_verified_instruction(
     admin_user: Model,
     investor: Model,
 ) -> None:
@@ -703,7 +711,7 @@ def test_register_payout_instruction_replaces_prior_active_instruction(
     )
 
     first.refresh_from_db()
-    assert first.status == "disabled"
+    assert first.status == "active"
     assert second.status == "active"
     assert second.is_verified_usable is True
     assert second.verified_by_admin_id == admin_user.pk
@@ -713,12 +721,40 @@ def test_register_payout_instruction_replaces_prior_active_instruction(
             currency_id="CHF",
             status="active",
         ).count()
-        == 1
+        == 2
     )
     assert DomainEvent.objects.filter(
         event_type="InvestorPayoutInstructionRegistered",
         aggregate_id=str(second.id),
     ).exists()
+
+
+@pytest.mark.django_db
+def test_lender_deposit_requires_valid_source_iban_and_verifies_it(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    invalid = replace(
+        _deposit_command(admin_user, investor, idempotency_key="deposit-invalid-iban"),
+        payer_account_identifier="CH9300762011623852958",
+    )
+    with pytest.raises(LedgerValidationError, match="checksum"):
+        declare_lender_deposit(invalid)
+    assert BankOperation.objects.filter(idempotency_key="deposit-invalid-iban").count() == 0
+
+    result = declare_lender_deposit(
+        replace(
+            _deposit_command(admin_user, investor, idempotency_key="deposit-valid-iban"),
+            payer_account_identifier="CH93 0076 2011 6238 5295 7",
+        )
+    )
+
+    assert result.bank_operation.payer_account_identifier == "CH9300762011623852957"
+    assert result.payout_instruction is not None
+    assert result.payout_instruction.destination_iban == "CH9300762011623852957"
+    assert result.payout_instruction.is_verified_usable is True
+    assert result.payout_instruction.verified_by_admin_id == admin_user.pk
+    assert result.payout_instruction.metadata["source"] == "lender_deposit"
 
 
 @pytest.mark.django_db
@@ -748,7 +784,7 @@ def test_investor_self_service_payout_instruction_requires_bank_change_code(
     )
     first.refresh_from_db()
 
-    assert first.status == "disabled"
+    assert first.status == "active"
     assert instruction.status == "active"
     assert instruction.investor_user_id == investor.pk
     assert instruction.is_verified_usable is False
@@ -757,6 +793,49 @@ def test_investor_self_service_payout_instruction_requires_bank_change_code(
     assert instruction.created_by_admin_id == investor.pk
     assert instruction.metadata["submitted_by"] == "investor_self_service"
     assert instruction.metadata["requires_admin_verification"] is True
+    admin_task_model = apps.get_model("admin_ops", "AdminTask")
+    task = admin_task_model.objects.get(
+        task_type="payout_instruction_verification",
+        related_object_type="InvestorPayoutInstruction",
+        related_object_id=str(instruction.pk),
+    )
+    assert task.status == "open"
+    assert task.created_by_id == investor.pk
+    assert "CH5604835012345678009" in task.notes
+
+
+@pytest.mark.django_db
+def test_admin_verification_resolves_self_service_iban_task(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    instruction = register_investor_self_service_payout_instruction(
+        RegisterInvestorSelfServicePayoutInstructionCommand(
+            actor=investor,
+            currency="CHF",
+            destination_iban="CH5604835012345678009",
+            destination_account_name="Ledger Investor Additional",
+            **_sensitive_code_payload(investor, "bank_account_change"),
+        )
+    )
+    admin_task_model = apps.get_model("admin_ops", "AdminTask")
+    task = admin_task_model.objects.get(related_object_id=str(instruction.pk))
+
+    verified = register_investor_payout_instruction(
+        RegisterInvestorPayoutInstructionCommand(
+            actor=admin_user,
+            investor_user_id=str(investor.pk),
+            currency="CHF",
+            destination_iban="CH5604835012345678009",
+            destination_account_name="Ledger Investor Additional",
+        )
+    )
+
+    task.refresh_from_db()
+    assert verified.pk == instruction.pk
+    assert verified.is_verified_usable is True
+    assert task.status == "resolved"
+    assert task.completion_note == "IBAN ownership was verified by an administrator."
 
 
 @pytest.mark.django_db
@@ -927,6 +1006,7 @@ def test_balance_ageing_scan_enables_penalty_mode_when_no_iban_exists(
     investor: Model,
 ) -> None:
     deposit = declare_lender_deposit(_deposit_command(admin_user, investor))
+    _disable_deposit_payout_instruction(deposit)
 
     result = run_balance_ageing_scan(
         RunBalanceAgeingScanCommand(
@@ -1004,6 +1084,7 @@ def test_balance_ageing_penalty_charges_once_per_business_day(
     investor: Model,
 ) -> None:
     deposit = declare_lender_deposit(_deposit_command(admin_user, investor))
+    _disable_deposit_payout_instruction(deposit)
     first = run_balance_ageing_scan(
         RunBalanceAgeingScanCommand(
             actor=admin_user,
@@ -1035,6 +1116,7 @@ def test_balance_ageing_penalty_lineage_guard_skips_duplicate_same_day_charge(
     investor: Model,
 ) -> None:
     deposit = declare_lender_deposit(_deposit_command(admin_user, investor))
+    _disable_deposit_payout_instruction(deposit)
     lot = InvestorBalanceLot.objects.get(id=deposit.balance_lot.id)
     lot.status = BalanceLotStatus.PENALTY_MODE
     lot.available_amount_minor = 99_00
@@ -1141,6 +1223,12 @@ def test_investor_self_service_payout_instruction_api_creates_unverified_instruc
     assert payload["is_verified_usable"] is False
     assert payload["verified_by_admin_id"] is None
     assert payload["verified_at"] is None
+    admin_task_model = apps.get_model("admin_ops", "AdminTask")
+    assert admin_task_model.objects.filter(
+        task_type="payout_instruction_verification",
+        related_object_id=payload["id"],
+        status="open",
+    ).exists()
 
 
 @pytest.mark.django_db
@@ -1202,7 +1290,7 @@ def test_withdrawal_request_rejects_unverified_destination_iban(
         RegisterInvestorSelfServicePayoutInstructionCommand(
             actor=investor,
             currency="CHF",
-            destination_iban="CH9300762011623852957",
+            destination_iban="CH5604835012345678009",
             destination_account_name="Ledger Investor",
             **_sensitive_code_payload(investor, "bank_account_change"),
         )
@@ -1214,7 +1302,7 @@ def test_withdrawal_request_rejects_unverified_destination_iban(
                 actor=investor,
                 amount_minor=60_00,
                 currency="CHF",
-                destination_iban="CH9300762011623852957",
+                destination_iban="CH5604835012345678009",
                 destination_account_name="Ledger Investor",
                 idempotency_key="withdrawal-request-unverified",
                 **_sensitive_code_payload(investor, "withdrawal"),
@@ -2292,7 +2380,7 @@ def test_lender_deposit_admin_api_and_balance_summary(
             "value_date": "2026-01-03",
             "collection_account_identifier": "CH00GARANTALEDGER",
             "payer_name": "Ledger Investor",
-            "payer_account_identifier": "CH11INVESTOR",
+            "payer_account_identifier": "CH9300762011623852957",
             "bank_reference": "BANK-API",
             "payment_reference": f"INV-{investor.pk}",
             "evidence_reference": "statement:api",
@@ -2307,8 +2395,43 @@ def test_lender_deposit_admin_api_and_balance_summary(
 
     assert deposit_response.status_code == 201
     assert deposit_response.json()["balance_lot"]["available_amount_minor"] == 250_00
+    assert deposit_response.json()["payout_instruction"]["destination_iban"] == (
+        "CH9300762011623852957"
+    )
+    assert deposit_response.json()["payout_instruction"]["is_verified_usable"] is True
     assert summary_response.status_code == 200
     assert summary_response.json()["total_available_minor"] == 250_00
+
+
+@pytest.mark.django_db
+def test_lender_deposit_admin_api_requires_source_iban(
+    client: Client,
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    client.force_login(cast(Any, admin_user))
+
+    response = client.post(
+        "/api/v1/ledger/admin/lender-deposits/",
+        data={
+            "investor_user_id": str(investor.pk),
+            "amount_minor": 250_00,
+            "currency": "CHF",
+            "booking_date": "2026-01-03",
+            "value_date": "2026-01-03",
+            "collection_account_identifier": "CH00GARANTALEDGER",
+            "payer_name": "Ledger Investor",
+            "bank_reference": "BANK-API-NO-IBAN",
+            "payment_reference": f"INV-{investor.pk}",
+            "evidence_reference": "statement:api-no-iban",
+            "idempotency_key": "deposit-api-no-iban",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "payer_account_identifier" in response.json()
+    assert BankOperation.objects.count() == 0
 
 
 @pytest.mark.django_db

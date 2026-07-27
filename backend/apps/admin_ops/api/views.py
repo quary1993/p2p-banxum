@@ -35,8 +35,9 @@ from backend.apps.admin_ops.api.serializers import (
     serialize_admin_task_event,
     serialize_audit_event,
 )
-from backend.apps.admin_ops.models import AdminTask
+from backend.apps.admin_ops.models import TERMINAL_ADMIN_TASK_STATUSES, AdminTask
 from backend.apps.admin_ops.services import (
+    FINANCE_ADMIN_TASK_TYPES,
     AdminTaskAuthorizationError,
     AdminTaskValidationError,
     CreateAdminTaskCommand,
@@ -79,6 +80,10 @@ def _task_queryset_from_query(data: dict[str, Any]) -> QuerySet[AdminTask]:
         queryset = queryset.filter(due_at__lte=data["due_before"])
     if data.get("due_after"):
         queryset = queryset.filter(due_at__gte=data["due_after"])
+    if data.get("pending_only"):
+        queryset = queryset.exclude(status__in=TERMINAL_ADMIN_TASK_STATUSES)
+    if data.get("workstream") == "finance":
+        queryset = queryset.filter(task_type__in=FINANCE_ADMIN_TASK_TYPES)
     return queryset
 
 

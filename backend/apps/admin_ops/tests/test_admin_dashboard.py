@@ -136,7 +136,7 @@ def _declare_old_deposit(admin_user: Model, investor: Model, *, value_date: date
             value_date=value_date,
             collection_account_identifier="CHF-COLLECTION",
             payer_name=str(cast(Any, investor).full_name),
-            payer_account_identifier="INVESTOR-IBAN",
+            payer_account_identifier="CH9300762011623852957",
             bank_reference="OLD-DEPOSIT",
             payment_reference=f"INV-{investor.pk}",
             evidence_reference="statement:old-deposit",

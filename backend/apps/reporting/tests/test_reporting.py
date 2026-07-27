@@ -101,7 +101,7 @@ def _declare_deposit(
             value_date=value_date,
             collection_account_identifier="CH00GARANTAREPORT",
             payer_name="Reporting Investor",
-            payer_account_identifier="CH11REPORTINVESTOR",
+            payer_account_identifier="CH9300762011623852957",
             bank_reference=bank_reference or f"BANK-{idempotency_key}",
             payment_reference=f"INV-{investor.pk}",
             evidence_reference=f"statement:{idempotency_key}",

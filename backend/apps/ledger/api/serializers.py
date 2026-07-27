@@ -161,8 +161,8 @@ class LenderDepositDeclareRequestSerializer(serializers.Serializer[Any]):
     collection_account_identifier = serializers.CharField(max_length=128)
     payer_name = serializers.CharField(required=False, allow_blank=True, max_length=255)
     payer_account_identifier = serializers.CharField(
-        required=False,
-        allow_blank=True,
+        required=True,
+        allow_blank=False,
         max_length=128,
     )
     bank_reference = serializers.CharField(required=False, allow_blank=True, max_length=160)
@@ -176,6 +176,7 @@ class LenderDepositDeclareResponseSerializer(serializers.Serializer[Any]):
     bank_operation = BankOperationSerializer()
     journal_entry = LedgerJournalEntrySerializer()
     balance_lot = InvestorBalanceLotSerializer()
+    payout_instruction = InvestorPayoutInstructionSerializer(allow_null=True)
 
 
 class InvestorPayoutInstructionRegisterRequestSerializer(serializers.Serializer[Any]):

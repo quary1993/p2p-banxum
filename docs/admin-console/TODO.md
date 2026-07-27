@@ -234,6 +234,13 @@ Each entry should include:
 - Required admin-console improvement: re-run `docs/admin-manual/scripts/build.sh` on a machine with Chrome to regenerate the PDF, and recapture the affected screenshots/figures (loan create modal, publish wizard, Manage dialog, Servicing operations card, borrower disbursement form) since the UI changed; the annotated figure PNGs still show the old field layout.
 - Priority: important.
 
+## 2026-07-27: Finance Queue, Source-IBAN Verification, And Withdrawal Actions
+
+- Screen or component: Finance Operations, lender-deposit and payout-instruction forms, Daily Dashboard withdrawal drawers.
+- Current first-version behavior: Finance Operations begins with a bounded pending-work table that combines unresolved finance tasks and actionable finance dashboard queues. Lender deposits require a checksum-valid source IBAN and automatically establish that exact investor/currency account as a verified payout instruction. Admin-entered payout instructions are additive and no longer disable verified deposit-source accounts. Investor requests for another IBAN create a linked payout-verification task automatically; verifying the exact instruction resolves that task. Requested and forced withdrawals can be finalized or cancelled directly from their dashboard drawer with the same backend-backed form used in Finance Operations; the old deferred-action message was removed.
+- Required admin-console improvement: add a dedicated payout-instruction review drawer that shows the requesting investor, masked and full-on-demand IBAN, account name, prior verified accounts, task event history, and verification evidence checklist. Add an explicit external-bank payment confirmation summary before finalizing a withdrawal, and server-backed pagination if the combined finance work table outgrows its bounded launch view.
+- Priority: important.
+
 ## Borrower document download path
 
 - Borrower documents are metadata references to the shared stored-file foundation; no

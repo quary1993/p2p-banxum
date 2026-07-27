@@ -3,7 +3,7 @@
   "title": "Tasks",
   "intro": [
     "The Tasks screen is the operations team's shared to-do list. A \"task\" is one piece of work an admin needs to do, for example \"resolve an unmatched bank deposit\" or \"review a KYC case\". KYC means Know Your Customer: the legal checks that confirm who a person is before they can use a financial service. The screen lets you create tasks, sort through them, and move each one along until it is finished.",
-    "Tasks come from two places. Most are created by hand by an admin (the New task button). Some are created automatically by the system, such as a \"reconciliation break\" task. Reconciliation is the daily check that the money the bank says we hold matches the money our own records say we hold; a \"break\" is a mismatch that someone must investigate. Auto-generated tasks show a specific Type (for example Payment Reconciliation) and are linked to the record that caused them.",
+    "Tasks come from two places. Most are created by hand by an admin (the New task button). Some are created automatically by the system, including reconciliation-break tasks and payout-IBAN verification requests. A payout-verification task is linked to the exact InvestorPayoutInstruction the investor asked Garanta to review; verifying that IBAN in Finance Operations resolves the linked task.",
     "Each task has a Type, a Priority (how urgent), a Status (where it is in its life), an optional Due date, and an optional link to a real object in the system (a loan, an investor, a withdrawal, and so on). You can link a task to that object so anyone reading it knows exactly what it is about.",
     "Important: this screen is a lightweight tracker only. It does not perform the actual money or compliance actions. The real work (executing a withdrawal, approving a loan, recording a KYC decision) is done on the owning screen (Finance ops, Loans, Compliance). A task is just a reminder and an audit trail that the work happened."
   ],
@@ -39,7 +39,7 @@
       ],
       "notes": [
         "The New task form (opened by this button) asks for: Title (required, up to 255 characters); Type (defaults to \"Other\"); Priority (defaults to \"Normal\"); Due at (optional date and time); Related object type and Related object (optional link to a real record); and Notes (free text for context or evidence references).",
-        "Task types available when creating: KYC manual review, Account access review, Borrower onboarding, Loan setup, Payment reconciliation, FX settlement, Document review, Email delivery failure, Reporting, Support, and Other. Pick the closest match; it is only a label used for filtering.",
+        "Task types available include KYC manual review, Account access review, Borrower onboarding, Loan setup, Payment reconciliation, Payout instruction verification, FX settlement, Document review, Email delivery failure, Reporting, Support, and Other. Payout-verification tasks are normally created automatically from the investor request rather than by hand.",
         "Gotcha: the system will block you from creating a second Payment reconciliation task that points at the same reconciliation snapshot. This stops duplicate reconciliation-break tasks. Other types have no such uniqueness rule."
       ]
     },

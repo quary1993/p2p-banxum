@@ -263,10 +263,10 @@ Before launch, Claude Design should produce or implement:
 ## 2026-06-06: Investor Payout IBAN Self-Service
 
 - Screen or component: Settings payout accounts card and add/update payout IBAN modal.
-- Current first-version behavior: investors can submit a CHF/EUR payout IBAN after requesting and entering a `bank_account_change` email code. Live mode posts through `/api/v1/ledger/payout-instructions/`; preview mode shows local success. The submitted instruction replaces the previous active instruction but is clearly labelled pending Garanta verification and is not usable for withdrawals or forced returns until admin verifies it.
+- Current first-version behavior: investors can submit an additional CHF/EUR payout IBAN after requesting and entering a `bank_account_change` email code. Live mode posts through `/api/v1/ledger/payout-instructions/`; preview mode shows local success. The submitted instruction does not replace or disable an existing verified deposit-source IBAN. It is clearly labelled pending Garanta verification, is not usable for withdrawals or forced returns until admin verification, and automatically creates a linked finance task for the admin team.
 - Design decision: treat payout-account changes as sensitive but operationally pending, not instant. The confirmation copy must say that the 60-day balance deadline is not extended and that Garanta verification is required before the IBAN can be used.
 - Remaining backend/API dependency: richer admin review/detail UX for investor-submitted payout instructions, final IBAN verification operating procedure, and production SendGrid delivery of the email-code step.
-- Claude Design action: polish the Settings payout-account card and modal, especially mobile form layout, pending-verification status language, and the warning that replacing the active payout instruction may temporarily leave the investor without a usable verified payout path.
+- Claude Design action: polish the Settings payout-account card and modal, especially mobile form layout and pending-verification status language. Make the distinction explicit between verified source accounts established by deposits and additional accounts awaiting Garanta review; do not imply that requesting another IBAN removes an existing verified payout path.
 - Priority: important.
 
 ## 2026-06-06: Deposit Instructions, Documents, And Notifications
