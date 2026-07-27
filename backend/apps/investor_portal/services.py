@@ -786,6 +786,12 @@ def get_investor_portfolio(
         loans=list(loans_by_id.values()),
         as_of_date=business_date(as_of_value),
     )
+    investment_schedules_by_holding_id = (
+        _servicing_services().get_holding_repayment_schedule_snapshots(
+            holdings=holdings,
+            loan_schedules=schedules_by_loan_id,
+        )
+    )
     holding_payloads: list[dict[str, Any]] = []
     for holding in holdings:
         loan = holding.loan
@@ -809,6 +815,13 @@ def get_investor_portfolio(
                 "received_principal_minor": int(repayment.get("principal_minor", 0)),
                 "received_interest_minor": int(repayment.get("interest_minor", 0)),
                 "repayment_fee_minor": int(repayment.get("fee_minor", 0)),
+                "investment_schedule": [
+                    asdict(row)
+                    for row in investment_schedules_by_holding_id.get(
+                        str(holding.pk),
+                        [],
+                    )
+                ],
                 "recovered_principal_minor": int(recovery.get("principal_minor", 0)),
                 "recovered_contractual_interest_minor": int(
                     recovery.get("contractual_interest_minor", 0)

@@ -195,6 +195,18 @@ class PortfolioInstallmentSerializer(serializers.Serializer[Any]):
     status = serializers.CharField()
 
 
+class PortfolioHoldingInstallmentSerializer(serializers.Serializer[Any]):
+    loan_installment_id = serializers.UUIDField()
+    schedule_version = serializers.IntegerField()
+    installment_number = serializers.IntegerField()
+    due_date = serializers.DateField()
+    projected_principal_minor = serializers.IntegerField()
+    projected_interest_minor = serializers.IntegerField()
+    projected_total_minor = serializers.IntegerField()
+    days_past_due = serializers.IntegerField()
+    status = serializers.CharField()
+
+
 class PortfolioExposureSerializer(serializers.Serializer[Any]):
     by_borrower = ExposureBucketSerializer(many=True)
     by_country = ExposureBucketSerializer(many=True)
@@ -253,6 +265,7 @@ class HoldingSerializer(serializers.Serializer[Any]):
     received_principal_minor = serializers.IntegerField()
     received_interest_minor = serializers.IntegerField()
     repayment_fee_minor = serializers.IntegerField()
+    investment_schedule = PortfolioHoldingInstallmentSerializer(many=True)
     recovered_principal_minor = serializers.IntegerField()
     recovered_contractual_interest_minor = serializers.IntegerField()
     recovered_default_interest_minor = serializers.IntegerField()

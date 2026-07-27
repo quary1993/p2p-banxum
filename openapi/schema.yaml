@@ -6693,6 +6693,10 @@ components:
           type: integer
         repayment_fee_minor:
           type: integer
+        investment_schedule:
+          type: array
+          items:
+            $ref: '#/components/schemas/PortfolioHoldingInstallment'
         recovered_principal_minor:
           type: integer
         recovered_contractual_interest_minor:
@@ -6712,6 +6716,7 @@ components:
       - currency
       - current_principal_minor
       - id
+      - investment_schedule
       - loan
       - loan_share_ppm
       - original_principal_minor
@@ -9512,6 +9517,39 @@ components:
       - by_maturity
       - by_purpose
       - by_risk_rating
+    PortfolioHoldingInstallment:
+      type: object
+      properties:
+        loan_installment_id:
+          type: string
+          format: uuid
+        schedule_version:
+          type: integer
+        installment_number:
+          type: integer
+        due_date:
+          type: string
+          format: date
+        projected_principal_minor:
+          type: integer
+        projected_interest_minor:
+          type: integer
+        projected_total_minor:
+          type: integer
+        days_past_due:
+          type: integer
+        status:
+          type: string
+      required:
+      - days_past_due
+      - due_date
+      - installment_number
+      - loan_installment_id
+      - projected_interest_minor
+      - projected_principal_minor
+      - projected_total_minor
+      - schedule_version
+      - status
     PortfolioInstallment:
       type: object
       properties:

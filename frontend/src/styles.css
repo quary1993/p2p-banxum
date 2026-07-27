@@ -1014,6 +1014,14 @@ table.tbl tbody tr.clickable:hover {
   min-width: 900px;
 }
 
+.holding-schedule-panel {
+  padding-top: 16px;
+}
+
+.investment-schedule-table {
+  min-width: 720px;
+}
+
 .sub {
   color: var(--ink-3);
   font-size: 11.5px;
@@ -2326,6 +2334,19 @@ textarea.input {
   .modal.drawer {
     max-width: 100%;
     min-height: 100vh;
+  }
+
+  .holding-schedule .tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+  }
+
+  .holding-schedule .tabs button {
+    line-height: 1.3;
+    padding-left: 8px;
+    padding-right: 8px;
+    white-space: normal;
   }
 
   .icon-btn {

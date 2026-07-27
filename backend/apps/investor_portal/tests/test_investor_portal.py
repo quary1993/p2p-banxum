@@ -485,20 +485,90 @@ def test_portfolio_exposure_uses_only_actor_holdings(
         "Late portal loan",
     }
     assert all(holding["current_principal_minor"] != 99_000_00 for holding in payload["holdings"])
-    portal_loan = next(
-        holding["loan"]
+    portal_holding = next(
+        holding
         for holding in payload["holdings"]
         if holding["loan"]["loan_title"] == "Portal loan"
     )
+    portal_loan = portal_holding["loan"]
     assert portal_loan["schedule_version"] == 1
     assert [row["installment_number"] for row in portal_loan["schedule"]] == [1, 2]
     assert portal_loan["schedule"][0]["status"] == "overdue"
     assert portal_loan["schedule"][0]["outstanding_total_minor"] == 5_100_00
+    assert [
+        row["projected_principal_minor"]
+        for row in portal_holding["investment_schedule"]
+    ] == [5_000_00, 5_000_00]
+    assert [
+        row["projected_interest_minor"]
+        for row in portal_holding["investment_schedule"]
+    ] == [100_00, 50_00]
     borrower_exposure = payload["exposure"]["by_borrower"]
     assert {item["name"] for item in borrower_exposure} == {
         "Portal Borrower AG",
         "Other Borrower AG",
     }
+
+
+@pytest.mark.django_db
+def test_portfolio_investment_schedule_uses_exact_current_holding_weights(
+    admin_user: Model,
+    investor: Model,
+    other_investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    _approve_financial_access(other_investor)
+    borrower = _create_borrower(admin_user, name="Weighted Schedule Borrower AG")
+    loan = _create_loan(
+        admin_user,
+        borrower,
+        title="Weighted schedule loan",
+        principal_minor=10_00,
+    )
+    investor_holding = _create_holding(
+        admin_user=admin_user,
+        investor=investor,
+        loan=loan,
+        amount_minor=3_33,
+        idempotency_key="portal-weighted-holding-investor",
+    )
+    _create_holding(
+        admin_user=admin_user,
+        investor=other_investor,
+        loan=loan,
+        amount_minor=6_67,
+        idempotency_key="portal-weighted-holding-other",
+    )
+    installment_model = apps.get_model("loans", "LoanInstallment")
+    installment_model.objects.create(
+        loan=loan,
+        schedule_version=cast(Any, loan).schedule_version,
+        installment_number=1,
+        due_date=date(2026, 2, 28),
+        principal_minor=5_00,
+        interest_minor=1_00,
+        total_minor=6_00,
+    )
+    installment_model.objects.create(
+        loan=loan,
+        schedule_version=cast(Any, loan).schedule_version,
+        installment_number=2,
+        due_date=date(2026, 3, 31),
+        principal_minor=5_00,
+        interest_minor=1_01,
+        total_minor=6_01,
+    )
+
+    payload = get_investor_portfolio(actor=investor, as_of=_at(date(2026, 1, 31)))
+
+    holding = next(
+        item for item in payload["holdings"] if item["id"] == str(investor_holding.pk)
+    )
+    schedule = holding["investment_schedule"]
+    assert [row["projected_principal_minor"] for row in schedule] == [1_67, 1_66]
+    assert [row["projected_interest_minor"] for row in schedule] == [33, 34]
+    assert sum(row["projected_principal_minor"] for row in schedule) == 3_33
+    assert sum(row["projected_total_minor"] for row in schedule) == 4_00
 
 
 @pytest.mark.django_db

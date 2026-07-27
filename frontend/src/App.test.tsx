@@ -328,12 +328,23 @@ test("holding details open in a large modal with the current loan schedule", () 
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
   fireEvent.click(screen.getByRole("button", { name: "Portfolio" }));
-  fireEvent.click(screen.getByText("Engadin Hospitality AG"));
+  fireEvent.click(screen.getByText("Engadin Alpine refinancing"));
 
-  const dialog = screen.getByRole("dialog", { name: "Engadin Hospitality AG" });
+  const dialog = screen.getByRole("dialog", { name: "Engadin Alpine refinancing" });
   expect(dialog).toHaveClass("xwide");
-  expect(within(dialog).getByRole("heading", { name: "Loan repayment schedule" })).toBeInTheDocument();
-  expect(within(dialog).getByText("Whole-loan schedule")).toBeInTheDocument();
+  expect(within(dialog).getByText("Borrower: Engadin Hospitality AG")).toBeInTheDocument();
+  expect(within(dialog).getByRole("tab", { name: "Your investment schedule" })).toHaveAttribute(
+    "aria-selected",
+    "true"
+  );
+  expect(within(dialog).getByText("Projection from your current holding")).toBeInTheDocument();
+  expect(within(dialog).getByRole("columnheader", { name: "Projected payment" })).toBeInTheDocument();
+  expect(within(dialog).getAllByRole("row")).toHaveLength(3);
+
+  fireEvent.click(within(dialog).getByRole("tab", { name: "Full loan schedule" }));
+
+  expect(within(dialog).getByRole("heading", { name: "Full loan schedule" })).toBeInTheDocument();
+  expect(within(dialog).getByText("Whole-loan borrower obligations")).toBeInTheDocument();
   expect(within(dialog).getByRole("columnheader", { name: "Outstanding" })).toBeInTheDocument();
   expect(within(dialog).getAllByRole("row")).toHaveLength(4);
 });

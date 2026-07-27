@@ -291,6 +291,19 @@ class LoanRepaymentScheduleRowSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class HoldingRepaymentScheduleRowSnapshot:
+    loan_installment_id: str
+    schedule_version: int
+    installment_number: int
+    due_date: date
+    projected_principal_minor: int
+    projected_interest_minor: int
+    projected_total_minor: int
+    days_past_due: int
+    status: str
+
+
+@dataclass(frozen=True, slots=True)
 class ScanLoanServicingStatusesResult:
     as_of_date: date
     changes: list[LoanServicingStatusChange]
@@ -838,6 +851,120 @@ def get_loan_repayment_schedule_snapshots(
             )
         )
     return schedule_by_loan_id
+
+
+def get_holding_repayment_schedule_snapshots(
+    *,
+    holdings: list[Model],
+    loan_schedules: dict[str, list[LoanRepaymentScheduleRowSnapshot]],
+) -> dict[str, list[HoldingRepaymentScheduleRowSnapshot]]:
+    target_holding_ids = {str(cast(Any, holding).pk) for holding in holdings}
+    schedule_by_holding_id: dict[str, list[HoldingRepaymentScheduleRowSnapshot]] = {
+        holding_id: [] for holding_id in target_holding_ids
+    }
+    loan_ids = {str(cast(Any, holding).loan_id) for holding in holdings}
+    loan_status_by_id = {
+        str(cast(Any, holding).loan_id): str(cast(Any, holding).loan.status)
+        for holding in holdings
+    }
+    if not loan_ids:
+        return schedule_by_holding_id
+
+    holding_model = apps.get_model("holdings", "InvestorLoanHolding")
+    active_holdings = list(
+        holding_model.objects.filter(
+            loan_id__in=loan_ids,
+            status="active",
+            current_principal_minor__gt=0,
+        ).order_by("loan_id", "assignment_effective_at", "created_at", "id")
+    )
+    active_holdings_by_loan: dict[str, list[Model]] = {loan_id: [] for loan_id in loan_ids}
+    for active_holding in active_holdings:
+        active_holdings_by_loan[str(cast(Any, active_holding).loan_id)].append(
+            cast(Model, active_holding)
+        )
+
+    for loan_id in loan_ids:
+        if loan_status_by_id.get(loan_id) not in REPAYMENT_ALLOWED_LOAN_STATUSES:
+            continue
+        loan_schedule = [
+            row
+            for row in loan_schedules.get(loan_id, [])
+            if row.outstanding_total_minor > 0
+        ]
+        if not loan_schedule:
+            continue
+        loan_holdings = active_holdings_by_loan.get(loan_id, [])
+        if not loan_holdings:
+            raise ServicingValidationError(
+                "Outstanding loan schedule has no active investor holdings."
+            )
+        remaining_principal_by_holding_id = {
+            str(cast(Any, holding).pk): int(cast(Any, holding).current_principal_minor)
+            for holding in loan_holdings
+        }
+        outstanding_schedule_principal = sum(
+            row.outstanding_principal_minor for row in loan_schedule
+        )
+        active_holding_principal = sum(remaining_principal_by_holding_id.values())
+        if outstanding_schedule_principal != active_holding_principal:
+            raise ServicingValidationError(
+                "Outstanding loan schedule principal does not reconcile to active holdings."
+            )
+
+        currency_code = str(cast(Any, loan_holdings[0]).currency_id)
+        for row in loan_schedule:
+            weights = [
+                remaining_principal_by_holding_id[str(cast(Any, holding).pk)]
+                for holding in loan_holdings
+            ]
+            principal_parts = allocate_by_weights(
+                Money(row.outstanding_principal_minor, currency_code),
+                weights,
+            )
+            interest_parts = allocate_by_weights(
+                Money(row.outstanding_interest_minor, currency_code),
+                weights,
+            )
+            for holding, principal_part, interest_part in zip(
+                loan_holdings,
+                principal_parts,
+                interest_parts,
+                strict=True,
+            ):
+                holding_id = str(cast(Any, holding).pk)
+                principal_minor = principal_part.amount_minor
+                interest_minor = interest_part.amount_minor
+                remaining_principal = (
+                    remaining_principal_by_holding_id[holding_id] - principal_minor
+                )
+                if remaining_principal < 0:
+                    raise ServicingValidationError(
+                        "Projected installment principal exceeds holding principal."
+                    )
+                remaining_principal_by_holding_id[holding_id] = remaining_principal
+                if holding_id not in target_holding_ids:
+                    continue
+                schedule_by_holding_id[holding_id].append(
+                    HoldingRepaymentScheduleRowSnapshot(
+                        loan_installment_id=row.id,
+                        schedule_version=row.schedule_version,
+                        installment_number=row.installment_number,
+                        due_date=row.due_date,
+                        projected_principal_minor=principal_minor,
+                        projected_interest_minor=interest_minor,
+                        projected_total_minor=principal_minor + interest_minor,
+                        days_past_due=row.days_past_due,
+                        status=row.status,
+                    )
+                )
+
+        if any(remaining_principal_by_holding_id.values()):
+            raise ServicingValidationError(
+                "Projected installment principal does not fully amortize active holdings."
+            )
+
+    return schedule_by_holding_id
 
 
 def _record_loan_servicing_status_change(

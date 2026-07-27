@@ -103,7 +103,7 @@ Website balances and ordinary amounts display 2 decimals. During FX quote and co
 ### Monitor Portfolio
 
 1. View principal outstanding, expected interest, realized interest, arrears, defaults, and pending transfer statuses.
-2. Drill into loan-level performance, including current loan status and days past due where applicable.
+2. Drill into loan-level performance, including current loan status and days past due where applicable. Holding detail shows two schedules: an investor-specific projection of the selected holding's remaining principal and interest, and the authoritative whole-loan schedule including amounts already paid. The investor projection is calculated server-side by applying the servicing distribution algorithm sequentially to current active holding principals; the frontend must not derive it from a displayed percentage. `Loan.title` is the canonical loan name across admin and investor interfaces; the borrower legal name is supplementary context and must not replace the loan title.
 3. View received balance-credit history, including full installment, repayment-in-advance (partial, multi-installment, or early repayment), and late/default recovery distributions. Recovery entries should show the lender credited amount and available split between principal, contractual interest, default/penalty interest, recovery costs/fees where disclosed, other penalties/costs, and rounding difference.
 4. Receive email notification when a lender balance credit is made.
 5. View admin-published public notes on late, defaulted, recovery, or operationally changed loans where admin has added them.
