@@ -119,7 +119,7 @@ test("read-only impersonation token survives a new tab and opens the investor po
 });
 
 test("login form submits when the form is submitted from the email field", () => {
-  renderApp();
+  const login = renderApp();
 
   fireEvent.click(screen.getByRole("button", { name: "Log in" }));
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
@@ -128,6 +128,42 @@ test("login form submits when the form is submitted from the email field", () =>
   fireEvent.submit(screen.getByTestId("login-magic-link-form"));
 
   expect(screen.getByRole("heading", { name: "Check your inbox" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Link sent\. Send new in \d+s/ })).toBeDisabled();
+
+  login.unmount();
+  renderApp("/login");
+
+  expect(screen.getByRole("heading", { name: "Check your inbox" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Link sent\. Send new in \d+s/ })).toBeDisabled();
+});
+
+test("expired login links offer a cooldown-aware resend and a different-email escape", () => {
+  window.localStorage.setItem(
+    "banxum:login-flow:v1",
+    JSON.stringify({
+      email: "investor@example.test",
+      sent: true,
+      linkExpired: true,
+      resendCooldownUntil: 0
+    })
+  );
+
+  renderApp("/login?token=expired-token");
+
+  expect(screen.getByRole("heading", { name: "Login link expired" })).toBeInTheDocument();
+  expect(screen.getByText(/expired or is no longer valid/i)).toBeInTheDocument();
+  const resend = screen.getByRole("button", { name: "Send a new magic link" });
+  expect(resend).toBeEnabled();
+
+  fireEvent.click(resend);
+
+  expect(screen.getByRole("heading", { name: "Check your inbox" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Link sent\. Send new in \d+s/ })).toBeDisabled();
+
+  fireEvent.click(screen.getByRole("button", { name: "Use a different email address" }));
+
+  expect(screen.getByRole("heading", { name: "Log in" })).toBeInTheDocument();
+  expect(screen.getByPlaceholderText("you@example.com")).toHaveValue("");
 });
 
 test("published primary-market loans appear in dashboard and marketplace open views", () => {

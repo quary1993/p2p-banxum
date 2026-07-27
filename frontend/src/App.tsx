@@ -9,7 +9,6 @@ import {
   InvestorDocumentDownloadRequestOutputFormatEnum,
   useV1AuthMeRetrieve,
   useV1AuthLogoutCreate,
-  useV1AuthMagicLinkConsumeCreate,
   useV1AuthMagicLinkRequestCreate,
   useV1AuthPhoneConfirmCreate,
   useV1AuthPhoneRequestCreate,
@@ -28,7 +27,8 @@ import {
   useV1MarketplacePrimaryOrdersAllocateBalanceCreate,
   useV1MarketplacePrimaryOrdersCreate,
   useV1MarketplaceSecondaryListingsCreate,
-  useV1MarketplaceSecondaryListingsPurchaseCreate
+  useV1MarketplaceSecondaryListingsPurchaseCreate,
+  v1AuthMagicLinkConsumeCreate
 } from "./api/generated/banxumApi";
 import { ApiClientError } from "./api/client/httpClient";
 import {
@@ -151,6 +151,13 @@ function RefinancedTag({ full = false }: { full?: boolean }) {
 const loginFlowStorageKey = "banxum:login-flow:v1";
 const registerFlowStorageKey = "banxum:register-flow:v3";
 const appRouteStorageKey = "banxum:app-route:v1";
+
+type LoginFlowState = {
+  email: string;
+  sent: boolean;
+  linkExpired: boolean;
+  resendCooldownUntil: number;
+};
 
 type RegisterFlowState = {
   step: number;
@@ -1140,66 +1147,137 @@ function PublicLoanPreview({
 
 function LoginFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
   const [initialLoginState] = useState(() =>
-    readStoredObject(loginFlowStorageKey, { email: "", sent: false })
+    readStoredObject<LoginFlowState>(loginFlowStorageKey, {
+      email: "",
+      sent: false,
+      linkExpired: false,
+      resendCooldownUntil: 0
+    })
   );
   const [email, setEmail] = useState(initialLoginState.email);
   const [sent, setSent] = useState(initialLoginState.sent);
+  const [linkExpired, setLinkExpired] = useState(initialLoginState.linkExpired);
+  const [resendCooldownUntil, setResendCooldownUntil] = useState(
+    initialLoginState.resendCooldownUntil
+  );
+  const [isConsuming, setIsConsuming] = useState(false);
   const [error, setError] = useState("");
   const magicLinkRequest = useV1AuthMagicLinkRequestCreate();
-  const magicLinkConsume = useV1AuthMagicLinkConsumeCreate();
+  const resendCooldownSeconds = useSecondsUntil(resendCooldownUntil);
 
   useEffect(() => {
-    writeStoredObject(loginFlowStorageKey, { email, sent });
-  }, [email, sent]);
+    writeStoredObject(loginFlowStorageKey, {
+      email,
+      sent,
+      linkExpired,
+      resendCooldownUntil
+    });
+  }, [email, linkExpired, resendCooldownUntil, sent]);
 
   const consumeAttemptedRef = useRef(false);
+  const loginFlowMountedRef = useRef(false);
 
   useEffect(() => {
+    loginFlowMountedRef.current = true;
     const token = new URLSearchParams(window.location.search).get("token");
-    if (!token || isFixturePreview) return;
+    if (!token || isFixturePreview) {
+      return () => {
+        loginFlowMountedRef.current = false;
+      };
+    }
     // The token is single-use: never fire a second consume request even if
-    // the effect re-runs (e.g. StrictMode double-mount in development).
-    if (consumeAttemptedRef.current) return;
+    // the effect re-runs (e.g. StrictMode's development effect replay).
+    if (consumeAttemptedRef.current) {
+      return () => {
+        loginFlowMountedRef.current = false;
+      };
+    }
     consumeAttemptedRef.current = true;
-    magicLinkConsume.mutate(
-      { data: { token } },
-      {
-        onSuccess: (response) => {
-          removeStoredObject(loginFlowStorageKey);
-          window.history.replaceState({}, "", "/");
-          if (resumeOnboardingForUser(response.user, setRoute)) return;
-          removeStoredObject(registerFlowStorageKey);
-          goTo(setRoute, "dashboard");
-        },
-        onError: (mutationError) => setError(apiErrorMessage(mutationError))
-      }
-    );
-    // The generated mutation object is intentionally omitted to avoid
-    // re-consuming the one-time token after React Query state changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setIsConsuming(true);
+    void v1AuthMagicLinkConsumeCreate({ token })
+      .then((response) => {
+        if (!loginFlowMountedRef.current) return;
+        removeStoredObject(loginFlowStorageKey);
+        window.history.replaceState({}, "", "/");
+        if (resumeOnboardingForUser(response.user, setRoute)) return;
+        removeStoredObject(registerFlowStorageKey);
+        goTo(setRoute, "dashboard");
+      })
+      .catch((mutationError: unknown) => {
+        if (!loginFlowMountedRef.current) return;
+        if (mutationError instanceof ApiClientError && mutationError.status === 400) {
+          const url = new URL(window.location.href);
+          url.searchParams.delete("token");
+          window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+          setError("");
+          setLinkExpired(true);
+          return;
+        }
+        setError(apiErrorMessage(mutationError));
+      })
+      .finally(() => {
+        if (loginFlowMountedRef.current) setIsConsuming(false);
+      });
+
+    return () => {
+      loginFlowMountedRef.current = false;
+    };
   }, [setRoute]);
 
   const requestMagicLink = () => {
+    if (magicLinkRequest.isPending || resendCooldownSeconds > 0) return;
     setError("");
     if (isFixturePreview) {
       setSent(true);
+      setLinkExpired(false);
+      setResendCooldownUntil(Date.now() + 60_000);
       return;
     }
     magicLinkRequest.mutate(
       { data: { email } },
       {
-        onSuccess: () => setSent(true),
-        onError: (mutationError) => setError(apiErrorMessage(mutationError))
+        onSuccess: () => {
+          setSent(true);
+          setLinkExpired(false);
+          setResendCooldownUntil(Date.now() + 60_000);
+        },
+        onError: (mutationError) => {
+          const waitSeconds = retryAfterSeconds(mutationError);
+          if (waitSeconds) {
+            setResendCooldownUntil(Date.now() + waitSeconds * 1000);
+          }
+          setError(apiErrorMessage(mutationError));
+        }
       }
     );
   };
+
+  const resetLoginFlow = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("token");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    removeStoredObject(loginFlowStorageKey);
+    setEmail("");
+    setSent(false);
+    setLinkExpired(false);
+    setResendCooldownUntil(0);
+    setError("");
+  };
+
+  const resendLabel = magicLinkRequest.isPending
+    ? "Sending..."
+    : resendCooldownSeconds > 0
+      ? `Link sent. Send new in ${resendCooldownSeconds}s`
+      : "Send a new magic link";
+  const resendDisabled =
+    !email.includes("@") || magicLinkRequest.isPending || resendCooldownSeconds > 0;
 
   function submitMagicLink(event: FormEvent) {
     event.preventDefault();
     requestMagicLink();
   }
 
-  if (magicLinkConsume.isPending) {
+  if (isConsuming) {
     return (
       <AuthShell onClose={() => goTo(setRoute, "public")}>
         <div className="auth-card"><Empty icon="clock" title="Signing you in">Verifying your one-time login link.</Empty></div>
@@ -1210,7 +1288,46 @@ function LoginFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
   return (
     <AuthShell onClose={() => goTo(setRoute, "public")}>
       <div className="auth-card">
-        {!sent ? (
+        {linkExpired ? (
+          <div className="col" style={{ alignItems: "center", gap: 14, textAlign: "center" }}>
+            <div className="avatar" style={{ height: 50, width: 50 }}>
+              <Icon name="clock" size={22} />
+            </div>
+            <h2 style={{ fontSize: 18 }}>Login link expired</h2>
+            <p className="muted" style={{ fontSize: 13 }}>
+              This login link has expired or is no longer valid. Request a new link to continue.
+            </p>
+            {email ? (
+              <p className="muted" style={{ fontSize: 13 }}>
+                We will send the new link to <b>{email}</b>.
+              </p>
+            ) : (
+              <div style={{ textAlign: "left", width: "100%" }}>
+                <Field label="Email address">
+                  <input
+                    className="input"
+                    onChange={(event) => setEmail(event.target.value)}
+                    placeholder="you@example.com"
+                    type="email"
+                    value={email}
+                  />
+                </Field>
+              </div>
+            )}
+            {error ? <Banner tone="bad" title="Could not send a new link">{error}</Banner> : null}
+            <Button block disabled={resendDisabled} variant="primary" onClick={requestMagicLink}>
+              {resendLabel}
+            </Button>
+            {email ? (
+              <Button variant="link" onClick={resetLoginFlow}>
+                Use a different email address
+              </Button>
+            ) : null}
+            <p className="muted" style={{ fontSize: 11.5 }}>
+              Lost access to your email is handled through support after identity re-verification.
+            </p>
+          </div>
+        ) : !sent ? (
           <form className="col" data-testid="login-magic-link-form" onSubmit={submitMagicLink}>
             <h2 style={{ fontSize: 19, marginBottom: 4 }}>Log in</h2>
             <p className="muted" style={{ fontSize: 13, marginBottom: 20 }}>
@@ -1237,9 +1354,16 @@ function LoginFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
             <p className="muted" style={{ fontSize: 13 }}>
               We sent a magic link to <b>{email}</b>. It expires in 15 minutes.
             </p>
+            {error ? <Banner tone="bad" title="Could not send a new link">{error}</Banner> : null}
+            <Button block disabled={resendDisabled} onClick={requestMagicLink}>
+              {resendLabel}
+            </Button>
             {isFixturePreview ? <Button block variant="primary" onClick={() => goTo(setRoute, "dashboard")}>
               Open link in demo
             </Button> : null}
+            <Button variant="link" onClick={resetLoginFlow}>
+              Use a different email address
+            </Button>
             <p className="muted" style={{ fontSize: 11.5 }}>
               Lost access to your email is handled through support after identity re-verification.
             </p>

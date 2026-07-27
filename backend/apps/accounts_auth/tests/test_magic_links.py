@@ -142,6 +142,26 @@ def test_magic_link_consume_api_logs_in_session(client: Client, investor: User) 
 
 
 @pytest.mark.django_db
+def test_expired_magic_link_consume_api_returns_recoverable_client_error(
+    client: Client,
+    investor: User,
+) -> None:
+    result = issue_magic_link(
+        MagicLinkRequestCommand(email=investor.email, ttl=timedelta(seconds=-1))
+    )
+
+    response = client.post(
+        "/api/v1/auth/magic-link/consume/",
+        data={"token": result.raw_token},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Login link is invalid or expired."}
+    assert "sessionid" not in response.cookies
+
+
+@pytest.mark.django_db
 def test_logout_api_is_idempotent_for_anonymous_session(client: Client) -> None:
     first_response = client.post("/api/v1/auth/logout/")
     second_response = client.post("/api/v1/auth/logout/")
