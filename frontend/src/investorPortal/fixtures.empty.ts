@@ -103,7 +103,8 @@ export const secondaryListingDetailsFixture: SecondaryMarketBuyerListingDetail[]
 export const secondaryActivityFixture: SecondaryMarketActivityPortal = {
   listings: [],
   purchases_as_buyer: [],
-  sales_as_seller: []
+  sales_as_seller: [],
+  entries: []
 };
 
 export const fxFixture: FxHistoryPortal = {

@@ -353,6 +353,45 @@ test("holding details open in a large modal with the current loan schedule", () 
 });
 
 test("portfolio listing action opens the sell tab and separates review from email verification", () => {
+  const holding = portfolioFixture.holdings[0];
+  const originalListing = holding.open_secondary_listing;
+  holding.open_secondary_listing = null;
+  try {
+    renderApp();
+
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+    fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+      target: { value: "lukas.brunner@example.ch" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Portfolio" }));
+    fireEvent.click(screen.getByText("Engadin Alpine refinancing"));
+
+    const holdingDialog = screen.getByRole("dialog", { name: "Engadin Alpine refinancing" });
+    fireEvent.click(within(holdingDialog).getByRole("button", { name: "List on secondary market" }));
+
+    expect(screen.getByRole("tab", { name: "Sell a holding" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getAllByRole("button", { name: "List" })[0]);
+
+    const listingDialog = screen.getByRole("dialog", { name: "List Engadin Alpine refinancing" });
+    expect(listingDialog).toHaveClass("xwide");
+    expect(within(listingDialog).queryByLabelText("Email confirmation code")).not.toBeInTheDocument();
+    expect(within(listingDialog).getByRole("tab", { name: "Listed holding projection" })).toBeInTheDocument();
+    fireEvent.click(
+      within(listingDialog).getByLabelText((label) => label.includes("seller/listing terms"))
+    );
+    fireEvent.click(within(listingDialog).getByRole("button", { name: "Confirm listing data" }));
+
+    expect(within(listingDialog).getByLabelText("Email confirmation code")).toBeInTheDocument();
+    expect(within(listingDialog).getByRole("button", { name: "Send email code" })).toBeEnabled();
+    expect(within(listingDialog).getByRole("button", { name: "Verify and publish" })).toBeDisabled();
+  } finally {
+    holding.open_secondary_listing = originalListing;
+  }
+});
+
+test("listed holdings expose edit and cancel controls plus filtered secondary activity", () => {
   renderApp();
 
   fireEvent.click(screen.getByRole("button", { name: "Log in" }));
@@ -362,26 +401,40 @@ test("portfolio listing action opens the sell tab and separates review from emai
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
   fireEvent.click(screen.getByRole("button", { name: "Portfolio" }));
-  fireEvent.click(screen.getByText("Engadin Alpine refinancing"));
 
-  const holdingDialog = screen.getByRole("dialog", { name: "Engadin Alpine refinancing" });
-  fireEvent.click(within(holdingDialog).getByRole("button", { name: "List on secondary market" }));
+  expect(screen.getByText("Listed")).toBeInTheDocument();
+  fireEvent.click(screen.getByText("Engadin Alpine refinancing"));
+  expect(within(screen.getByRole("dialog", { name: "Engadin Alpine refinancing" })).getByRole("button", { name: "Manage secondary listing" })).toBeInTheDocument();
+  fireEvent.click(within(screen.getByRole("dialog", { name: "Engadin Alpine refinancing" })).getByRole("button", { name: "Manage secondary listing" }));
 
   expect(screen.getByRole("tab", { name: "Sell a holding" })).toHaveAttribute("aria-selected", "true");
-  fireEvent.click(screen.getAllByRole("button", { name: "List" })[0]);
+  expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "List" })).not.toBeInTheDocument();
 
-  const listingDialog = screen.getByRole("dialog", { name: "List Engadin Alpine refinancing" });
-  expect(listingDialog).toHaveClass("xwide");
-  expect(within(listingDialog).queryByLabelText("Email confirmation code")).not.toBeInTheDocument();
-  expect(within(listingDialog).getByRole("tab", { name: "Listed holding projection" })).toBeInTheDocument();
-  fireEvent.click(
-    within(listingDialog).getByLabelText((label) => label.includes("seller/listing terms"))
-  );
-  fireEvent.click(within(listingDialog).getByRole("button", { name: "Confirm listing data" }));
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  const editDialog = screen.getByRole("dialog", { name: "Edit listing for Engadin Alpine refinancing" });
+  expect(within(editDialog).getByDisplayValue("10000")).toBeInTheDocument();
+  expect(within(editDialog).queryByLabelText("Email confirmation code")).not.toBeInTheDocument();
+  fireEvent.click(within(editDialog).getByLabelText((label) => label.includes("seller/listing terms")));
+  fireEvent.click(within(editDialog).getByRole("button", { name: "Confirm listing data" }));
+  expect(within(editDialog).getByRole("button", { name: "Verify and update" })).toBeDisabled();
+  fireEvent.click(within(editDialog).getByRole("button", { name: "Back to listing data" }));
+  fireEvent.click(within(editDialog).getByRole("button", { name: "Cancel" }));
 
-  expect(within(listingDialog).getByLabelText("Email confirmation code")).toBeInTheDocument();
-  expect(within(listingDialog).getByRole("button", { name: "Send email code" })).toBeEnabled();
-  expect(within(listingDialog).getByRole("button", { name: "Verify and publish" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  const cancelDialog = screen.getByRole("dialog", { name: "Cancel Engadin Alpine refinancing listing" });
+  expect(within(cancelDialog).getByText(/does not sell or otherwise change the underlying holding/i)).toBeInTheDocument();
+  fireEvent.click(within(cancelDialog).getByRole("button", { name: "Keep listing" }));
+
+  fireEvent.click(screen.getByRole("tab", { name: "Secondary market activity" }));
+  expect(screen.getByText("Sale completed")).toBeInTheDocument();
+  expect(screen.getByText("Purchase completed")).toBeInTheDocument();
+  expect(screen.queryByText("Listing updated")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByLabelText("Listings and edits"));
+  fireEvent.click(screen.getByLabelText("Listing cancellations"));
+  expect(screen.getByText("Listing updated")).toBeInTheDocument();
+  expect(screen.getByText("Listing cancelled")).toBeInTheDocument();
 });
 
 test("secondary purchase review loads buyer-safe schedules and waits for a manual code request", () => {

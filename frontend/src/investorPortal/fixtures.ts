@@ -712,7 +712,17 @@ export const portfolioFixture: InvestorPortfolio = {
       recovered_default_interest_minor: 0,
       recovered_penalties_minor: 0,
       recovered_other_costs_minor: 0,
-      latest_public_note: null
+      latest_public_note: null,
+      open_secondary_listing: {
+        id: "SM-H-2310",
+        status: "active",
+        publication_type: "automatic",
+        price_bps: 10000,
+        transfer_price_minor: amount(8420.5),
+        seller_net_proceeds_minor: amount(8399.45),
+        listed_at: "2026-06-04T11:30:00+02:00",
+        updated_at: "2026-06-04T11:30:00+02:00"
+      }
     },
     {
       id: "H-2256",
@@ -764,7 +774,8 @@ export const portfolioFixture: InvestorPortfolio = {
         note_type: "payment_update",
         title: "Payment overdue; borrower contacted",
         occurred_at: "2026-05-20T09:00:00+02:00"
-      }
+      },
+      open_secondary_listing: null
     },
     {
       id: "H-2201",
@@ -816,7 +827,8 @@ export const portfolioFixture: InvestorPortfolio = {
         note_type: "default_update",
         title: "Formal demand issued",
         occurred_at: "2026-05-18T09:00:00+02:00"
-      }
+      },
+      open_secondary_listing: null
     },
     {
       id: "H-2150",
@@ -868,7 +880,8 @@ export const portfolioFixture: InvestorPortfolio = {
         note_type: "recovery_update",
         title: "Recovery process ongoing; residual recoveries possible",
         occurred_at: "2026-03-22T09:00:00+01:00"
-      }
+      },
+      open_secondary_listing: null
     }
   ]
 };
@@ -1093,7 +1106,25 @@ export const secondaryActivityFixture: SecondaryMarketActivityPortal = {
       created_at: "2026-05-28T10:00:00+02:00"
     }
   ],
-  purchases_as_buyer: [],
+  purchases_as_buyer: [
+    {
+      id: "P-9275",
+      listing_id: "SM-3188",
+      loan_id: "GA-2188",
+      loan_title: "Zurich mixed-use refinancing",
+      buyer_holding_id: "H-2188",
+      current_principal_minor: amount(2500),
+      transfer_price_minor: amount(2475),
+      discount_premium_bps: -100,
+      accrued_interest_minor: amount(18.5),
+      taker_fee_minor: amount(6.19),
+      buyer_total_cost_minor: amount(2499.69),
+      currency: "CHF",
+      loan_status_at_purchase: "funded",
+      risk_acknowledgement_accepted: true,
+      purchased_at: "2026-05-12T09:45:00+02:00"
+    }
+  ],
   sales_as_seller: [
     {
       id: "S-9230",
@@ -1110,6 +1141,83 @@ export const secondaryActivityFixture: SecondaryMarketActivityPortal = {
       currency: "CHF",
       loan_status_at_purchase: "performing",
       purchased_at: "2026-04-30T15:18:00+02:00"
+    }
+  ],
+  entries: [
+    {
+      id: "listing-event:fixture-edit",
+      action: "list",
+      event_type: "edited",
+      listing_id: "SM-3201",
+      holding_id: "H-2042",
+      loan_id: "GA-2042",
+      loan_title: "Wallis Agrar AG",
+      currency: "CHF",
+      principal_minor: amount(3640),
+      cash_amount_minor: amount(3603.6),
+      price_bps: 9900,
+      status: "active",
+      occurred_at: "2026-05-28T10:20:00+02:00"
+    },
+    {
+      id: "listing-event:fixture-create",
+      action: "list",
+      event_type: "created",
+      listing_id: "SM-3201",
+      holding_id: "H-2042",
+      loan_id: "GA-2042",
+      loan_title: "Wallis Agrar AG",
+      currency: "CHF",
+      principal_minor: amount(3640),
+      cash_amount_minor: amount(3640),
+      price_bps: 10000,
+      status: "active",
+      occurred_at: "2026-05-28T10:00:00+02:00"
+    },
+    {
+      id: "buy:P-9275",
+      action: "buy",
+      event_type: "buy",
+      listing_id: "SM-3188",
+      holding_id: "H-2188",
+      loan_id: "GA-2188",
+      loan_title: "Zurich mixed-use refinancing",
+      currency: "CHF",
+      principal_minor: amount(2500),
+      cash_amount_minor: amount(2499.69),
+      price_bps: 9900,
+      status: "completed",
+      occurred_at: "2026-05-12T09:45:00+02:00"
+    },
+    {
+      id: "sale:S-9230",
+      action: "sale",
+      event_type: "sale",
+      listing_id: "SM-3140",
+      holding_id: "H-2199",
+      loan_id: "GA-2199",
+      loan_title: "Holding transfer",
+      currency: "CHF",
+      principal_minor: amount(4920),
+      cash_amount_minor: amount(4907.7),
+      price_bps: 10000,
+      status: "completed",
+      occurred_at: "2026-04-30T15:18:00+02:00"
+    },
+    {
+      id: "listing-event:fixture-cancel",
+      action: "cancel_listing",
+      event_type: "cancelled",
+      listing_id: "SM-3010",
+      holding_id: "H-2010",
+      loan_id: "GA-2010",
+      loan_title: "Lausanne residential bridge",
+      currency: "CHF",
+      principal_minor: amount(1800),
+      cash_amount_minor: amount(1800),
+      price_bps: 10000,
+      status: "cancelled",
+      occurred_at: "2026-04-18T14:10:00+02:00"
     }
   ]
 };

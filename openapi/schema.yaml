@@ -3288,6 +3288,39 @@ paths:
               schema:
                 $ref: '#/components/schemas/SecondaryMarketListing'
           description: ''
+  /api/v1/marketplace/secondary/listings/{listing_id}/edit/:
+    post:
+      operationId: v1_marketplace_secondary_listings_edit_create
+      parameters:
+      - in: path
+        name: listing_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SecondaryMarketListingEditRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SecondaryMarketListingEditRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SecondaryMarketListingEditRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecondaryMarketListing'
+          description: ''
   /api/v1/marketplace/secondary/listings/{listing_id}/purchase/:
     post:
       operationId: v1_marketplace_secondary_listings_purchase_create
@@ -6732,6 +6765,10 @@ components:
           allOf:
           - $ref: '#/components/schemas/LatestPublicNote'
           nullable: true
+        open_secondary_listing:
+          allOf:
+          - $ref: '#/components/schemas/HoldingOpenSecondaryListing'
+          nullable: true
       required:
       - assignment_effective_at
       - currency
@@ -6740,6 +6777,7 @@ components:
       - investment_schedule
       - loan
       - loan_share_ppm
+      - open_secondary_listing
       - original_principal_minor
       - received_interest_minor
       - received_principal_minor
@@ -6751,6 +6789,38 @@ components:
       - repayment_fee_minor
       - source_type
       - status
+    HoldingOpenSecondaryListing:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+        publication_type:
+          type: string
+        price_bps:
+          type: integer
+        transfer_price_minor:
+          type: integer
+        seller_net_proceeds_minor:
+          type: integer
+        listed_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - listed_at
+      - price_bps
+      - publication_type
+      - seller_net_proceeds_minor
+      - status
+      - transfer_price_minor
+      - updated_at
     InvestorActivity:
       type: object
       properties:
@@ -10700,6 +10770,55 @@ components:
       - seller_net_proceeds_minor
       - status
       - transfer_price_minor
+    SecondaryMarketActivityEntryPortal:
+      type: object
+      properties:
+        id:
+          type: string
+        action:
+          type: string
+        event_type:
+          type: string
+        listing_id:
+          type: string
+          format: uuid
+        holding_id:
+          type: string
+          format: uuid
+          nullable: true
+        loan_id:
+          type: string
+          format: uuid
+        loan_title:
+          type: string
+        currency:
+          type: string
+        principal_minor:
+          type: integer
+        cash_amount_minor:
+          type: integer
+        price_bps:
+          type: integer
+          nullable: true
+        status:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+      required:
+      - action
+      - cash_amount_minor
+      - currency
+      - event_type
+      - holding_id
+      - id
+      - listing_id
+      - loan_id
+      - loan_title
+      - occurred_at
+      - price_bps
+      - principal_minor
+      - status
     SecondaryMarketActivityPortal:
       type: object
       properties:
@@ -10715,7 +10834,12 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/SecondarySaleAsSellerPortal'
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecondaryMarketActivityEntryPortal'
       required:
+      - entries
       - listings
       - purchases_as_buyer
       - sales_as_seller
@@ -11198,6 +11322,33 @@ components:
       required:
       - document_acceptance_id
       - holding_id
+      - idempotency_key
+      - price_bps
+      - sensitive_action_code
+      - sensitive_action_code_id
+    SecondaryMarketListingEditRequest:
+      type: object
+      properties:
+        price_bps:
+          type: integer
+          maximum: 1000000
+          minimum: 1
+        document_acceptance_id:
+          type: string
+          format: uuid
+        idempotency_key:
+          type: string
+          maxLength: 160
+        sensitive_action_code_id:
+          type: string
+          format: uuid
+        sensitive_action_code:
+          type: string
+          maxLength: 32
+        notes:
+          type: string
+      required:
+      - document_acceptance_id
       - idempotency_key
       - price_bps
       - sensitive_action_code

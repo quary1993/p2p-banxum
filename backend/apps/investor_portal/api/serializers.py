@@ -252,6 +252,17 @@ class LatestPublicNoteSerializer(serializers.Serializer[Any]):
     occurred_at = serializers.DateTimeField()
 
 
+class HoldingOpenSecondaryListingSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    status = serializers.CharField()
+    publication_type = serializers.CharField()
+    price_bps = serializers.IntegerField()
+    transfer_price_minor = serializers.IntegerField()
+    seller_net_proceeds_minor = serializers.IntegerField()
+    listed_at = serializers.DateTimeField(allow_null=True)
+    updated_at = serializers.DateTimeField()
+
+
 class HoldingSerializer(serializers.Serializer[Any]):
     id = serializers.UUIDField()
     status = serializers.CharField()
@@ -272,6 +283,7 @@ class HoldingSerializer(serializers.Serializer[Any]):
     recovered_penalties_minor = serializers.IntegerField()
     recovered_other_costs_minor = serializers.IntegerField()
     latest_public_note = LatestPublicNoteSerializer(allow_null=True, required=False)
+    open_secondary_listing = HoldingOpenSecondaryListingSerializer(allow_null=True)
 
 
 class InvestorPortfolioSerializer(serializers.Serializer[Any]):
@@ -393,10 +405,27 @@ class SecondarySaleAsSellerPortalSerializer(serializers.Serializer[Any]):
     purchased_at = serializers.DateTimeField()
 
 
+class SecondaryMarketActivityEntryPortalSerializer(serializers.Serializer[Any]):
+    id = serializers.CharField()
+    action = serializers.CharField()
+    event_type = serializers.CharField()
+    listing_id = serializers.UUIDField()
+    holding_id = serializers.UUIDField(allow_null=True)
+    loan_id = serializers.UUIDField()
+    loan_title = serializers.CharField()
+    currency = serializers.CharField()
+    principal_minor = serializers.IntegerField()
+    cash_amount_minor = serializers.IntegerField()
+    price_bps = serializers.IntegerField(allow_null=True)
+    status = serializers.CharField()
+    occurred_at = serializers.DateTimeField()
+
+
 class SecondaryMarketActivityPortalSerializer(serializers.Serializer[Any]):
     listings = SecondaryListingPortalSerializer(many=True)
     purchases_as_buyer = SecondaryPurchaseAsBuyerPortalSerializer(many=True)
     sales_as_seller = SecondarySaleAsSellerPortalSerializer(many=True)
+    entries = SecondaryMarketActivityEntryPortalSerializer(many=True)
 
 
 class FxQuotePortalSerializer(serializers.Serializer[Any]):

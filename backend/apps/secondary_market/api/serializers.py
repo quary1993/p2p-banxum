@@ -145,6 +145,15 @@ class SecondaryMarketListingCreateRequestSerializer(serializers.Serializer[Any])
     notes = serializers.CharField(required=False, allow_blank=True)
 
 
+class SecondaryMarketListingEditRequestSerializer(serializers.Serializer[Any]):
+    price_bps = serializers.IntegerField(min_value=1, max_value=1_000_000)
+    document_acceptance_id = serializers.UUIDField()
+    idempotency_key = serializers.CharField(max_length=160)
+    sensitive_action_code_id = serializers.UUIDField()
+    sensitive_action_code = serializers.CharField(max_length=32, trim_whitespace=True)
+    notes = serializers.CharField(required=False, allow_blank=True)
+
+
 class SecondaryMarketListingApproveRequestSerializer(serializers.Serializer[Any]):
     reason = serializers.CharField()
     disclosure_note = serializers.CharField()

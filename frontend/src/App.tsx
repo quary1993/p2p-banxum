@@ -27,6 +27,8 @@ import {
   useV1MarketplacePrimaryOrdersAllocateBalanceCreate,
   useV1MarketplacePrimaryOrdersCreate,
   useV1MarketplaceSecondaryListingsCreate,
+  useV1MarketplaceSecondaryListingsCancelCreate,
+  useV1MarketplaceSecondaryListingsEditCreate,
   useV1MarketplaceSecondaryListingsPurchaseCreate,
   v1AuthMagicLinkConsumeCreate
 } from "./api/generated/banxumApi";
@@ -49,7 +51,7 @@ import type {
   PayoutInstruction,
   PrimaryOrderPortal,
   PublicDocumentTemplateVersion,
-  SecondaryListingPortal,
+  SecondaryMarketActivityEntryPortal,
   SecondaryMarketBuyerListing,
   SecondaryMarketInvestmentInstallment,
   SecondaryMarketLoanInstallment,
@@ -3597,7 +3599,7 @@ function HoldingsTable({
                     title={holding.loan.is_refinancing ? <span className="row gap-6 wrap">{holding.loan.loan_title}<RefinancedTag /></span> : holding.loan.loan_title}
                   />
                 </td>
-                <td><Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} /></td>
+                <td><div className="row gap-6 wrap"><Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} />{holding.open_secondary_listing ? <Chip status={listingStatusLabel(holding.open_secondary_listing.status)} tone={holding.open_secondary_listing.status === "active" ? "ok" : "warn"} /> : null}</div></td>
                 <td className="num"><Money amountMinor={holding.original_principal_minor} currency={holding.currency} /></td>
                 <td className="num col-strong">{formatMoneyMinor(holding.current_principal_minor, holding.currency)}</td>
                 <td className="num pos">+{formatMoneyMinor(holding.received_interest_minor, holding.currency)}</td>
@@ -3936,9 +3938,9 @@ function LoanSchedulePanels({
 function HoldingDetail({ holding, onClose, setRoute }: { holding: Holding; onClose: () => void; setRoute: (route: AppRoute) => void }) {
   const impaired = ["late", "defaulted", "written_off"].includes(holding.loan.loan_status);
   return (
-    <Modal xwide footer={<><Button variant="ghost" onClick={onClose}>Close</Button><Button disabled={holding.loan.loan_status !== "funded"} icon="secondary" variant="primary" onClick={() => { onClose(); goTo(setRoute, "secondary", { tab: "sell" }); }}>List on secondary market</Button></>} onClose={onClose} title={holding.loan.loan_title}>
+    <Modal xwide footer={<><Button variant="ghost" onClick={onClose}>Close</Button><Button disabled={holding.loan.loan_status !== "funded"} icon="secondary" variant="primary" onClick={() => { onClose(); goTo(setRoute, "secondary", { tab: "sell" }); }}>{holding.open_secondary_listing ? "Manage secondary listing" : "List on secondary market"}</Button></>} onClose={onClose} title={holding.loan.loan_title}>
       <div className="col gap-16">
-        <div className="row gap-8 wrap"><Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} /><Rating value={holding.loan.risk_rating} /><Country code={holding.loan.borrower_country} />{holding.loan.is_refinancing ? <RefinancedTag full /> : null}<CopyIdButton ariaLabel="Copy loan ID" id={holding.loan.loan_id} label="Copy loan ID" /></div>
+        <div className="row gap-8 wrap"><Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} />{holding.open_secondary_listing ? <Chip status={listingStatusLabel(holding.open_secondary_listing.status)} tone={holding.open_secondary_listing.status === "active" ? "ok" : "warn"} /> : null}<Rating value={holding.loan.risk_rating} /><Country code={holding.loan.borrower_country} />{holding.loan.is_refinancing ? <RefinancedTag full /> : null}<CopyIdButton ariaLabel="Copy loan ID" id={holding.loan.loan_id} label="Copy loan ID" /></div>
         <div className="sub">Borrower: {holding.loan.borrower_name}</div>
         {impaired ? <Banner tone="warn" title={`${holding.loan.loan_status.replaceAll("_", " ")} - ${holding.loan.days_past_due} DPD`}>This position is not a normal live loan. Review public notes and recovery updates before taking action.</Banner> : null}
         <div className="grid grid-4">
@@ -3992,16 +3994,17 @@ function SecondaryMarketScreen({ demoState, initialTab }: { demoState: DemoAccou
   const listings = listingsQuery.data ?? [];
   const activity = activityQuery.data;
   const portfolio = portfolioQuery.data;
-  const resolvedInitialTab = initialTab === "sell" || initialTab === "mine" ? initialTab : "browse";
-  const [tab, setTab] = useState<"browse" | "sell" | "mine">(resolvedInitialTab);
+  const resolvedInitialTab = initialTab === "sell" || initialTab === "activity" || initialTab === "mine" ? (initialTab === "mine" ? "activity" : initialTab) : "browse";
+  const [tab, setTab] = useState<"browse" | "sell" | "activity">(resolvedInitialTab);
   const [buy, setBuy] = useState<SecondaryMarketBuyerListing | null>(null);
-  const [sell, setSell] = useState<Holding | null>(null);
+  const [sell, setSell] = useState<{ holding: Holding; listing: NonNullable<Holding["open_secondary_listing"]> | null } | null>(null);
+  const [cancelListing, setCancelListing] = useState<{ holding: Holding; listing: NonNullable<Holding["open_secondary_listing"]> } | null>(null);
   const frozen = demoState === "frozen";
   const sellable = portfolio?.holdings.filter((holding) => holding.current_principal_minor > 0) ?? [];
 
   useEffect(() => {
-    if (initialTab === "browse" || initialTab === "sell" || initialTab === "mine") {
-      setTab(initialTab);
+    if (initialTab === "browse" || initialTab === "sell" || initialTab === "activity" || initialTab === "mine") {
+      setTab(initialTab === "mine" ? "activity" : initialTab);
     }
   }, [initialTab]);
 
@@ -4010,7 +4013,7 @@ function SecondaryMarketScreen({ demoState, initialTab }: { demoState: DemoAccou
       <div className="page-head"><div><h1>Secondary market</h1><div className="ph-sub">Bulletin-board transfer of whole loan claim holdings. Counterparties are anonymous.</div></div></div>
       {frozen ? <Banner icon="lock" tone="bad" title="Secondary-market actions are frozen">Provide a usable payout IBAN to unlock buying and listing.</Banner> : null}
       <Banner tone="neutral" title="How it works">Sellers list an entire holding at a discount or premium. Accrued interest to settlement belongs to the seller; future interest belongs to the buyer.</Banner>
-      <div style={{ marginTop: 16 }}><Tabs tabs={[{ value: "browse", label: "Browse listings" }, { value: "sell", label: "Sell a holding" }, { value: "mine", label: "My listings" }]} value={tab} onChange={setTab} /></div>
+      <div style={{ marginTop: 16 }}><Tabs tabs={[{ value: "browse", label: "Browse listings" }, { value: "sell", label: "Sell a holding" }, { value: "activity", label: "Secondary market activity" }]} value={tab} onChange={setTab} /></div>
       <div style={{ paddingTop: 18 }}>
         {tab === "browse" ? (
           listingsQuery.isError && listings.length === 0 ? (
@@ -4029,21 +4032,28 @@ function SecondaryMarketScreen({ demoState, initialTab }: { demoState: DemoAccou
           ) : !portfolio ? (
             <LoadingCard title="Loading holdings">Fetching holdings available for listing.</LoadingCard>
           ) : (
-            <SellableHoldingsTable frozen={frozen} holdings={sellable} onSell={setSell} />
+            <SellableHoldingsTable
+              frozen={frozen}
+              holdings={sellable}
+              onCancel={(holding, listing) => setCancelListing({ holding, listing })}
+              onEdit={(holding, listing) => setSell({ holding, listing })}
+              onSell={(holding) => setSell({ holding, listing: null })}
+            />
           )
         ) : null}
-        {tab === "mine" ? (
+        {tab === "activity" ? (
           activityQuery.isError && !activity ? (
-            <DataErrorCard title="Could not load your listings" onRetry={() => void activityQuery.refetch()}>
-              Your seller-side secondary-market activity could not be loaded.
+            <DataErrorCard title="Could not load secondary-market activity" onRetry={() => void activityQuery.refetch()}>
+              Your listing, purchase, and sale history could not be loaded.
             </DataErrorCard>
           ) : (
-            <MyListingsTable listings={activity?.listings ?? []} />
+            <SecondaryMarketActivityTable entries={activity?.entries ?? []} />
           )
         ) : null}
       </div>
       {buy ? <BuyListingModal listing={buy} onClose={() => setBuy(null)} /> : null}
-      {sell ? <ListHoldingModal holding={sell} onClose={() => setSell(null)} /> : null}
+      {sell ? <ListHoldingModal holding={sell.holding} listing={sell.listing} onClose={() => setSell(null)} /> : null}
+      {cancelListing ? <CancelSecondaryListingModal holding={cancelListing.holding} listing={cancelListing.listing} onClose={() => setCancelListing(null)} /> : null}
     </main>
   );
 }
@@ -4079,7 +4089,27 @@ function BuyerListingsTable({ listings, onBuy, frozen }: { listings: SecondaryMa
   );
 }
 
-function SellableHoldingsTable({ holdings, onSell, frozen }: { holdings: Holding[]; onSell: (holding: Holding) => void; frozen: boolean }) {
+type OpenSecondaryListing = NonNullable<Holding["open_secondary_listing"]>;
+
+function listingStatusLabel(status: string) {
+  if (status === "active") return "Listed";
+  if (status === "approval_requested") return "Approval pending";
+  return humanizeToken(status);
+}
+
+function SellableHoldingsTable({
+  holdings,
+  onSell,
+  onEdit,
+  onCancel,
+  frozen
+}: {
+  holdings: Holding[];
+  onSell: (holding: Holding) => void;
+  onEdit: (holding: Holding, listing: OpenSecondaryListing) => void;
+  onCancel: (holding: Holding, listing: OpenSecondaryListing) => void;
+  frozen: boolean;
+}) {
   if (holdings.length === 0) {
     return <Card><Empty icon="portfolio" title="No sellable holdings">Active holdings that can be listed will appear here.</Empty></Card>;
   }
@@ -4088,28 +4118,161 @@ function SellableHoldingsTable({ holdings, onSell, frozen }: { holdings: Holding
     <Card>
       <div className="tbl-wrap">
         <table className="tbl">
-          <thead><tr><th>Holding</th><th>Status</th><th className="num">Current principal</th><th className="num">Rate</th><th /></tr></thead>
-          <tbody>{holdings.map((holding) => <tr key={holding.id}><td><EntityReference id={holding.loan.loan_id} idLabel="Copy loan ID" meta={holding.loan.borrower_name} title={holding.loan.loan_title} /></td><td><Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} /></td><td className="num"><Money amountMinor={holding.current_principal_minor} currency={holding.currency} /></td><td className="num">{formatRateBps(holding.loan.interest_rate_bps)}</td><td className="right"><Button disabled={frozen || isReadonlyImpersonationActive()} size="sm" onClick={() => onSell(holding)}>{holding.loan.loan_status === "funded" ? "List" : "Request listing"}</Button></td></tr>)}</tbody>
+          <thead><tr><th>Holding</th><th>Loan status</th><th>Listing status</th><th className="num">Current principal</th><th className="num">Rate</th><th /></tr></thead>
+          <tbody>{holdings.map((holding) => {
+            const listing = holding.open_secondary_listing;
+            const actionsDisabled = frozen || isReadonlyImpersonationActive();
+            return (
+              <tr key={holding.id}>
+                <td><EntityReference id={holding.loan.loan_id} idLabel="Copy loan ID" meta={holding.loan.borrower_name} title={holding.loan.loan_title} /></td>
+                <td><Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} /></td>
+                <td>{listing ? <Chip status={listingStatusLabel(listing.status)} tone={listing.status === "active" ? "ok" : "warn"} /> : <span className="muted">Not listed</span>}</td>
+                <td className="num"><Money amountMinor={holding.current_principal_minor} currency={holding.currency} /></td>
+                <td className="num">{formatRateBps(holding.loan.interest_rate_bps)}</td>
+                <td className="right">
+                  <div className="row gap-8" style={{ justifyContent: "flex-end" }}>
+                    {listing ? (
+                      <>
+                        <Button disabled={actionsDisabled} size="sm" onClick={() => onEdit(holding, listing)}>Edit</Button>
+                        <Button disabled={actionsDisabled} size="sm" variant="danger" onClick={() => onCancel(holding, listing)}>Cancel</Button>
+                      </>
+                    ) : (
+                      <Button disabled={actionsDisabled} size="sm" onClick={() => onSell(holding)}>{holding.loan.loan_status === "funded" ? "List" : "Request listing"}</Button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            );
+          })}</tbody>
         </table>
       </div>
     </Card>
   );
 }
 
-function MyListingsTable({ listings }: { listings: SecondaryListingPortal[] }) {
-  if (listings.length === 0) {
-    return <Card><Empty icon="secondary" title="No listings yet">Your seller-side secondary-market listings will appear here.</Empty></Card>;
-  }
+type SecondaryActivityFilter = "list" | "cancel_listing" | "sale" | "buy";
+
+function secondaryActivityLabel(entry: SecondaryMarketActivityEntryPortal) {
+  if (entry.action === "buy") return "Purchase completed";
+  if (entry.action === "sale") return "Sale completed";
+  if (entry.action === "cancel_listing") return "Listing cancelled";
+  if (entry.event_type === "edited") return "Listing updated";
+  return "Holding listed";
+}
+
+function SecondaryMarketActivityTable({ entries }: { entries: SecondaryMarketActivityEntryPortal[] }) {
+  const [filters, setFilters] = useState<Record<SecondaryActivityFilter, boolean>>({
+    list: false,
+    cancel_listing: false,
+    sale: true,
+    buy: true
+  });
+  const visible = entries.filter((entry) => filters[entry.action as SecondaryActivityFilter] ?? false);
+  const toggle = (filter: SecondaryActivityFilter, checked: boolean) => {
+    setFilters((current) => ({ ...current, [filter]: checked }));
+  };
 
   return (
-    <Card>
-      <div className="tbl-wrap">
-        <table className="tbl">
-          <thead><tr><th>Listing</th><th className="num">Principal</th><th className="num">Seller net</th><th>State</th></tr></thead>
-          <tbody>{listings.map((listing) => <tr key={listing.id}><td><EntityReference id={listing.id} idLabel="Copy listing ID" title={listing.loan_title} /></td><td className="num"><Money amountMinor={listing.current_principal_minor} currency={listing.currency} /></td><td className="num"><Money amountMinor={listing.seller_net_proceeds_minor} currency={listing.currency} /></td><td><Chip status={listing.status} /></td></tr>)}</tbody>
-        </table>
+    <div className="col gap-16">
+      <Card padded>
+        <div className="section-head compact">
+          <div><h2>Activity filters</h2><div className="ph-sub">Sales and purchases are shown by default. Include listing lifecycle entries when needed.</div></div>
+        </div>
+        <div className="row gap-16 wrap">
+          <Check checked={filters.sale} id="sm-activity-sales" onChange={(checked) => toggle("sale", checked)}>Sales</Check>
+          <Check checked={filters.buy} id="sm-activity-buys" onChange={(checked) => toggle("buy", checked)}>Purchases</Check>
+          <Check checked={filters.list} id="sm-activity-listings" onChange={(checked) => toggle("list", checked)}>Listings and edits</Check>
+          <Check checked={filters.cancel_listing} id="sm-activity-cancellations" onChange={(checked) => toggle("cancel_listing", checked)}>Listing cancellations</Check>
+        </div>
+      </Card>
+      <Card>
+        {visible.length === 0 ? (
+          <Empty icon="secondary" title={entries.length === 0 ? "No secondary-market activity" : "No activity matches these filters"}>
+            {entries.length === 0 ? "Listings, purchases, sales, and cancellations will appear here." : "Select another activity type to expand the history."}
+          </Empty>
+        ) : (
+          <div className="tbl-wrap">
+            <table className="tbl">
+              <thead><tr><th>Date</th><th>Activity</th><th>Loan</th><th className="num">Principal</th><th className="num">Cash amount</th><th>State</th></tr></thead>
+              <tbody>{visible.map((entry) => (
+                <tr key={entry.id}>
+                  <td className="mono">{formatDateTime(entry.occurred_at)}</td>
+                  <td><div className="col gap-4"><strong>{secondaryActivityLabel(entry)}</strong>{entry.action === "list" && entry.price_bps !== null ? <span className="sub">{priceLabel(entry.price_bps - 10000)}</span> : null}</div></td>
+                  <td><EntityReference id={entry.loan_id} idLabel="Copy loan ID" title={entry.loan_title} /></td>
+                  <td className="num"><Money amountMinor={entry.principal_minor} currency={entry.currency} /></td>
+                  <td className={`num ${entry.action === "sale" ? "pos" : entry.action === "buy" ? "neg" : ""}`}><Money amountMinor={entry.cash_amount_minor} currency={entry.currency} /></td>
+                  <td><Chip status={entry.status} tone={statusTone(entry.status)} /></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function CancelSecondaryListingModal({
+  holding,
+  listing,
+  onClose
+}: {
+  holding: Holding;
+  listing: OpenSecondaryListing;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [reason, setReason] = useState("Cancelled by investor.");
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState("");
+  const [idempotency] = useState(() => idempotencyKey("secondary-listing-cancel"));
+  const mutation = useV1MarketplaceSecondaryListingsCancelCreate();
+  const cancelListing = async () => {
+    setError("");
+    if (!reason.trim()) {
+      setError("Enter a cancellation reason.");
+      return;
+    }
+    if (isFixturePreview) {
+      setDone(true);
+      return;
+    }
+    try {
+      await mutation.mutateAsync({
+        listingId: listing.id,
+        data: { reason: reason.trim(), idempotency_key: idempotency }
+      });
+      await queryClient.invalidateQueries();
+      setDone(true);
+    } catch (mutationError) {
+      setError(apiErrorMessage(mutationError));
+    }
+  };
+  if (done) {
+    return <Modal footer={<Button variant="primary" onClick={onClose}>Done</Button>} onClose={onClose} title="Listing cancelled"><SuccessState title="Listing cancelled">The holding is no longer visible to buyers and can be listed again.</SuccessState></Modal>;
+  }
+  return (
+    <Modal
+      footer={<><Button variant="ghost" onClick={onClose}>Keep listing</Button><Button disabled={!reason.trim() || mutation.isPending} variant="danger" onClick={cancelListing}>{mutation.isPending ? "Cancelling..." : "Cancel listing"}</Button></>}
+      onClose={onClose}
+      title={`Cancel ${holding.loan.loan_title} listing`}
+    >
+      <div className="col gap-16">
+        <Banner tone="warn" title="Return this holding to your unlisted portfolio">
+          Cancelling removes the open listing. It does not sell or otherwise change the underlying holding.
+        </Banner>
+        <Review rows={[
+          { label: "Loan", value: holding.loan.loan_title },
+          { label: "Listing status", value: listingStatusLabel(listing.status) },
+          { label: "Current principal", value: `${holding.currency} ${formatMoneyMinor(holding.current_principal_minor, holding.currency)}` },
+          { label: "Current transfer price", value: `${holding.currency} ${formatMoneyMinor(listing.transfer_price_minor, holding.currency)}` }
+        ]} />
+        <Field label="Cancellation reason">
+          <textarea className="textarea" onChange={(event) => setReason(event.target.value)} rows={3} value={reason} />
+        </Field>
+        {error ? <Banner tone="bad" title="Could not cancel listing">{error}</Banner> : null}
       </div>
-    </Card>
+    </Modal>
   );
 }
 
@@ -4267,19 +4430,21 @@ function BuyListingModal({ listing, onClose }: { listing: SecondaryMarketBuyerLi
   );
 }
 
-function ListHoldingModal({ holding, onClose }: { holding: Holding; onClose: () => void }) {
+function ListHoldingModal({ holding, listing, onClose }: { holding: Holding; listing: OpenSecondaryListing | null; onClose: () => void }) {
   const queryClient = useQueryClient();
+  const isEdit = listing !== null;
   const [step, setStep] = useState<"review" | "verify">("review");
-  const [priceBps, setPriceBps] = useState("10000");
+  const [priceBps, setPriceBps] = useState(String(listing?.price_bps ?? 10000));
   const [ack, setAck] = useState(false);
   const [code, setCode] = useState("");
   const [done, setDone] = useState(false);
   const [error, setError] = useState("");
   const [acceptanceId, setAcceptanceId] = useState<string | null>(null);
-  const [acceptanceKey] = useState(() => idempotencyKey("secondary-listing-acceptance"));
-  const [listingKey] = useState(() => idempotencyKey("secondary-listing"));
+  const [acceptanceKey] = useState(() => idempotencyKey(isEdit ? "secondary-listing-edit-acceptance" : "secondary-listing-acceptance"));
+  const [listingKey] = useState(() => idempotencyKey(isEdit ? "secondary-listing-edit" : "secondary-listing"));
   const acceptanceMutation = useV1DocumentsAcceptancesCreate();
   const listingMutation = useV1MarketplaceSecondaryListingsCreate();
+  const editMutation = useV1MarketplaceSecondaryListingsEditCreate();
   const codeRequest = useSensitiveActionCode(ActionEnum.secondary_market_listing);
   useAutoRequestEmailCode(codeRequest, step === "verify" && !done);
   const termsQuery = useV1DocumentsTemplatesCurrentRetrieve(
@@ -4337,6 +4502,8 @@ function ListHoldingModal({ holding, onClose }: { holding: Holding; onClose: () 
               context_id: holding.id,
               data_snapshot: {
                 holding_id: holding.id,
+                listing_id: listing?.id ?? "",
+                action: isEdit ? "edit" : "create",
                 price_bps: price,
                 current_principal_minor: holding.current_principal_minor,
                 currency: holding.currency
@@ -4345,16 +4512,29 @@ function ListHoldingModal({ holding, onClose }: { holding: Holding; onClose: () 
             }
           });
       setAcceptanceId(acceptance.id);
-      await listingMutation.mutateAsync({
-        data: {
-          holding_id: holding.id,
-          price_bps: price,
-          document_acceptance_id: acceptance.id,
-          idempotency_key: listingKey,
-          sensitive_action_code_id: codeRequest.codeId,
-          sensitive_action_code: code
-        }
-      });
+      if (listing) {
+        await editMutation.mutateAsync({
+          listingId: listing.id,
+          data: {
+            price_bps: price,
+            document_acceptance_id: acceptance.id,
+            idempotency_key: listingKey,
+            sensitive_action_code_id: codeRequest.codeId,
+            sensitive_action_code: code
+          }
+        });
+      } else {
+        await listingMutation.mutateAsync({
+          data: {
+            holding_id: holding.id,
+            price_bps: price,
+            document_acceptance_id: acceptance.id,
+            idempotency_key: listingKey,
+            sensitive_action_code_id: codeRequest.codeId,
+            sensitive_action_code: code
+          }
+        });
+      }
       void queryClient.invalidateQueries();
       setDone(true);
     } catch (mutationError) {
@@ -4362,7 +4542,8 @@ function ListHoldingModal({ holding, onClose }: { holding: Holding; onClose: () 
     }
   };
   if (done) {
-    return <Modal footer={<Button variant="primary" onClick={onClose}>Done</Button>} onClose={onClose} title={nonStandard ? "Submitted for approval" : "Listing published"}><SuccessState title={nonStandard ? "Submitted for approval" : "Listing published"}>{nonStandard ? "Garanta will review the listing disclosure before it becomes visible." : "Your holding is visible to buyers anonymously."}</SuccessState></Modal>;
+    const successTitle = nonStandard ? "Submitted for approval" : isEdit ? "Listing updated" : "Listing published";
+    return <Modal footer={<Button variant="primary" onClick={onClose}>Done</Button>} onClose={onClose} title={successTitle}><SuccessState title={successTitle}>{nonStandard ? "Garanta will review the revised listing before it becomes visible." : isEdit ? "Your revised price and economics are now visible to buyers anonymously." : "Your holding is visible to buyers anonymously."}</SuccessState></Modal>;
   }
   return (
     <Modal
@@ -4370,14 +4551,15 @@ function ListHoldingModal({ holding, onClose }: { holding: Holding; onClose: () 
       footer={step === "review" ? (
         <><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!ack || !Number.isFinite(price) || price < 1 || (!isFixturePreview && !termsQuery.data)} variant="primary" onClick={continueToVerification}>Confirm listing data</Button></>
       ) : (
-        <><Button variant="ghost" onClick={() => { setError(""); setStep("review"); }}>Back to listing data</Button><Button disabled={code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || acceptanceMutation.isPending || listingMutation.isPending} variant="primary" onClick={submitListing}>{acceptanceMutation.isPending || listingMutation.isPending ? "Submitting..." : nonStandard ? "Verify and submit" : "Verify and publish"}</Button></>
+        <><Button variant="ghost" onClick={() => { setError(""); setStep("review"); }}>Back to listing data</Button><Button disabled={code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || acceptanceMutation.isPending || listingMutation.isPending || editMutation.isPending} variant="primary" onClick={submitListing}>{acceptanceMutation.isPending || listingMutation.isPending || editMutation.isPending ? "Submitting..." : nonStandard ? "Verify and submit" : isEdit ? "Verify and update" : "Verify and publish"}</Button></>
       )}
       onClose={onClose}
-      title={`List ${holding.loan.loan_title}`}
+      title={`${isEdit ? "Edit listing for" : "List"} ${holding.loan.loan_title}`}
     >
       {step === "review" ? (
         <div className="col gap-16">
           {nonStandard ? <Banner tone="warn" title="Requires Garanta approval">Non-performing holdings require approval and status disclosure before buyers can see them.</Banner> : null}
+          {isEdit ? <Banner tone="neutral" title="Editing an open listing">Changing the listing creates a new auditable revision and requires a fresh terms acceptance and email confirmation.</Banner> : null}
           <div className="row gap-8 wrap">
             <Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} />
             <Rating value={holding.loan.risk_rating} />
@@ -4406,7 +4588,7 @@ function ListHoldingModal({ holding, onClose }: { holding: Holding; onClose: () 
           <Check checked={ack} id="sm-list-ack" onChange={setAck}>
             I accept the{" "}
             <LegalDocLink category="secondary_market_listing">seller/listing terms</LegalDocLink> and
-            confirm I am listing this entire holding.
+            confirm I am {isEdit ? "updating the listing for" : "listing"} this entire holding.
           </Check>
           {!isFixturePreview && termsQuery.data ? <p className="muted" style={{ fontSize: 11.5 }}>Accepting {termsQuery.data.title} v{termsQuery.data.version_number}.</p> : null}
           <LoanSchedulePanels
@@ -4424,8 +4606,8 @@ function ListHoldingModal({ holding, onClose }: { holding: Holding; onClose: () 
         </div>
       ) : (
         <div className="col gap-16">
-          <Banner icon="lock" tone="neutral" title="Verify and publish">
-            The listing data and terms are confirmed. Enter the code sent to your email to authorize this sensitive action.
+          <Banner icon="lock" tone="neutral" title={isEdit ? "Verify and update" : "Verify and publish"}>
+            The {isEdit ? "revised listing" : "listing"} data and terms are confirmed. Enter the code sent to your email to authorize this sensitive action.
           </Banner>
           <Review rows={[
             { label: "Loan", value: holding.loan.loan_title },
@@ -4444,7 +4626,7 @@ function ListHoldingModal({ holding, onClose }: { holding: Holding; onClose: () 
             onChange={setCode}
             onRequest={codeRequest.requestCode}
           />
-          {codeRequest.error || error ? <Banner tone="bad" title="Could not list holding">{codeRequest.error || error}</Banner> : null}
+          {codeRequest.error || error ? <Banner tone="bad" title={isEdit ? "Could not update listing" : "Could not list holding"}>{codeRequest.error || error}</Banner> : null}
         </div>
       )}
     </Modal>

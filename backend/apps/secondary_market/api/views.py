@@ -23,6 +23,7 @@ from backend.apps.secondary_market.api.serializers import (
     SecondaryMarketListingApproveRequestSerializer,
     SecondaryMarketListingCancelRequestSerializer,
     SecondaryMarketListingCreateRequestSerializer,
+    SecondaryMarketListingEditRequestSerializer,
     SecondaryMarketListingListQuerySerializer,
     SecondaryMarketListingRejectRequestSerializer,
     SecondaryMarketListingRemoveRequestSerializer,
@@ -37,6 +38,7 @@ from backend.apps.secondary_market.services import (
     ApproveSecondaryMarketListingCommand,
     CancelSecondaryMarketListingCommand,
     CreateSecondaryMarketListingCommand,
+    EditSecondaryMarketListingCommand,
     PurchaseSecondaryMarketListingCommand,
     RejectSecondaryMarketListingCommand,
     RemoveSecondaryMarketListingCommand,
@@ -45,6 +47,7 @@ from backend.apps.secondary_market.services import (
     approve_secondary_market_listing,
     cancel_secondary_market_listing,
     create_secondary_market_listing,
+    edit_secondary_market_listing,
     get_active_secondary_market_listing_detail,
     list_active_secondary_market_listings,
     list_admin_secondary_market_listings,
@@ -133,6 +136,37 @@ class SecondaryMarketListingDetailView(APIView):
         except (SecondaryMarketAuthorizationError, SecondaryMarketValidationError) as exc:
             return _error_response(exc)
         return Response(payload, status=status.HTTP_200_OK)
+
+
+class SecondaryMarketListingEditView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=SecondaryMarketListingEditRequestSerializer,
+        responses={200: SecondaryMarketListingSerializer},
+    )
+    def post(self, request: Request, listing_id: str) -> Response:
+        serializer = SecondaryMarketListingEditRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            listing = edit_secondary_market_listing(
+                EditSecondaryMarketListingCommand(
+                    actor=cast(Model, request.user),
+                    listing_id=listing_id,
+                    price_bps=data["price_bps"],
+                    document_acceptance_id=str(data["document_acceptance_id"]),
+                    idempotency_key=data["idempotency_key"],
+                    sensitive_action_code_id=str(data["sensitive_action_code_id"]),
+                    sensitive_action_code=data["sensitive_action_code"],
+                    notes=data.get("notes", ""),
+                    ip_address=client_ip(request),
+                    user_agent=user_agent(request),
+                )
+            )
+        except (SecondaryMarketAuthorizationError, SecondaryMarketValidationError) as exc:
+            return _error_response(exc)
+        return Response(serialize_secondary_listing(listing), status=status.HTTP_200_OK)
 
 
 class AdminSecondaryMarketListingListView(APIView):

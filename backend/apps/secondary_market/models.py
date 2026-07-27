@@ -23,6 +23,7 @@ class SecondaryMarketListingPublicationType(models.TextChoices):
 
 class SecondaryMarketListingEventType(models.TextChoices):
     CREATED = "created", "Created"
+    EDITED = "edited", "Edited"
     AUTO_PUBLISHED = "auto_published", "Auto published"
     APPROVAL_REQUESTED = "approval_requested", "Approval requested"
     APPROVED = "approved", "Approved"
@@ -175,6 +176,8 @@ class SecondaryMarketListingEvent(AppendOnlyModel):
     new_status = models.CharField(max_length=64, blank=True)
     note = models.TextField(blank=True)
     metadata = models.JSONField(default=dict, blank=True)
+    idempotency_key = models.CharField(max_length=160, blank=True, default="")
+    request_fingerprint = models.CharField(max_length=64, blank=True, default="")
     occurred_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -185,6 +188,13 @@ class SecondaryMarketListingEvent(AppendOnlyModel):
             models.Index(fields=["holding_id", "event_type"]),
             models.Index(fields=["seller_user_id", "occurred_at"]),
             models.Index(fields=["actor_user_id", "occurred_at"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["idempotency_key"],
+                condition=~models.Q(idempotency_key=""),
+                name="unique_secondary_listing_event_idempotency_key",
+            ),
         ]
 
 

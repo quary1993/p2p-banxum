@@ -626,7 +626,7 @@ def test_read_history_endpoints_return_self_scoped_payloads(
     _create_primary_order(investor=investor, loan=loan, idempotency_key="portal-history-order")
     acceptance = _create_secondary_listing_acceptance(investor)
     listing_model = apps.get_model("secondary_market", "SecondaryMarketListing")
-    listing_model.objects.create(
+    listing = listing_model.objects.create(
         holding=holding,
         loan=loan,
         seller_user_id=investor.pk,
@@ -650,6 +650,22 @@ def test_read_history_endpoints_return_self_scoped_payloads(
         listed_at=timezone.now(),
         created_by_user_id=investor.pk,
         idempotency_key="portal-history-listing",
+    )
+    listing_event_model = apps.get_model("secondary_market", "SecondaryMarketListingEvent")
+    listing_event_model.objects.create(
+        listing=listing,
+        holding_id=holding.pk,
+        loan_id=loan.pk,
+        seller_user_id=investor.pk,
+        event_type="created",
+        actor_user_id=investor.pk,
+        actor_account_type="natural_person_lender",
+        new_status="active",
+        metadata={
+            "current_principal_minor": 8_000_00,
+            "transfer_price_minor": 8_000_00,
+            "price_bps": 10_000,
+        },
     )
     quote_model = apps.get_model("fx", "FxQuote")
     quote_model.objects.create(
@@ -677,15 +693,22 @@ def test_read_history_endpoints_return_self_scoped_payloads(
     client.force_login(cast(Any, investor))
 
     order_response = client.get("/api/v1/investor/portal/primary-orders/")
+    portfolio_response = client.get("/api/v1/investor/portal/portfolio/")
     secondary_response = client.get("/api/v1/investor/portal/secondary-market/")
     fx_response = client.get("/api/v1/investor/portal/fx/")
 
     assert order_response.status_code == 200
     assert order_response.json()["orders"][0]["loan_title"] == "History loan"
+    assert portfolio_response.status_code == 200
+    open_listing = portfolio_response.json()["holdings"][0]["open_secondary_listing"]
+    assert open_listing["id"] == str(listing.pk)
+    assert open_listing["status"] == "active"
     assert secondary_response.status_code == 200
     secondary_payload = secondary_response.json()
     assert secondary_payload["listings"][0]["seller_net_proceeds_minor"] == 798000
     assert "seller_user_id" not in secondary_payload["listings"][0]
+    assert secondary_payload["entries"][0]["action"] == "list"
+    assert secondary_payload["entries"][0]["event_type"] == "created"
     assert fx_response.status_code == 200
     assert fx_response.json()["quotes"][0]["source_currency"] == "CHF"
 

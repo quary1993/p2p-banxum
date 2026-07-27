@@ -7,6 +7,7 @@ from backend.apps.secondary_market.api.views import (
     SecondaryMarketListingApproveView,
     SecondaryMarketListingCancelView,
     SecondaryMarketListingDetailView,
+    SecondaryMarketListingEditView,
     SecondaryMarketListingListCreateView,
     SecondaryMarketListingPurchaseView,
     SecondaryMarketListingRejectView,
@@ -23,6 +24,11 @@ urlpatterns = [
         "listings/<uuid:listing_id>/",
         SecondaryMarketListingDetailView.as_view(),
         name="secondary-market-listing-detail",
+    ),
+    path(
+        "listings/<uuid:listing_id>/edit/",
+        SecondaryMarketListingEditView.as_view(),
+        name="secondary-market-listing-edit",
     ),
     path(
         "admin/listings/",

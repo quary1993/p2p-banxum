@@ -116,13 +116,15 @@ Website balances and ordinary amounts display 2 decimals. During FX quote and co
 2. For seller listings, list an entire holding only and set a sale price as a discount or premium percentage of current principal balance.
 3. Review and confirm the holding, borrower, annual interest rate, LTV where disclosed, repayment type, sale economics, investor-specific claim projection, whole-loan payment schedule, and seller/listing terms before requesting step-up authorization.
 4. After the listing data is confirmed, request a fresh email code and use it to publish a current/performing listing or submit a non-standard listing for Garanta approval. Do not request the listing code while the seller is still editing or reviewing the listing.
-5. If the holding is late, overdue, restructured, under observation, in default, in recovery, under legal enforcement, subject to a payment incident, or otherwise non-standard, submit a listing request for Garanta admin approval before it becomes visible.
-6. For purchases, review required disclosures, borrower and loan terms, loan status, days past due where applicable, current principal balance, annual interest rate, LTV where disclosed, investor-specific claim projection, whole-loan payment schedule, sale price, discount/premium, accrued interest, fees, and settlement consequences.
-7. Accept required secondary-market buyer terms and risk acknowledgements by checkbox/clickwrap. For approved non-standard listings, accept an additional risk acknowledgement before purchase.
-8. The buyer explicitly requests a fresh email code only after deciding to proceed; opening a listing must not automatically send a code. Confirm the purchase with that code.
-9. Generate secondary-market listing/purchase evidence from the immutable template/data snapshot and make it available from accepted-document history. Legal artifacts are not emailed by default.
-10. Complete assignment transfer and settlement.
-11. See updated portfolio and documents.
+5. Manage each open listing from the same `Sell a holding` row as its underlying holding. Show the listing status there and replace the create action with explicit edit and cancel actions while the listing is open. Editing reprices the existing listing, requires a fresh current terms acceptance and email code, and records an immutable edit event; cancellation removes the listing without changing the holding.
+6. If the holding is late, overdue, restructured, under observation, in default, in recovery, under legal enforcement, subject to a payment incident, or otherwise non-standard, submit a listing request for Garanta admin approval before it becomes visible. An edit to such a listing returns it to approval review.
+7. Use a unified secondary-market activity view for listing creation/edit events, listing cancellations, purchases, and sales. Default the view to purchases and sales; allow the investor to include listing/edit and cancellation history through filters. Treat listing edits as listing lifecycle activity rather than a separate financial transaction.
+8. For purchases, review required disclosures, borrower and loan terms, loan status, days past due where applicable, current principal balance, annual interest rate, LTV where disclosed, investor-specific claim projection, whole-loan payment schedule, sale price, discount/premium, accrued interest, fees, and settlement consequences.
+9. Accept required secondary-market buyer terms and risk acknowledgements by checkbox/clickwrap. For approved non-standard listings, accept an additional risk acknowledgement before purchase.
+10. The buyer explicitly requests a fresh email code only after deciding to proceed; opening a listing must not automatically send a code. Confirm the purchase with that code.
+11. Generate secondary-market listing/purchase evidence from the immutable template/data snapshot and make it available from accepted-document history. Legal artifacts are not emailed by default.
+12. Complete assignment transfer and settlement.
+13. See updated portfolio, listing/activity status, and documents.
 
 The secondary market is a bulletin-board claim/participation transfer mechanism. Sellers may list only entire holdings; splitting or partially transferring one holding is not allowed. If the seller has multiple separate holdings in the same project, each holding may be listed separately.
 

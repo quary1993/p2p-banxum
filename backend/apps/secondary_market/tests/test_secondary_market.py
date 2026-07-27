@@ -33,6 +33,7 @@ from backend.apps.secondary_market.services import (
     ApproveSecondaryMarketListingCommand,
     CancelSecondaryMarketListingCommand,
     CreateSecondaryMarketListingCommand,
+    EditSecondaryMarketListingCommand,
     PurchaseSecondaryMarketListingCommand,
     RejectSecondaryMarketListingCommand,
     SecondaryMarketAuthorizationError,
@@ -40,6 +41,7 @@ from backend.apps.secondary_market.services import (
     approve_secondary_market_listing,
     cancel_secondary_market_listing,
     create_secondary_market_listing,
+    edit_secondary_market_listing,
     list_active_secondary_market_listings,
     purchase_secondary_market_listing,
     reject_secondary_market_listing,
@@ -419,6 +421,73 @@ def test_create_performing_listing_auto_publishes_and_calculates_pricing(
     assert SecondaryMarketListingEvent.objects.filter(listing=listing).count() == 2
     assert AuditEvent.objects.filter(action="secondary_market.listing_created").exists()
     assert DomainEvent.objects.filter(event_type="SecondaryMarketListingCreated").exists()
+
+
+@pytest.mark.django_db
+def test_seller_edit_reprices_open_listing_with_fresh_evidence_and_idempotency(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_funded_loan(admin_user)
+    holding = _create_holding(admin_user, investor, loan)
+    original_acceptance = _create_listing_acceptance(investor, holding)
+    listing = create_secondary_market_listing(
+        CreateSecondaryMarketListingCommand(
+            actor=investor,
+            holding_id=str(cast(Any, holding).id),
+            price_bps=9500,
+            document_acceptance_id=str(original_acceptance.pk),
+            idempotency_key="secondary-edit-source",
+            **_sensitive_code_payload(investor, "secondary_market_listing"),
+        )
+    )
+    revised_acceptance = _create_listing_acceptance(
+        investor,
+        holding,
+        idempotency_key="secondary-edit-acceptance",
+    )
+    code = _sensitive_code_payload(investor, "secondary_market_listing")
+    command = EditSecondaryMarketListingCommand(
+        actor=investor,
+        listing_id=str(listing.id),
+        price_bps=9800,
+        document_acceptance_id=str(revised_acceptance.pk),
+        idempotency_key="secondary-edit-listing",
+        notes="Repriced after reviewing liquidity needs.",
+        **code,
+    )
+
+    edited = edit_secondary_market_listing(command)
+    replay = edit_secondary_market_listing(command)
+    listing.refresh_from_db()
+
+    assert replay.id == edited.id == listing.id
+    assert listing.status == SecondaryMarketListingStatus.ACTIVE
+    assert listing.price_bps == 9800
+    assert listing.transfer_price_minor == 9_800_00
+    assert listing.document_acceptance_id == revised_acceptance.pk
+    event = SecondaryMarketListingEvent.objects.get(
+        listing=listing,
+        event_type=SecondaryMarketListingEventType.EDITED,
+    )
+    assert event.idempotency_key == "secondary-edit-listing"
+    assert event.metadata["previous"]["price_bps"] == 9500
+    assert event.metadata["price_bps"] == 9800
+    assert AuditEvent.objects.filter(action="secondary_market.listing_edited").exists()
+    assert DomainEvent.objects.filter(event_type="SecondaryMarketListingEdited").exists()
+
+    with pytest.raises(SecondaryMarketValidationError, match="different listing edit"):
+        edit_secondary_market_listing(
+            EditSecondaryMarketListingCommand(
+                actor=investor,
+                listing_id=str(listing.id),
+                price_bps=9900,
+                document_acceptance_id=str(revised_acceptance.pk),
+                idempotency_key="secondary-edit-listing",
+                **code,
+            )
+        )
 
 
 @pytest.mark.django_db
@@ -1087,6 +1156,70 @@ def test_secondary_market_api_seller_cancel_is_owner_only(
     assert response.json()["status"] == "cancelled"
     assert response.json()["cancellation_reason"] == "Seller changed liquidity plan."
     assert listing.status == SecondaryMarketListingStatus.CANCELLED
+
+
+@pytest.mark.django_db
+def test_secondary_market_api_seller_edit_is_owner_only_and_reprices_listing(
+    admin_user: Model,
+    investor: Model,
+    other_investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    _approve_financial_access(other_investor)
+    loan = _create_funded_loan(admin_user)
+    holding = _create_holding(admin_user, investor, loan)
+    acceptance = _create_listing_acceptance(investor, holding)
+    listing = create_secondary_market_listing(
+        CreateSecondaryMarketListingCommand(
+            actor=investor,
+            holding_id=str(cast(Any, holding).id),
+            price_bps=9500,
+            document_acceptance_id=str(acceptance.pk),
+            idempotency_key="secondary-api-edit-source",
+            **_sensitive_code_payload(investor, "secondary_market_listing"),
+        )
+    )
+    revised_acceptance = _create_listing_acceptance(
+        investor,
+        holding,
+        idempotency_key="secondary-api-edit-acceptance",
+    )
+    client = Client()
+
+    client.force_login(cast(Any, other_investor))
+    forbidden = client.post(
+        f"/api/v1/marketplace/secondary/listings/{listing.id}/edit/",
+        {
+            "price_bps": 9800,
+            "document_acceptance_id": str(revised_acceptance.pk),
+            "idempotency_key": "secondary-api-edit-forbidden",
+            **_sensitive_code_payload(other_investor, "secondary_market_listing"),
+        },
+        content_type="application/json",
+    )
+
+    client.force_login(cast(Any, investor))
+    response = client.post(
+        f"/api/v1/marketplace/secondary/listings/{listing.id}/edit/",
+        {
+            "price_bps": 9800,
+            "document_acceptance_id": str(revised_acceptance.pk),
+            "idempotency_key": "secondary-api-edit-ok",
+            **_sensitive_code_payload(investor, "secondary_market_listing"),
+        },
+        content_type="application/json",
+    )
+
+    listing.refresh_from_db()
+    assert forbidden.status_code == 400
+    assert response.status_code == 200
+    assert response.json()["id"] == str(listing.id)
+    assert response.json()["price_bps"] == 9800
+    assert listing.price_bps == 9800
+    assert SecondaryMarketListingEvent.objects.filter(
+        listing=listing,
+        event_type=SecondaryMarketListingEventType.EDITED,
+    ).exists()
 
 
 @pytest.mark.django_db

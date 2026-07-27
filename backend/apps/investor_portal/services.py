@@ -792,11 +792,20 @@ def get_investor_portfolio(
             loan_schedules=schedules_by_loan_id,
         )
     )
+    listing_model = _model("secondary_market", "SecondaryMarketListing")
+    open_listings_by_holding_id = {
+        str(listing.holding_id): listing
+        for listing in listing_model.objects.filter(
+            holding_id__in=[holding.pk for holding in holdings],
+            status__in=["active", "approval_requested"],
+        ).order_by("holding_id", "-updated_at", "-id")
+    }
     holding_payloads: list[dict[str, Any]] = []
     for holding in holdings:
         loan = holding.loan
         repayment = repayment_totals.get(str(holding.pk), {})
         recovery = recovery_totals.get(str(holding.pk), {})
+        open_listing = open_listings_by_holding_id.get(str(holding.pk))
         holding_payloads.append(
             {
                 "id": str(holding.pk),
@@ -830,6 +839,22 @@ def get_investor_portfolio(
                 "recovered_penalties_minor": int(recovery.get("penalties_minor", 0)),
                 "recovered_other_costs_minor": int(recovery.get("other_costs_minor", 0)),
                 "latest_public_note": latest_notes.get(str(holding.loan_id)),
+                "open_secondary_listing": (
+                    {
+                        "id": str(open_listing.pk),
+                        "status": str(open_listing.status),
+                        "publication_type": str(open_listing.publication_type),
+                        "price_bps": int(open_listing.price_bps),
+                        "transfer_price_minor": int(open_listing.transfer_price_minor),
+                        "seller_net_proceeds_minor": int(
+                            open_listing.seller_net_proceeds_minor
+                        ),
+                        "listed_at": open_listing.listed_at,
+                        "updated_at": open_listing.updated_at,
+                    }
+                    if open_listing is not None
+                    else None
+                ),
             }
         )
     active_holdings = [
@@ -1200,8 +1225,9 @@ def get_secondary_market_activity(*, actor: Model, limit: int | None = None) -> 
     investor_user_id = _require_financial_access(actor)
     limit_value = _bounded_limit(limit)
     listing_model = _model("secondary_market", "SecondaryMarketListing")
+    listing_event_model = _model("secondary_market", "SecondaryMarketListingEvent")
     purchase_model = _model("secondary_market", "SecondaryMarketPurchase")
-    listings = [
+    listings: list[dict[str, Any]] = [
         {
             "id": str(listing.pk),
             "holding_id": str(listing.holding_id),
@@ -1230,7 +1256,7 @@ def get_secondary_market_activity(*, actor: Model, limit: int | None = None) -> 
             .order_by("-created_at", "-id")[:limit_value]
         )
     ]
-    purchases_as_buyer = [
+    purchases_as_buyer: list[dict[str, Any]] = [
         {
             "id": str(purchase.pk),
             "listing_id": str(purchase.listing_id),
@@ -1256,7 +1282,7 @@ def get_secondary_market_activity(*, actor: Model, limit: int | None = None) -> 
             .order_by("-purchased_at", "-id")[:limit_value]
         )
     ]
-    sales_as_seller = [
+    sales_as_seller: list[dict[str, Any]] = [
         {
             "id": str(purchase.pk),
             "listing_id": str(purchase.listing_id),
@@ -1279,10 +1305,81 @@ def get_secondary_market_activity(*, actor: Model, limit: int | None = None) -> 
             .order_by("-purchased_at", "-id")[:limit_value]
         )
     ]
+    entries: list[dict[str, Any]] = []
+    for event in (
+        listing_event_model.objects.filter(
+            seller_user_id=investor_user_id,
+            event_type__in=["created", "edited", "cancelled"],
+        )
+        .select_related("listing", "listing__currency", "listing__loan")
+        .order_by("-occurred_at", "-id")[:limit_value]
+    ):
+        metadata = event.metadata if isinstance(event.metadata, dict) else {}
+        listing = event.listing
+        is_cancellation = str(event.event_type) == "cancelled"
+        entries.append(
+            {
+                "id": f"listing-event:{event.pk}",
+                "action": "cancel_listing" if is_cancellation else "list",
+                "event_type": str(event.event_type),
+                "listing_id": str(listing.pk),
+                "holding_id": str(event.holding_id),
+                "loan_id": str(event.loan_id),
+                "loan_title": str(listing.loan.title),
+                "currency": _currency_code(listing.currency),
+                "principal_minor": int(
+                    metadata.get("current_principal_minor", listing.current_principal_minor)
+                ),
+                "cash_amount_minor": int(
+                    metadata.get("transfer_price_minor", listing.transfer_price_minor)
+                ),
+                "price_bps": int(metadata.get("price_bps", listing.price_bps)),
+                "status": str(event.new_status or listing.status),
+                "occurred_at": event.occurred_at,
+            }
+        )
+    entries.extend(
+        {
+            "id": f"buy:{purchase['id']}",
+            "action": "buy",
+            "event_type": "buy",
+            "listing_id": purchase["listing_id"],
+            "holding_id": purchase["buyer_holding_id"],
+            "loan_id": purchase["loan_id"],
+            "loan_title": purchase["loan_title"],
+            "currency": purchase["currency"],
+            "principal_minor": purchase["current_principal_minor"],
+            "cash_amount_minor": purchase["buyer_total_cost_minor"],
+            "price_bps": 10_000 + purchase["discount_premium_bps"],
+            "status": "completed",
+            "occurred_at": purchase["purchased_at"],
+        }
+        for purchase in purchases_as_buyer
+    )
+    entries.extend(
+        {
+            "id": f"sale:{sale['id']}",
+            "action": "sale",
+            "event_type": "sale",
+            "listing_id": sale["listing_id"],
+            "holding_id": sale["seller_holding_id"],
+            "loan_id": sale["loan_id"],
+            "loan_title": sale["loan_title"],
+            "currency": sale["currency"],
+            "principal_minor": sale["current_principal_minor"],
+            "cash_amount_minor": sale["seller_net_proceeds_minor"],
+            "price_bps": 10_000 + sale["discount_premium_bps"],
+            "status": "completed",
+            "occurred_at": sale["purchased_at"],
+        }
+        for sale in sales_as_seller
+    )
+    entries.sort(key=lambda item: item["occurred_at"], reverse=True)
     return {
         "listings": listings,
         "purchases_as_buyer": purchases_as_buyer,
         "sales_as_seller": sales_as_seller,
+        "entries": entries[:limit_value],
     }
 
 
