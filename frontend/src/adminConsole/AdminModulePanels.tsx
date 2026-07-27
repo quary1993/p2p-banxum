@@ -2396,7 +2396,7 @@ export function LoansPanel() {
               <table className="admin-table">
                 <thead>
                   <tr>
-                    <th>Loan</th>
+                    <th>Loan / borrower</th>
                     <th>Status</th>
                     <th>Funding progress</th>
                     <th>Rate</th>
@@ -2415,7 +2415,13 @@ export function LoansPanel() {
                         setSelectedBorrowerId(loan.borrower_id);
                       }}
                     >
-                      <td><strong>{loan.title}</strong><span className="mono muted">{loan.id}</span></td>
+                      <td>
+                        <div className="col gap-4 admin-loan-name-cell">
+                          <strong>{loan.title}</strong>
+                          <span className="muted">Borrower: {loan.borrower_name}</span>
+                          <span className="mono muted">{loan.id}</span>
+                        </div>
+                      </td>
                       <td><Chip tone={statusTone(loan.status)}>{labelize(loan.status)}</Chip></td>
                       <td><LoanFundingProgress loan={loan} /></td>
                       <td>{formatRateBps(loan.interest_rate_bps)}</td>
@@ -2767,6 +2773,15 @@ function OriginalScheduleInformationalViewer({
     ),
     [interestOnlyMonths, interestRateBps, principalMinor, repaymentType, startDate, termMonths]
   );
+  const totals = rows.reduce(
+    (acc, row) => {
+      acc.principal += row.principal_minor;
+      acc.interest += row.interest_minor;
+      acc.total += row.total_minor;
+      return acc;
+    },
+    { principal: 0, interest: 0, total: 0 }
+  );
   if (!rows.length) return null;
   return (
     <div className="admin-schedule-review">
@@ -2812,6 +2827,15 @@ function OriginalScheduleInformationalViewer({
               </tr>
             ))}
           </tbody>
+          <tfoot className="schedule-totals">
+            <tr>
+              <th colSpan={2}>Totals</th>
+              <th className="num"><Money amountMinor={totals.principal} currency={currency} /></th>
+              <th className="num"><Money amountMinor={totals.interest} currency={currency} /></th>
+              <th className="num"><Money amountMinor={totals.total} currency={currency} /></th>
+              <th className="num">-</th>
+            </tr>
+          </tfoot>
         </table>
       </div>
     </div>
@@ -3359,7 +3383,7 @@ function LoanScheduleReadonlyReview({
                 );
               })}
             </tbody>
-            <tfoot>
+            <tfoot className="schedule-totals">
               <tr>
                 <th colSpan={2}>Totals</th>
                 <th className="num"><Money amountMinor={totals.total} currency={loan.currency} /></th>
@@ -3519,7 +3543,7 @@ function OriginalScheduleReview({
                 );
               })}
             </tbody>
-            <tfoot>
+            <tfoot className="schedule-totals">
               <tr>
                 <th colSpan={2}>Totals</th>
                 <th>{selectedPaidCount} selected</th>
@@ -4276,6 +4300,15 @@ function ManageDisbursementForm({ loan, onDone }: { loan: Loan; onDone: () => vo
 }
 
 function AdvanceScheduleTable({ rows, currency }: { rows: AdvanceRepaymentScheduleRow[]; currency: string }) {
+  const totals = rows.reduce(
+    (acc, row) => {
+      acc.principal += row.principal_minor;
+      acc.interest += row.interest_minor;
+      acc.total += row.total_minor;
+      return acc;
+    },
+    { principal: 0, interest: 0, total: 0 }
+  );
   return (
     <div className="table-wrap admin-table-wrap">
       <table className="admin-table admin-schedule-table">
@@ -4299,6 +4332,14 @@ function AdvanceScheduleTable({ rows, currency }: { rows: AdvanceRepaymentSchedu
             </tr>
           ))}
         </tbody>
+        <tfoot className="schedule-totals">
+          <tr>
+            <th colSpan={2}>Totals</th>
+            <th className="num"><Money amountMinor={totals.principal} currency={currency} /></th>
+            <th className="num"><Money amountMinor={totals.interest} currency={currency} /></th>
+            <th className="num"><Money amountMinor={totals.total} currency={currency} /></th>
+          </tr>
+        </tfoot>
       </table>
     </div>
   );
@@ -4345,7 +4386,17 @@ function ManageBorrowerRepaymentForm({ loan, onDone }: { loan: Loan; onDone: () 
 
   const amountMinorValue = advance ? intValue(advanceAmountMinor) : defaultAmountMinor;
   let cumulativePrincipal = 0;
-  const scheduledPrincipal = scheduleRows.reduce((sum, row) => sum + row.principal_minor, 0);
+  const scheduleTotals = scheduleRows.reduce(
+    (acc, row) => {
+      acc.principal += row.principal_minor;
+      acc.interest += row.interest_minor;
+      acc.total += row.total_minor;
+      acc.remainingDue += row.outstanding_total_minor ?? row.total_minor;
+      return acc;
+    },
+    { principal: 0, interest: 0, total: 0, remainingDue: 0 }
+  );
+  const scheduledPrincipal = scheduleTotals.principal;
 
   function toggleAdvance(checked: boolean) {
     setAdvance(checked);
@@ -4453,6 +4504,16 @@ function ManageBorrowerRepaymentForm({ loan, onDone }: { loan: Loan; onDone: () 
 	                  );
                 })}
               </tbody>
+              <tfoot className="schedule-totals">
+                <tr>
+                  <th colSpan={2}>Totals</th>
+                  <th className="num"><Money amountMinor={scheduleTotals.principal} currency={loan.currency} /></th>
+                  <th className="num"><Money amountMinor={scheduleTotals.interest} currency={loan.currency} /></th>
+                  <th className="num"><Money amountMinor={scheduleTotals.total} currency={loan.currency} /></th>
+                  <th className="num"><Money amountMinor={scheduleTotals.remainingDue} currency={loan.currency} /></th>
+                  <th className="num">-</th>
+                </tr>
+              </tfoot>
             </table>
           </div>
         ) : null}

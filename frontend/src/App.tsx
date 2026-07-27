@@ -2701,6 +2701,16 @@ function LoanOverview({ loan }: { loan: MarketplaceLoanDetail }) {
 
 function OriginalLoanSection({ loan }: { loan: MarketplaceLoanDetail }) {
   const schedule = loan.original_loan_schedule ?? [];
+  const totals = schedule.reduce(
+    (acc, row) => {
+      acc.principal += row.principal_minor;
+      acc.interest += row.interest_minor;
+      acc.total += row.total_minor;
+      if (row.paid_before_publication) acc.paid += 1;
+      return acc;
+    },
+    { principal: 0, interest: 0, total: 0, paid: 0 }
+  );
   return (
     <Card className="section" padded>
       <div className="row gap-8 wrap" style={{ marginBottom: 6 }}>
@@ -2749,6 +2759,16 @@ function OriginalLoanSection({ loan }: { loan: MarketplaceLoanDetail }) {
                   </tr>
                 ))}
               </tbody>
+              <tfoot className="schedule-totals">
+                <tr>
+                  <th colSpan={2}>Totals</th>
+                  <th className="num">{formatMoneyMinor(totals.principal, loan.currency)}</th>
+                  <th className="num">{formatMoneyMinor(totals.interest, loan.currency)}</th>
+                  <th className="num">{formatMoneyMinor(totals.total, loan.currency)}</th>
+                  <th className="num">-</th>
+                  <th>{totals.paid} paid</th>
+                </tr>
+              </tfoot>
             </table>
           </div>
           <p className="muted" style={{ fontSize: 11.5, lineHeight: 1.5, marginTop: 10 }}>
@@ -3755,9 +3775,24 @@ function HoldingDetail({ holding, onClose, setRoute }: { holding: Holding; onClo
     (sum, row) => sum + row.projected_interest_minor,
     0
   );
+  const projectedPrincipalMinor = holding.investment_schedule.reduce(
+    (sum, row) => sum + row.projected_principal_minor,
+    0
+  );
   const projectedPaymentsMinor = holding.investment_schedule.reduce(
     (sum, row) => sum + row.projected_total_minor,
     0
+  );
+  const fullScheduleTotals = holding.loan.schedule.reduce(
+    (acc, row) => {
+      acc.principal += row.principal_minor;
+      acc.interest += row.interest_minor;
+      acc.total += row.total_minor;
+      acc.paid += row.paid_principal_minor + row.paid_interest_minor;
+      acc.outstanding += row.outstanding_total_minor;
+      return acc;
+    },
+    { principal: 0, interest: 0, total: 0, paid: 0, outstanding: 0 }
   );
   return (
     <Modal xwide footer={<><Button variant="ghost" onClick={onClose}>Close</Button><Button disabled={holding.loan.loan_status !== "funded"} icon="secondary" variant="primary" onClick={() => { onClose(); goTo(setRoute, "secondary"); }}>List on secondary market</Button></>} onClose={onClose} title={holding.loan.loan_title}>
@@ -3832,6 +3867,14 @@ function HoldingDetail({ holding, onClose, setRoute }: { holding: Holding; onClo
                           );
                         })}
                       </tbody>
+                      <tfoot className="schedule-totals">
+                        <tr>
+                          <th colSpan={3}>Totals</th>
+                          <th className="num"><Money amountMinor={projectedPrincipalMinor} currency={holding.currency} /></th>
+                          <th className="num"><Money amountMinor={projectedInterestMinor} currency={holding.currency} /></th>
+                          <th className="num"><Money amountMinor={projectedPaymentsMinor} currency={holding.currency} /></th>
+                        </tr>
+                      </tfoot>
                     </table>
                   </div>
                 </Card>
@@ -3884,6 +3927,16 @@ function HoldingDetail({ holding, onClose, setRoute }: { holding: Holding; onClo
                           );
                         })}
                       </tbody>
+                      <tfoot className="schedule-totals">
+                        <tr>
+                          <th colSpan={3}>Totals</th>
+                          <th className="num"><Money amountMinor={fullScheduleTotals.principal} currency={holding.currency} /></th>
+                          <th className="num"><Money amountMinor={fullScheduleTotals.interest} currency={holding.currency} /></th>
+                          <th className="num"><Money amountMinor={fullScheduleTotals.total} currency={holding.currency} /></th>
+                          <th className="num"><Money amountMinor={fullScheduleTotals.paid} currency={holding.currency} /></th>
+                          <th className="num"><Money amountMinor={fullScheduleTotals.outstanding} currency={holding.currency} /></th>
+                        </tr>
+                      </tfoot>
                     </table>
                   </div>
                 </Card>

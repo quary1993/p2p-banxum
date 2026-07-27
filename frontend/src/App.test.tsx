@@ -207,6 +207,7 @@ test("refinanced marketplace loan shows badge and informational original loan sc
   expect(screen.getByText("Original loan")).toBeInTheDocument();
   expect(screen.getByText("Original loan repayment schedule")).toBeInTheDocument();
   expect(screen.getByText(/informational only and show the loan being refinanced/i)).toBeInTheDocument();
+  expect(screen.getByRole("row", { name: /Totals/ })).toBeInTheDocument();
   // Column header plus nine installments settled before publication.
   expect(screen.getAllByText("Paid").length).toBe(10);
 });
@@ -339,14 +340,16 @@ test("holding details open in a large modal with the current loan schedule", () 
   );
   expect(within(dialog).getByText("Projection from your current holding")).toBeInTheDocument();
   expect(within(dialog).getByRole("columnheader", { name: "Projected payment" })).toBeInTheDocument();
-  expect(within(dialog).getAllByRole("row")).toHaveLength(3);
+  expect(within(dialog).getByRole("row", { name: /Totals/ })).toBeInTheDocument();
+  expect(within(dialog).getAllByRole("row")).toHaveLength(4);
 
   fireEvent.click(within(dialog).getByRole("tab", { name: "Full loan schedule" }));
 
   expect(within(dialog).getByRole("heading", { name: "Full loan schedule" })).toBeInTheDocument();
   expect(within(dialog).getByText("Whole-loan borrower obligations")).toBeInTheDocument();
   expect(within(dialog).getByRole("columnheader", { name: "Outstanding" })).toBeInTheDocument();
-  expect(within(dialog).getAllByRole("row")).toHaveLength(4);
+  expect(within(dialog).getByRole("row", { name: /Totals/ })).toBeInTheDocument();
+  expect(within(dialog).getAllByRole("row")).toHaveLength(5);
 });
 
 test("day-60 frozen state keeps read-only access visible and blocks money actions", () => {
@@ -518,10 +521,12 @@ test("loan manage modal exposes repayment declaration and refinancing publish re
   // Late fixture loan exposes the new servicing action inside Manage.
   const lateLoanRow = screen.getAllByText("Basel Riverside refurbishment")[0].closest("tr");
   expect(lateLoanRow).not.toBeNull();
+  expect(within(lateLoanRow as HTMLElement).getByText("Borrower: Helvetic Wohnbau AG")).toBeInTheDocument();
   fireEvent.click(within(lateLoanRow as HTMLElement).getByRole("button", { name: "Manage" }));
   fireEvent.click(screen.getByRole("button", { name: /Record borrower repayment/ }));
 
   expect(screen.getByText("Current repayment schedule")).toBeInTheDocument();
+  expect(screen.getByRole("row", { name: /Totals/ })).toBeInTheDocument();
   expect(screen.getByText(/Repayment in advance \(different amount\)/)).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Record repayment" })).toBeInTheDocument();
 

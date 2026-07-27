@@ -717,6 +717,7 @@ export const loansFixture: Loan[] = [
   {
     id: "loan-zug-park-ii",
     borrower_id: "borrower-helvetic-wohnbau",
+    borrower_name: "Helvetic Wohnbau AG",
     status: "published",
     title: "Zug Park II bridge facility",
     investor_summary: "Real-estate backed bridge facility secured by a first-ranking pledge over the Zug Park II project.",
@@ -763,6 +764,7 @@ export const loansFixture: Loan[] = [
   {
     id: "loan-basel-riverside",
     borrower_id: "borrower-helvetic-wohnbau",
+    borrower_name: "Helvetic Wohnbau AG",
     status: "late",
     title: "Basel Riverside refurbishment",
     investor_summary: "Refurbishment facility backed by mixed real-estate collateral.",
@@ -809,6 +811,7 @@ export const loansFixture: Loan[] = [
   ,{
     id: "loan-luzern-quartier",
     borrower_id: "borrower-ticino-immobilien",
+    borrower_name: "Ticino Immobilien AG",
     status: "defaulted",
     title: "Luzern Quartier renovation",
     investor_summary: "Renovation loan for a mixed-use property in Luzern; currently in recovery.",
@@ -855,6 +858,7 @@ export const loansFixture: Loan[] = [
   {
     id: "loan-seefeld-refi",
     borrower_id: "borrower-helvetic-wohnbau",
+    borrower_name: "Helvetic Wohnbau AG",
     status: "draft",
     title: "Seefeld refinancing takeover",
     investor_summary:

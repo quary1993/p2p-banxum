@@ -26,6 +26,7 @@ class ManualScheduleRowRequestSerializer(serializers.Serializer[Any]):
 class LoanSerializer(serializers.Serializer[Any]):
     id = serializers.UUIDField()
     borrower_id = serializers.UUIDField()
+    borrower_name = serializers.CharField(source="borrower.legal_name")
     status = serializers.CharField()
     title = serializers.CharField()
     investor_summary = serializers.CharField()

@@ -497,9 +497,11 @@ def test_loan_admin_api_create_publish_schedule_and_events(
     events_response = client.get(f"/api/v1/loans/admin/loans/{loan_id}/events/")
 
     assert create_response.status_code == 201
+    assert create_response.json()["borrower_name"] == "Loan Borrower AG"
     assert create_response.json()["ltv_bps"] == 5000
     assert list_response.status_code == 200
     assert len(list_response.json()) == 1
+    assert list_response.json()[0]["borrower_name"] == "Loan Borrower AG"
     assert schedule_response.status_code == 200
     assert len(schedule_response.json()) == 6
     assert publish_response.status_code == 200

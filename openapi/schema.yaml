@@ -8038,6 +8038,8 @@ components:
         borrower_id:
           type: string
           format: uuid
+        borrower_name:
+          type: string
         status:
           type: string
         title:
@@ -8146,6 +8148,7 @@ components:
           format: date-time
       required:
       - borrower_id
+      - borrower_name
       - borrower_success_fee_bps
       - collateral_description
       - collateral_type

@@ -2662,6 +2662,29 @@ textarea.input {
   text-align: left;
 }
 
+table.tbl tfoot.schedule-totals th,
+.admin-table tfoot.schedule-totals th {
+  background: var(--surface-2);
+  border-top: 2px solid var(--line-strong);
+  font-weight: 750;
+  vertical-align: middle;
+}
+
+table.tbl tfoot.schedule-totals th {
+  padding: 10px 12px;
+  text-align: left;
+}
+
+table.tbl tfoot.schedule-totals th.num,
+.admin-table tfoot.schedule-totals th.num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.admin-loan-name-cell {
+  min-width: 220px;
+}
+
 .admin-schedule-review {
   background: #fffefb;
   border: 1px solid var(--line);
