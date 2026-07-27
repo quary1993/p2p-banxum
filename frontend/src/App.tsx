@@ -3083,6 +3083,14 @@ function DepositModal({ currency, onClose }: { currency: string; onClose: () => 
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>Payment reference - required</div>
           <div className="codeblock"><span>{instruction.payment_reference}</span><CopyIdButton ariaLabel="Copy payment reference" id={instruction.payment_reference} label="Copy" /></div>
+          <div className="deposit-reference-guidance">
+            <Icon name="info" size={16} />
+            <span>
+              Enter this reference unchanged in the payment details or reference field of your bank
+              transfer. Missing or incorrect references may delay allocation of the funds to your
+              BANXUM account.
+            </span>
+          </div>
           <p className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>A new balance lot is created on the bank value date and starts its 30/60-day clock.</p>
           <p className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>{payload.reference_rule}</p>
         </div>

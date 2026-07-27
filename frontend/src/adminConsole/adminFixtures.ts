@@ -155,9 +155,11 @@ export const adminDashboardFixture: AdminOperationsDashboard = {
         metadata: { value_date: "2026-06-05", sender_iban: "CH93 **** 0173" }
       })
     ],
+    // Withdrawal queue items mirror the dashboard API exactly:
+    // kind="withdrawal_request", object_type="InvestorWithdrawalRequest".
     withdrawals_requested: [
       queueItem({
-        kind: "withdrawal",
+        kind: "withdrawal_request",
         id: "wd-1002",
         title: "Investor withdrawal awaiting bank execution",
         status: "requested",
@@ -165,24 +167,24 @@ export const adminDashboardFixture: AdminOperationsDashboard = {
         due_date: "2026-06-06",
         currency: "EUR",
         amount_minor: 6400000,
-        object_type: "withdrawal_request",
+        object_type: "InvestorWithdrawalRequest",
         object_id: "wd-1002",
-        metadata: { iban_verified: true, investor_reference: "INV-3021" }
+        metadata: { investor_user_id: "inv-3021", is_forced: false }
       })
     ],
     forced_withdrawals_requested: [
       queueItem({
-        kind: "forced_withdrawal",
+        kind: "withdrawal_request",
         id: "wd-forced-301",
-        title: "Day-60 forced withdrawal generated from ageing scan",
+        title: "Investor withdrawal awaiting bank execution",
         status: "requested",
         priority: "high",
         due_date: "2026-06-05",
         currency: "CHF",
         amount_minor: 3150000,
-        object_type: "withdrawal_request",
+        object_type: "InvestorWithdrawalRequest",
         object_id: "wd-forced-301",
-        metadata: { scan_date: "2026-06-05", reason: "usable_iban_available" }
+        metadata: { investor_user_id: "inv-2210", is_forced: true }
       })
     ],
     balance_ageing_actions: [

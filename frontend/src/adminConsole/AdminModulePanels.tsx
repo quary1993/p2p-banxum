@@ -123,6 +123,7 @@ import { formatDate, formatDateTime, formatMoneyMinor, formatRateBps } from "../
 import { Banner, Button, Card, Chip, Empty, Field, Modal, Money, type Tone } from "../investorPortal/ui";
 import { adminFormDefaults } from "./adminFixtures";
 import {
+  isWithdrawalQueueItem,
   useAuditEventsData,
   useAdminBorrowerLookupData,
   useAdminDocumentTemplateVersionLookupData,
@@ -239,6 +240,36 @@ function statusTone(status: string): Tone {
   if (["manual_review", "pending", "pending_review", "approval_requested", "late", "draft"].includes(status)) return "warn";
   if (["declined", "defaulted", "written_off", "locked", "closed", "restricted", "sanctions_hit"].includes(status)) return "bad";
   return "neutral";
+}
+
+function LoanFundingProgress({ loan }: { loan: Loan }) {
+  const percent =
+    loan.principal_minor > 0
+      ? Math.min(100, Math.max(0, Math.round((loan.committed_principal_minor / loan.principal_minor) * 100)))
+      : 0;
+
+  return (
+    <div className="admin-loan-funding-progress">
+      <div className="admin-loan-funding-amounts">
+        <span><Money amountMinor={loan.committed_principal_minor} currency={loan.currency} /></span>
+        <span><Money amountMinor={loan.principal_minor} currency={loan.currency} /></span>
+      </div>
+      <div
+        aria-label={`Funding progress for ${loan.title}`}
+        aria-valuemax={100}
+        aria-valuemin={0}
+        aria-valuenow={percent}
+        className="admin-loan-funding-bar"
+        role="progressbar"
+      >
+        <span style={{ width: `${percent}%` }} />
+      </div>
+      <div className="admin-loan-funding-caption">
+        <span>Funded</span>
+        <span>Total · {percent}% funded</span>
+      </div>
+    </div>
+  );
 }
 
 function FieldGrid({ children }: { children: ReactNode }) {
@@ -1556,7 +1587,7 @@ function FinancePendingTasksTable({
                   <td className="mono">{item.due_at ? formatDateTime(item.due_at) : item.due_date ? formatDate(item.due_date) : "-"}</td>
                   <td>{item.amount_minor === null ? <span className="muted">-</span> : <Money amountMinor={item.amount_minor} currency={item.currency} />}</td>
                   <td>
-                    {item.object_type === "withdrawal_request" ? (
+                    {isWithdrawalQueueItem(item) ? (
                       <Button onClick={() => selectWithdrawal(item)} size="sm">Resolve</Button>
                     ) : (
                       <span className="muted">Open from dashboard</span>
@@ -2367,7 +2398,7 @@ export function LoansPanel() {
                   <tr>
                     <th>Loan</th>
                     <th>Status</th>
-                    <th>Amount</th>
+                    <th>Funding progress</th>
                     <th>Rate</th>
                     <th>LTV</th>
                     <th>Funding deadline</th>
@@ -2386,7 +2417,7 @@ export function LoansPanel() {
                     >
                       <td><strong>{loan.title}</strong><span className="mono muted">{loan.id}</span></td>
                       <td><Chip tone={statusTone(loan.status)}>{labelize(loan.status)}</Chip></td>
-                      <td><Money amountMinor={loan.principal_minor} currency={loan.currency} /></td>
+                      <td><LoanFundingProgress loan={loan} /></td>
                       <td>{formatRateBps(loan.interest_rate_bps)}</td>
                       <td>{loan.ltv_bps === null ? "-" : formatRateBps(loan.ltv_bps)}</td>
                       <td>{formatDate(loan.funding_deadline)}</td>

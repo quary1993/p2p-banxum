@@ -76,6 +76,19 @@ export function adminPreviewQuery<T>(fixture: T) {
 
 const emptyLookupFixture: AdminLookupResult[] = [];
 
+export function isWithdrawalQueueItem(item: {
+  kind: string;
+  object_type: string;
+}): boolean {
+  // The dashboard API emits kind="withdrawal_request" with
+  // object_type="InvestorWithdrawalRequest" (the model name). Accept either so
+  // the executable-withdrawal affordances cannot silently disappear again if
+  // one of the two fields changes shape.
+  return (
+    item.object_type === "InvestorWithdrawalRequest" || item.kind === "withdrawal_request"
+  );
+}
+
 function lookupEnabled(params: { q?: string; iban?: string } | undefined, enabled = true) {
   const qReady = (params?.q ?? "").trim().length >= 3;
   const ibanReady = (params?.iban ?? "").replace(/\s/g, "").length >= 3;

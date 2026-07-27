@@ -370,6 +370,10 @@ test("admin module navigation renders operational panels", () => {
   fireEvent.click(screen.getByRole("button", { name: "Loans" }));
   expect(screen.getByRole("heading", { name: "Borrowers" })).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "Servicing operations" })).toBeInTheDocument();
+  expect(screen.getByRole("progressbar", { name: "Funding progress for Zug Park II bridge facility" })).toHaveAttribute(
+    "aria-valuenow",
+    "70"
+  );
 
   fireEvent.click(screen.getByRole("button", { name: "Reports" }));
   expect(screen.getByRole("heading", { name: "Report generation" })).toBeInTheDocument();
@@ -384,6 +388,23 @@ test("admin module navigation renders operational panels", () => {
   expect(screen.getByRole("heading", { name: "Document templates" })).toBeInTheDocument();
 });
 
+test("deposit instructions explain how to use the required payment reference", () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  fireEvent.click(screen.getByRole("button", { name: /^Balances/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Deposit funds" }));
+
+  expect(screen.getByText("Payment reference - required")).toBeInTheDocument();
+  expect(screen.getByText(/enter this reference unchanged in the payment details/i)).toBeInTheDocument();
+  expect(screen.getByText(/may delay allocation of the funds/i)).toBeInTheDocument();
+});
+
 test("withdrawal dashboard drawer contains the executable withdrawal form", () => {
   renderApp("/admin");
 
@@ -395,6 +416,22 @@ test("withdrawal dashboard drawer contains the executable withdrawal form", () =
   expect(screen.getByRole("button", { name: "Finalize withdrawal" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Cancel before execution" })).toBeInTheDocument();
   expect(screen.queryByText("Module action deferred")).not.toBeInTheDocument();
+});
+
+test("finance ops pending table resolves a withdrawal into the prefilled execution form", () => {
+  renderApp("/admin");
+
+  fireEvent.click(screen.getByRole("button", { name: "Finance ops" }));
+  const resolveButtons = screen.getAllByRole("button", { name: "Resolve" });
+  // Both the requested and the forced withdrawal queue rows must be resolvable.
+  expect(resolveButtons.length).toBe(2);
+  // The second row is the forced withdrawal; resolving it must prefill the
+  // execution form with that withdrawal id (not the preview default).
+  fireEvent.click(resolveButtons[1]);
+
+  expect(screen.getByRole("heading", { name: "Withdrawal execution" })).toBeInTheDocument();
+  expect(screen.getByDisplayValue("wd-forced-301")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Finalize withdrawal" })).toBeInTheDocument();
 });
 
 test("loan manage modal exposes repayment declaration and refinancing publish review", () => {

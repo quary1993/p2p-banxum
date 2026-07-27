@@ -38,7 +38,7 @@ import {
   WithdrawalExecutionForm
 } from "./AdminModulePanels";
 import { AdminTasksPanel } from "./AdminTasksPanel";
-import { useAdminOperationsDashboardData } from "./data";
+import { isWithdrawalQueueItem, useAdminOperationsDashboardData } from "./data";
 
 const platformName = import.meta.env.VITE_PLATFORM_BRAND_NAME ?? "BANXUM";
 const operatorName = import.meta.env.VITE_LEGAL_OPERATOR_NAME ?? "Garanta Finanzgruppe AG";
@@ -875,7 +875,7 @@ function AdminQueueDrawer({
 }) {
   const metadata = metadataEntries(item.metadata);
   const queryClient = useQueryClient();
-  const isWithdrawal = item.object_type === "withdrawal_request";
+  const isWithdrawal = isWithdrawalQueueItem(item);
 
   return (
     <Modal drawer title={item.title} onClose={onClose}>

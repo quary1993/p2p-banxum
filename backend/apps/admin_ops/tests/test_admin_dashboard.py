@@ -328,6 +328,14 @@ def test_admin_dashboard_aggregates_daily_operations(
     assert chf_summary["pending_bank_operation_minor"] == 250_00
     assert dashboard["queues"]["admin_tasks"][0]["title"] == "Review unmatched bank inflow"
     assert dashboard["queues"]["kyc_reviews"][0]["status"] == "pep_hit"
+    # The admin console keys the executable-withdrawal drawer and the finance
+    # pending-work "Resolve" action on this exact kind/object_type pairing.
+    withdrawal_item = dashboard["queues"]["withdrawals_requested"][0]
+    assert withdrawal_item["kind"] == "withdrawal_request"
+    assert withdrawal_item["object_type"] == "InvestorWithdrawalRequest"
+    forced_item = dashboard["queues"]["forced_withdrawals_requested"][0]
+    assert forced_item["kind"] == "withdrawal_request"
+    assert forced_item["object_type"] == "InvestorWithdrawalRequest"
     assert dashboard["queues"]["balance_ageing_actions"][0]["kind"] == "balance_lot_overdue"
     assert dashboard["queues"]["servicing_due"][0]["amount_minor"] == 1_100_00
     assert dashboard["queues"]["failed_emails"][0]["metadata"]["attempts"] == 8

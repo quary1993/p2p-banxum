@@ -251,3 +251,16 @@ Each entry should include:
   `borrower_document` kind) and replace the loan-detail Documents tab's copy-ID affordance
   with a real download button; add the matching admin-side download in the borrower
   documents workspace.
+
+## Admin dashboard queue fixtures drift from the dashboard API (2026-07-27)
+
+- Screen: Admin dashboard queues + Finance ops pending table (preview mode).
+- Current first-version behavior: the withdrawal queue fixtures now mirror the API
+  exactly (kind `withdrawal_request`, object_type `InvestorWithdrawalRequest`) after a
+  drifted fixture masked a broken executable-withdrawal gate. Other queue fixtures still
+  use lowercase object types (`kyc_case`, `loan`, `bank_operation`, ...) that do not match
+  the dashboard serializer's model names (`KycVerificationCase`, `Loan`, ...).
+- Required admin-console improvement: align all remaining queue fixtures with the
+  dashboard API payload shapes so preview-mode tests exercise the same field values the
+  live console receives; consider generating fixtures from the serializer.
+- Priority: important.

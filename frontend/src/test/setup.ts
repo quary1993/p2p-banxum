@@ -9,6 +9,9 @@ beforeAll(() => {
     value: vi.fn(),
     writable: true
   });
+  // jsdom does not implement scrollIntoView; the finance pending-work table
+  // scrolls to the withdrawal execution form after "Resolve" is clicked.
+  Element.prototype.scrollIntoView = vi.fn();
   server.listen({ onUnhandledRequest: "error" });
 });
 
