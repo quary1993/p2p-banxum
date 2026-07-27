@@ -51,6 +51,8 @@ import type {
   PublicDocumentTemplateVersion,
   SecondaryListingPortal,
   SecondaryMarketBuyerListing,
+  SecondaryMarketInvestmentInstallment,
+  SecondaryMarketLoanInstallment,
   UserSummary
 } from "./api/generated/banxumApi";
 import {
@@ -66,6 +68,7 @@ import {
   usePortfolioData,
   usePrimaryOrdersData,
   useSecondaryActivityData,
+  useSecondaryListingDetailData,
   useSecondaryListingsData,
   isFixturePreview
 } from "./investorPortal/data";
@@ -721,6 +724,7 @@ function CodeRequestField({
     <Field hint={hint} label={label}>
       <div className={requestLabel ? "code-request-row" : undefined}>
         <input
+          aria-label={label}
           autoComplete="one-time-code"
           className="input mono"
           inputMode="numeric"
@@ -2103,7 +2107,7 @@ function InvestorShell({
       case "portfolio":
         return <PortfolioScreen setRoute={setRoute} />;
       case "secondary":
-        return <SecondaryMarketScreen demoState={demoState} />;
+        return <SecondaryMarketScreen demoState={demoState} initialTab={route.params?.tab} />;
       case "balances":
         return <BalancesScreen demoState={demoState} />;
       case "fx":
@@ -3765,37 +3769,174 @@ function OrdersTable({ orders }: { orders: PrimaryOrderPortal[] }) {
   );
 }
 
-function HoldingDetail({ holding, onClose, setRoute }: { holding: Holding; onClose: () => void; setRoute: (route: AppRoute) => void }) {
-  const impaired = ["late", "defaulted", "written_off"].includes(holding.loan.loan_status);
-  const contractualProjectionUnavailable = ["defaulted", "written_off"].includes(
-    holding.loan.loan_status
-  );
+function LoanSchedulePanels({
+  currency,
+  currentPrincipalMinor,
+  investmentSchedule,
+  loanSchedule,
+  loanStatus,
+  projectionBannerTitle = "Projection from your current holding",
+  projectionDescription,
+  projectionTitle = "Your investment schedule",
+  scheduleVersion
+}: {
+  currency: string;
+  currentPrincipalMinor: number;
+  investmentSchedule: SecondaryMarketInvestmentInstallment[];
+  loanSchedule: SecondaryMarketLoanInstallment[];
+  loanStatus: string;
+  projectionBannerTitle?: string;
+  projectionDescription: ReactNode;
+  projectionTitle?: string;
+  scheduleVersion: number;
+}) {
   const [scheduleTab, setScheduleTab] = useState<"investment" | "loan">("investment");
-  const projectedInterestMinor = holding.investment_schedule.reduce(
-    (sum, row) => sum + row.projected_interest_minor,
-    0
+  const contractualProjectionUnavailable = ["defaulted", "written_off"].includes(loanStatus);
+  const projectedTotals = investmentSchedule.reduce(
+    (totals, row) => ({
+      principal: totals.principal + row.projected_principal_minor,
+      interest: totals.interest + row.projected_interest_minor,
+      total: totals.total + row.projected_total_minor
+    }),
+    { principal: 0, interest: 0, total: 0 }
   );
-  const projectedPrincipalMinor = holding.investment_schedule.reduce(
-    (sum, row) => sum + row.projected_principal_minor,
-    0
-  );
-  const projectedPaymentsMinor = holding.investment_schedule.reduce(
-    (sum, row) => sum + row.projected_total_minor,
-    0
-  );
-  const fullScheduleTotals = holding.loan.schedule.reduce(
-    (acc, row) => {
-      acc.principal += row.principal_minor;
-      acc.interest += row.interest_minor;
-      acc.total += row.total_minor;
-      acc.paid += row.paid_principal_minor + row.paid_interest_minor;
-      acc.outstanding += row.outstanding_total_minor;
-      return acc;
-    },
+  const fullScheduleTotals = loanSchedule.reduce(
+    (totals, row) => ({
+      principal: totals.principal + row.principal_minor,
+      interest: totals.interest + row.interest_minor,
+      total: totals.total + row.total_minor,
+      paid: totals.paid + row.paid_principal_minor + row.paid_interest_minor,
+      outstanding: totals.outstanding + row.outstanding_total_minor
+    }),
     { principal: 0, interest: 0, total: 0, paid: 0, outstanding: 0 }
   );
+
   return (
-    <Modal xwide footer={<><Button variant="ghost" onClick={onClose}>Close</Button><Button disabled={holding.loan.loan_status !== "funded"} icon="secondary" variant="primary" onClick={() => { onClose(); goTo(setRoute, "secondary"); }}>List on secondary market</Button></>} onClose={onClose} title={holding.loan.loan_title}>
+    <section className="holding-schedule">
+      <Tabs
+        onChange={setScheduleTab}
+        tabs={[
+          { value: "investment", label: projectionTitle },
+          { value: "loan", label: "Full loan schedule" }
+        ]}
+        value={scheduleTab}
+      />
+      {scheduleTab === "investment" ? (
+        <div className="col gap-16 holding-schedule-panel" role="tabpanel">
+          <div className="grid grid-3">
+            <Card padded><Stat amountMinor={currentPrincipalMinor} currency={currency} label="Outstanding principal" /></Card>
+            <Card padded><Stat amountMinor={projectedTotals.interest} currency={currency} label="Projected remaining interest" /></Card>
+            <Card padded><Stat amountMinor={projectedTotals.total} currency={currency} label="Projected repayments" /></Card>
+          </div>
+          <Banner tone="neutral" title={projectionBannerTitle}>
+            {projectionDescription}
+          </Banner>
+          {investmentSchedule.length === 0 ? (
+            contractualProjectionUnavailable ? (
+              <Banner tone="warn" title="Contractual projection no longer applies">
+                This loan is in a non-performing or loss-resolution state, so its original contractual dates are not a reliable projection of future payments. Review public recovery updates and credited recoveries instead.
+              </Banner>
+            ) : currentPrincipalMinor > 0 ? (
+              <Banner tone="bad" title="Investment projection unavailable">
+                The current claim could not be reconciled to the active loan schedule. No estimated cash flows are shown. Contact support if this persists.
+              </Banner>
+            ) : (
+              <Card className="section"><Empty icon="clock" title="No outstanding scheduled payments">This claim has no projected remaining contractual payments.</Empty></Card>
+            )
+          ) : (
+            <Card className="section">
+              <div className="tbl-wrap">
+                <table className="tbl investment-schedule-table">
+                  <thead>
+                    <tr><th>#</th><th>Due date</th><th>Status</th><th className="num">Principal</th><th className="num">Interest</th><th className="num">Projected payment</th></tr>
+                  </thead>
+                  <tbody>
+                    {investmentSchedule.map((row) => {
+                      const tone = row.status === "overdue" ? "bad" : row.status === "due" ? "warn" : "neutral";
+                      return (
+                        <tr key={row.loan_installment_id}>
+                          <td className="mono">{row.installment_number}</td>
+                          <td>{formatDate(row.due_date)}</td>
+                          <td><Chip dot={false} tone={tone}>{humanizeToken(row.status)}</Chip></td>
+                          <td className="num"><Money amountMinor={row.projected_principal_minor} currency={currency} /></td>
+                          <td className="num"><Money amountMinor={row.projected_interest_minor} currency={currency} /></td>
+                          <td className="num col-strong"><Money amountMinor={row.projected_total_minor} currency={currency} /></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot className="schedule-totals">
+                    <tr>
+                      <th colSpan={3}>Totals</th>
+                      <th className="num"><Money amountMinor={projectedTotals.principal} currency={currency} /></th>
+                      <th className="num"><Money amountMinor={projectedTotals.interest} currency={currency} /></th>
+                      <th className="num"><Money amountMinor={projectedTotals.total} currency={currency} /></th>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </Card>
+          )}
+        </div>
+      ) : (
+        <div className="col gap-16 holding-schedule-panel" role="tabpanel">
+          <div className="section-head">
+            <div><h2>Full loan schedule</h2><div className="ph-sub">Current server schedule, version {scheduleVersion}.</div></div>
+          </div>
+          <Banner tone="neutral" title="Whole-loan borrower obligations">
+            These are the scheduled amounts for the entire loan and include what the borrower has already paid. They are not the cash flows for only this claim.
+          </Banner>
+          {loanSchedule.length === 0 ? (
+            <Card className="section"><Empty icon="clock" title="Schedule unavailable">No current repayment schedule rows are available for this loan.</Empty></Card>
+          ) : (
+            <Card className="section">
+              <div className="tbl-wrap">
+                <table className="tbl holding-schedule-table">
+                  <thead>
+                    <tr><th>#</th><th>Due date</th><th>Status</th><th className="num">Principal</th><th className="num">Interest</th><th className="num">Instalment</th><th className="num">Paid</th><th className="num">Outstanding</th></tr>
+                  </thead>
+                  <tbody>
+                    {loanSchedule.map((row) => {
+                      const paidMinor = row.paid_principal_minor + row.paid_interest_minor;
+                      const tone = row.status === "paid" ? "ok" : row.status === "overdue" ? "bad" : row.status === "due" ? "warn" : "neutral";
+                      return (
+                        <tr key={row.id}>
+                          <td className="mono">{row.installment_number}</td>
+                          <td>{formatDate(row.due_date)}</td>
+                          <td><Chip dot={false} tone={tone}>{humanizeToken(row.status)}</Chip></td>
+                          <td className="num"><Money amountMinor={row.principal_minor} currency={currency} /></td>
+                          <td className="num"><Money amountMinor={row.interest_minor} currency={currency} /></td>
+                          <td className="num col-strong"><Money amountMinor={row.total_minor} currency={currency} /></td>
+                          <td className="num"><Money amountMinor={paidMinor} currency={currency} /></td>
+                          <td className="num"><Money amountMinor={row.outstanding_total_minor} currency={currency} /></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot className="schedule-totals">
+                    <tr>
+                      <th colSpan={3}>Totals</th>
+                      <th className="num"><Money amountMinor={fullScheduleTotals.principal} currency={currency} /></th>
+                      <th className="num"><Money amountMinor={fullScheduleTotals.interest} currency={currency} /></th>
+                      <th className="num"><Money amountMinor={fullScheduleTotals.total} currency={currency} /></th>
+                      <th className="num"><Money amountMinor={fullScheduleTotals.paid} currency={currency} /></th>
+                      <th className="num"><Money amountMinor={fullScheduleTotals.outstanding} currency={currency} /></th>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </Card>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function HoldingDetail({ holding, onClose, setRoute }: { holding: Holding; onClose: () => void; setRoute: (route: AppRoute) => void }) {
+  const impaired = ["late", "defaulted", "written_off"].includes(holding.loan.loan_status);
+  return (
+    <Modal xwide footer={<><Button variant="ghost" onClick={onClose}>Close</Button><Button disabled={holding.loan.loan_status !== "funded"} icon="secondary" variant="primary" onClick={() => { onClose(); goTo(setRoute, "secondary", { tab: "sell" }); }}>List on secondary market</Button></>} onClose={onClose} title={holding.loan.loan_title}>
       <div className="col gap-16">
         <div className="row gap-8 wrap"><Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} /><Rating value={holding.loan.risk_rating} /><Country code={holding.loan.borrower_country} />{holding.loan.is_refinancing ? <RefinancedTag full /> : null}<CopyIdButton ariaLabel="Copy loan ID" id={holding.loan.loan_id} label="Copy loan ID" /></div>
         <div className="sub">Borrower: {holding.loan.borrower_name}</div>
@@ -3807,143 +3948,15 @@ function HoldingDetail({ holding, onClose, setRoute }: { holding: Holding; onClo
           <Card padded><Stat label="Rate / term" raw={`${formatRateBps(holding.loan.interest_rate_bps)} / ${holding.loan.term_months}mo`} /></Card>
         </div>
         {holding.latest_public_note ? <Card padded><div className="eyebrow" style={{ marginBottom: 6 }}>Public note from Garanta</div><p className="muted-2">{holding.latest_public_note.title}</p><div className="sub">{formatDate(holding.latest_public_note.occurred_at)}</div></Card> : null}
-        <section className="holding-schedule">
-          <Tabs
-            onChange={setScheduleTab}
-            tabs={[
-              { value: "investment", label: "Your investment schedule" },
-              { value: "loan", label: "Full loan schedule" }
-            ]}
-            value={scheduleTab}
-          />
-          {scheduleTab === "investment" ? (
-            <div className="col gap-16 holding-schedule-panel" role="tabpanel">
-              <div className="grid grid-3">
-                <Card padded><Stat amountMinor={holding.current_principal_minor} currency={holding.currency} label="Outstanding principal" /></Card>
-                <Card padded><Stat amountMinor={projectedInterestMinor} currency={holding.currency} label="Projected remaining interest" /></Card>
-                <Card padded><Stat amountMinor={projectedPaymentsMinor} currency={holding.currency} label="Projected repayments" /></Card>
-              </div>
-              <Banner tone="neutral" title="Projection from your current holding">
-                This is your projected share of the loan&apos;s remaining borrower payments. It uses your current outstanding principal and the same deterministic rounding method used for actual lender distributions. Amounts can change after repayments in advance, holding transfers, recoveries, or schedule revisions.
-              </Banner>
-              {holding.investment_schedule.length === 0 ? (
-                contractualProjectionUnavailable ? (
-                  <Banner tone="warn" title="Contractual projection no longer applies">
-                    This loan is in a non-performing or loss-resolution state, so its original contractual dates are not a reliable projection of future payments. Review public recovery updates and credited recoveries instead.
-                  </Banner>
-                ) : holding.current_principal_minor > 0 ? (
-                  <Banner tone="bad" title="Investment projection unavailable">
-                    The current holding could not be reconciled to the active loan schedule. No estimated cash flows are shown. Contact support if this persists.
-                  </Banner>
-                ) : (
-                  <Card className="section"><Empty icon="clock" title="No outstanding scheduled payments">This holding has no projected remaining contractual payments.</Empty></Card>
-                )
-              ) : (
-                <Card className="section">
-                  <div className="tbl-wrap">
-                    <table className="tbl investment-schedule-table">
-                      <thead>
-                        <tr>
-                          <th>#</th>
-                          <th>Due date</th>
-                          <th>Status</th>
-                          <th className="num">Principal</th>
-                          <th className="num">Interest</th>
-                          <th className="num">Projected payment</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {holding.investment_schedule.map((row) => {
-                          const tone = row.status === "overdue" ? "bad" : row.status === "due" ? "warn" : "neutral";
-                          return (
-                            <tr key={row.loan_installment_id}>
-                              <td className="mono">{row.installment_number}</td>
-                              <td>{formatDate(row.due_date)}</td>
-                              <td><Chip dot={false} tone={tone}>{humanizeToken(row.status)}</Chip></td>
-                              <td className="num"><Money amountMinor={row.projected_principal_minor} currency={holding.currency} /></td>
-                              <td className="num"><Money amountMinor={row.projected_interest_minor} currency={holding.currency} /></td>
-                              <td className="num col-strong"><Money amountMinor={row.projected_total_minor} currency={holding.currency} /></td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                      <tfoot className="schedule-totals">
-                        <tr>
-                          <th colSpan={3}>Totals</th>
-                          <th className="num"><Money amountMinor={projectedPrincipalMinor} currency={holding.currency} /></th>
-                          <th className="num"><Money amountMinor={projectedInterestMinor} currency={holding.currency} /></th>
-                          <th className="num"><Money amountMinor={projectedPaymentsMinor} currency={holding.currency} /></th>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
-                </Card>
-              )}
-            </div>
-          ) : (
-            <div className="col gap-16 holding-schedule-panel" role="tabpanel">
-              <div className="section-head">
-                <div>
-                  <h2>Full loan schedule</h2>
-                  <div className="ph-sub">Current server schedule, version {holding.loan.schedule_version}.</div>
-                </div>
-              </div>
-              <Banner tone="neutral" title="Whole-loan borrower obligations">
-                These are the scheduled amounts for the entire loan and include what the borrower has already paid. They are not the cash flows for only your holding.
-              </Banner>
-              {holding.loan.schedule.length === 0 ? (
-                <Card className="section"><Empty icon="clock" title="Schedule unavailable">No current repayment schedule rows are available for this loan.</Empty></Card>
-              ) : (
-                <Card className="section">
-                  <div className="tbl-wrap">
-                    <table className="tbl holding-schedule-table">
-                      <thead>
-                        <tr>
-                          <th>#</th>
-                          <th>Due date</th>
-                          <th>Status</th>
-                          <th className="num">Principal</th>
-                          <th className="num">Interest</th>
-                          <th className="num">Instalment</th>
-                          <th className="num">Paid</th>
-                          <th className="num">Outstanding</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {holding.loan.schedule.map((row) => {
-                          const paidMinor = row.paid_principal_minor + row.paid_interest_minor;
-                          const tone = row.status === "paid" ? "ok" : row.status === "overdue" ? "bad" : row.status === "due" ? "warn" : "neutral";
-                          return (
-                            <tr key={row.id}>
-                              <td className="mono">{row.installment_number}</td>
-                              <td>{formatDate(row.due_date)}</td>
-                              <td><Chip dot={false} tone={tone}>{humanizeToken(row.status)}</Chip></td>
-                              <td className="num"><Money amountMinor={row.principal_minor} currency={holding.currency} /></td>
-                              <td className="num"><Money amountMinor={row.interest_minor} currency={holding.currency} /></td>
-                              <td className="num col-strong"><Money amountMinor={row.total_minor} currency={holding.currency} /></td>
-                              <td className="num"><Money amountMinor={paidMinor} currency={holding.currency} /></td>
-                              <td className="num"><Money amountMinor={row.outstanding_total_minor} currency={holding.currency} /></td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                      <tfoot className="schedule-totals">
-                        <tr>
-                          <th colSpan={3}>Totals</th>
-                          <th className="num"><Money amountMinor={fullScheduleTotals.principal} currency={holding.currency} /></th>
-                          <th className="num"><Money amountMinor={fullScheduleTotals.interest} currency={holding.currency} /></th>
-                          <th className="num"><Money amountMinor={fullScheduleTotals.total} currency={holding.currency} /></th>
-                          <th className="num"><Money amountMinor={fullScheduleTotals.paid} currency={holding.currency} /></th>
-                          <th className="num"><Money amountMinor={fullScheduleTotals.outstanding} currency={holding.currency} /></th>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
-                </Card>
-              )}
-            </div>
-          )}
-        </section>
+        <LoanSchedulePanels
+          currency={holding.currency}
+          currentPrincipalMinor={holding.current_principal_minor}
+          investmentSchedule={holding.investment_schedule}
+          loanSchedule={holding.loan.schedule}
+          loanStatus={holding.loan.loan_status}
+          projectionDescription={<>This is your projected share of the loan&apos;s remaining borrower payments. It uses your current outstanding principal and the same deterministic rounding method used for actual lender distributions. Amounts can change after repayments in advance, holding transfers, recoveries, or schedule revisions.</>}
+          scheduleVersion={holding.loan.schedule_version}
+        />
         {holding.loan.loan_status === "defaulted" ? <RecoverySplitView /> : null}
       </div>
     </Modal>
@@ -3972,18 +3985,25 @@ function RecoverySplitView() {
   );
 }
 
-function SecondaryMarketScreen({ demoState }: { demoState: DemoAccountState }) {
+function SecondaryMarketScreen({ demoState, initialTab }: { demoState: DemoAccountState; initialTab?: string }) {
   const listingsQuery = useSecondaryListingsData();
   const activityQuery = useSecondaryActivityData();
   const portfolioQuery = usePortfolioData(true);
   const listings = listingsQuery.data ?? [];
   const activity = activityQuery.data;
   const portfolio = portfolioQuery.data;
-  const [tab, setTab] = useState<"browse" | "sell" | "mine">("browse");
+  const resolvedInitialTab = initialTab === "sell" || initialTab === "mine" ? initialTab : "browse";
+  const [tab, setTab] = useState<"browse" | "sell" | "mine">(resolvedInitialTab);
   const [buy, setBuy] = useState<SecondaryMarketBuyerListing | null>(null);
   const [sell, setSell] = useState<Holding | null>(null);
   const frozen = demoState === "frozen";
   const sellable = portfolio?.holdings.filter((holding) => holding.current_principal_minor > 0) ?? [];
+
+  useEffect(() => {
+    if (initialTab === "browse" || initialTab === "sell" || initialTab === "mine") {
+      setTab(initialTab);
+    }
+  }, [initialTab]);
 
   return (
     <main className="content">
@@ -4095,6 +4115,8 @@ function MyListingsTable({ listings }: { listings: SecondaryListingPortal[] }) {
 
 function BuyListingModal({ listing, onClose }: { listing: SecondaryMarketBuyerListing; onClose: () => void }) {
   const queryClient = useQueryClient();
+  const detailQuery = useSecondaryListingDetailData(listing.id);
+  const detail = detailQuery.data;
   const [ack, setAck] = useState(false);
   const [extraAck, setExtraAck] = useState(false);
   const [code, setCode] = useState("");
@@ -4106,7 +4128,6 @@ function BuyListingModal({ listing, onClose }: { listing: SecondaryMarketBuyerLi
   const acceptanceMutation = useV1DocumentsAcceptancesCreate();
   const purchaseMutation = useV1MarketplaceSecondaryListingsPurchaseCreate();
   const codeRequest = useSensitiveActionCode(ActionEnum.secondary_market_purchase);
-  useAutoRequestEmailCode(codeRequest, !done);
   const termsQuery = useV1DocumentsTemplatesCurrentRetrieve(
     { category: CategoryEnum.secondary_market_purchase },
     { query: { enabled: !isFixturePreview, retry: false } }
@@ -4165,18 +4186,62 @@ function BuyListingModal({ listing, onClose }: { listing: SecondaryMarketBuyerLi
   if (done) {
     return <Modal footer={<Button variant="primary" onClick={onClose}>Done</Button>} onClose={onClose} title="Purchase confirmed"><SuccessState title="Purchase confirmed">The holding will appear in your portfolio after settlement evidence is generated.</SuccessState></Modal>;
   }
+  if (!detail) {
+    return (
+      <Modal xwide footer={<Button variant="ghost" onClick={onClose}>Close</Button>} onClose={onClose} title={`Buy ${listing.loan_title}`}>
+        {detailQuery.isError ? (
+          <DataErrorCard title="Could not load listing details" onRetry={() => void detailQuery.refetch()}>
+            The loan economics and current schedules must be loaded before you can review this purchase.
+          </DataErrorCard>
+        ) : (
+          <LoadingCard title="Loading listing details">Fetching the current loan and claim schedules.</LoadingCard>
+        )}
+      </Modal>
+    );
+  }
+  const projectedInterestMinor = detail.investment_schedule.reduce(
+    (sum, row) => sum + row.projected_interest_minor,
+    0
+  );
   return (
-    <Modal wide footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!ack || (needsExtra && !extraAck) || code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || acceptanceMutation.isPending || purchaseMutation.isPending} variant="primary" onClick={submitPurchase}>{acceptanceMutation.isPending || purchaseMutation.isPending ? "Submitting..." : "Confirm purchase"}</Button></>} onClose={onClose} title={`Buy ${listing.loan_title}`}>
+    <Modal xwide footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!ack || (needsExtra && !extraAck) || code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || acceptanceMutation.isPending || purchaseMutation.isPending} variant="primary" onClick={submitPurchase}>{acceptanceMutation.isPending || purchaseMutation.isPending ? "Submitting..." : "Confirm purchase"}</Button></>} onClose={onClose} title={`Buy ${listing.loan_title}`}>
       <div className="col gap-16">
         {needsExtra ? <Banner tone="bad" title="Non-standard listing - elevated risk">This listing is non-performing or otherwise non-standard. You may receive less than the principal shown, or nothing.</Banner> : null}
+        <div className="row gap-8 wrap">
+          <Chip status={detail.loan_status_at_listing} tone={statusTone(detail.loan_status_at_listing)} />
+          <Rating value={detail.risk_rating} />
+          <Country code={detail.borrower_country} />
+          <CopyIdButton ariaLabel="Copy listing ID" id={detail.id} label="Copy listing ID" />
+        </div>
+        <div className="sub">Borrower: {detail.borrower_name} · {humanizeToken(detail.purpose)}</div>
+        <div className="grid grid-4">
+          <Card padded><Stat amountMinor={detail.current_principal_minor} currency={detail.currency} label="Listed principal" /></Card>
+          <Card padded><Stat amountMinor={projectedInterestMinor} currency={detail.currency} label="Projected remaining interest" /></Card>
+          <Card padded><Stat label="Annual interest / term" raw={`${formatRateBps(detail.interest_rate_bps)} / ${detail.term_months}mo`} /></Card>
+          <Card padded><Stat label="LTV" raw={detail.ltv_bps === null ? "Not disclosed" : formatRateBps(detail.ltv_bps)} /></Card>
+        </div>
         <Review rows={[
-          { label: "Listing", value: <span className="entity-inline"><span>{listing.loan_title}</span><CopyIdButton ariaLabel="Copy listing ID" id={listing.id} label="Copy listing ID" /></span> },
+          { label: "Listing", value: listing.loan_title },
+          { label: "Repayment type", value: humanizeToken(detail.repayment_type) },
           { label: "Current principal", value: `${listing.currency} ${formatMoneyMinor(listing.current_principal_minor, listing.currency)}` },
           { label: "Sale price", value: priceLabel(listing.discount_premium_bps) },
           { label: "Accrued interest to seller", value: `${listing.currency} ${formatMoneyMinor(listing.accrued_interest_minor, listing.currency)}` },
           { label: "Taker fee", value: `${listing.currency} ${formatMoneyMinor(listing.taker_fee_minor, listing.currency)}` },
           { label: "Total cost", value: `${listing.currency} ${formatMoneyMinor(listing.buyer_total_cost_minor, listing.currency)}`, total: true }
         ]} />
+        {detail.public_disclosure_note ? <Banner tone="warn" title="Listing disclosure">{detail.public_disclosure_note}</Banner> : null}
+        {detail.latest_public_note ? <Card padded><div className="eyebrow" style={{ marginBottom: 6 }}>Latest public loan note</div><p className="muted-2">{detail.latest_public_note.title}</p><div className="sub">{formatDate(detail.latest_public_note.occurred_at)}</div></Card> : null}
+        <LoanSchedulePanels
+          currency={detail.currency}
+          currentPrincipalMinor={detail.current_principal_minor}
+          investmentSchedule={detail.investment_schedule}
+          loanSchedule={detail.loan_schedule}
+          loanStatus={detail.loan_status_at_listing}
+          projectionDescription={<>This is the projected share of remaining borrower payments attached to the listed claim. It is an estimate, not a guarantee, and can change after repayments in advance, recoveries, or schedule revisions.</>}
+          projectionBannerTitle="Projection from the listed claim"
+          projectionTitle="Listed claim projection"
+          scheduleVersion={detail.schedule_version}
+        />
         <Check checked={ack} id="sm-buy-ack" onChange={setAck}>
           I accept the{" "}
           <LegalDocLink category="secondary_market_purchase">
@@ -4195,6 +4260,7 @@ function BuyListingModal({ listing, onClose }: { listing: SecondaryMarketBuyerLi
           onChange={setCode}
           onRequest={codeRequest.requestCode}
         />
+        <p className="muted" style={{ fontSize: 11.5 }}>Request the email code only after you have reviewed the claim, schedules, price, and terms and intend to buy.</p>
         {codeRequest.error || error ? <Banner tone="bad" title="Could not purchase listing">{codeRequest.error || error}</Banner> : null}
       </div>
     </Modal>
@@ -4203,6 +4269,7 @@ function BuyListingModal({ listing, onClose }: { listing: SecondaryMarketBuyerLi
 
 function ListHoldingModal({ holding, onClose }: { holding: Holding; onClose: () => void }) {
   const queryClient = useQueryClient();
+  const [step, setStep] = useState<"review" | "verify">("review");
   const [priceBps, setPriceBps] = useState("10000");
   const [ack, setAck] = useState(false);
   const [code, setCode] = useState("");
@@ -4214,7 +4281,7 @@ function ListHoldingModal({ holding, onClose }: { holding: Holding; onClose: () 
   const acceptanceMutation = useV1DocumentsAcceptancesCreate();
   const listingMutation = useV1MarketplaceSecondaryListingsCreate();
   const codeRequest = useSensitiveActionCode(ActionEnum.secondary_market_listing);
-  useAutoRequestEmailCode(codeRequest, !done);
+  useAutoRequestEmailCode(codeRequest, step === "verify" && !done);
   const termsQuery = useV1DocumentsTemplatesCurrentRetrieve(
     { category: CategoryEnum.secondary_market_listing },
     { query: { enabled: !isFixturePreview, retry: false } }
@@ -4223,6 +4290,26 @@ function ListHoldingModal({ holding, onClose }: { holding: Holding; onClose: () 
   const transferPrice = Math.round((holding.current_principal_minor * price) / 10000);
   const makerFee = Math.round(transferPrice * 0.0025);
   const nonStandard = holding.loan.loan_status !== "funded";
+  const projectedInterestMinor = holding.investment_schedule.reduce(
+    (sum, row) => sum + row.projected_interest_minor,
+    0
+  );
+  const continueToVerification = () => {
+    setError("");
+    if (!ack) {
+      setError("Accept the seller/listing terms before continuing.");
+      return;
+    }
+    if (!Number.isFinite(price) || price < 1) {
+      setError("Enter a valid sale price in basis points.");
+      return;
+    }
+    if (!isFixturePreview && (!termsQuery.data || templateLabels(termsQuery.data).length === 0)) {
+      setError("Current secondary-market listing terms are not available.");
+      return;
+    }
+    setStep("verify");
+  };
   const submitListing = async () => {
     setError("");
     if (isFixturePreview) {
@@ -4278,37 +4365,88 @@ function ListHoldingModal({ holding, onClose }: { holding: Holding; onClose: () 
     return <Modal footer={<Button variant="primary" onClick={onClose}>Done</Button>} onClose={onClose} title={nonStandard ? "Submitted for approval" : "Listing published"}><SuccessState title={nonStandard ? "Submitted for approval" : "Listing published"}>{nonStandard ? "Garanta will review the listing disclosure before it becomes visible." : "Your holding is visible to buyers anonymously."}</SuccessState></Modal>;
   }
   return (
-    <Modal footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!ack || code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || acceptanceMutation.isPending || listingMutation.isPending} variant="primary" onClick={submitListing}>{acceptanceMutation.isPending || listingMutation.isPending ? "Submitting..." : nonStandard ? "Submit for approval" : "Publish listing"}</Button></>} onClose={onClose} title={`List ${holding.loan.loan_title}`}>
-      <div className="col gap-16">
-        {nonStandard ? <Banner tone="warn" title="Requires Garanta approval">Non-performing holdings require approval and status disclosure before buyers can see them.</Banner> : null}
-        <Field hint="10000 = at par, 9800 = 2% discount, 10100 = 1% premium." label="Sale price bps">
-          <input className="input mono" inputMode="numeric" onChange={(event) => setPriceBps(event.target.value.replace(/\D/g, ""))} value={priceBps} />
-        </Field>
-        <Review rows={[
-          { label: "Loan", value: <span className="entity-inline"><span>{holding.loan.loan_title}</span><CopyIdButton ariaLabel="Copy holding ID" id={holding.id} label="Copy holding ID" /></span> },
-          { label: "Borrower", value: holding.loan.borrower_name },
-          { label: "Current principal", value: `${holding.currency} ${formatMoneyMinor(holding.current_principal_minor, holding.currency)}` },
-          { label: "Transfer price", value: `${holding.currency} ${formatMoneyMinor(transferPrice, holding.currency)}` },
-          { label: "Maker fee", value: `${holding.currency} ${formatMoneyMinor(makerFee, holding.currency)}` },
-          { label: "Seller net proceeds", value: `${holding.currency} ${formatMoneyMinor(transferPrice - makerFee, holding.currency)}`, total: true }
-        ]} />
-        <Check checked={ack} id="sm-list-ack" onChange={setAck}>
-          I accept the{" "}
-          <LegalDocLink category="secondary_market_listing">seller/listing terms</LegalDocLink> and
-          confirm I am listing this entire holding.
-        </Check>
-        {!isFixturePreview && termsQuery.data ? <p className="muted" style={{ fontSize: 11.5 }}>Accepting {termsQuery.data.title} v{termsQuery.data.version_number}.</p> : null}
-        <CodeRequestField
-          hint={previewHint("Demo: any 6 digits")}
-          label="Email confirmation code"
-          requestDisabled={emailCodeRequestDisabled(codeRequest)}
-          requestLabel={emailCodeRequestLabel(codeRequest)}
-          value={code}
-          onChange={setCode}
-          onRequest={codeRequest.requestCode}
-        />
-        {codeRequest.error || error ? <Banner tone="bad" title="Could not list holding">{codeRequest.error || error}</Banner> : null}
-      </div>
+    <Modal
+      xwide
+      footer={step === "review" ? (
+        <><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!ack || !Number.isFinite(price) || price < 1 || (!isFixturePreview && !termsQuery.data)} variant="primary" onClick={continueToVerification}>Confirm listing data</Button></>
+      ) : (
+        <><Button variant="ghost" onClick={() => { setError(""); setStep("review"); }}>Back to listing data</Button><Button disabled={code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || acceptanceMutation.isPending || listingMutation.isPending} variant="primary" onClick={submitListing}>{acceptanceMutation.isPending || listingMutation.isPending ? "Submitting..." : nonStandard ? "Verify and submit" : "Verify and publish"}</Button></>
+      )}
+      onClose={onClose}
+      title={`List ${holding.loan.loan_title}`}
+    >
+      {step === "review" ? (
+        <div className="col gap-16">
+          {nonStandard ? <Banner tone="warn" title="Requires Garanta approval">Non-performing holdings require approval and status disclosure before buyers can see them.</Banner> : null}
+          <div className="row gap-8 wrap">
+            <Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} />
+            <Rating value={holding.loan.risk_rating} />
+            <Country code={holding.loan.borrower_country} />
+            <CopyIdButton ariaLabel="Copy holding ID" id={holding.id} label="Copy holding ID" />
+          </div>
+          <div className="grid grid-4">
+            <Card padded><Stat amountMinor={holding.original_principal_minor} currency={holding.currency} label="Originally invested" /></Card>
+            <Card padded><Stat amountMinor={holding.current_principal_minor} currency={holding.currency} label="Outstanding principal" /></Card>
+            <Card padded><Stat amountMinor={projectedInterestMinor} currency={holding.currency} label="Projected remaining interest" /></Card>
+            <Card padded><Stat label="Annual interest / term" raw={`${formatRateBps(holding.loan.interest_rate_bps)} / ${holding.loan.term_months}mo`} /></Card>
+          </div>
+          <Field hint="10000 = at par, 9800 = 2% discount, 10100 = 1% premium." label="Sale price bps">
+            <input className="input mono" inputMode="numeric" onChange={(event) => setPriceBps(event.target.value.replace(/\D/g, ""))} value={priceBps} />
+          </Field>
+          <Review rows={[
+            { label: "Loan", value: holding.loan.loan_title },
+            { label: "Borrower", value: holding.loan.borrower_name },
+            { label: "Repayment type", value: humanizeToken(holding.loan.repayment_type) },
+            { label: "LTV", value: holding.loan.ltv_bps === null ? "Not disclosed" : formatRateBps(holding.loan.ltv_bps) },
+            { label: "Current principal", value: `${holding.currency} ${formatMoneyMinor(holding.current_principal_minor, holding.currency)}` },
+            { label: "Transfer price", value: `${holding.currency} ${formatMoneyMinor(transferPrice, holding.currency)}` },
+            { label: "Maker fee", value: `${holding.currency} ${formatMoneyMinor(makerFee, holding.currency)}` },
+            { label: "Seller net proceeds", value: `${holding.currency} ${formatMoneyMinor(transferPrice - makerFee, holding.currency)}`, total: true }
+          ]} />
+          <Check checked={ack} id="sm-list-ack" onChange={setAck}>
+            I accept the{" "}
+            <LegalDocLink category="secondary_market_listing">seller/listing terms</LegalDocLink> and
+            confirm I am listing this entire holding.
+          </Check>
+          {!isFixturePreview && termsQuery.data ? <p className="muted" style={{ fontSize: 11.5 }}>Accepting {termsQuery.data.title} v{termsQuery.data.version_number}.</p> : null}
+          <LoanSchedulePanels
+            currency={holding.currency}
+            currentPrincipalMinor={holding.current_principal_minor}
+            investmentSchedule={holding.investment_schedule}
+            loanSchedule={holding.loan.schedule}
+            loanStatus={holding.loan.loan_status}
+            projectionDescription={<>This is the projected share of the loan&apos;s remaining borrower payments attached to the holding you are listing. The buyer receives the claim only after a completed purchase.</>}
+            projectionBannerTitle="Projection from the holding you are listing"
+            projectionTitle="Listed holding projection"
+            scheduleVersion={holding.loan.schedule_version}
+          />
+          {error ? <Banner tone="bad" title="Could not confirm listing data">{error}</Banner> : null}
+        </div>
+      ) : (
+        <div className="col gap-16">
+          <Banner icon="lock" tone="neutral" title="Verify and publish">
+            The listing data and terms are confirmed. Enter the code sent to your email to authorize this sensitive action.
+          </Banner>
+          <Review rows={[
+            { label: "Loan", value: holding.loan.loan_title },
+            { label: "Current principal", value: `${holding.currency} ${formatMoneyMinor(holding.current_principal_minor, holding.currency)}` },
+            { label: "Sale price", value: priceLabel(price - 10000) },
+            { label: "Transfer price", value: `${holding.currency} ${formatMoneyMinor(transferPrice, holding.currency)}` },
+            { label: "Maker fee", value: `${holding.currency} ${formatMoneyMinor(makerFee, holding.currency)}` },
+            { label: "Seller net proceeds", value: `${holding.currency} ${formatMoneyMinor(transferPrice - makerFee, holding.currency)}`, total: true }
+          ]} />
+          <CodeRequestField
+            hint={previewHint("Demo: any 6 digits")}
+            label="Email confirmation code"
+            requestDisabled={emailCodeRequestDisabled(codeRequest)}
+            requestLabel={emailCodeRequestLabel(codeRequest)}
+            value={code}
+            onChange={setCode}
+            onRequest={codeRequest.requestCode}
+          />
+          {codeRequest.error || error ? <Banner tone="bad" title="Could not list holding">{codeRequest.error || error}</Banner> : null}
+        </div>
+      )}
     </Modal>
   );
 }

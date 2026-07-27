@@ -114,14 +114,15 @@ Website balances and ordinary amounts display 2 decimals. During FX quote and co
 
 1. View eligible holdings that can be offered for sale.
 2. For seller listings, list an entire holding only and set a sale price as a discount or premium percentage of current principal balance.
-3. If the holding is current/performing, submit the listing directly after system checks and seller/listing terms acceptance.
-4. If the holding is late, overdue, restructured, under observation, in default, in recovery, under legal enforcement, subject to a payment incident, or otherwise non-standard, submit a listing request for Garanta admin approval before it becomes visible.
-5. For purchases, review required disclosures, loan status, days past due where applicable, current principal balance, sale price, discount/premium, accrued interest, fees, and settlement consequences.
-6. Accept required secondary-market buyer terms and risk acknowledgements by checkbox/clickwrap. For approved non-standard listings, accept an additional risk acknowledgement before purchase.
-7. Generate secondary-market listing/purchase PDFs from the template/data snapshot and send them by email where applicable.
-8. Confirm listing, sale, or purchase.
-9. Complete assignment transfer and settlement.
-10. See updated portfolio and documents.
+3. Review and confirm the holding, borrower, annual interest rate, LTV where disclosed, repayment type, sale economics, investor-specific claim projection, whole-loan payment schedule, and seller/listing terms before requesting step-up authorization.
+4. After the listing data is confirmed, request a fresh email code and use it to publish a current/performing listing or submit a non-standard listing for Garanta approval. Do not request the listing code while the seller is still editing or reviewing the listing.
+5. If the holding is late, overdue, restructured, under observation, in default, in recovery, under legal enforcement, subject to a payment incident, or otherwise non-standard, submit a listing request for Garanta admin approval before it becomes visible.
+6. For purchases, review required disclosures, borrower and loan terms, loan status, days past due where applicable, current principal balance, annual interest rate, LTV where disclosed, investor-specific claim projection, whole-loan payment schedule, sale price, discount/premium, accrued interest, fees, and settlement consequences.
+7. Accept required secondary-market buyer terms and risk acknowledgements by checkbox/clickwrap. For approved non-standard listings, accept an additional risk acknowledgement before purchase.
+8. The buyer explicitly requests a fresh email code only after deciding to proceed; opening a listing must not automatically send a code. Confirm the purchase with that code.
+9. Generate secondary-market listing/purchase evidence from the immutable template/data snapshot and make it available from accepted-document history. Legal artifacts are not emailed by default.
+10. Complete assignment transfer and settlement.
+11. See updated portfolio and documents.
 
 The secondary market is a bulletin-board claim/participation transfer mechanism. Sellers may list only entire holdings; splitting or partially transferring one holding is not allowed. If the seller has multiple separate holdings in the same project, each holding may be listed separately.
 

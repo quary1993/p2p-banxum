@@ -352,6 +352,60 @@ test("holding details open in a large modal with the current loan schedule", () 
   expect(within(dialog).getAllByRole("row")).toHaveLength(5);
 });
 
+test("portfolio listing action opens the sell tab and separates review from email verification", () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  fireEvent.click(screen.getByRole("button", { name: "Portfolio" }));
+  fireEvent.click(screen.getByText("Engadin Alpine refinancing"));
+
+  const holdingDialog = screen.getByRole("dialog", { name: "Engadin Alpine refinancing" });
+  fireEvent.click(within(holdingDialog).getByRole("button", { name: "List on secondary market" }));
+
+  expect(screen.getByRole("tab", { name: "Sell a holding" })).toHaveAttribute("aria-selected", "true");
+  fireEvent.click(screen.getAllByRole("button", { name: "List" })[0]);
+
+  const listingDialog = screen.getByRole("dialog", { name: "List Engadin Alpine refinancing" });
+  expect(listingDialog).toHaveClass("xwide");
+  expect(within(listingDialog).queryByLabelText("Email confirmation code")).not.toBeInTheDocument();
+  expect(within(listingDialog).getByRole("tab", { name: "Listed holding projection" })).toBeInTheDocument();
+  fireEvent.click(
+    within(listingDialog).getByLabelText((label) => label.includes("seller/listing terms"))
+  );
+  fireEvent.click(within(listingDialog).getByRole("button", { name: "Confirm listing data" }));
+
+  expect(within(listingDialog).getByLabelText("Email confirmation code")).toBeInTheDocument();
+  expect(within(listingDialog).getByRole("button", { name: "Send email code" })).toBeEnabled();
+  expect(within(listingDialog).getByRole("button", { name: "Verify and publish" })).toBeDisabled();
+});
+
+test("secondary purchase review loads buyer-safe schedules and waits for a manual code request", () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  fireEvent.click(screen.getByRole("button", { name: "Secondary Market" }));
+  fireEvent.click(screen.getByText("Loan A - Manufacturing - CH"));
+
+  const dialog = screen.getByRole("dialog", { name: "Buy Loan A - Manufacturing - CH" });
+  expect(dialog).toHaveClass("xwide");
+  expect(within(dialog).getByText("Annual interest / term")).toBeInTheDocument();
+  expect(within(dialog).getByText("LTV")).toBeInTheDocument();
+  expect(within(dialog).getByRole("tab", { name: "Listed claim projection" })).toBeInTheDocument();
+  expect(within(dialog).getByRole("tab", { name: "Full loan schedule" })).toBeInTheDocument();
+  expect(within(dialog).getByRole("button", { name: "Send email code" })).toBeEnabled();
+  expect(within(dialog).queryByText(/Code sent\. Send new in/)).not.toBeInTheDocument();
+});
+
 test("day-60 frozen state keeps read-only access visible and blocks money actions", () => {
   renderApp();
 

@@ -11,6 +11,7 @@ import {
   useV1InvestorPortalSecondaryMarketRetrieve,
   useV1MarketplacePrimaryLoansList,
   useV1MarketplacePrimaryLoansRetrieve,
+  useV1MarketplaceSecondaryListingsRetrieve,
   useV1MarketplaceSecondaryListingsList
 } from "../api/generated/banxumApi";
 import type {
@@ -28,6 +29,7 @@ import {
   portfolioFixture,
   primaryOrdersFixture,
   secondaryActivityFixture,
+  secondaryListingDetailsFixture,
   secondaryListingsFixture
 } from "./fixtures";
 import { portalFixture } from "./fixtures";
@@ -203,5 +205,15 @@ export function useLoanDetailData(loanId: string) {
 export function useSecondaryListingsData() {
   return useV1MarketplaceSecondaryListingsList(undefined, {
     query: previewQuery(secondaryListingsFixture)
+  });
+}
+
+export function useSecondaryListingDetailData(listingId: string) {
+  const fixture =
+    secondaryListingDetailsFixture.find((listing) => listing.id === listingId) ??
+    secondaryListingDetailsFixture[0];
+
+  return useV1MarketplaceSecondaryListingsRetrieve(listingId, {
+    query: previewQuery(fixture, Boolean(listingId))
   });
 }

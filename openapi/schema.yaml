@@ -3234,6 +3234,27 @@ paths:
               schema:
                 $ref: '#/components/schemas/SecondaryMarketListing'
           description: ''
+  /api/v1/marketplace/secondary/listings/{listing_id}/:
+    get:
+      operationId: v1_marketplace_secondary_listings_retrieve
+      parameters:
+      - in: path
+        name: listing_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecondaryMarketBuyerListingDetail'
+          description: ''
   /api/v1/marketplace/secondary/listings/{listing_id}/cancel/:
     post:
       operationId: v1_marketplace_secondary_listings_cancel_create
@@ -10777,6 +10798,187 @@ components:
       - taker_fee_bps
       - taker_fee_minor
       - transfer_price_minor
+    SecondaryMarketBuyerListingDetail:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        loan_id:
+          type: string
+          format: uuid
+        loan_title:
+          type: string
+        status:
+          type: string
+        current_principal_minor:
+          type: integer
+        currency:
+          type: string
+        price_bps:
+          type: integer
+        transfer_price_minor:
+          type: integer
+        discount_premium_bps:
+          type: integer
+        accrued_interest_minor:
+          type: integer
+        accrued_interest_from_date:
+          type: string
+          format: date
+          nullable: true
+        accrued_interest_to_date:
+          type: string
+          format: date
+        taker_fee_bps:
+          type: integer
+        minimum_taker_fee_minor:
+          type: integer
+        taker_fee_minor:
+          type: integer
+        buyer_total_cost_minor:
+          type: integer
+        loan_status_at_listing:
+          type: string
+        days_past_due:
+          type: integer
+        last_payment_date:
+          type: string
+          format: date
+          nullable: true
+        risk_acknowledgement_required:
+          type: boolean
+        public_disclosure_note:
+          type: string
+        listed_at:
+          type: string
+          format: date-time
+          nullable: true
+        borrower_name:
+          type: string
+        borrower_country:
+          type: string
+        purpose:
+          type: string
+        collateral_type:
+          type: string
+        risk_rating:
+          type: string
+        interest_rate_bps:
+          type: integer
+        term_months:
+          type: integer
+        repayment_type:
+          type: string
+        ltv_bps:
+          type: integer
+          nullable: true
+        loan_start_date:
+          type: string
+          format: date
+        first_payment_date:
+          type: string
+          format: date
+        schedule_version:
+          type: integer
+        loan_schedule:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecondaryMarketLoanInstallment'
+        investment_schedule:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecondaryMarketInvestmentInstallment'
+        latest_public_note:
+          allOf:
+          - $ref: '#/components/schemas/SecondaryMarketLatestPublicNote'
+          nullable: true
+      required:
+      - accrued_interest_from_date
+      - accrued_interest_minor
+      - accrued_interest_to_date
+      - borrower_country
+      - borrower_name
+      - buyer_total_cost_minor
+      - collateral_type
+      - currency
+      - current_principal_minor
+      - days_past_due
+      - discount_premium_bps
+      - first_payment_date
+      - id
+      - interest_rate_bps
+      - investment_schedule
+      - last_payment_date
+      - latest_public_note
+      - listed_at
+      - loan_id
+      - loan_schedule
+      - loan_start_date
+      - loan_status_at_listing
+      - loan_title
+      - ltv_bps
+      - minimum_taker_fee_minor
+      - price_bps
+      - public_disclosure_note
+      - purpose
+      - repayment_type
+      - risk_acknowledgement_required
+      - risk_rating
+      - schedule_version
+      - status
+      - taker_fee_bps
+      - taker_fee_minor
+      - term_months
+      - transfer_price_minor
+    SecondaryMarketInvestmentInstallment:
+      type: object
+      properties:
+        loan_installment_id:
+          type: string
+          format: uuid
+        schedule_version:
+          type: integer
+        installment_number:
+          type: integer
+        due_date:
+          type: string
+          format: date
+        projected_principal_minor:
+          type: integer
+        projected_interest_minor:
+          type: integer
+        projected_total_minor:
+          type: integer
+        days_past_due:
+          type: integer
+        status:
+          type: string
+      required:
+      - days_past_due
+      - due_date
+      - installment_number
+      - loan_installment_id
+      - projected_interest_minor
+      - projected_principal_minor
+      - projected_total_minor
+      - schedule_version
+      - status
+    SecondaryMarketLatestPublicNote:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - occurred_at
+      - title
     SecondaryMarketListing:
       type: object
       properties:
@@ -11022,6 +11224,57 @@ components:
       required:
       - idempotency_key
       - reason
+    SecondaryMarketLoanInstallment:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        schedule_version:
+          type: integer
+        installment_number:
+          type: integer
+        due_date:
+          type: string
+          format: date
+        principal_minor:
+          type: integer
+        interest_minor:
+          type: integer
+        total_minor:
+          type: integer
+        paid_principal_minor:
+          type: integer
+        paid_interest_minor:
+          type: integer
+        outstanding_principal_minor:
+          type: integer
+        outstanding_interest_minor:
+          type: integer
+        outstanding_total_minor:
+          type: integer
+        is_paid:
+          type: boolean
+        days_past_due:
+          type: integer
+        status:
+          type: string
+      required:
+      - days_past_due
+      - due_date
+      - id
+      - installment_number
+      - interest_minor
+      - is_paid
+      - outstanding_interest_minor
+      - outstanding_principal_minor
+      - outstanding_total_minor
+      - paid_interest_minor
+      - paid_principal_minor
+      - principal_minor
+      - schedule_version
+      - status
+      - total_minor
     SecondaryMarketPurchase:
       type: object
       properties:

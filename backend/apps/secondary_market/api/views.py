@@ -18,6 +18,7 @@ from backend.apps.platform_core.api.request_meta import client_ip, user_agent
 from backend.apps.secondary_market.api.serializers import (
     AdminSecondaryMarketListingListQuerySerializer,
     AdminSecondaryMarketListingRowSerializer,
+    SecondaryMarketBuyerListingDetailSerializer,
     SecondaryMarketBuyerListingSerializer,
     SecondaryMarketListingApproveRequestSerializer,
     SecondaryMarketListingCancelRequestSerializer,
@@ -44,6 +45,7 @@ from backend.apps.secondary_market.services import (
     approve_secondary_market_listing,
     cancel_secondary_market_listing,
     create_secondary_market_listing,
+    get_active_secondary_market_listing_detail,
     list_active_secondary_market_listings,
     list_admin_secondary_market_listings,
     purchase_secondary_market_listing,
@@ -113,6 +115,24 @@ class SecondaryMarketListingListCreateView(APIView):
         except (SecondaryMarketAuthorizationError, SecondaryMarketValidationError) as exc:
             return _error_response(exc)
         return Response(serialize_secondary_listing(listing), status=status.HTTP_201_CREATED)
+
+
+class SecondaryMarketListingDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: SecondaryMarketBuyerListingDetailSerializer})
+    def get(self, request: Request, listing_id: str) -> Response:
+        try:
+            actor, _audit_actor = readonly_read_actor_from_request(request)
+            payload = get_active_secondary_market_listing_detail(
+                actor=actor,
+                listing_id=listing_id,
+            )
+        except ReadOnlyImpersonationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except (SecondaryMarketAuthorizationError, SecondaryMarketValidationError) as exc:
+            return _error_response(exc)
+        return Response(payload, status=status.HTTP_200_OK)
 
 
 class AdminSecondaryMarketListingListView(APIView):

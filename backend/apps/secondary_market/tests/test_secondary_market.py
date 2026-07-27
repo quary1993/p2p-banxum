@@ -855,6 +855,96 @@ def test_secondary_market_api_create_list_and_approve(
 
 
 @pytest.mark.django_db
+def test_secondary_market_buyer_detail_exposes_loan_schedules_without_seller_data(
+    admin_user: Model,
+    investor: Model,
+    other_investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    _approve_financial_access(other_investor)
+    loan = _create_funded_loan(admin_user, principal_minor=2_000_00)
+    _create_current_installment(loan, due_date=date(2026, 2, 1))
+    holding = _create_holding(
+        admin_user,
+        investor,
+        loan,
+        current_principal_minor=2_000_00,
+        idempotency_key="secondary-detail-holding",
+    )
+    acceptance = _create_listing_acceptance(
+        investor,
+        holding,
+        idempotency_key="secondary-detail-acceptance",
+    )
+    listing = create_secondary_market_listing(
+        CreateSecondaryMarketListingCommand(
+            actor=investor,
+            holding_id=str(cast(Any, holding).id),
+            price_bps=9_800,
+            document_acceptance_id=str(acceptance.pk),
+            idempotency_key="secondary-detail-listing",
+            **_sensitive_code_payload(investor, "secondary_market_listing"),
+        )
+    )
+
+    client = Client()
+    client.force_login(cast(Any, other_investor))
+    response = client.get(
+        f"/api/v1/marketplace/secondary/listings/{listing.pk}/"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["borrower_name"] == "Secondary Borrower AG"
+    assert payload["borrower_country"] == "CH"
+    assert payload["interest_rate_bps"] == 1_200
+    assert payload["term_months"] == 12
+    assert payload["ltv_bps"] == 400
+    assert payload["loan_schedule"] == [
+        {
+            "id": str(cast(Any, loan).installments.get().pk),
+            "schedule_version": 1,
+            "installment_number": 1,
+            "due_date": "2026-02-01",
+            "principal_minor": 2_000_00,
+            "interest_minor": 300_00,
+            "total_minor": 2_300_00,
+            "paid_principal_minor": 0,
+            "paid_interest_minor": 0,
+            "outstanding_principal_minor": 2_000_00,
+            "outstanding_interest_minor": 300_00,
+            "outstanding_total_minor": 2_300_00,
+            "is_paid": False,
+            "days_past_due": 0,
+            "status": "upcoming",
+        }
+    ]
+    assert payload["investment_schedule"] == [
+        {
+            "loan_installment_id": str(cast(Any, loan).installments.get().pk),
+            "schedule_version": 1,
+            "installment_number": 1,
+            "due_date": "2026-02-01",
+            "projected_principal_minor": 2_000_00,
+            "projected_interest_minor": 300_00,
+            "projected_total_minor": 2_300_00,
+            "days_past_due": 0,
+            "status": "upcoming",
+        }
+    ]
+    private_fields = {
+        "holding_id",
+        "seller_user_id",
+        "seller_net_proceeds_minor",
+        "maker_fee_bps",
+        "maker_fee_minor",
+        "document_acceptance_id",
+        "approved_by_admin_id",
+    }
+    assert private_fields.isdisjoint(payload)
+
+
+@pytest.mark.django_db
 def test_admin_secondary_listing_table_lists_and_filters(
     admin_user: Model,
     investor: Model,

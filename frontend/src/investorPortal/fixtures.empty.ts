@@ -11,7 +11,8 @@ import type {
   PortfolioSummary,
   PrimaryOrdersPortal,
   SecondaryMarketActivityPortal,
-  SecondaryMarketBuyerListing
+  SecondaryMarketBuyerListing,
+  SecondaryMarketBuyerListingDetail
 } from "../api/generated/banxumApi";
 import type { InvestorPortalFixture } from "./types";
 
@@ -96,6 +97,8 @@ export const primaryOrdersFixture: PrimaryOrdersPortal = {
 };
 
 export const secondaryListingsFixture: SecondaryMarketBuyerListing[] = [];
+
+export const secondaryListingDetailsFixture: SecondaryMarketBuyerListingDetail[] = [];
 
 export const secondaryActivityFixture: SecondaryMarketActivityPortal = {
   listings: [],

@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from importlib import import_module
 from typing import Any, cast
@@ -209,6 +209,10 @@ def _ledger_services() -> Any:
 
 def _holdings_services() -> Any:
     return import_module("backend.apps.holdings.services")
+
+
+def _servicing_services() -> Any:
+    return import_module("backend.apps.servicing.services")
 
 
 def _clean_required(value: str, label: str) -> str:
@@ -1872,3 +1876,97 @@ def list_active_secondary_market_listings(
         )
         .order_by("-listed_at", "-created_at", "-id")[:safe_limit]
     )
+
+
+def get_active_secondary_market_listing_detail(
+    *,
+    actor: Model,
+    listing_id: str,
+) -> dict[str, Any]:
+    _require_investor_financial_access(actor)
+    listing = (
+        SecondaryMarketListing.objects.select_related(
+            "holding",
+            "loan",
+            "loan__borrower",
+            "currency",
+        )
+        .filter(
+            id=listing_id,
+            status=SecondaryMarketListingStatus.ACTIVE,
+            loan__status=F("loan_status_at_listing"),
+        )
+        .first()
+    )
+    if listing is None:
+        raise SecondaryMarketValidationError("Secondary-market listing is not available.")
+
+    loan = cast(Any, listing.loan)
+    holding = cast(Model, listing.holding)
+    servicing = _servicing_services()
+    as_of = now_utc()
+    loan_schedules = servicing.get_loan_repayment_schedule_snapshots(
+        loans=[cast(Model, loan)],
+        as_of_date=business_date(as_of),
+    )
+    investment_schedules = servicing.get_holding_repayment_schedule_snapshots(
+        holdings=[holding],
+        loan_schedules=loan_schedules,
+    )
+    loan_schedule = loan_schedules.get(str(loan.pk), [])
+    investment_schedule = investment_schedules.get(str(cast(Any, holding).pk), [])
+
+    note_model = _model("servicing", "LoanRiskNote")
+    latest_public_note = (
+        note_model.objects.filter(loan_id=loan.pk, visibility="public")
+        .order_by("-occurred_at", "-id")
+        .first()
+    )
+    borrower = cast(Any, loan.borrower)
+    return {
+        "id": str(listing.pk),
+        "loan_id": str(listing.loan_id),
+        "loan_title": str(loan.title),
+        "status": str(listing.status),
+        "current_principal_minor": int(listing.current_principal_minor),
+        "currency": str(listing.currency_id),
+        "price_bps": int(listing.price_bps),
+        "transfer_price_minor": int(listing.transfer_price_minor),
+        "discount_premium_bps": int(listing.discount_premium_bps),
+        "accrued_interest_minor": int(listing.accrued_interest_minor),
+        "accrued_interest_from_date": listing.accrued_interest_from_date,
+        "accrued_interest_to_date": listing.accrued_interest_to_date,
+        "taker_fee_bps": int(listing.taker_fee_bps),
+        "minimum_taker_fee_minor": int(listing.minimum_taker_fee_minor),
+        "taker_fee_minor": int(listing.taker_fee_minor),
+        "buyer_total_cost_minor": int(listing.buyer_total_cost_minor),
+        "loan_status_at_listing": str(listing.loan_status_at_listing),
+        "days_past_due": int(listing.days_past_due),
+        "last_payment_date": listing.last_payment_date,
+        "risk_acknowledgement_required": bool(listing.risk_acknowledgement_required),
+        "public_disclosure_note": str(listing.public_disclosure_note),
+        "listed_at": listing.listed_at,
+        "borrower_name": str(borrower.legal_name),
+        "borrower_country": str(getattr(borrower, "country", "")),
+        "purpose": str(loan.purpose),
+        "collateral_type": str(loan.collateral_type),
+        "risk_rating": str(loan.risk_rating),
+        "interest_rate_bps": int(loan.interest_rate_bps),
+        "term_months": int(loan.term_months),
+        "repayment_type": str(loan.repayment_type),
+        "ltv_bps": loan.ltv_bps,
+        "loan_start_date": loan.loan_start_date,
+        "first_payment_date": loan.first_payment_date,
+        "schedule_version": int(loan.schedule_version),
+        "loan_schedule": [asdict(row) for row in loan_schedule],
+        "investment_schedule": [asdict(row) for row in investment_schedule],
+        "latest_public_note": (
+            {
+                "id": str(latest_public_note.pk),
+                "title": str(latest_public_note.title),
+                "occurred_at": latest_public_note.occurred_at,
+            }
+            if latest_public_note is not None
+            else None
+        ),
+    }

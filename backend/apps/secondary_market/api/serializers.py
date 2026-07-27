@@ -79,6 +79,62 @@ class SecondaryMarketBuyerListingSerializer(serializers.Serializer[Any]):
     listed_at = serializers.DateTimeField(allow_null=True)
 
 
+class SecondaryMarketLoanInstallmentSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    schedule_version = serializers.IntegerField()
+    installment_number = serializers.IntegerField()
+    due_date = serializers.DateField()
+    principal_minor = serializers.IntegerField()
+    interest_minor = serializers.IntegerField()
+    total_minor = serializers.IntegerField()
+    paid_principal_minor = serializers.IntegerField()
+    paid_interest_minor = serializers.IntegerField()
+    outstanding_principal_minor = serializers.IntegerField()
+    outstanding_interest_minor = serializers.IntegerField()
+    outstanding_total_minor = serializers.IntegerField()
+    is_paid = serializers.BooleanField()
+    days_past_due = serializers.IntegerField()
+    status = serializers.CharField()
+
+
+class SecondaryMarketInvestmentInstallmentSerializer(serializers.Serializer[Any]):
+    loan_installment_id = serializers.UUIDField()
+    schedule_version = serializers.IntegerField()
+    installment_number = serializers.IntegerField()
+    due_date = serializers.DateField()
+    projected_principal_minor = serializers.IntegerField()
+    projected_interest_minor = serializers.IntegerField()
+    projected_total_minor = serializers.IntegerField()
+    days_past_due = serializers.IntegerField()
+    status = serializers.CharField()
+
+
+class SecondaryMarketLatestPublicNoteSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    title = serializers.CharField(allow_blank=True)
+    occurred_at = serializers.DateTimeField()
+
+
+class SecondaryMarketBuyerListingDetailSerializer(SecondaryMarketBuyerListingSerializer):
+    loan_title = serializers.CharField()
+    currency = serializers.CharField()
+    borrower_name = serializers.CharField()
+    borrower_country = serializers.CharField(allow_blank=True)
+    purpose = serializers.CharField()
+    collateral_type = serializers.CharField()
+    risk_rating = serializers.CharField()
+    interest_rate_bps = serializers.IntegerField()
+    term_months = serializers.IntegerField()
+    repayment_type = serializers.CharField()
+    ltv_bps = serializers.IntegerField(allow_null=True)
+    loan_start_date = serializers.DateField()
+    first_payment_date = serializers.DateField()
+    schedule_version = serializers.IntegerField()
+    loan_schedule = SecondaryMarketLoanInstallmentSerializer(many=True)
+    investment_schedule = SecondaryMarketInvestmentInstallmentSerializer(many=True)
+    latest_public_note = SecondaryMarketLatestPublicNoteSerializer(allow_null=True)
+
+
 class SecondaryMarketListingCreateRequestSerializer(serializers.Serializer[Any]):
     holding_id = serializers.UUIDField()
     price_bps = serializers.IntegerField(min_value=1, max_value=1_000_000)

@@ -13,7 +13,8 @@ import type {
   PortfolioSummary,
   PrimaryOrdersPortal,
   SecondaryMarketActivityPortal,
-  SecondaryMarketBuyerListing
+  SecondaryMarketBuyerListing,
+  SecondaryMarketBuyerListingDetail
 } from "../api/generated/banxumApi";
 import type { InvestorPortalFixture } from "./types";
 
@@ -1039,6 +1040,35 @@ export const secondaryListingsFixture: SecondaryMarketBuyerListing[] = [
     listed_at: "2026-06-02T09:00:00+02:00"
   }
 ];
+
+export const secondaryListingDetailsFixture: SecondaryMarketBuyerListingDetail[] =
+  secondaryListingsFixture.map((listing, index) => {
+    const holding = portfolioFixture.holdings[index] ?? portfolioFixture.holdings[0];
+    return {
+      ...listing,
+      borrower_name: holding.loan.borrower_name,
+      borrower_country: holding.loan.borrower_country,
+      purpose: holding.loan.purpose,
+      collateral_type: holding.loan.collateral_type,
+      risk_rating: holding.loan.risk_rating,
+      interest_rate_bps: holding.loan.interest_rate_bps,
+      term_months: holding.loan.term_months,
+      repayment_type: holding.loan.repayment_type,
+      ltv_bps: holding.loan.ltv_bps,
+      loan_start_date: holding.loan.loan_start_date,
+      first_payment_date: holding.loan.first_payment_date,
+      schedule_version: holding.loan.schedule_version,
+      loan_schedule: holding.loan.schedule,
+      investment_schedule: holding.investment_schedule,
+      latest_public_note: holding.latest_public_note
+        ? {
+            id: holding.latest_public_note.id,
+            title: holding.latest_public_note.title,
+            occurred_at: holding.latest_public_note.occurred_at
+          }
+        : null
+    };
+  });
 
 export const secondaryActivityFixture: SecondaryMarketActivityPortal = {
   listings: [
