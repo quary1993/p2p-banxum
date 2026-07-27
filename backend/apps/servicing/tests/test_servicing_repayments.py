@@ -12,7 +12,13 @@ from django.db.models import Model
 from django.test import Client
 from django.utils import timezone
 
-from backend.apps.platform_core.models import AuditEvent, Currency, DomainEvent, OutboxMessage
+from backend.apps.platform_core.models import (
+    AuditEvent,
+    Currency,
+    DomainEvent,
+    OutboxMessage,
+    PlatformSetting,
+)
 from backend.apps.platform_core.models.base import AppendOnlyViolation
 from backend.apps.servicing.models import (
     BorrowerRepaymentEvent,
@@ -1260,23 +1266,27 @@ def test_repayment_admin_api(
     investor_two: Model,
 ) -> None:
     loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+    PlatformSetting.objects.create(
+        key="payments.deposit_instructions_by_currency",
+        value={"CHF": {"collection_account_identifier": "Garanta_CHF"}},
+    )
     client.force_login(cast(Any, admin_user))
 
+    repayment_request = {
+        "loan_id": str(loan.pk),
+        "amount_minor": 3_300_00,
+        "booking_date": "2026-03-01",
+        "value_date": "2026-03-01",
+        "payer_name": "Servicing Borrower AG",
+        "payer_account_identifier": "CH22BORROWER",
+        "bank_reference": "BANK-SERVICING-API",
+        "payment_reference": f"LOAN-{loan.pk}",
+        "evidence_reference": "statement:servicing-api",
+        "idempotency_key": "servicing-api",
+    }
     response = client.post(
         "/api/v1/servicing/admin/borrower-repayments/",
-        data={
-            "loan_id": str(loan.pk),
-            "amount_minor": 3_300_00,
-            "booking_date": "2026-03-01",
-            "value_date": "2026-03-01",
-            "collection_account_identifier": "CH00GARANTALEDGER",
-            "payer_name": "Servicing Borrower AG",
-            "payer_account_identifier": "CH22BORROWER",
-            "bank_reference": "BANK-SERVICING-API",
-            "payment_reference": f"LOAN-{loan.pk}",
-            "evidence_reference": "statement:servicing-api",
-            "idempotency_key": "servicing-api",
-        },
+        data=repayment_request,
         content_type="application/json",
     )
 
@@ -1286,6 +1296,28 @@ def test_repayment_admin_api(
     assert payload["repayment_event"]["amount_minor"] == 3_300_00
     assert payload["repayment_event"]["warning_acknowledged"] is False
     assert len(payload["distribution_lines"]) == 2
+    repayment_event = BorrowerRepaymentEvent.objects.get(
+        id=payload["repayment_event"]["id"]
+    )
+    assert repayment_event.bank_operation.collection_account_identifier == "Garanta_CHF"
+
+    # Server-derived configuration is not part of caller intent. A retry remains
+    # idempotent even if the configured collector changes after the first post.
+    PlatformSetting.objects.filter(
+        key="payments.deposit_instructions_by_currency"
+    ).update(value={"CHF": {"collection_account_identifier": "Garanta_CHF_NEW"}})
+    replay_response = client.post(
+        "/api/v1/servicing/admin/borrower-repayments/",
+        data=repayment_request,
+        content_type="application/json",
+    )
+    assert replay_response.status_code == 201
+    assert replay_response.json()["repayment_event"]["id"] == payload["repayment_event"]["id"]
+    assert (
+        BorrowerRepaymentEvent.objects.filter(idempotency_key="servicing-api").count()
+        == 1
+    )
+
     schedule_response = client.get(f"/api/v1/loans/admin/loans/{loan.pk}/schedule/")
     assert schedule_response.status_code == 200
     schedule_payload = schedule_response.json()

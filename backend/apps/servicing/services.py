@@ -13,7 +13,7 @@ from typing import Any, cast
 from django.apps import apps
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models import Model, Sum
+from django.db.models import F, Model, Sum
 
 from backend.apps.platform_core.domain.access import (
     actor_ref_for_user,
@@ -29,6 +29,7 @@ from backend.apps.platform_core.domain.money import (
 )
 from backend.apps.platform_core.domain.time import business_date, business_timezone, now_utc
 from backend.apps.platform_core.models import Currency
+from backend.apps.platform_core.selectors.settings import get_collection_account_identifier
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import (
     DomainEventCommand,
@@ -271,6 +272,25 @@ class LoanServicingStatusSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class LoanRepaymentScheduleRowSnapshot:
+    id: str
+    schedule_version: int
+    installment_number: int
+    due_date: date
+    principal_minor: int
+    interest_minor: int
+    total_minor: int
+    paid_principal_minor: int
+    paid_interest_minor: int
+    outstanding_principal_minor: int
+    outstanding_interest_minor: int
+    outstanding_total_minor: int
+    is_paid: bool
+    days_past_due: int
+    status: str
+
+
+@dataclass(frozen=True, slots=True)
 class ScanLoanServicingStatusesResult:
     as_of_date: date
     changes: list[LoanServicingStatusChange]
@@ -414,10 +434,32 @@ def _received_at_from_value_date(value_date: date) -> datetime:
     return datetime.combine(value_date, time.min, tzinfo=business_timezone())
 
 
+def _resolve_repayment_collection_account_identifier(
+    *,
+    currency: str,
+    supplied_identifier: str,
+) -> str:
+    supplied = supplied_identifier.strip()
+    if supplied:
+        return supplied
+    configured = get_collection_account_identifier(currency)
+    if not configured:
+        raise ServicingValidationError(
+            f"The {currency.upper()} collection account is not configured."
+        )
+    return configured
+
+
+def _repayment_collection_account_fingerprint(supplied_identifier: str) -> str:
+    supplied = supplied_identifier.strip()
+    return supplied if supplied else "platform-configured-collection-account"
+
+
 def _request_fingerprint(
     command: RecordBorrowerRepaymentCommand,
     *,
     amount_minor: int,
+    collection_account_identifier: str,
     idempotency_key: str,
 ) -> str:
     return _stable_json_fingerprint(
@@ -426,7 +468,7 @@ def _request_fingerprint(
             "amount_minor": amount_minor,
             "booking_date": command.booking_date.isoformat(),
             "value_date": command.value_date.isoformat(),
-            "collection_account_identifier": command.collection_account_identifier.strip(),
+            "collection_account_identifier": collection_account_identifier,
             "payer_name": command.payer_name.strip(),
             "payer_account_identifier": command.payer_account_identifier.strip(),
             "bank_reference": command.bank_reference.strip(),
@@ -713,6 +755,89 @@ def get_loan_servicing_status_snapshot(
         if installment_ref is not None
         else None,
     )
+
+
+def get_loan_repayment_schedule_snapshots(
+    *,
+    loans: list[Model],
+    as_of_date: date,
+) -> dict[str, list[LoanRepaymentScheduleRowSnapshot]]:
+    loan_by_id = {str(cast(Any, loan).pk): loan for loan in loans}
+    schedule_by_loan_id: dict[str, list[LoanRepaymentScheduleRowSnapshot]] = {
+        loan_id: [] for loan_id in loan_by_id
+    }
+    if not loan_by_id:
+        return schedule_by_loan_id
+
+    installment_model = apps.get_model("loans", "LoanInstallment")
+    installments = list(
+        installment_model.objects.filter(
+            loan_id__in=loan_by_id,
+            schedule_version=F("loan__schedule_version"),
+        ).order_by("loan_id", "installment_number", "id")
+    )
+    installment_ids = [installment.pk for installment in installments]
+    paid_by_installment_id = {
+        str(row["installment_id"]): (
+            int(row["paid_principal_minor"] or 0),
+            int(row["paid_interest_minor"] or 0),
+        )
+        for row in BorrowerRepaymentEvent.objects.filter(
+            installment_id__in=installment_ids,
+        )
+        .values("installment_id")
+        .annotate(
+            paid_principal_minor=Sum("principal_applied_minor"),
+            paid_interest_minor=Sum("interest_applied_minor"),
+        )
+    }
+    for installment in installments:
+        installment_ref = cast(Any, installment)
+        paid_principal_minor, paid_interest_minor = paid_by_installment_id.get(
+            str(installment_ref.pk),
+            (0, 0),
+        )
+        outstanding_principal_minor = (
+            int(installment_ref.principal_minor) - paid_principal_minor
+        )
+        outstanding_interest_minor = int(installment_ref.interest_minor) - paid_interest_minor
+        if outstanding_principal_minor < 0 or outstanding_interest_minor < 0:
+            raise ServicingValidationError(
+                "Installment payment totals exceed scheduled amounts."
+            )
+        outstanding_total_minor = outstanding_principal_minor + outstanding_interest_minor
+        is_paid = outstanding_total_minor == 0
+        days_past_due = (
+            max(0, (as_of_date - installment_ref.due_date).days) if not is_paid else 0
+        )
+        if is_paid:
+            row_status = "paid"
+        elif installment_ref.due_date < as_of_date:
+            row_status = "overdue"
+        elif installment_ref.due_date == as_of_date:
+            row_status = "due"
+        else:
+            row_status = "upcoming"
+        schedule_by_loan_id[str(installment_ref.loan_id)].append(
+            LoanRepaymentScheduleRowSnapshot(
+                id=str(installment_ref.pk),
+                schedule_version=int(installment_ref.schedule_version),
+                installment_number=int(installment_ref.installment_number),
+                due_date=cast(date, installment_ref.due_date),
+                principal_minor=int(installment_ref.principal_minor),
+                interest_minor=int(installment_ref.interest_minor),
+                total_minor=int(installment_ref.total_minor),
+                paid_principal_minor=paid_principal_minor,
+                paid_interest_minor=paid_interest_minor,
+                outstanding_principal_minor=outstanding_principal_minor,
+                outstanding_interest_minor=outstanding_interest_minor,
+                outstanding_total_minor=outstanding_total_minor,
+                is_paid=is_paid,
+                days_past_due=days_past_due,
+                status=row_status,
+            )
+        )
+    return schedule_by_loan_id
 
 
 def _record_loan_servicing_status_change(
@@ -1628,6 +1753,9 @@ def record_borrower_repayment(
     request_fingerprint = _request_fingerprint(
         command,
         amount_minor=amount_minor,
+        collection_account_identifier=_repayment_collection_account_fingerprint(
+            command.collection_account_identifier
+        ),
         idempotency_key=idempotency_key,
     )
     existing = _existing_repayment_for_idempotency(
@@ -1647,6 +1775,10 @@ def record_borrower_repayment(
 
     loan_ref = cast(Any, loan)
     currency = _enabled_currency(str(loan_ref.currency_id))
+    collection_account_identifier = _resolve_repayment_collection_account_identifier(
+        currency=currency.code,
+        supplied_identifier=command.collection_account_identifier,
+    )
     amount_minor = _validate_money(command.amount_minor, currency.code, "Repayment amount")
     if command.amount_minor != amount_minor:
         raise ServicingValidationError("Repayment amount changed during validation.")
@@ -1715,7 +1847,7 @@ def record_borrower_repayment(
                 currency=currency.code,
                 booking_date=command.booking_date,
                 value_date=command.value_date,
-                collection_account_identifier=command.collection_account_identifier,
+                collection_account_identifier=collection_account_identifier,
                 payer_name=command.payer_name,
                 source_type="borrower_repayment_event",
                 source_id=str(event_id),

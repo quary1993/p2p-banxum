@@ -273,6 +273,71 @@ test("portfolio explains allocated orders that are not holdings yet", () => {
   }
 });
 
+test("primary-order status chips explain released and never-invested outcomes", () => {
+  const originalOrders = primaryOrdersFixture.orders;
+  primaryOrdersFixture.orders = [
+    {
+      ...originalOrders[0],
+      id: "O-RELEASED",
+      status: "balance_released",
+      requested_amount_minor: 500000,
+      allocated_amount_minor: 500000,
+      released_at: "2026-06-05T12:00:00+02:00"
+    },
+    {
+      ...originalOrders[1],
+      id: "O-NOT-INVESTED",
+      status: "closed_not_invested",
+      requested_amount_minor: 300000,
+      allocated_amount_minor: 0,
+      allocated_at: null,
+      closed_at: "2026-06-05T12:00:00+02:00"
+    }
+  ];
+
+  try {
+    renderApp();
+
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+    fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+      target: { value: "lukas.brunner@example.ch" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Portfolio" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Orders" }));
+
+    expect(screen.getByTitle(/previously reserved.*released before funding closed/i)).toHaveTextContent(
+      "Balance released"
+    );
+    expect(screen.getByTitle(/closed without any balance being allocated/i)).toHaveTextContent(
+      "Not invested"
+    );
+  } finally {
+    primaryOrdersFixture.orders = originalOrders;
+  }
+});
+
+test("holding details open in a large modal with the current loan schedule", () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  fireEvent.click(screen.getByRole("button", { name: "Portfolio" }));
+  fireEvent.click(screen.getByText("Engadin Hospitality AG"));
+
+  const dialog = screen.getByRole("dialog", { name: "Engadin Hospitality AG" });
+  expect(dialog).toHaveClass("xwide");
+  expect(within(dialog).getByRole("heading", { name: "Loan repayment schedule" })).toBeInTheDocument();
+  expect(within(dialog).getByText("Whole-loan schedule")).toBeInTheDocument();
+  expect(within(dialog).getByRole("columnheader", { name: "Outstanding" })).toBeInTheDocument();
+  expect(within(dialog).getAllByRole("row")).toHaveLength(4);
+});
+
 test("day-60 frozen state keeps read-only access visible and blocks money actions", () => {
   renderApp();
 

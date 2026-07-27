@@ -22,7 +22,11 @@ class BorrowerRepaymentRecordRequestSerializer(serializers.Serializer[Any]):
     amount_minor = serializers.IntegerField(min_value=1)
     booking_date = serializers.DateField()
     value_date = serializers.DateField()
-    collection_account_identifier = serializers.CharField(max_length=128)
+    collection_account_identifier = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=128,
+    )
     payer_name = serializers.CharField(max_length=255)
     payer_account_identifier = serializers.CharField(
         required=False,

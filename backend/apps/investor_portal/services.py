@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from importlib import import_module
 from typing import Any
@@ -595,7 +595,12 @@ def _loan_days_past_due(loan: Any, *, as_of: datetime) -> int:
     return int(snapshot.days_past_due)
 
 
-def _loan_projection(loan: Any, *, as_of: datetime) -> dict[str, Any]:
+def _loan_projection(
+    loan: Any,
+    *,
+    as_of: datetime,
+    schedule: list[Any],
+) -> dict[str, Any]:
     borrower = loan.borrower
     return {
         "loan_id": str(loan.pk),
@@ -629,6 +634,8 @@ def _loan_projection(loan: Any, *, as_of: datetime) -> dict[str, Any]:
         "first_payment_date": loan.first_payment_date,
         "ltv_bps": getattr(loan, "ltv_bps", None),
         "days_past_due": _loan_days_past_due(loan, as_of=as_of),
+        "schedule_version": int(loan.schedule_version),
+        "schedule": [asdict(row) for row in schedule],
     }
 
 
@@ -774,6 +781,11 @@ def get_investor_portfolio(
         ],
     )
     latest_notes = _latest_public_notes_by_loan([str(holding.loan_id) for holding in holdings])
+    loans_by_id = {str(holding.loan_id): holding.loan for holding in holdings}
+    schedules_by_loan_id = _servicing_services().get_loan_repayment_schedule_snapshots(
+        loans=list(loans_by_id.values()),
+        as_of_date=business_date(as_of_value),
+    )
     holding_payloads: list[dict[str, Any]] = []
     for holding in holdings:
         loan = holding.loan
@@ -789,7 +801,11 @@ def get_investor_portfolio(
                 "currency": _currency_code(holding.currency),
                 "loan_share_ppm": int(holding.loan_share_ppm),
                 "assignment_effective_at": holding.assignment_effective_at,
-                "loan": _loan_projection(loan, as_of=as_of_value),
+                "loan": _loan_projection(
+                    loan,
+                    as_of=as_of_value,
+                    schedule=schedules_by_loan_id.get(str(holding.loan_id), []),
+                ),
                 "received_principal_minor": int(repayment.get("principal_minor", 0)),
                 "received_interest_minor": int(repayment.get("interest_minor", 0)),
                 "repayment_fee_minor": int(repayment.get("fee_minor", 0)),

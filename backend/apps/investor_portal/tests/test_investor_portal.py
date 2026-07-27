@@ -451,6 +451,25 @@ def test_portfolio_exposure_uses_only_actor_holdings(
         amount_minor=99_000_00,
         idempotency_key="portal-other-holding",
     )
+    installment_model = apps.get_model("loans", "LoanInstallment")
+    installment_model.objects.create(
+        loan=loan,
+        schedule_version=cast(Any, loan).schedule_version,
+        installment_number=1,
+        due_date=date(2026, 2, 28),
+        principal_minor=5_000_00,
+        interest_minor=100_00,
+        total_minor=5_100_00,
+    )
+    installment_model.objects.create(
+        loan=loan,
+        schedule_version=cast(Any, loan).schedule_version,
+        installment_number=2,
+        due_date=date(2026, 3, 31),
+        principal_minor=5_000_00,
+        interest_minor=50_00,
+        total_minor=5_050_00,
+    )
 
     payload = get_investor_portfolio(actor=investor, as_of=_at(date(2026, 4, 1)))
 
@@ -466,6 +485,15 @@ def test_portfolio_exposure_uses_only_actor_holdings(
         "Late portal loan",
     }
     assert all(holding["current_principal_minor"] != 99_000_00 for holding in payload["holdings"])
+    portal_loan = next(
+        holding["loan"]
+        for holding in payload["holdings"]
+        if holding["loan"]["loan_title"] == "Portal loan"
+    )
+    assert portal_loan["schedule_version"] == 1
+    assert [row["installment_number"] for row in portal_loan["schedule"]] == [1, 2]
+    assert portal_loan["schedule"][0]["status"] == "overdue"
+    assert portal_loan["schedule"][0]["outstanding_total_minor"] == 5_100_00
     borrower_exposure = payload["exposure"]["by_borrower"]
     assert {item["name"] for item in borrower_exposure} == {
         "Portal Borrower AG",

@@ -5662,7 +5662,6 @@ components:
       required:
       - amount_minor
       - booking_date
-      - collection_account_identifier
       - idempotency_key
       - loan_id
       - payer_name
@@ -9513,6 +9512,57 @@ components:
       - by_maturity
       - by_purpose
       - by_risk_rating
+    PortfolioInstallment:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        schedule_version:
+          type: integer
+        installment_number:
+          type: integer
+        due_date:
+          type: string
+          format: date
+        principal_minor:
+          type: integer
+        interest_minor:
+          type: integer
+        total_minor:
+          type: integer
+        paid_principal_minor:
+          type: integer
+        paid_interest_minor:
+          type: integer
+        outstanding_principal_minor:
+          type: integer
+        outstanding_interest_minor:
+          type: integer
+        outstanding_total_minor:
+          type: integer
+        is_paid:
+          type: boolean
+        days_past_due:
+          type: integer
+        status:
+          type: string
+      required:
+      - days_past_due
+      - due_date
+      - id
+      - installment_number
+      - interest_minor
+      - is_paid
+      - outstanding_interest_minor
+      - outstanding_principal_minor
+      - outstanding_total_minor
+      - paid_interest_minor
+      - paid_principal_minor
+      - principal_minor
+      - schedule_version
+      - status
+      - total_minor
     PortfolioLoan:
       type: object
       properties:
@@ -9570,6 +9620,12 @@ components:
           nullable: true
         days_past_due:
           type: integer
+        schedule_version:
+          type: integer
+        schedule:
+          type: array
+          items:
+            $ref: '#/components/schemas/PortfolioInstallment'
       required:
       - borrower_country
       - borrower_id
@@ -9593,6 +9649,8 @@ components:
       - purpose
       - repayment_type
       - risk_rating
+      - schedule
+      - schedule_version
       - term_months
     PortfolioSummary:
       type: object

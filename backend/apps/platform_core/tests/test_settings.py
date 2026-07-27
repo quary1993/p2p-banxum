@@ -5,6 +5,7 @@ import pytest
 from backend.apps.platform_core.domain.actors import ActorRef
 from backend.apps.platform_core.models import AuditEvent, PlatformSetting
 from backend.apps.platform_core.selectors.settings import (
+    get_collection_account_identifier,
     get_platform_setting_value,
     platform_setting_versions,
 )
@@ -54,3 +55,5 @@ def test_seed_default_platform_settings_is_idempotent() -> None:
 
     assert PlatformSetting.objects.filter(key="platform.brand_name").count() == 1
     assert get_platform_setting_value("platform.brand_name") == "BANXUM"
+    assert get_collection_account_identifier("chf") == "Garanta_CHF"
+    assert get_collection_account_identifier("EUR") == "Garanta_EUR"

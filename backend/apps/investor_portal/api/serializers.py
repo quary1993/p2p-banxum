@@ -177,6 +177,24 @@ class PortfolioSummarySerializer(serializers.Serializer[Any]):
     late_or_defaulted_exposure_by_currency = AmountByCurrencySerializer(many=True)
 
 
+class PortfolioInstallmentSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    schedule_version = serializers.IntegerField()
+    installment_number = serializers.IntegerField()
+    due_date = serializers.DateField()
+    principal_minor = serializers.IntegerField()
+    interest_minor = serializers.IntegerField()
+    total_minor = serializers.IntegerField()
+    paid_principal_minor = serializers.IntegerField()
+    paid_interest_minor = serializers.IntegerField()
+    outstanding_principal_minor = serializers.IntegerField()
+    outstanding_interest_minor = serializers.IntegerField()
+    outstanding_total_minor = serializers.IntegerField()
+    is_paid = serializers.BooleanField()
+    days_past_due = serializers.IntegerField()
+    status = serializers.CharField()
+
+
 class PortfolioExposureSerializer(serializers.Serializer[Any]):
     by_borrower = ExposureBucketSerializer(many=True)
     by_country = ExposureBucketSerializer(many=True)
@@ -211,6 +229,8 @@ class PortfolioLoanSerializer(serializers.Serializer[Any]):
     first_payment_date = serializers.DateField()
     ltv_bps = serializers.IntegerField(allow_null=True)
     days_past_due = serializers.IntegerField()
+    schedule_version = serializers.IntegerField()
+    schedule = PortfolioInstallmentSerializer(many=True)
 
 
 class LatestPublicNoteSerializer(serializers.Serializer[Any]):

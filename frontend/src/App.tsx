@@ -3714,6 +3714,16 @@ function ActivityTag({ category }: { category: string }) {
   return <Chip dot={false} tone={tone}>{category}</Chip>;
 }
 
+const primaryOrderStatusTooltips: Record<string, string> = {
+  pending: "Your order has been recorded, but no balance has been reserved yet. Allocation is first-come, first-served and depends on eligible balance and remaining loan capacity.",
+  pending_allocation: "Your order has been recorded, but no balance has been reserved yet. Allocation is first-come, first-served and depends on eligible balance and remaining loan capacity.",
+  partially_allocated: "Only part of the requested amount has been reserved, usually because less loan capacity remained. Only the allocated amount can become invested when funding closes.",
+  balance_allocated: "The allocated amount is reserved from your balance for this loan. It becomes an investment and a portfolio holding only when the loan funding closes successfully.",
+  balance_released: "Balance was previously reserved for this order, then released before funding closed. The Allocated column is historical; the released amount returned to your available balance and no holding was created.",
+  closed_invested: "The loan funding closed with this order included. The allocated amount became a loan holding in your portfolio.",
+  closed_not_invested: "The order closed without any balance being allocated, or no capacity remained when it was processed. No funds were reserved and no portfolio holding was created."
+};
+
 function OrdersTable({ orders }: { orders: PrimaryOrderPortal[] }) {
   return (
     <div>
@@ -3725,7 +3735,7 @@ function OrdersTable({ orders }: { orders: PrimaryOrderPortal[] }) {
         <div className="tbl-wrap">
           <table className="tbl">
             <thead><tr><th>Order</th><th>Loan</th><th className="num">Requested</th><th className="num">Allocated</th><th>Placed</th><th>Status</th></tr></thead>
-            <tbody>{orders.map((order) => <tr key={order.id}><td><CopyIdButton ariaLabel="Copy order ID" id={order.id} label="Copy order ID" /></td><td><EntityReference id={order.loan_id} idLabel="Copy loan ID" title={order.loan_title} /></td><td className="num"><Money amountMinor={order.requested_amount_minor} currency={order.currency} /></td><td className="num">{order.allocated_amount_minor > 0 ? <Money amountMinor={order.allocated_amount_minor} currency={order.currency} /> : <span className="muted">-</span>}</td><td className="mono muted">{formatDateTime(order.created_at)}</td><td><Chip status={order.status} /></td></tr>)}</tbody>
+            <tbody>{orders.map((order) => <tr key={order.id}><td><CopyIdButton ariaLabel="Copy order ID" id={order.id} label="Copy order ID" /></td><td><EntityReference id={order.loan_id} idLabel="Copy loan ID" title={order.loan_title} /></td><td className="num"><Money amountMinor={order.requested_amount_minor} currency={order.currency} /></td><td className="num">{order.allocated_amount_minor > 0 ? <Money amountMinor={order.allocated_amount_minor} currency={order.currency} /> : <span className="muted">-</span>}</td><td className="mono muted">{formatDateTime(order.created_at)}</td><td><Chip status={order.status} tooltip={primaryOrderStatusTooltips[order.status]} /></td></tr>)}</tbody>
           </table>
         </div>
       </Card>
@@ -3737,17 +3747,68 @@ function OrdersTable({ orders }: { orders: PrimaryOrderPortal[] }) {
 function HoldingDetail({ holding, onClose, setRoute }: { holding: Holding; onClose: () => void; setRoute: (route: AppRoute) => void }) {
   const impaired = ["late", "defaulted"].includes(holding.loan.loan_status);
   return (
-    <Modal drawer footer={<><Button variant="ghost" onClick={onClose}>Close</Button><Button disabled={holding.loan.loan_status !== "funded"} icon="secondary" variant="primary" onClick={() => { onClose(); goTo(setRoute, "secondary"); }}>List on secondary market</Button></>} onClose={onClose} title={holding.loan.borrower_name}>
+    <Modal xwide footer={<><Button variant="ghost" onClick={onClose}>Close</Button><Button disabled={holding.loan.loan_status !== "funded"} icon="secondary" variant="primary" onClick={() => { onClose(); goTo(setRoute, "secondary"); }}>List on secondary market</Button></>} onClose={onClose} title={holding.loan.borrower_name}>
       <div className="col gap-16">
         <div className="row gap-8 wrap"><Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} /><Rating value={holding.loan.risk_rating} /><Country code={holding.loan.borrower_country} />{holding.loan.is_refinancing ? <RefinancedTag full /> : null}<CopyIdButton ariaLabel="Copy loan ID" id={holding.loan.loan_id} label="Copy loan ID" /></div>
         {impaired ? <Banner tone="warn" title={`${holding.loan.loan_status.replaceAll("_", " ")} - ${holding.loan.days_past_due} DPD`}>This position is not a normal live loan. Review public notes and recovery updates before taking action.</Banner> : null}
-        <div className="grid grid-2">
+        <div className="grid grid-4">
           <Card padded><Stat amountMinor={holding.original_principal_minor} currency={holding.currency} label="Invested" /></Card>
           <Card padded><Stat amountMinor={holding.current_principal_minor} currency={holding.currency} label="Outstanding" /></Card>
           <Card padded><Stat amountMinor={holding.received_interest_minor} currency={holding.currency} label="Interest received" /></Card>
           <Card padded><Stat label="Rate / term" raw={`${formatRateBps(holding.loan.interest_rate_bps)} / ${holding.loan.term_months}mo`} /></Card>
         </div>
         {holding.latest_public_note ? <Card padded><div className="eyebrow" style={{ marginBottom: 6 }}>Public note from Garanta</div><p className="muted-2">{holding.latest_public_note.title}</p><div className="sub">{formatDate(holding.latest_public_note.occurred_at)}</div></Card> : null}
+        <section className="holding-schedule">
+          <div className="section-head">
+            <div>
+              <h2>Loan repayment schedule</h2>
+              <div className="ph-sub">Current server schedule, version {holding.loan.schedule_version}.</div>
+            </div>
+          </div>
+          <Banner tone="neutral" title="Whole-loan schedule">
+            These are the borrower&apos;s scheduled amounts for the entire loan, not only your holding. Your distributions follow your current holding share and can differ because of rounding, fees, transfers, repayments in advance, or later schedule changes.
+          </Banner>
+          {holding.loan.schedule.length === 0 ? (
+            <Card className="section"><Empty icon="clock" title="Schedule unavailable">No current repayment schedule rows are available for this loan.</Empty></Card>
+          ) : (
+            <Card className="section">
+              <div className="tbl-wrap">
+                <table className="tbl holding-schedule-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Due date</th>
+                      <th>Status</th>
+                      <th className="num">Principal</th>
+                      <th className="num">Interest</th>
+                      <th className="num">Instalment</th>
+                      <th className="num">Paid</th>
+                      <th className="num">Outstanding</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {holding.loan.schedule.map((row) => {
+                      const paidMinor = row.paid_principal_minor + row.paid_interest_minor;
+                      const tone = row.status === "paid" ? "ok" : row.status === "overdue" ? "bad" : row.status === "due" ? "warn" : "neutral";
+                      return (
+                        <tr key={row.id}>
+                          <td className="mono">{row.installment_number}</td>
+                          <td>{formatDate(row.due_date)}</td>
+                          <td><Chip dot={false} tone={tone}>{humanizeToken(row.status)}</Chip></td>
+                          <td className="num"><Money amountMinor={row.principal_minor} currency={holding.currency} /></td>
+                          <td className="num"><Money amountMinor={row.interest_minor} currency={holding.currency} /></td>
+                          <td className="num col-strong"><Money amountMinor={row.total_minor} currency={holding.currency} /></td>
+                          <td className="num"><Money amountMinor={paidMinor} currency={holding.currency} /></td>
+                          <td className="num"><Money amountMinor={row.outstanding_total_minor} currency={holding.currency} /></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
+        </section>
         {holding.loan.loan_status === "defaulted" ? <RecoverySplitView /> : null}
       </div>
     </Modal>

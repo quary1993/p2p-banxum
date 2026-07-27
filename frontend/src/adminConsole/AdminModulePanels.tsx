@@ -4359,7 +4359,6 @@ function ManageBorrowerRepaymentForm({ loan, onDone }: { loan: Loan; onDone: () 
       amount_minor: amountMinorValue,
       booking_date: bookingDate,
       value_date: valueDate,
-      collection_account_identifier: defaultCollectionAccount,
       payer_name: payerName,
       payer_account_identifier: payerAccount || undefined,
       bank_reference: bankReference || undefined,

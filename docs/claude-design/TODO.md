@@ -326,3 +326,11 @@ Before launch, Claude Design should produce or implement:
 - Design decision: never present the original schedule as the payment plan investors will receive. Keep the informational disclaimer adjacent to the table, and hide the whole section (not empty labels) when the loan is not a refinancing loan or optional original fields are absent.
 - Suggested improvement: Claude Design should polish long-schedule ergonomics (24+ rows): consider collapsing paid installments behind a "show paid installments" toggle or scroll container, sticky table header, a compact paid/remaining summary line above the table, mobile horizontal-scroll behavior for the seven-column table, and whether the section belongs on Overview or a dedicated tab once real refinancing volume exists.
 - Priority: important.
+
+## 2026-07-27: Portfolio Holding Detail And Repayment Schedule
+
+- Screen or component: Portfolio Holdings table and holding-detail modal.
+- Current first-version behavior: selecting a holding opens a large centered modal instead of a narrow side drawer. It retains holding-level invested, outstanding, interest-received, rate, status, and public-risk-note information, and adds the backend-projected current loan schedule with due date, status, whole-loan principal, interest, instalment, paid, and outstanding amounts.
+- Design decision: schedule values are explicitly labelled as whole-loan borrower obligations, not promised cash flows for the individual holding. Investor distributions remain server-calculated from current holding weights and can differ because of rounding, fees, transfers, repayments in advance, or schedule revisions. The frontend must never derive or re-amortize these values itself.
+- Suggested improvement: Claude Design should review long-schedule ergonomics, sticky headers, paid/upcoming filtering, mobile horizontal scrolling, and whether a later API should add an investor-specific expected-distribution projection alongside the authoritative whole-loan schedule.
+- Priority: important.

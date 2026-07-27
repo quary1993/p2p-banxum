@@ -623,7 +623,61 @@ export const portfolioFixture: InvestorPortfolio = {
         loan_start_date: "2026-01-31",
         first_payment_date: "2026-02-28",
         ltv_bps: 6100,
-        days_past_due: 0
+        days_past_due: 0,
+        schedule_version: 1,
+        schedule: [
+          {
+            id: "GA-2310-I-1",
+            schedule_version: 1,
+            installment_number: 1,
+            due_date: "2026-02-28",
+            principal_minor: amount(1579.5),
+            interest_minor: amount(600),
+            total_minor: amount(2179.5),
+            paid_principal_minor: amount(1579.5),
+            paid_interest_minor: amount(600),
+            outstanding_principal_minor: 0,
+            outstanding_interest_minor: 0,
+            outstanding_total_minor: 0,
+            is_paid: true,
+            days_past_due: 0,
+            status: "paid"
+          },
+          {
+            id: "GA-2310-I-2",
+            schedule_version: 1,
+            installment_number: 2,
+            due_date: "2026-03-31",
+            principal_minor: amount(1737.2),
+            interest_minor: amount(590.5),
+            total_minor: amount(2327.7),
+            paid_principal_minor: 0,
+            paid_interest_minor: 0,
+            outstanding_principal_minor: amount(1737.2),
+            outstanding_interest_minor: amount(590.5),
+            outstanding_total_minor: amount(2327.7),
+            is_paid: false,
+            days_past_due: 0,
+            status: "upcoming"
+          },
+          {
+            id: "GA-2310-I-3",
+            schedule_version: 1,
+            installment_number: 3,
+            due_date: "2026-04-30",
+            principal_minor: amount(1747.62),
+            interest_minor: amount(580.08),
+            total_minor: amount(2327.7),
+            paid_principal_minor: 0,
+            paid_interest_minor: 0,
+            outstanding_principal_minor: amount(1747.62),
+            outstanding_interest_minor: amount(580.08),
+            outstanding_total_minor: amount(2327.7),
+            is_paid: false,
+            days_past_due: 0,
+            status: "upcoming"
+          }
+        ]
       },
       received_principal_minor: amount(1579.5),
       received_interest_minor: amount(612.4),
@@ -667,7 +721,9 @@ export const portfolioFixture: InvestorPortfolio = {
         loan_start_date: "2025-11-30",
         first_payment_date: "2025-12-31",
         ltv_bps: 6500,
-        days_past_due: 21
+        days_past_due: 21,
+        schedule_version: 1,
+        schedule: []
       },
       received_principal_minor: 0,
       received_interest_minor: amount(1044),
@@ -716,7 +772,9 @@ export const portfolioFixture: InvestorPortfolio = {
         loan_start_date: "2025-09-15",
         first_payment_date: "2025-10-31",
         ltv_bps: 7000,
-        days_past_due: 64
+        days_past_due: 64,
+        schedule_version: 1,
+        schedule: []
       },
       received_principal_minor: 0,
       received_interest_minor: amount(270),
@@ -765,7 +823,9 @@ export const portfolioFixture: InvestorPortfolio = {
         loan_start_date: "2025-06-15",
         first_payment_date: "2025-07-31",
         ltv_bps: 7500,
-        days_past_due: 142
+        days_past_due: 142,
+        schedule_version: 1,
+        schedule: []
       },
       received_principal_minor: amount(3820),
       received_interest_minor: amount(95.2),

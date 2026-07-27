@@ -203,19 +203,27 @@ export function Chip({
   tone,
   children,
   dot = true,
-  square = false
+  square = false,
+  tooltip
 }: {
   status?: string;
   tone?: Tone;
   children?: ReactNode;
   dot?: boolean;
   square?: boolean;
+  tooltip?: string;
 }) {
   const mapped = status ? statusMap[status] : undefined;
   const finalTone = tone ?? mapped?.tone ?? "neutral";
   const label = children ?? mapped?.label ?? status;
+  const accessibleLabel = tooltip && typeof label === "string" ? `${label}. ${tooltip}` : undefined;
   return (
-    <span className={`chip chip-${finalTone} ${square ? "chip-square" : ""}`}>
+    <span
+      aria-label={accessibleLabel}
+      className={`chip chip-${finalTone} ${square ? "chip-square" : ""} ${tooltip ? "chip-tooltip" : ""}`}
+      tabIndex={tooltip ? 0 : undefined}
+      title={tooltip}
+    >
       {dot ? <span className="dot" /> : null}
       {label}
     </span>

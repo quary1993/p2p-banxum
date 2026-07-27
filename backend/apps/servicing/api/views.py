@@ -86,7 +86,7 @@ class BorrowerRepaymentRecordView(APIView):
                     amount_minor=data["amount_minor"],
                     booking_date=data["booking_date"],
                     value_date=data["value_date"],
-                    collection_account_identifier=data["collection_account_identifier"],
+                    collection_account_identifier=data.get("collection_account_identifier", ""),
                     payer_name=data["payer_name"],
                     payer_account_identifier=data.get("payer_account_identifier", ""),
                     bank_reference=data.get("bank_reference", ""),
