@@ -604,7 +604,7 @@ export const portfolioFixture: InvestorPortfolio = {
       loan: {
         loan_id: "GA-2310",
         loan_title: "Engadin Alpine refinancing",
-        loan_status: "funded",
+        loan_status: "active",
         borrower_id: "borrower-2310",
         borrower_name: "Engadin Hospitality AG",
         borrower_country: "CH",
@@ -642,7 +642,10 @@ export const portfolioFixture: InvestorPortfolio = {
             outstanding_total_minor: 0,
             is_paid: true,
             days_past_due: 0,
-            status: "paid"
+            status: "paid",
+            row_type: "repayment_event",
+            label: "Installment 1 paid",
+            payment_date: "2026-02-28"
           },
           {
             id: "GA-2310-I-2",
@@ -659,7 +662,10 @@ export const portfolioFixture: InvestorPortfolio = {
             outstanding_total_minor: amount(42693),
             is_paid: false,
             days_past_due: 0,
-            status: "upcoming"
+            status: "upcoming",
+            row_type: "scheduled_installment",
+            label: "Installment 2",
+            payment_date: null
           },
           {
             id: "GA-2310-I-3",
@@ -676,7 +682,10 @@ export const portfolioFixture: InvestorPortfolio = {
             outstanding_total_minor: amount(42682.58),
             is_paid: false,
             days_past_due: 0,
-            status: "upcoming"
+            status: "upcoming",
+            row_type: "scheduled_installment",
+            label: "Installment 3",
+            payment_date: null
           }
         ]
       },
@@ -1120,7 +1129,7 @@ export const secondaryActivityFixture: SecondaryMarketActivityPortal = {
       taker_fee_minor: amount(6.19),
       buyer_total_cost_minor: amount(2499.69),
       currency: "CHF",
-      loan_status_at_purchase: "funded",
+      loan_status_at_purchase: "active",
       risk_acknowledgement_accepted: true,
       purchased_at: "2026-05-12T09:45:00+02:00"
     }

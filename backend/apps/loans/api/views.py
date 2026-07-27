@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from dataclasses import asdict
+from importlib import import_module
 from typing import Any, cast
 
-from django.apps import apps
-from django.db.models import Model, QuerySet, Sum
+from django.db.models import Model, QuerySet
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -20,7 +21,6 @@ from backend.apps.loans.api.serializers import (
     LoanUpdateRequestSerializer,
     OriginalLoanScheduleRowSerializer,
     PublishLoanRequestSerializer,
-    serialize_installment,
     serialize_loan,
     serialize_loan_event,
 )
@@ -38,6 +38,7 @@ from backend.apps.loans.services import (
     update_loan,
 )
 from backend.apps.platform_core.domain.access import is_admin_actor
+from backend.apps.platform_core.domain.time import business_date, now_utc
 
 
 def _admin_forbidden_response() -> Response:
@@ -261,40 +262,13 @@ class LoanScheduleView(APIView):
         loan = Loan.objects.filter(id=loan_id).first()
         if loan is None:
             return Response({"detail": "Loan does not exist."}, status=status.HTTP_404_NOT_FOUND)
-        installments = list(
-            loan.installments.select_related("loan").filter(
-                schedule_version=loan.schedule_version
-            )
-        )
-        installment_ids = [installment.id for installment in installments]
-        repayment_event_model = apps.get_model("servicing", "BorrowerRepaymentEvent")
-        paid_by_installment_id = {
-            str(row["installment_id"]): (
-                int(row["paid_principal_minor"] or 0),
-                int(row["paid_interest_minor"] or 0),
-            )
-            for row in repayment_event_model.objects.filter(
-                installment_id__in=installment_ids,
-            )
-            .values("installment_id")
-            .annotate(
-                paid_principal_minor=Sum("principal_applied_minor"),
-                paid_interest_minor=Sum("interest_applied_minor"),
-            )
-        }
+        servicing = import_module("backend.apps.servicing.services")
+        rows = servicing.get_loan_repayment_schedule_snapshots(
+            loans=[loan],
+            as_of_date=business_date(now_utc()),
+        ).get(str(loan.id), [])
         return Response(
-            [
-                serialize_installment(
-                    installment,
-                    paid_principal_minor=paid_by_installment_id.get(
-                        str(installment.id), (0, 0)
-                    )[0],
-                    paid_interest_minor=paid_by_installment_id.get(
-                        str(installment.id), (0, 0)
-                    )[1],
-                )
-                for installment in installments
-            ],
+            [dict(LoanInstallmentSerializer(asdict(row)).data) for row in rows],
             status=status.HTTP_200_OK,
         )
 

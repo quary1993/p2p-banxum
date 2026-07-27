@@ -383,7 +383,6 @@ function previewScheduleRows(loan: Loan): LoanInstallment[] {
     const interestMinor = splitMinorAmount(totalInterestMinor, term, index);
     return {
       id: `${loan.id}-preview-installment-${index + 1}`,
-      loan_id: loan.id,
       schedule_version: loan.schedule_version || 1,
       installment_number: index + 1,
       due_date: addMonthsToDateString(firstDueDate, index),
@@ -396,10 +395,12 @@ function previewScheduleRows(loan: Loan): LoanInstallment[] {
       outstanding_interest_minor: interestMinor,
       outstanding_total_minor: principalMinor + interestMinor,
       is_paid: false,
+      days_past_due: 0,
+      status: "upcoming",
+      row_type: "scheduled_installment",
+      label: `Installment ${index + 1}`,
+      payment_date: null,
       admin_overridden: false,
-      metadata: { preview: true },
-      created_at: loan.created_at,
-      updated_at: loan.updated_at
     };
   });
 }
@@ -536,6 +537,13 @@ function previewOriginalScheduleRows(loan: Loan): OriginalLoanScheduleRow[] {
 
 function isPastBusinessDate(value: string) {
   return value < today;
+}
+
+function dateDifferenceDays(later: string, earlier: string) {
+  const laterTimestamp = Date.parse(`${later}T00:00:00Z`);
+  const earlierTimestamp = Date.parse(`${earlier}T00:00:00Z`);
+  if (!Number.isFinite(laterTimestamp) || !Number.isFinite(earlierTimestamp)) return 0;
+  return Math.round((laterTimestamp - earlierTimestamp) / 86_400_000);
 }
 
 function lookupDisplay(option: AdminLookupResult) {
@@ -2380,7 +2388,7 @@ export function LoansPanel() {
                 value={loanStatus}
               >
                 <option value="">All loan statuses</option>
-                {["draft", "published", "funded", "late", "defaulted", "repaid", "written_off", "cancelled"].map((status) => (
+                {["draft", "published", "funded", "active", "late", "defaulted", "repaid", "written_off", "cancelled"].map((status) => (
                   <option key={status} value={status}>{labelize(status)}</option>
                 ))}
               </select>
@@ -3265,7 +3273,7 @@ const MANAGE_LOAN_ACTIONS: Array<{
     title: "Record borrower repayment",
     description:
       "Declare a matched incoming borrower payment against the next due installment, or record a repayment in advance with a schedule preview.",
-    statuses: ["funded", "late"]
+    statuses: ["active", "late"]
   },
   {
     id: "recovery",
@@ -4367,6 +4375,7 @@ function ManageBorrowerRepaymentForm({ loan, onDone }: { loan: Loan; onDone: () 
   const [paymentReference, setPaymentReference] = useState("");
   const [evidenceReference, setEvidenceReference] = useState("");
   const [notes, setNotes] = useState("");
+  const [earlyRegularAcknowledged, setEarlyRegularAcknowledged] = useState(false);
   const [advancePlan, setAdvancePlan] = useState<BorrowerRepaymentAdvancePreviewResponse | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | undefined>();
@@ -4385,6 +4394,10 @@ function ManageBorrowerRepaymentForm({ loan, onDone }: { loan: Loan; onDone: () 
   });
 
   const amountMinorValue = advance ? intValue(advanceAmountMinor) : defaultAmountMinor;
+  const regularPaymentDaysEarly = nextInstallment
+    ? dateDifferenceDays(nextInstallment.due_date, valueDate)
+    : 0;
+  const requiresEarlyRegularAcknowledgement = !advance && regularPaymentDaysEarly > 1;
   let cumulativePrincipal = 0;
   const scheduleTotals = scheduleRows.reduce(
     (acc, row) => {
@@ -4418,6 +4431,10 @@ function ManageBorrowerRepaymentForm({ loan, onDone }: { loan: Loan; onDone: () 
       admin_notes: notes || undefined,
       repayment_in_advance: inAdvance,
       borrower_repayment_bank_date: inAdvance ? bankDate : undefined,
+      early_regular_payment_acknowledged:
+        !inAdvance && requiresEarlyRegularAcknowledgement
+          ? earlyRegularAcknowledged
+          : false,
       idempotency_key: idempotencyKey("borrower-repayment")
     };
   }
@@ -4472,8 +4489,8 @@ function ManageBorrowerRepaymentForm({ loan, onDone }: { loan: Loan; onDone: () 
             <table className="admin-table admin-schedule-table">
               <thead>
 	                <tr>
-	                  <th>#</th>
-	                  <th>Due date</th>
+	                  <th>Entry</th>
+	                  <th>Date</th>
 	                  <th className="num">Principal</th>
 	                  <th className="num">Interest</th>
 	                  <th className="num">Instalment</th>
@@ -4485,14 +4502,15 @@ function ManageBorrowerRepaymentForm({ loan, onDone }: { loan: Loan; onDone: () 
                 {scheduleRows.map((row) => {
                   cumulativePrincipal += row.principal_minor;
                   const outstandingAfter = Math.max(0, scheduledPrincipal - cumulativePrincipal);
+	                  const isPayment = row.row_type === "repayment_event";
 	                  return (
 	                    <tr key={row.id}>
 	                      <td>
-	                        {row.installment_number}
-	                        {row.is_paid ? <> <Chip tone="ok">Paid</Chip></> : null}
+	                        {row.label}
+	                        {row.is_paid ? <> <Chip tone="ok">{row.status === "paid_in_advance" ? "Paid in advance" : "Paid"}</Chip></> : null}
 	                        {!row.is_paid && isPastBusinessDate(row.due_date) ? <> <Chip tone="warn">Due</Chip></> : null}
 	                      </td>
-	                      <td>{formatDate(row.due_date)}</td>
+	                      <td>{formatDate(isPayment && row.payment_date ? row.payment_date : row.due_date)}</td>
 	                      <td className="num"><Money amountMinor={row.principal_minor} currency={loan.currency} /></td>
 	                      <td className="num"><Money amountMinor={row.interest_minor} currency={loan.currency} /></td>
 	                      <td className="num"><Money amountMinor={row.total_minor} currency={loan.currency} /></td>
@@ -4541,6 +4559,20 @@ function ManageBorrowerRepaymentForm({ loan, onDone }: { loan: Loan; onDone: () 
         <input checked={advance} onChange={(event) => toggleAdvance(event.target.checked)} type="checkbox" />
         Repayment in advance (different amount).
       </label>
+      {requiresEarlyRegularAcknowledgement ? (
+        <Banner tone="warn" title={`Regular installment is ${regularPaymentDaysEarly} days early`}>
+          A regular repayment collects the installment's full contractual interest. If this is a principal
+          repayment in advance, select "Repayment in advance" so interest is limited to the exact elapsed days.
+          <label className="check-row" style={{ marginTop: 10 }}>
+            <input
+              checked={earlyRegularAcknowledged}
+              onChange={(event) => setEarlyRegularAcknowledged(event.target.checked)}
+              type="checkbox"
+            />
+            I confirm this is the full timely installment and the full scheduled interest should be applied.
+          </label>
+        </Banner>
+      ) : null}
       {advance ? (
         <FieldGrid>
           <TextInput
@@ -4564,7 +4596,7 @@ function ManageBorrowerRepaymentForm({ loan, onDone }: { loan: Loan; onDone: () 
           </Button>
         ) : (
           <Button
-            disabled={repayment.isPending || amountMinorValue <= 0 || !payerName.trim()}
+            disabled={repayment.isPending || amountMinorValue <= 0 || !payerName.trim() || (requiresEarlyRegularAcknowledgement && !earlyRegularAcknowledged)}
             onClick={recordRegular}
             variant="primary"
           >
@@ -4599,6 +4631,14 @@ function ManageBorrowerRepaymentForm({ loan, onDone }: { loan: Loan; onDone: () 
               <div className="admin-review-row">
                 <span>Accrued interest</span>
                 <strong><Money amountMinor={advancePlan.accrued_interest_minor} currency={advancePlan.currency} /></strong>
+              </div>
+              <div className="admin-review-row">
+                <span>Interest accrual period</span>
+                <strong>{formatDate(advancePlan.interest_accrual_start_date)} to {formatDate(advancePlan.interest_accrual_end_date)}</strong>
+              </div>
+              <div className="admin-review-row">
+                <span>Accrued days (ACT/365)</span>
+                <strong>{advancePlan.accrued_interest_days}</strong>
               </div>
               <div className="admin-review-row">
                 <span>Interest applied</span>

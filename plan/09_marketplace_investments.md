@@ -399,6 +399,22 @@ Each completed secondary-market transfer must generate legal transfer evidence a
 Rationale:
 Full-holding transfers keep the legal assignment chain, servicing ownership, lender distributions, and accounting entries simpler while preserving secondary liquidity through listing each separate holding.
 
+### MKT-DEC-021: Automatic Open-Listing Repricing After Servicing Changes
+
+Status: Accepted.
+Date: 2026-07-27.
+Owner: Garanta product / finance / operations.
+
+Decision:
+The seller's `price_bps` is the durable commercial choice: 10,000 is par, values above are a premium, and values below are a discount. After any borrower repayment, repayment in advance, recovery distribution, or servicing-status transition changes a loan or holding, every unsold open listing for that loan is refreshed atomically from the latest loan and holding data. The platform preserves only `price_bps` and recomputes current principal, transfer price, accrued interest, maker/taker fees, seller net proceeds, buyer total, payment date, days past due, risk-acknowledgement state, and disclosure status. A zero-principal/unlistable holding is automatically cancelled. A performing `active` loan remains automatically listed; `late`/`defaulted` listings return to approval-required status.
+
+`Funded` means funding has closed but the borrower has not yet been paid. Holdings in that state are visible in the portfolio but cannot be listed or submitted for listing review. The investor UI disables the listing action with a disbursement-pending explanation. When an `active` loan becomes `late` or `defaulted`, its open listing is immediately hidden from buyers, returned to `approval_requested`, and surfaced through the existing secondary-listing approval queue; seller-facing status text explains that Garanta reapproval is required.
+
+For a regular installment paid before its due date, secondary-market accrued interest starts only after the contractual due date because that installment already paid full contractual interest through that date. For a repayment in advance, accrual restarts from the actual borrower bank date. Purchase settlement still recomputes all economics again on the purchase date. The repayment-credit email mentions automatic listing recalculation only for the seller of a listing that remains active and unsold.
+
+Rationale:
+Keeping the percentage premium/discount while refreshing every derived amount honors seller intent without exposing buyers to stale principal, stale fees, or duplicate accrued interest after servicing events.
+
 ## Marketplace Lifecycle
 
 1. Listing prepared by operations after a complete loan record exists.
@@ -459,6 +475,7 @@ Launch requirements:
 - The platform displays current principal balance, sale price, discount/premium, accrued interest, seller fee, seller net proceeds, buyer fee, and buyer total cost.
 - Accrued interest up to settlement is calculated separately, daily, pro rata, and belongs to the seller up to transfer date for current/performing loans/projects.
 - Future interest after settlement belongs to the buyer.
+- Open unsold listings are automatically repriced after repayment, recovery, or status changes using current holding/loan data while preserving only the seller's percentage premium/discount (`price_bps`).
 - Maker/taker fees are calculated on transfer price excluding accrued interest, rounded half-up to the nearest cent/minor unit, with configurable minimum-fee support.
 - Current/performing holdings may be listed automatically after system checks.
 - Late, overdue, restructured, under-observation, default, recovery, legal-enforcement, payment-incident, or otherwise non-performing/non-standard holdings require an admin-approved listing request before becoming visible.

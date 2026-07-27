@@ -1,6 +1,6 @@
 # Loan Servicing and Repayments
 
-Status: Draft. Updated with payment, balance, servicing, and configurable recovery waterfall decisions on 2026-06-01, and with the fixed-amount installment / repayment-in-advance servicing model on 2026-07-08.
+Status: Draft. Updated with payment, balance, servicing, and configurable recovery waterfall decisions on 2026-06-01, with the fixed-amount installment / repayment-in-advance servicing model on 2026-07-08, and with disbursement activation, ACT/365 interest, and canonical schedule-history rules on 2026-07-27.
 
 ## Purpose
 
@@ -76,7 +76,7 @@ Date: 2026-05-16. Updated 2026-07-08 for fixed-amount installments and repayment
 Owner: Garanta finance / operations.
 
 Decision:
-Borrower repayments are declared from the Loans table through Manage > "Record borrower repayment", which shows the loan's current schedule. Declaring a regular installment payment uses a fixed amount: it must equal the outstanding amount of the next due installment and cannot be edited.
+Borrower repayments are declared from the Loans table through Manage > "Record borrower repayment", which shows the loan's current schedule. A loan must be `active` or `late`; `funded` means funding closed but borrower disbursement is still pending and cannot accept repayment. Declaring a regular installment payment uses a fixed amount: it must equal the outstanding amount of the next due installment and cannot be edited. If the value date is more than one day before the due date, admin must explicitly acknowledge that the borrower is paying the full timely installment, including its full contractual interest. Otherwise the payment must use the repayment-in-advance flow.
 
 To declare any other amount (except for defaulted loans, which go through the recovery workflow), the admin checks "Repayment in advance" and selects a "Borrower repayment bank date". The declared amount is then allocated through the repayment-in-advance waterfall (SERV-DEC-007) and the future schedule is regenerated as a new schedule version. Before anything is written, the admin gets a preview/confirmation dialog showing the allocation and both the old and the new schedule.
 
@@ -107,7 +107,7 @@ Late fees are not charged at launch, so late-fee allocation is inactive unless a
 
 Borrower-side penalties remain configurable in the data model but are set to 0/inactive at launch until Garanta finalizes business and legal policy. While penalties are 0, the penalty waterfall step has no monetary effect.
 
-For a healthy loan with a CHF 1,000 regular installment, if the borrower pays CHF 3,000, admin declares it as a repayment in advance with the borrower repayment bank date. The system pays all unpaid scheduled interest of installments due on or before the bank date, plus pro-rata accrued interest on the outstanding principal for the days since the last installment due date up to the bank date; the remainder reduces outstanding principal. The future schedule is then regenerated as a new schedule version for the same remaining due dates using the new outstanding principal.
+For a healthy loan with a CHF 1,000 regular installment, if the borrower pays CHF 3,000, admin declares it as a repayment in advance with the borrower repayment bank date. The system pays all unpaid scheduled interest of installments due on or before the bank date, plus exact ACT/365 interest on outstanding principal from the latest date through which interest was already paid up to, but excluding, the new bank date; the remainder reduces outstanding principal. Interest accrues at end of day, so two advance repayments with the same bank date produce no additional elapsed-day interest on the second payment. The future schedule is then regenerated as a new schedule version for the same remaining due dates using the new outstanding principal.
 
 Rationale:
 The waterfall preserves fee/penalty priority while keeping loan economics tied to the agreed schedule.
@@ -157,10 +157,12 @@ Early repayment is allowed at launch. Both full and partial early repayment are 
 Early repayment is declared as a "Repayment in advance": admin checks the repayment-in-advance option in Manage > "Record borrower repayment", enters the received amount, and selects the "Borrower repayment bank date". The waterfall then pays:
 
 1. All unpaid scheduled interest of installments due on or before the bank date.
-2. Pro-rata accrued interest on the outstanding principal for the days since the last installment due date up to the bank date: outstanding x monthly rate x days elapsed / days in period, where monthly rate = annual bps / 120000.
+2. ACT/365 accrued interest on outstanding principal from the latest interest-paid-through date up to, but excluding, the bank date: `outstanding principal x annual rate bps x elapsed days / (10,000 x 365)`, rounded half-up to integer currency minor units. A regular installment pays interest through its contractual due date; a prior repayment in advance pays interest through its actual borrower bank date. No future interest is collected.
 3. The remainder reduces outstanding principal.
 
-The future schedule is then regenerated as a new immutable schedule version: only future rows are regenerated, original due dates are preserved, and the first regenerated installment's interest is prorated for the remainder of the current period. Before anything is written, the admin gets a preview/confirmation dialog showing the allocation and both the old and the new schedule (backend endpoint `POST /api/v1/servicing/admin/borrower-repayments/advance-preview/`). A full payoff through repayment in advance marks the loan repaid.
+The future schedule is then regenerated as a new immutable schedule version: only future rows are regenerated, original due dates are preserved, and the first regenerated installment's interest uses the same ACT/365 rule from the repayment bank date to its due date. Before anything is written, the admin gets a preview/confirmation dialog showing the allocation, accrual period/day count, and both the old and new schedule (backend endpoint `POST /api/v1/servicing/admin/borrower-repayments/advance-preview/`). A full payoff through repayment in advance marks the loan repaid.
+
+This is an intentional mixed convention. Complete contractual monthly periods continue to use the schedule engine's nominal annual rate divided by 12. Only irregular stub periods created by a repayment in advance use ACT/365 for the exact elapsed calendar days. The platform must not silently replace full-period contractual interest with ACT/365 or charge a full monthly amount for a shortened stub.
 
 Rationale:
 Early repayment flexibility matches expected loan operations and avoids unnecessary penalty complexity at launch. The explicit bank date makes interest accrual deterministic, and the mandatory preview lets admin verify the allocation and resulting schedule before the ledger is touched.
@@ -293,14 +295,29 @@ Default recovery is case-specific and handled offline, but the waterfall, lender
 Follow-ups:
 Finalize lender notification wording, accountant-approved recovery report labels, and any non-default project waterfall wording required by project agreements.
 
+### SERV-DEC-014: Funding Close, Disbursement, and Servicing Activation
+
+Status: Accepted.
+Date: 2026-07-27.
+Owner: Garanta finance / operations.
+
+Decision:
+Funding close moves lender capital into borrower-disbursement payable and sets the loan to `funded`. This status means the campaign closed successfully but no borrower repayment can yet be recorded. Admin borrower-disbursement finalization must clear the complete payable through borrower cash plus the BANXUM fee, then moves the loan to `active` and records immutable disbursement evidence. Normal repayments and servicing scans operate on `active` and `late` loans. This explicitly prevents repayment before the borrower received the financed principal.
+
+The canonical full-loan schedule projection is an immutable history plus the latest future obligation view. It merges every recorded regular/advance repayment event (actual payment date and actual principal/interest applied) with only the outstanding rows from the current schedule version. Superseded schedule versions remain stored for audit but are not duplicated into the normal full schedule. Investor holding projections remain future/outstanding only.
+
+Rationale:
+Separating funding completion from cash drawdown prevents an impossible repayment lifecycle. Combining immutable payment events with the current schedule preserves historical truth after one or more schedule regenerations without presenting superseded future projections as current obligations.
+
+Follow-ups:
+Uploaded disbursement evidence files and controlled correction/reversal events remain separate hardening items.
+
 ## Loan States
 
 - Approved.
 - Funding.
-- Funded.
-- Contracted.
-- Drawn.
-- Current.
+- Funded (funding closed; borrower disbursement pending).
+- Active/current (borrower disbursed; servicing enabled).
 - Grace period.
 - Late.
 - Defaulted.
@@ -325,19 +342,20 @@ Finalize lender notification wording, accountant-approved recovery report labels
 - For refinancing loans, the original loan schedule computed from the admin-declared original loan data is purely informational for investors: it is never persisted and never serviced. The installments ticked as "paid before publication" during the publish review must be a contiguous prefix of past-due original-schedule rows, but they have no effect on servicing. The serviced schedule is always generated from the financeable principal, exactly as for a standard loan.
 - Recalculate expected investor distributions when schedules change.
 - Preserve historical schedule versions for audit and reporting.
+- Present canonical full schedules as immutable repayment-event rows followed by outstanding rows from the latest schedule version. Historical regular and advance payments remain visible after every schedule regeneration; projected investor schedules remain future/outstanding only.
 
 ## Repayment Allocation Waterfall
 
 Launch waterfall:
 
-1. A regular installment declaration uses the fixed outstanding amount of the next due installment; it is allocated to that installment's fees, penalties, interest, and principal.
+1. A regular installment declaration uses the fixed outstanding amount of the next due installment; it is allocated to that installment's fees, penalties, interest, and principal. More than one day before due, admin must acknowledge that the full contractual installment is intended; otherwise use repayment in advance.
 2. Any other amount (except for defaulted loans, which go through recovery) is declared as a repayment in advance with a borrower repayment bank date.
 3. For a repayment in advance, allocate to fees.
 4. Allocate to penalties.
 5. Allocate to all unpaid scheduled interest of installments due on or before the bank date.
-6. Allocate to pro-rata accrued interest on the outstanding principal for the days since the last installment due date up to the bank date (outstanding x monthly rate x days elapsed / days in period, monthly rate = annual bps / 120000).
+6. Allocate to ACT/365 interest on outstanding principal from the latest interest-paid-through date up to, but excluding, the bank date (`principal x annual bps x days / (10,000 x 365)`, half-up minor-unit rounding). Interest accrues end of day and future interest is never collected.
 7. Allocate the remainder to outstanding principal.
-8. Regenerate the future schedule as a new schedule version: only future rows, original due dates preserved, first regenerated installment interest prorated for the remainder of the current period. A full payoff marks the loan repaid.
+8. Regenerate the future schedule as a new schedule version: only future rows, original due dates preserved, first regenerated installment interest calculated by ACT/365 from bank date to due date. A full payoff marks the loan repaid.
 9. Require admin confirmation of the previewed allocation and old/new schedules before any ledger write.
 10. Calculate each lender's pro-rata distribution.
 11. Apply configured `lender_payment_fee` per lender distribution. Launch value is 0.

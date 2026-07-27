@@ -1640,6 +1640,13 @@ def test_borrower_disbursement_finalization_clears_payable(admin_user: Model) ->
     assert final_snapshot.metadata["borrower_disbursement_payable_minor"] == 0
     assert final_snapshot.metadata["collection_cash_ledger_balance_minor"] == 2_000_00
     assert final_snapshot.garanta_accrued_revenue_minor == 2_000_00
+    loan = apps.get_model("loans", "Loan").objects.get(id=loan_id)
+    assert loan.status == "active"
+    assert loan.events.filter(
+        event_type="disbursed",
+        previous_status="funded",
+        new_status="active",
+    ).exists()
     assert DomainEvent.objects.filter(
         event_type="BorrowerDisbursementFinalized",
         aggregate_id=str(result.bank_operation.id),
@@ -1697,7 +1704,7 @@ def test_borrower_disbursement_finalization_is_idempotent_and_rejects_mismatch(
         operation_type="borrower_loan_disbursement"
     ).count() == 1
 
-    with pytest.raises(LedgerValidationError, match="no borrower disbursement payable"):
+    with pytest.raises(LedgerValidationError, match="already been disbursed"):
         finalize_borrower_disbursement(
             FinalizeBorrowerDisbursementCommand(
                 actor=admin_user,
@@ -2150,6 +2157,10 @@ def test_borrower_disbursement_finalization_api(
     admin_user: Model,
 ) -> None:
     loan_id, borrower_id = _closed_primary_loan_funding(admin_user)
+    apps.get_model("platform_core", "PlatformSetting").objects.create(
+        key="payments.deposit_instructions_by_currency",
+        value={"CHF": {"collection_account_identifier": "Garanta_CHF"}},
+    )
     client.force_login(cast(Any, admin_user))
 
     response = client.post(
@@ -2162,7 +2173,6 @@ def test_borrower_disbursement_finalization_api(
             "currency": "CHF",
             "booking_date": "2026-01-02",
             "value_date": "2026-01-02",
-            "collection_account_identifier": "CH00GARANTALEDGER",
             "payee_name": "Borrower AG",
             "payee_account_identifier": "CH22BORROWER",
             "bank_reference": "BANK-BORROWER-DISB-API",
@@ -2177,6 +2187,7 @@ def test_borrower_disbursement_finalization_api(
     assert response.status_code == 201
     payload = response.json()
     assert payload["bank_operation"]["operation_type"] == "borrower_loan_disbursement"
+    assert payload["bank_operation"]["collection_account_identifier"] == "Garanta_CHF"
     assert payload["journal_entry"]["event_type"] == "borrower_loan_disbursement_finalized"
     assert payload["journal_entry"]["loan_id"] == str(loan_id)
 

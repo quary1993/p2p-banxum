@@ -39,6 +39,10 @@ class BorrowerRepaymentRecordRequestSerializer(serializers.Serializer[Any]):
     admin_notes = serializers.CharField(required=False, allow_blank=True)
     repayment_in_advance = serializers.BooleanField(required=False, default=False)
     borrower_repayment_bank_date = serializers.DateField(required=False, allow_null=True)
+    early_regular_payment_acknowledged = serializers.BooleanField(
+        required=False,
+        default=False,
+    )
     idempotency_key = serializers.CharField(max_length=160)
 
 
@@ -61,6 +65,9 @@ class BorrowerRepaymentAdvancePreviewResponseSerializer(serializers.Serializer[A
     currency = serializers.CharField()
     amount_minor = serializers.IntegerField()
     bank_date = serializers.DateField()
+    interest_accrual_start_date = serializers.DateField()
+    interest_accrual_end_date = serializers.DateField()
+    accrued_interest_days = serializers.IntegerField()
     scheduled_interest_due_minor = serializers.IntegerField()
     accrued_interest_minor = serializers.IntegerField()
     interest_applied_minor = serializers.IntegerField()

@@ -9,7 +9,6 @@ from backend.apps.loans.models import (
     CollateralType,
     Loan,
     LoanEvent,
-    LoanInstallment,
     LoanPurpose,
     LoanStatus,
     RepaymentType,
@@ -183,23 +182,24 @@ class PublishLoanRequestSerializer(serializers.Serializer[Any]):
 
 class LoanInstallmentSerializer(serializers.Serializer[Any]):
     id = serializers.UUIDField()
-    loan_id = serializers.UUIDField()
     schedule_version = serializers.IntegerField()
     installment_number = serializers.IntegerField()
     due_date = serializers.DateField()
     principal_minor = serializers.IntegerField()
     interest_minor = serializers.IntegerField()
     total_minor = serializers.IntegerField()
-    paid_principal_minor = serializers.IntegerField(required=False)
-    paid_interest_minor = serializers.IntegerField(required=False)
-    outstanding_principal_minor = serializers.IntegerField(required=False)
-    outstanding_interest_minor = serializers.IntegerField(required=False)
-    outstanding_total_minor = serializers.IntegerField(required=False)
-    is_paid = serializers.BooleanField(required=False)
+    paid_principal_minor = serializers.IntegerField()
+    paid_interest_minor = serializers.IntegerField()
+    outstanding_principal_minor = serializers.IntegerField()
+    outstanding_interest_minor = serializers.IntegerField()
+    outstanding_total_minor = serializers.IntegerField()
+    is_paid = serializers.BooleanField()
+    days_past_due = serializers.IntegerField()
+    status = serializers.CharField()
+    row_type = serializers.CharField()
+    label = serializers.CharField()  # type: ignore[assignment]
+    payment_date = serializers.DateField(allow_null=True)
     admin_overridden = serializers.BooleanField()
-    metadata = serializers.JSONField()
-    created_at = serializers.DateTimeField()
-    updated_at = serializers.DateTimeField()
 
 
 class OriginalLoanScheduleRowSerializer(serializers.Serializer[Any]):
@@ -227,29 +227,6 @@ class LoanEventSerializer(serializers.Serializer[Any]):
 
 def serialize_loan(loan: Loan) -> dict[str, Any]:
     return dict(LoanSerializer(loan).data)
-
-
-def serialize_installment(
-    installment: LoanInstallment,
-    *,
-    paid_principal_minor: int = 0,
-    paid_interest_minor: int = 0,
-) -> dict[str, Any]:
-    data = dict(LoanInstallmentSerializer(installment).data)
-    outstanding_principal_minor = max(0, installment.principal_minor - paid_principal_minor)
-    outstanding_interest_minor = max(0, installment.interest_minor - paid_interest_minor)
-    outstanding_total_minor = outstanding_principal_minor + outstanding_interest_minor
-    data.update(
-        {
-            "paid_principal_minor": paid_principal_minor,
-            "paid_interest_minor": paid_interest_minor,
-            "outstanding_principal_minor": outstanding_principal_minor,
-            "outstanding_interest_minor": outstanding_interest_minor,
-            "outstanding_total_minor": outstanding_total_minor,
-            "is_paid": outstanding_total_minor == 0,
-        }
-    )
-    return data
 
 
 def serialize_loan_event(event: LoanEvent) -> dict[str, Any]:

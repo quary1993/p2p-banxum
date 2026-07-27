@@ -95,6 +95,9 @@ class SecondaryMarketLoanInstallmentSerializer(serializers.Serializer[Any]):
     is_paid = serializers.BooleanField()
     days_past_due = serializers.IntegerField()
     status = serializers.CharField()
+    row_type = serializers.CharField()
+    label = serializers.CharField()  # type: ignore[assignment]
+    payment_date = serializers.DateField(allow_null=True)
 
 
 class SecondaryMarketInvestmentInstallmentSerializer(serializers.Serializer[Any]):

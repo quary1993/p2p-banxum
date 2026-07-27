@@ -2591,7 +2591,7 @@ function LoanDetailScreen({
         </div>
         <aside className="aside-sticky">
           <Card padded>
-            {loan.status === "funded" ? (
+            {loan.status !== "published" ? (
               <Empty icon="checkCircle" title="Fully funded">This loan is closed to new orders.</Empty>
             ) : (
               <>
@@ -3599,7 +3599,7 @@ function HoldingsTable({
                     title={holding.loan.is_refinancing ? <span className="row gap-6 wrap">{holding.loan.loan_title}<RefinancedTag /></span> : holding.loan.loan_title}
                   />
                 </td>
-                <td><div className="row gap-6 wrap"><Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} />{holding.open_secondary_listing ? <Chip status={listingStatusLabel(holding.open_secondary_listing.status)} tone={holding.open_secondary_listing.status === "active" ? "ok" : "warn"} /> : null}</div></td>
+                <td><div className="row gap-6 wrap"><Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} />{holding.open_secondary_listing ? <Chip status={listingStatusLabel(holding.open_secondary_listing.status)} tone={holding.open_secondary_listing.status === "active" ? "ok" : "warn"} tooltip={listingStatusTooltip(holding.open_secondary_listing.status, holding.loan.loan_status)} /> : null}</div></td>
                 <td className="num"><Money amountMinor={holding.original_principal_minor} currency={holding.currency} /></td>
                 <td className="num col-strong">{formatMoneyMinor(holding.current_principal_minor, holding.currency)}</td>
                 <td className="num pos">+{formatMoneyMinor(holding.received_interest_minor, holding.currency)}</td>
@@ -3883,10 +3883,10 @@ function LoanSchedulePanels({
       ) : (
         <div className="col gap-16 holding-schedule-panel" role="tabpanel">
           <div className="section-head">
-            <div><h2>Full loan schedule</h2><div className="ph-sub">Current server schedule, version {scheduleVersion}.</div></div>
+            <div><h2>Full loan schedule</h2><div className="ph-sub">Recorded payment history plus current future schedule, active version {scheduleVersion}.</div></div>
           </div>
           <Banner tone="neutral" title="Whole-loan borrower obligations">
-            These are the scheduled amounts for the entire loan and include what the borrower has already paid. They are not the cash flows for only this claim.
+            Past rows are immutable borrower payment records. Remaining rows come from the latest regenerated loan schedule. They are not the cash flows for only this claim.
           </Banner>
           {loanSchedule.length === 0 ? (
             <Card className="section"><Empty icon="clock" title="Schedule unavailable">No current repayment schedule rows are available for this loan.</Empty></Card>
@@ -3895,16 +3895,17 @@ function LoanSchedulePanels({
               <div className="tbl-wrap">
                 <table className="tbl holding-schedule-table">
                   <thead>
-                    <tr><th>#</th><th>Due date</th><th>Status</th><th className="num">Principal</th><th className="num">Interest</th><th className="num">Instalment</th><th className="num">Paid</th><th className="num">Outstanding</th></tr>
+                    <tr><th>Entry</th><th>Date</th><th>Status</th><th className="num">Principal</th><th className="num">Interest</th><th className="num">Instalment</th><th className="num">Paid</th><th className="num">Outstanding</th></tr>
                   </thead>
                   <tbody>
                     {loanSchedule.map((row) => {
                       const paidMinor = row.paid_principal_minor + row.paid_interest_minor;
-                      const tone = row.status === "paid" ? "ok" : row.status === "overdue" ? "bad" : row.status === "due" ? "warn" : "neutral";
+                      const tone = ["paid", "paid_in_advance"].includes(row.status) ? "ok" : row.status === "overdue" ? "bad" : row.status === "due" ? "warn" : "neutral";
+                      const displayDate = row.row_type === "repayment_event" && row.payment_date ? row.payment_date : row.due_date;
                       return (
                         <tr key={row.id}>
-                          <td className="mono">{row.installment_number}</td>
-                          <td>{formatDate(row.due_date)}</td>
+                          <td>{row.label}</td>
+                          <td>{formatDate(displayDate)}</td>
                           <td><Chip dot={false} tone={tone}>{humanizeToken(row.status)}</Chip></td>
                           <td className="num"><Money amountMinor={row.principal_minor} currency={currency} /></td>
                           <td className="num"><Money amountMinor={row.interest_minor} currency={currency} /></td>
@@ -3937,11 +3938,15 @@ function LoanSchedulePanels({
 
 function HoldingDetail({ holding, onClose, setRoute }: { holding: Holding; onClose: () => void; setRoute: (route: AppRoute) => void }) {
   const impaired = ["late", "defaulted", "written_off"].includes(holding.loan.loan_status);
+  const listingAction = secondaryListingAction(holding.loan.loan_status);
+  const hasOpenListing = holding.open_secondary_listing !== null;
+  const canOpenSecondaryAction = hasOpenListing || listingAction.allowed;
   return (
-    <Modal xwide footer={<><Button variant="ghost" onClick={onClose}>Close</Button><Button disabled={holding.loan.loan_status !== "funded"} icon="secondary" variant="primary" onClick={() => { onClose(); goTo(setRoute, "secondary", { tab: "sell" }); }}>{holding.open_secondary_listing ? "Manage secondary listing" : "List on secondary market"}</Button></>} onClose={onClose} title={holding.loan.loan_title}>
+    <Modal xwide footer={<><Button variant="ghost" onClick={onClose}>Close</Button><Button disabled={!canOpenSecondaryAction} icon="secondary" title={!canOpenSecondaryAction ? listingAction.hint : undefined} variant="primary" onClick={() => { onClose(); goTo(setRoute, "secondary", { tab: "sell" }); }}>{hasOpenListing ? "Manage secondary listing" : listingAction.label}</Button></>} onClose={onClose} title={holding.loan.loan_title}>
       <div className="col gap-16">
-        <div className="row gap-8 wrap"><Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} />{holding.open_secondary_listing ? <Chip status={listingStatusLabel(holding.open_secondary_listing.status)} tone={holding.open_secondary_listing.status === "active" ? "ok" : "warn"} /> : null}<Rating value={holding.loan.risk_rating} /><Country code={holding.loan.borrower_country} />{holding.loan.is_refinancing ? <RefinancedTag full /> : null}<CopyIdButton ariaLabel="Copy loan ID" id={holding.loan.loan_id} label="Copy loan ID" /></div>
+        <div className="row gap-8 wrap"><Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} />{holding.open_secondary_listing ? <Chip status={listingStatusLabel(holding.open_secondary_listing.status)} tone={holding.open_secondary_listing.status === "active" ? "ok" : "warn"} tooltip={listingStatusTooltip(holding.open_secondary_listing.status, holding.loan.loan_status)} /> : null}<Rating value={holding.loan.risk_rating} /><Country code={holding.loan.borrower_country} />{holding.loan.is_refinancing ? <RefinancedTag full /> : null}<CopyIdButton ariaLabel="Copy loan ID" id={holding.loan.loan_id} label="Copy loan ID" /></div>
         <div className="sub">Borrower: {holding.loan.borrower_name}</div>
+        {!hasOpenListing && !listingAction.allowed ? <Banner tone="neutral" title={listingAction.title}>{listingAction.hint}</Banner> : null}
         {impaired ? <Banner tone="warn" title={`${holding.loan.loan_status.replaceAll("_", " ")} - ${holding.loan.days_past_due} DPD`}>This position is not a normal live loan. Review public notes and recovery updates before taking action.</Banner> : null}
         <div className="grid grid-4">
           <Card padded><Stat amountMinor={holding.original_principal_minor} currency={holding.currency} label="Invested" /></Card>
@@ -4097,6 +4102,47 @@ function listingStatusLabel(status: string) {
   return humanizeToken(status);
 }
 
+function listingStatusTooltip(status: string, loanStatus: string) {
+  if (status === "active") {
+    return "Visible to eligible buyers. Servicing changes automatically recalculate the amounts while preserving the selected premium or discount.";
+  }
+  if (status === "approval_requested") {
+    if (["late", "defaulted"].includes(loanStatus)) {
+      return "Hidden from buyers because the loan is non-performing. Garanta must review the updated status and disclosure before republishing it.";
+    }
+    return "Hidden from buyers until Garanta completes the required listing review.";
+  }
+  return undefined;
+}
+
+function secondaryListingAction(loanStatus: string) {
+  if (loanStatus === "active") {
+    return { allowed: true, label: "List on secondary market", title: "Listing available", hint: "" };
+  }
+  if (["late", "defaulted"].includes(loanStatus)) {
+    return {
+      allowed: true,
+      label: "Request listing",
+      title: "Garanta approval required",
+      hint: "This non-performing holding can be submitted for review but will remain hidden until Garanta approves its disclosure."
+    };
+  }
+  if (loanStatus === "funded") {
+    return {
+      allowed: false,
+      label: "List on secondary market",
+      title: "Listing available after borrower disbursement",
+      hint: "Funding has closed, but the borrower payout is still pending. You can list this holding after disbursement moves the loan to Active."
+    };
+  }
+  return {
+    allowed: false,
+    label: "List on secondary market",
+    title: "Secondary-market listing unavailable",
+    hint: `This holding cannot be listed while the loan status is ${humanizeToken(loanStatus).toLowerCase()}.`
+  };
+}
+
 function SellableHoldingsTable({
   holdings,
   onSell,
@@ -4122,11 +4168,12 @@ function SellableHoldingsTable({
           <tbody>{holdings.map((holding) => {
             const listing = holding.open_secondary_listing;
             const actionsDisabled = frozen || isReadonlyImpersonationActive();
+            const listingAction = secondaryListingAction(holding.loan.loan_status);
             return (
               <tr key={holding.id}>
                 <td><EntityReference id={holding.loan.loan_id} idLabel="Copy loan ID" meta={holding.loan.borrower_name} title={holding.loan.loan_title} /></td>
                 <td><Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} /></td>
-                <td>{listing ? <Chip status={listingStatusLabel(listing.status)} tone={listing.status === "active" ? "ok" : "warn"} /> : <span className="muted">Not listed</span>}</td>
+                <td>{listing ? <Chip status={listingStatusLabel(listing.status)} tone={listing.status === "active" ? "ok" : "warn"} tooltip={listingStatusTooltip(listing.status, holding.loan.loan_status)} /> : <span className="muted">Not listed</span>}</td>
                 <td className="num"><Money amountMinor={holding.current_principal_minor} currency={holding.currency} /></td>
                 <td className="num">{formatRateBps(holding.loan.interest_rate_bps)}</td>
                 <td className="right">
@@ -4137,7 +4184,10 @@ function SellableHoldingsTable({
                         <Button disabled={actionsDisabled} size="sm" variant="danger" onClick={() => onCancel(holding, listing)}>Cancel</Button>
                       </>
                     ) : (
-                      <Button disabled={actionsDisabled} size="sm" onClick={() => onSell(holding)}>{holding.loan.loan_status === "funded" ? "List" : "Request listing"}</Button>
+                      <div className="col gap-4" style={{ alignItems: "flex-end" }}>
+                        <Button disabled={actionsDisabled || !listingAction.allowed} size="sm" title={!listingAction.allowed ? listingAction.hint : undefined} onClick={() => onSell(holding)}>{listingAction.label === "List on secondary market" ? "List" : listingAction.label}</Button>
+                        {!listingAction.allowed ? <span className="sub">{holding.loan.loan_status === "funded" ? "Available after disbursement" : "Unavailable for this status"}</span> : null}
+                      </div>
                     )}
                   </div>
                 </td>
@@ -4454,7 +4504,7 @@ function ListHoldingModal({ holding, listing, onClose }: { holding: Holding; lis
   const price = Math.max(1, Number(priceBps || 0));
   const transferPrice = Math.round((holding.current_principal_minor * price) / 10000);
   const makerFee = Math.round(transferPrice * 0.0025);
-  const nonStandard = holding.loan.loan_status !== "funded";
+  const nonStandard = holding.loan.loan_status !== "active";
   const projectedInterestMinor = holding.investment_schedule.reduce(
     (sum, row) => sum + row.projected_interest_minor,
     0

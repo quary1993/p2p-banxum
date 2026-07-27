@@ -44,6 +44,7 @@ from backend.apps.secondary_market.services import (
     edit_secondary_market_listing,
     list_active_secondary_market_listings,
     purchase_secondary_market_listing,
+    refresh_open_secondary_market_listings_for_loan,
     reject_secondary_market_listing,
 )
 
@@ -146,7 +147,7 @@ def _create_borrower(admin_user: Model) -> Model:
 def _create_funded_loan(
     admin_user: Model,
     *,
-    status: str = "funded",
+    status: str = "active",
     principal_minor: int = 30_000_00,
 ) -> Model:
     borrower = _create_borrower(admin_user)
@@ -421,6 +422,162 @@ def test_create_performing_listing_auto_publishes_and_calculates_pricing(
     assert SecondaryMarketListingEvent.objects.filter(listing=listing).count() == 2
     assert AuditEvent.objects.filter(action="secondary_market.listing_created").exists()
     assert DomainEvent.objects.filter(event_type="SecondaryMarketListingCreated").exists()
+
+
+@pytest.mark.django_db
+def test_automatic_listing_refresh_preserves_price_and_recomputes_or_cancels(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_funded_loan(admin_user)
+    holding = _create_holding(admin_user, investor, loan)
+    acceptance = _create_listing_acceptance(
+        investor,
+        holding,
+        idempotency_key="secondary-auto-refresh-acceptance",
+    )
+    listing = create_secondary_market_listing(
+        CreateSecondaryMarketListingCommand(
+            actor=investor,
+            holding_id=str(cast(Any, holding).id),
+            price_bps=10_100,
+            document_acceptance_id=str(acceptance.pk),
+            idempotency_key="secondary-auto-refresh-listing",
+            **_sensitive_code_payload(investor, "secondary_market_listing"),
+        )
+    )
+
+    cast(Any, holding).current_principal_minor = 8_000_00
+    holding.save(update_fields=["current_principal_minor", "updated_at"])
+    refreshes = refresh_open_secondary_market_listings_for_loan(
+        actor=admin_user,
+        loan=loan,
+        as_of_date=date(2026, 1, 16),
+        source_type="borrower_repayment_event",
+        source_id="repayment-1",
+    )
+    listing.refresh_from_db()
+
+    assert len(refreshes) == 1
+    assert listing.status == SecondaryMarketListingStatus.ACTIVE
+    assert listing.price_bps == 10_100
+    assert listing.discount_premium_bps == 100
+    assert listing.current_principal_minor == 8_000_00
+    assert listing.transfer_price_minor == 8_080_00
+    assert refreshes[0].principal_before_minor == 10_000_00
+    assert refreshes[0].principal_after_minor == 8_000_00
+    assert refreshes[0].transfer_price_after_minor == 8_080_00
+    assert SecondaryMarketListingEvent.objects.filter(
+        listing=listing,
+        event_type=SecondaryMarketListingEventType.REPRICED,
+    ).count() == 1
+
+    replay = refresh_open_secondary_market_listings_for_loan(
+        actor=admin_user,
+        loan=loan,
+        as_of_date=date(2026, 1, 16),
+        source_type="borrower_repayment_event",
+        source_id="repayment-1",
+    )
+    assert replay == []
+
+    cast(Any, holding).current_principal_minor = 0
+    cast(Any, holding).status = "closed"
+    holding.save(update_fields=["current_principal_minor", "status", "updated_at"])
+    cancellations = refresh_open_secondary_market_listings_for_loan(
+        actor=admin_user,
+        loan=loan,
+        as_of_date=date(2026, 1, 17),
+        source_type="borrower_repayment_event",
+        source_id="repayment-2",
+    )
+    listing.refresh_from_db()
+
+    assert len(cancellations) == 1
+    assert cancellations[0].automatically_cancelled is True
+    assert listing.status == SecondaryMarketListingStatus.CANCELLED
+    assert SecondaryMarketListingEvent.objects.filter(
+        listing=listing,
+        event_type=SecondaryMarketListingEventType.AUTO_CANCELLED,
+    ).count() == 1
+
+
+@pytest.mark.django_db
+def test_borrower_repayment_reprices_active_listing_and_notifies_seller(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_funded_loan(admin_user)
+    _create_current_installment(loan, due_date=date(2026, 1, 20))
+    installment_model = apps.get_model("loans", "LoanInstallment")
+    installment_model.objects.create(
+        loan=loan,
+        schedule_version=cast(Any, loan).schedule_version,
+        installment_number=2,
+        due_date=date(2026, 2, 16),
+        principal_minor=28_000_00,
+        interest_minor=280_00,
+        total_minor=28_280_00,
+        metadata={},
+    )
+    holding = _create_holding(admin_user, investor, loan)
+    acceptance = _create_listing_acceptance(
+        investor,
+        holding,
+        idempotency_key="secondary-repayment-refresh-acceptance",
+    )
+    listing = create_secondary_market_listing(
+        CreateSecondaryMarketListingCommand(
+            actor=investor,
+            holding_id=str(cast(Any, holding).id),
+            price_bps=10_100,
+            document_acceptance_id=str(acceptance.pk),
+            idempotency_key="secondary-repayment-refresh-listing",
+            **_sensitive_code_payload(investor, "secondary_market_listing"),
+        )
+    )
+
+    servicing = import_module("backend.apps.servicing.services")
+    servicing.record_borrower_repayment(
+        servicing.RecordBorrowerRepaymentCommand(
+            actor=admin_user,
+            loan_id=str(loan.pk),
+            amount_minor=2_300_00,
+            booking_date=date(2026, 1, 16),
+            value_date=date(2026, 1, 16),
+            collection_account_identifier="GARANTA-CHF",
+            payer_name="Secondary Borrower AG",
+            payer_account_identifier="CH22BORROWER",
+            bank_reference="BANK-secondary-repayment-refresh",
+            payment_reference=f"LOAN-{loan.pk}",
+            evidence_reference="statement:secondary-repayment-refresh",
+            early_regular_payment_acknowledged=True,
+            idempotency_key="secondary-repayment-refresh",
+        )
+    )
+    holding.refresh_from_db()
+    listing.refresh_from_db()
+
+    assert cast(Any, holding).current_principal_minor == 8_000_00
+    assert listing.status == SecondaryMarketListingStatus.ACTIVE
+    assert listing.price_bps == 10_100
+    assert listing.current_principal_minor == 8_000_00
+    assert listing.transfer_price_minor == 8_080_00
+    # A regular installment paid early covers contractual interest through its
+    # due date. Repricing must not start accruing that interest again from the
+    # earlier bank date.
+    assert listing.accrued_interest_minor == 0
+    assert listing.accrued_interest_from_date == date(2026, 1, 20)
+    repayment_email = OutboxMessage.objects.get(
+        topic="email.repayment_distribution_credited",
+        payload__user_id=str(investor.pk),
+    )
+    assert repayment_email.payload["metadata"]["secondary_listing_repriced"] is True
+    assert repayment_email.payload["metadata"]["secondary_listing_id"] == str(listing.id)
+    assert "automatically recalculated" in repayment_email.payload["body_text"]
+    assert "1.00% premium" in repayment_email.payload["body_text"]
 
 
 @pytest.mark.django_db
@@ -983,11 +1140,14 @@ def test_secondary_market_buyer_detail_exposes_loan_schedules_without_seller_dat
             "outstanding_principal_minor": 2_000_00,
             "outstanding_interest_minor": 300_00,
             "outstanding_total_minor": 2_300_00,
-            "is_paid": False,
-            "days_past_due": 0,
-            "status": "upcoming",
-        }
-    ]
+                "is_paid": False,
+                "days_past_due": 0,
+                "status": "upcoming",
+                "row_type": "scheduled_installment",
+                "label": "Installment 1",
+                "payment_date": None,
+            }
+        ]
     assert payload["investment_schedule"] == [
         {
             "loan_installment_id": str(cast(Any, loan).installments.get().pk),

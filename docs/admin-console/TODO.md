@@ -213,11 +213,11 @@ Each entry should include:
 - Required admin-console improvement: add an explicit confirmation affordance on step 1 (for example a "reviewed original schedule" checkbox or disabling the step-2 tab until continue is pressed) and show a compact summary of the step-1 selections (paid count, remaining outstanding) next to the publish button on step 2.
 - Priority: nice-to-have.
 
-## 2026-07-08: Manage Borrower Repayment Prefill Uses Earliest Schedule Row
+## 2026-07-08: Manage Borrower Repayment Prefill And Schedule Context
 
 - Screen or component: Loans module, Manage dialog, "Record borrower repayment" action.
-- Current first-version behavior: the schedule endpoint does not expose per-installment paid state, so the fixed regular-payment amount prefills from the earliest schedule row's total. For loans with already-settled installments the admin relies on the backend's exact-amount validation error to notice the mismatch, then refreshes the schedule after each declaration.
-- Required admin-console improvement: expose paid/outstanding state per installment (or a "next due installment" summary) on the admin schedule endpoint and prefill from the true next unpaid installment, marking settled rows in the readonly schedule table.
+- Current first-version behavior: the schedule endpoint exposes immutable historical payment rows plus paid/outstanding state for the current schedule. The fixed regular-payment amount prefills from the true next outstanding installment; historical regular/advance payments are visibly separated from current future rows.
+- Required admin-console improvement: add a compact "next due installment" summary above the form with due date, days early/late, outstanding principal, outstanding interest, and the source schedule version so the operator does not need to infer the payment target from a long table.
 - Priority: important.
 
 ## 2026-07-08: Finance Ops Disbursement Form Has No Prefilled Defaults
@@ -239,6 +239,20 @@ Each entry should include:
 - Screen or component: Finance Operations, lender-deposit and payout-instruction forms, Daily Dashboard withdrawal drawers.
 - Current first-version behavior: Finance Operations begins with a bounded pending-work table that combines unresolved finance tasks and actionable finance dashboard queues. Lender deposits require a checksum-valid source IBAN and automatically establish that exact investor/currency account as a verified payout instruction. Admin-entered payout instructions are additive and no longer disable verified deposit-source accounts. Investor requests for another IBAN create a linked payout-verification task automatically; verifying the exact instruction resolves that task. Requested and forced withdrawals can be finalized or cancelled directly from their dashboard drawer with the same backend-backed form used in Finance Operations; the old deferred-action message was removed.
 - Required admin-console improvement: add a dedicated payout-instruction review drawer that shows the requesting investor, masked and full-on-demand IBAN, account name, prior verified accounts, task event history, and verification evidence checklist. Add an explicit external-bank payment confirmation summary before finalizing a withdrawal, and server-backed pagination if the combined finance work table outgrows its bounded launch view.
+- Priority: important.
+
+## 2026-07-27: Disbursement-Gated Servicing And Repayment Review
+
+- Screen or component: Loans table, Manage loan dialog, borrower-disbursement and borrower-repayment actions.
+- Current first-version behavior: funding close leaves the loan in `Funded`, which now means the lender money is committed but the borrower payout is still pending. A successful disbursement uses the configured currency collection account when the client leaves it blank, requires transfer plus BANXUM fee to clear borrower payable exactly, and moves the loan to `Active`. Repayment actions are unavailable until that transition. Regular repayments more than one day before due date require an explicit acknowledgment that the admin intends to collect the full contractual installment; the advance-repayment path previews exact ACT/365 accrued interest, interest-covered-through dates, elapsed days, principal allocation, and regenerated future schedule.
+- Required admin-console improvement: add a compact immutable disbursement summary/timestamp to the loan context header, visually distinguish `Funded - payout pending` from `Active - servicing`, and keep the early-regular warning adjacent to the final confirmation. When evidence-file storage lands, attach the disbursement and repayment bank evidence directly from these actions.
+- Priority: important.
+
+## 2026-07-27: Canonical Loan Schedule History
+
+- Screen or component: Loans Manage dialog schedule views and repayment previews.
+- Current first-version behavior: full-loan schedules merge immutable historical regular/advance repayment rows with only the outstanding rows from the latest schedule version. Historical rows show the actual payment date and payment type; regenerated future rows preserve contractual due dates. Holding projections remain future-only and never duplicate paid history.
+- Required admin-console improvement: review dense long-schedule ergonomics, add paid/advance/upcoming filters and sticky headers, and consider a collapsible audit-detail row that exposes schedule version, bank-operation evidence, and the interest accrual interval without putting internal IDs in the main table.
 - Priority: important.
 
 ## Borrower document download path

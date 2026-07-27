@@ -352,6 +352,46 @@ test("holding details open in a large modal with the current loan schedule", () 
   expect(within(dialog).getAllByRole("row")).toHaveLength(5);
 });
 
+test("funded holdings explain that secondary listing starts after disbursement", () => {
+  const holding = portfolioFixture.holdings[0];
+  const originalStatus = holding.loan.loan_status;
+  const originalListing = holding.open_secondary_listing;
+  holding.loan.loan_status = "funded";
+  holding.open_secondary_listing = null;
+  try {
+    renderApp();
+
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+    fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+      target: { value: "lukas.brunner@example.ch" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Portfolio" }));
+    fireEvent.click(screen.getByText("Engadin Alpine refinancing"));
+
+    const dialog = screen.getByRole("dialog", { name: "Engadin Alpine refinancing" });
+    expect(
+      within(dialog).getByText("Listing available after borrower disbursement")
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("button", { name: "List on secondary market" })
+    ).toBeDisabled();
+
+    fireEvent.click(within(dialog).getAllByRole("button", { name: "Close" })[1]);
+    fireEvent.click(screen.getByRole("button", { name: "Secondary Market" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Sell a holding" }));
+
+    const hint = screen.getByText("Available after disbursement");
+    const row = hint.closest("tr");
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByRole("button", { name: "List" })).toBeDisabled();
+  } finally {
+    holding.loan.loan_status = originalStatus;
+    holding.open_secondary_listing = originalListing;
+  }
+});
+
 test("portfolio listing action opens the sell tab and separates review from email verification", () => {
   const holding = portfolioFixture.holdings[0];
   const originalListing = holding.open_secondary_listing;

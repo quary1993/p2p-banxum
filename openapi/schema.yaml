@@ -2621,6 +2621,7 @@ paths:
           - draft
           - published
           - funded
+          - active
           - late
           - defaulted
           - repaid
@@ -2632,6 +2633,7 @@ paths:
           * `draft` - Draft
           * `published` - Published
           * `funded` - Funded
+          * `active` - Active
           * `late` - Late
           * `defaulted` - Defaulted
           * `repaid` - Repaid
@@ -5112,7 +5114,6 @@ components:
       - amount_minor
       - booking_date
       - borrower_id
-      - collection_account_identifier
       - currency
       - fee_minor
       - idempotency_key
@@ -5540,6 +5541,14 @@ components:
         bank_date:
           type: string
           format: date
+        interest_accrual_start_date:
+          type: string
+          format: date
+        interest_accrual_end_date:
+          type: string
+          format: date
+        accrued_interest_days:
+          type: integer
         scheduled_interest_due_minor:
           type: integer
         accrued_interest_minor:
@@ -5563,11 +5572,14 @@ components:
           items:
             $ref: '#/components/schemas/AdvanceRepaymentScheduleRow'
       required:
+      - accrued_interest_days
       - accrued_interest_minor
       - amount_minor
       - anchor_installment_number
       - bank_date
       - currency
+      - interest_accrual_end_date
+      - interest_accrual_start_date
       - interest_applied_minor
       - loan_id
       - new_schedule_rows
@@ -5710,6 +5722,9 @@ components:
           type: string
           format: date
           nullable: true
+        early_regular_payment_acknowledged:
+          type: boolean
+          default: false
         idempotency_key:
           type: string
           maxLength: 160
@@ -8421,9 +8436,6 @@ components:
         id:
           type: string
           format: uuid
-        loan_id:
-          type: string
-          format: uuid
         schedule_version:
           type: integer
         installment_number:
@@ -8449,28 +8461,40 @@ components:
           type: integer
         is_paid:
           type: boolean
+        days_past_due:
+          type: integer
+        status:
+          type: string
+        row_type:
+          type: string
+        label:
+          type: string
+        payment_date:
+          type: string
+          format: date
+          nullable: true
         admin_overridden:
           type: boolean
-        metadata: {}
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
       required:
       - admin_overridden
-      - created_at
+      - days_past_due
       - due_date
       - id
       - installment_number
       - interest_minor
-      - loan_id
-      - metadata
+      - is_paid
+      - label
+      - outstanding_interest_minor
+      - outstanding_principal_minor
+      - outstanding_total_minor
+      - paid_interest_minor
+      - paid_principal_minor
+      - payment_date
       - principal_minor
+      - row_type
       - schedule_version
+      - status
       - total_minor
-      - updated_at
     LoanRecoveryEvent:
       type: object
       properties:
@@ -9679,6 +9703,14 @@ components:
           type: integer
         status:
           type: string
+        row_type:
+          type: string
+        label:
+          type: string
+        payment_date:
+          type: string
+          format: date
+          nullable: true
       required:
       - days_past_due
       - due_date
@@ -9686,12 +9718,15 @@ components:
       - installment_number
       - interest_minor
       - is_paid
+      - label
       - outstanding_interest_minor
       - outstanding_principal_minor
       - outstanding_total_minor
       - paid_interest_minor
       - paid_principal_minor
+      - payment_date
       - principal_minor
+      - row_type
       - schedule_version
       - status
       - total_minor
@@ -11410,6 +11445,14 @@ components:
           type: integer
         status:
           type: string
+        row_type:
+          type: string
+        label:
+          type: string
+        payment_date:
+          type: string
+          format: date
+          nullable: true
       required:
       - days_past_due
       - due_date
@@ -11417,12 +11460,15 @@ components:
       - installment_number
       - interest_minor
       - is_paid
+      - label
       - outstanding_interest_minor
       - outstanding_principal_minor
       - outstanding_total_minor
       - paid_interest_minor
       - paid_principal_minor
+      - payment_date
       - principal_minor
+      - row_type
       - schedule_version
       - status
       - total_minor

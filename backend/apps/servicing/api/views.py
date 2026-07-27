@@ -95,6 +95,10 @@ class BorrowerRepaymentRecordView(APIView):
                     admin_notes=data.get("admin_notes", ""),
                     repayment_in_advance=data.get("repayment_in_advance", False),
                     borrower_repayment_bank_date=data.get("borrower_repayment_bank_date"),
+                    early_regular_payment_acknowledged=data.get(
+                        "early_regular_payment_acknowledged",
+                        False,
+                    ),
                     idempotency_key=data["idempotency_key"],
                 )
             )

@@ -635,7 +635,14 @@ def _loan_projection(
         "ltv_bps": getattr(loan, "ltv_bps", None),
         "days_past_due": _loan_days_past_due(loan, as_of=as_of),
         "schedule_version": int(loan.schedule_version),
-        "schedule": [asdict(row) for row in schedule],
+        "schedule": [
+            {
+                key: value
+                for key, value in asdict(row).items()
+                if key != "admin_overridden"
+            }
+            for row in schedule
+        ],
     }
 
 

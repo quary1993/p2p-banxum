@@ -54,6 +54,7 @@ from backend.apps.platform_core.domain.time import (
     to_business_time,
 )
 from backend.apps.platform_core.models import Currency, DomainEvent
+from backend.apps.platform_core.selectors.settings import get_collection_account_identifier
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import (
     DomainEventCommand,
@@ -657,7 +658,10 @@ def _locked_funded_loan_for_disbursement(
     )
     if loan is None:
         raise LedgerValidationError("Loan does not exist.")
-    if str(getattr(loan, "status", "")) != "funded":
+    loan_status = str(getattr(loan, "status", ""))
+    if loan_status in {"active", "late", "defaulted", "repaid", "written_off"}:
+        raise LedgerValidationError("Loan has already been disbursed to the borrower.")
+    if loan_status != "funded":
         raise LedgerValidationError("Loan must be funded before borrower disbursement.")
     if str(getattr(loan, "currency_id", "")) != currency_code:
         raise LedgerValidationError("Loan currency must match borrower disbursement currency.")
@@ -671,6 +675,41 @@ def _locked_funded_loan_for_disbursement(
             "Borrower KYB must be approved and free of compliance hold."
         )
     return loan
+
+
+def _activate_loan_after_disbursement(
+    *,
+    loan: Model,
+    actor: Model,
+    bank_operation: BankOperation,
+    journal_entry: LedgerJournalEntry,
+) -> None:
+    """Move a funding-closed loan into servicing after cash actually leaves BANXUM."""
+    loan_ref = cast(Any, loan)
+    previous_status = str(loan_ref.status)
+    if previous_status in {"active", "late", "defaulted", "repaid", "written_off"}:
+        return
+    if previous_status != "funded":
+        raise LedgerValidationError(
+            "Loan must be funded before borrower disbursement can activate servicing."
+        )
+    loan_ref.status = "active"
+    loan_ref.updated_by_admin_id = actor.pk
+    loan.save(update_fields=["status", "updated_by_admin_id", "updated_at"])
+    loan_event_model = apps.get_model("loans", "LoanEvent")
+    loan_event_model.objects.create(
+        loan=loan,
+        event_type="disbursed",
+        actor_user_id=actor.pk,
+        actor_account_type=str(getattr(actor, "account_type", "")),
+        previous_status=previous_status,
+        new_status="active",
+        note="Borrower disbursement finalized; loan servicing is now active.",
+        metadata={
+            "bank_operation_id": str(bank_operation.id),
+            "journal_entry_id": str(journal_entry.id),
+        },
+    )
 
 
 def _clean_required(value: str, label: str) -> str:
@@ -1058,6 +1097,7 @@ def _borrower_disbursement_finalization_fingerprint(
     *,
     currency_code: str,
     amount_minor: int,
+    collection_account_identifier: str,
     idempotency_key: str,
 ) -> str:
     return _stable_json_fingerprint(
@@ -1070,7 +1110,7 @@ def _borrower_disbursement_finalization_fingerprint(
             "currency": currency_code,
             "booking_date": command.booking_date.isoformat(),
             "value_date": command.value_date.isoformat(),
-            "collection_account_identifier": command.collection_account_identifier.strip(),
+            "collection_account_identifier": collection_account_identifier,
             "payee_name": command.payee_name.strip(),
             "payee_account_identifier": command.payee_account_identifier.strip(),
             "bank_reference": command.bank_reference.strip(),
@@ -2517,8 +2557,12 @@ def finalize_borrower_disbursement(
         "BANXUM disbursement fee",
     )
     idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    supplied_collection_account_identifier = command.collection_account_identifier.strip()
+    collection_account_identifier = supplied_collection_account_identifier
+    if not collection_account_identifier:
+        collection_account_identifier = get_collection_account_identifier(currency.code)
     collection_account_identifier = _clean_required(
-        command.collection_account_identifier,
+        collection_account_identifier,
         "Collection account identifier",
     )
     payee_name = _clean_required(command.payee_name, "Payee name")
@@ -2530,6 +2574,10 @@ def finalize_borrower_disbursement(
         command,
         currency_code=currency.code,
         amount_minor=amount_minor,
+        collection_account_identifier=(
+            supplied_collection_account_identifier
+            or "platform-configured-collection-account"
+        ),
         idempotency_key=idempotency_key,
     )
     existing = _existing_borrower_disbursement_finalization_for_idempotency(
@@ -2537,6 +2585,20 @@ def finalize_borrower_disbursement(
         expected_fingerprint=request_fingerprint,
     )
     if existing is not None:
+        existing_loan = cast(
+            Model | None,
+            apps.get_model("loans", "Loan").objects.select_for_update().filter(
+                id=command.loan_id
+            ).first(),
+        )
+        if existing_loan is None:
+            raise LedgerValidationError("Loan does not exist.")
+        _activate_loan_after_disbursement(
+            loan=existing_loan,
+            actor=command.actor,
+            bank_operation=existing.bank_operation,
+            journal_entry=existing.journal_entry,
+        )
         return existing
 
     loan = _locked_funded_loan_for_disbursement(
@@ -2712,6 +2774,12 @@ def finalize_borrower_disbursement(
                 "override_note": command.override_note.strip(),
             },
         )
+    )
+    _activate_loan_after_disbursement(
+        loan=loan,
+        actor=command.actor,
+        bank_operation=bank_operation,
+        journal_entry=journal_entry,
     )
     actor_ref = actor_ref_for_user(command.actor)
     record_audit_event(

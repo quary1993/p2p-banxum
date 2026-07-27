@@ -4,6 +4,7 @@ import hashlib
 import json
 import uuid
 from dataclasses import asdict, dataclass
+from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from importlib import import_module
 from typing import Any, cast
@@ -78,7 +79,7 @@ REMOVAL_FINGERPRINT_METADATA_KEY = "removal_request_fingerprint"
 REMOVAL_IDEMPOTENCY_METADATA_KEY = "removal_idempotency_key"
 CANCELLATION_FINGERPRINT_METADATA_KEY = "cancellation_request_fingerprint"
 CANCELLATION_IDEMPOTENCY_METADATA_KEY = "cancellation_idempotency_key"
-PERFORMING_LOAN_STATUS = "funded"
+PERFORMING_LOAN_STATUS = "active"
 NONSTANDARD_LISTABLE_STATUSES = {"late", "defaulted"}
 
 
@@ -137,6 +138,20 @@ class SecondaryMarketListingPricing:
     days_past_due: int
     last_payment_date: Any
     risk_acknowledgement_required: bool
+
+
+@dataclass(frozen=True, slots=True)
+class SecondaryMarketListingRefresh:
+    listing_id: str
+    holding_id: str
+    seller_user_id: str
+    status: str
+    price_bps: int
+    principal_before_minor: int
+    principal_after_minor: int
+    transfer_price_before_minor: int
+    transfer_price_after_minor: int
+    automatically_cancelled: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -334,6 +349,28 @@ def _last_payment_date(loan_id: str) -> Any:
     return cast(Any, event).value_date
 
 
+def _interest_covered_until_date(loan_id: str) -> Any:
+    """Return the latest date through which a recorded repayment paid interest."""
+    event_model = _model("servicing", "BorrowerRepaymentEvent")
+    covered_dates: list[Any] = []
+    for event in event_model.objects.filter(loan_id=loan_id).select_related("installment"):
+        event_ref = cast(Any, event)
+        if str(event_ref.event_type) == "early_repayment":
+            raw_bank_date = cast(dict[str, Any], event_ref.metadata).get(
+                "borrower_repayment_bank_date"
+            )
+            covered_dates.append(
+                date.fromisoformat(str(raw_bank_date))
+                if raw_bank_date
+                else event_ref.value_date
+            )
+        else:
+            # A regular installment pays its full contractual interest even
+            # when it is accepted shortly before the contractual due date.
+            covered_dates.append(event_ref.installment.due_date)
+    return max(covered_dates, default=None)
+
+
 def _paid_totals_by_installment_id(loan_id: str) -> dict[str, int]:
     event_model = _model("servicing", "BorrowerRepaymentEvent")
     rows = (
@@ -373,7 +410,7 @@ def _accrued_interest(
     *,
     holding: Model,
     loan: Model,
-    last_payment_date: Any,
+    interest_covered_until: Any,
     as_of_date: Any,
 ) -> tuple[int, Any, Any]:
     loan_ref = cast(Any, loan)
@@ -381,7 +418,11 @@ def _accrued_interest(
         return 0, None, as_of_date
     holding_ref = cast(Any, holding)
     assigned_date = to_business_time(holding_ref.assignment_effective_at).date()
-    from_date = max(assigned_date, last_payment_date) if last_payment_date else assigned_date
+    from_date = (
+        max(assigned_date, interest_covered_until)
+        if interest_covered_until
+        else assigned_date
+    )
     days = max(0, (as_of_date - from_date).days)
     if days == 0:
         return 0, from_date, as_of_date
@@ -424,10 +465,11 @@ def _pricing_snapshot(
     maker_fee_minor = _fee_minor(transfer_price_minor, maker_fee_bps, minimum_maker_fee_minor)
     taker_fee_minor = _fee_minor(transfer_price_minor, taker_fee_bps, minimum_taker_fee_minor)
     last_payment_date = _last_payment_date(str(loan_ref.id))
+    interest_covered_until = _interest_covered_until_date(str(loan_ref.id))
     accrued_interest_minor, accrued_from_date, accrued_to_date = _accrued_interest(
         holding=holding,
         loan=loan,
-        last_payment_date=last_payment_date,
+        interest_covered_until=interest_covered_until,
         as_of_date=as_of_date,
     )
     seller_net = transfer_price_minor + accrued_interest_minor - maker_fee_minor
@@ -737,6 +779,251 @@ def _record_listing_event(
             request_fingerprint=request_fingerprint,
         ),
     )
+
+
+@transaction.atomic
+def refresh_open_secondary_market_listings_for_loan(
+    *,
+    actor: Model,
+    loan: Model,
+    as_of_date: Any,
+    source_type: str,
+    source_id: str,
+) -> list[SecondaryMarketListingRefresh]:
+    """Reprice open listings after a servicing mutation without changing seller price bps."""
+    _require_admin_actor(actor)
+    loan_model = _model("loans", "Loan")
+    locked_loan = cast(
+        Model | None,
+        loan_model.objects.select_for_update()
+        .filter(id=cast(Any, loan).pk)
+        .first(),
+    )
+    if locked_loan is None:
+        raise SecondaryMarketValidationError("Listing loan does not exist.")
+    loan = locked_loan
+    loan_ref = cast(Any, locked_loan)
+    source_type_clean = _clean_required(source_type, "Refresh source type")
+    source_id_clean = _clean_required(source_id, "Refresh source id")
+    listings = list(
+        SecondaryMarketListing.objects.select_for_update()
+        .select_related("holding", "currency")
+        .filter(
+            loan_id=loan_ref.id,
+            status__in=[
+                SecondaryMarketListingStatus.ACTIVE,
+                SecondaryMarketListingStatus.APPROVAL_REQUESTED,
+            ],
+        )
+        .order_by("id")
+    )
+    refreshed: list[SecondaryMarketListingRefresh] = []
+    for listing in listings:
+        event_key = "secondary-refresh:" + hashlib.sha256(
+            f"{source_type_clean}:{source_id_clean}:{listing.id}".encode()
+        ).hexdigest()
+        existing_event = SecondaryMarketListingEvent.objects.filter(
+            idempotency_key=event_key
+        ).first()
+        if existing_event is not None:
+            continue
+        holding = cast(Model, listing.holding)
+        holding_ref = cast(Any, holding)
+        previous_status = str(listing.status)
+        principal_before = int(listing.current_principal_minor)
+        transfer_before = int(listing.transfer_price_minor)
+        loan_status = str(loan_ref.status)
+        holding_principal = int(holding_ref.current_principal_minor)
+        holding_is_open = str(holding_ref.status) == "active" and holding_principal > 0
+        loan_is_listable = loan_status in {
+            PERFORMING_LOAN_STATUS,
+            *NONSTANDARD_LISTABLE_STATUSES,
+        }
+        automatically_cancelled = not holding_is_open or not loan_is_listable
+        event_metadata: dict[str, Any]
+        if automatically_cancelled:
+            listing.status = SecondaryMarketListingStatus.CANCELLED
+            # This is a system-driven lifecycle consequence, not a seller action.
+            listing.cancelled_by_user_id = None
+            listing.cancelled_at = now_utc()
+            listing.cancellation_reason = (
+                "Automatically cancelled because the holding has no remaining principal."
+                if not holding_is_open
+                else f"Automatically cancelled because loan status changed to {loan_status}."
+            )
+            listing.listed_at = None
+            listing.metadata = {
+                **cast(dict[str, Any], listing.metadata),
+                "last_automatic_refresh": {
+                    "source_type": source_type_clean,
+                    "source_id": source_id_clean,
+                    "as_of_date": str(as_of_date),
+                    "result": "cancelled",
+                },
+            }
+            listing.save(
+                update_fields=[
+                    "status",
+                    "cancelled_by_user_id",
+                    "cancelled_at",
+                    "cancellation_reason",
+                    "listed_at",
+                    "metadata",
+                    "updated_at",
+                ]
+            )
+            event_metadata = {
+                "source_type": source_type_clean,
+                "source_id": source_id_clean,
+                "loan_id": str(loan_ref.id),
+                "loan_status": loan_status,
+                "price_bps_preserved": int(listing.price_bps),
+                "principal_before_minor": principal_before,
+                "principal_after_minor": holding_principal,
+                "transfer_price_before_minor": transfer_before,
+                "transfer_price_after_minor": 0,
+            }
+            event_type = SecondaryMarketListingEventType.AUTO_CANCELLED
+        else:
+            pricing = _pricing_snapshot(
+                holding=holding,
+                loan=loan,
+                price_bps=int(listing.price_bps),
+                as_of_date=as_of_date,
+            )
+            is_performing = loan_status == PERFORMING_LOAN_STATUS
+            listing.status = (
+                SecondaryMarketListingStatus.ACTIVE
+                if is_performing
+                else SecondaryMarketListingStatus.APPROVAL_REQUESTED
+            )
+            listing.publication_type = (
+                SecondaryMarketListingPublicationType.AUTOMATIC
+                if is_performing
+                else SecondaryMarketListingPublicationType.ADMIN_APPROVED
+            )
+            listing.current_principal_minor = pricing.current_principal_minor
+            listing.transfer_price_minor = pricing.transfer_price_minor
+            listing.discount_premium_bps = pricing.discount_premium_bps
+            listing.accrued_interest_minor = pricing.accrued_interest_minor
+            listing.accrued_interest_from_date = pricing.accrued_interest_from_date
+            listing.accrued_interest_to_date = pricing.accrued_interest_to_date
+            listing.maker_fee_bps = pricing.maker_fee_bps
+            listing.taker_fee_bps = pricing.taker_fee_bps
+            listing.minimum_maker_fee_minor = pricing.minimum_maker_fee_minor
+            listing.minimum_taker_fee_minor = pricing.minimum_taker_fee_minor
+            listing.maker_fee_minor = pricing.maker_fee_minor
+            listing.taker_fee_minor = pricing.taker_fee_minor
+            listing.seller_net_proceeds_minor = pricing.seller_net_proceeds_minor
+            listing.buyer_total_cost_minor = pricing.buyer_total_cost_minor
+            listing.loan_status_at_listing = pricing.loan_status_at_listing
+            listing.days_past_due = pricing.days_past_due
+            listing.last_payment_date = pricing.last_payment_date
+            listing.risk_acknowledgement_required = pricing.risk_acknowledgement_required
+            listing.listed_at = (
+                (listing.listed_at or now_utc()) if is_performing else None
+            )
+            if not is_performing:
+                listing.approved_by_admin_id = None
+                listing.approved_at = None
+                listing.approval_reason = ""
+            listing.public_disclosure_note = (
+                "" if is_performing else listing.public_disclosure_note
+            )
+            listing.metadata = {
+                **cast(dict[str, Any], listing.metadata),
+                "last_automatic_refresh": {
+                    "source_type": source_type_clean,
+                    "source_id": source_id_clean,
+                    "as_of_date": str(as_of_date),
+                    "price_bps_preserved": int(listing.price_bps),
+                },
+            }
+            listing.save(
+                update_fields=[
+                    "status",
+                    "publication_type",
+                    "current_principal_minor",
+                    "transfer_price_minor",
+                    "discount_premium_bps",
+                    "accrued_interest_minor",
+                    "accrued_interest_from_date",
+                    "accrued_interest_to_date",
+                    "maker_fee_bps",
+                    "taker_fee_bps",
+                    "minimum_maker_fee_minor",
+                    "minimum_taker_fee_minor",
+                    "maker_fee_minor",
+                    "taker_fee_minor",
+                    "seller_net_proceeds_minor",
+                    "buyer_total_cost_minor",
+                    "loan_status_at_listing",
+                    "days_past_due",
+                    "last_payment_date",
+                    "risk_acknowledgement_required",
+                    "listed_at",
+                    "approved_by_admin_id",
+                    "approved_at",
+                    "approval_reason",
+                    "public_disclosure_note",
+                    "metadata",
+                    "updated_at",
+                ]
+            )
+            event_metadata = {
+                "source_type": source_type_clean,
+                "source_id": source_id_clean,
+                "loan_id": str(loan_ref.id),
+                "loan_status": loan_status,
+                "price_bps_preserved": int(listing.price_bps),
+                "principal_before_minor": principal_before,
+                "principal_after_minor": pricing.current_principal_minor,
+                "transfer_price_before_minor": transfer_before,
+                "transfer_price_after_minor": pricing.transfer_price_minor,
+                "seller_net_proceeds_minor": pricing.seller_net_proceeds_minor,
+                "buyer_total_cost_minor": pricing.buyer_total_cost_minor,
+            }
+            event_type = SecondaryMarketListingEventType.REPRICED
+        refresh_event = _record_listing_event(
+            listing=listing,
+            actor=actor,
+            event_type=event_type,
+            previous_status=previous_status,
+            new_status=str(listing.status),
+            note="Listing economics automatically refreshed after a loan servicing change.",
+            metadata=event_metadata,
+            idempotency_key=event_key,
+            request_fingerprint=_stable_json_fingerprint(event_metadata),
+        )
+        _record_audit_and_domain(
+            actor=actor,
+            action="secondary_market.listing_automatically_refreshed",
+            event_type="SecondaryMarketListingAutomaticallyRefreshed",
+            listing=listing,
+            metadata=event_metadata,
+            idempotency_suffix=str(refresh_event.id),
+        )
+        refreshed.append(
+            SecondaryMarketListingRefresh(
+                listing_id=str(listing.id),
+                holding_id=str(listing.holding_id),
+                seller_user_id=str(listing.seller_user_id),
+                status=str(listing.status),
+                price_bps=int(listing.price_bps),
+                principal_before_minor=principal_before,
+                principal_after_minor=(
+                    int(listing.current_principal_minor)
+                    if not automatically_cancelled
+                    else holding_principal
+                ),
+                transfer_price_before_minor=transfer_before,
+                transfer_price_after_minor=(
+                    int(listing.transfer_price_minor) if not automatically_cancelled else 0
+                ),
+                automatically_cancelled=automatically_cancelled,
+            )
+        )
+    return refreshed
 
 
 def _existing_listing_edit_for_idempotency(
@@ -1149,9 +1436,43 @@ def _edit_secondary_market_listing_after_sensitive_code(
     )
     if existing is not None:
         return existing
+    locator = (
+        SecondaryMarketListing.objects.filter(
+            id=command.listing_id,
+            seller_user_id=command.actor.pk,
+        )
+        .values("loan_id", "holding_id")
+        .first()
+    )
+    if locator is None:
+        raise SecondaryMarketValidationError("Secondary-market listing does not exist.")
+
+    # Servicing mutations lock loan -> holding -> listing. Keep the same order
+    # here so an edit cannot deadlock with repayment-driven automatic repricing.
+    loan_model = _model("loans", "Loan")
+    loan = cast(
+        Model | None,
+        loan_model.objects.select_for_update().filter(id=locator["loan_id"]).first(),
+    )
+    if loan is None:
+        raise SecondaryMarketValidationError("Listing loan does not exist.")
+    holding_model = _model("holdings", "InvestorLoanHolding")
+    holding = cast(
+        Model | None,
+        holding_model.objects.select_for_update()
+        .select_related("currency")
+        .filter(
+            id=locator["holding_id"],
+            loan_id=locator["loan_id"],
+            investor_user_id=command.actor.pk,
+        )
+        .first(),
+    )
+    if holding is None:
+        raise SecondaryMarketValidationError("Holding does not exist.")
     listing = (
         SecondaryMarketListing.objects.select_for_update()
-        .select_related("holding", "loan", "currency")
+        .select_related("currency")
         .filter(id=command.listing_id, seller_user_id=command.actor.pk)
         .first()
     )
@@ -1162,19 +1483,12 @@ def _edit_secondary_market_listing_after_sensitive_code(
         SecondaryMarketListingStatus.APPROVAL_REQUESTED,
     }:
         raise SecondaryMarketValidationError("Only open listings can be edited.")
-
-    holding_model = _model("holdings", "InvestorLoanHolding")
-    holding = cast(
-        Model | None,
-        holding_model.objects.select_for_update()
-        .select_related("loan", "currency")
-        .filter(id=listing.holding_id, investor_user_id=command.actor.pk)
-        .first(),
-    )
-    if holding is None:
-        raise SecondaryMarketValidationError("Holding does not exist.")
+    if (
+        str(listing.loan_id) != str(locator["loan_id"])
+        or str(listing.holding_id) != str(locator["holding_id"])
+    ):
+        raise SecondaryMarketValidationError("Listing ownership changed during the edit.")
     holding_ref = cast(Any, holding)
-    loan = cast(Model, holding_ref.loan)
     loan_ref = cast(Any, loan)
     if str(holding_ref.status) != "active" or int(holding_ref.current_principal_minor) <= 0:
         raise SecondaryMarketValidationError("Only active holdings with principal can be listed.")
@@ -1906,10 +2220,36 @@ def _purchase_secondary_market_listing_after_sensitive_code(
     )
     if replay is not None:
         return replay
+    locator = (
+        SecondaryMarketListing.objects.filter(id=command.listing_id)
+        .values("loan_id", "holding_id")
+        .first()
+    )
+    if locator is None:
+        raise SecondaryMarketValidationError("Secondary-market listing does not exist.")
 
+    # Match servicing's loan -> holding -> listing lock order. This serializes a
+    # purchase against repayment/recovery repricing without circular waits.
+    loan_model = _model("loans", "Loan")
+    loan = cast(
+        Model | None,
+        loan_model.objects.select_for_update().filter(id=locator["loan_id"]).first(),
+    )
+    if loan is None:
+        raise SecondaryMarketValidationError("Listing loan does not exist.")
+    holding_model = _model("holdings", "InvestorLoanHolding")
+    holding = cast(
+        Model | None,
+        holding_model.objects.select_for_update()
+        .select_related("currency")
+        .filter(id=locator["holding_id"], loan_id=locator["loan_id"])
+        .first(),
+    )
+    if holding is None:
+        raise SecondaryMarketValidationError("Seller holding does not exist.")
     listing = (
         SecondaryMarketListing.objects.select_for_update()
-        .select_related("holding", "loan", "currency")
+        .select_related("currency")
         .filter(id=command.listing_id)
         .first()
     )
@@ -1929,24 +2269,11 @@ def _purchase_secondary_market_listing_after_sensitive_code(
         raise SecondaryMarketValidationError("Buyer cannot purchase their own listing.")
     if SecondaryMarketPurchase.objects.filter(listing=listing).exists():
         raise SecondaryMarketValidationError("Secondary-market listing has already been sold.")
-
-    loan_model = _model("loans", "Loan")
-    loan = cast(
-        Model | None,
-        loan_model.objects.select_for_update().filter(id=listing.loan_id).first(),
-    )
-    if loan is None:
-        raise SecondaryMarketValidationError("Listing loan does not exist.")
-    holding_model = _model("holdings", "InvestorLoanHolding")
-    holding = cast(
-        Model | None,
-        holding_model.objects.select_for_update()
-        .select_related("currency")
-        .filter(id=listing.holding_id)
-        .first(),
-    )
-    if holding is None:
-        raise SecondaryMarketValidationError("Seller holding does not exist.")
+    if (
+        str(listing.loan_id) != str(locator["loan_id"])
+        or str(listing.holding_id) != str(locator["holding_id"])
+    ):
+        raise SecondaryMarketValidationError("Listing changed during purchase settlement.")
     holding_ref = cast(Any, holding)
     loan_ref = cast(Any, loan)
     if str(holding_ref.status) != "active":
@@ -2307,7 +2634,14 @@ def get_active_secondary_market_listing_detail(
         "loan_start_date": loan.loan_start_date,
         "first_payment_date": loan.first_payment_date,
         "schedule_version": int(loan.schedule_version),
-        "loan_schedule": [asdict(row) for row in loan_schedule],
+        "loan_schedule": [
+            {
+                key: value
+                for key, value in asdict(row).items()
+                if key != "admin_overridden"
+            }
+            for row in loan_schedule
+        ],
         "investment_schedule": [asdict(row) for row in investment_schedule],
         "latest_public_note": (
             {

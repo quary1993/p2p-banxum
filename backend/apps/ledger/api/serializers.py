@@ -265,7 +265,11 @@ class BorrowerDisbursementFinalizeRequestSerializer(serializers.Serializer[Any])
     currency = serializers.CharField(max_length=3)
     booking_date = serializers.DateField()
     value_date = serializers.DateField()
-    collection_account_identifier = serializers.CharField(max_length=128)
+    collection_account_identifier = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=128,
+    )
     payee_name = serializers.CharField(max_length=255)
     payee_account_identifier = serializers.CharField(max_length=128)
     override_note = serializers.CharField(required=False, allow_blank=True)

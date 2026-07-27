@@ -40,6 +40,7 @@ from backend.apps.servicing.services import (
     ServicingAuthorizationError,
     ServicingValidationError,
     add_loan_risk_note,
+    get_loan_repayment_schedule_snapshots,
     get_loan_servicing_status_snapshot,
     list_public_loan_risk_notes,
     preview_borrower_repayment_in_advance,
@@ -116,7 +117,7 @@ def _funded_loan_with_holdings(
         Model,
         loan_model.objects.create(
             borrower=borrower,
-            status="funded",
+            status="active",
             title="Servicing Loan",
             investor_summary="Servicing test loan.",
             purpose="working_capital",
@@ -209,7 +210,7 @@ def _funded_amortizing_loan_with_holdings(
         Model,
         loan_model.objects.create(
             borrower=borrower,
-            status="funded",
+            status="active",
             title="Servicing Amortizing Loan",
             investor_summary="Servicing amortizing test loan.",
             purpose="working_capital",
@@ -288,6 +289,7 @@ def _repayment_command(
     value_date: date = date(2026, 3, 1),
     repayment_in_advance: bool = False,
     borrower_repayment_bank_date: date | None = None,
+    early_regular_payment_acknowledged: bool = False,
     idempotency_key: str = "servicing-repayment-1",
 ) -> RecordBorrowerRepaymentCommand:
     return RecordBorrowerRepaymentCommand(
@@ -305,6 +307,7 @@ def _repayment_command(
         admin_notes="Borrower repayment received.",
         repayment_in_advance=repayment_in_advance,
         borrower_repayment_bank_date=borrower_repayment_bank_date,
+        early_regular_payment_acknowledged=early_regular_payment_acknowledged,
         idempotency_key=idempotency_key,
     )
 
@@ -414,6 +417,10 @@ def test_record_borrower_repayment_distributes_to_lender_balances(
         str(investor_one.pk),
         str(investor_two.pk),
     }
+    assert all(
+        "secondary_listing_repriced" not in message.payload["metadata"]
+        for message in repayment_emails
+    )
     assert [(posting.side, posting.amount_minor) for posting in postings] == [
         ("credit", 1_100_00),
         ("credit", 2_200_00),
@@ -425,6 +432,37 @@ def test_record_borrower_repayment_distributes_to_lender_balances(
         event_type="BorrowerRepaymentRecorded",
         aggregate_id=str(event.id),
     ).exists()
+
+
+@pytest.mark.django_db
+def test_repayment_email_aggregates_multiple_holdings_for_one_investor(
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+    second_holding = (
+        apps.get_model("holdings", "InvestorLoanHolding")
+        .objects.filter(loan=loan, investor_user_id=investor_two.pk)
+        .get()
+    )
+    second_holding.investor_user_id = investor_one.pk
+    second_holding.save(update_fields=["investor_user_id", "updated_at"])
+
+    result = record_borrower_repayment(_repayment_command(admin_user, loan))
+
+    repayment_emails = OutboxMessage.objects.filter(
+        topic="email.repayment_distribution_credited"
+    )
+    assert repayment_emails.count() == 1
+    repayment_email = repayment_emails.get()
+    assert repayment_email.payload["user_id"] == str(investor_one.pk)
+    assert repayment_email.payload["metadata"]["amount_minor"] == 3_300_00
+    assert repayment_email.payload["metadata"]["principal_minor"] == 3_000_00
+    assert repayment_email.payload["metadata"]["interest_minor"] == 300_00
+    assert len(repayment_email.payload["metadata"]["holding_ids"]) == 2
+    assert len(repayment_email.payload["metadata"]["balance_lot_ids"]) == 2
+    assert result.repayment_event.amount_minor == 3_300_00
 
 
 @pytest.mark.django_db
@@ -457,6 +495,57 @@ def test_regular_repayment_must_match_next_installment_amount(
         )
 
     assert BorrowerRepaymentEvent.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_funded_loan_rejects_repayment_until_borrower_disbursement(
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+    cast(Any, loan).status = "funded"
+    loan.save(update_fields=["status", "updated_at"])
+
+    with pytest.raises(ServicingValidationError, match="must be disbursed"):
+        record_borrower_repayment(_repayment_command(admin_user, loan))
+
+    assert not BorrowerRepaymentEvent.objects.filter(loan=loan).exists()
+
+
+@pytest.mark.django_db
+def test_regular_repayment_more_than_one_day_early_requires_acknowledgement(
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+
+    with pytest.raises(ServicingValidationError, match="more than one day before"):
+        record_borrower_repayment(
+            _repayment_command(
+                admin_user,
+                loan,
+                booking_date=date(2026, 2, 26),
+                value_date=date(2026, 2, 26),
+                idempotency_key="servicing-early-regular-warning",
+            )
+        )
+
+    result = record_borrower_repayment(
+        _repayment_command(
+            admin_user,
+            loan,
+            booking_date=date(2026, 2, 26),
+            value_date=date(2026, 2, 26),
+            early_regular_payment_acknowledged=True,
+            idempotency_key="servicing-early-regular-confirmed",
+        )
+    )
+
+    assert result.repayment_event.interest_applied_minor == 300_00
+    assert result.repayment_event.warning_acknowledged is True
+    assert result.repayment_event.metadata["early_regular_payment_acknowledged"] is True
 
 
 @pytest.mark.django_db
@@ -501,14 +590,14 @@ def test_repayment_in_advance_recalculates_future_schedule(
 
     # Bank date 2026-03-15 sits mid-period between the due dates 2026-02-28 and
     # 2026-03-31. Interest due until the bank date is the unpaid scheduled interest
-    # of installment 1 (300_00) plus pro-rata accrued interest on the outstanding
-    # principal: 30_000_00 x (1000/120000) x 15/31 = 120_97 (ROUND_HALF_UP).
+    # of installment 1 (300_00) plus ACT/365 accrued interest on the outstanding
+    # principal: 30_000_00 x 1000/10000 x 15/365 = 123_29 (ROUND_HALF_UP).
     # The amount covers that interest plus a 10_000_00 principal reduction.
     result = record_borrower_repayment(
         _repayment_command(
             admin_user,
             loan,
-            amount_minor=10_420_97,
+            amount_minor=10_423_29,
             booking_date=date(2026, 3, 15),
             value_date=date(2026, 3, 15),
             repayment_in_advance=True,
@@ -539,25 +628,28 @@ def test_repayment_in_advance_recalculates_future_schedule(
     assert event.event_type == BorrowerRepaymentEventType.EARLY_REPAYMENT
     assert event.warning_acknowledged is True
     assert event.metadata["scheduled_interest_due_minor"] == 300_00
-    assert event.metadata["accrued_interest_minor"] == 120_97
-    assert event.interest_applied_minor == 420_97
+    assert event.metadata["accrued_interest_minor"] == 123_29
+    assert event.metadata["interest_accrual_start_date"] == "2026-02-28"
+    assert event.metadata["interest_accrual_end_date"] == "2026-03-15"
+    assert event.metadata["accrued_interest_days"] == 15
+    assert event.interest_applied_minor == 423_29
     assert event.principal_applied_minor == 3_000_00
     assert event.future_principal_applied_minor == 7_000_00
     assert event.expected_due_minor == 3_300_00
     assert event.remaining_installment_principal_minor == 0
     assert [(line.principal_minor, line.interest_minor, line.amount_minor) for line in lines] == [
-        (3_333_33, 140_32, 3_473_65),
-        (6_666_67, 280_65, 6_947_32),
+        (3_333_33, 141_10, 3_474_43),
+        (6_666_67, 282_19, 6_948_86),
     ]
     assert holdings[str(investor_one.pk)].current_principal_minor == 6_666_67
     assert holdings[str(investor_two.pk)].current_principal_minor == 13_333_33
-    assert cast(Any, loan).status == "funded"
+    assert cast(Any, loan).status == "active"
     assert cast(Any, loan).schedule_version == 2
     assert cast(Any, loan).total_scheduled_principal_minor == 20_000_00
-    assert cast(Any, loan).total_scheduled_interest_minor == 86_02
+    assert cast(Any, loan).total_scheduled_interest_minor == 87_67
     # Only the future row survives, re-amortized over the reduced principal and
     # keeping the old due date and installment number. Its interest is prorated
-    # for the remainder of the period: 20_000_00 x (1000/120000) x 16/31 = 86_02.
+    # for the remainder of the period: 20_000_00 x 1000/10000 x 16/365 = 87_67.
     assert [
         (
             row.installment_number,
@@ -569,12 +661,77 @@ def test_repayment_in_advance_recalculates_future_schedule(
         )
         for row in version_two_rows
     ] == [
-        (2, date(2026, 3, 31), 20_000_00, 86_02, 20_086_02, False),
+        (2, date(2026, 3, 31), 20_000_00, 87_67, 20_087_67, False),
     ]
     assert DomainEvent.objects.filter(
         event_type="LoanScheduleRecalculated",
         aggregate_id=str(loan.pk),
     ).exists()
+    full_schedule = get_loan_repayment_schedule_snapshots(
+        loans=[loan],
+        as_of_date=date(2026, 3, 15),
+    )[str(loan.pk)]
+    assert [row.row_type for row in full_schedule] == [
+        "repayment_event",
+        "scheduled_installment",
+    ]
+    assert full_schedule[0].label == "Repayment in advance"
+    assert full_schedule[0].payment_date == date(2026, 3, 15)
+    assert full_schedule[0].principal_minor == 10_000_00
+    assert full_schedule[0].interest_minor == 423_29
+    assert full_schedule[1].schedule_version == 2
+    assert full_schedule[1].outstanding_principal_minor == 20_000_00
+    assert sum(row.principal_minor for row in full_schedule) == 30_000_00
+
+
+@pytest.mark.django_db
+def test_second_same_day_advance_repayment_charges_no_future_interest(
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+
+    first = record_borrower_repayment(
+        _repayment_command(
+            admin_user,
+            loan,
+            amount_minor=1_123_29,
+            booking_date=date(2026, 2, 15),
+            value_date=date(2026, 2, 15),
+            repayment_in_advance=True,
+            borrower_repayment_bank_date=date(2026, 2, 15),
+            idempotency_key="servicing-same-day-advance-first",
+        )
+    )
+    second = record_borrower_repayment(
+        _repayment_command(
+            admin_user,
+            loan,
+            amount_minor=100_00,
+            booking_date=date(2026, 2, 15),
+            value_date=date(2026, 2, 15),
+            repayment_in_advance=True,
+            borrower_repayment_bank_date=date(2026, 2, 15),
+            idempotency_key="servicing-same-day-advance-second",
+        )
+    )
+    loan.refresh_from_db()
+
+    assert first.repayment_event.metadata["accrued_interest_days"] == 15
+    assert first.repayment_event.interest_applied_minor == 123_29
+    assert second.repayment_event.metadata["interest_accrual_start_date"] == "2026-02-15"
+    assert second.repayment_event.metadata["interest_accrual_end_date"] == "2026-02-15"
+    assert second.repayment_event.metadata["accrued_interest_days"] == 0
+    assert second.repayment_event.interest_applied_minor == 0
+    assert second.repayment_event.principal_applied_minor == 100_00
+    assert cast(Any, loan).schedule_version == 3
+    assert sum(
+        holding.current_principal_minor
+        for holding in apps.get_model("holdings", "InvestorLoanHolding").objects.filter(
+            loan=loan
+        )
+    ) == 28_900_00
 
 
 @pytest.mark.django_db
@@ -585,13 +742,13 @@ def test_full_repayment_in_advance_marks_loan_repaid(
 ) -> None:
     loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
 
-    # Interest until the bank date: scheduled 300_00 + accrued 120_97 (15/31 of a
-    # month on 30_000_00); the remainder settles the full outstanding principal.
+    # Interest until the bank date: scheduled 300_00 + accrued 123_29 (15/365 at
+    # the 10% annual rate on 30_000_00); the remainder settles all principal.
     result = record_borrower_repayment(
         _repayment_command(
             admin_user,
             loan,
-            amount_minor=30_420_97,
+            amount_minor=30_423_29,
             booking_date=date(2026, 3, 15),
             value_date=date(2026, 3, 15),
             repayment_in_advance=True,
@@ -613,8 +770,8 @@ def test_full_repayment_in_advance_marks_loan_repaid(
 
     assert event.event_type == BorrowerRepaymentEventType.EARLY_REPAYMENT
     assert event.metadata["scheduled_interest_due_minor"] == 300_00
-    assert event.metadata["accrued_interest_minor"] == 120_97
-    assert event.interest_applied_minor == 420_97
+    assert event.metadata["accrued_interest_minor"] == 123_29
+    assert event.interest_applied_minor == 423_29
     assert event.principal_applied_minor == 3_000_00
     assert event.future_principal_applied_minor == 27_000_00
     assert cast(Any, loan).status == "repaid"
@@ -663,13 +820,13 @@ def test_sequential_repayments_in_advance_create_consistent_schedule_versions(
         ).order_by("installment_number")
     )
     # Second declaration lands on the due date of regenerated installment 2:
-    # interest due is its scheduled 183_33, and 9_333_34 reduces principal from
+    # interest due is its scheduled 186_85, and 9_333_34 reduces principal from
     # 22_000_00 to 12_666_66.
     second = record_borrower_repayment(
         _repayment_command(
             admin_user,
             loan,
-            amount_minor=9_516_67,
+            amount_minor=9_520_19,
             booking_date=date(2026, 4, 1),
             value_date=date(2026, 4, 1),
             repayment_in_advance=True,
@@ -706,15 +863,15 @@ def test_sequential_repayments_in_advance_create_consistent_schedule_versions(
         )
         for row in version_two_rows
     ] == [
-        (2, date(2026, 3, 31), 7_333_34, 183_33, 7_516_67, False),
+        (2, date(2026, 3, 31), 7_333_34, 186_85, 7_520_19, False),
         (3, date(2026, 4, 30), 7_333_33, 122_22, 7_455_55, False),
         (4, date(2026, 5, 31), 7_333_33, 61_11, 7_394_44, False),
     ]
     assert second.repayment_event.installment.installment_number == 2
     assert second.repayment_event.installment.schedule_version == 2
-    assert second.repayment_event.metadata["scheduled_interest_due_minor"] == 183_33
+    assert second.repayment_event.metadata["scheduled_interest_due_minor"] == 186_85
     assert second.repayment_event.metadata["accrued_interest_minor"] == 0
-    assert second.repayment_event.interest_applied_minor == 183_33
+    assert second.repayment_event.interest_applied_minor == 186_85
     assert second.repayment_event.principal_applied_minor == 7_333_34
     assert second.repayment_event.future_principal_applied_minor == 2_000_00
     assert cast(Any, loan).schedule_version == 3
@@ -732,11 +889,11 @@ def test_sequential_repayments_in_advance_create_consistent_schedule_versions(
         )
         for row in version_three_rows
     ] == [
-        (3, date(2026, 4, 30), 6_333_33, 105_56, 6_438_89, False),
+        (3, date(2026, 4, 30), 6_333_33, 104_11, 6_437_44, False),
         (4, date(2026, 5, 31), 6_333_33, 52_78, 6_386_11, False),
     ]
     assert sum(holding.current_principal_minor for holding in holdings) == 12_666_66
-    assert cast(Any, loan).status == "funded"
+    assert cast(Any, loan).status == "active"
     assert DomainEvent.objects.filter(
         event_type="LoanScheduleRecalculated",
         aggregate_id=str(loan.pk),
@@ -755,18 +912,21 @@ def test_preview_borrower_repayment_in_advance_returns_plan_without_writing(
         PreviewAdvanceRepaymentCommand(
             actor=admin_user,
             loan_id=str(loan.pk),
-            amount_minor=10_420_97,
+            amount_minor=10_423_29,
             borrower_repayment_bank_date=date(2026, 3, 15),
         )
     )
 
     assert plan.loan_id == str(loan.pk)
     assert plan.currency == "CHF"
-    assert plan.amount_minor == 10_420_97
+    assert plan.amount_minor == 10_423_29
     assert plan.bank_date == date(2026, 3, 15)
     assert plan.scheduled_interest_due_minor == 300_00
-    assert plan.accrued_interest_minor == 120_97
-    assert plan.interest_applied_minor == 420_97
+    assert plan.interest_accrual_start_date == date(2026, 2, 28)
+    assert plan.interest_accrual_end_date == date(2026, 3, 15)
+    assert plan.accrued_interest_days == 15
+    assert plan.accrued_interest_minor == 123_29
+    assert plan.interest_applied_minor == 423_29
     assert plan.principal_applied_minor == 10_000_00
     assert plan.outstanding_principal_before_minor == 30_000_00
     assert plan.outstanding_principal_after_minor == 20_000_00
@@ -788,7 +948,7 @@ def test_preview_borrower_repayment_in_advance_returns_plan_without_writing(
         )
         for row in plan.new_schedule_rows
     ] == [
-        (2, date(2026, 3, 31), 20_000_00, 86_02, 20_086_02),
+        (2, date(2026, 3, 31), 20_000_00, 87_67, 20_087_67),
     ]
 
     # The preview is a dry run: nothing is recorded and the schedule stays put.
@@ -824,7 +984,7 @@ def test_late_loan_can_declare_repayment_in_advance(
     assert cast(Any, loan).status == "late"
 
     # Interest due until the bank date: scheduled 300_00 of the overdue
-    # installment plus 30_000_00 x (1000/120000) x 5/31 = 40_32 accrued.
+    # installment plus 30_000_00 x 1000/10000 x 5/365 = 41_10 accrued.
     with pytest.raises(ServicingValidationError, match="cover all interest due"):
         record_borrower_repayment(
             _repayment_command(
@@ -843,7 +1003,7 @@ def test_late_loan_can_declare_repayment_in_advance(
         _repayment_command(
             admin_user,
             loan,
-            amount_minor=5_340_32,
+            amount_minor=5_341_10,
             booking_date=date(2026, 3, 5),
             value_date=date(2026, 3, 5),
             repayment_in_advance=True,
@@ -862,23 +1022,23 @@ def test_late_loan_can_declare_repayment_in_advance(
 
     assert event.event_type == BorrowerRepaymentEventType.EARLY_REPAYMENT
     assert event.metadata["scheduled_interest_due_minor"] == 300_00
-    assert event.metadata["accrued_interest_minor"] == 40_32
-    assert event.interest_applied_minor == 340_32
+    assert event.metadata["accrued_interest_minor"] == 41_10
+    assert event.interest_applied_minor == 341_10
     assert event.principal_applied_minor == 3_000_00
     assert event.future_principal_applied_minor == 2_000_00
-    # The arrears are settled, so the loan returns to funded on the new schedule.
-    assert cast(Any, loan).status == "funded"
+    # The arrears are settled, so the loan returns to active on the new schedule.
+    assert cast(Any, loan).status == "active"
     assert cast(Any, loan).schedule_version == 2
     assert [
         (row.installment_number, row.due_date, row.principal_minor, row.interest_minor)
         for row in version_two_rows
     ] == [
-        (2, date(2026, 3, 31), 25_000_00, 174_73),
+        (2, date(2026, 3, 31), 25_000_00, 178_08),
     ]
     assert DomainEvent.objects.filter(
         event_type="LoanServicingStatusChanged",
         aggregate_id=str(loan.pk),
-        payload__new_status="funded",
+        payload__new_status="active",
     ).exists()
 
 
@@ -928,6 +1088,8 @@ def test_second_repayment_advances_to_next_unpaid_installment(
             admin_user,
             loan,
             amount_minor=27_200_00,
+            booking_date=date(2026, 3, 31),
+            value_date=date(2026, 3, 31),
             idempotency_key="servicing-second-installment",
         )
     )
@@ -973,6 +1135,8 @@ def test_status_scan_marks_fully_paid_late_loan_repaid(
             admin_user,
             loan,
             amount_minor=27_200_00,
+            booking_date=date(2026, 3, 31),
+            value_date=date(2026, 3, 31),
             idempotency_key="servicing-scan-repaid-second",
         )
     )
@@ -1016,7 +1180,7 @@ def test_status_scan_marks_loan_late_on_day_five(
 
     assert cast(Any, loan).status == "late"
     assert len(result.changes) == 1
-    assert result.changes[0].previous_status == "funded"
+    assert result.changes[0].previous_status == "active"
     assert result.changes[0].new_status == "late"
     assert result.changes[0].days_past_due == 5
     assert result.changes[0].outstanding_minor == 3_300_00
@@ -1045,7 +1209,7 @@ def test_servicing_status_snapshot_reports_days_past_due_without_mutating_loan(
     assert snapshot.days_past_due == 5
     assert snapshot.outstanding_minor == 3_300_00
     assert snapshot.triggering_due_date == date(2026, 2, 28)
-    assert cast(Any, loan).status == "funded"
+    assert cast(Any, loan).status == "active"
     assert not DomainEvent.objects.filter(
         event_type="LoanServicingStatusChanged",
         aggregate_id=str(loan.pk),
@@ -1112,7 +1276,7 @@ def test_refinancing_loan_servicing_schedule_starts_at_installment_one(
     assert cast(Any, loan).original_principal_minor == 1_500_00
     assert cast(Any, loan).pre_publication_paid_installments == []
 
-    cast(Any, loan).status = "funded"
+    cast(Any, loan).status = "active"
     loan.save(update_fields=["status", "updated_at"])
     apps.get_model("holdings", "InvestorLoanHolding").objects.create(
         loan=loan,
@@ -1137,6 +1301,7 @@ def test_refinancing_loan_servicing_schedule_starts_at_installment_one(
             amount_minor=int(first_installment.total_minor),
             booking_date=today,
             value_date=today,
+            early_regular_payment_acknowledged=True,
             idempotency_key="servicing-refinancing-repayment-1",
         )
     )
@@ -1152,7 +1317,7 @@ def test_refinancing_loan_servicing_schedule_starts_at_installment_one(
 
 
 @pytest.mark.django_db
-def test_late_loan_returns_to_funded_after_catchup_repayment(
+def test_late_loan_returns_to_active_after_catchup_repayment(
     admin_user: Model,
     investor_one: Model,
     investor_two: Model,
@@ -1176,12 +1341,12 @@ def test_late_loan_returns_to_funded_after_catchup_repayment(
     )
     loan.refresh_from_db()
 
-    assert cast(Any, loan).status == "funded"
+    assert cast(Any, loan).status == "active"
     assert result.repayment_event.metadata["installment_number"] == 1
     assert DomainEvent.objects.filter(
         event_type="LoanServicingStatusChanged",
         aggregate_id=str(loan.pk),
-        payload__new_status="funded",
+        payload__new_status="active",
     ).exists()
 
 
@@ -1220,7 +1385,7 @@ def test_status_scan_marks_loan_defaulted_on_day_sixteen_and_blocks_normal_repay
             _repayment_command(
                 admin_user,
                 loan,
-                amount_minor=30_420_97,
+                amount_minor=30_423_29,
                 booking_date=date(2026, 3, 16),
                 value_date=date(2026, 3, 16),
                 repayment_in_advance=True,
@@ -1348,12 +1513,12 @@ def test_repayment_admin_api(
     assert "must equal the outstanding amount" in mismatch_response.json()["detail"]
 
     # The remaining principal (27_000_00) plus accrued interest until the bank
-    # date (27_000_00 x (1000/120000) x 15/31 = 108_87) settles the loan early.
+    # date (27_000_00 x 1000/10000 x 15/365 = 110_96) settles the loan early.
     advance_response = client.post(
         "/api/v1/servicing/admin/borrower-repayments/",
         data={
             "loan_id": str(loan.pk),
-            "amount_minor": 27_108_87,
+            "amount_minor": 27_110_96,
             "booking_date": "2026-03-15",
             "value_date": "2026-03-15",
             "collection_account_identifier": "CH00GARANTALEDGER",
@@ -1373,8 +1538,8 @@ def test_repayment_admin_api(
     assert advance_response.status_code == 201
     advance_payload = advance_response.json()
     assert advance_payload["repayment_event"]["event_type"] == "early_repayment"
-    assert advance_payload["repayment_event"]["amount_minor"] == 27_108_87
-    assert advance_payload["repayment_event"]["interest_applied_minor"] == 108_87
+    assert advance_payload["repayment_event"]["amount_minor"] == 27_110_96
+    assert advance_payload["repayment_event"]["interest_applied_minor"] == 110_96
     assert advance_payload["repayment_event"]["warning_acknowledged"] is True
     assert cast(Any, loan).status == "repaid"
     assert cast(Any, loan).schedule_version == 2
@@ -1394,7 +1559,7 @@ def test_advance_preview_admin_api(
         "/api/v1/servicing/admin/borrower-repayments/advance-preview/",
         data={
             "loan_id": str(loan.pk),
-            "amount_minor": 10_420_97,
+            "amount_minor": 10_423_29,
             "borrower_repayment_bank_date": "2026-03-15",
         },
         content_type="application/json",
@@ -1404,11 +1569,14 @@ def test_advance_preview_admin_api(
     payload = response.json()
     assert payload["loan_id"] == str(loan.pk)
     assert payload["currency"] == "CHF"
-    assert payload["amount_minor"] == 10_420_97
+    assert payload["amount_minor"] == 10_423_29
     assert payload["bank_date"] == "2026-03-15"
     assert payload["scheduled_interest_due_minor"] == 300_00
-    assert payload["accrued_interest_minor"] == 120_97
-    assert payload["interest_applied_minor"] == 420_97
+    assert payload["interest_accrual_start_date"] == "2026-02-28"
+    assert payload["interest_accrual_end_date"] == "2026-03-15"
+    assert payload["accrued_interest_days"] == 15
+    assert payload["accrued_interest_minor"] == 123_29
+    assert payload["interest_applied_minor"] == 423_29
     assert payload["principal_applied_minor"] == 10_000_00
     assert payload["outstanding_principal_before_minor"] == 30_000_00
     assert payload["outstanding_principal_after_minor"] == 20_000_00
@@ -1425,8 +1593,8 @@ def test_advance_preview_admin_api(
             "installment_number": 2,
             "due_date": "2026-03-31",
             "principal_minor": 20_000_00,
-            "interest_minor": 86_02,
-            "total_minor": 20_086_02,
+            "interest_minor": 87_67,
+            "total_minor": 20_087_67,
         }
     ]
 

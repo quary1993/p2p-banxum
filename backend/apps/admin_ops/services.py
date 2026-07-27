@@ -51,7 +51,7 @@ KYC_ADMIN_REVIEW_STATUSES = frozenset(
     }
 )
 LOAN_FUNDING_STATUS = "published"
-LOAN_SERVICING_STATUSES = frozenset({"funded", "late"})
+LOAN_SERVICING_STATUSES = frozenset({"active", "late"})
 LOAN_RISK_STATUSES = frozenset({"late", "defaulted", "written_off"})
 BANK_OPERATION_EXCEPTION_STATUSES = frozenset({"pending_review", "unmatched"})
 WITHDRAWAL_REQUESTED_STATUS = "requested"

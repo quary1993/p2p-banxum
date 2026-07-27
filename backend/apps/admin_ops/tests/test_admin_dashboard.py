@@ -249,7 +249,7 @@ def test_admin_dashboard_aggregates_daily_operations(
     _declare_old_deposit(admin_user, investor, value_date=today - timedelta(days=70))
 
     borrower = _borrower(admin_user)
-    due_loan = _loan(admin_user, borrower, title="Repayment due loan", status="funded")
+    due_loan = _loan(admin_user, borrower, title="Repayment due loan", status="active")
     _installment(due_loan, due_date=today + timedelta(days=3))
     _loan(admin_user, borrower, title="Funding campaign", status="published")
     _loan(admin_user, borrower, title="Risk loan", status="defaulted")

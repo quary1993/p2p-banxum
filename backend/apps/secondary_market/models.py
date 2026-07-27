@@ -24,6 +24,8 @@ class SecondaryMarketListingPublicationType(models.TextChoices):
 class SecondaryMarketListingEventType(models.TextChoices):
     CREATED = "created", "Created"
     EDITED = "edited", "Edited"
+    REPRICED = "repriced", "Repriced after loan change"
+    AUTO_CANCELLED = "auto_cancelled", "Automatically cancelled"
     AUTO_PUBLISHED = "auto_published", "Auto published"
     APPROVAL_REQUESTED = "approval_requested", "Approval requested"
     APPROVED = "approved", "Approved"

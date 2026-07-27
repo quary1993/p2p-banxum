@@ -330,7 +330,7 @@ class BorrowerDisbursementFinalizeView(APIView):
                     currency=data["currency"],
                     booking_date=data["booking_date"],
                     value_date=data["value_date"],
-                    collection_account_identifier=data["collection_account_identifier"],
+                    collection_account_identifier=data.get("collection_account_identifier", ""),
                     payee_name=data["payee_name"],
                     payee_account_identifier=data["payee_account_identifier"],
                     override_note=data.get("override_note", ""),
