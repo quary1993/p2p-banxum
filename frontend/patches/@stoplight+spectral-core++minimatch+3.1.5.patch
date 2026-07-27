@@ -1,0 +1,8 @@
+diff --git a/node_modules/@stoplight/spectral-core/node_modules/minimatch/minimatch.js b/node_modules/@stoplight/spectral-core/node_modules/minimatch/minimatch.js
+index 2e4a058..e7e1a57 100644
+--- a/node_modules/@stoplight/spectral-core/node_modules/minimatch/minimatch.js
++++ b/node_modules/@stoplight/spectral-core/node_modules/minimatch/minimatch.js
+@@ -10 +10,2 @@ var GLOBSTAR = minimatch.GLOBSTAR = Minimatch.GLOBSTAR = {}
+-var expand = require('brace-expansion')
++var braceExpansion = require('brace-expansion')
++var expand = typeof braceExpansion === 'function' ? braceExpansion : braceExpansion.expand
