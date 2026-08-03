@@ -105,10 +105,23 @@ environment's existing `infra/deploy/.env`, rebuilds only the BANXUM Compose pro
 server-local health check. It must use only the configured BANXUM SSH secrets and the directories /
 Compose project names listed below.
 
+`seed_marketplace_demo_loans` is an explicit workflow option for private QA only. When selected, the
+workflow runs `seed_marketplace_demo_loans` after the environment is healthy. The command uses the
+configured environment-managed superadmin for audit attribution, cycles through existing approved
+borrowers without compliance holds, and publishes eight clearly labelled `Demo - ...` loans with
+complete schedules and zero committed principal. The command is idempotent, requires an explicit
+production acknowledgement, and is never part of container startup. Leave the option disabled for
+ordinary deployments.
+
 Container startup applies migrations, collects static files, runs `seed_reference_data`, and
 synchronizes the environment-managed superadmin. `seed_reference_data` creates only currencies and
 platform settings. Never put `seed_demo` in a deployed startup command: it is an explicit local/private
 QA command and may create temporary, non-approved legal templates.
+
+The marketplace demo catalogue is also not production reference data. Before accepting real lender
+money, cancel the demo campaigns through the normal funding-cancellation flow and verify that no
+published loan title starts with `Demo - `. Do not delete the loan rows or their append-only evidence
+directly from the database.
 
 Use the direct server commands below only for emergency or diagnostic work.
 

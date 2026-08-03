@@ -12,6 +12,11 @@ on:
           - staging
           - production
           - both
+      seed_marketplace_demo_loans:
+        description: Publish the idempotent eight-loan private-test catalogue after deployment.
+        required: true
+        default: false
+        type: boolean
 
 jobs:
   deploy:
@@ -72,6 +77,7 @@ jobs:
       - name: Deploy selected environment(s)
         env:
           DEPLOY_TARGET: ${{ inputs.environment }}
+          SEED_MARKETPLACE_DEMO_LOANS: ${{ inputs.seed_marketplace_demo_loans }}
           SSH_HOST: ${{ secrets.BANXUM_SSH_HOST }}
           SSH_USER: ${{ secrets.BANXUM_SSH_USER }}
           SSH_PORT: ${{ secrets.BANXUM_SSH_PORT || '22' }}
@@ -100,7 +106,10 @@ jobs:
               -o BatchMode=yes \
               -o ConnectTimeout=15 \
               "$SSH_USER@$SSH_HOST" \
-              TARGET="$target" REMOTE_ARCHIVE="$remote_archive" 'bash -s' <<'REMOTE'
+              TARGET="$target" \
+              REMOTE_ARCHIVE="$remote_archive" \
+              SEED_MARKETPLACE_DEMO_LOANS="$SEED_MARKETPLACE_DEMO_LOANS" \
+              'bash -s' <<'REMOTE'
           set -euo pipefail
 
           case "$TARGET" in
@@ -150,20 +159,41 @@ jobs:
             -f infra/deploy/docker-compose.yml \
             up -d --build
 
+          healthy=false
           for attempt in $(seq 1 30); do
             if curl -fsS "$health_url" >/dev/null; then
               echo "$TARGET health check passed: $health_url"
-              exit 0
+              healthy=true
+              break
             fi
             sleep 5
           done
 
-          echo "$TARGET health check failed: $health_url" >&2
-          docker compose \
-            --project-name "$project_name" \
-            --env-file infra/deploy/.env \
-            -f infra/deploy/docker-compose.yml \
-            ps
-          exit 4
+          if [ "$healthy" != "true" ]; then
+            echo "$TARGET health check failed: $health_url" >&2
+            docker compose \
+              --project-name "$project_name" \
+              --env-file infra/deploy/.env \
+              -f infra/deploy/docker-compose.yml \
+              ps
+            exit 4
+          fi
+
+          if [ "${SEED_MARKETPLACE_DEMO_LOANS:-false}" = "true" ]; then
+            seed_args=""
+            if [ "$TARGET" = "production" ]; then
+              seed_args="--allow-production"
+            fi
+            echo "Publishing idempotent marketplace demo catalogue in $TARGET."
+            docker compose \
+              --project-name "$project_name" \
+              --env-file infra/deploy/.env \
+              -f infra/deploy/docker-compose.yml \
+              exec -T backend \
+              .venv/bin/python backend/manage.py seed_marketplace_demo_loans $seed_args
+          fi
+
+          curl -fsS "$health_url" >/dev/null
+          echo "$TARGET deployment completed successfully."
           REMOTE
           done

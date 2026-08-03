@@ -40,6 +40,13 @@ Complete these before calling any environment production-like.
   - EUR collector account: `Garanta_EUR`, IBAN `CH8183019GARANTAFI002`, BIC `YAPECHZ2`.
   - CHF QR payload is the verified payload in `docs/payment-assets/chf-collector-qr-payload.txt`.
   - EUR has no supplied QR payload; investors see IBAN/BIC plus their BANXUM payment reference.
+- Demo and QA data:
+  - No published loan title starts with `Demo - ` and the private-test catalogue has been cancelled
+    through the normal funding-cancellation flow before real lender money is accepted.
+  - The deploy workflow's `seed_marketplace_demo_loans` option is disabled for ordinary and go-live
+    deployments; it is an explicit private-QA action, not production reference-data seeding.
+  - Demo financial records and their append-only evidence are not removed with direct database
+    deletes. Rebuild an environment when a completely clean QA dataset is required.
 - Legal and documents:
   - Registration lender user agreement template is counsel-approved, imported, reviewed in Superadmin Settings, and published.
   - Primary-market project investment confirmation / claim-assignment template is counsel-approved, imported, reviewed, and published.
