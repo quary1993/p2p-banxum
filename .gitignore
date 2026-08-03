@@ -21,3 +21,6 @@ __pycache__/
 htmlcov/
 db.sqlite3
 *.log
+
+# Local FX design-preview builds
+.fx-preview/

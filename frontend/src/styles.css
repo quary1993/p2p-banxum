@@ -5743,6 +5743,10 @@ table.tbl tfoot.schedule-totals th.num,
   color: #c4312c;
 }
 
+.app .fx-kv {
+  display: block;
+}
+
 .app .fx-kv .kv-row {
   align-items: baseline;
   border-top: 1px solid #e4e1d8;
@@ -5777,14 +5781,16 @@ table.tbl tfoot.schedule-totals th.num,
   text-wrap: pretty;
 }
 
-@media (max-width: 1080px) {
-  .app .content {
-    padding-left: 30px;
-    padding-right: 30px;
-  }
-
+/* With the 230px sidebar plus content padding, the converter needs the desk
+   stacked well before 1080px, otherwise the card is squeezed into a 445-565px
+   column and its rate/convert rows wrap awkwardly. */
+@media (max-width: 1200px) {
   .app .fx-desk {
     flex-direction: column;
+  }
+
+  .app .fx-card {
+    width: 100%;
   }
 
   .app .fx-rail {
@@ -5795,6 +5801,13 @@ table.tbl tfoot.schedule-totals th.num,
   .app .fx-rail-card {
     flex: 1;
     min-width: 0;
+  }
+}
+
+@media (max-width: 1080px) {
+  .app .content {
+    padding-left: 30px;
+    padding-right: 30px;
   }
 }
 
@@ -5819,17 +5832,57 @@ table.tbl tfoot.schedule-totals th.num,
     max-height: calc(100vh - 28px);
   }
 
-  .app .fx-workspace {
-    grid-template-columns: 1fr;
+  .app .fx-page .mtabs {
+    gap: 18px;
+    margin-bottom: 34px;
+    overflow-x: auto;
   }
 
-  .app .fx-sidebar {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+  .app .fx-page .mtabs button {
+    flex: none;
+  }
+
+  .app .fx-cta-line {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .app .fx-history {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .app .fx-history-row {
+    min-width: 640px;
+  }
+
+  .app .fx-band {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app .fx-band .cell {
+    min-width: 0;
+  }
+
+  .app .fx-band .cell + .cell {
+    border-left: 0;
+    border-top: 1px solid #dde3e1;
   }
 }
 
 @media (max-width: 560px) {
+  .app .topbar .crumbs {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .app .topbar .state-switch select {
+    max-width: 88px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   .app .content,
   .public .public-body {
     padding: 28px 18px 68px;
@@ -5898,31 +5951,35 @@ table.tbl tfoot.schedule-totals th.num,
     padding-right: 18px;
   }
 
-  .app .fx-workspace {
+  .app .fx-desk {
     gap: 18px;
-    margin-top: 22px;
+    margin-bottom: 26px;
   }
 
-  .app .fx-amount-panel {
+  .app .fx-rail {
+    flex-direction: column;
+  }
+
+  .app .fx-panel {
     padding: 20px 18px 18px;
   }
 
-  .app .fx-amount-panel.receive {
-    padding: 18px;
+  .app .fx-panel.receive {
+    padding: 18px 18px 20px;
   }
 
-  .app .fx-amount-meta {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 4px;
+  .app .fx-panel-head {
+    flex-wrap: wrap;
+    gap: 2px 8px;
   }
 
-  .app .fx-amount-input,
-  .app .fx-amount-output {
+  .app .fx-big-input,
+  .app .fx-big-output {
     font-size: 30px;
   }
 
-  .app .fx-currency-pill {
+  .app .fx-pill {
+    gap: 8px;
     padding: 8px 11px;
   }
 
@@ -5930,37 +5987,42 @@ table.tbl tfoot.schedule-totals th.num,
     left: 18px;
   }
 
-  .app .fx-convert-row {
-    align-items: stretch;
-    grid-template-columns: 1fr;
-    padding: 18px;
+  .app .fx-rate-line {
+    flex-wrap: wrap;
+    padding: 14px 18px 16px;
+    row-gap: 4px;
   }
 
-  .app .fx-page .mtabs {
-    gap: 18px;
-    margin-bottom: 34px;
-    overflow-x: auto;
-  }
-
-  .app .fx-rail {
-    flex-direction: column;
+  .app .fx-rate-line .leader {
+    min-width: 24px;
   }
 
   .app .fx-cta-line {
-    align-items: stretch;
-    flex-direction: column;
+    padding: 14px 18px 18px;
   }
 
-  .app .fx-history-row {
-    min-width: 640px;
+  .app .fx-band .cell {
+    padding: 20px;
   }
 
-  .app .fx-band {
-    grid-template-columns: 1fr;
+  .app .fx-kv .k {
+    white-space: normal;
   }
 
-  .app .fx-band .cell + .cell {
-    border-left: 0;
-    border-top: 1px solid #dde3e1;
+  .app .fx-kv .kv-row {
+    align-items: start;
+    display: grid;
+    gap: 12px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .app .fx-kv .leader {
+    display: none;
+  }
+
+  .app .fx-kv .v {
+    min-width: 0;
+    text-align: right;
+    white-space: normal;
   }
 }
