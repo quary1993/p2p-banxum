@@ -2150,7 +2150,7 @@ function InvestorShell({
       case "balances":
         return <BalancesScreen demoState={demoState} />;
       case "fx":
-        return <FxScreen demoState={demoState} />;
+        return <FxScreen demoState={demoState} setRoute={setRoute} />;
       case "documents":
         return <DocumentsScreen />;
       case "notifications":
@@ -3608,7 +3608,7 @@ function fxAvailabilityTitle(message: string) {
   return "Current FX rate unavailable";
 }
 
-function FxScreen({ demoState }: { demoState: DemoAccountState }) {
+function FxScreen({ demoState, setRoute }: { demoState: DemoAccountState; setRoute: (route: AppRoute) => void }) {
   const fxQuery = useFxData();
   const balancesQuery = useBalancesData();
   const fx = fxQuery.data;
@@ -3690,6 +3690,35 @@ function FxScreen({ demoState }: { demoState: DemoAccountState }) {
     : "";
   const displayedError = error || previewError;
 
+  // "Rates, net of fees" rail card: nominal 100.00-unit previews per direction,
+  // mirroring the redesign's reference-rate list with live provider data.
+  const nominalEnabled = !isFixturePreview && !fxClosedForWeekend;
+  const nominalChfQuery = useV1FxQuotePreviewRetrieve(
+    { source_currency: "CHF", target_currency: "EUR", source_amount_minor: 100_00 },
+    { query: { enabled: nominalEnabled, retry: false, staleTime: 60_000, refetchOnWindowFocus: false } }
+  );
+  const nominalEurQuery = useV1FxQuotePreviewRetrieve(
+    { source_currency: "EUR", target_currency: "CHF", source_amount_minor: 100_00 },
+    { query: { enabled: nominalEnabled, retry: false, staleTime: 60_000, refetchOnWindowFocus: false } }
+  );
+  const fixtureNominal = (source: "CHF" | "EUR"): FxQuotePreview | null => {
+    const reference = fx?.exchanges.find((exchange) => exchange.source_currency === source)
+      ?? fx?.exchanges.find((exchange) => exchange.target_currency === source);
+    if (!reference) return null;
+    const providerRate = reference.source_currency === source
+      ? Number(reference.rate)
+      : 1 / Number(reference.rate);
+    if (!Number.isFinite(providerRate) || providerRate <= 0) return null;
+    return fixtureFxPreview(source, 100_00, providerRate, reference.platform_fee_bps, reference.executed_at);
+  };
+  const nominalRates = (["CHF", "EUR"] as const).map((source) => {
+    const nominal = isFixturePreview
+      ? fixtureNominal(source)
+      : (source === "CHF" ? nominalChfQuery.data : nominalEurQuery.data) ?? null;
+    return { source, target: source === "CHF" ? ("EUR" as const) : ("CHF" as const), nominal };
+  });
+  const nominalTimestamp = nominalRates.find((entry) => entry.nominal)?.nominal?.provider_rate_timestamp;
+
   const swapDirection = () => {
     setFrom(to);
     setLiveQuote(null);
@@ -3738,13 +3767,7 @@ function FxScreen({ demoState }: { demoState: DemoAccountState }) {
 
   return (
     <main className="content fx-page">
-      <div className="page-head">
-        <div>
-          <div className="eyebrow">My money</div>
-          <h1>Currency &amp; FX</h1>
-          <div className="ph-sub">Convert between your CHF and EUR balances using a current provider-backed rate.</div>
-        </div>
-      </div>
+      <h1 className="sr-only">Currency &amp; FX</h1>
       {frozen ? <Banner icon="lock" tone="bad" title="FX is frozen">Provide a usable payout IBAN to unlock currency exchange.</Banner> : null}
       {readonly ? <Banner icon="lock" tone="info" title="Read-only view">FX quote and execution are disabled during superadmin read-only impersonation.</Banner> : null}
       {fxClosedForWeekend ? (
@@ -3753,17 +3776,25 @@ function FxScreen({ demoState }: { demoState: DemoAccountState }) {
         </Banner>
       ) : null}
 
-      <div className="fx-workspace">
-        <section aria-label="Currency converter" className="fx-converter">
-          <div className="fx-amount-panel">
-            <div className="fx-amount-meta">
-              <span className="eyebrow">You send</span>
-              <span className="num muted">Balance {fxMoneyLabel(from, availableMinor)}</span>
+      <nav aria-label="My money" className="mtabs">
+        <button onClick={() => goTo(setRoute, "balances")} type="button">Balance</button>
+        <button aria-current="page" className="on" type="button">Currency &amp; FX</button>
+        <button onClick={() => goTo(setRoute, "balances")} type="button">Add money</button>
+        <button onClick={() => goTo(setRoute, "balances")} type="button">Withdraw</button>
+      </nav>
+
+      <div className="fx-desk">
+        <section aria-label="Currency converter" className="fx-card">
+          <div className="fx-panel">
+            <div className="fx-panel-head">
+              <span className="fx-cap">You send</span>
+              <span className="grow" />
+              <span className="num fx-balance-note">balance {fxMoneyLabel(from, availableMinor)}</span>
             </div>
-            <div className="fx-amount-line">
+            <div className="fx-panel-line">
               <input
                 aria-label={`Amount to convert from ${from}`}
-                className="fx-amount-input num"
+                className="fx-big-input num"
                 disabled={frozen || fxClosedForWeekend || readonly}
                 inputMode="decimal"
                 onChange={(event) => {
@@ -3774,120 +3805,156 @@ function FxScreen({ demoState }: { demoState: DemoAccountState }) {
                 placeholder="0.00"
                 value={amount}
               />
-              <span className="fx-currency-pill"><FxCurrencyFlag currency={from} />{from}</span>
+              <button
+                aria-label={`Sending currency ${from}. Switch direction to send ${to}.`}
+                className="fx-pill"
+                disabled={frozen || fxClosedForWeekend || readonly}
+                onClick={swapDirection}
+                type="button"
+              >
+                <span className="fx-flag-box"><FxCurrencyFlag currency={from} /></span>
+                <span>{from}</span>
+                <span aria-hidden="true" className="fx-pill-caret">▼</span>
+              </button>
             </div>
             {amountError ? <p className="fx-field-error">{amountError}</p> : null}
           </div>
 
-          <div className="fx-divider">
-            <button aria-label="Swap CHF and EUR" className="fx-swap" disabled={frozen || fxClosedForWeekend || readonly} onClick={swapDirection} type="button">
-              <Icon name="swap" size={15} />
-            </button>
+          <div className="fx-hr">
+            <button aria-label="Swap CHF and EUR" className="fx-swap" disabled={frozen || fxClosedForWeekend || readonly} onClick={swapDirection} type="button">⇅</button>
           </div>
 
-          <div className="fx-amount-panel receive">
-            <div className="fx-amount-meta">
-              <span className="eyebrow">You receive</span>
-              <span className="num muted">Balance {fxMoneyLabel(to, targetAvailableMinor)}</span>
+          <div className="fx-panel receive">
+            <div className="fx-panel-head">
+              <span className="fx-cap">You receive</span>
+              <span className="grow" />
+              <span className="num fx-balance-note">balance {fxMoneyLabel(to, targetAvailableMinor)}</span>
             </div>
-            <div className="fx-amount-line">
-              <output aria-live="polite" className="fx-amount-output num">
-                {previewLoading ? "Checking rate..." : preview ? formatMoneyMinor(preview.target_amount_minor, to) : "-"}
+            <div className="fx-panel-line">
+              <output aria-live="polite" className="fx-big-output num">
+                {previewLoading ? "…" : preview ? formatMoneyMinor(preview.target_amount_minor, to) : "0.00"}
               </output>
-              <span className="fx-currency-pill"><FxCurrencyFlag currency={to} />{to}</span>
+              <button
+                aria-label={`Receiving currency ${to}. Switch direction to receive ${from}.`}
+                className="fx-pill"
+                disabled={frozen || fxClosedForWeekend || readonly}
+                onClick={swapDirection}
+                type="button"
+              >
+                <span className="fx-flag-box"><FxCurrencyFlag currency={to} /></span>
+                <span>{to}</span>
+                <span aria-hidden="true" className="fx-pill-caret">▼</span>
+              </button>
             </div>
           </div>
 
-          <div className="fx-convert-row">
-            <div className="fx-fee-summary">
-              <span>Fee included</span>
-              <strong>{preview ? `${formatRateBps(preview.platform_fee_bps)} · ${fxMoneyLabel(to, preview.fee_minor)}` : "Shown with the rate"}</strong>
-            </div>
-            <div className="fx-rate-summary" aria-live="polite">
-              <span>Rate, net of fees</span>
-              <strong className="num">{preview ? `1 ${from} = ${fxRateLabel(preview.effective_net_rate)} ${to}` : previewLoading ? "Checking current rate" : "Enter an amount"}</strong>
-            </div>
-            <Button
+          <div className="fx-rate-line" aria-live="polite">
+            <span className="fx-note">Rate, net of fees</span>
+            <span className="leader" />
+            <strong className="num fx-rate-value">{preview ? `1 ${from} = ${fxRateLabel(preview.effective_net_rate)} ${to}` : previewLoading ? "Checking current rate" : "Enter an amount"}</strong>
+          </div>
+          <div className="fx-cta-line">
+            <span className="fx-cta-copy">
+              {preview
+                ? `Converting makes ${fxMoneyLabel(to, preview.target_amount_minor)} available in your ${to} balance. Converted money keeps the earliest deadline of the funds it came from — FX never resets the 30/60-day clock.`
+                : "Converted money keeps the earliest deadline of the funds it came from — FX never resets the 30/60-day clock."}
+            </span>
+            <button
+              className="fx-convert-btn"
               disabled={!preview || frozen || fxClosedForWeekend || readonly || quoteMutation.isPending}
-              variant="primary"
               onClick={requestQuote}
+              type="button"
             >
               {quoteMutation.isPending ? "Locking quote..." : "Convert"}
-            </Button>
+            </button>
           </div>
         </section>
 
-        <aside className="fx-sidebar">
-          <section className="fx-side-card">
-            <div className="eyebrow">Your balances</div>
-            {(["CHF", "EUR"] as const).map((currency) => {
-              const balance = balances.summaries.find((summary) => summary.currency === currency)?.total_available_minor ?? 0;
-              return (
-                <div className="fx-balance-row" key={currency}>
-                  <FxCurrencyFlag currency={currency} />
-                  <strong>{currency}</strong>
-                  <span className="num">{fxMoneyLabel(currency, balance)}</span>
-                </div>
-              );
-            })}
-          </section>
-          <section className="fx-side-card">
-            <div className="eyebrow">How FX works</div>
-            <div className="fx-facts">
-              <p><strong>Current preview.</strong> The indicative rate is provider-backed and net of the platform fee.</p>
-              <p><strong>60-second lock.</strong> Convert creates a fresh executable quote for confirmation.</p>
-              <p><strong>Same ageing clock.</strong> Converted funds inherit the earliest source-lot deadline.</p>
-              <p><strong>Daily limit.</strong> CHF 100,000 equivalent per investor.</p>
+        <aside className="fx-rail">
+          <section className="fx-rail-card">
+            <div className="fx-cap fx-rail-cap">Your balances</div>
+            <div className="fx-balance-list">
+              {(["CHF", "EUR"] as const).map((currency) => {
+                const balance = balances.summaries.find((summary) => summary.currency === currency)?.total_available_minor ?? 0;
+                return (
+                  <div className={`fx-balance-row${balance === 0 ? " zero" : ""}`} key={currency}>
+                    <span className="fx-flag-box"><FxCurrencyFlag currency={currency} /></span>
+                    <span className="fx-balance-code">{currency}</span>
+                    <span className="num fx-balance-amount">{fxMoneyLabel(currency, balance)}</span>
+                  </div>
+                );
+              })}
             </div>
-            {preview ? <div className="fx-rate-time">Rate observed {formatDateTime(preview.provider_rate_timestamp)}.</div> : null}
+            <div className="fx-rail-foot">Money must be in a loan's currency before it can be lent. Convert it here first when it is not.</div>
+          </section>
+          <section className="fx-rail-card">
+            <div className="fx-cap fx-rail-cap">Rates, net of fees</div>
+            <div className="fx-rate-list">
+              {nominalRates.map(({ source, target, nominal }) => (
+                <div className="fx-rate-row" key={source}>
+                  <span className="fx-flag-box"><FxCurrencyFlag currency={source} /></span>
+                  <span className="fx-rate-unit">1 {source}</span>
+                  <strong className="num">{nominal ? `${fxRateLabel(nominal.effective_net_rate)} ${target}` : "—"}</strong>
+                </div>
+              ))}
+            </div>
+            <div className="fx-rail-foot">
+              {fxClosedForWeekend
+                ? "Live rates return when FX markets reopen."
+                : nominalTimestamp
+                  ? `Net of fees, ${formatDateTime(nominalTimestamp)}.`
+                  : "Fetching current provider rates."}
+            </div>
           </section>
         </aside>
       </div>
 
       {displayedError ? <Banner tone="bad" title={fxAvailabilityTitle(displayedError)}>{displayedError}</Banner> : null}
 
-      <section className="fx-history section">
-        <div className="section-head">
-          <div><h2>Your conversions</h2><p className="muted">Every rate below is the rate you received, net of fees.</p></div>
-        </div>
-        {fxQuery.isError && !fx ? (
-          <DataErrorCard title="Could not load conversion history" onRetry={() => void fxQuery.refetch()}>
-            The converter remains available, but historical FX activity could not be loaded.
-          </DataErrorCard>
-        ) : !fx ? (
-          <LoadingCard title="Loading conversion history">Loading executed currency exchanges.</LoadingCard>
-        ) : fx.exchanges.length === 0 ? (
-          <div className="fx-history-empty"><Empty icon="swap" title="No conversions yet">Completed CHF/EUR conversions will appear here.</Empty></div>
-        ) : (
-          <div className="fx-history-table" role="table" aria-label="Your conversions">
-            <div className="fx-history-row head" role="row">
-              <span role="columnheader">Date</span>
-              <span role="columnheader">Converted</span>
-              <span role="columnheader">Rate, net of fees</span>
-              <span role="columnheader">Received</span>
-            </div>
-            {fx.exchanges.map((exchange) => (
-              <div className="fx-history-row" role="row" key={exchange.id}>
-                <span className="num muted" role="cell">{formatDate(exchange.executed_at)}</span>
-                <span className="num" role="cell">{fxMoneyLabel(exchange.source_currency, exchange.source_amount_minor)}</span>
-                <span className="num" role="cell">1 {exchange.source_currency} = {fxRateLabel(exchange.effective_net_rate)} {exchange.target_currency}</span>
-                <strong className="num" role="cell">{fxMoneyLabel(exchange.target_currency, exchange.target_amount_minor)}</strong>
-              </div>
-            ))}
+      <h2 className="sect">Your conversions</h2>
+      <p className="sect-sub">Every rate below is the rate you received, net of fees.</p>
+      {fxQuery.isError && !fx ? (
+        <DataErrorCard title="Could not load conversion history" onRetry={() => void fxQuery.refetch()}>
+          The converter remains available, but historical FX activity could not be loaded.
+        </DataErrorCard>
+      ) : !fx ? (
+        <LoadingCard title="Loading conversion history">Loading executed currency exchanges.</LoadingCard>
+      ) : fx.exchanges.length === 0 ? (
+        <div className="fx-history-empty"><Empty icon="swap" title="No conversions yet">Completed CHF/EUR conversions will appear here.</Empty></div>
+      ) : (
+        <div aria-label="Your conversions" className="rule-top fx-history" role="table">
+          <div className="fx-history-row head" role="row">
+            <span role="columnheader">Date</span>
+            <span role="columnheader">Converted</span>
+            <span role="columnheader">Rate, net of fees</span>
+            <span role="columnheader">Received</span>
           </div>
-        )}
-      </section>
+          {fx.exchanges.map((exchange) => (
+            <div className="fx-history-row" key={exchange.id} role="row">
+              <span className="num fx-h-date" role="cell">{formatDate(exchange.executed_at)}</span>
+              <span className="num fx-h-converted" role="cell">{fxMoneyLabel(exchange.source_currency, exchange.source_amount_minor)}</span>
+              <span className="num fx-h-rate" role="cell">1 {exchange.source_currency} = {fxRateLabel(exchange.effective_net_rate)} {exchange.target_currency}</span>
+              <strong className="num fx-h-received" role="cell">{fxMoneyLabel(exchange.target_currency, exchange.target_amount_minor)}</strong>
+            </div>
+          ))}
+        </div>
+      )}
 
-      <section className="fx-guidance">
-        <div>
-          <div className="eyebrow">Pricing</div>
-          <div className="fx-guidance-row"><span>Conversion fee, included in the rate</span><strong>{preview ? formatRateBps(preview.platform_fee_bps) : "Shown in each preview"}</strong></div>
+      <div className="band band-2 fx-band">
+        <div className="cell">
+          <div className="microlabel">Your FX terms</div>
+          <div className="kv fx-kv">
+            <div className="kv-row"><span className="k">Conversion fee, in the rate</span><span className="leader" /><span className="v">{preview ? formatRateBps(preview.platform_fee_bps) : nominalRates[0].nominal ? formatRateBps(nominalRates[0].nominal.platform_fee_bps) : "Shown with each rate"}</span></div>
+            <div className="kv-row"><span className="k">Daily limit</span><span className="leader" /><span className="v">CHF 100,000 equivalent</span></div>
+            <div className="kv-row"><span className="k">Executable quote lock</span><span className="leader" /><span className="v">60 seconds</span></div>
+          </div>
         </div>
-        <div>
-          <div className="eyebrow">Avoid unnecessary conversion</div>
-          <p>Fund BANXUM in the currency you plan to use. Holding and transferring the required currency directly avoids an extra conversion and its fee.</p>
+        <div className="cell">
+          <div className="microlabel red">How to avoid all of this</div>
+          <div className="fx-advice">Hold an account in the currency you invest in at your own bank. Fund it once, never convert again.</div>
+          <div className="fx-advice-sub">We earn less when you do this. It is still the right advice.</div>
         </div>
-      </section>
+      </div>
 
       {quoteOpen && preview ? (
         <FxConfirmModal

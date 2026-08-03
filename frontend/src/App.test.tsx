@@ -249,6 +249,14 @@ test("FX redesign uses CHF/EUR preview data and net-rate conversion history", ()
   expect(screen.getByText(/Every rate below is the rate you received, net of fees/i)).toBeInTheDocument();
   expect(screen.queryByText(/Euro is the only currency/i)).not.toBeInTheDocument();
   expect(screen.queryByText(/Convert incoming payments/i)).not.toBeInTheDocument();
+
+  // Redesign 1:1 structure: My money tabs, rates rail, and the closing band.
+  expect(screen.getByRole("navigation", { name: "My money" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Add money" })).toBeInTheDocument();
+  expect(screen.getByText("Rates, net of fees", { selector: ".fx-cap" })).toBeInTheDocument();
+  expect(screen.getByText("How to avoid all of this")).toBeInTheDocument();
+  expect(screen.getByText(/We earn less when you do this/i)).toBeInTheDocument();
+  expect(screen.getByText(/balance CHF/i)).toBeInTheDocument();
 });
 
 test("refinanced marketplace loan shows badge and informational original loan schedule", () => {
