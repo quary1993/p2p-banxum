@@ -7,10 +7,12 @@ from backend.apps.fx.api.views import (
     FxExternalSettlementDeclareView,
     FxQuoteExecuteView,
     FxQuoteIssueView,
+    FxQuotePreviewView,
     FxRealizedSettlementReportView,
 )
 
 urlpatterns = [
+    path("quote-preview/", FxQuotePreviewView.as_view(), name="fx-quote-preview"),
     path("quotes/", FxQuoteIssueView.as_view(), name="fx-quote-issue"),
     path("quotes/<uuid:quote_id>/execute/", FxQuoteExecuteView.as_view(), name="fx-quote-execute"),
     path("admin/delta-report/", FxDeltaReportView.as_view(), name="fx-delta-report"),

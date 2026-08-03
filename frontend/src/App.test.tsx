@@ -226,6 +226,31 @@ test("marketplace redesign preserves live filters, detail mode, and order guidan
   expect(within(dialog).getByText(/pending order does not reserve loan capacity/i)).toBeInTheDocument();
 });
 
+test("FX redesign uses CHF/EUR preview data and net-rate conversion history", () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  fireEvent.click(screen.getByRole("button", { name: "FX" }));
+
+  expect(screen.getByRole("heading", { name: "Currency & FX" })).toBeInTheDocument();
+  expect(screen.getByText("Your balances")).toBeInTheDocument();
+  fireEvent.change(screen.getByRole("textbox", { name: "Amount to convert from CHF" }), {
+    target: { value: "1000.00" }
+  });
+
+  expect(screen.getAllByText("1 CHF = 1.0262 EUR")).toHaveLength(2);
+  expect(screen.getByRole("button", { name: "Convert" })).toBeEnabled();
+  expect(screen.getByRole("table", { name: "Your conversions" })).toBeInTheDocument();
+  expect(screen.getByText(/Every rate below is the rate you received, net of fees/i)).toBeInTheDocument();
+  expect(screen.queryByText(/Euro is the only currency/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Convert incoming payments/i)).not.toBeInTheDocument();
+});
+
 test("refinanced marketplace loan shows badge and informational original loan schedule", () => {
   renderApp();
 

@@ -4,6 +4,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
+from decimal import Decimal
 from importlib import import_module
 from typing import Any
 
@@ -99,6 +100,16 @@ def _enabled_currencies() -> list[Any]:
 
 def _currency_code(value: Any) -> str:
     return str(getattr(value, "code", value))
+
+
+def _effective_fx_rate(exchange: Any) -> str:
+    source_factor = Decimal(10) ** int(exchange.source_currency.minor_units)
+    target_factor = Decimal(10) ** int(exchange.target_currency.minor_units)
+    source_major = Decimal(exchange.source_amount_minor) / source_factor
+    target_major = Decimal(exchange.target_amount_minor) / target_factor
+    if source_major <= 0:
+        raise InvestorPortalValidationError("FX exchange source amount must be positive.")
+    return str((target_major / source_major).quantize(Decimal("0.000000000001")))
 
 
 def _balance_bucket(lot: Any, *, as_of: datetime) -> str:
@@ -1429,6 +1440,7 @@ def get_fx_history(*, actor: Model, limit: int | None = None) -> dict[str, Any]:
             "gross_target_amount_minor": int(exchange.gross_target_amount_minor),
             "fee_minor": int(exchange.fee_minor),
             "target_amount_minor": int(exchange.target_amount_minor),
+            "effective_net_rate": _effective_fx_rate(exchange),
             "status": str(exchange.status),
             "executed_at": exchange.executed_at,
         }

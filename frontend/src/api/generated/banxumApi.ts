@@ -1241,6 +1241,7 @@ export interface FxExchange {
   gross_target_amount_minor: number;
   fee_minor: number;
   target_amount_minor: number;
+  readonly effective_net_rate: string;
   limit_chf_equivalent_minor: number;
   status: string;
   source_journal_entry_id: string;
@@ -1263,6 +1264,7 @@ export interface FxExchangePortal {
   gross_target_amount_minor: number;
   fee_minor: number;
   target_amount_minor: number;
+  effective_net_rate: string;
   status: string;
   executed_at: string;
 }
@@ -1351,6 +1353,7 @@ export interface FxQuote {
   gross_target_amount_minor: number;
   fee_minor: number;
   target_amount_minor: number;
+  readonly effective_net_rate: string;
   limit_chf_equivalent_minor: number;
   issued_at: string;
   expires_at: string;
@@ -1395,6 +1398,30 @@ export interface FxQuotePortal {
   expires_at: string;
   is_expired: boolean;
   has_exchange: boolean;
+}
+
+export interface FxQuotePreview {
+  source_currency: string;
+  target_currency: string;
+  source_amount_minor: number;
+  provider: string;
+  /** @pattern ^-?\d{0,12}(?:\.\d{0,12})?$ */
+  rate: string;
+  /**
+   * @nullable
+   * @pattern ^-?\d{0,12}(?:\.\d{0,12})?$
+   */
+  previous_day_average_rate: string | null;
+  platform_fee_bps: number;
+  gross_target_amount_minor: number;
+  fee_minor: number;
+  target_amount_minor: number;
+  /** @pattern ^-?\d{0,12}(?:\.\d{0,12})?$ */
+  effective_net_rate: string;
+  limit_chf_equivalent_minor: number;
+  provider_rate_timestamp: string;
+  sanity_metadata: unknown;
+  previewed_at: string;
 }
 
 export interface FxRealizedSettlementReport {
@@ -4250,6 +4277,23 @@ start_date: string;
 export type V1FxAdminRealizedSettlementReportRetrieveParams = {
 end_date: string;
 start_date: string;
+};
+
+export type V1FxQuotePreviewRetrieveParams = {
+/**
+ * @minimum 1
+ */
+source_amount_minor: number;
+/**
+ * @minLength 1
+ * @maxLength 3
+ */
+source_currency: string;
+/**
+ * @minLength 1
+ * @maxLength 3
+ */
+target_currency: string;
 };
 
 export type V1InvestorPortalActivityRetrieveParams = {
@@ -8337,6 +8381,94 @@ export function useV1FxAdminRealizedSettlementReportRetrieve<TData = Awaited<Ret
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getV1FxAdminRealizedSettlementReportRetrieveQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+export const v1FxQuotePreviewRetrieve = (
+    params: V1FxQuotePreviewRetrieveParams,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<FxQuotePreview>(
+      {url: `/api/v1/fx/quote-preview/`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+
+
+
+
+export const getV1FxQuotePreviewRetrieveQueryKey = (params?: V1FxQuotePreviewRetrieveParams,) => {
+    return [
+    `/api/v1/fx/quote-preview/`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+
+export const getV1FxQuotePreviewRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1FxQuotePreviewRetrieve>>, TError = unknown>(params: V1FxQuotePreviewRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1FxQuotePreviewRetrieve>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1FxQuotePreviewRetrieveQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1FxQuotePreviewRetrieve>>> = ({ signal }) => v1FxQuotePreviewRetrieve(params, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1FxQuotePreviewRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1FxQuotePreviewRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1FxQuotePreviewRetrieve>>>
+export type V1FxQuotePreviewRetrieveQueryError = unknown
+
+
+export function useV1FxQuotePreviewRetrieve<TData = Awaited<ReturnType<typeof v1FxQuotePreviewRetrieve>>, TError = unknown>(
+ params: V1FxQuotePreviewRetrieveParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1FxQuotePreviewRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1FxQuotePreviewRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1FxQuotePreviewRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1FxQuotePreviewRetrieve<TData = Awaited<ReturnType<typeof v1FxQuotePreviewRetrieve>>, TError = unknown>(
+ params: V1FxQuotePreviewRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1FxQuotePreviewRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1FxQuotePreviewRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1FxQuotePreviewRetrieve>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1FxQuotePreviewRetrieve<TData = Awaited<ReturnType<typeof v1FxQuotePreviewRetrieve>>, TError = unknown>(
+ params: V1FxQuotePreviewRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1FxQuotePreviewRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1FxQuotePreviewRetrieve<TData = Awaited<ReturnType<typeof v1FxQuotePreviewRetrieve>>, TError = unknown>(
+ params: V1FxQuotePreviewRetrieveParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1FxQuotePreviewRetrieve>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1FxQuotePreviewRetrieveQueryOptions(params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
@@ -13240,9 +13372,11 @@ export const getV1FxAdminExternalSettlementsCreateResponseMock = (overrideRespon
 
 export const getV1FxAdminRealizedSettlementReportRetrieveResponseMock = (overrideResponse: Partial< FxRealizedSettlementReport > = {}): FxRealizedSettlementReport => ({start_date: faker.date.past().toISOString().split('T')[0], end_date: faker.date.past().toISOString().split('T')[0], settlement_count: faker.number.int({min: undefined, max: undefined}), expected_sold_by_currency_minor: {}, actual_sold_by_currency_minor: {}, expected_bought_by_currency_minor: {}, actual_bought_by_currency_minor: {}, fees_by_currency_minor: {}, residual_by_currency_minor: {}, ...overrideResponse})
 
-export const getV1FxQuotesCreateResponseMock = (overrideResponse: Partial< FxQuote > = {}): FxQuote => ({id: faker.string.uuid(), investor_user_id: faker.string.uuid(), source_currency: faker.string.alpha({length: {min: 10, max: 20}}), target_currency: faker.string.alpha({length: {min: 10, max: 20}}), source_amount_minor: faker.number.int({min: undefined, max: undefined}), provider: faker.string.alpha({length: {min: 10, max: 20}}), provider_quote_id: faker.string.alpha({length: {min: 10, max: 20}}), rate: faker.helpers.fromRegExp('^-?\d{0,12}(?:\.\d{0,12})?$'), previous_day_average_rate: faker.helpers.arrayElement([faker.helpers.fromRegExp('^-?\d{0,12}(?:\.\d{0,12})?$'), null]), platform_fee_bps: faker.number.int({min: undefined, max: undefined}), gross_target_amount_minor: faker.number.int({min: undefined, max: undefined}), fee_minor: faker.number.int({min: undefined, max: undefined}), target_amount_minor: faker.number.int({min: undefined, max: undefined}), limit_chf_equivalent_minor: faker.number.int({min: undefined, max: undefined}), issued_at: `${faker.date.past().toISOString().split('.')[0]}Z`, expires_at: `${faker.date.past().toISOString().split('.')[0]}Z`, provider_rate_timestamp: `${faker.date.past().toISOString().split('.')[0]}Z`, sanity_check_passed: faker.datatype.boolean(), sanity_metadata: {}, status: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+export const getV1FxQuotePreviewRetrieveResponseMock = (overrideResponse: Partial< FxQuotePreview > = {}): FxQuotePreview => ({source_currency: faker.string.alpha({length: {min: 10, max: 20}}), target_currency: faker.string.alpha({length: {min: 10, max: 20}}), source_amount_minor: faker.number.int({min: undefined, max: undefined}), provider: faker.string.alpha({length: {min: 10, max: 20}}), rate: faker.helpers.fromRegExp('^-?\d{0,12}(?:\.\d{0,12})?$'), previous_day_average_rate: faker.helpers.arrayElement([faker.helpers.fromRegExp('^-?\d{0,12}(?:\.\d{0,12})?$'), null]), platform_fee_bps: faker.number.int({min: undefined, max: undefined}), gross_target_amount_minor: faker.number.int({min: undefined, max: undefined}), fee_minor: faker.number.int({min: undefined, max: undefined}), target_amount_minor: faker.number.int({min: undefined, max: undefined}), effective_net_rate: faker.helpers.fromRegExp('^-?\d{0,12}(?:\.\d{0,12})?$'), limit_chf_equivalent_minor: faker.number.int({min: undefined, max: undefined}), provider_rate_timestamp: `${faker.date.past().toISOString().split('.')[0]}Z`, sanity_metadata: {}, previewed_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
 
-export const getV1FxQuotesExecuteCreateResponseMock = (overrideResponse: Partial< FxExchange > = {}): FxExchange => ({id: faker.string.uuid(), quote_id: faker.string.uuid(), investor_user_id: faker.string.uuid(), source_currency: faker.string.alpha({length: {min: 10, max: 20}}), target_currency: faker.string.alpha({length: {min: 10, max: 20}}), source_amount_minor: faker.number.int({min: undefined, max: undefined}), rate: faker.helpers.fromRegExp('^-?\d{0,12}(?:\.\d{0,12})?$'), platform_fee_bps: faker.number.int({min: undefined, max: undefined}), gross_target_amount_minor: faker.number.int({min: undefined, max: undefined}), fee_minor: faker.number.int({min: undefined, max: undefined}), target_amount_minor: faker.number.int({min: undefined, max: undefined}), limit_chf_equivalent_minor: faker.number.int({min: undefined, max: undefined}), status: faker.string.alpha({length: {min: 10, max: 20}}), source_journal_entry_id: faker.string.uuid(), target_journal_entry_id: faker.string.uuid(), target_balance_lot_id: faker.string.uuid(), source_lot_allocations: {}, executed_at: `${faker.date.past().toISOString().split('.')[0]}Z`, created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+export const getV1FxQuotesCreateResponseMock = (overrideResponse: Partial< FxQuote > = {}): FxQuote => ({id: faker.string.uuid(), investor_user_id: faker.string.uuid(), source_currency: faker.string.alpha({length: {min: 10, max: 20}}), target_currency: faker.string.alpha({length: {min: 10, max: 20}}), source_amount_minor: faker.number.int({min: undefined, max: undefined}), provider: faker.string.alpha({length: {min: 10, max: 20}}), provider_quote_id: faker.string.alpha({length: {min: 10, max: 20}}), rate: faker.helpers.fromRegExp('^-?\d{0,12}(?:\.\d{0,12})?$'), previous_day_average_rate: faker.helpers.arrayElement([faker.helpers.fromRegExp('^-?\d{0,12}(?:\.\d{0,12})?$'), null]), platform_fee_bps: faker.number.int({min: undefined, max: undefined}), gross_target_amount_minor: faker.number.int({min: undefined, max: undefined}), fee_minor: faker.number.int({min: undefined, max: undefined}), target_amount_minor: faker.number.int({min: undefined, max: undefined}), effective_net_rate: faker.string.alpha({length: {min: 10, max: 20}}), limit_chf_equivalent_minor: faker.number.int({min: undefined, max: undefined}), issued_at: `${faker.date.past().toISOString().split('.')[0]}Z`, expires_at: `${faker.date.past().toISOString().split('.')[0]}Z`, provider_rate_timestamp: `${faker.date.past().toISOString().split('.')[0]}Z`, sanity_check_passed: faker.datatype.boolean(), sanity_metadata: {}, status: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
+
+export const getV1FxQuotesExecuteCreateResponseMock = (overrideResponse: Partial< FxExchange > = {}): FxExchange => ({id: faker.string.uuid(), quote_id: faker.string.uuid(), investor_user_id: faker.string.uuid(), source_currency: faker.string.alpha({length: {min: 10, max: 20}}), target_currency: faker.string.alpha({length: {min: 10, max: 20}}), source_amount_minor: faker.number.int({min: undefined, max: undefined}), rate: faker.helpers.fromRegExp('^-?\d{0,12}(?:\.\d{0,12})?$'), platform_fee_bps: faker.number.int({min: undefined, max: undefined}), gross_target_amount_minor: faker.number.int({min: undefined, max: undefined}), fee_minor: faker.number.int({min: undefined, max: undefined}), target_amount_minor: faker.number.int({min: undefined, max: undefined}), effective_net_rate: faker.string.alpha({length: {min: 10, max: 20}}), limit_chf_equivalent_minor: faker.number.int({min: undefined, max: undefined}), status: faker.string.alpha({length: {min: 10, max: 20}}), source_journal_entry_id: faker.string.uuid(), target_journal_entry_id: faker.string.uuid(), target_balance_lot_id: faker.string.uuid(), source_lot_allocations: {}, executed_at: `${faker.date.past().toISOString().split('.')[0]}Z`, created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
 
 export const getV1HealthRetrieveResponseMock = (overrideResponse: Partial< HealthResponse > = {}): HealthResponse => ({status: faker.string.alpha({length: {min: 10, max: 20}}), platform: faker.string.alpha({length: {min: 10, max: 20}}), operator: faker.string.alpha({length: {min: 10, max: 20}}), timezone: faker.string.alpha({length: {min: 10, max: 20}}), environment: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
@@ -13258,7 +13392,7 @@ export const getV1InvestorPortalDocumentsRetrieveResponseMock = (overrideRespons
 
 export const getV1InvestorPortalDocumentsDownloadCreateResponseMock = (overrideResponse: Partial< InvestorDocumentDownloadResponse > = {}): InvestorDocumentDownloadResponse => ({content_type: faker.string.alpha({length: {min: 10, max: 20}}), filename: faker.string.alpha({length: {min: 10, max: 20}}), content_encoding: faker.string.alpha({length: {min: 10, max: 20}}), content: faker.string.alpha({length: {min: 10, max: 20}}), content_sha256: faker.string.alpha({length: {min: 10, max: 20}}), manifest: {}, ...overrideResponse})
 
-export const getV1InvestorPortalFxRetrieveResponseMock = (overrideResponse: Partial< FxHistoryPortal > = {}): FxHistoryPortal => ({quotes: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), source_currency: faker.string.alpha({length: {min: 10, max: 20}}), target_currency: faker.string.alpha({length: {min: 10, max: 20}}), source_amount_minor: faker.number.int({min: undefined, max: undefined}), rate: faker.string.alpha({length: {min: 10, max: 20}}), platform_fee_bps: faker.number.int({min: undefined, max: undefined}), gross_target_amount_minor: faker.number.int({min: undefined, max: undefined}), fee_minor: faker.number.int({min: undefined, max: undefined}), target_amount_minor: faker.number.int({min: undefined, max: undefined}), issued_at: `${faker.date.past().toISOString().split('.')[0]}Z`, expires_at: `${faker.date.past().toISOString().split('.')[0]}Z`, is_expired: faker.datatype.boolean(), has_exchange: faker.datatype.boolean()})), exchanges: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), quote_id: faker.string.uuid(), source_currency: faker.string.alpha({length: {min: 10, max: 20}}), target_currency: faker.string.alpha({length: {min: 10, max: 20}}), source_amount_minor: faker.number.int({min: undefined, max: undefined}), rate: faker.string.alpha({length: {min: 10, max: 20}}), platform_fee_bps: faker.number.int({min: undefined, max: undefined}), gross_target_amount_minor: faker.number.int({min: undefined, max: undefined}), fee_minor: faker.number.int({min: undefined, max: undefined}), target_amount_minor: faker.number.int({min: undefined, max: undefined}), status: faker.string.alpha({length: {min: 10, max: 20}}), executed_at: `${faker.date.past().toISOString().split('.')[0]}Z`})), ...overrideResponse})
+export const getV1InvestorPortalFxRetrieveResponseMock = (overrideResponse: Partial< FxHistoryPortal > = {}): FxHistoryPortal => ({quotes: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), source_currency: faker.string.alpha({length: {min: 10, max: 20}}), target_currency: faker.string.alpha({length: {min: 10, max: 20}}), source_amount_minor: faker.number.int({min: undefined, max: undefined}), rate: faker.string.alpha({length: {min: 10, max: 20}}), platform_fee_bps: faker.number.int({min: undefined, max: undefined}), gross_target_amount_minor: faker.number.int({min: undefined, max: undefined}), fee_minor: faker.number.int({min: undefined, max: undefined}), target_amount_minor: faker.number.int({min: undefined, max: undefined}), issued_at: `${faker.date.past().toISOString().split('.')[0]}Z`, expires_at: `${faker.date.past().toISOString().split('.')[0]}Z`, is_expired: faker.datatype.boolean(), has_exchange: faker.datatype.boolean()})), exchanges: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), quote_id: faker.string.uuid(), source_currency: faker.string.alpha({length: {min: 10, max: 20}}), target_currency: faker.string.alpha({length: {min: 10, max: 20}}), source_amount_minor: faker.number.int({min: undefined, max: undefined}), rate: faker.string.alpha({length: {min: 10, max: 20}}), platform_fee_bps: faker.number.int({min: undefined, max: undefined}), gross_target_amount_minor: faker.number.int({min: undefined, max: undefined}), fee_minor: faker.number.int({min: undefined, max: undefined}), target_amount_minor: faker.number.int({min: undefined, max: undefined}), effective_net_rate: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), executed_at: `${faker.date.past().toISOString().split('.')[0]}Z`})), ...overrideResponse})
 
 export const getV1InvestorPortalNotificationsRetrieveResponseMock = (overrideResponse: Partial< InvestorNotifications > = {}): InvestorNotifications => ({notifications: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), notification_source: faker.string.alpha({length: {min: 10, max: 20}}), topic: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), body: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, sent_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), unread: faker.datatype.boolean(), metadata: {}})), unread_count: faker.number.int({min: undefined, max: undefined}), ...overrideResponse})
 
@@ -13995,6 +14129,18 @@ export const getV1FxAdminRealizedSettlementReportRetrieveMockHandler = (override
     return new HttpResponse(JSON.stringify(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1FxAdminRealizedSettlementReportRetrieveResponseMock()),
+      { status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
+export const getV1FxQuotePreviewRetrieveMockHandler = (overrideResponse?: FxQuotePreview | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<FxQuotePreview> | FxQuotePreview), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/fx/quote-preview/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1FxQuotePreviewRetrieveResponseMock()),
       { status: 200,
         headers: { 'Content-Type': 'application/json' }
       })
@@ -14869,6 +15015,7 @@ export const getBanxumApiMock = () => [
   getV1FxAdminDeltaReportRetrieveMockHandler(),
   getV1FxAdminExternalSettlementsCreateMockHandler(),
   getV1FxAdminRealizedSettlementReportRetrieveMockHandler(),
+  getV1FxQuotePreviewRetrieveMockHandler(),
   getV1FxQuotesCreateMockHandler(),
   getV1FxQuotesExecuteCreateMockHandler(),
   getV1HealthRetrieveMockHandler(),

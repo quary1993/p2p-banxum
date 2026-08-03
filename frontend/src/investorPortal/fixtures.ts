@@ -1253,8 +1253,9 @@ export const fxFixture: FxHistoryPortal = {
       rate: "1.041800",
       platform_fee_bps: 150,
       gross_target_amount_minor: amount(4688.1),
-      fee_minor: amount(67.5),
-      target_amount_minor: amount(4500.86),
+      fee_minor: amount(70.32),
+      target_amount_minor: amount(4617.78),
+      effective_net_rate: "1.026173333333",
       status: "settled",
       executed_at: "2026-05-30T11:03:00+02:00"
     }

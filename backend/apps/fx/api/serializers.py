@@ -7,7 +7,34 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from backend.apps.fx.models import FxExchange, FxExternalSettlement, FxQuote
-from backend.apps.fx.services import FxDeltaReport, FxRealizedSettlementReport
+from backend.apps.fx.services import (
+    FxDeltaReport,
+    FxQuotePreview,
+    FxRealizedSettlementReport,
+    effective_net_rate_for_quote,
+)
+
+
+class FxQuotePreviewSerializer(serializers.Serializer[Any]):
+    source_currency = serializers.CharField()
+    target_currency = serializers.CharField()
+    source_amount_minor = serializers.IntegerField()
+    provider = serializers.CharField()
+    rate = serializers.DecimalField(max_digits=24, decimal_places=12)
+    previous_day_average_rate = serializers.DecimalField(
+        max_digits=24,
+        decimal_places=12,
+        allow_null=True,
+    )
+    platform_fee_bps = serializers.IntegerField()
+    gross_target_amount_minor = serializers.IntegerField()
+    fee_minor = serializers.IntegerField()
+    target_amount_minor = serializers.IntegerField()
+    effective_net_rate = serializers.DecimalField(max_digits=24, decimal_places=12)
+    limit_chf_equivalent_minor = serializers.IntegerField()
+    provider_rate_timestamp = serializers.DateTimeField()
+    sanity_metadata = serializers.JSONField()
+    previewed_at = serializers.DateTimeField()
 
 
 class FxQuoteSerializer(serializers.Serializer[Any]):
@@ -28,6 +55,7 @@ class FxQuoteSerializer(serializers.Serializer[Any]):
     gross_target_amount_minor = serializers.IntegerField()
     fee_minor = serializers.IntegerField()
     target_amount_minor = serializers.IntegerField()
+    effective_net_rate = serializers.SerializerMethodField()
     limit_chf_equivalent_minor = serializers.IntegerField()
     issued_at = serializers.DateTimeField()
     expires_at = serializers.DateTimeField()
@@ -45,6 +73,9 @@ class FxQuoteSerializer(serializers.Serializer[Any]):
             return "expired"
         return "issued"
 
+    def get_effective_net_rate(self, quote: FxQuote) -> str:
+        return str(effective_net_rate_for_quote(quote))
+
 
 class FxExchangeSerializer(serializers.Serializer[Any]):
     id = serializers.UUIDField()
@@ -58,6 +89,7 @@ class FxExchangeSerializer(serializers.Serializer[Any]):
     gross_target_amount_minor = serializers.IntegerField()
     fee_minor = serializers.IntegerField()
     target_amount_minor = serializers.IntegerField()
+    effective_net_rate = serializers.SerializerMethodField()
     limit_chf_equivalent_minor = serializers.IntegerField()
     status = serializers.CharField()
     source_journal_entry_id = serializers.UUIDField()
@@ -67,6 +99,9 @@ class FxExchangeSerializer(serializers.Serializer[Any]):
     executed_at = serializers.DateTimeField()
     created_at = serializers.DateTimeField()
     updated_at = serializers.DateTimeField()
+
+    def get_effective_net_rate(self, exchange: FxExchange) -> str:
+        return str(effective_net_rate_for_quote(exchange))
 
 
 class FxExternalSettlementSerializer(serializers.Serializer[Any]):
@@ -107,6 +142,12 @@ class FxQuoteIssueRequestSerializer(serializers.Serializer[Any]):
     target_currency = serializers.CharField(max_length=3)
     source_amount_minor = serializers.IntegerField(min_value=1)
     idempotency_key = serializers.CharField(max_length=160)
+
+
+class FxQuotePreviewRequestSerializer(serializers.Serializer[Any]):
+    source_currency = serializers.CharField(max_length=3)
+    target_currency = serializers.CharField(max_length=3)
+    source_amount_minor = serializers.IntegerField(min_value=1)
 
 
 class FxQuoteExecuteRequestSerializer(serializers.Serializer[Any]):
@@ -162,6 +203,10 @@ class FxRealizedSettlementReportSerializer(serializers.Serializer[Any]):
 
 def serialize_fx_quote(quote: FxQuote) -> dict[str, Any]:
     return dict(FxQuoteSerializer(quote).data)
+
+
+def serialize_fx_quote_preview(preview: FxQuotePreview) -> dict[str, Any]:
+    return dict(FxQuotePreviewSerializer(preview).data)
 
 
 def serialize_fx_exchange(exchange: FxExchange) -> dict[str, Any]:

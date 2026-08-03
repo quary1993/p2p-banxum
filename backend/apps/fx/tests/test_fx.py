@@ -29,6 +29,7 @@ from backend.apps.fx.services import (
     FxAuthorizationError,
     FxValidationError,
     IssueFxQuoteCommand,
+    PreviewFxQuoteCommand,
     ProviderRate,
     configured_mock_provider_rate,
     configured_provider_rate,
@@ -37,6 +38,7 @@ from backend.apps.fx.services import (
     declare_fx_external_settlement,
     execute_fx_quote,
     issue_fx_quote,
+    preview_fx_quote,
 )
 from backend.apps.platform_core.domain.time import business_timezone
 from backend.apps.platform_core.models import AuditEvent, DomainEvent
@@ -210,6 +212,37 @@ def _quote_command(
         idempotency_key=idempotency_key,
         as_of=timestamp,
     )
+
+
+@pytest.mark.django_db
+def test_preview_fx_quote_uses_executable_math_without_persisting_evidence(
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    as_of = _as_of(date(2026, 1, 12))
+
+    preview = preview_fx_quote(
+        PreviewFxQuoteCommand(
+            actor=investor,
+            source_currency="CHF",
+            target_currency="EUR",
+            source_amount_minor=10_000_00,
+            provider_rate=_provider_rate(as_of=as_of, rate="1.100000"),
+            as_of=as_of,
+        )
+    )
+
+    assert preview.source_currency == "CHF"
+    assert preview.target_currency == "EUR"
+    assert preview.gross_target_amount_minor == 11_000_00
+    assert preview.fee_minor == 165_00
+    assert preview.target_amount_minor == 10_835_00
+    assert preview.effective_net_rate == Decimal("1.083500000000")
+    assert preview.limit_chf_equivalent_minor == 10_000_00
+    assert FxQuote.objects.count() == 0
+    assert FxEvent.objects.count() == 0
+    assert AuditEvent.objects.filter(action="fx.quote_issued").count() == 0
+    assert DomainEvent.objects.filter(event_type="FxExecutableQuoteIssued").count() == 0
 
 
 @pytest.mark.django_db
@@ -853,6 +886,16 @@ def test_fx_api_quote_execute_and_admin_delta_report(
     )
     client.force_login(cast(Any, investor))
 
+    preview_query: dict[str, str | int] = {
+        "source_currency": "CHF",
+        "target_currency": "EUR",
+        "source_amount_minor": 10_000_00,
+    }
+    preview_response = client.get("/api/v1/fx/quote-preview/", data=preview_query)
+    assert preview_response.status_code == 200
+    assert preview_response.json()["effective_net_rate"] == "1.034250000000"
+    assert FxQuote.objects.count() == 0
+
     quote_response = client.post(
         "/api/v1/fx/quotes/",
         data={
@@ -872,6 +915,7 @@ def test_fx_api_quote_execute_and_admin_delta_report(
         },
         content_type="application/json",
     )
+    history_response = client.get("/api/v1/investor/portal/fx/")
     client.logout()
     client.force_login(cast(Any, admin_user))
     report_response = client.get(
@@ -907,9 +951,13 @@ def test_fx_api_quote_execute_and_admin_delta_report(
     assert quote_payload["gross_target_amount_minor"] == 10_500_00
     assert quote_payload["fee_minor"] == 157_50
     assert quote_payload["target_amount_minor"] == 10_342_50
+    assert quote_payload["effective_net_rate"] == "1.034250000000"
     assert quote_payload["status"] == "issued"
     assert execute_response.status_code == 201
     assert execute_response.json()["status"] == "completed"
+    assert execute_response.json()["effective_net_rate"] == "1.034250000000"
+    assert history_response.status_code == 200
+    assert history_response.json()["exchanges"][0]["effective_net_rate"] == "1.034250000000"
     assert report_response.status_code == 200
     assert report_response.json()["exchange_count"] == 1
     assert settlement_response.status_code == 201

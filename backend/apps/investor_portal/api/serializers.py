@@ -458,6 +458,7 @@ class FxExchangePortalSerializer(serializers.Serializer[Any]):
     gross_target_amount_minor = serializers.IntegerField()
     fee_minor = serializers.IntegerField()
     target_amount_minor = serializers.IntegerField()
+    effective_net_rate = serializers.CharField()
     status = serializers.CharField()
     executed_at = serializers.DateTimeField()
 

@@ -18,12 +18,15 @@ from backend.apps.fx.api.serializers import (
     FxExternalSettlementSerializer,
     FxQuoteExecuteRequestSerializer,
     FxQuoteIssueRequestSerializer,
+    FxQuotePreviewRequestSerializer,
+    FxQuotePreviewSerializer,
     FxQuoteSerializer,
     FxRealizedSettlementReportSerializer,
     serialize_fx_delta_report,
     serialize_fx_exchange,
     serialize_fx_external_settlement,
     serialize_fx_quote,
+    serialize_fx_quote_preview,
     serialize_fx_realized_settlement_report,
 )
 from backend.apps.fx.services import (
@@ -33,12 +36,14 @@ from backend.apps.fx.services import (
     FxAuthorizationError,
     FxValidationError,
     IssueFxQuoteCommand,
+    PreviewFxQuoteCommand,
     configured_provider_rate,
     create_fx_delta_report,
     create_fx_realized_settlement_report,
     declare_fx_external_settlement,
     execute_fx_quote,
     issue_fx_quote,
+    preview_fx_quote,
 )
 from backend.apps.platform_core.api.request_meta import client_ip, user_agent
 
@@ -88,6 +93,36 @@ class FxQuoteIssueView(APIView):
         except (FxAuthorizationError, FxValidationError) as exc:
             return _error_response(exc)
         return Response(serialize_fx_quote(quote), status=status.HTTP_201_CREATED)
+
+
+class FxQuotePreviewView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        parameters=[FxQuotePreviewRequestSerializer],
+        responses={200: FxQuotePreviewSerializer},
+    )
+    def get(self, request: Request) -> Response:
+        serializer = FxQuotePreviewRequestSerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            provider_rate = configured_provider_rate(
+                source_currency=data["source_currency"],
+                target_currency=data["target_currency"],
+            )
+            preview = preview_fx_quote(
+                PreviewFxQuoteCommand(
+                    actor=cast(Model, request.user),
+                    source_currency=data["source_currency"],
+                    target_currency=data["target_currency"],
+                    source_amount_minor=data["source_amount_minor"],
+                    provider_rate=provider_rate,
+                )
+            )
+        except (FxAuthorizationError, FxValidationError) as exc:
+            return _error_response(exc)
+        return Response(serialize_fx_quote_preview(preview), status=status.HTTP_200_OK)
 
 
 class FxQuoteExecuteView(APIView):

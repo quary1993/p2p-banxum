@@ -5287,10 +5287,327 @@ table.tbl tfoot.schedule-totals th.num,
   outline-color: var(--ink);
 }
 
+/* Currency & FX: live provider projection with CHF/EUR execution. */
+.app .fx-page {
+  max-width: 1220px;
+}
+
+.app .fx-page > .banner {
+  margin-bottom: 14px;
+}
+
+.app .fx-workspace {
+  align-items: start;
+  display: grid;
+  gap: 26px;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  margin-top: 30px;
+}
+
+.app .fx-converter {
+  background: var(--surface);
+  border: 1px solid var(--ink);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.app .fx-amount-panel {
+  padding: 22px 26px 20px;
+}
+
+.app .fx-amount-panel.receive {
+  padding-bottom: 22px;
+  padding-top: 20px;
+}
+
+.app .fx-amount-meta,
+.app .fx-amount-line,
+.app .fx-balance-row {
+  align-items: center;
+  display: flex;
+}
+
+.app .fx-amount-meta {
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.app .fx-amount-meta .muted {
+  font-size: 12px;
+}
+
+.app .fx-amount-line {
+  gap: 16px;
+}
+
+.app .fx-amount-input {
+  background: transparent;
+  border: 0;
+  color: var(--ink);
+  flex: 1 1 auto;
+  font-size: 38px;
+  font-weight: 620;
+  line-height: 1.15;
+  min-width: 0;
+  outline: 0;
+  padding: 0;
+}
+
+.app .fx-amount-input::placeholder {
+  color: var(--ink-4);
+}
+
+.app .fx-amount-input:disabled {
+  color: var(--ink-4);
+}
+
+.app .fx-amount-output {
+  color: var(--ink);
+  flex: 1 1 auto;
+  font-size: 38px;
+  font-weight: 620;
+  line-height: 1.15;
+  min-width: 0;
+}
+
+.app .fx-currency-pill {
+  align-items: center;
+  background: var(--paper);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 14px;
+  font-weight: 650;
+  gap: 10px;
+  padding: 9px 14px;
+}
+
+.app .fx-flag {
+  border-radius: 2px;
+  display: block;
+  flex: 0 0 auto;
+  height: 14px;
+  overflow: hidden;
+  width: 20px;
+}
+
+.app .fx-field-error {
+  color: var(--bad);
+  font-size: 12px;
+  margin-top: 10px;
+}
+
+.app .fx-divider {
+  background: var(--line);
+  height: 1px;
+  position: relative;
+}
+
+.app .fx-swap {
+  align-items: center;
+  background: var(--paper);
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  color: var(--ink-3);
+  cursor: pointer;
+  display: flex;
+  height: 32px;
+  justify-content: center;
+  left: 26px;
+  padding: 0;
+  position: absolute;
+  top: -16px;
+  width: 32px;
+  z-index: 1;
+}
+
+.app .fx-swap:hover:not(:disabled) {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.app .fx-swap:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.app .fx-convert-row {
+  align-items: center;
+  background: var(--paper);
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(150px, 1fr) minmax(230px, 1.2fr) auto;
+  padding: 16px 26px 18px;
+}
+
+.app .fx-fee-summary,
+.app .fx-rate-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.app .fx-rate-summary {
+  text-align: center;
+}
+
+.app .fx-fee-summary span,
+.app .fx-rate-summary span {
+  color: var(--ink-3);
+  font-size: 11.5px;
+}
+
+.app .fx-fee-summary strong {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.app .fx-rate-summary strong {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.app .fx-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.app .fx-side-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 20px 22px;
+}
+
+.app .fx-side-card > .eyebrow {
+  margin-bottom: 14px;
+}
+
+.app .fx-balance-row {
+  gap: 11px;
+  padding: 5px 0;
+}
+
+.app .fx-balance-row strong {
+  flex: 1 1 auto;
+  font-size: 13px;
+}
+
+.app .fx-balance-row .num {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.app .fx-facts {
+  color: var(--ink-2);
+  display: flex;
+  flex-direction: column;
+  font-size: 12.5px;
+  gap: 10px;
+  line-height: 1.5;
+}
+
+.app .fx-rate-time {
+  border-top: 1px solid var(--line-2);
+  color: var(--ink-3);
+  font-size: 11.5px;
+  margin-top: 14px;
+  padding-top: 12px;
+}
+
+.app .fx-history .section-head p {
+  font-size: 12.5px;
+  margin-top: 4px;
+}
+
+.app .fx-history-table {
+  border-top: 1px solid var(--ink);
+  overflow-x: auto;
+}
+
+.app .fx-history-row {
+  align-items: baseline;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  font-size: 13.5px;
+  gap: 18px;
+  grid-template-columns: 110px minmax(160px, 1fr) 210px 150px;
+  min-width: 720px;
+  padding: 12px 0;
+}
+
+.app .fx-history-row.head {
+  color: var(--ink-3);
+  font-size: 10.5px;
+  font-weight: 700;
+  padding-bottom: 10px;
+  text-transform: uppercase;
+}
+
+.app .fx-history-row > :nth-child(3),
+.app .fx-history-row > :nth-child(4) {
+  text-align: right;
+}
+
+.app .fx-history-row > strong {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.app .fx-history-empty {
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  border-top: 1px solid var(--ink);
+}
+
+.app .fx-guidance {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 34px;
+}
+
+.app .fx-guidance > div {
+  padding: 24px 30px;
+}
+
+.app .fx-guidance > div + div {
+  border-left: 1px solid var(--line);
+}
+
+.app .fx-guidance-row {
+  align-items: baseline;
+  display: flex;
+  font-size: 13px;
+  gap: 12px;
+  justify-content: space-between;
+  margin-top: 14px;
+}
+
+.app .fx-guidance p {
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.6;
+  margin-top: 12px;
+}
+
 @media (max-width: 1080px) {
   .app .content {
     padding-left: 30px;
     padding-right: 30px;
+  }
+
+  .app .fx-workspace {
+    grid-template-columns: minmax(0, 1fr) 260px;
+  }
+
+  .app .fx-convert-row {
+    grid-template-columns: minmax(130px, 1fr) minmax(200px, 1.2fr) auto;
   }
 }
 
@@ -5313,6 +5630,15 @@ table.tbl tfoot.schedule-totals th.num,
   .public .modal:not(.drawer),
   .auth-wrap .modal:not(.drawer) {
     max-height: calc(100vh - 28px);
+  }
+
+  .app .fx-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .app .fx-sidebar {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
   }
 }
 
@@ -5383,5 +5709,73 @@ table.tbl tfoot.schedule-totals th.num,
   .auth-wrap .modal-foot {
     padding-left: 18px;
     padding-right: 18px;
+  }
+
+  .app .fx-workspace {
+    gap: 18px;
+    margin-top: 22px;
+  }
+
+  .app .fx-amount-panel {
+    padding: 20px 18px 18px;
+  }
+
+  .app .fx-amount-panel.receive {
+    padding: 18px;
+  }
+
+  .app .fx-amount-meta {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .app .fx-amount-input,
+  .app .fx-amount-output {
+    font-size: 30px;
+  }
+
+  .app .fx-currency-pill {
+    padding: 8px 11px;
+  }
+
+  .app .fx-swap {
+    left: 18px;
+  }
+
+  .app .fx-convert-row {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+    padding: 18px;
+  }
+
+  .app .fx-fee-summary,
+  .app .fx-rate-summary {
+    text-align: center;
+  }
+
+  .app .fx-convert-row .btn {
+    width: 100%;
+  }
+
+  .app .fx-sidebar {
+    grid-template-columns: 1fr;
+  }
+
+  .app .fx-history-row {
+    min-width: 680px;
+  }
+
+  .app .fx-guidance {
+    grid-template-columns: 1fr;
+  }
+
+  .app .fx-guidance > div {
+    padding: 22px 20px;
+  }
+
+  .app .fx-guidance > div + div {
+    border-left: 0;
+    border-top: 1px solid var(--line);
   }
 }

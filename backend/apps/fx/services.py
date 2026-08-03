@@ -99,6 +99,35 @@ class ProviderRate:
 
 
 @dataclass(frozen=True, slots=True)
+class PreviewFxQuoteCommand:
+    actor: Model
+    source_currency: str
+    target_currency: str
+    source_amount_minor: int
+    provider_rate: ProviderRate
+    as_of: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class FxQuotePreview:
+    source_currency: str
+    target_currency: str
+    source_amount_minor: int
+    provider: str
+    rate: Decimal
+    previous_day_average_rate: Decimal | None
+    platform_fee_bps: int
+    gross_target_amount_minor: int
+    fee_minor: int
+    target_amount_minor: int
+    effective_net_rate: Decimal
+    limit_chf_equivalent_minor: int
+    provider_rate_timestamp: datetime
+    sanity_metadata: dict[str, Any]
+    previewed_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class IssueFxQuoteCommand:
     actor: Model
     source_currency: str
@@ -173,6 +202,23 @@ class FxExpectedSettlementBatch:
     expected_bought_amount_minor: int
     expected_target_credited_minor: int
     expected_fee_minor: int
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedFxQuote:
+    source_currency: Currency
+    target_currency: Currency
+    source_amount_minor: int
+    rate: Decimal
+    previous_day_average_rate: Decimal | None
+    platform_fee_bps: int
+    gross_target_amount_minor: int
+    fee_minor: int
+    target_amount_minor: int
+    effective_net_rate: Decimal
+    limit_chf_equivalent_minor: int
+    sanity_metadata: dict[str, Any]
+    as_of: datetime
 
 
 def _ledger_services() -> Any:
@@ -440,11 +486,35 @@ def _actual_rate(
     sold_amount_minor: int,
     bought_amount_minor: int,
 ) -> Decimal:
-    sold_major = Decimal(sold_amount_minor) / _minor_factor(sold_currency)
-    bought_major = Decimal(bought_amount_minor) / _minor_factor(bought_currency)
-    if sold_major <= 0:
-        raise FxValidationError("FX external sold amount must be positive.")
-    return (bought_major / sold_major).quantize(Decimal("0.000000000001"))
+    return _rate_from_minor_amounts(
+        source_currency=sold_currency,
+        target_currency=bought_currency,
+        source_amount_minor=sold_amount_minor,
+        target_amount_minor=bought_amount_minor,
+    )
+
+
+def _rate_from_minor_amounts(
+    *,
+    source_currency: Currency,
+    target_currency: Currency,
+    source_amount_minor: int,
+    target_amount_minor: int,
+) -> Decimal:
+    source_major = Decimal(source_amount_minor) / _minor_factor(source_currency)
+    target_major = Decimal(target_amount_minor) / _minor_factor(target_currency)
+    if source_major <= 0:
+        raise FxValidationError("FX source amount must be positive.")
+    return (target_major / source_major).quantize(Decimal("0.000000000001"))
+
+
+def effective_net_rate_for_quote(quote: FxQuote | FxExchange) -> Decimal:
+    return _rate_from_minor_amounts(
+        source_currency=quote.source_currency,
+        target_currency=quote.target_currency,
+        source_amount_minor=int(quote.source_amount_minor),
+        target_amount_minor=int(quote.target_amount_minor),
+    )
 
 
 def _exchange_date_range_bounds(start_date: date, end_date: date) -> tuple[datetime, datetime]:
@@ -686,50 +756,134 @@ def _calculate_quote_amounts(
     return gross_target_amount_minor, fee_minor, target_amount_minor
 
 
-@transaction.atomic
-def issue_fx_quote(command: IssueFxQuoteCommand) -> FxQuote:
-    _require_financial_actor(command.actor)
-    source_currency = _enabled_currency(command.source_currency)
-    target_currency = _enabled_currency(command.target_currency)
+def _prepare_fx_quote(
+    *,
+    actor: Model,
+    source_currency_code: str,
+    target_currency_code: str,
+    source_amount_minor: int,
+    provider_rate: ProviderRate,
+    as_of: datetime,
+) -> _PreparedFxQuote:
+    _require_financial_actor(actor)
+    source_currency = _enabled_currency(source_currency_code)
+    target_currency = _enabled_currency(target_currency_code)
     if source_currency.code == target_currency.code:
         raise FxValidationError("FX source and target currencies must differ.")
     pair = _pair_key(source_currency.code, target_currency.code)
     if pair not in _enabled_pairs():
         raise FxValidationError("FX pair is not enabled.")
-    source_amount_minor = _validate_money(
-        command.source_amount_minor,
+    validated_source_amount_minor = _validate_money(
+        source_amount_minor,
         source_currency.code,
         "FX source amount",
     )
-    as_of = command.as_of or now_utc()
-    idempotency_key = _clean_idempotency_key(command.idempotency_key)
-    rate = _as_decimal(command.provider_rate.rate, "FX provider rate")
+    rate = _as_decimal(provider_rate.rate, "FX provider rate")
     previous_average = (
-        _as_decimal(command.provider_rate.previous_day_average_rate, "Previous-day average rate")
-        if command.provider_rate.previous_day_average_rate is not None
+        _as_decimal(provider_rate.previous_day_average_rate, "Previous-day average rate")
+        if provider_rate.previous_day_average_rate is not None
         else None
     )
     sanity_metadata = _validate_provider_rate(
         pair=pair,
         rate=rate,
         previous_day_average_rate=previous_average,
-        observed_at=command.provider_rate.observed_at,
+        observed_at=provider_rate.observed_at,
         as_of=as_of,
     )
     fee_bps = _platform_fee_bps()
     gross_target_amount_minor, fee_minor, target_amount_minor = _calculate_quote_amounts(
         source_currency=source_currency,
         target_currency=target_currency,
-        source_amount_minor=source_amount_minor,
+        source_amount_minor=validated_source_amount_minor,
         rate=rate,
         platform_fee_bps=fee_bps,
     )
     limit_chf_equivalent_minor = _chf_equivalent_minor(
         source_currency_code=source_currency.code,
         target_currency_code=target_currency.code,
-        source_amount_minor=source_amount_minor,
+        source_amount_minor=validated_source_amount_minor,
         gross_target_amount_minor=gross_target_amount_minor,
     )
+    return _PreparedFxQuote(
+        source_currency=source_currency,
+        target_currency=target_currency,
+        source_amount_minor=validated_source_amount_minor,
+        rate=rate,
+        previous_day_average_rate=previous_average,
+        platform_fee_bps=fee_bps,
+        gross_target_amount_minor=gross_target_amount_minor,
+        fee_minor=fee_minor,
+        target_amount_minor=target_amount_minor,
+        effective_net_rate=_rate_from_minor_amounts(
+            source_currency=source_currency,
+            target_currency=target_currency,
+            source_amount_minor=validated_source_amount_minor,
+            target_amount_minor=target_amount_minor,
+        ),
+        limit_chf_equivalent_minor=limit_chf_equivalent_minor,
+        sanity_metadata=sanity_metadata,
+        as_of=as_of,
+    )
+
+
+def preview_fx_quote(command: PreviewFxQuoteCommand) -> FxQuotePreview:
+    prepared = _prepare_fx_quote(
+        actor=command.actor,
+        source_currency_code=command.source_currency,
+        target_currency_code=command.target_currency,
+        source_amount_minor=command.source_amount_minor,
+        provider_rate=command.provider_rate,
+        as_of=command.as_of or now_utc(),
+    )
+    _assert_daily_limit(
+        investor_user_id=str(command.actor.pk),
+        business_day=_business_date_for_timestamp(prepared.as_of),
+        requested_chf_equivalent_minor=prepared.limit_chf_equivalent_minor,
+    )
+    return FxQuotePreview(
+        source_currency=prepared.source_currency.code,
+        target_currency=prepared.target_currency.code,
+        source_amount_minor=prepared.source_amount_minor,
+        provider=command.provider_rate.provider,
+        rate=prepared.rate,
+        previous_day_average_rate=prepared.previous_day_average_rate,
+        platform_fee_bps=prepared.platform_fee_bps,
+        gross_target_amount_minor=prepared.gross_target_amount_minor,
+        fee_minor=prepared.fee_minor,
+        target_amount_minor=prepared.target_amount_minor,
+        effective_net_rate=prepared.effective_net_rate,
+        limit_chf_equivalent_minor=prepared.limit_chf_equivalent_minor,
+        provider_rate_timestamp=command.provider_rate.observed_at,
+        sanity_metadata=prepared.sanity_metadata,
+        previewed_at=prepared.as_of,
+    )
+
+
+@transaction.atomic
+def issue_fx_quote(command: IssueFxQuoteCommand) -> FxQuote:
+    as_of = command.as_of or now_utc()
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    prepared = _prepare_fx_quote(
+        actor=command.actor,
+        source_currency_code=command.source_currency,
+        target_currency_code=command.target_currency,
+        source_amount_minor=command.source_amount_minor,
+        provider_rate=command.provider_rate,
+        as_of=as_of,
+    )
+    source_currency = prepared.source_currency
+    target_currency = prepared.target_currency
+    source_amount_minor = prepared.source_amount_minor
+    rate = prepared.rate
+    previous_average = prepared.previous_day_average_rate
+    fee_bps = prepared.platform_fee_bps
+    gross_target_amount_minor = prepared.gross_target_amount_minor
+    fee_minor = prepared.fee_minor
+    target_amount_minor = prepared.target_amount_minor
+    limit_chf_equivalent_minor = prepared.limit_chf_equivalent_minor
+    sanity_metadata = prepared.sanity_metadata
+    pair = _pair_key(source_currency.code, target_currency.code)
     request_fingerprint = _quote_request_fingerprint(
         command,
         source_currency_code=source_currency.code,

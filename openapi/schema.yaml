@@ -1844,6 +1844,41 @@ paths:
               schema:
                 $ref: '#/components/schemas/FxRealizedSettlementReport'
           description: ''
+  /api/v1/fx/quote-preview/:
+    get:
+      operationId: v1_fx_quote_preview_retrieve
+      parameters:
+      - in: query
+        name: source_amount_minor
+        schema:
+          type: integer
+          minimum: 1
+        required: true
+      - in: query
+        name: source_currency
+        schema:
+          type: string
+          maxLength: 3
+          minLength: 1
+        required: true
+      - in: query
+        name: target_currency
+        schema:
+          type: string
+          maxLength: 3
+          minLength: 1
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FxQuotePreview'
+          description: ''
   /api/v1/fx/quotes/:
     post:
       operationId: v1_fx_quotes_create
@@ -6259,6 +6294,9 @@ components:
           type: integer
         target_amount_minor:
           type: integer
+        effective_net_rate:
+          type: string
+          readOnly: true
         limit_chf_equivalent_minor:
           type: integer
         status:
@@ -6284,6 +6322,7 @@ components:
           format: date-time
       required:
       - created_at
+      - effective_net_rate
       - executed_at
       - fee_minor
       - gross_target_amount_minor
@@ -6328,12 +6367,15 @@ components:
           type: integer
         target_amount_minor:
           type: integer
+        effective_net_rate:
+          type: string
         status:
           type: string
         executed_at:
           type: string
           format: date-time
       required:
+      - effective_net_rate
       - executed_at
       - fee_minor
       - gross_target_amount_minor
@@ -6559,6 +6601,9 @@ components:
           type: integer
         target_amount_minor:
           type: integer
+        effective_net_rate:
+          type: string
+          readOnly: true
         limit_chf_equivalent_minor:
           type: integer
         issued_at:
@@ -6584,6 +6629,7 @@ components:
           format: date-time
       required:
       - created_at
+      - effective_net_rate
       - expires_at
       - fee_minor
       - gross_target_amount_minor
@@ -6683,6 +6729,63 @@ components:
       - issued_at
       - platform_fee_bps
       - rate
+      - source_amount_minor
+      - source_currency
+      - target_amount_minor
+      - target_currency
+    FxQuotePreview:
+      type: object
+      properties:
+        source_currency:
+          type: string
+        target_currency:
+          type: string
+        source_amount_minor:
+          type: integer
+        provider:
+          type: string
+        rate:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,12})?$
+        previous_day_average_rate:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,12})?$
+          nullable: true
+        platform_fee_bps:
+          type: integer
+        gross_target_amount_minor:
+          type: integer
+        fee_minor:
+          type: integer
+        target_amount_minor:
+          type: integer
+        effective_net_rate:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,12})?$
+        limit_chf_equivalent_minor:
+          type: integer
+        provider_rate_timestamp:
+          type: string
+          format: date-time
+        sanity_metadata: {}
+        previewed_at:
+          type: string
+          format: date-time
+      required:
+      - effective_net_rate
+      - fee_minor
+      - gross_target_amount_minor
+      - limit_chf_equivalent_minor
+      - platform_fee_bps
+      - previewed_at
+      - previous_day_average_rate
+      - provider
+      - provider_rate_timestamp
+      - rate
+      - sanity_metadata
       - source_amount_minor
       - source_currency
       - target_amount_minor

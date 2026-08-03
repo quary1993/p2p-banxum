@@ -87,16 +87,17 @@ Balance funds are non-interest-bearing. Registration-time terms must explain tha
 
 1. Open the currency-exchange menu section.
 2. Select source currency, target currency, and amount.
-3. Review a live executable quote, platform FX fee, final rate, source debit, target credit, and 1-minute quote expiry countdown.
-4. Accept FX terms by checkbox/clickwrap before the executable quote expires, or refresh the quote after expiry.
-5. Submit exchange.
-6. Receive the target-currency balance instantly in the platform.
-7. The target-currency source inherits the 30/60-day ageing deadlines from the consumed source balance. If multiple source entries are consumed, the target entry uses the earliest consumed investment and withdrawal deadlines.
-8. See exchange status and ledger entries.
+3. Review a provider-backed conversion preview showing the platform FX fee, effective rate net of fees, source debit, and target credit. The preview applies the same server-side provider validation, fee, rounding, and daily-limit rules as execution but is not itself an executable quote and creates no quote evidence.
+4. Select Convert to request a fresh executable quote and review its 1-minute expiry countdown.
+5. Accept FX terms by checkbox/clickwrap before the executable quote expires, or refresh the quote after expiry.
+6. Submit exchange.
+7. Receive the target-currency balance instantly in the platform.
+8. The target-currency source inherits the 30/60-day ageing deadlines from the consumed source balance. If multiple source entries are consumed, the target entry uses the earliest consumed investment and withdrawal deadlines.
+9. See exchange status and ledger entries, including the effective rate net of fees.
 
 FX is an auxiliary settlement function, not a trading or speculative feature. Launch FX fee is 1.5%, configurable by superadmin. Enabled currencies start with CHF and EUR and are configurable by superadmin. Launch FX pairs are CHF/EUR and EUR/CHF only, with more pairs configurable later.
 
-No minimum exchange amount applies. The launch maximum conversion limit is CHF 100,000 per investor per day or equivalent in another currency, configurable by admin. Admin externally settles aggregate FX deltas at end of day or the next morning. Background-polled FX rates may be shown for display only, but execution uses a fresh Yahoo Finance live quote fixed for 1 minute and subject to sanity checks.
+No minimum exchange amount applies. The launch maximum conversion limit is CHF 100,000 per investor per day or equivalent in another currency, configurable by admin. Admin externally settles aggregate FX deltas at end of day or the next morning. The amount-entry preview is requested from the backend and must never be derived from a hardcoded or browser-fetched provider rate. Execution always obtains a fresh Yahoo Finance live quote fixed for 1 minute and subject to sanity checks.
 
 Website balances and ordinary amounts display 2 decimals. During FX quote and confirmation, the investor may see exchange details with 4 decimals before confirming.
 
