@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My investments · Banxum</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=Newsreader:ital,opsz,wght@0,6..72,200..800;1,6..72,200..800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+<div class="topbar-in">
+<a class="brand" href="dashboard.html" aria-label="Banxum home">
+<span class="brand-word"><span>Ban</span><span class="x"><svg width="12.8" height="12.8" viewBox="0 0 56 56" fill="#151719"><path d="M0,0 L15.5,0 L28,17.284 L20.25,28 Z"></path><path d="M40.5,0 L56,0 L35.75,28 L28,17.284 Z"></path><path d="M35.75,28 L56,56 L40.5,56 L28,38.716 Z"></path><path d="M20.25,28 L28,38.716 L15.5,56 L0,56 Z"></path></svg></span><span>um</span></span>
+<svg width="14" height="14" viewBox="0 0 32 32" aria-label="Switzerland"><rect width="32" height="32" fill="#D8232A"></rect><path d="M13,6 h6 v7 h7 v6 h-7 v7 h-6 v-7 h-7 v-6 h7 Z" fill="#FFFFFF"></path></svg>
+</a>
+<nav class="mainnav">
+<a href="dashboard.html">Dashboard</a>
+<a href="portfolio.html" class="on">My investments</a>
+<a href="marketplace.html">Investment opportunities</a>
+<a href="secondary-market.html">Secondary market</a>
+<a href="balances.html">My money</a>
+<a href="documents.html">Documents</a>
+</nav>
+<div class="toptools">
+<span class="idle-chip num">€ 100,000.00 not lent</span>
+<a class="btn-add" href="add-money.html"><span class="plus">+</span>Add money</a>
+<a class="bell" href="notifications.html" aria-label="Notifications"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#151719" stroke-width="1.4"><path d="M8 2c-2.2 0-3.6 1.5-3.6 3.6 0 2.6-1 3.6-1 3.6h9.2s-1-1-1-3.6C11.6 3.5 10.2 2 8 2Z"></path><path d="M6.6 11.4a1.5 1.5 0 0 0 2.8 0"></path></svg><span class="ping"></span></a>
+<button class="avatar" type="button" data-menu="acctMenu">AK</button>
+<div class="menu" id="acctMenu" hidden>
+<div class="menu-id"><b>Andrea Keller</b><span>Verified · account 5218 · EUR</span></div>
+<a href="how-loans-work.html">Where loans come from</a>
+<a href="fx.html">Currency &amp; FX</a>
+<a href="notifications.html">Notifications<span class="note">3</span></a>
+<a href="settings.html">Settings</a>
+<a href="help.html">Help</a>
+<div class="menu-foot"><a href="login.html">Sign out</a></div>
+</div>
+</div>
+</div>
+</header>
+
+<main>
+<div class="wrap">
+<div class="hero">
+<div class="eyebrow">16 loans · € 388,000.00 lent</div>
+<h1>Everything you own.</h1>
+<p class="lede">Largest first, because the largest is the one that matters most if it goes wrong. Click any loan for the split, the collateral and the penalty rate.</p>
+</div>
+
+<div style="display:flex;align-items:flex-end;margin-bottom:24px">
+<div style="flex:1">
+<h2 class="sect">My loans</h2>
+<p style="margin:0;font-size:15px;color:#626B70;max-width:520px;text-wrap:pretty">The rule under each amount is that loan's share of everything you have lent. Open the loan page for the collateral and the full schedule.</p>
+</div>
+<div class="seg" data-seg="invview" data-seg-class-target="#invTable">
+<button type="button" data-seg-value="focused" class="on">Focused</button>
+<button type="button" data-seg-value="detailed">Detailed</button>
+</div>
+</div>
+
+<div id="invTable" class="focused">
+<div style="display:flex;align-items:baseline;gap:18px;padding-bottom:9px;border-bottom:2px solid #151719;font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;color:#626B70">
+<span style="flex:1">Company</span>
+<span class="detail-col" style="width:52px;flex:none;justify-content:flex-end">Rate</span>
+<span class="detail-col" style="width:52px;flex:none;justify-content:flex-end">Term</span>
+<span class="detail-col" style="width:60px;flex:none;justify-content:flex-end">Pays</span>
+<span class="detail-col" style="width:78px;flex:none;justify-content:flex-end">Collateral</span>
+<span class="detail-col" style="width:132px;flex:none;justify-content:flex-end">Next payment</span>
+<span style="width:74px;flex:none;text-align:right">Share</span>
+<span style="width:132px;flex:none;text-align:right">Amount</span>
+</div>
+
+<div style="margin-bottom:88px">
+<a href="loan.html" style="display:flex;align-items:center;gap:18px;padding:5px 8px;margin:4px -8px 0;border-radius:4px" onmouseover="this.style.background='#FBFAF7'" onmouseout="this.style.background='transparent'">
+<span style="flex:1;min-width:0;font-size:14.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Aurelia Panificație SRL</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;font-weight:600">11.2%</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;color:#626B70">36 mo</span>
+<span class="detail-col" style="width:60px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">monthly</span>
+<span class="detail-col" style="width:78px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">property +1</span>
+<span class="detail-col num" style="width:132px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70;white-space:nowrap">2 Aug · <b style="font-weight:600;margin-left:4px">€ 1,904.40</b></span>
+<span class="num" style="width:74px;flex:none;text-align:right;font-size:13px;color:#626B70">14.9%</span>
+<span style="width:132px;flex:none;text-align:right"><span class="num" style="display:block;font-size:14.5px;font-weight:600;padding-bottom:5px">€ 58,000</span><span style="display:block;height:2px;background:#EDEAE2"><span style="display:block;height:2px;margin-left:0%;width:100%;background:#151719"></span></span></span>
+</a>
+<div style="display:flex;align-items:center;gap:18px;padding:5px 8px;margin:4px -8px 0">
+<span style="flex:1;min-width:0;font-size:14.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Nord Trans Cargo SRL</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;font-weight:600">11.6%</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;color:#626B70">48 mo</span>
+<span class="detail-col" style="width:60px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">monthly</span>
+<span class="detail-col" style="width:78px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">vehicles +1</span>
+<span class="detail-col num" style="width:132px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70;white-space:nowrap">4 Aug · <b style="font-weight:600;margin-left:4px">€ 1,097.80</b></span>
+<span class="num" style="width:74px;flex:none;text-align:right;font-size:13px;color:#626B70">10.8%</span>
+<span style="width:132px;flex:none;text-align:right"><span class="num" style="display:block;font-size:14.5px;font-weight:600;padding-bottom:5px">€ 42,000</span><span style="display:block;height:2px;background:#EDEAE2"><span style="display:block;height:2px;margin-left:27.6%;width:72.4%;background:#151719"></span></span></span>
+</div>
+<div style="display:flex;align-items:center;gap:18px;padding:5px 8px;margin:4px -8px 0">
+<span style="flex:1;min-width:0;font-size:14.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Verde Imobiliare SRL</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;font-weight:600">11.9%</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;color:#626B70">24 mo</span>
+<span class="detail-col" style="width:60px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">monthly</span>
+<span class="detail-col" style="width:78px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">property</span>
+<span class="detail-col num" style="width:132px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70;white-space:nowrap">6 Aug · <b style="font-weight:600;margin-left:4px">€ 1,740.00</b></span>
+<span class="num" style="width:74px;flex:none;text-align:right;font-size:13px;color:#626B70">9.5%</span>
+<span style="width:132px;flex:none;text-align:right"><span class="num" style="display:block;font-size:14.5px;font-weight:600;padding-bottom:5px">€ 37,000</span><span style="display:block;height:2px;background:#EDEAE2"><span style="display:block;height:2px;margin-left:36.2%;width:63.8%;background:#151719"></span></span></span>
+</div>
+<div style="display:flex;align-items:center;gap:18px;padding:5px 8px;margin:4px -8px 0">
+<span style="flex:1;min-width:0;font-size:14.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Solaria Verde Energie SA</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;font-weight:600">12.3%</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;color:#626B70">36 mo</span>
+<span class="detail-col" style="width:60px;flex:none;justify-content:flex-end;font-size:12.5px;color:#151719">annual</span>
+<span class="detail-col" style="width:78px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">property +1</span>
+<span class="detail-col num" style="width:132px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70;white-space:nowrap">18 Mar 2027 · <b style="font-weight:600;margin-left:4px">€ 4,182.00</b></span>
+<span class="num" style="width:74px;flex:none;text-align:right;font-size:13px;color:#626B70">8.8%</span>
+<span style="width:132px;flex:none;text-align:right"><span class="num" style="display:block;font-size:14.5px;font-weight:600;padding-bottom:5px">€ 34,000</span><span style="display:block;height:2px;background:#EDEAE2"><span style="display:block;height:2px;margin-left:41.4%;width:58.6%;background:#151719"></span></span></span>
+</div>
+<div style="display:flex;align-items:center;gap:18px;padding:5px 8px;margin:4px -8px 0">
+<span style="flex:1;min-width:0;font-size:14.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Cristal Sticlă SA</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;font-weight:600">11.4%</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;color:#626B70">30 mo</span>
+<span class="detail-col" style="width:60px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">monthly</span>
+<span class="detail-col" style="width:78px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">equipment</span>
+<span class="detail-col num" style="width:132px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70;white-space:nowrap">9 Aug · <b style="font-weight:600;margin-left:4px">€ 1,231.00</b></span>
+<span class="num" style="width:74px;flex:none;text-align:right;font-size:13px;color:#626B70">8.2%</span>
+<span style="width:132px;flex:none;text-align:right"><span class="num" style="display:block;font-size:14.5px;font-weight:600;padding-bottom:5px">€ 32,000</span><span style="display:block;height:2px;background:#EDEAE2"><span style="display:block;height:2px;margin-left:44.8%;width:55.2%;background:#151719"></span></span></span>
+</div>
+<div style="display:flex;align-items:center;gap:18px;padding:5px 8px;margin:4px -8px 0">
+<span style="flex:1;min-width:0;font-size:14.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Grâul de Aur SA</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;font-weight:600">10.6%</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;color:#626B70">24 mo</span>
+<span class="detail-col" style="width:60px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">monthly</span>
+<span class="detail-col" style="width:78px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">property +1</span>
+<span class="detail-col num" style="width:132px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70;white-space:nowrap">11 Aug · <b style="font-weight:600;margin-left:4px">€ 1,346.20</b></span>
+<span class="num" style="width:74px;flex:none;text-align:right;font-size:13px;color:#626B70">7.5%</span>
+<span style="width:132px;flex:none;text-align:right"><span class="num" style="display:block;font-size:14.5px;font-weight:600;padding-bottom:5px">€ 29,000</span><span style="display:block;height:2px;background:#EDEAE2"><span style="display:block;height:2px;margin-left:50%;width:50%;background:#151719"></span></span></span>
+</div>
+<div style="display:flex;align-items:center;gap:18px;padding:5px 8px;margin:4px -8px 0">
+<span style="flex:1;min-width:0;font-size:14.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Munții Lemn SRL</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;font-weight:600">10.8%</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;color:#626B70">24 mo</span>
+<span class="detail-col" style="width:60px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">monthly</span>
+<span class="detail-col" style="width:78px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">equipment</span>
+<span class="detail-col num" style="width:132px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70;white-space:nowrap">13 Aug · <b style="font-weight:600;margin-left:4px">€ 1,069.80</b></span>
+<span class="num" style="width:74px;flex:none;text-align:right;font-size:13px;color:#626B70">5.9%</span>
+<span style="width:132px;flex:none;text-align:right"><span class="num" style="display:block;font-size:14.5px;font-weight:600;padding-bottom:5px">€ 23,000</span><span style="display:block;height:2px;background:#EDEAE2"><span style="display:block;height:2px;margin-left:60.3%;width:39.7%;background:#151719"></span></span></span>
+</div>
+<div style="display:flex;align-items:center;gap:18px;padding:5px 8px;margin:4px -8px 0">
+<span style="flex:1;min-width:0;font-size:14.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Farmavia Distribuție SRL</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;font-weight:600">11.1%</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;color:#626B70">36 mo</span>
+<span class="detail-col" style="width:60px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">monthly</span>
+<span class="detail-col" style="width:78px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">vehicles +1</span>
+<span class="detail-col num" style="width:132px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70;white-space:nowrap">14 Aug · <b style="font-weight:600;margin-left:4px">€ 721.20</b></span>
+<span class="num" style="width:74px;flex:none;text-align:right;font-size:13px;color:#626B70">5.7%</span>
+<span style="width:132px;flex:none;text-align:right"><span class="num" style="display:block;font-size:14.5px;font-weight:600;padding-bottom:5px">€ 22,000</span><span style="display:block;height:2px;background:#EDEAE2"><span style="display:block;height:2px;margin-left:62.1%;width:37.9%;background:#151719"></span></span></span>
+</div>
+<div style="display:flex;align-items:center;gap:18px;padding:5px 8px;margin:4px -8px 0">
+<span style="flex:1;min-width:0;font-size:14.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Fânul Alb SRL</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;font-weight:600">10.9%</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;color:#626B70">18 mo</span>
+<span class="detail-col" style="width:60px;flex:none;justify-content:flex-end;font-size:12.5px;color:#151719">annual</span>
+<span class="detail-col" style="width:78px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">surety</span>
+<span class="detail-col num" style="width:132px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70;white-space:nowrap">9 Apr 2027 · <b style="font-weight:600;margin-left:4px">€ 2,180.00</b></span>
+<span class="num" style="width:74px;flex:none;text-align:right;font-size:13px;color:#626B70">5.2%</span>
+<span style="width:132px;flex:none;text-align:right"><span class="num" style="display:block;font-size:14.5px;font-weight:600;padding-bottom:5px">€ 20,000</span><span style="display:block;height:2px;background:#EDEAE2"><span style="display:block;height:2px;margin-left:65.5%;width:34.5%;background:#151719"></span></span></span>
+</div>
+<div style="display:flex;align-items:center;gap:18px;padding:5px 8px;margin:4px -8px 0">
+<span style="flex:1;min-width:0;font-size:14.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Podul Nou Construcții SRL</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;font-weight:600">12.1%</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;color:#626B70">18 mo</span>
+<span class="detail-col" style="width:60px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">monthly</span>
+<span class="detail-col" style="width:78px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">property +1</span>
+<span class="detail-col num" style="width:132px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70;white-space:nowrap">16 Aug · <b style="font-weight:600;margin-left:4px">€ 1,159.60</b></span>
+<span class="num" style="width:74px;flex:none;text-align:right;font-size:13px;color:#626B70">4.9%</span>
+<span style="width:132px;flex:none;text-align:right"><span class="num" style="display:block;font-size:14.5px;font-weight:600;padding-bottom:5px">€ 19,000</span><span style="display:block;height:2px;background:#EDEAE2"><span style="display:block;height:2px;margin-left:67.2%;width:32.8%;background:#151719"></span></span></span>
+</div>
+<div style="display:flex;align-items:center;gap:18px;padding:5px 8px;margin:4px -8px 0">
+<span style="flex:1;min-width:0;font-size:14.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Apa Limpede SRL</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;font-weight:600">10.9%</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;color:#626B70">36 mo</span>
+<span class="detail-col" style="width:60px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">monthly</span>
+<span class="detail-col" style="width:78px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">equipment</span>
+<span class="detail-col num" style="width:132px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70;white-space:nowrap">18 Aug · <b style="font-weight:600;margin-left:4px">€ 555.80</b></span>
+<span class="num" style="width:74px;flex:none;text-align:right;font-size:13px;color:#626B70">4.4%</span>
+<span style="width:132px;flex:none;text-align:right"><span class="num" style="display:block;font-size:14.5px;font-weight:600;padding-bottom:5px">€ 17,000</span><span style="display:block;height:2px;background:#EDEAE2"><span style="display:block;height:2px;margin-left:70.7%;width:29.3%;background:#151719"></span></span></span>
+</div>
+<div style="display:flex;align-items:center;gap:18px;padding:5px 8px;margin:4px -8px 0">
+<span style="flex:1;min-width:0;font-size:14.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Termo Instal SRL</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;font-weight:600">11.8%</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;color:#626B70">18 mo</span>
+<span class="detail-col" style="width:60px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">monthly</span>
+<span class="detail-col" style="width:78px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">equipment +2</span>
+<span class="detail-col num" style="width:132px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70;white-space:nowrap">20 Aug · <b style="font-weight:600;margin-left:4px">€ 852.40</b></span>
+<span class="num" style="width:74px;flex:none;text-align:right;font-size:13px;color:#626B70">3.6%</span>
+<span style="width:132px;flex:none;text-align:right"><span class="num" style="display:block;font-size:14.5px;font-weight:600;padding-bottom:5px">€ 14,000</span><span style="display:block;height:2px;background:#EDEAE2"><span style="display:block;height:2px;margin-left:75.9%;width:24.1%;background:#151719"></span></span></span>
+</div>
+<div style="display:flex;align-items:center;gap:18px;padding:5px 8px;margin:4px -8px 0">
+<span style="flex:1;min-width:0;font-size:14.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Zăvoi Agro SA</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;font-weight:600">10.4%</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;color:#626B70">30 mo</span>
+<span class="detail-col" style="width:60px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">monthly</span>
+<span class="detail-col" style="width:78px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">property</span>
+<span class="detail-col num" style="width:132px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70;white-space:nowrap">22 Aug · <b style="font-weight:600;margin-left:4px">€ 471.20</b></span>
+<span class="num" style="width:74px;flex:none;text-align:right;font-size:13px;color:#626B70">3.2%</span>
+<span style="width:132px;flex:none;text-align:right"><span class="num" style="display:block;font-size:14.5px;font-weight:600;padding-bottom:5px">€ 12,400</span><span style="display:block;height:2px;background:#EDEAE2"><span style="display:block;height:2px;margin-left:78.6%;width:21.4%;background:#151719"></span></span></span>
+</div>
+<div style="display:flex;align-items:center;gap:18px;padding:5px 8px;margin:4px -8px 0">
+<span style="flex:1;min-width:0;display:flex;align-items:baseline;gap:9px"><span style="font-size:14.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#C4312C">Lumina Electric SRL</span><span style="flex:none;font-size:11.5px;font-weight:600;color:#C4312C">late</span></span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;font-weight:600">11.5%</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;color:#626B70">24 mo</span>
+<span class="detail-col" style="width:60px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">monthly</span>
+<span class="detail-col" style="width:78px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">surety</span>
+<span class="detail-col num" style="width:132px;flex:none;justify-content:flex-end;font-size:12.5px;color:#C4312C;white-space:nowrap">9 days late · <b style="font-weight:600;margin-left:4px">€ 487.20</b></span>
+<span class="num" style="width:74px;flex:none;text-align:right;font-size:13px;color:#626B70">2.7%</span>
+<span style="width:132px;flex:none;text-align:right"><span class="num" style="display:block;font-size:14.5px;font-weight:600;padding-bottom:5px;color:#C4312C">€ 10,400</span><span style="display:block;height:2px;background:#EDEAE2"><span style="display:block;height:2px;margin-left:82.1%;width:17.9%;background:#C4312C"></span></span></span>
+</div>
+<div style="display:flex;align-items:center;gap:18px;padding:5px 8px;margin:4px -8px 0">
+<span style="flex:1;min-width:0;font-size:14.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Ceramica Veche SRL</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;font-weight:600">10.7%</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;color:#626B70">18 mo</span>
+<span class="detail-col" style="width:60px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">monthly</span>
+<span class="detail-col" style="width:78px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">equipment</span>
+<span class="detail-col num" style="width:132px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70;white-space:nowrap">27 Aug · <b style="font-weight:600;margin-left:4px">€ 555.40</b></span>
+<span class="num" style="width:74px;flex:none;text-align:right;font-size:13px;color:#626B70">2.4%</span>
+<span style="width:132px;flex:none;text-align:right"><span class="num" style="display:block;font-size:14.5px;font-weight:600;padding-bottom:5px">€ 9,200</span><span style="display:block;height:2px;background:#EDEAE2"><span style="display:block;height:2px;margin-left:84.1%;width:15.9%;background:#151719"></span></span></span>
+</div>
+<div style="display:flex;align-items:center;gap:18px;padding:5px 8px;margin:4px -8px 0">
+<span style="flex:1;min-width:0;font-size:14.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Bastion Depozite SRL</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;font-weight:600">11.7%</span>
+<span class="detail-col num" style="width:52px;flex:none;justify-content:flex-end;font-size:13px;color:#626B70">36 mo</span>
+<span class="detail-col" style="width:60px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">monthly</span>
+<span class="detail-col" style="width:78px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70">property</span>
+<span class="detail-col num" style="width:132px;flex:none;justify-content:flex-end;font-size:12.5px;color:#626B70;white-space:nowrap">25 Aug · <b style="font-weight:600;margin-left:4px">€ 297.60</b></span>
+<span class="num" style="width:74px;flex:none;text-align:right;font-size:13px;color:#626B70">2.3%</span>
+<span style="width:132px;flex:none;text-align:right"><span class="num" style="display:block;font-size:14.5px;font-weight:600;padding-bottom:5px">€ 9,000</span><span style="display:block;height:2px;background:#EDEAE2"><span style="display:block;height:2px;margin-left:84.5%;width:15.5%;background:#151719"></span></span></span>
+</div>
+<div class="tfoot">
+<span style="flex:none;font-size:15px;font-weight:600">16 loans</span>
+<span style="flex:1;font-size:12.5px;color:#626B70">The rule under each amount is that loan’s share of your portfolio. Red marks a loan in arrears.</span>
+<span style="font-size:13.5px;color:#626B70;margin-right:6px">€</span>
+<span class="num" style="font-size:24px;font-weight:600;letter-spacing:-0.035em">388,000</span>
+<span class="num" style="font-size:15px;font-weight:600;color:#626B70">.00</span>
+</div>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:18px;margin-bottom:26px">
+
+<button type="button" class="card471" data-toggle="calPanel">
+<span class="head">
+<span style="flex:1"><span class="lab">Earnings calendar</span><span class="tt">Every date you are owed money</span></span>
+<span class="sig" data-sign>+</span>
+</span>
+<span style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;width:100%;margin-bottom:18px">
+<span style="height:9px;background:#DDE3E1;border-radius:2px"></span><span style="height:9px;background:#DDE3E1;border-radius:2px"></span><span style="height:9px;background:#DDE3E1;border-radius:2px"></span><span style="height:9px;background:#DDE3E1;border-radius:2px"></span><span style="height:9px;background:#DDE3E1;border-radius:2px"></span><span style="height:9px;background:#DDE3E1;border-radius:2px"></span><span style="height:9px;background:#151719;border-radius:2px"></span>
+<span style="height:9px;background:#DDE3E1;border-radius:2px"></span><span style="height:9px;background:#151719;border-radius:2px"></span><span style="height:9px;background:#DDE3E1;border-radius:2px"></span><span style="height:9px;background:#151719;border-radius:2px"></span><span style="height:9px;background:#DDE3E1;border-radius:2px"></span><span style="height:9px;background:#DDE3E1;border-radius:2px"></span><span style="height:9px;background:#151719;border-radius:2px"></span>
+<span style="height:9px;background:#DDE3E1;border-radius:2px"></span><span style="height:9px;background:#151719;border-radius:2px"></span><span style="height:9px;background:#DDE3E1;border-radius:2px"></span><span style="height:9px;background:#151719;border-radius:2px"></span><span style="height:9px;background:#151719;border-radius:2px"></span><span style="height:9px;background:#DDE3E1;border-radius:2px"></span><span style="height:9px;background:#151719;border-radius:2px"></span>
+<span style="height:9px;background:#DDE3E1;border-radius:2px"></span><span style="height:9px;background:#151719;border-radius:2px"></span><span style="height:9px;background:#DDE3E1;border-radius:2px"></span><span style="height:9px;background:#151719;border-radius:2px"></span><span style="height:9px;background:#151719;border-radius:2px"></span><span style="height:9px;background:#DDE3E1;border-radius:2px"></span><span style="height:9px;background:#151719;border-radius:2px"></span>
+<span style="height:9px;background:#DDE3E1;border-radius:2px"></span><span style="height:9px;background:#151719;border-radius:2px"></span><span style="height:9px;background:#DDE3E1;border-radius:2px"></span><span style="height:9px;background:#151719;border-radius:2px"></span><span style="height:9px;background:#DDE3E1;border-radius:2px"></span><span style="height:9px;background:#DDE3E1;border-radius:2px"></span><span style="height:9px;background:#DDE3E1;border-radius:2px"></span>
+</span>
+<span class="foot">
+<span class="big">14</span>
+<span class="note">payment dates in August 2026 · next is <span style="color:#151719;font-weight:600">2 Aug, € 1,904.40</span></span>
+</span>
+</button>
+<div id="calPanel" hidden>
+<h2 class="sect">Your earnings calendar, date by date</h2>
+<p class="sect-sub" style="margin-bottom:22px">See every day a company owes you money, for the next 12 months. Click on any day for more details.</p>
+<div id="bxCal"></div>
+</div>
+
+<button type="button" class="card471" data-toggle="hexPanel">
+<span class="head">
+<span style="flex:1"><span class="lab">Spread of portfolio</span><span class="tt">How much rests on one outcome</span></span>
+<span class="sig" data-sign>+</span>
+</span>
+<span style="display:flex;justify-content:center;width:100%;margin-bottom:10px">
+<svg width="112" height="102" viewBox="0 0 44 40" shape-rendering="geometricPrecision" style="display:block">
+<polygon points="22,2 37.59,11 37.59,29 22,38 6.41,29 6.41,11" fill="none" stroke="#DDE3E1" stroke-width=".8"></polygon>
+<polygon points="22,12.08 31.82,14.33 31.66,25.58 22,37.1 12.65,25.4 7.66,11.72" fill="rgba(21,23,25,.12)" stroke="#151719" stroke-width="1"></polygon>
+<circle cx="22" cy="12.08" r="1.5" fill="#C4312C"></circle>
+</svg>
+</span>
+<span class="foot">
+<span class="big" style="color:#C4312C">44</span>
+<span class="note">is the lowest of the six · <span style="color:#151719;font-weight:600">spread across loans</span></span>
+</span>
+</button>
+<div id="hexPanel" hidden>
+<h2 class="sect">How spread out your portfolio is</h2>
+<p class="sect-sub" style="max-width:700px">Six measurements, each on a scale whose two ends are printed beside it. There is no total and no grade — six numbers stay six numbers, because averaging them would be an opinion about your portfolio dressed up as arithmetic.</p>
+<div class="panel-block" style="margin-bottom:26px">
+<div style="display:flex;gap:36px;align-items:flex-start">
+<svg width="440" height="310" viewBox="0 0 440 310" style="display:block;flex:none">
+<polygon points="220,50 310.93,102.5 310.93,207.5 220,260 129.07,207.5 129.07,102.5" fill="#F5F3ED" stroke="#C2BFB5" stroke-width="1"></polygon>
+<polygon points="220,76.25 288.2,115.63 288.2,194.38 220,233.75 151.8,194.38 151.8,115.63" fill="none" stroke="#DDE3E1" stroke-width="1"></polygon>
+<polygon points="220,102.5 265.47,128.75 265.47,181.25 220,207.5 174.53,181.25 174.53,128.75" fill="none" stroke="#DDE3E1" stroke-width="1"></polygon>
+<polygon points="220,128.75 242.73,141.88 242.73,168.13 220,181.25 197.27,168.13 197.27,141.88" fill="none" stroke="#DDE3E1" stroke-width="1"></polygon>
+<line x1="220" y1="155" x2="220" y2="50" stroke="#DDE3E1" stroke-width="1"></line>
+<line x1="220" y1="155" x2="310.93" y2="102.5" stroke="#DDE3E1" stroke-width="1"></line>
+<line x1="220" y1="155" x2="310.93" y2="207.5" stroke="#DDE3E1" stroke-width="1"></line>
+<line x1="220" y1="155" x2="220" y2="260" stroke="#DDE3E1" stroke-width="1"></line>
+<line x1="220" y1="155" x2="129.07" y2="207.5" stroke="#DDE3E1" stroke-width="1"></line>
+<line x1="220" y1="155" x2="129.07" y2="102.5" stroke="#DDE3E1" stroke-width="1"></line>
+<polygon points="220,108.80 295.47,111.42 280.02,189.65 220,251.60 151.80,194.38 139.98,108.80" fill="rgba(21,23,25,0.12)" stroke="#151719" stroke-width="2"></polygon>
+<circle cx="220" cy="108.80" r="4" fill="#C4312C"></circle>
+<circle cx="295.47" cy="111.42" r="4" fill="#151719"></circle>
+<circle cx="280.02" cy="189.65" r="4" fill="#151719"></circle>
+<circle cx="220" cy="251.60" r="4" fill="#151719"></circle>
+<circle cx="151.80" cy="194.38" r="4" fill="#151719"></circle>
+<circle cx="139.98" cy="108.80" r="4" fill="#151719"></circle>
+<text x="220" y="26" text-anchor="middle" font-family="Instrument Sans, Arial, sans-serif" font-size="12" font-weight="600" fill="#151719">Spread across loans</text>
+<text x="220" y="42" text-anchor="middle" font-family="Instrument Sans, Arial, sans-serif" font-size="13" font-weight="700" fill="#C4312C">44</text>
+<text x="322" y="96" text-anchor="start" font-family="Instrument Sans, Arial, sans-serif" font-size="12" font-weight="600" fill="#151719">Spread by industry</text>
+<text x="322" y="112" text-anchor="start" font-family="Instrument Sans, Arial, sans-serif" font-size="13" font-weight="700" fill="#151719">83</text>
+<text x="322" y="201" text-anchor="start" font-family="Instrument Sans, Arial, sans-serif" font-size="12" font-weight="600" fill="#151719">Collateral cover</text>
+<text x="322" y="217" text-anchor="start" font-family="Instrument Sans, Arial, sans-serif" font-size="13" font-weight="700" fill="#151719">66</text>
+<text x="220" y="282" text-anchor="middle" font-family="Instrument Sans, Arial, sans-serif" font-size="12" font-weight="600" fill="#151719">With collateral</text>
+<text x="220" y="298" text-anchor="middle" font-family="Instrument Sans, Arial, sans-serif" font-size="13" font-weight="700" fill="#151719">92</text>
+<text x="118" y="201" text-anchor="end" font-family="Instrument Sans, Arial, sans-serif" font-size="12" font-weight="600" fill="#151719">Principal collateral</text>
+<text x="118" y="217" text-anchor="end" font-family="Instrument Sans, Arial, sans-serif" font-size="13" font-weight="700" fill="#151719">75</text>
+<text x="118" y="96" text-anchor="end" font-family="Instrument Sans, Arial, sans-serif" font-size="12" font-weight="600" fill="#151719">Payments on time</text>
+<text x="118" y="112" text-anchor="end" font-family="Instrument Sans, Arial, sans-serif" font-size="13" font-weight="700" fill="#151719">88</text>
+</svg>
+<div style="flex:1;min-width:0;padding-top:4px">
+<div class="microlabel" style="margin-bottom:14px">What each number is, and what its ends mean</div>
+<div style="display:flex;flex-direction:column;font-size:13px">
+<div style="padding:9px 0;border-top:1px solid #E4E1D8"><div style="display:flex;align-items:baseline"><span style="font-weight:600;color:#C4312C">Spread across loans</span><span class="leader" style="margin:0 8px 4px"></span><span class="num" style="font-weight:700;color:#C4312C">44</span></div><div style="color:#626B70;line-height:1.5;margin-top:3px;text-wrap:pretty">Your largest loan is Aurelia Panificație at 14.9% of your money. Scale: 0 if one loan is over 25%, 100 if none is over 2%.</div></div>
+<div style="padding:9px 0;border-top:1px solid #E4E1D8"><div style="display:flex;align-items:baseline"><span style="font-weight:600">Spread by industry</span><span class="leader" style="margin:0 8px 4px"></span><span class="num" style="font-weight:700">83</span></div><div style="color:#626B70;line-height:1.5;margin-top:3px;text-wrap:pretty">Food, milling and beverage is € 104,000, or 26.8% — your largest sector. Scale: 0 if one sector is over 60%, 100 if none is over 20%.</div></div>
+<div style="padding:9px 0;border-top:1px solid #E4E1D8"><div style="display:flex;align-items:baseline"><span style="font-weight:600">Collateral cover</span><span class="leader" style="margin:0 8px 4px"></span><span class="num" style="font-weight:700">66</span></div><div style="color:#626B70;line-height:1.5;margin-top:3px;text-wrap:pretty">Weighted across your money, each secured loan sits at 56.8% of an independent valuation. Scale: 0 at 90% of valuation, 100 at 40% or less.</div></div>
+<div style="padding:9px 0;border-top:1px solid #E4E1D8"><div style="display:flex;align-items:baseline"><span style="font-weight:600">With collateral</span><span class="leader" style="margin:0 8px 4px"></span><span class="num" style="font-weight:700">92</span></div><div style="color:#626B70;line-height:1.5;margin-top:3px;text-wrap:pretty">€ 357,600 of your € 388,000 has something pledged behind it. Scale: 0 if nothing is secured, 100 if everything is.</div></div>
+<div style="padding:9px 0;border-top:1px solid #E4E1D8"><div style="display:flex;align-items:baseline"><span style="font-weight:600">Principal collateral</span><span class="leader" style="margin:0 8px 4px"></span><span class="num" style="font-weight:700">75</span></div><div style="color:#626B70;line-height:1.5;margin-top:3px;text-wrap:pretty">Property or land is € 198,400, or 51.1% of your money — counted by each loan’s principal asset, so the types sum to 100%. Scale: 0 if one type is everything, 100 if none is over 35%.</div></div>
+<div style="padding:9px 0;border-top:1px solid #E4E1D8;border-bottom:1px solid #E4E1D8"><div style="display:flex;align-items:baseline"><span style="font-weight:600">Payments on time</span><span class="leader" style="margin:0 8px 4px"></span><span class="num" style="font-weight:700">88</span></div><div style="color:#626B70;line-height:1.5;margin-top:3px;text-wrap:pretty">167 of the 169 payments due since April 2025 arrived on time. Scale: 0 at 90% or below, 100 if every payment arrived.</div></div>
+</div>
+</div>
+</div>
+<div style="margin-top:26px;padding-top:20px;border-top:1px solid #DDE3E1;max-width:820px" class="serif-note"><span style="font-size:17px">None of this knows whether a borrower will pay, whether a valuation is right, or what the franc does. A full hexagon is not a safe portfolio — it is a well-spread one.</span></div>
+</div>
+</div>
+
+<button type="button" class="card471" data-toggle="colPanel">
+<span class="head">
+<span style="flex:1"><span class="lab">Collateral spread</span><span class="tt">What stands behind your money</span></span>
+<span class="sig" data-sign>+</span>
+</span>
+<span style="display:flex;align-items:center;gap:22px;width:100%;margin-bottom:20px">
+<svg width="104" height="104" viewBox="0 0 120 120" shape-rendering="geometricPrecision" style="display:block;flex:none">
+<g transform="rotate(-90 60 60)" fill="none" stroke-width="17">
+<circle cx="60" cy="60" r="44" stroke="#151719" stroke-dasharray="141.3 276.5" stroke-dashoffset="0"></circle>
+<circle cx="60" cy="60" r="44" stroke="#4A5257" stroke-dasharray="67.7 276.5" stroke-dashoffset="-141.3"></circle>
+<circle cx="60" cy="60" r="44" stroke="#8B939A" stroke-dasharray="45.6 276.5" stroke-dashoffset="-209"></circle>
+<circle cx="60" cy="60" r="44" stroke="#C4312C" stroke-dasharray="21.8 276.5" stroke-dashoffset="-254.6"></circle>
+</g>
+</svg>
+<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;font-size:11.5px">
+<span style="display:flex;align-items:center;gap:8px"><span style="width:9px;height:9px;flex:none;border-radius:2px;background:#151719"></span><span style="flex:1;color:#292D30">Property or land</span><span class="num" style="font-weight:600">51.1%</span></span>
+<span style="display:flex;align-items:center;gap:8px"><span style="width:9px;height:9px;flex:none;border-radius:2px;background:#4A5257"></span><span style="flex:1;color:#292D30">Equipment</span><span class="num" style="font-weight:600">24.5%</span></span>
+<span style="display:flex;align-items:center;gap:8px"><span style="width:9px;height:9px;flex:none;border-radius:2px;background:#8B939A"></span><span style="flex:1;color:#292D30">Vehicles</span><span class="num" style="font-weight:600">16.5%</span></span>
+<span style="display:flex;align-items:center;gap:8px"><span style="width:9px;height:9px;flex:none;border-radius:2px;background:#C4312C"></span><span style="flex:1;color:#C4312C">No asset</span><span class="num" style="font-weight:600;color:#C4312C">7.9%</span></span>
+</span>
+</span>
+<span class="foot">
+<span class="big" style="font-size:24px">€ 198,400</span>
+<span class="note" style="font-size:12.5px">behind property or land — your largest type</span>
+</span>
+</button>
+<div id="colPanel" hidden>
+<div style="display:flex;align-items:flex-end;margin-bottom:24px">
+<div style="flex:1">
+<h2 class="sect">What stands behind your money</h2>
+<p style="margin:0;font-size:15px;color:#626B70;max-width:560px;text-wrap:pretty">Each loan counted once, by its principal asset — so the four add up to € 388,000.</p>
+</div>
+<div class="seg" data-seg="colview">
+<button type="button" data-seg-value="bar">Bar</button>
+<button type="button" data-seg-value="ring" class="on">Ring</button>
+</div>
+</div>
+<div style="background:#FBFAF7;border:1px solid #DDE3E1;border-radius:8px;padding:26px 30px 24px;margin-bottom:26px">
+<div data-seg-panel="bar" data-seg-group="colview" hidden>
+<div style="display:flex;height:34px;border-radius:3px;overflow:hidden;margin-bottom:12px">
+<div style="width:51.1%;background:#151719;display:flex;align-items:center;padding:0 14px"><span style="font-size:12.5px;font-weight:600;color:#F5F3ED;white-space:nowrap">Property and land</span><span class="grow"></span><span class="num" style="font-size:12.5px;font-weight:600;color:#F5F3ED;white-space:nowrap">€ 198,400</span></div>
+<div style="width:24.5%;background:#4A5257;display:flex;align-items:center;padding:0 12px"><span style="font-size:12.5px;font-weight:600;color:#F5F3ED;white-space:nowrap">Equipment</span><span class="grow"></span><span class="num" style="font-size:12.5px;font-weight:600;color:#F5F3ED;white-space:nowrap">€ 95,200</span></div>
+<div style="width:16.5%;background:#8B939A;display:flex;align-items:center;padding:0 12px"><span style="font-size:12.5px;font-weight:600;color:#F5F3ED;white-space:nowrap">Vehicles</span><span class="grow"></span><span class="num" style="font-size:12.5px;font-weight:600;color:#F5F3ED;white-space:nowrap">€ 64,000</span></div>
+<div style="width:7.9%;background:#C4312C;display:flex;align-items:center;justify-content:center"><span class="num" style="font-size:12.5px;font-weight:600;color:#F5F3ED;white-space:nowrap">€ 30,400</span></div>
+</div>
+</div>
+<div data-seg-panel="ring" data-seg-group="colview">
+<div style="display:flex;gap:40px;align-items:center">
+<svg width="200" height="200" viewBox="0 0 200 200" shape-rendering="geometricPrecision" style="display:block;flex:none">
+<g transform="rotate(-90 100 100)" fill="none" stroke-width="34">
+<circle cx="100" cy="100" r="60" stroke="#151719" stroke-dasharray="192.64 376.99" stroke-dashoffset="0"></circle>
+<circle cx="100" cy="100" r="60" stroke="#4A5257" stroke-dasharray="92.36 376.99" stroke-dashoffset="-192.64"></circle>
+<circle cx="100" cy="100" r="60" stroke="#8B939A" stroke-dasharray="62.20 376.99" stroke-dashoffset="-285.00"></circle>
+<circle cx="100" cy="100" r="60" stroke="#C4312C" stroke-dasharray="29.78 376.99" stroke-dashoffset="-347.20"></circle>
+</g>
+<text x="100" y="97" text-anchor="middle" font-family="Instrument Sans, Arial, sans-serif" font-size="17" font-weight="600" letter-spacing="-0.5" fill="#151719">€ 388,000</text>
+<text x="100" y="112" text-anchor="middle" font-family="Instrument Sans, Arial, sans-serif" font-size="9.5" font-weight="600" letter-spacing=".02em" fill="#626B70">16 loans</text>
+</svg>
+<div style="flex:1;display:flex;flex-direction:column;font-size:13.5px">
+<div style="display:flex;align-items:baseline;gap:12px;padding:8px 0;border-top:1px solid #E4E1D8"><span style="width:11px;height:11px;flex:none;border-radius:2px;background:#151719"></span><span style="font-weight:500">Property and land</span><span class="leader" style="margin:0 6px 4px"></span><span class="num" style="color:#626B70;margin-right:14px">51.1%</span><span class="num" style="font-weight:600">€ 198,400</span></div>
+<div style="display:flex;align-items:baseline;gap:12px;padding:8px 0;border-top:1px solid #E4E1D8"><span style="width:11px;height:11px;flex:none;border-radius:2px;background:#4A5257"></span><span style="font-weight:500">Equipment</span><span class="leader" style="margin:0 6px 4px"></span><span class="num" style="color:#626B70;margin-right:14px">24.5%</span><span class="num" style="font-weight:600">€ 95,200</span></div>
+<div style="display:flex;align-items:baseline;gap:12px;padding:8px 0;border-top:1px solid #E4E1D8"><span style="width:11px;height:11px;flex:none;border-radius:2px;background:#8B939A"></span><span style="font-weight:500">Vehicles</span><span class="leader" style="margin:0 6px 4px"></span><span class="num" style="color:#626B70;margin-right:14px">16.5%</span><span class="num" style="font-weight:600">€ 64,000</span></div>
+<div style="display:flex;align-items:baseline;gap:12px;padding:8px 0;border-top:1px solid #E4E1D8;border-bottom:1px solid #E4E1D8"><span style="width:11px;height:11px;flex:none;border-radius:2px;background:#C4312C"></span><span style="font-weight:500;color:#C4312C">No asset pledged</span><span class="leader" style="margin:0 6px 4px"></span><span class="num" style="color:#626B70;margin-right:14px">7.9%</span><span class="num" style="font-weight:600;color:#C4312C">€ 30,400</span></div>
+</div>
+</div>
+</div>
+<div style="margin-top:22px;padding-top:20px;border-top:1px solid #DDE3E1">
+<div class="microlabel" style="margin-bottom:7px">Also pledged, on top of the above</div>
+<div style="font-size:13px;line-height:1.55;color:#626B70;margin-bottom:14px;max-width:760px;text-wrap:pretty">Additional security on loans the ring has already counted, so these sit outside its total.</div>
+<div style="display:flex;flex-direction:column;font-size:13.5px">
+<div style="display:flex;align-items:baseline;padding:9px 0;border-top:1px solid #E4E1D8"><span style="color:#292D30">Movable mortgage over receivables or collection accounts</span><span class="leader"></span><span style="color:#626B70;margin-right:14px">5 loans</span><span class="num" style="font-weight:600">€ 157,000</span></div>
+<div style="display:flex;align-items:baseline;padding:9px 0;border-top:1px solid #E4E1D8"><span style="color:#292D30">Fidejusiune from the owner, <i>alongside</i> a pledged asset</span><span class="leader"></span><span style="color:#626B70;margin-right:14px">2 loans</span><span class="num" style="font-weight:600">€ 61,000</span></div>
+<div style="display:flex;align-items:baseline;padding:9px 0;border-top:1px solid #E4E1D8;border-bottom:1px solid #E4E1D8"><span style="color:#C4312C">Fidejusiune and nothing else</span><span class="leader"></span><span style="color:#626B70;margin-right:14px">2 loans</span><span class="num" style="font-weight:600;color:#C4312C">€ 30,400</span></div>
+</div>
+<div style="margin-top:12px;font-size:12.5px;line-height:1.5;color:#626B70;text-wrap:pretty">The last row is the same € 30,400 the ring shows as <i>no asset</i>, repeated so the kinds of surety sit together.</div>
+</div>
+</div>
+</div>
+
+<button type="button" class="card471" data-toggle="riskPanel">
+<span class="head">
+<span style="flex:1"><span class="lab">If a borrower stops paying</span><span class="tt">What protects your money</span></span>
+<span class="sig" data-sign>+</span>
+</span>
+<span style="display:flex;align-items:center;gap:22px;width:100%;margin-bottom:20px">
+<span style="width:104px;height:104px;flex:none;display:flex;align-items:flex-end;gap:9px">
+<span style="flex:1;height:104px;border:1.5px solid #C2BFB5;border-radius:3px;display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden">
+<span style="display:block;height:56.8%;background:#151719"></span>
+</span>
+<span style="flex:none;height:104px;display:flex;flex-direction:column;justify-content:space-between;font-size:10px;color:#626B70;padding:1px 0">
+<span>valuation</span>
+<span style="font-weight:600;color:#151719">lent</span>
+</span>
+</span>
+<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:7px;font-size:11.5px">
+<span style="display:flex;align-items:baseline;gap:8px"><span style="flex:1;color:#292D30">Weighted margin</span><span class="num" style="font-weight:600">56.8%</span></span>
+<span style="display:flex;align-items:baseline;gap:8px"><span style="flex:1;color:#292D30">Range per project</span><span class="num" style="font-weight:600">45 – 65%</span></span>
+<span style="display:flex;align-items:baseline;gap:8px"><span style="flex:1;color:#292D30">Nothing pledged</span><span class="num" style="font-weight:600;color:#C4312C">2 of 16</span></span>
+<span style="display:flex;align-items:baseline;gap:8px"><span style="flex:1;color:#292D30">In arrears now</span><span class="num" style="font-weight:600;color:#C4312C">1 of 16</span></span>
+</span>
+</span>
+<span class="foot">
+<span class="big" style="font-size:24px">0.10–0.20%</span>
+<span class="note" style="font-size:12.5px">a day, <span style="color:#151719;font-weight:600">to you</span>, while a payment is late</span>
+</span>
+</button>
+</div>
+
+<div id="riskPanel" hidden>
+<h2 class="sect">What protects your money</h2>
+<p class="sect-sub" style="max-width:640px">A missed payment is not a loss. Two things stand in the way, and both are set for each project on its own merits.</p>
+<div style="background:#FBFAF7;border:1px solid #DDE3E1;border-radius:8px;padding:30px 32px;margin-bottom:88px;display:flex;flex-direction:column;gap:22px">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 44px">
+<div style="padding-right:6px">
+<div style="font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;font-weight:700;margin-bottom:12px">The first is a deliberate gap</div>
+<div style="font-size:14.5px;line-height:1.6;color:#292D30;margin-bottom:20px;text-wrap:pretty">We never lend the full value of what is pledged. An independent valuer prices the asset, and the loan is set below that figure. How far below depends on how the asset would sell — a building holds its price, a set of looms does not, so it is discounted harder. The gap is what absorbs a bad sale.</div>
+<div style="display:flex;align-items:baseline;font-size:11.5px;color:#626B70;margin-bottom:6px"><span>Independent valuation</span><span class="grow"></span><span class="num" style="font-weight:600;color:#151719">100%</span></div>
+<div style="position:relative;height:34px;border:1.5px solid #C2BFB5;border-radius:3px;overflow:hidden">
+<div style="position:absolute;left:0;top:0;bottom:0;width:56.8%;background:#151719"></div>
+<div style="position:absolute;left:56.8%;right:0;top:0;bottom:0;display:flex;align-items:center;justify-content:center"><span style="font-size:11px;font-weight:600;color:#626B70">the gap</span></div>
+</div>
+<div style="display:flex;align-items:baseline;font-size:11.5px;margin-top:6px"><span style="color:#151719;font-weight:600">Lent 56.8%</span><span class="grow"></span><span style="color:#626B70">43.2% of headroom</span></div>
+<div style="margin-top:14px;font-size:12.5px;line-height:1.5;color:#626B70;text-wrap:pretty">Weighted across your money. Per project it runs 45% to 65% — equipment at the low end, property at the high.</div>
+</div>
+<div style="padding-left:6px;border-left:1px solid #E4E1D8">
+<div style="font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;font-weight:700;margin-bottom:12px">The second is the clock</div>
+<div style="font-size:14.5px;line-height:1.6;color:#292D30;margin-bottom:20px;text-wrap:pretty">From the first day a payment is missed, penalty interest accrues on everything outstanding. It is paid to you out of the proceeds <span style="font-weight:600">before</span> any principal is returned. Delay is charged for — it is not absorbed by you.</div>
+<div style="display:flex;align-items:baseline;font-size:11.5px;color:#626B70;margin-bottom:6px"><span>Order the proceeds are applied in</span></div>
+<div style="display:flex;height:34px;border-radius:3px;overflow:hidden;border:1.5px solid #C2BFB5">
+<div style="width:14%;background:#151719;display:flex;align-items:center;justify-content:center"><span style="font-size:10.5px;font-weight:600;color:#F5F3ED">1</span></div>
+<div style="width:20%;background:#4A5257;display:flex;align-items:center;justify-content:center"><span style="font-size:10.5px;font-weight:600;color:#F5F3ED">2</span></div>
+<div style="flex:1;background:#DDE3E1;display:flex;align-items:center;justify-content:center"><span style="font-size:10.5px;font-weight:600;color:#626B70">3</span></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:5px;margin-top:9px;font-size:11.5px">
+<div style="display:flex;align-items:baseline;gap:8px"><span style="width:9px;height:9px;flex:none;border-radius:2px;background:#151719"></span><span style="flex:1;color:#292D30">Costs of enforcement</span></div>
+<div style="display:flex;align-items:baseline;gap:8px"><span style="width:9px;height:9px;flex:none;border-radius:2px;background:#4A5257"></span><span style="flex:1;color:#292D30">Interest and penalty interest — <span style="font-weight:600">yours</span></span></div>
+<div style="display:flex;align-items:baseline;gap:8px"><span style="width:9px;height:9px;flex:none;border-radius:2px;background:#DDE3E1;border:1px solid #C2BFB5"></span><span style="flex:1;color:#292D30">Principal — yours</span></div>
+</div>
+<div style="margin-top:14px;font-size:12.5px;line-height:1.5;color:#626B70;text-wrap:pretty">Widths show the order, not the amounts. Across your loans the penalty runs 0.10% to 0.20% a day.</div>
+</div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 44px;font-size:13.5px">
+<div class="kv-row"><span class="k">Penalty interest across your loans</span><span class="leader"></span><span class="v">0.10 – 0.20% a day</span></div>
+<div class="kv-row"><span class="k">Collateral margin across your loans</span><span class="leader"></span><span class="v">45 – 65% of valuation</span></div>
+<div class="kv-row"><span class="k">Weighted margin, across your money</span><span class="leader"></span><span class="v">56.8% of valuation</span></div>
+<div class="kv-row"><span class="k">Loans with no asset pledged</span><span class="leader"></span><span class="v">2 of 16 · € 30,400</span></div>
+<div class="kv-row"><span class="k">Recovery through the courts takes</span><span class="leader"></span><span class="v">8 – 14 months</span></div>
+<div class="kv-row"><span class="k">In arrears right now</span><span class="leader"></span><span class="v" style="color:#C4312C">1 of 16 · € 10,400</span></div>
+</div>
+<div style="font-size:13px;line-height:1.55;color:#626B70;max-width:760px;text-wrap:pretty">Open any loan above to see the valuation, the margin and the daily penalty rate for that specific loan. The 2 loans with nothing pledged carry the highest penalty rate for exactly that reason.</div>
+</div>
+</div>
+
+<div style="display:flex;align-items:center;gap:16px;margin-bottom:88px">
+<a href="how-loans-work.html" style="display:flex;align-items:center;gap:9px;font-size:13.5px;font-weight:600"><span style="width:17px;height:17px;flex:none;border:1.4px solid currentColor;border-radius:999px;display:flex;align-items:center;justify-content:center;font-family:Newsreader,Georgia,serif;font-size:11px;font-style:italic;font-weight:600">i</span><span style="border-bottom:1.5px solid currentColor;padding-bottom:1px">How purchased loans work</span></a>
+</div>
+
+</div>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard · Banxum</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=Newsreader:ital,opsz,wght@0,6..72,200..800;1,6..72,200..800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+<div class="topbar-in">
+<a class="brand" href="dashboard.html" aria-label="Banxum home">
+<span class="brand-word"><span>Ban</span><span class="x"><svg width="12.8" height="12.8" viewBox="0 0 56 56" fill="#151719"><path d="M0,0 L15.5,0 L28,17.284 L20.25,28 Z"></path><path d="M40.5,0 L56,0 L35.75,28 L28,17.284 Z"></path><path d="M35.75,28 L56,56 L40.5,56 L28,38.716 Z"></path><path d="M20.25,28 L28,38.716 L15.5,56 L0,56 Z"></path></svg></span><span>um</span></span>
+<svg width="14" height="14" viewBox="0 0 32 32" aria-label="Switzerland"><rect width="32" height="32" fill="#D8232A"></rect><path d="M13,6 h6 v7 h7 v6 h-7 v7 h-6 v-7 h-7 v-6 h7 Z" fill="#FFFFFF"></path></svg>
+</a>
+<nav class="mainnav">
+<a href="dashboard.html" class="on">Dashboard</a>
+<a href="portfolio.html">My investments</a>
+<a href="marketplace.html">Investment opportunities</a>
+<a href="secondary-market.html">Secondary market</a>
+<a href="balances.html">My money</a>
+<a href="documents.html">Documents</a>
+</nav>
+<div class="toptools">
+<span class="idle-chip num">€ 100,000.00 not lent</span>
+<a class="btn-add" href="add-money.html"><span class="plus">+</span>Add money</a>
+<a class="bell" href="notifications.html" aria-label="Notifications"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#151719" stroke-width="1.4"><path d="M8 2c-2.2 0-3.6 1.5-3.6 3.6 0 2.6-1 3.6-1 3.6h9.2s-1-1-1-3.6C11.6 3.5 10.2 2 8 2Z"></path><path d="M6.6 11.4a1.5 1.5 0 0 0 2.8 0"></path></svg><span class="ping"></span></a>
+<button class="avatar" type="button" data-menu="acctMenu">AK</button>
+<div class="menu" id="acctMenu" hidden>
+<div class="menu-id"><b>Andrea Keller</b><span>Verified · account 5218 · EUR</span></div>
+<a href="how-loans-work.html">Where loans come from</a>
+<a href="fx.html">Currency &amp; FX</a>
+<a href="notifications.html">Notifications<span class="note">3</span></a>
+<a href="settings.html">Settings</a>
+<a href="help.html">Help</a>
+<div class="menu-foot"><a href="login.html">Sign out</a></div>
+</div>
+</div>
+</div>
+</header>
+
+<main>
+<div class="wrap">
+
+<div style="text-align:center;margin-bottom:56px">
+<div style="font-size:26px;font-weight:600;letter-spacing:-0.035em;line-height:1.1">Money working for you</div>
+<div style="font-size:13px;color:#626B70;margin-top:11px;margin-bottom:26px">29 July 2026</div>
+<div class="fig center"><span class="cur">€</span><span class="whole">388,000</span><span class="cents">.00</span></div>
+<div style="font-size:17px;line-height:1.5;color:#626B70;margin-top:22px">invested in loans to <span style="color:#151719;font-weight:600">16 companies</span></div>
+<div style="font-size:17px;line-height:1.5;color:#626B70;margin-top:2px">at <span class="num" style="color:#151719;font-weight:600">11.4%</span> per year interest, on average</div>
+</div>
+
+<div class="band band-3" style="margin-bottom:18px">
+<div class="cell">
+<div class="microlabel" style="margin-bottom:14px">Arriving in August</div>
+<div class="fig-md"><span class="cur">€</span><span class="whole">13,489</span><span class="cents">.60</span></div>
+<div style="font-size:13px;color:#626B70;margin-top:9px">across 14 payments</div>
+</div>
+<div class="cell">
+<div class="microlabel" style="color:#1E6A4B;margin-bottom:14px">Interest paid to you so far</div>
+<div class="fig-md green"><span class="cur">€</span><span class="whole">32,683</span><span class="cents">.00</span></div>
+<div style="font-size:13px;color:#626B70;margin-top:9px">since April 2025</div>
+</div>
+<div class="cell">
+<div class="microlabel" style="margin-bottom:14px"><span style="color:#C4312C">Money not working</span> — just sitting</div>
+<div class="fig-md"><span class="cur">€</span><span class="whole">100,000</span><span class="cents">.00</span></div>
+<div style="font-size:13px;color:#626B70;margin-top:9px">20.5% of your money, earning nothing</div>
+</div>
+</div>
+
+<div style="margin-bottom:56px" id="rule">
+<div style="display:flex;align-items:baseline;gap:14px;border-bottom:2px solid #151719;padding-bottom:10px">
+<span style="font-size:11px;letter-spacing:.18em;text-transform:uppercase;font-weight:700">Waiting on your decision</span>
+<span class="grow"></span>
+<span class="serif-note" style="font-size:14.5px;color:#626B70">the clicks that bind — everything else can wait</span>
+</div>
+
+<div style="border:1.5px solid #151719;border-radius:8px;background:#F1EFE8;padding:20px 24px 18px;margin-top:18px">
+<div style="display:flex;align-items:baseline;gap:12px;margin-bottom:2px">
+<span style="font-size:19px;font-weight:600;letter-spacing:-0.02em">Your rule found 8 opportunities</span>
+<span style="font-size:13.5px;color:#626B70">€ 100,000 free to place · 8 of 8 ticked · nothing commits until you confirm</span>
+</div>
+<div style="display:flex;flex-direction:column;font-size:13.5px;margin:10px 0 0">
+<div style="display:flex;align-items:baseline;gap:10px;padding:8px 0;border-top:1px solid #DDD9CE"><span style="width:16px;height:16px;flex:none;border-radius:4px;background:#1E6A4B;color:#F5F3ED;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;transform:translateY(2px)">✓</span><span style="font-weight:600;white-space:nowrap">Solaria Verde Energie SA</span><span class="num" style="color:#626B70;white-space:nowrap">12.3% · 36 mo · Banxum · closes in 34 days</span><span class="leader"></span><span class="num" style="font-weight:600">€ 12,500</span></div>
+<div style="display:flex;align-items:baseline;gap:10px;padding:8px 0;border-top:1px solid #DDD9CE"><span style="width:16px;height:16px;flex:none;border-radius:4px;background:#1E6A4B;color:#F5F3ED;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;transform:translateY(2px)">✓</span><span style="font-weight:600;white-space:nowrap">Verde Imobiliare SRL</span><span class="num" style="color:#626B70;white-space:nowrap">11.9% · 24 mo · Banxum · closes in 4 days</span><span class="leader"></span><span class="num" style="font-weight:600">€ 12,500</span></div>
+<div style="display:flex;align-items:baseline;gap:10px;padding:8px 0;border-top:1px solid #DDD9CE"><span style="width:16px;height:16px;flex:none;border-radius:4px;background:#1E6A4B;color:#F5F3ED;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;transform:translateY(2px)">✓</span><span style="font-weight:600;white-space:nowrap">Frigo Delta SRL</span><span class="num" style="color:#626B70;white-space:nowrap">11.9% · 24 mo · Capital Leasing · closes in 47 days</span><span class="leader"></span><span class="num" style="font-weight:600">€ 12,500</span></div>
+<div style="display:flex;align-items:baseline;gap:10px;padding:8px 0;border-top:1px solid #DDD9CE"><span style="width:16px;height:16px;flex:none;border-radius:4px;background:#1E6A4B;color:#F5F3ED;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;transform:translateY(2px)">✓</span><span style="font-weight:600;white-space:nowrap">Ceahlău Turism SRL</span><span class="num" style="color:#626B70;white-space:nowrap">12.1% · 36 mo · Capital Leasing · closes in 43 days</span><span class="leader"></span><span class="num" style="font-weight:600">€ 12,500</span></div>
+<div style="display:flex;align-items:baseline;gap:10px;padding:8px 0;border-top:1px solid #DDD9CE"><span style="width:16px;height:16px;flex:none;border-radius:4px;background:#1E6A4B;color:#F5F3ED;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;transform:translateY(2px)">✓</span><span style="font-weight:600;white-space:nowrap">Instal Prod SRL</span><span class="num" style="color:#626B70;white-space:nowrap">11.8% · 18 mo · Transilvania · closes in 24 days</span><span class="leader"></span><span class="num" style="font-weight:600">€ 12,500</span></div>
+<div style="display:flex;align-items:baseline;gap:10px;padding:8px 0;border-top:1px solid #DDD9CE"><span style="width:16px;height:16px;flex:none;border-radius:4px;background:#1E6A4B;color:#F5F3ED;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;transform:translateY(2px)">✓</span><span style="font-weight:600;white-space:nowrap">Lacul Sărat Balnear SRL</span><span class="num" style="color:#626B70;white-space:nowrap">12.0% · 36 mo · Nexo · closes in 31 days</span><span class="leader"></span><span class="num" style="font-weight:600">€ 12,500</span></div>
+<div style="display:flex;align-items:baseline;gap:10px;padding:8px 0;border-top:1px solid #DDD9CE"><span style="width:16px;height:16px;flex:none;border-radius:4px;background:#1E6A4B;color:#F5F3ED;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;transform:translateY(2px)">✓</span><span style="font-weight:600;white-space:nowrap">Rapid Service Auto SRL</span><span class="num" style="color:#626B70;white-space:nowrap">12.0% · 18 mo · Prima · closes in 2 days</span><span class="leader"></span><span class="num" style="font-weight:600">€ 12,500</span></div>
+<div style="display:flex;align-items:baseline;gap:10px;padding:8px 0;border-top:1px solid #DDD9CE"><span style="width:16px;height:16px;flex:none;border-radius:4px;background:#1E6A4B;color:#F5F3ED;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;transform:translateY(2px)">✓</span><span style="font-weight:600;white-space:nowrap">Curier Rapid Est SRL</span><span class="num" style="color:#626B70;white-space:nowrap">11.8% · 24 mo · Prima · closes in 36 days</span><span class="leader"></span><span class="num" style="font-weight:600">€ 12,500</span></div>
+<div style="display:flex;align-items:center;gap:12px;padding-top:13px;margin-top:1px;border-top:2px solid #151719">
+<span class="num" style="font-size:14px;font-weight:600">You commit € 100,000</span>
+<span style="font-size:12.5px;color:#626B70">nothing moves without this click</span>
+<span class="grow"></span>
+<button type="button" class="btn dark" style="padding:10px 24px;font-size:13px">Review &amp; confirm →</button>
+</div>
+</div>
+</div>
+
+<div class="rowcard" style="margin-top:12px">
+<span class="title">Investing rule</span>
+<span class="pill-green-status">✓ Active</span>
+<span class="desc">every new opportunity is checked against your conditions, and you approve every match</span>
+<span class="grow"></span>
+</div>
+
+<div style="background:#FBFAF7;border:1px solid #DDE3E1;border-radius:8px;padding:18px 24px 16px;margin-top:12px">
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:2px">
+<span class="num" style="font-size:15.5px;font-weight:600;letter-spacing:-0.01em;white-space:nowrap">6 opportunities close within 7 days</span>
+<span style="font-size:13px;font-weight:600;color:#C4312C;white-space:nowrap">the nearest in 2 days</span>
+<span style="font-size:13px;color:#626B70">· a closed campaign does not reopen — click any for the full loan</span>
+<span class="grow"></span>
+<span style="display:flex;align-items:center;gap:9px;flex:none">
+<span style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;color:#8B939A">today</span>
+<span style="display:flex;align-items:center;gap:5px">
+<span style="width:7px;height:7px;border-radius:999px;border:1px solid #C2BFB5"></span>
+<span style="width:7px;height:7px;border-radius:999px;background:#C4312C;border:1px solid #C4312C"></span>
+<span style="width:7px;height:7px;border-radius:999px;background:#C4312C;border:1px solid #C4312C"></span>
+<span style="width:7px;height:7px;border-radius:999px;background:#151719;border:1px solid #151719"></span>
+<span style="width:7px;height:7px;border-radius:999px;background:#151719;border:1px solid #151719"></span>
+<span style="width:7px;height:7px;border-radius:999px;background:#151719;border:1px solid #151719"></span>
+<span style="width:7px;height:7px;border-radius:999px;background:#151719;border:1px solid #151719"></span>
+</span>
+<span style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;color:#8B939A">7 d</span>
+</span>
+<button type="button" class="btn dark sm" data-toggle="closeList" data-open-label="Check ▾" data-close-label="Hide ▴"><span data-label>Check ▾</span></button>
+</div>
+<div id="closeList" hidden>
+<div style="display:flex;flex-direction:column;font-size:13.5px;margin:10px 0 0">
+<a href="marketplace.html" style="display:flex;align-items:baseline;gap:10px;padding:9px 6px;margin:0 -6px;border-top:1px solid #E4E1D8;border-radius:4px"><span style="font-weight:600;white-space:nowrap">Rapid Service Auto SRL</span><span class="num" style="color:#626B70;white-space:nowrap">12.0% · 18 mo · Prima</span><span class="leader"></span><span class="num" style="white-space:nowrap;font-weight:600;color:#C4312C">closes in 2 days</span><span style="flex:none;color:#626B70">→</span></a>
+<a href="marketplace.html" style="display:flex;align-items:baseline;gap:10px;padding:9px 6px;margin:0 -6px;border-top:1px solid #E4E1D8;border-radius:4px"><span style="font-weight:600;white-space:nowrap">Nord Trans Cargo SRL</span><span class="num" style="color:#626B70;white-space:nowrap">11.6% · 48 mo · Transilvania</span><span class="leader"></span><span class="num" style="white-space:nowrap;font-weight:600;color:#C4312C">closes in 3 days</span><span style="flex:none;color:#626B70">→</span></a>
+<a href="marketplace.html" style="display:flex;align-items:baseline;gap:10px;padding:9px 6px;margin:0 -6px;border-top:1px solid #E4E1D8;border-radius:4px"><span style="font-weight:600;white-space:nowrap">Verde Imobiliare SRL</span><span class="num" style="color:#626B70;white-space:nowrap">11.9% · 24 mo · Banxum</span><span class="leader"></span><span class="num" style="white-space:nowrap;font-weight:600;color:#626B70">closes in 4 days</span><span style="flex:none;color:#626B70">→</span></a>
+<a href="marketplace.html" style="display:flex;align-items:baseline;gap:10px;padding:9px 6px;margin:0 -6px;border-top:1px solid #E4E1D8;border-radius:4px"><span style="font-weight:600;white-space:nowrap">Moara Bistriței SRL</span><span class="num" style="color:#626B70;white-space:nowrap">10.7% · 24 mo · Transilvania</span><span class="leader"></span><span class="num" style="white-space:nowrap;font-weight:600;color:#626B70">closes in 5 days</span><span style="flex:none;color:#626B70">→</span></a>
+<a href="marketplace.html" style="display:flex;align-items:baseline;gap:10px;padding:9px 6px;margin:0 -6px;border-top:1px solid #E4E1D8;border-radius:4px"><span style="font-weight:600;white-space:nowrap">Cariera Dealul Mic SA</span><span class="num" style="color:#626B70;white-space:nowrap">10.9% · 30 mo · Transilvania</span><span class="leader"></span><span class="num" style="white-space:nowrap;font-weight:600;color:#626B70">closes in 6 days</span><span style="flex:none;color:#626B70">→</span></a>
+<a href="marketplace.html" style="display:flex;align-items:baseline;gap:10px;padding:9px 6px;margin:0 -6px;border-top:1px solid #E4E1D8;border-radius:4px"><span style="font-weight:600;white-space:nowrap">Prisma Construct SRL</span><span class="num" style="color:#626B70;white-space:nowrap">11.4% · 30 mo · Capital Leasing</span><span class="leader"></span><span class="num" style="white-space:nowrap;font-weight:600;color:#626B70">closes in 7 days</span><span style="flex:none;color:#626B70">→</span></a>
+<div style="display:flex;align-items:baseline;gap:12px;padding-top:12px;margin-top:1px;border-top:1px solid #DDE3E1">
+<span style="font-size:12.5px;color:#626B70">each row opens the full loan — how much you lend, if anything, is decided there</span>
+<span class="grow"></span>
+<a class="linklike" style="font-size:12.5px" href="marketplace.html">all opportunities →</a>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<div style="border-top:1px solid #DDE3E1">
+<div style="display:flex;align-items:baseline;gap:16px;padding:24px 12px;margin:0 -12px">
+<span style="font-size:20px;color:#626B70;width:18px;flex:none;line-height:1">–</span>
+<span style="font-size:24px;font-weight:600;letter-spacing:-0.03em">Expected income, month by month</span>
+<span class="grow"></span>
+</div>
+<div style="margin:0 0 26px;max-width:680px;display:flex;flex-direction:column;gap:5px;font-size:15px;line-height:1.5;color:#626B70">
+<div>Every figure below is contracted, not forecast.</div>
+<div>Amounts in euro.</div>
+</div>
+
+<div style="margin-bottom:20px">
+<div class="spine">
+<div class="col hot"><span class="amt">13,489.60</span><span class="bar" style="height:76px"></span><span class="m">AUG</span></div>
+<div class="col"><span class="amt">13,489.60</span><span class="bar" style="height:76px"></span><span class="m">SEP</span></div>
+<div class="col"><span class="amt">13,489.60</span><span class="bar" style="height:76px"></span><span class="m">OCT</span></div>
+<div class="col"><span class="amt">13,489.60</span><span class="bar" style="height:76px"></span><span class="m">NOV</span></div>
+<div class="col"><span class="amt">13,489.60</span><span class="bar" style="height:76px"></span><span class="m">DEC</span></div>
+<div class="col"><span class="amt">13,489.60</span><span class="bar" style="height:76px"></span><span class="m">JAN</span></div>
+<div class="col"><span class="amt">13,489.60</span><span class="bar end" style="height:76px"></span><span class="m">FEB</span></div>
+<div class="col"><span class="amt">17,116.20</span><span class="bar end" style="height:96px"></span><span class="m">MAR</span></div>
+<div class="col"><span class="amt">14,044.40</span><span class="bar" style="height:79px"></span><span class="m">APR</span></div>
+<div class="col"><span class="amt">11,864.40</span><span class="bar" style="height:67px"></span><span class="m">MAY</span></div>
+<div class="col"><span class="amt">11,864.40</span><span class="bar end" style="height:67px"></span><span class="m">JUN</span></div>
+<div class="col"><span class="amt">10,704.80</span><span class="bar end" style="height:60px"></span><span class="m">JUL</span></div>
+</div>
+</div>
+<div style="display:flex;align-items:baseline;gap:26px;padding-top:14px;border-top:1px solid #DDE3E1;margin-bottom:26px">
+<span style="font-size:13.5px;font-weight:600">Next 12 months</span>
+<span class="leader" style="margin-bottom:5px"></span>
+<span style="font-size:13.5px;color:#626B70">€</span>
+<span class="num" style="font-size:20px;font-weight:600;letter-spacing:-0.03em">160,021</span>
+<span class="num" style="font-size:13.5px;font-weight:600;color:#626B70">.40</span>
+</div>
+<div style="display:flex;align-items:baseline;padding-bottom:14px;margin-top:-14px">
+<a class="linklike" href="portfolio.html">Beyond 12 months, and the loan behind every payment, in My investments →</a>
+</div>
+<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:34px;font-size:12px;color:#8B939A">
+<span style="display:flex;align-items:center;gap:8px"><span style="width:14px;height:3px;flex:none;background:#151719"></span>Months marked with a dark line at the bottom are where one or more loans make their final repayment, so your income may decrease from then on unless you reinvest.</span>
+</div>
+</div>
+
+<div style="border-top:1px solid #DDE3E1;border-bottom:1px solid #DDE3E1">
+<button type="button" data-toggle="compareBody" style="display:flex;align-items:baseline;gap:16px;width:calc(100% + 24px);margin:0 -12px;padding:24px 12px;border:none;border-radius:6px;background:transparent;text-align:left;font-family:inherit">
+<span style="font-size:20px;color:#626B70;width:18px;flex:none;line-height:1" data-sign>+</span>
+<span style="font-size:24px;font-weight:600;letter-spacing:-0.03em">What you invested and what you earned</span>
+<span class="grow"></span>
+<span class="num" style="font-size:14px;color:#1E6A4B;font-weight:600;white-space:nowrap">+ € 102,707.60 if everything were reinvested</span>
+</button>
+<div id="compareBody" hidden>
+<p style="margin:2px 0 30px;font-size:15px;color:#626B70;max-width:700px;text-wrap:pretty">Two scenarios on the same € 488,000, over 3 years and 11 months. Totals, not a rate per year.</p>
+
+<div style="background:#FBFAF7;border:1px solid #DDE3E1;border-radius:8px;padding:30px 32px;margin-bottom:34px">
+<div style="position:relative;width:880px;max-width:100%">
+<svg width="880" height="326" viewBox="0 0 880 326" style="display:block;max-width:100%">
+<line x1="46" y1="20" x2="790" y2="20" stroke="#DDE3E1" stroke-width="1"></line>
+<line x1="46" y1="73.2" x2="790" y2="73.2" stroke="#DDE3E1" stroke-width="1"></line>
+<line x1="46" y1="126.4" x2="790" y2="126.4" stroke="#DDE3E1" stroke-width="1"></line>
+<line x1="46" y1="179.6" x2="790" y2="179.6" stroke="#DDE3E1" stroke-width="1"></line>
+<line x1="46" y1="232.8" x2="790" y2="232.8" stroke="#DDE3E1" stroke-width="1"></line>
+<text x="38" y="24" text-anchor="end" font-family="Instrument Sans, Arial, sans-serif" font-size="11" fill="#626B70">35%</text>
+<text x="38" y="90.5" text-anchor="end" font-family="Instrument Sans, Arial, sans-serif" font-size="11" fill="#626B70">28%</text>
+<text x="38" y="157" text-anchor="end" font-family="Instrument Sans, Arial, sans-serif" font-size="11" fill="#626B70">21%</text>
+<text x="38" y="223.5" text-anchor="end" font-family="Instrument Sans, Arial, sans-serif" font-size="11" fill="#626B70">14%</text>
+<text x="38" y="236.8" text-anchor="end" font-family="Instrument Sans, Arial, sans-serif" font-size="11" fill="#626B70">7%</text>
+<line x1="46" y1="286" x2="790" y2="286" stroke="#151719" stroke-width="1"></line>
+<text x="38" y="290" text-anchor="end" font-family="Instrument Sans, Arial, sans-serif" font-size="11" fill="#626B70">0</text>
+<polygon points="46,286 283.4,235.10 473.4,199.95 663.4,189.66 790,179.37 790,286" fill="rgba(21,23,25,0.08)"></polygon>
+<polygon points="283.4,235.10 473.4,147.75 663.4,83.58 790,19.41 790,179.37 663.4,189.66 473.4,199.95" fill="rgba(30,106,75,0.12)"></polygon>
+<polyline points="283.4,235.10 473.4,147.75 663.4,83.58 790,19.41" fill="none" stroke="#1E6A4B" stroke-width="2.5"></polyline>
+<polyline points="46,286 283.4,235.10 473.4,199.95 663.4,189.66 790,179.37" fill="none" stroke="#151719" stroke-width="2.5"></polyline>
+<line x1="283.4" y1="20" x2="283.4" y2="286" stroke="#C4312C" stroke-width="1" stroke-dasharray="3 3"></line>
+<circle cx="46" cy="286" r="4" fill="#151719"></circle>
+<circle cx="283.4" cy="235.10" r="4.5" fill="#C4312C"></circle>
+<circle cx="473.4" cy="199.95" r="4" fill="#151719"></circle>
+<circle cx="790" cy="179.37" r="4.5" fill="#151719"></circle>
+<circle cx="473.4" cy="147.75" r="4" fill="#1E6A4B"></circle>
+<circle cx="790" cy="19.41" r="4.5" fill="#1E6A4B"></circle>
+<text x="46" y="303" text-anchor="start" font-family="Instrument Sans, Arial, sans-serif" font-size="11" fill="#626B70">Apr 2025</text>
+<text x="283.4" y="303" text-anchor="middle" font-family="Instrument Sans, Arial, sans-serif" font-size="11" font-weight="600" fill="#C4312C">today</text>
+<text x="473.4" y="303" text-anchor="middle" font-family="Instrument Sans, Arial, sans-serif" font-size="11" fill="#626B70">Jul 2027</text>
+<text x="663.4" y="303" text-anchor="middle" font-family="Instrument Sans, Arial, sans-serif" font-size="11" fill="#626B70">Jul 2028</text>
+<text x="790" y="303" text-anchor="end" font-family="Instrument Sans, Arial, sans-serif" font-size="11" fill="#626B70">Mar 2029</text>
+</svg>
+<span class="num" style="position:absolute;left:0;top:216.1px;width:275px;text-align:right;font-size:12px;font-weight:700;color:#C4312C">+6.7%</span>
+<span class="num" style="position:absolute;left:481px;top:209.95px;font-size:11px;font-weight:600;color:#151719">+11.3%</span>
+<span class="num" style="position:absolute;left:0;top:128.75px;width:465px;text-align:right;font-size:11px;font-weight:600;color:#1E6A4B">+18.2%</span>
+<span class="num" style="position:absolute;left:800px;top:165.37px;font-size:15px;font-weight:700;color:#151719;white-space:nowrap">+14.0%</span>
+<span style="position:absolute;left:800px;top:183.37px;font-size:11px;color:#626B70;white-space:nowrap">nothing reinvested</span>
+<span class="num" style="position:absolute;left:800px;top:13px;font-size:15px;font-weight:700;color:#1E6A4B;white-space:nowrap">+35.1%</span>
+<span style="position:absolute;left:800px;top:31px;font-size:11px;color:#626B70;white-space:nowrap">everything reinvested</span>
+<span style="position:absolute;left:46px;top:310px;font-size:11px;color:#626B70;white-space:nowrap">Cumulative profit, as a percentage of € 488,000.00 — both lines are measured on the same capital</span>
+</div>
+<div style="margin-top:14px;font-size:13px;line-height:1.55;color:#626B70;max-width:760px;text-wrap:pretty">Marked points are calculated. The path between them is the shape of accrual, not a month-by-month forecast.</div>
+</div>
+
+<div style="margin-top:26px;padding-top:22px;border-top:1px solid #DDE3E1;padding-bottom:30px">
+<div style="display:flex;align-items:baseline;padding:0 0 10px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;color:#626B70">
+<span style="flex:1">Scenario</span>
+<span style="width:112px;text-align:right">Capital</span>
+<span style="width:120px;text-align:right">Interest earned</span>
+<span style="width:124px;text-align:right">Total returned</span>
+<span style="width:96px;text-align:right">On capital</span>
+</div>
+<div style="display:flex;align-items:baseline;padding:13px 0;border-top:1px solid #151719;font-size:14px">
+<span style="flex:1"><span style="display:flex;align-items:center;gap:9px"><span style="width:14px;height:2.5px;flex:none;background:#151719"></span><span style="font-weight:600">Nothing reinvested</span></span><span style="display:block;margin-top:4px;padding-left:23px;font-size:12.5px;line-height:1.5;color:#626B70">Every borrower pays on schedule and each repayment stays in your account. The € 100,000 keeps sitting there.</span></span>
+<span class="num" style="width:112px;text-align:right">€ 488,000.00</span>
+<span class="num" style="width:120px;text-align:right;font-weight:600;color:#1E6A4B">€ 68,469.40</span>
+<span class="num" style="width:124px;text-align:right">€ 556,469.40</span>
+<span style="width:96px;text-align:right"><span class="num" style="display:block;font-size:17px;font-weight:600;letter-spacing:-0.02em">1.14×</span><span class="num" style="display:block;margin-top:3px;font-size:12.5px;font-weight:600;color:#1E6A4B">+14.0%</span></span>
+</div>
+<div style="display:flex;align-items:baseline;padding:13px 0;border-top:1px solid #E4E1D8;font-size:14px">
+<span style="flex:1"><span style="display:flex;align-items:center;gap:9px"><span style="width:14px;height:2.5px;flex:none;background:#1E6A4B"></span><span style="font-weight:600">Everything reinvested</span></span><span style="display:block;margin-top:4px;padding-left:23px;font-size:12.5px;line-height:1.5;color:#626B70">Every repayment is lent onward at 12.3% the month it arrives, and the € 100,000 is lent too.</span></span>
+<span class="num" style="width:112px;text-align:right">€ 488,000.00</span>
+<span class="num" style="width:120px;text-align:right;font-weight:600;color:#1E6A4B">€ 171,177.00</span>
+<span class="num" style="width:124px;text-align:right">€ 659,177.00</span>
+<span style="width:96px;text-align:right"><span class="num" style="display:block;font-size:17px;font-weight:600;letter-spacing:-0.02em;color:#1E6A4B">1.35×</span><span class="num" style="display:block;margin-top:3px;font-size:12.5px;font-weight:600;color:#1E6A4B">+35.1%</span></span>
+</div>
+<div style="display:flex;align-items:baseline;padding:13px 0;border-top:2px solid #151719;font-size:14px">
+<span style="flex:1;font-weight:600">The difference reinvesting makes</span>
+<span style="width:112px;text-align:right;font-size:12.5px;color:#626B70">no extra capital</span>
+<span class="num" style="width:120px;text-align:right;font-size:17px;font-weight:600;letter-spacing:-0.02em;color:#1E6A4B">€ 102,707.60</span>
+<span class="num" style="width:124px;text-align:right;color:#626B70">€ 102,707.60</span>
+<span class="num" style="width:96px;text-align:right;font-size:12.5px;font-weight:600;color:#1E6A4B">+21.0 pts</span>
+</div>
+<div style="margin-top:16px;font-size:13px;line-height:1.6;color:#626B70;max-width:820px;text-wrap:pretty">Both scenarios hold the same € 488,000 — € 388,000 lent and € 100,000 in your wallet — over 3 years and 11 months to the last repayment in March 2029. € 32,683.00 of the interest is already paid and counted in both. The rest depends on 16 companies paying as agreed, and the green scenario also assumes a loan at 12.3% is open every time you have money to place.</div>
+</div>
+</div>
+</div>
+
+</div>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
