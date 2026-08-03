@@ -4140,7 +4140,7 @@ table.tbl tfoot.schedule-totals th.num,
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 860px) {
   .marketplace-page {
     padding-top: 24px;
   }
@@ -4341,3 +4341,1047 @@ table.tbl tfoot.schedule-totals th.num,
 /* Recovery conservation summary inside the Manage-loan dialog */
 .admin-recovery-summary { flex-wrap: wrap; gap: 14px; }
 .admin-recovery-summary strong { color: var(--ink); }
+
+/* --------------------------------------------------------------------------
+   Investor brandbook reskin
+
+   This layer intentionally changes presentation only. It is scoped to the
+   public site, onboarding, and investor portal so the operational admin
+   console keeps its own dense visual system. The interaction hierarchy follows
+   the website_redesign handoff: carbon binds, green denotes profit/add-money,
+   and red is reserved for risk or destructive actions.
+   -------------------------------------------------------------------------- */
+.app,
+.public,
+.auth-wrap {
+  --accent: #151719;
+  --accent-ink: #000;
+  --accent-soft: #edeae2;
+  --accent-line: #c2bfb5;
+  --font-mono: var(--font-sans);
+  --r-md: 8px;
+  --r-lg: 8px;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-pop: 0 18px 56px rgba(21, 23, 25, 0.2), 0 2px 8px rgba(21, 23, 25, 0.08);
+}
+
+.app *,
+.public *,
+.auth-wrap * {
+  letter-spacing: 0 !important;
+}
+
+.app a:not(.btn),
+.public a:not(.btn),
+.auth-wrap a:not(.btn) {
+  color: var(--ink);
+  text-decoration-color: var(--ghost);
+  text-underline-offset: 3px;
+}
+
+.app a:not(.btn):hover,
+.public a:not(.btn):hover,
+.auth-wrap a:not(.btn):hover {
+  color: var(--ink);
+  text-decoration-color: var(--ink);
+}
+
+/* Shell and navigation */
+.app {
+  background: var(--paper);
+}
+
+.app .sidebar {
+  background: color-mix(in srgb, var(--paper) 94%, var(--surface));
+  border-color: var(--line);
+  width: 244px;
+}
+
+.app .sidebar-brand {
+  padding: 22px 22px 18px;
+}
+
+.app .investor-brand-word {
+  font-size: 21px;
+  font-weight: 620;
+}
+
+.app .investor-brand-operator {
+  color: var(--ink-3);
+  font-size: 10.5px;
+}
+
+.app .nav {
+  gap: 3px;
+  padding: 8px 14px 18px;
+}
+
+.app .nav-group-label {
+  color: var(--ink-4);
+  font-size: 10px;
+  padding: 17px 12px 6px;
+}
+
+.app .nav-link {
+  border-left: 2px solid transparent;
+  border-radius: 0;
+  color: var(--ink-3);
+  font-size: 13.5px;
+  gap: 11px;
+  padding: 9px 11px;
+}
+
+.app .nav-link:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.app .nav-link.on {
+  background: transparent;
+  border-left-color: var(--ink);
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.app .nav-badge.warn,
+.app .nav-badge.bad {
+  border: 0;
+}
+
+.app .sidebar-foot {
+  background: var(--surface);
+  padding: 15px 16px;
+}
+
+.app .userchip {
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.app .avatar {
+  background: var(--surface-2);
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.app .topbar {
+  backdrop-filter: saturate(180%) blur(20px);
+  background: color-mix(in srgb, var(--paper) 86%, transparent);
+  border-color: var(--line);
+  height: 58px;
+  padding: 0 32px;
+}
+
+.app .bal-pill {
+  background: transparent;
+  border-color: var(--line);
+  padding: 6px 13px;
+}
+
+.app .bal-pill.flag {
+  background: var(--warn-bg);
+  border-color: var(--warn-line);
+}
+
+.app .icon-btn {
+  background: transparent;
+  border-color: var(--line);
+  border-radius: var(--r-pill);
+}
+
+.app .state-switch {
+  background: transparent;
+  border-color: var(--line-strong);
+}
+
+.app .state-switch select {
+  background: var(--surface-2);
+  box-shadow: none;
+}
+
+.app .content {
+  max-width: 1220px;
+  padding: 46px 40px 96px;
+}
+
+.app .content.narrow {
+  max-width: 800px;
+}
+
+/* Typography and page rhythm */
+.app .page-head,
+.public .page-head {
+  align-items: flex-end;
+  margin-bottom: 28px;
+}
+
+.app .page-head h1,
+.public .page-head h1 {
+  font-size: 30px;
+  font-weight: 620;
+  line-height: 1.12;
+}
+
+.app .ph-sub,
+.public .ph-sub {
+  color: var(--ink-3);
+  font-size: 14.5px;
+  line-height: 1.55;
+  margin-top: 6px;
+}
+
+.app .section,
+.public .section {
+  margin-top: 36px;
+}
+
+.app .section-head,
+.public .section-head {
+  margin-bottom: 15px;
+}
+
+.app .section-head h2,
+.public .section-head h2 {
+  font-size: 19px;
+  font-weight: 620;
+}
+
+.app .eyebrow,
+.public .eyebrow,
+.auth-wrap .eyebrow,
+.app .stat-label,
+.public .stat-label {
+  color: var(--ink-3);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.app .muted,
+.public .muted,
+.auth-wrap .muted {
+  color: var(--ink-3);
+}
+
+.app .mono,
+.app .money,
+.app .num,
+.public .mono,
+.public .money,
+.public .num,
+.auth-wrap .mono {
+  font-family: var(--font-sans);
+  font-feature-settings: "tnum" 1, "zero" 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Buttons: carbon binds; green is only add-money/profit. */
+.app .btn,
+.public .btn,
+.auth-wrap .btn {
+  background: transparent;
+  border-color: var(--ink);
+  border-radius: var(--r-pill);
+  font-size: 13px;
+  font-weight: 600;
+  height: 38px;
+  padding: 0 18px;
+}
+
+.app .btn:hover,
+.public .btn:hover,
+.auth-wrap .btn:hover {
+  background: var(--surface-3);
+  border-color: var(--ink);
+}
+
+.app .btn-primary,
+.public .btn-primary,
+.auth-wrap .btn-primary {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+
+.app .btn-primary:hover,
+.public .btn-primary:hover,
+.auth-wrap .btn-primary:hover {
+  background: #000;
+  border-color: #000;
+  color: var(--paper);
+}
+
+.app .btn-green,
+.public .btn-green,
+.auth-wrap .btn-green {
+  background: var(--ok);
+  border-color: var(--ok);
+  color: var(--paper);
+  box-shadow: 0 2px 8px rgba(30, 106, 75, 0.2);
+}
+
+.app .btn-green:hover,
+.public .btn-green:hover,
+.auth-wrap .btn-green:hover {
+  background: #17573e;
+  border-color: #17573e;
+}
+
+.app .btn-green-line,
+.public .btn-green-line,
+.auth-wrap .btn-green-line {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+.app .btn-green-line:hover,
+.public .btn-green-line:hover,
+.auth-wrap .btn-green-line:hover {
+  background: rgba(30, 106, 75, 0.06);
+  border-color: var(--ok);
+  color: #17573e;
+}
+
+.app .btn-danger,
+.public .btn-danger,
+.auth-wrap .btn-danger {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: #fff;
+}
+
+.app .btn-ghost,
+.public .btn-ghost,
+.auth-wrap .btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--ink-2);
+}
+
+.app .btn-link,
+.public .btn-link,
+.auth-wrap .btn-link {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid currentColor;
+  border-radius: 0;
+  color: var(--ink-3);
+  height: auto;
+  padding: 0 0 1px;
+}
+
+.app .btn-sm,
+.public .btn-sm,
+.auth-wrap .btn-sm {
+  font-size: 12.5px;
+  height: 32px;
+  padding: 0 15px;
+}
+
+.app .btn-lg,
+.public .btn-lg,
+.auth-wrap .btn-lg {
+  font-size: 13.5px;
+  height: 44px;
+  padding: 0 24px;
+}
+
+.app .btn:disabled,
+.public .btn:disabled,
+.auth-wrap .btn:disabled {
+  background: var(--surface-2);
+  border-color: var(--line);
+  color: var(--ink-4);
+  opacity: 1;
+}
+
+/* Cards, financial bands, and content grouping */
+.app .card,
+.public .card,
+.auth-wrap .card {
+  background: var(--surface);
+  border-color: var(--line);
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.app .card-pad,
+.public .card-pad,
+.auth-wrap .card-pad {
+  padding: 24px;
+}
+
+.app .card-head,
+.public .card-head {
+  padding: 16px 20px;
+}
+
+.app .grid,
+.public .grid {
+  gap: 18px;
+}
+
+.app .grid-stat,
+.public .grid-stat {
+  background: var(--surface);
+  border-color: var(--line);
+  border-radius: 8px;
+}
+
+.app .grid-stat > .stat,
+.public .grid-stat > .stat {
+  padding: 22px 24px;
+}
+
+.app .stat,
+.public .stat {
+  gap: 6px;
+}
+
+.app .stat-value,
+.public .stat-value {
+  font-family: var(--font-sans);
+  font-size: 27px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 620;
+}
+
+.app .stat-value .ccy,
+.public .stat-value .ccy {
+  color: var(--ink-3);
+  font-size: 12.5px;
+}
+
+.app .stat-sub,
+.public .stat-sub {
+  font-size: 12.5px;
+}
+
+.app .split,
+.app .dash-split,
+.public .split {
+  gap: 28px;
+}
+
+/* Statuses and disclosure surfaces */
+.app .chip,
+.public .chip,
+.auth-wrap .chip {
+  border: 0;
+  font-size: 11.5px;
+  height: 24px;
+  padding: 0 10px;
+}
+
+.app .chip-accent,
+.public .chip-accent,
+.auth-wrap .chip-accent,
+.app .chip-info,
+.public .chip-info,
+.auth-wrap .chip-info {
+  background: var(--surface-3);
+  color: var(--ink-2);
+}
+
+.app .chip-ok,
+.public .chip-ok,
+.auth-wrap .chip-ok {
+  background: rgba(30, 106, 75, 0.09);
+  color: var(--ok);
+}
+
+.app .tag,
+.public .tag,
+.auth-wrap .tag {
+  background: var(--surface-3);
+  border: 0;
+  border-radius: 4px;
+  color: var(--ink-2);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  padding: 3px 7px;
+}
+
+.app .rating,
+.public .rating {
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+
+.app .rating-c,
+.public .rating-c {
+  color: var(--warn-strong);
+}
+
+.app .rating-d,
+.public .rating-d {
+  color: var(--bad);
+}
+
+.app .banner,
+.public .banner,
+.auth-wrap .banner {
+  background: var(--surface);
+  border-color: var(--line);
+  border-radius: 8px;
+  color: var(--ink-2);
+  gap: 13px;
+  padding: 16px 18px;
+}
+
+.app .banner-info,
+.public .banner-info,
+.auth-wrap .banner-info,
+.app .banner-neutral,
+.public .banner-neutral,
+.auth-wrap .banner-neutral {
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--ink-2);
+}
+
+.app .banner-warn,
+.public .banner-warn,
+.auth-wrap .banner-warn {
+  background: #fbf6e9;
+  border-color: var(--warn-line);
+  color: var(--warn-strong);
+}
+
+.app .banner-bad,
+.public .banner-bad,
+.auth-wrap .banner-bad {
+  background: var(--bad-bg);
+  border-color: var(--bad-line);
+  color: var(--bad-strong);
+}
+
+.app .banner-ok,
+.public .banner-ok,
+.auth-wrap .banner-ok {
+  background: var(--surface);
+  border-color: var(--ok-line);
+  color: #17573e;
+}
+
+.app .banner h4,
+.public .banner h4,
+.auth-wrap .banner h4 {
+  font-size: 14px;
+}
+
+.app .banner p,
+.public .banner p,
+.auth-wrap .banner p {
+  font-size: 13px;
+}
+
+/* Tables and schedules */
+.app table.tbl,
+.public table.tbl,
+.auth-wrap table.tbl {
+  border-top: 1px solid var(--ink);
+  font-size: 13px;
+}
+
+.app table.tbl thead th,
+.public table.tbl thead th,
+.auth-wrap table.tbl thead th {
+  background: transparent;
+  border-bottom-color: var(--line);
+  color: var(--ink-3);
+  font-size: 10.5px;
+  padding: 11px 14px;
+}
+
+.app table.tbl tbody td,
+.public table.tbl tbody td,
+.auth-wrap table.tbl tbody td {
+  border-bottom-color: var(--line-2);
+  padding: 13px 14px;
+}
+
+.app table.tbl.dense tbody td,
+.public table.tbl.dense tbody td,
+.auth-wrap table.tbl.dense tbody td {
+  padding: 10px 14px;
+}
+
+.app table.tbl tbody tr.clickable:hover,
+.public table.tbl tbody tr.clickable:hover {
+  background: var(--surface-2);
+}
+
+.app .schedule-totals td,
+.public .schedule-totals td {
+  border-top: 1px solid var(--ink);
+}
+
+/* Form controls */
+.app .field,
+.public .field,
+.auth-wrap .field {
+  gap: 7px;
+}
+
+.app .field > label,
+.public .field > label,
+.auth-wrap .field > label,
+.app .lbl,
+.public .lbl,
+.auth-wrap .lbl {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.app .input,
+.app .select,
+.app textarea.input,
+.public .input,
+.public .select,
+.public textarea.input,
+.auth-wrap .input,
+.auth-wrap .select,
+.auth-wrap textarea.input {
+  background: var(--surface);
+  border-color: var(--line-strong);
+  border-radius: 6px;
+  font-size: 14px;
+  height: 42px;
+  padding-left: 13px;
+  padding-right: 13px;
+}
+
+.app textarea.input,
+.public textarea.input,
+.auth-wrap textarea.input {
+  height: auto;
+  padding-bottom: 11px;
+  padding-top: 11px;
+}
+
+.app .input:focus,
+.app .select:focus,
+.public .input:focus,
+.public .select:focus,
+.auth-wrap .input:focus,
+.auth-wrap .select:focus {
+  border-color: var(--ink);
+  box-shadow: none;
+}
+
+.app .search .input,
+.public .search .input,
+.auth-wrap .search .input {
+  padding-left: 32px;
+}
+
+.app .hint,
+.public .hint,
+.auth-wrap .hint {
+  font-size: 12px;
+}
+
+.app .check .box,
+.public .check .box,
+.auth-wrap .check .box {
+  border-color: var(--line-strong);
+  border-radius: 3px;
+  height: 17px;
+  width: 17px;
+}
+
+.app .check input:checked + .box,
+.public .check input:checked + .box,
+.auth-wrap .check input:checked + .box {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.app .ctext,
+.public .ctext,
+.auth-wrap .ctext {
+  font-size: 13.5px;
+}
+
+/* Tabs, segmented modes, progress, and review arithmetic */
+.app .seg,
+.public .seg,
+.auth-wrap .seg {
+  background: var(--surface-3);
+  border: 0;
+  border-radius: var(--r-pill);
+  padding: 3px;
+}
+
+.app .seg button,
+.public .seg button,
+.auth-wrap .seg button {
+  border-radius: var(--r-pill);
+  color: var(--ink-3);
+  height: 30px;
+  padding: 0 15px;
+}
+
+.app .seg button.on,
+.public .seg button.on,
+.auth-wrap .seg button.on {
+  background: var(--ink);
+  box-shadow: none;
+  color: var(--paper);
+}
+
+.app .tabs,
+.public .tabs,
+.auth-wrap .tabs {
+  gap: 18px;
+}
+
+.app .tabs button,
+.public .tabs button,
+.auth-wrap .tabs button {
+  color: var(--ink-3);
+  padding: 12px 2px;
+}
+
+.app .tabs button.on,
+.public .tabs button.on,
+.auth-wrap .tabs button.on {
+  border-bottom-color: var(--ink);
+  color: var(--ink);
+}
+
+.app .bar > span,
+.public .bar > span,
+.auth-wrap .bar > span {
+  background: var(--ink);
+}
+
+.app .review,
+.public .review,
+.auth-wrap .review {
+  border-color: var(--line);
+  border-radius: 8px;
+}
+
+.app .rrow,
+.public .rrow,
+.auth-wrap .rrow {
+  padding: 12px 16px;
+}
+
+.app .rrow:nth-child(even),
+.public .rrow:nth-child(even),
+.auth-wrap .rrow:nth-child(even) {
+  background: transparent;
+}
+
+.app .rrow.total,
+.public .rrow.total,
+.auth-wrap .rrow.total {
+  background: var(--surface-2);
+  border-top: 1px solid var(--ink);
+}
+
+/* Dialogs and empty states */
+.app .scrim,
+.public .scrim,
+.auth-wrap .scrim {
+  backdrop-filter: blur(3px);
+  background: rgba(21, 23, 25, 0.44);
+  padding: 24px;
+}
+
+.app .modal,
+.public .modal,
+.auth-wrap .modal {
+  border-color: var(--hair);
+  border-radius: 8px;
+  max-width: 580px;
+}
+
+.app .modal.wide,
+.public .modal.wide,
+.auth-wrap .modal.wide {
+  max-width: 780px;
+}
+
+.app .modal.xwide,
+.public .modal.xwide,
+.auth-wrap .modal.xwide {
+  max-width: min(1180px, calc(100vw - 48px));
+}
+
+.app .modal.drawer,
+.public .modal.drawer,
+.auth-wrap .modal.drawer {
+  border-radius: 0;
+  max-width: 590px;
+}
+
+.app .modal-head,
+.public .modal-head,
+.auth-wrap .modal-head {
+  padding: 20px 26px;
+}
+
+.app .modal-head h3,
+.public .modal-head h3,
+.auth-wrap .modal-head h3 {
+  font-size: 19px;
+  font-weight: 620;
+}
+
+.app .modal-body,
+.public .modal-body,
+.auth-wrap .modal-body {
+  padding: 26px;
+}
+
+.app .modal-foot,
+.public .modal-foot,
+.auth-wrap .modal-foot {
+  padding: 16px 26px;
+}
+
+.app .x-btn,
+.public .x-btn,
+.auth-wrap .x-btn {
+  border-radius: 50%;
+}
+
+.app .empty,
+.public .empty,
+.auth-wrap .empty {
+  padding: 44px 26px;
+}
+
+/* Public and authentication surfaces */
+.public .public-top {
+  backdrop-filter: saturate(180%) blur(20px);
+  background: color-mix(in srgb, var(--paper) 86%, transparent);
+  height: 60px;
+  padding: 0 40px;
+}
+
+.public .public-nav {
+  gap: 14px;
+}
+
+.public .public-nav a {
+  border-radius: 0;
+  color: var(--ink-3);
+  padding: 7px 4px;
+}
+
+.public .public-nav a:hover {
+  background: transparent;
+  color: var(--ink);
+}
+
+.public .public-body {
+  max-width: 1220px;
+  padding: 44px 40px 96px;
+}
+
+.public .preview-banner {
+  border-color: var(--line);
+  border-radius: var(--r-pill);
+  padding: 14px 20px;
+}
+
+.public .lband-inner {
+  max-width: 1220px;
+  padding: 76px 40px;
+}
+
+.public .lband-title {
+  font-size: 34px;
+  font-weight: 620;
+}
+
+.public .lband-eyebrow {
+  color: var(--ink-3);
+}
+
+.public .steps,
+.public .facts {
+  border-radius: 8px;
+}
+
+.public .step-icon {
+  background: var(--surface-2);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+.public .lband.dark,
+.public .fact {
+  background: var(--ink);
+}
+
+.public .lband.dark .lband-eyebrow {
+  color: var(--ghost);
+}
+
+.public .dark-cta .btn-primary {
+  background: var(--paper);
+  border-color: var(--paper);
+  color: var(--ink);
+}
+
+.auth-wrap {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 60px 40px;
+}
+
+.auth-wrap .auth-card {
+  border-color: var(--line);
+  border-radius: 10px;
+  box-shadow: none;
+  margin: 0 auto;
+  max-width: 460px;
+  padding: 34px 36px 30px;
+}
+
+.auth-wrap .auth-card.wide {
+  max-width: 560px;
+}
+
+.auth-wrap .auth-steps .s.done,
+.auth-wrap .auth-steps .s.cur {
+  background: var(--ink);
+}
+
+.auth-wrap .timeline .done,
+.auth-wrap .tl-line.done {
+  color: var(--ink);
+}
+
+/* Existing marketplace redesign: keep its live-data layout, align semantics. */
+.app .marketplace-investing-rule.active {
+  background: rgba(30, 106, 75, 0.06);
+  border-color: rgba(30, 106, 75, 0.28);
+}
+
+.app .marketplace-investing-rule.active .marketplace-investing-rule-dot {
+  background: var(--ok);
+  box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--ok);
+}
+
+.app .marketplace-investing-rule.active .marketplace-investing-rule-state {
+  color: var(--ok);
+}
+
+.app .marketplace-balance-link:hover,
+.app .marketplace-process-help:hover {
+  color: var(--ink);
+}
+
+.app .marketplace-opportunity-hit:focus-visible {
+  outline-color: var(--ink);
+}
+
+@media (max-width: 1080px) {
+  .app .content {
+    padding-left: 30px;
+    padding-right: 30px;
+  }
+}
+
+@media (max-width: 860px) {
+  .app .sidebar {
+    box-shadow: var(--shadow-pop);
+  }
+
+  .app .topbar {
+    padding: 0 18px;
+  }
+
+  .app .scrim,
+  .public .scrim,
+  .auth-wrap .scrim {
+    padding: 14px;
+  }
+
+  .app .modal:not(.drawer),
+  .public .modal:not(.drawer),
+  .auth-wrap .modal:not(.drawer) {
+    max-height: calc(100vh - 28px);
+  }
+}
+
+@media (max-width: 560px) {
+  .app .content,
+  .public .public-body {
+    padding: 28px 18px 68px;
+  }
+
+  .app .page-head,
+  .public .page-head {
+    align-items: flex-start;
+    margin-bottom: 22px;
+  }
+
+  .app .page-head h1,
+  .public .page-head h1 {
+    font-size: 26px;
+  }
+
+  .app .grid-stat > .stat,
+  .public .grid-stat > .stat,
+  .app .card-pad,
+  .public .card-pad {
+    padding: 20px;
+  }
+
+  .public .public-top {
+    padding: 0 16px;
+  }
+
+  .public .preview-banner {
+    border-radius: 8px;
+  }
+
+  .auth-wrap {
+    justify-content: flex-start;
+    padding: 28px 16px 48px;
+  }
+
+  .auth-wrap .auth-card {
+    padding: 28px 22px 24px;
+  }
+
+  .app .tabs,
+  .public .tabs,
+  .auth-wrap .tabs {
+    gap: 10px;
+  }
+
+  .app .tabs button,
+  .public .tabs button,
+  .auth-wrap .tabs button {
+    font-size: 12px;
+  }
+
+  .app .modal-body,
+  .public .modal-body,
+  .auth-wrap .modal-body {
+    padding: 22px 18px;
+  }
+
+  .app .modal-head,
+  .public .modal-head,
+  .auth-wrap .modal-head,
+  .app .modal-foot,
+  .public .modal-foot,
+  .auth-wrap .modal-foot {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+}

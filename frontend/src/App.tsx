@@ -2329,7 +2329,7 @@ function Dashboard({ demoState, setRoute }: { demoState: DemoAccountState; setRo
           <div className="ph-sub">Account overview - {formatDate(dashboard.as_of)} - Europe/Zurich</div>
         </div>
         <div className="page-actions">
-          <Button icon="wallet" onClick={() => goTo(setRoute, "balances")}>Deposit</Button>
+          <Button className="btn-green-line" icon="wallet" onClick={() => goTo(setRoute, "balances")}>Deposit</Button>
           <Button icon="market" variant="primary" onClick={() => goTo(setRoute, "market")}>Browse loans</Button>
         </div>
       </div>
@@ -2406,7 +2406,7 @@ function AgeingAlerts({ balances, setRoute }: { balances: BalanceSummary[]; setR
 function FrozenBanner({ setRoute }: { setRoute: (route: AppRoute) => void }) {
   return (
     <Banner
-      actions={<Button size="sm" variant="danger" onClick={() => goTo(setRoute, "balances")}>Add payout IBAN</Button>}
+      actions={<Button size="sm" variant="primary" onClick={() => goTo(setRoute, "balances")}>Add payout IBAN</Button>}
       icon="lock"
       tone="bad"
       title="Financial actions are frozen - provide a usable payout IBAN"
@@ -2443,7 +2443,7 @@ function BalanceCard({ summary, setRoute, frozen }: { summary: BalanceSummary; s
       <BalanceRow currency={summary.currency} label="Overdue" tone="warn" value={summary.overdue_minor} />
       <BalanceRow currency={summary.currency} label="Penalty mode" tone="bad" value={summary.penalty_mode_minor + summary.frozen_minor} />
       <div className="row gap-8" style={{ marginTop: 14 }}>
-        <Button block disabled={frozen} size="sm" onClick={() => goTo(setRoute, "balances")}>Deposit</Button>
+        <Button block className="btn-green-line" disabled={frozen} size="sm" onClick={() => goTo(setRoute, "balances")}>Deposit</Button>
         <Button block size="sm" variant="ghost" onClick={() => goTo(setRoute, "balances")}>Withdraw</Button>
       </div>
     </Card>
@@ -3251,7 +3251,7 @@ function BalancesScreen({ demoState }: { demoState: DemoAccountState }) {
         <BucketTile label="Penalty/frozen" value={frozen ? summary.overdue_minor : summary.penalty_mode_minor + summary.frozen_minor} currency={currency} tone={frozen ? "bad" : "neutral"} sub={frozen ? "IBAN required" : "None"} />
       </div>
       <div className="row gap-8 wrap" style={{ marginBottom: 20 }}>
-        <Button disabled={frozen || isReadonlyImpersonationActive()} icon="plus" variant="primary" onClick={() => setModal("deposit")}>Deposit funds</Button>
+        <Button className="btn-green" disabled={frozen || isReadonlyImpersonationActive()} icon="plus" variant="primary" onClick={() => setModal("deposit")}>Deposit funds</Button>
         <Button disabled={isReadonlyImpersonationActive()} icon="download" onClick={() => setModal("withdraw")}>Withdraw</Button>
         <Button disabled={isReadonlyImpersonationActive()} icon="balance" variant="ghost" onClick={() => setModal("iban")}>Payout IBANs</Button>
       </div>

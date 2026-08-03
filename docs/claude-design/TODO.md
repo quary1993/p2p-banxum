@@ -343,6 +343,14 @@ Before launch, Claude Design should produce or implement:
 - Suggested improvement: review long-schedule ergonomics inside transaction modals, sticky headers, mobile table scrolling, visual step progression, focus placement when moving to verification, and the hierarchy between loan risk information and transaction pricing. Do not collapse the schedule review into client-side calculations or expose seller-side fields to buyers.
 - Priority: important.
 
+## 2026-08-03: Investor Brandbook Reskin
+
+- Screen or component: public preview, onboarding/authentication, investor shell, dashboard, marketplace, portfolio, balances, FX, secondary market, documents, notifications, settings, FAQ, forms, tables, status surfaces, and dialogs. The internal admin console remains visually isolated from this layer.
+- Current first-version behavior: the existing production flows now use the `website_redesign` visual language without changing routes, API calls, mutations, data projections, or account-state behavior. The reskin applies the ivory/card/hairline palette, Instrument Sans financial figures, Newsreader editorial asides, carbon binding actions, green add-money/profit semantics, red risk/destructive semantics, pill actions and modes, lighter tables, quieter cards, and tighter responsive layouts. The marketplace retains its live-data filters and expanded detail while matching the redesign's company/rate/term/LTV/capacity/deadline hierarchy.
+- Design decision: keep the existing sidebar information architecture and every established workflow. Carbon is the default command color; green is reserved for adding money, positive value, and future active investing-rule state; red is reserved for risk, lateness, penalties, and destructive action. Investor/public styles stay scoped to `.app`, `.public`, and `.auth-wrap` so they cannot restyle the operations-focused admin console.
+- Suggested improvement: continue the page-by-page redesign only by adapting existing backend projections and workflows. Verify every future screen at desktop, 768px tablet, and 390px mobile; keep wide financial tables contained rather than creating page-level overflow; and preserve the focused/detailed marketplace modes as fields are added.
+- Priority: important.
+
 ## 2026-07-27: Consolidated Secondary-Market Listing Management
 
 - Screen or component: Secondary Market `Sell a holding` and `Secondary market activity` tabs, plus Portfolio Holdings status.
