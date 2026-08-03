@@ -1566,6 +1566,8 @@ def public_marketplace_listing_payload(loan: Model) -> dict[str, Any]:
         "risk_rating": str(loan_ref.risk_rating),
         "funding_deadline": loan_ref.funding_deadline,
         "status": str(loan_ref.status),
+        "minimum_investment_minor": _minimum_investment_minor(str(loan_ref.currency_id)),
+        "ltv_bps": loan_ref.ltv_bps,
         "is_refinancing": bool(loan_ref.is_refinancing),
     }
 

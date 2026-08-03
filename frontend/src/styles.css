@@ -3677,13 +3677,78 @@ table.tbl tfoot.schedule-totals th.num,
   color: var(--accent);
 }
 
+.marketplace-investing-rule {
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-family: inherit;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 16px;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.marketplace-investing-rule:hover {
+  border-color: var(--line-strong);
+  background: var(--paper);
+}
+
+.marketplace-investing-rule-dot {
+  background: var(--bad);
+  border-radius: 50%;
+  display: inline-block;
+  flex: 0 0 auto;
+  height: 7px;
+  width: 7px;
+}
+
+.marketplace-investing-rule-name {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.marketplace-investing-rule-state {
+  color: var(--bad);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.marketplace-investing-rule-arrow {
+  color: var(--ink-3);
+  font-size: 12px;
+  margin-left: 2px;
+}
+
+.marketplace-investing-rule.active {
+  background: rgba(30, 106, 75, 0.06);
+  border-color: rgba(30, 106, 75, 0.28);
+}
+
+.marketplace-investing-rule.active .marketplace-investing-rule-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--accent);
+}
+
+.marketplace-investing-rule.active .marketplace-investing-rule-state {
+  color: var(--accent);
+}
+
 .marketplace-process {
   border-bottom: 1px solid var(--line);
   border-top: 1px solid var(--line);
   display: grid;
   gap: 0;
   grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
-  margin-bottom: 42px;
+  margin: 38px 0 42px;
 }
 
 .marketplace-process > div {
@@ -3783,7 +3848,7 @@ table.tbl tfoot.schedule-totals th.num,
 .marketplace-opportunity-main {
   display: grid;
   gap: 12px;
-  grid-template-columns: minmax(280px, 1.75fr) 92px 66px minmax(190px, 1fr) 126px 94px;
+  grid-template-columns: minmax(280px, 1.75fr) 78px 70px 112px minmax(180px, 1fr) 102px;
 }
 
 .marketplace-list-head {
@@ -3871,12 +3936,14 @@ table.tbl tfoot.schedule-totals th.num,
 
 .marketplace-opportunity-rate,
 .marketplace-opportunity-term,
+.marketplace-opportunity-collateral,
 .marketplace-opportunity-deadline {
   text-align: center;
 }
 
 .marketplace-opportunity-rate strong,
 .marketplace-opportunity-term strong,
+.marketplace-opportunity-collateral strong,
 .marketplace-opportunity-deadline strong {
   display: block;
   font-size: 14px;
@@ -3891,6 +3958,7 @@ table.tbl tfoot.schedule-totals th.num,
 
 .marketplace-opportunity-rate small,
 .marketplace-opportunity-term small,
+.marketplace-opportunity-collateral small,
 .marketplace-opportunity-funding small,
 .marketplace-opportunity-deadline small {
   color: var(--ink-3);
@@ -3925,15 +3993,17 @@ table.tbl tfoot.schedule-totals th.num,
   margin-top: 7px;
 }
 
-.marketplace-opportunity-status {
-  align-items: center;
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
+.marketplace-opportunity-deadline {
+  padding-right: 18px;
+  position: relative;
 }
 
 .marketplace-row-arrow {
   color: var(--ink-4);
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
 }
 
 .marketplace-mobile-label {
@@ -4031,38 +4101,7 @@ table.tbl tfoot.schedule-totals th.num,
   }
 
   .marketplace-opportunity-main {
-    grid-template-columns: minmax(250px, 1fr) 88px minmax(180px, 0.8fr) 120px;
-    grid-template-rows: auto auto;
-  }
-
-  .marketplace-opportunity-name {
-    grid-column: 1;
-    grid-row: 1 / span 2;
-  }
-
-  .marketplace-opportunity-rate {
-    grid-column: 2;
-    grid-row: 1;
-  }
-
-  .marketplace-opportunity-term {
-    grid-column: 2;
-    grid-row: 2;
-  }
-
-  .marketplace-opportunity-funding {
-    grid-column: 3;
-    grid-row: 1 / span 2;
-  }
-
-  .marketplace-opportunity-deadline {
-    grid-column: 4;
-    grid-row: 1;
-  }
-
-  .marketplace-opportunity-status {
-    grid-column: 4;
-    grid-row: 2;
+    grid-template-columns: minmax(240px, 1fr) 76px 66px 104px minmax(170px, 0.8fr) 100px;
   }
 
   .marketplace-mobile-label {
@@ -4130,8 +4169,8 @@ table.tbl tfoot.schedule-totals th.num,
   }
 
   .marketplace-opportunity-main {
-    grid-template-columns: minmax(220px, 1fr) 82px minmax(170px, 0.8fr) 112px;
-    min-width: 680px;
+    grid-template-columns: minmax(230px, 1fr) 76px 66px 104px minmax(170px, 0.8fr) 100px;
+    min-width: 820px;
   }
 
   .marketplace-list {
@@ -4139,7 +4178,7 @@ table.tbl tfoot.schedule-totals th.num,
   }
 
   .marketplace-opportunity-details {
-    min-width: 680px;
+    min-width: 820px;
   }
 }
 
@@ -4172,7 +4211,7 @@ table.tbl tfoot.schedule-totals th.num,
     order: 4;
   }
 
-  .marketplace-balance-link {
+  .marketplace-investing-rule {
     margin-left: auto;
     order: 5;
   }
@@ -4224,15 +4263,15 @@ table.tbl tfoot.schedule-totals th.num,
 
   .marketplace-opportunity-rate,
   .marketplace-opportunity-term,
-  .marketplace-opportunity-deadline,
-  .marketplace-opportunity-status {
+  .marketplace-opportunity-collateral,
+  .marketplace-opportunity-deadline {
     grid-column: auto;
     grid-row: auto;
     text-align: left;
   }
 
-  .marketplace-opportunity-status {
-    justify-content: flex-start;
+  .marketplace-opportunity-deadline {
+    padding-right: 22px;
   }
 
   .marketplace-opportunity-details {

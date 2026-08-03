@@ -25,6 +25,8 @@ class MarketplaceLoanPreviewSerializer(serializers.Serializer[Any]):
     principal_minor = serializers.IntegerField()
     committed_principal_minor = serializers.IntegerField()
     remaining_capacity_minor = serializers.IntegerField()
+    minimum_investment_minor = serializers.IntegerField()
+    ltv_bps = serializers.IntegerField(allow_null=True)
     is_refinancing = serializers.BooleanField()
 
 
@@ -45,7 +47,6 @@ class MarketplaceLoanDetailSerializer(MarketplaceLoanPreviewSerializer):
     purpose_description = serializers.CharField()
     collateral_value_minor = serializers.IntegerField()
     collateral_description = serializers.CharField()
-    ltv_bps = serializers.IntegerField(allow_null=True)
     ltv_warnings = serializers.ListField(child=serializers.CharField())
     original_principal_minor = serializers.IntegerField()
     original_interest_rate_bps = serializers.IntegerField(allow_null=True)

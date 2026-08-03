@@ -9022,6 +9022,11 @@ components:
           type: integer
         remaining_capacity_minor:
           type: integer
+        minimum_investment_minor:
+          type: integer
+        ltv_bps:
+          type: integer
+          nullable: true
         is_refinancing:
           type: boolean
         borrower_id:
@@ -9038,9 +9043,6 @@ components:
           type: integer
         collateral_description:
           type: string
-        ltv_bps:
-          type: integer
-          nullable: true
         ltv_warnings:
           type: array
           items:
@@ -9094,6 +9096,7 @@ components:
       - loan_start_date
       - ltv_bps
       - ltv_warnings
+      - minimum_investment_minor
       - original_interest_only_months
       - original_interest_rate_bps
       - original_loan_start_date
@@ -9141,6 +9144,11 @@ components:
           type: integer
         remaining_capacity_minor:
           type: integer
+        minimum_investment_minor:
+          type: integer
+        ltv_bps:
+          type: integer
+          nullable: true
         is_refinancing:
           type: boolean
       required:
@@ -9151,6 +9159,8 @@ components:
       - interest_rate_bps
       - is_refinancing
       - loan_id
+      - ltv_bps
+      - minimum_investment_minor
       - principal_minor
       - purpose
       - remaining_capacity_minor

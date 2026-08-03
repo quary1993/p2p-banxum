@@ -82,7 +82,8 @@ import {
   formatMoneyMinor,
   formatRateBps,
   parseMoneyInputToMinorUnits,
-  safeMetadataCategory
+  safeMetadataCategory,
+  zurichDateKey
 } from "./investorPortal/format";
 import type { AppRoute, DemoAccountState, RouteName } from "./investorPortal/types";
 import {
@@ -777,6 +778,23 @@ function sourceLabel(sourceType: string) {
 function fundingPercent(loan: Pick<MarketplaceLoanPreview, "principal_minor" | "committed_principal_minor">) {
   if (loan.principal_minor <= 0) return 0;
   return Math.round((loan.committed_principal_minor / loan.principal_minor) * 100);
+}
+
+function marketplaceCurrencySymbol(currency: string) {
+  if (currency === "EUR") return "€";
+  if (currency === "CHF") return "CHF";
+  return currency;
+}
+
+function fundingDeadlineLabel(deadline: string, asOf?: string) {
+  const currentKey = asOf?.slice(0, 10) || zurichDateKey(new Date());
+  const deadlineTime = Date.parse(`${deadline}T00:00:00Z`);
+  const currentTime = Date.parse(`${currentKey}T00:00:00Z`);
+  if (!Number.isFinite(deadlineTime) || !Number.isFinite(currentTime)) return formatDate(deadline);
+  const days = Math.max(0, Math.round((deadlineTime - currentTime) / 86_400_000));
+  if (days === 0) return "Today";
+  if (days === 1) return "1 day";
+  return `${days} days`;
 }
 
 function currentInvestableLotsForLoanCurrency(lots: BalanceLot[] | undefined, loan: MarketplaceLoanDetail) {
@@ -2483,6 +2501,7 @@ function MarketplaceScreen({
   const [sort, setSort] = useState<"deadline" | "rate" | "funding" | "capacity">("deadline");
   const [capacityCurrency, setCapacityCurrency] = useState("CHF");
   const [showOrderGuide, setShowOrderGuide] = useState(false);
+  const [showInvestingRule, setShowInvestingRule] = useState(false);
 
   const filtered = loans.filter((loan) => {
     const matchesSearch = `${loan.loan_id} ${loan.title} ${loan.purpose} ${loan.collateral_type} ${loan.risk_rating}`
@@ -2505,16 +2524,27 @@ function MarketplaceScreen({
     ? capacityCurrency
     : balanceSummaries[0]?.currency ?? capacityCurrency;
   const capacitySummary = balanceSummaries.find((summary) => summary.currency === activeCapacityCurrency);
+  const hasAccountMoney = balanceSummaries.some((summary) => summary.total_available_minor > 0);
+  const minimumLoan = loans.find((loan) => loan.currency === "EUR") ?? loans[0];
+  const minimumCurrency = minimumLoan?.currency ?? "EUR";
+  const minimumInvestmentMinor = minimumLoan?.minimum_investment_minor ?? 100000;
+  const investingRuleActive = false;
 
   return (
     <main className="content marketplace-page">
       <section className="marketplace-intro">
-        <div className="eyebrow">{openCount} open {openCount === 1 ? "opportunity" : "opportunities"}</div>
-        <h1>Choose the loan claims you want to fund.</h1>
-        <p>
-          Review each borrower, target interest, collateral and repayment term. You decide where to
-          place each order; returns are not guaranteed and invested capital is at risk.
-        </p>
+        <div className="eyebrow">
+          {openCount} open today · From {marketplaceCurrencySymbol(minimumCurrency)} {formatMoneyMinor(minimumInvestmentMinor, minimumCurrency, 0)}
+        </div>
+        <h1>These companies want your investment</h1>
+        {hasAccountMoney ? (
+          <p>Two ways to put your money to work</p>
+        ) : (
+          <p>
+            Review each borrower, target interest, collateral and repayment term. You decide where to
+            place each order; returns are not guaranteed and invested capital is at risk.
+          </p>
+        )}
       </section>
 
       <section aria-label="Investable balance" className="marketplace-capacity">
@@ -2527,7 +2557,7 @@ function MarketplaceScreen({
           {balancesQuery.isLoading && balanceSummaries.length === 0
             ? "Loading your eligible balance..."
             : capacitySummary
-              ? `${capacitySummary.active_lot_count} active balance ${capacitySummary.active_lot_count === 1 ? "lot" : "lots"}; loan-specific deadline checks still apply.`
+              ? "available to invest"
               : "No investable balance is currently available in this currency."}
         </div>
         {balanceSummaries.length > 1 ? (
@@ -2537,29 +2567,16 @@ function MarketplaceScreen({
             onChange={setCapacityCurrency}
           />
         ) : null}
-        <button className="marketplace-balance-link" onClick={() => goTo(setRoute, "balances")} type="button">
-          Review balances <Icon name="chevR" size={14} />
-        </button>
-      </section>
-
-      <section aria-label="How primary-market orders work" className="marketplace-process">
-        <div>
-          <span className="marketplace-process-number">01</span>
-          <strong>Choose each opportunity</strong>
-          <p>Open a loan to review its borrower disclosure, collateral, schedule, documents and risks.</p>
-        </div>
-        <div>
-          <span className="marketplace-process-number">02</span>
-          <strong>Allocation is first come, first served</strong>
-          <p>Your order is an intent until eligible balance is allocated and validated against capacity.</p>
-        </div>
-        <div>
-          <span className="marketplace-process-number">03</span>
-          <strong>Funding close creates the holding</strong>
-          <p>Allocated orders enter your portfolio only when Garanta closes the loan funding round.</p>
-        </div>
-        <button className="marketplace-process-help" onClick={() => setShowOrderGuide(true)} type="button">
-          Full order explanation <Icon name="chevR" size={14} />
+        <button
+          aria-label="Set your investing rule"
+          className={`marketplace-investing-rule ${investingRuleActive ? "active" : "inactive"}`}
+          onClick={() => setShowInvestingRule(true)}
+          type="button"
+        >
+          <span aria-hidden="true" className="marketplace-investing-rule-dot" />
+          <span className="marketplace-investing-rule-name">Investing rule</span>
+          <span className="marketplace-investing-rule-state">{investingRuleActive ? "Active" : "Not active"}</span>
+          <span aria-hidden="true" className="marketplace-investing-rule-arrow">→</span>
         </button>
       </section>
 
@@ -2626,6 +2643,7 @@ function MarketplaceScreen({
         <MarketplaceOpportunityList
           loans={sortedLoans}
           onOpen={(loan) => goTo(setRoute, "loan", { loanId: loan.loan_id })}
+          asOf={balancesQuery.data?.as_of}
           viewMode={viewMode}
         />
       )}
@@ -2633,6 +2651,39 @@ function MarketplaceScreen({
         Funding progress reflects validated allocations only. Pending orders do not reserve capacity.
       </p>
       </section>
+
+      <section aria-label="How primary-market orders work" className="marketplace-process">
+        <div>
+          <span className="marketplace-process-number">01</span>
+          <strong>Choose each opportunity</strong>
+          <p>Open a loan to review its borrower disclosure, collateral, schedule, documents and risks.</p>
+        </div>
+        <div>
+          <span className="marketplace-process-number">02</span>
+          <strong>Allocation is first come, first served</strong>
+          <p>Your order is an intent until eligible balance is allocated and validated against capacity.</p>
+        </div>
+        <div>
+          <span className="marketplace-process-number">03</span>
+          <strong>Funding close creates the holding</strong>
+          <p>Allocated orders enter your portfolio only when Garanta closes the loan funding round.</p>
+        </div>
+        <button className="marketplace-process-help" onClick={() => setShowOrderGuide(true)} type="button">
+          Full order explanation <Icon name="chevR" size={14} />
+        </button>
+      </section>
+
+      {showInvestingRule ? (
+        <Modal
+          footer={<Button variant="primary" onClick={() => setShowInvestingRule(false)}>Close</Button>}
+          onClose={() => setShowInvestingRule(false)}
+          title="Investing rule"
+        >
+          <Banner tone="neutral" title="Not active yet">
+            Investing rules are a future BANXUM module. Until it is available, you choose and confirm every investment order individually; no balance is invested automatically.
+          </Banner>
+        </Modal>
+      ) : null}
 
       {showOrderGuide ? (
         <Modal
@@ -2659,21 +2710,23 @@ function MarketplaceScreen({
 function MarketplaceOpportunityList({
   loans,
   onOpen,
+  asOf,
   viewMode
 }: {
   loans: MarketplaceLoanPreview[];
   onOpen: (loan: MarketplaceLoanPreview) => void;
+  asOf?: string;
   viewMode: "focused" | "detailed";
 }) {
   return (
     <div className={`marketplace-list ${viewMode}`}>
       <div aria-hidden="true" className="marketplace-list-head">
-        <span>Opportunity</span>
-        <span>Target interest</span>
+        <span>Company</span>
+        <span>Rate</span>
         <span>Term</span>
+        <span>Collateral margin</span>
         <span>Available to invest</span>
-        <span>Funding deadline</span>
-        <span>Status</span>
+        <span>Closes in</span>
       </div>
       {loans.map((loan) => {
         const fundedPercent = fundingPercent(loan);
@@ -2696,6 +2749,7 @@ function MarketplaceOpportunityList({
                   <Rating value={loan.risk_rating} />
                   <span className="tag">{loan.currency}</span>
                   {loan.is_refinancing ? <RefinancedTag /> : null}
+                  <Chip status={loan.status} />
                   <span className="marketplace-copy-id" onClick={(event) => event.stopPropagation()}><CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" /></span>
                 </div>
               </div>
@@ -2709,6 +2763,11 @@ function MarketplaceOpportunityList({
                 <strong>{loan.term_months}</strong>
                 <small>months</small>
               </div>
+              <div className="marketplace-opportunity-collateral">
+                <span className="marketplace-mobile-label">Collateral margin</span>
+                <strong>{loan.ltv_bps === null ? "Not disclosed" : formatRateBps(loan.ltv_bps)}</strong>
+                <small>{loan.ltv_bps === null ? "No LTV" : "of valuation"}</small>
+              </div>
               <div className="marketplace-opportunity-funding">
                 <span className="marketplace-mobile-label">Available to invest</span>
                 <div className="marketplace-funding-value">
@@ -2719,12 +2778,9 @@ function MarketplaceOpportunityList({
                 <small>{loan.currency} {formatMoneyMinor(loan.committed_principal_minor, loan.currency)} of {formatMoneyMinor(loan.principal_minor, loan.currency)}</small>
               </div>
               <div className="marketplace-opportunity-deadline">
-                <span className="marketplace-mobile-label">Funding deadline</span>
-                <strong>{formatDate(loan.funding_deadline)}</strong>
-                <small>Europe/Zurich</small>
-              </div>
-              <div className="marketplace-opportunity-status">
-                <Chip status={loan.status} />
+                <span className="marketplace-mobile-label">Closes in</span>
+                <strong>{fundingDeadlineLabel(loan.funding_deadline, asOf)}</strong>
+                <small>{formatDate(loan.funding_deadline)}</small>
                 <Icon className="marketplace-row-arrow" name="chevR" size={16} />
               </div>
             </div>

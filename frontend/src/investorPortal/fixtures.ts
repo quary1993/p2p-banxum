@@ -367,6 +367,8 @@ export const marketplaceLoansFixture: MarketplaceLoanPreview[] = [
     principal_minor: amount(1450000),
     committed_principal_minor: amount(1087500),
     remaining_capacity_minor: amount(362500),
+    minimum_investment_minor: amount(1000),
+    ltv_bps: 5800,
     is_refinancing: true
   },
   {
@@ -383,6 +385,8 @@ export const marketplaceLoansFixture: MarketplaceLoanPreview[] = [
     principal_minor: amount(620000),
     committed_principal_minor: amount(558000),
     remaining_capacity_minor: amount(62000),
+    minimum_investment_minor: amount(1000),
+    ltv_bps: 4900,
     is_refinancing: false
   },
   {
@@ -399,6 +403,8 @@ export const marketplaceLoansFixture: MarketplaceLoanPreview[] = [
     principal_minor: amount(1980000),
     committed_principal_minor: amount(415800),
     remaining_capacity_minor: amount(1564200),
+    minimum_investment_minor: amount(1000),
+    ltv_bps: 5800,
     is_refinancing: false
   },
   {
@@ -415,6 +421,8 @@ export const marketplaceLoansFixture: MarketplaceLoanPreview[] = [
     principal_minor: amount(540000),
     committed_principal_minor: amount(540000),
     remaining_capacity_minor: 0,
+    minimum_investment_minor: amount(1000),
+    ltv_bps: 6200,
     is_refinancing: false
   },
   {
@@ -431,6 +439,8 @@ export const marketplaceLoansFixture: MarketplaceLoanPreview[] = [
     principal_minor: amount(300000),
     committed_principal_minor: amount(270000),
     remaining_capacity_minor: amount(30000),
+    minimum_investment_minor: amount(1000),
+    ltv_bps: null,
     is_refinancing: false
   }
 ];

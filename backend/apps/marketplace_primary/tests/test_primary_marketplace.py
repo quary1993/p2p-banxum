@@ -1804,6 +1804,8 @@ def test_primary_marketplace_api_flow(
 
     assert preview_response.status_code == 200
     assert preview_response.json()[0]["loan_id"] == str(loan.pk)
+    assert preview_response.json()[0]["minimum_investment_minor"] == 100000
+    assert preview_response.json()[0]["ltv_bps"] == 6667
     assert detail_response.status_code == 200
     assert detail_response.json()["investor_summary"]
     assert order_response.status_code == 201

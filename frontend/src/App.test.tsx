@@ -197,9 +197,19 @@ test("marketplace redesign preserves live filters, detail mode, and order guidan
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
   fireEvent.click(screen.getByRole("button", { name: "Marketplace" }));
 
-  expect(screen.getByRole("heading", { name: "Choose the loan claims you want to fund." })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "These companies want your investment" })).toBeInTheDocument();
+  expect(screen.getByText("Two ways to put your money to work")).toBeInTheDocument();
+  expect(screen.getByText(/From € 1.000/i)).toBeInTheDocument();
   expect(screen.getByText("Available to commit")).toBeInTheDocument();
+  expect(screen.getByText("available to invest")).toBeInTheDocument();
+  expect(screen.getAllByText("58.0%").length).toBeGreaterThan(0);
   expect(screen.getByText("4 loans")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Set your investing rule" }));
+  const investingRuleDialog = screen.getByRole("dialog", { name: "Investing rule" });
+  expect(investingRuleDialog).toBeInTheDocument();
+  expect(screen.getByText(/future BANXUM module/i)).toBeInTheDocument();
+  fireEvent.click(within(investingRuleDialog).getAllByRole("button", { name: "Close" })[1]);
 
   fireEvent.click(screen.getByRole("tab", { name: "Detailed" }));
   expect(screen.getAllByText("Loan amount")).toHaveLength(4);
