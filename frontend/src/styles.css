@@ -299,12 +299,6 @@ td.num {
   min-width: 0;
 }
 
-.investor-brand-line {
-  align-items: center;
-  display: flex;
-  gap: 8px;
-}
-
 .investor-brand-word {
   align-items: baseline;
   display: inline-flex;
@@ -315,50 +309,22 @@ td.num {
   white-space: nowrap;
 }
 
-.investor-brand-visual {
-  align-items: baseline;
-  display: inline-flex;
-}
-
-.investor-brand-x {
-  display: inline-flex;
-  height: 13px;
-  margin: 0 1px;
-  width: 13px;
-}
-
-.investor-brand-x svg {
-  fill: currentColor;
-  height: 100%;
-  width: 100%;
-}
-
-.investor-brand-swiss {
-  background: #d8232a;
-  display: inline-block;
-  height: 14px;
+.investor-brand-art {
+  display: block;
+  flex: none;
+  height: 24px;
+  overflow: hidden;
   position: relative;
-  width: 14px;
+  width: 143px;
 }
 
-.investor-brand-swiss::before,
-.investor-brand-swiss::after {
-  background: #fff;
-  content: "";
-  left: 50%;
+.investor-brand-art img {
+  display: block;
+  left: -14px;
+  max-width: none;
   position: absolute;
-  top: 50%;
-  transform: translate(-50%, -50%);
-}
-
-.investor-brand-swiss::before {
-  height: 8px;
-  width: 3px;
-}
-
-.investor-brand-swiss::after {
-  height: 3px;
-  width: 8px;
+  top: -15px;
+  width: 172px;
 }
 
 .investor-brand-operator {
@@ -369,18 +335,15 @@ td.num {
   white-space: nowrap;
 }
 
-.investor-brand.compact .investor-brand-word {
-  font-size: 19px;
+.investor-brand.compact .investor-brand-art {
+  height: 21px;
+  width: 99px;
 }
 
-.investor-brand.compact .investor-brand-x {
-  height: 11.5px;
-  width: 11.5px;
-}
-
-.investor-brand.compact .investor-brand-swiss {
-  height: 12px;
-  width: 12px;
+.investor-brand.compact .investor-brand-art img {
+  left: -11px;
+  top: -14px;
+  width: 120px;
 }
 
 .nav {
@@ -5298,38 +5261,6 @@ table.tbl tfoot.schedule-totals th.num,
   margin-bottom: 14px;
 }
 
-.app .fx-page .mtabs {
-  border-bottom: 1px solid #dde3e1;
-  display: flex;
-  gap: 26px;
-  margin-bottom: 52px;
-  padding-bottom: 16px;
-}
-
-.app .fx-page .mtabs button {
-  background: none;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
-  color: #626b70;
-  cursor: pointer;
-  font: inherit;
-  font-size: 14px;
-  font-weight: 500;
-  padding: 0 0 3px;
-  white-space: nowrap;
-}
-
-.app .fx-page .mtabs button:hover {
-  color: #151719;
-}
-
-.app .fx-page .mtabs button.on {
-  border-bottom-color: #151719;
-  color: #151719;
-  font-weight: 600;
-}
-
 .app .fx-desk {
   align-items: flex-start;
   display: flex;
@@ -5830,16 +5761,6 @@ table.tbl tfoot.schedule-totals th.num,
   .public .modal:not(.drawer),
   .auth-wrap .modal:not(.drawer) {
     max-height: calc(100vh - 28px);
-  }
-
-  .app .fx-page .mtabs {
-    gap: 18px;
-    margin-bottom: 34px;
-    overflow-x: auto;
-  }
-
-  .app .fx-page .mtabs button {
-    flex: none;
   }
 
   .app .fx-cta-line {

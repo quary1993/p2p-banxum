@@ -25,7 +25,7 @@ function renderApp(path = "/") {
 test("renders the BANXUM public investor preview", () => {
   renderApp();
 
-  expect(screen.getByText("BANXUM")).toBeInTheDocument();
+  expect(screen.getByRole("img", { name: "BANXUM" })).toBeInTheDocument();
   expect(screen.getByText("by Garanta Finanzgruppe AG")).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "Open loan opportunities" })).toBeInTheDocument();
   expect(screen.getByText("Preview mode.")).toBeInTheDocument();
@@ -237,7 +237,11 @@ test("FX redesign uses CHF/EUR preview data and net-rate conversion history", ()
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
   fireEvent.click(screen.getByRole("button", { name: "FX" }));
 
-  expect(screen.getByRole("heading", { name: "Currency & FX" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Currency exchange" })).toBeInTheDocument();
+  expect(
+    screen.getByText("Convert available CHF and EUR balances. The executable rate and fee are shown before confirmation.")
+  ).toBeInTheDocument();
+  expect(screen.queryByRole("navigation", { name: "My money" })).not.toBeInTheDocument();
   expect(screen.getByText("Your balances")).toBeInTheDocument();
   fireEvent.change(screen.getByRole("textbox", { name: "Amount to convert from CHF" }), {
     target: { value: "1000.00" }
@@ -250,9 +254,7 @@ test("FX redesign uses CHF/EUR preview data and net-rate conversion history", ()
   expect(screen.queryByText(/Euro is the only currency/i)).not.toBeInTheDocument();
   expect(screen.queryByText(/Convert incoming payments/i)).not.toBeInTheDocument();
 
-  // Redesign 1:1 structure: My money tabs, rates rail, and the closing band.
-  expect(screen.getByRole("navigation", { name: "My money" })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Add money" })).toBeInTheDocument();
+  // The page keeps the redesign's rates rail and closing band without duplicating money navigation.
   expect(screen.getByText("Rates, net of fees", { selector: ".fx-cap" })).toBeInTheDocument();
   expect(screen.getByText("How to avoid all of this")).toBeInTheDocument();
   expect(screen.getByText(/We earn less when you do this/i)).toBeInTheDocument();

@@ -905,28 +905,18 @@ function Wordmark({ compact = false }: { compact?: boolean }) {
   const isBanxum = platformName.toUpperCase() === "BANXUM";
   return (
     <div className={`investor-brand ${compact ? "compact" : ""}`}>
-      <div className="investor-brand-line">
-        <span className="investor-brand-word">
-          {isBanxum ? (
-            <>
-              <span className="sr-only">{platformName}</span>
-              <span aria-hidden="true" className="investor-brand-visual">
-                <span>BAN</span>
-                <span className="investor-brand-x">
-                  <svg viewBox="0 0 56 56">
-                    <path d="M0 0h15.5L28 17.284 20.25 28z" />
-                    <path d="M40.5 0H56L35.75 28 28 17.284z" />
-                    <path d="m35.75 28 20.25 28H40.5L28 38.716z" />
-                    <path d="M20.25 28 28 38.716 15.5 56H0z" />
-                  </svg>
-                </span>
-                <span>UM</span>
-              </span>
-            </>
-          ) : platformName}
+      {isBanxum ? (
+        <span className="investor-brand-art">
+          <img
+            alt={platformName}
+            src={compact ? "/brand/logo.png" : "/brand/logo-symbol.png"}
+          />
         </span>
-        <span aria-label="Switzerland" className="investor-brand-swiss" role="img" />
-      </div>
+      ) : (
+        <span className="investor-brand-word">
+          {platformName}
+        </span>
+      )}
       <span className="investor-brand-operator">by {operatorName}</span>
     </div>
   );
@@ -2150,7 +2140,7 @@ function InvestorShell({
       case "balances":
         return <BalancesScreen demoState={demoState} />;
       case "fx":
-        return <FxScreen demoState={demoState} setRoute={setRoute} />;
+        return <FxScreen demoState={demoState} />;
       case "documents":
         return <DocumentsScreen />;
       case "notifications":
@@ -3608,7 +3598,7 @@ function fxAvailabilityTitle(message: string) {
   return "Current FX rate unavailable";
 }
 
-function FxScreen({ demoState, setRoute }: { demoState: DemoAccountState; setRoute: (route: AppRoute) => void }) {
+function FxScreen({ demoState }: { demoState: DemoAccountState }) {
   const fxQuery = useFxData();
   const balancesQuery = useBalancesData();
   const fx = fxQuery.data;
@@ -3767,7 +3757,12 @@ function FxScreen({ demoState, setRoute }: { demoState: DemoAccountState; setRou
 
   return (
     <main className="content fx-page">
-      <h1 className="sr-only">Currency &amp; FX</h1>
+      <div className="page-head">
+        <div>
+          <h1>Currency exchange</h1>
+          <div className="ph-sub">Convert available CHF and EUR balances. The executable rate and fee are shown before confirmation.</div>
+        </div>
+      </div>
       {frozen ? <Banner icon="lock" tone="bad" title="FX is frozen">Provide a usable payout IBAN to unlock currency exchange.</Banner> : null}
       {readonly ? <Banner icon="lock" tone="info" title="Read-only view">FX quote and execution are disabled during superadmin read-only impersonation.</Banner> : null}
       {fxClosedForWeekend ? (
@@ -3775,13 +3770,6 @@ function FxScreen({ demoState, setRoute }: { demoState: DemoAccountState; setRou
           Live FX market rates are not published on weekends, so BANXUM cannot issue executable FX quotes now. Currency exchange resumes after markets reopen.
         </Banner>
       ) : null}
-
-      <nav aria-label="My money" className="mtabs">
-        <button onClick={() => goTo(setRoute, "balances")} type="button">Balance</button>
-        <button aria-current="page" className="on" type="button">Currency &amp; FX</button>
-        <button onClick={() => goTo(setRoute, "balances")} type="button">Add money</button>
-        <button onClick={() => goTo(setRoute, "balances")} type="button">Withdraw</button>
-      </nav>
 
       <div className="fx-desk">
         <section aria-label="Currency converter" className="fx-card">
