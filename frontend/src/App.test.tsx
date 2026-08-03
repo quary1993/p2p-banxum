@@ -186,6 +186,36 @@ test("published primary-market loans appear in dashboard and marketplace open vi
   expect(screen.getAllByText("Open").length).toBeGreaterThan(0);
 });
 
+test("marketplace redesign preserves live filters, detail mode, and order guidance", () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  fireEvent.click(screen.getByRole("button", { name: "Marketplace" }));
+
+  expect(screen.getByRole("heading", { name: "Choose the loan claims you want to fund." })).toBeInTheDocument();
+  expect(screen.getByText("Available to commit")).toBeInTheDocument();
+  expect(screen.getByText("4 loans")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("tab", { name: "Detailed" }));
+  expect(screen.getAllByText("Loan amount")).toHaveLength(4);
+  expect(screen.getAllByText("First come, first served")).toHaveLength(4);
+
+  fireEvent.change(screen.getByRole("textbox", { name: "Search investment opportunities" }), {
+    target: { value: "solar" }
+  });
+  expect(screen.getByText("Nordwind Energie GmbH")).toBeInTheDocument();
+  expect(screen.queryByText("Helvetia Logistik AG")).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Full order explanation" }));
+  const dialog = screen.getByRole("dialog", { name: "How primary-market orders work" });
+  expect(within(dialog).getByText(/pending order does not reserve loan capacity/i)).toBeInTheDocument();
+});
+
 test("refinanced marketplace loan shows badge and informational original loan schedule", () => {
   renderApp();
 

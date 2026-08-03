@@ -882,15 +882,32 @@ export function App() {
 }
 
 function Wordmark({ compact = false }: { compact?: boolean }) {
+  const isBanxum = platformName.toUpperCase() === "BANXUM";
   return (
-    <div className="brand" style={{ padding: 0 }}>
-      <span className="brand-mark">{platformName.slice(0, 1)}</span>
-      <div className="col" style={{ gap: 0 }}>
-        <span className="brand-name" style={compact ? { fontSize: 14 } : undefined}>
-          {platformName}
+    <div className={`investor-brand ${compact ? "compact" : ""}`}>
+      <div className="investor-brand-line">
+        <span className="investor-brand-word">
+          {isBanxum ? (
+            <>
+              <span className="sr-only">{platformName}</span>
+              <span aria-hidden="true" className="investor-brand-visual">
+                <span>BAN</span>
+                <span className="investor-brand-x">
+                  <svg viewBox="0 0 56 56">
+                    <path d="M0 0h15.5L28 17.284 20.25 28z" />
+                    <path d="M40.5 0H56L35.75 28 28 17.284z" />
+                    <path d="m35.75 28 20.25 28H40.5L28 38.716z" />
+                    <path d="M20.25 28 28 38.716 15.5 56H0z" />
+                  </svg>
+                </span>
+                <span>UM</span>
+              </span>
+            </>
+          ) : platformName}
         </span>
-        <span className="brand-sub">by {operatorName}</span>
+        <span aria-label="Switzerland" className="investor-brand-swiss" role="img" />
       </div>
+      <span className="investor-brand-operator">by {operatorName}</span>
     </div>
   );
 }
@@ -2144,13 +2161,7 @@ function InvestorShell({
     <div className="app">
       <div className={`nav-scrim ${navOpen ? "show" : ""}`} onClick={() => setNavOpen(false)} />
       <aside className={`sidebar ${navOpen ? "open" : ""}`}>
-        <div className="brand">
-          <span className="brand-mark">{platformName.slice(0, 1)}</span>
-          <div className="col" style={{ gap: 0 }}>
-            <span className="brand-name">{platformName}</span>
-            <span className="brand-sub">{operatorName}</span>
-          </div>
-        </div>
+        <div className="sidebar-brand"><Wordmark compact /></div>
         <nav aria-label="Investor portal navigation" className="nav">
           {navGroups.map((group) => (
             <div key={group.label}>
@@ -2463,39 +2474,146 @@ function MarketplaceScreen({
   setRoute: (route: AppRoute) => void;
 }) {
   const loansQuery = useMarketplaceLoansData();
+  const balancesQuery = useBalancesData();
   const loans = loansQuery.data ?? [];
   const [query, setQuery] = useState("");
   const [currency, setCurrency] = useState("all");
   const [availability, setAvailability] = useState<"open" | "all">("open");
+  const [viewMode, setViewMode] = useState<"focused" | "detailed">("focused");
+  const [sort, setSort] = useState<"deadline" | "rate" | "funding" | "capacity">("deadline");
+  const [capacityCurrency, setCapacityCurrency] = useState("CHF");
+  const [showOrderGuide, setShowOrderGuide] = useState(false);
 
   const filtered = loans.filter((loan) => {
-    const matchesSearch = `${loan.loan_id} ${loan.title}`.toLowerCase().includes(query.toLowerCase());
+    const matchesSearch = `${loan.loan_id} ${loan.title} ${loan.purpose} ${loan.collateral_type} ${loan.risk_rating}`
+      .toLowerCase()
+      .includes(query.trim().toLowerCase());
     const matchesCurrency = currency === "all" || loan.currency === currency;
     const matchesAvailability = availability === "all" || isOpenMarketplaceLoan(loan);
     return matchesSearch && matchesCurrency && matchesAvailability;
   });
+  const sortedLoans = [...filtered].sort((left, right) => {
+    if (sort === "rate") return right.interest_rate_bps - left.interest_rate_bps;
+    if (sort === "funding") return fundingPercent(right) - fundingPercent(left);
+    if (sort === "capacity") return right.remaining_capacity_minor - left.remaining_capacity_minor;
+    const openDelta = Number(isOpenMarketplaceLoan(right)) - Number(isOpenMarketplaceLoan(left));
+    return openDelta || left.funding_deadline.localeCompare(right.funding_deadline);
+  });
+  const openCount = loans.filter(isOpenMarketplaceLoan).length;
+  const balanceSummaries = balancesQuery.data?.summaries ?? [];
+  const activeCapacityCurrency = balanceSummaries.some((summary) => summary.currency === capacityCurrency)
+    ? capacityCurrency
+    : balanceSummaries[0]?.currency ?? capacityCurrency;
+  const capacitySummary = balanceSummaries.find((summary) => summary.currency === activeCapacityCurrency);
 
   return (
-    <main className="content">
-      <div className="page-head">
+    <main className="content marketplace-page">
+      <section className="marketplace-intro">
+        <div className="eyebrow">{openCount} open {openCount === 1 ? "opportunity" : "opportunities"}</div>
+        <h1>Choose the loan claims you want to fund.</h1>
+        <p>
+          Review each borrower, target interest, collateral and repayment term. You decide where to
+          place each order; returns are not guaranteed and invested capital is at risk.
+        </p>
+      </section>
+
+      <section aria-label="Investable balance" className="marketplace-capacity">
+        <div className="marketplace-capacity-label">Available to commit</div>
+        <div className="marketplace-capacity-amount">
+          <span>{activeCapacityCurrency}</span>
+          {capacitySummary ? formatMoneyMinor(capacitySummary.investable_minor, activeCapacityCurrency) : "-"}
+        </div>
+        <div className="marketplace-capacity-note">
+          {balancesQuery.isLoading && balanceSummaries.length === 0
+            ? "Loading your eligible balance..."
+            : capacitySummary
+              ? `${capacitySummary.active_lot_count} active balance ${capacitySummary.active_lot_count === 1 ? "lot" : "lots"}; loan-specific deadline checks still apply.`
+              : "No investable balance is currently available in this currency."}
+        </div>
+        {balanceSummaries.length > 1 ? (
+          <Segmented
+            options={balanceSummaries.map((summary) => ({ value: summary.currency, label: summary.currency }))}
+            value={activeCapacityCurrency}
+            onChange={setCapacityCurrency}
+          />
+        ) : null}
+        <button className="marketplace-balance-link" onClick={() => goTo(setRoute, "balances")} type="button">
+          Review balances <Icon name="chevR" size={14} />
+        </button>
+      </section>
+
+      <section aria-label="How primary-market orders work" className="marketplace-process">
         <div>
-          <h1>Marketplace</h1>
-          <div className="ph-sub">Primary-market loan claims open for investment. Minimum CHF/EUR 1,000 per order.</div>
+          <span className="marketplace-process-number">01</span>
+          <strong>Choose each opportunity</strong>
+          <p>Open a loan to review its borrower disclosure, collateral, schedule, documents and risks.</p>
         </div>
-        <Segmented options={[{ value: "open", label: "Open" }, { value: "all", label: "All" }]} value={availability} onChange={setAvailability} />
-      </div>
-      <div className="toolbar">
-        <div className="search">
-          <Icon name="search" size={15} />
-          <input className="input" onChange={(event) => setQuery(event.target.value)} placeholder="Search borrower or loan ID" value={query} />
+        <div>
+          <span className="marketplace-process-number">02</span>
+          <strong>Allocation is first come, first served</strong>
+          <p>Your order is an intent until eligible balance is allocated and validated against capacity.</p>
         </div>
-        <select className="select filter-select" onChange={(event) => setCurrency(event.target.value)} value={currency}>
-          <option value="all">All currencies</option>
-          <option value="CHF">CHF</option>
-          <option value="EUR">EUR</option>
-        </select>
-        <span className="results-count">{filtered.length} loans</span>
-      </div>
+        <div>
+          <span className="marketplace-process-number">03</span>
+          <strong>Funding close creates the holding</strong>
+          <p>Allocated orders enter your portfolio only when Garanta closes the loan funding round.</p>
+        </div>
+        <button className="marketplace-process-help" onClick={() => setShowOrderGuide(true)} type="button">
+          Full order explanation <Icon name="chevR" size={14} />
+        </button>
+      </section>
+
+      <section className="marketplace-opportunities">
+        <div className="marketplace-section-head">
+          <div>
+            <div className="eyebrow">Primary market</div>
+            <h2>{availability === "open" ? "Open investment opportunities" : "All investment opportunities"}</h2>
+          </div>
+          <div className="marketplace-view-toggle">
+            <span>View</span>
+            <Segmented
+              options={[{ value: "focused", label: "Focused" }, { value: "detailed", label: "Detailed" }]}
+              value={viewMode}
+              onChange={setViewMode}
+            />
+          </div>
+        </div>
+
+        <div className="marketplace-toolbar">
+          <div className="search marketplace-search">
+            <Icon name="search" size={15} />
+            <input
+              aria-label="Search investment opportunities"
+              className="input"
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search name, purpose, collateral or reference"
+              value={query}
+            />
+          </div>
+          <select
+            aria-label="Filter by currency"
+            className="select filter-select"
+            onChange={(event) => {
+              const nextCurrency = event.target.value;
+              setCurrency(nextCurrency);
+              if (nextCurrency !== "all") setCapacityCurrency(nextCurrency);
+            }}
+            value={currency}
+          >
+            <option value="all">All currencies</option>
+            <option value="CHF">CHF</option>
+            <option value="EUR">EUR</option>
+          </select>
+          <select aria-label="Sort opportunities" className="select filter-select" onChange={(event) => setSort(event.target.value as typeof sort)} value={sort}>
+            <option value="deadline">Closing soonest</option>
+            <option value="rate">Highest target interest</option>
+            <option value="funding">Most funded</option>
+            <option value="capacity">Largest remaining capacity</option>
+          </select>
+          <Segmented options={[{ value: "open", label: "Open" }, { value: "all", label: "All" }]} value={availability} onChange={setAvailability} />
+          <span className="results-count">{sortedLoans.length} loans</span>
+        </div>
+
       {loansQuery.isError && loans.length === 0 ? (
         <DataErrorCard title="Could not load marketplace" onRetry={() => void loansQuery.refetch()}>
           The primary-market loan list is unavailable. Retry once the API connection is restored.
@@ -2505,12 +2623,124 @@ function MarketplaceScreen({
       ) : filtered.length === 0 ? (
         <Card><Empty icon="search" title="No loans match these filters">Try widening the currency or availability filters.</Empty></Card>
       ) : (
-        <LoansTable loans={filtered} onOpen={(loan) => goTo(setRoute, "loan", { loanId: loan.loan_id })} />
+        <MarketplaceOpportunityList
+          loans={sortedLoans}
+          onOpen={(loan) => goTo(setRoute, "loan", { loanId: loan.loan_id })}
+          viewMode={viewMode}
+        />
       )}
-      <p className="muted" style={{ fontSize: 11.5, marginTop: 14, maxWidth: 760 }}>
+      <p className="marketplace-footnote">
         Funding progress reflects validated allocations only. Pending orders do not reserve capacity.
       </p>
+      </section>
+
+      {showOrderGuide ? (
+        <Modal
+          footer={<Button variant="primary" onClick={() => setShowOrderGuide(false)}>Close</Button>}
+          onClose={() => setShowOrderGuide(false)}
+          title="How primary-market orders work"
+          wide
+        >
+          <div className="marketplace-order-guide">
+            <div><span>1</span><p><strong>You submit an order.</strong> It records the amount you want to invest, but a pending order does not reserve loan capacity.</p></div>
+            <div><span>2</span><p><strong>BANXUM validates eligible balance.</strong> Allocation is first come, first served and remains subject to your balance-lot investment window and the loan's remaining capacity.</p></div>
+            <div><span>3</span><p><strong>Allocated money is reserved.</strong> If the funding round proceeds, Garanta closes it and the allocated amount becomes a loan holding in your portfolio.</p></div>
+            <div><span>4</span><p><strong>If the loan does not proceed, the reservation is released.</strong> The amount returns to your platform balance and keeps its original regulatory ageing deadlines.</p></div>
+          </div>
+          <Banner tone="neutral" title="Minimum order">
+            The launch minimum is CHF/EUR 1,000 per order. The backend confirms eligibility, capacity, terms acceptance and the fresh email code before allocation.
+          </Banner>
+        </Modal>
+      ) : null}
     </main>
+  );
+}
+
+function MarketplaceOpportunityList({
+  loans,
+  onOpen,
+  viewMode
+}: {
+  loans: MarketplaceLoanPreview[];
+  onOpen: (loan: MarketplaceLoanPreview) => void;
+  viewMode: "focused" | "detailed";
+}) {
+  return (
+    <div className={`marketplace-list ${viewMode}`}>
+      <div aria-hidden="true" className="marketplace-list-head">
+        <span>Opportunity</span>
+        <span>Target interest</span>
+        <span>Term</span>
+        <span>Available to invest</span>
+        <span>Funding deadline</span>
+        <span>Status</span>
+      </div>
+      {loans.map((loan) => {
+        const fundedPercent = fundingPercent(loan);
+        return (
+          <article className="marketplace-opportunity" key={loan.loan_id} onClick={() => onOpen(loan)}>
+            <button
+              aria-label={`Open ${loan.title}`}
+              className="marketplace-opportunity-hit"
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpen(loan);
+              }}
+              type="button"
+            />
+            <div className="marketplace-opportunity-main">
+              <div className="marketplace-opportunity-name">
+                <strong>{loan.title}</strong>
+                <span>{loan.purpose}</span>
+                <div className="marketplace-opportunity-tags">
+                  <Rating value={loan.risk_rating} />
+                  <span className="tag">{loan.currency}</span>
+                  {loan.is_refinancing ? <RefinancedTag /> : null}
+                  <span className="marketplace-copy-id" onClick={(event) => event.stopPropagation()}><CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" /></span>
+                </div>
+              </div>
+              <div className="marketplace-opportunity-rate">
+                <span className="marketplace-mobile-label">Target interest</span>
+                <strong>{formatRateBps(loan.interest_rate_bps)}</strong>
+                <small>per annum</small>
+              </div>
+              <div className="marketplace-opportunity-term">
+                <span className="marketplace-mobile-label">Term</span>
+                <strong>{loan.term_months}</strong>
+                <small>months</small>
+              </div>
+              <div className="marketplace-opportunity-funding">
+                <span className="marketplace-mobile-label">Available to invest</span>
+                <div className="marketplace-funding-value">
+                  <strong>{loan.currency} {formatMoneyMinor(loan.remaining_capacity_minor, loan.currency)}</strong>
+                  <span>{fundedPercent}% funded</span>
+                </div>
+                <Progress percent={fundedPercent} />
+                <small>{loan.currency} {formatMoneyMinor(loan.committed_principal_minor, loan.currency)} of {formatMoneyMinor(loan.principal_minor, loan.currency)}</small>
+              </div>
+              <div className="marketplace-opportunity-deadline">
+                <span className="marketplace-mobile-label">Funding deadline</span>
+                <strong>{formatDate(loan.funding_deadline)}</strong>
+                <small>Europe/Zurich</small>
+              </div>
+              <div className="marketplace-opportunity-status">
+                <Chip status={loan.status} />
+                <Icon className="marketplace-row-arrow" name="chevR" size={16} />
+              </div>
+            </div>
+            {viewMode === "detailed" ? (
+              <div className="marketplace-opportunity-details">
+                <div><span>Loan amount</span><strong>{loan.currency} {formatMoneyMinor(loan.principal_minor, loan.currency)}</strong></div>
+                <div><span>Allocated</span><strong>{loan.currency} {formatMoneyMinor(loan.committed_principal_minor, loan.currency)}</strong></div>
+                <div><span>Collateral / backing</span><strong>{formatEnumLabel(loan.collateral_type)}</strong></div>
+                <div><span>Risk rating</span><strong>{loan.risk_rating}</strong></div>
+                <div><span>Allocation</span><strong>First come, first served</strong></div>
+              </div>
+            ) : null}
+          </article>
+        );
+      })}
+    </div>
   );
 }
 
