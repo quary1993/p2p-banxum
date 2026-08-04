@@ -5947,3 +5947,954 @@ table.tbl tfoot.schedule-totals th.num,
     white-space: normal;
   }
 }
+
+/* Portfolio: 1:1 port of website_redesign/portfolio.html, scoped to .pf-page.
+   Values copied verbatim from the design's styles.css and inline styles. */
+.app .pf-page {
+  max-width: 1040px;
+}
+
+.app .pf-hero {
+  margin-bottom: 44px;
+  text-align: center;
+}
+
+.app .pf-hero .eyebrow {
+  color: #626b70;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  margin-bottom: 22px;
+  text-transform: uppercase;
+}
+
+.app .pf-hero h2 {
+  font-size: 52px;
+  font-weight: 600;
+  letter-spacing: -0.045em;
+  line-height: 1.02;
+  margin: 0 0 20px;
+}
+
+.app .pf-lede {
+  color: #626b70;
+  font-size: 19px;
+  line-height: 1.5;
+  margin: 0 auto;
+  max-width: 580px;
+  text-wrap: pretty;
+}
+
+.app .pf-tabs-row {
+  align-items: center;
+  display: flex;
+  gap: 18px;
+}
+
+.app .pf-tabs-row .mtabs {
+  border-bottom: 1px solid #dde3e1;
+  display: flex;
+  flex: 1;
+  gap: 26px;
+  margin-bottom: 34px;
+  padding-bottom: 16px;
+}
+
+.app .pf-tabs-row .mtabs button {
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: #626b70;
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 0 0 3px;
+  white-space: nowrap;
+}
+
+.app .pf-tabs-row .mtabs button:hover {
+  color: #151719;
+}
+
+.app .pf-tabs-row .mtabs button.on {
+  border-bottom-color: #151719;
+  color: #151719;
+  font-weight: 600;
+}
+
+.app .pf-tabs-row > .seg {
+  margin-bottom: 34px;
+}
+
+.app .pf-page .seg {
+  background: #edeae2;
+  border-radius: 999px;
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+}
+
+.app .pf-page .seg button {
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  color: #626b70;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 7px 17px;
+  white-space: nowrap;
+}
+
+.app .pf-page .seg button.on {
+  background: #151719;
+  color: #f5f3ed;
+}
+
+.app .pf-page .sect {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  margin: 0 0 6px;
+}
+
+.app .pf-page .sect-sub {
+  color: #626b70;
+  font-size: 15px;
+  margin: 0 0 26px;
+  max-width: 660px;
+  text-wrap: pretty;
+}
+
+.app .pf-sect-row {
+  align-items: flex-end;
+  display: flex;
+  gap: 18px;
+  margin-bottom: 24px;
+}
+
+.app .pf-sect-note {
+  color: #626b70;
+  font-size: 15px;
+  margin: 0;
+  max-width: 520px;
+  text-wrap: pretty;
+}
+
+.app .pf-page .microlabel {
+  color: #626b70;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.app .pf-page .leader {
+  border-bottom: 1px dotted #c2bfb5;
+  flex: 1;
+  margin: 0 10px 4px;
+}
+
+.app .pf-page .grow {
+  flex: 1;
+}
+
+.app .pf-page .serif-note {
+  color: #292d30;
+  font-family: var(--font-display);
+  font-style: italic;
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+.app .pf-page .detail-col {
+  display: none !important;
+}
+
+.app .pf-table.detailed .detail-col {
+  display: flex !important;
+}
+
+.app .pf-table {
+  margin-bottom: 26px;
+  overflow-x: auto;
+}
+
+.app .pf-thead {
+  align-items: baseline;
+  border-bottom: 2px solid #151719;
+  color: #626b70;
+  display: flex;
+  font-size: 11px;
+  font-weight: 700;
+  gap: 18px;
+  letter-spacing: 0.14em;
+  padding-bottom: 9px;
+  text-transform: uppercase;
+}
+
+.app .pf-thead .detail-col,
+.app .pf-row .detail-col {
+  flex: none;
+  justify-content: flex-end;
+}
+
+.app .pf-col-rate { width: 52px; }
+.app .pf-col-term { width: 52px; }
+.app .pf-col-pays { width: 60px; }
+.app .pf-col-collateral { width: 78px; }
+.app .pf-col-next { white-space: nowrap; width: 132px; }
+.app .pf-col-share { flex: none; text-align: right; width: 74px; }
+.app .pf-col-amount { flex: none; text-align: right; width: 132px; }
+.app .pf-thead .pf-col-next { justify-content: flex-end; }
+
+.app .pf-row {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: #151719;
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  gap: 18px;
+  margin: 4px -8px 0;
+  padding: 5px 8px;
+  text-align: left;
+  width: calc(100% + 16px);
+}
+
+.app .pf-row:hover {
+  background: #fbfaf7;
+}
+
+.app .pf-company {
+  align-items: baseline;
+  display: flex;
+  flex: 1;
+  gap: 9px;
+  min-width: 0;
+}
+
+.app .pf-company-name {
+  font-size: 14.5px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app .pf-company-name.late {
+  color: #c4312c;
+}
+
+.app .pf-company-sub {
+  color: #8b939a;
+  flex: none;
+  font-size: 11.5px;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app .pf-tag {
+  color: #626b70;
+  flex: none;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.app .pf-tag.late {
+  color: #c4312c;
+}
+
+.app .pf-row .pf-col-rate,
+.app .pf-row .pf-col-term {
+  font-size: 13px;
+}
+
+.app .pf-row .strong {
+  font-weight: 600;
+}
+
+.app .pf-row .mut {
+  color: #626b70;
+}
+
+.app .pf-row .pf-col-pays,
+.app .pf-row .pf-col-collateral,
+.app .pf-row .pf-col-next {
+  font-size: 12.5px;
+}
+
+.app .pf-col-next.late {
+  color: #c4312c;
+}
+
+.app .pf-col-next b {
+  font-weight: 600;
+  margin-left: 4px;
+}
+
+.app .pf-row .pf-col-share {
+  font-size: 13px;
+}
+
+.app .pf-amount {
+  display: block;
+  font-size: 14.5px;
+  font-weight: 600;
+  padding-bottom: 5px;
+}
+
+.app .pf-amount.late {
+  color: #c4312c;
+}
+
+.app .pf-share-track {
+  background: #edeae2;
+  display: block;
+  height: 2px;
+}
+
+.app .pf-share-track > span {
+  background: #151719;
+  display: block;
+  height: 2px;
+}
+
+.app .pf-share-track > span.late {
+  background: #c4312c;
+}
+
+.app .pf-page .tfoot {
+  align-items: baseline;
+  border-top: 2px solid #151719;
+  display: flex;
+  gap: 18px;
+  margin-top: 16px;
+  padding-top: 15px;
+}
+
+.app .pf-tfoot-count {
+  flex: none;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.app .pf-tfoot-note {
+  color: #626b70;
+  flex: 1;
+  font-size: 12.5px;
+}
+
+.app .pf-tfoot-ccy {
+  color: #626b70;
+  font-size: 13.5px;
+  margin-right: 6px;
+}
+
+.app .pf-tfoot-total {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+}
+
+.app .pf-tfoot-cents {
+  color: #626b70;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.app .pf-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-bottom: 26px;
+}
+
+.app .pf-page .card471 {
+  background: #fbfaf7;
+  border: 1px solid #dde3e1;
+  border-radius: 10px;
+  color: #151719;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  font-family: inherit;
+  max-width: 100%;
+  padding: 24px 26px;
+  text-align: left;
+  width: 471px;
+}
+
+.app .pf-page .card471:hover,
+.app .pf-page .card471.open {
+  border-color: #151719;
+}
+
+.app .pf-page .card471 .head {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  margin-bottom: 20px;
+  width: 100%;
+}
+
+.app .pf-page .card471 .lab {
+  color: #626b70;
+  display: block;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  margin-bottom: 9px;
+  text-transform: uppercase;
+}
+
+.app .pf-page .card471 .tt {
+  display: block;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+.app .pf-page .card471 .sig {
+  align-items: center;
+  border: 1.4px solid #dde3e1;
+  border-radius: 999px;
+  color: #626b70;
+  display: flex;
+  flex: none;
+  font-size: 14px;
+  height: 26px;
+  justify-content: center;
+  line-height: 1;
+  width: 26px;
+}
+
+.app .pf-page .card471.open .sig {
+  border-color: #151719;
+  color: #151719;
+}
+
+.app .pf-page .card471 .foot {
+  align-items: baseline;
+  border-top: 1px solid #e4e1d8;
+  display: flex;
+  gap: 11px;
+  margin-top: auto;
+  padding-top: 16px;
+  width: 100%;
+}
+
+.app .pf-page .card471 .foot .big {
+  font-size: 26px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1;
+}
+
+.app .pf-page .card471 .foot .note {
+  color: #626b70;
+  font-size: 13px;
+  line-height: 1.45;
+  text-wrap: pretty;
+}
+
+.app .pf-page .panel-block {
+  background: #fbfaf7;
+  border: 1px solid #dde3e1;
+  border-radius: 8px;
+  padding: 32px;
+}
+
+.app .pf-panel {
+  margin: 8px 0 44px;
+}
+
+.app .pf-hex-layout {
+  align-items: flex-start;
+  display: flex;
+  gap: 36px;
+}
+
+.app .pf-page .kv-row {
+  align-items: baseline;
+  border-top: 1px solid #e4e1d8;
+  display: flex;
+  font-size: 13.5px;
+  margin: 0;
+  padding: 8px 0;
+}
+
+.app .pf-page .kv-row .k {
+  color: #626b70;
+  white-space: nowrap;
+}
+
+.app .pf-page .kv-row .v {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.app .pf-cal-kv {
+  align-items: baseline;
+  border-top: 1px solid #e4e1d8;
+  display: flex;
+  padding: 8px 0;
+}
+
+.app .pf-risk-block {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  margin-bottom: 44px;
+  padding: 30px 32px;
+}
+
+.app .pf-risk-grid {
+  display: grid;
+  gap: 0 44px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.app .pf-risk-cap {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  margin-bottom: 12px;
+  text-transform: uppercase;
+}
+
+.app .pf-risk-copy {
+  color: #292d30;
+  font-size: 14.5px;
+  line-height: 1.6;
+  margin-bottom: 20px;
+  text-wrap: pretty;
+}
+
+.app .pf-risk-kvs {
+  display: grid;
+  gap: 0 44px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.app .pf-howlink {
+  display: flex;
+  margin-bottom: 44px;
+}
+
+.app .pf-howlink button {
+  align-items: center;
+  background: none;
+  border: 0;
+  color: #151719;
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  gap: 9px;
+  padding: 0;
+}
+
+.app .pf-howlink-i {
+  align-items: center;
+  border: 1.4px solid currentColor;
+  border-radius: 999px;
+  display: flex;
+  flex: none;
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-style: italic;
+  font-weight: 600;
+  height: 17px;
+  justify-content: center;
+  width: 17px;
+}
+
+.app .pf-howlink-text {
+  border-bottom: 1.5px solid currentColor;
+  padding-bottom: 1px;
+}
+
+/* Earnings calendar (design .cal-*) */
+.app .pf-page .cal-strip {
+  background: #edeae2;
+  border-radius: 999px;
+  display: flex;
+  gap: 3px;
+  margin-bottom: 18px;
+  padding: 4px;
+}
+
+.app .pf-page .cal-strip button {
+  align-items: center;
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  color: #626b70;
+  cursor: pointer;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  gap: 1px;
+  letter-spacing: 0.08em;
+  padding: 7px 0 8px;
+}
+
+.app .pf-page .cal-strip button .yr {
+  font-size: 9px;
+  height: 11px;
+  opacity: 0.7;
+}
+
+.app .pf-page .cal-strip button.on {
+  background: #151719;
+  color: #f5f3ed;
+}
+
+.app .pf-page .cal-box {
+  background: #f5f3ed;
+  border: 1px solid #dde3e1;
+  border-radius: 10px;
+  margin-bottom: 26px;
+  overflow: hidden;
+}
+
+.app .pf-page .cal-head {
+  align-items: center;
+  border-bottom: 1px solid #dde3e1;
+  display: flex;
+  padding: 18px 20px 16px;
+}
+
+.app .pf-page .cal-nav {
+  align-items: center;
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  color: #151719;
+  cursor: pointer;
+  display: flex;
+  flex: none;
+  font-size: 15px;
+  height: 30px;
+  justify-content: center;
+  line-height: 1;
+  width: 30px;
+}
+
+.app .pf-page .cal-nav:hover {
+  background: #e9e6de;
+}
+
+.app .pf-page .cal-nav:disabled {
+  background: transparent;
+  color: #c2bfb5;
+  cursor: default;
+}
+
+.app .pf-page .cal-title {
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  margin: 0 4px 0 8px;
+}
+
+.app .pf-page .cal-meta {
+  color: #626b70;
+  font-size: 13px;
+  margin-left: 12px;
+}
+
+.app .pf-page .cal-legend {
+  align-items: center;
+  color: #626b70;
+  display: flex;
+  font-size: 12px;
+  gap: 7px;
+  margin-left: 18px;
+}
+
+.app .pf-page .cal-dows {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  padding: 14px 16px 4px;
+}
+
+.app .pf-page .cal-dows span {
+  color: #626b70;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.app .pf-page .cal-grid {
+  display: grid;
+  gap: 7px;
+  grid-template-columns: repeat(7, 1fr);
+  padding: 8px 16px 20px;
+}
+
+.app .pf-page .cal-plain {
+  align-items: flex-start;
+  color: #c2bfb5;
+  display: flex;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  height: 78px;
+  justify-content: center;
+  padding-top: 11px;
+}
+
+.app .pf-page .cal-cell {
+  align-items: stretch;
+  background: #fbfaf7;
+  border: 1px solid #e4e1d8;
+  border-radius: 6px;
+  color: #151719;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  font-family: inherit;
+  height: 78px;
+  overflow: hidden;
+  padding: 8px 10px 9px;
+  text-align: left;
+  width: 100%;
+}
+
+.app .pf-page .cal-cell:hover {
+  border-color: #151719;
+}
+
+.app .pf-page .cal-cell .d {
+  color: #626b70;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.app .pf-page .cal-cell .amt {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin-top: auto;
+}
+
+.app .pf-page .cal-cell .who {
+  color: #626b70;
+  font-size: 10px;
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app .pf-page .cal-cell .bar {
+  display: flex;
+  height: 3px;
+  margin-top: 6px;
+}
+
+.app .pf-page .cal-cell .bar span {
+  background: #1e6a4b;
+  border-radius: 2px;
+}
+
+.app .pf-page .cal-cell .endline {
+  background: transparent;
+  display: block;
+  height: 2px;
+  margin-top: 3px;
+}
+
+.app .pf-page .cal-cell.final .endline {
+  background: #151719;
+}
+
+.app .pf-page .cal-cell.late {
+  background: #fbf3f2;
+  border-color: #e8bebc;
+}
+
+.app .pf-page .cal-cell.late .amt {
+  color: #c4312c;
+}
+
+.app .pf-page .cal-cell.late .bar span {
+  background: #c4312c;
+}
+
+.app .pf-page .cal-cell.sel {
+  background: #151719;
+  border-color: #151719;
+}
+
+.app .pf-page .cal-cell.sel .d {
+  color: #8b939a;
+}
+
+.app .pf-page .cal-cell.sel .amt {
+  color: #f5f3ed;
+}
+
+.app .pf-page .cal-cell.sel .who {
+  color: #b9c0c4;
+}
+
+.app .pf-page .cal-cell.sel .bar span {
+  background: #8fbfa6;
+}
+
+.app .pf-page .cal-cell.sel.final .endline {
+  background: #8b939a;
+}
+
+.app .pf-page .cal-detail {
+  background: #fbfaf7;
+  border-top: 1px solid #dde3e1;
+  padding: 26px 28px;
+}
+
+.app .pf-page .cal-footnote {
+  align-items: baseline;
+  background: #fbfaf7;
+  border-top: 1px solid #dde3e1;
+  display: flex;
+  padding: 18px 28px;
+}
+
+.app .pf-page .cal-x {
+  align-items: center;
+  background: #e9e6de;
+  border: none;
+  border-radius: 999px;
+  color: #151719;
+  cursor: pointer;
+  display: flex;
+  flex: none;
+  font-size: 15px;
+  height: 28px;
+  justify-content: center;
+  line-height: 1;
+  width: 28px;
+}
+
+.app .pf-page .cal-x:hover {
+  background: #dde3e1;
+}
+
+@media (max-width: 1080px) {
+  .app .pf-hero h2 {
+    font-size: 40px;
+  }
+
+  .app .pf-hex-layout {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 860px) {
+  .app .pf-hero {
+    margin-bottom: 30px;
+  }
+
+  .app .pf-hero h2 {
+    font-size: 32px;
+  }
+
+  .app .pf-lede {
+    font-size: 16px;
+  }
+
+  .app .pf-tabs-row {
+    flex-wrap: wrap;
+  }
+
+  .app .pf-tabs-row .mtabs {
+    gap: 18px;
+    margin-bottom: 20px;
+  }
+
+  .app .pf-tabs-row > .seg {
+    margin-bottom: 20px;
+  }
+
+  .app .pf-sect-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .app .pf-thead,
+  .app .pf-row {
+    min-width: 640px;
+  }
+
+  .app .pf-page .card471 {
+    width: 100%;
+  }
+
+  .app .pf-risk-grid,
+  .app .pf-risk-kvs {
+    grid-template-columns: 1fr;
+  }
+
+  .app .pf-risk-grid > div + div {
+    border-left: 0 !important;
+    border-top: 1px solid #e4e1d8;
+    margin-top: 20px;
+    padding-left: 0 !important;
+    padding-top: 20px;
+  }
+
+  .app .pf-page .cal-grid {
+    gap: 4px;
+    padding: 8px 10px 14px;
+  }
+
+  .app .pf-page .cal-cell,
+  .app .pf-page .cal-plain {
+    height: 64px;
+    padding: 6px 6px 7px;
+  }
+
+  .app .pf-page .cal-head {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .app .pf-page .cal-legend {
+    margin-left: 10px;
+  }
+}
+
+@media (max-width: 560px) {
+  .app .pf-hero h2 {
+    font-size: 27px;
+  }
+
+  .app .pf-page .cal-strip {
+    overflow-x: auto;
+  }
+
+  .app .pf-page .cal-cell .who {
+    display: none;
+  }
+
+  .app .pf-panel .panel-block {
+    padding: 20px;
+  }
+}

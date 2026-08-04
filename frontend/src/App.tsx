@@ -90,7 +90,6 @@ import {
 import type { AppRoute, DemoAccountState, RouteName } from "./investorPortal/types";
 import {
   Banner,
-  BarBreakdown,
   Button,
   Card,
   Check,
@@ -4041,7 +4040,8 @@ function PortfolioScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) 
   const portfolio = portfolioQuery.data;
   const activity = activityQuery.data;
   const orders = ordersQuery.data;
-  const [tab, setTab] = useState<"holdings" | "exposure" | "activity" | "orders">("holdings");
+  const [tab, setTab] = useState<"holdings" | "activity" | "orders">("holdings");
+  const [currency, setCurrency] = useState<string | null>(null);
   const [detail, setDetail] = useState<Holding | null>(null);
   if ((portfolioQuery.isError && !portfolio) || (activityQuery.isError && !activity) || (ordersQuery.isError && !orders)) {
     return (
@@ -4059,23 +4059,49 @@ function PortfolioScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) 
   }
   if (!portfolio || !activity || !orders) return <ScreenLoading title="Portfolio" />;
   const openOrders = activePrimaryOrders(orders.orders);
+  const active = pfActiveHoldings(portfolio.holdings);
+  const currencies = pfCurrencies(active);
+  const scopedCurrency = currency && currencies.includes(currency) ? currency : currencies[0] ?? "CHF";
+  const scoped = active.filter((holding) => holding.currency === scopedCurrency);
+  const totalMinor = scoped.reduce((sum, holding) => sum + holding.current_principal_minor, 0);
 
   return (
-    <main className="content">
-      <div className="page-head"><div><h1>Portfolio</h1><div className="ph-sub">Your loan claim holdings, exposure and transaction history.</div></div></div>
-      <div className="grid-stat" style={{ marginBottom: 20 }}>
-        <Stat amountMinor={sumAmounts(portfolio.summary.original_principal_by_currency)} currency="CHF" label="Invested principal" sub="lifetime" />
-        <Stat amountMinor={sumAmounts(portfolio.summary.outstanding_principal_by_currency)} currency="CHF" label="Outstanding principal" sub={countLabel(portfolio.summary.active_holding_count, "active holding")} />
-        <Stat amountMinor={sumAmounts(portfolio.summary.realized_interest_by_currency)} currency="CHF" label="Interest received" sub="lifetime" />
-        <Stat label="Weighted yield" raw="7.6%" sub="projection" />
+    <main className="content pf-page">
+      <h1 className="sr-only">Portfolio</h1>
+      <div className="pf-hero">
+        <div className="eyebrow">{scoped.length} {scoped.length === 1 ? "loan" : "loans"} · {pfMoneyLabel(scopedCurrency, totalMinor)} lent</div>
+        <h2>Everything you own.</h2>
+        <p className="pf-lede">Largest first, because the largest is the one that matters most if it goes wrong. Click any loan for the split, the collateral and the schedule.</p>
       </div>
       {openOrders.length > 0 ? <PendingOrdersNotice orders={openOrders} onViewOrders={() => setTab("orders")} /> : null}
-      <Tabs tabs={[{ value: "holdings", label: "Holdings" }, { value: "exposure", label: "Exposure" }, { value: "activity", label: "Activity" }, { value: "orders", label: "Orders" }]} value={tab} onChange={setTab} />
-      <div style={{ paddingTop: 18 }}>
-        {tab === "holdings" ? <HoldingsTable holdings={portfolio.holdings} pendingOrders={openOrders} onOpen={setDetail} onViewOrders={() => setTab("orders")} /> : null}
-        {tab === "exposure" ? <ExposurePanel pendingOrders={openOrders} portfolio={portfolio} onViewOrders={() => setTab("orders")} /> : null}
-        {tab === "activity" ? <ActivityTable entries={activity.entries} /> : null}
-        {tab === "orders" ? <OrdersTable orders={orders.orders} /> : null}
+      <div className="pf-tabs-row">
+        <nav aria-label="Portfolio sections" className="mtabs" role="tablist">
+          <button aria-selected={tab === "holdings"} className={tab === "holdings" ? "on" : ""} onClick={() => setTab("holdings")} role="tab" type="button">My loans</button>
+          <button aria-selected={tab === "activity"} className={tab === "activity" ? "on" : ""} onClick={() => setTab("activity")} role="tab" type="button">Activity</button>
+          <button aria-selected={tab === "orders"} className={tab === "orders" ? "on" : ""} onClick={() => setTab("orders")} role="tab" type="button">Orders</button>
+        </nav>
+        {currencies.length > 1 && tab === "holdings" ? (
+          <div aria-label="Portfolio currency" className="seg">
+            {currencies.map((code) => (
+              <button className={code === scopedCurrency ? "on" : ""} key={code} onClick={() => setCurrency(code)} type="button">{code}</button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+      <div>
+        {tab === "holdings" ? (
+          scoped.length === 0 ? (
+            openOrders.length > 0 ? (
+              <PendingOrdersEmptyState orders={openOrders} onViewOrders={() => setTab("orders")} />
+            ) : (
+              <Card><Empty icon="portfolio" title="No loan holdings yet">Funded loan claims and settled secondary-market purchases will appear here.</Empty></Card>
+            )
+          ) : (
+            <PfMyLoans currency={scopedCurrency} holdings={scoped} onOpen={setDetail} setRoute={setRoute} totalMinor={totalMinor} />
+          )
+        ) : null}
+        {tab === "activity" ? <div style={{ paddingTop: 6 }}><ActivityTable entries={activity.entries} /></div> : null}
+        {tab === "orders" ? <div style={{ paddingTop: 6 }}><OrdersTable orders={orders.orders} /></div> : null}
       </div>
       {detail ? <HoldingDetail holding={detail} onClose={() => setDetail(null)} setRoute={setRoute} /> : null}
     </main>
@@ -4141,111 +4167,796 @@ function PendingOrdersEmptyState({ orders, onViewOrders }: { orders: PrimaryOrde
   );
 }
 
-function HoldingsTable({
-  holdings,
-  pendingOrders,
-  onOpen,
-  onViewOrders
-}: {
-  holdings: Holding[];
-  pendingOrders: PrimaryOrderPortal[];
-  onOpen: (holding: Holding) => void;
-  onViewOrders: () => void;
-}) {
-  if (holdings.length === 0) {
-    if (pendingOrders.length > 0) {
-      return <PendingOrdersEmptyState orders={pendingOrders} onViewOrders={onViewOrders} />;
+/* ---- Portfolio redesign (website_redesign/portfolio.html port) ---- */
+
+function pfActiveHoldings(holdings: Holding[]) {
+  return holdings.filter((holding) => holding.status === "active" && holding.current_principal_minor > 0);
+}
+
+function pfCurrencies(holdings: Holding[]) {
+  const totals = new Map<string, number>();
+  for (const holding of holdings) {
+    totals.set(holding.currency, (totals.get(holding.currency) ?? 0) + holding.current_principal_minor);
+  }
+  return Array.from(totals.entries()).sort((left, right) => right[1] - left[1]).map(([code]) => code);
+}
+
+function pfMoneyLabel(currency: string, amountMinor: number) {
+  return `${currency === "EUR" ? "€" : currency} ${formatMoneyMinor(amountMinor, currency)}`;
+}
+
+function pfWholeLabel(currency: string, amountMinor: number) {
+  return `${currency === "EUR" ? "€" : currency} ${Math.round(amountMinor / 100).toLocaleString("en-US")}`;
+}
+
+const pfCollateralShortLabels: Record<string, string> = {
+  real_estate: "property",
+  corporate_guarantee: "guarantee",
+  personal_guarantee: "surety",
+  receivables: "receivables",
+  invoices: "invoices",
+  equipment: "equipment",
+  inventory: "inventory",
+  securities_pledge: "securities",
+  cash_collateral: "cash",
+  share_pledge: "shares",
+  asset_backed: "assets",
+  mixed_collateral: "mixed",
+  unsecured_exception: "unsecured",
+  other: "other"
+};
+
+function pfCollateralLabel(collateralType: string) {
+  return pfCollateralShortLabels[collateralType] ?? humanizeToken(collateralType).toLowerCase();
+}
+
+function pfPaysLabel(repaymentType: string) {
+  if (repaymentType === "bullet_periodic_interest") return "monthly int.";
+  if (repaymentType.startsWith("interest_only")) return "interest first";
+  return "monthly";
+}
+
+function pfIsLate(holding: Holding) {
+  return holding.loan.loan_status === "late" || holding.loan.loan_status === "defaulted";
+}
+
+function pfIsUnsecured(holding: Holding) {
+  return holding.loan.collateral_type === "unsecured_exception" || holding.loan.ltv_bps === null;
+}
+
+function pfShortDate(iso: string) {
+  const date = new Date(`${iso}T00:00:00`);
+  const now = new Date();
+  const sameYear = date.getFullYear() === now.getFullYear();
+  const label = date.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  return sameYear ? label : `${label} ${date.getFullYear()}`;
+}
+
+type PfPayment = {
+  date: Date;
+  iso: string;
+  name: string;
+  amt: number;
+  int: number;
+  pri: number;
+  n: number;
+  term: number;
+  late: boolean;
+  final: boolean;
+  balanceAfter: number;
+  collateral: string;
+  ltvBps: number | null;
+};
+
+function pfPayments(holdings: Holding[]): PfPayment[] {
+  const payments: PfPayment[] = [];
+  for (const holding of holdings) {
+    const rows = holding.investment_schedule.filter((row) => row.status !== "paid");
+    const remainingTotal = rows.reduce((sum, row) => sum + row.projected_principal_minor, 0);
+    let consumed = 0;
+    for (const row of rows) {
+      consumed += row.projected_principal_minor;
+      payments.push({
+        date: new Date(`${row.due_date}T00:00:00`),
+        iso: row.due_date,
+        name: holding.loan.borrower_name || holding.loan.loan_title,
+        amt: row.projected_total_minor,
+        int: row.projected_interest_minor,
+        pri: row.projected_principal_minor,
+        n: row.installment_number,
+        term: holding.loan.term_months,
+        late: pfIsLate(holding),
+        final: row.installment_number === holding.loan.term_months,
+        balanceAfter: Math.max(0, remainingTotal - consumed),
+        collateral: pfCollateralLabel(holding.loan.collateral_type),
+        ltvBps: holding.loan.ltv_bps
+      });
     }
-    return <Card><Empty icon="portfolio" title="No holdings yet">Funded loan claims and settled secondary-market purchases will appear here.</Empty></Card>;
   }
+  return payments.sort((left, right) => left.date.getTime() - right.date.getTime());
+}
 
+function pfNextPayment(holding: Holding) {
+  return holding.investment_schedule.find((row) => row.status !== "paid") ?? null;
+}
+
+function pfScore(value: number, worst: number, best: number) {
+  const ratio = (value - worst) / (best - worst);
+  return Math.round(Math.min(1, Math.max(0, ratio)) * 100);
+}
+
+type PfAxis = { label: string; score: number; sentence: string };
+
+function pfAxes(holdings: Holding[], currency: string, totalMinor: number): PfAxis[] {
+  const share = (amount: number) => (totalMinor > 0 ? amount / totalMinor : 0);
+  const largest = holdings.reduce((best, holding) => (holding.current_principal_minor > best.current_principal_minor ? holding : best), holdings[0]);
+  const largestShare = share(largest.current_principal_minor);
+
+  const byPurpose = new Map<string, number>();
+  for (const holding of holdings) {
+    const key = humanizeToken(holding.loan.purpose);
+    byPurpose.set(key, (byPurpose.get(key) ?? 0) + holding.current_principal_minor);
+  }
+  const [topPurpose, topPurposeMinor] = Array.from(byPurpose.entries()).sort((a, b) => b[1] - a[1])[0];
+
+  const secured = holdings.filter((holding) => !pfIsUnsecured(holding));
+  const securedMinor = secured.reduce((sum, holding) => sum + holding.current_principal_minor, 0);
+  const weightedLtvBps = securedMinor > 0
+    ? secured.reduce((sum, holding) => sum + (holding.loan.ltv_bps ?? 0) * holding.current_principal_minor, 0) / securedMinor
+    : 0;
+  const coverPct = weightedLtvBps / 100;
+
+  const byCollateral = new Map<string, number>();
+  for (const holding of holdings) {
+    const key = pfIsUnsecured(holding) ? "no asset" : pfCollateralLabel(holding.loan.collateral_type);
+    byCollateral.set(key, (byCollateral.get(key) ?? 0) + holding.current_principal_minor);
+  }
+  const [topCollateral, topCollateralMinor] = Array.from(byCollateral.entries()).sort((a, b) => b[1] - a[1])[0];
+
+  let dueCount = 0;
+  let onTimeCount = 0;
+  const today = new Date();
+  for (const holding of holdings) {
+    for (const row of holding.loan.schedule) {
+      if (row.row_type === "repayment_event") {
+        dueCount += 1;
+        if (row.payment_date && row.payment_date <= row.due_date) onTimeCount += 1;
+      } else if (new Date(`${row.due_date}T00:00:00`) < today) {
+        dueCount += 1;
+        if (row.is_paid) onTimeCount += 1;
+      }
+    }
+  }
+  const onTimeRatio = dueCount > 0 ? onTimeCount / dueCount : 1;
+
+  return [
+    {
+      label: "Spread across loans",
+      score: pfScore(largestShare, 0.25, 0.02),
+      sentence: `Your largest loan is ${largest.loan.borrower_name || largest.loan.loan_title} at ${(largestShare * 100).toFixed(1)}% of your money. Scale: 0 if one loan is over 25%, 100 if none is over 2%.`
+    },
+    {
+      label: "Spread by purpose",
+      score: pfScore(share(topPurposeMinor), 0.6, 0.2),
+      sentence: `${topPurpose} is ${pfMoneyLabel(currency, topPurposeMinor)}, or ${(share(topPurposeMinor) * 100).toFixed(1)}% — your largest purpose. Scale: 0 if one purpose is over 60%, 100 if none is over 20%.`
+    },
+    {
+      label: "Collateral cover",
+      score: securedMinor > 0 ? pfScore(coverPct, 90, 40) : 0,
+      sentence: securedMinor > 0
+        ? `Weighted across your money, each secured loan sits at ${coverPct.toFixed(1)}% of an independent valuation. Scale: 0 at 90% of valuation, 100 at 40% or less.`
+        : "No secured loans yet, so there is no valuation cover to measure."
+    },
+    {
+      label: "With collateral",
+      score: Math.round(share(securedMinor) * 100),
+      sentence: `${pfMoneyLabel(currency, securedMinor)} of your ${pfMoneyLabel(currency, totalMinor)} has something pledged behind it. Scale: 0 if nothing is secured, 100 if everything is.`
+    },
+    {
+      label: "Principal collateral",
+      score: pfScore(share(topCollateralMinor), 1, 0.35),
+      sentence: `${humanizeToken(topCollateral)} is ${pfMoneyLabel(currency, topCollateralMinor)}, or ${(share(topCollateralMinor) * 100).toFixed(1)}% of your money — counted by each loan's principal asset. Scale: 0 if one type is everything, 100 if none is over 35%.`
+    },
+    {
+      label: "Payments on time",
+      score: dueCount > 0 ? pfScore(onTimeRatio, 0.9, 1) : 100,
+      sentence: dueCount > 0
+        ? `${onTimeCount} of the ${dueCount} payments due so far arrived on time. Scale: 0 at 90% or below, 100 if every payment arrived.`
+        : "No payments have come due yet."
+    }
+  ];
+}
+
+function pfHexPoints(scores: number[], cx: number, cy: number, radius: number) {
+  return scores
+    .map((score, index) => {
+      const angle = -Math.PI / 2 + (index * Math.PI) / 3;
+      const r = (radius * Math.max(4, score)) / 100;
+      return `${(cx + r * Math.cos(angle)).toFixed(2)},${(cy + r * Math.sin(angle)).toFixed(2)}`;
+    })
+    .join(" ");
+}
+
+function pfHexVertex(index: number, cx: number, cy: number, radius: number, score: number) {
+  const angle = -Math.PI / 2 + (index * Math.PI) / 3;
+  const r = (radius * Math.max(4, score)) / 100;
+  return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
+}
+
+function pfRingSegments(holdings: Holding[]) {
+  const byType = new Map<string, number>();
+  let unsecured = 0;
+  for (const holding of holdings) {
+    if (pfIsUnsecured(holding)) {
+      unsecured += holding.current_principal_minor;
+    } else {
+      const key = pfCollateralLabel(holding.loan.collateral_type);
+      byType.set(key, (byType.get(key) ?? 0) + holding.current_principal_minor);
+    }
+  }
+  const sorted = Array.from(byType.entries()).sort((a, b) => b[1] - a[1]);
+  const palette = ["#151719", "#4a5257", "#8b939a"];
+  const segments: { label: string; amount: number; color: string; bad?: boolean }[] = [];
+  sorted.slice(0, 3).forEach(([label, amount], index) => {
+    segments.push({ label: humanizeToken(label), amount, color: palette[index] });
+  });
+  const otherMinor = sorted.slice(3).reduce((sum, [, amount]) => sum + amount, 0);
+  if (otherMinor > 0) segments.push({ label: "Other assets", amount: otherMinor, color: "#c6c3ba" });
+  if (unsecured > 0) segments.push({ label: "No asset pledged", amount: unsecured, color: "#c4312c", bad: true });
+  return segments;
+}
+
+function PfRing({ segments, total, radius, stroke, size, center }: { segments: { amount: number; color: string }[]; total: number; radius: number; stroke: number; size: number; center?: { title: string; sub: string } }) {
+  const circumference = 2 * Math.PI * radius;
+  let offset = 0;
   return (
-    <Card>
-      <div className="tbl-wrap">
-        <table className="tbl">
-          <thead><tr><th>Loan / borrower</th><th>Status</th><th className="num">Invested</th><th className="num">Outstanding</th><th className="num">Interest received</th><th className="num">Rate</th><th className="num">DPD</th><th /></tr></thead>
-          <tbody>
-            {holdings.map((holding) => (
-              <tr className="clickable" key={holding.id} onClick={() => onOpen(holding)}>
-                <td>
-                  <EntityReference
-                    id={holding.loan.loan_id}
-                    idLabel="Copy loan ID"
-                    meta={holding.loan.borrower_name}
-                    title={holding.loan.is_refinancing ? <span className="row gap-6 wrap">{holding.loan.loan_title}<RefinancedTag /></span> : holding.loan.loan_title}
-                  />
-                </td>
-                <td><div className="row gap-6 wrap"><Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} />{holding.open_secondary_listing ? <Chip status={listingStatusLabel(holding.open_secondary_listing.status)} tone={holding.open_secondary_listing.status === "active" ? "ok" : "warn"} tooltip={listingStatusTooltip(holding.open_secondary_listing.status, holding.loan.loan_status)} /> : null}</div></td>
-                <td className="num"><Money amountMinor={holding.original_principal_minor} currency={holding.currency} /></td>
-                <td className="num col-strong">{formatMoneyMinor(holding.current_principal_minor, holding.currency)}</td>
-                <td className="num pos">+{formatMoneyMinor(holding.received_interest_minor, holding.currency)}</td>
-                <td className="num">{formatRateBps(holding.loan.interest_rate_bps)}</td>
-                <td className="num">{holding.loan.days_past_due > 0 ? <span className="neg col-strong">{holding.loan.days_past_due}</span> : <span className="muted">0</span>}</td>
-                <td className="right"><Icon className="faint" name="chevR" size={15} /></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </Card>
+    <svg height={size} shapeRendering="geometricPrecision" style={{ display: "block", flex: "none" }} viewBox={`0 0 ${size} ${size}`} width={size}>
+      <g fill="none" strokeWidth={stroke} transform={`rotate(-90 ${size / 2} ${size / 2})`}>
+        {segments.map((segment, index) => {
+          const length = total > 0 ? (segment.amount / total) * circumference : 0;
+          const dashOffset = -offset;
+          offset += length;
+          return <circle cx={size / 2} cy={size / 2} key={index} r={radius} stroke={segment.color} strokeDasharray={`${length.toFixed(2)} ${circumference.toFixed(2)}`} strokeDashoffset={dashOffset.toFixed(2)} />;
+        })}
+      </g>
+      {center ? (
+        <>
+          <text fill="#151719" fontFamily="Instrument Sans, Arial, sans-serif" fontSize="17" fontWeight="600" letterSpacing="-0.5" textAnchor="middle" x={size / 2} y={size / 2 - 3}>{center.title}</text>
+          <text fill="#626b70" fontFamily="Instrument Sans, Arial, sans-serif" fontSize="9.5" fontWeight="600" letterSpacing=".02em" textAnchor="middle" x={size / 2} y={size / 2 + 12}>{center.sub}</text>
+        </>
+      ) : null}
+    </svg>
   );
 }
 
-function hasExposure(portfolio: NonNullable<ReturnType<typeof usePortfolioData>["data"]>) {
+function PfCard({ lab, tt, open, onToggle, children, foot }: { lab: string; tt: string; open: boolean; onToggle: () => void; children: ReactNode; foot: ReactNode }) {
   return (
-    portfolio.exposure.by_loan_status.length > 0 ||
-    portfolio.exposure.by_risk_rating.length > 0 ||
-    portfolio.exposure.by_borrower.length > 0 ||
-    portfolio.exposure.by_country.length > 0 ||
-    portfolio.exposure.by_purpose.length > 0 ||
-    portfolio.exposure.by_collateral_type.length > 0 ||
-    portfolio.exposure.by_maturity.length > 0
+    <button className={`card471${open ? " open" : ""}`} onClick={onToggle} type="button">
+      <span className="head">
+        <span style={{ flex: 1 }}><span className="lab">{lab}</span><span className="tt">{tt}</span></span>
+        <span aria-hidden="true" className="sig">{open ? "−" : "+"}</span>
+      </span>
+      {children}
+      <span className="foot">{foot}</span>
+    </button>
   );
 }
 
-function ExposurePanel({
-  portfolio,
-  pendingOrders,
-  onViewOrders
-}: {
-  portfolio: ReturnType<typeof usePortfolioData>["data"];
-  pendingOrders: PrimaryOrderPortal[];
-  onViewOrders: () => void;
-}) {
-  if (!portfolio) return null;
-  if (!hasExposure(portfolio)) {
-    return (
-      <Card padded>
-        <div className="col gap-12">
-          <Empty icon="trend" title="No funded exposure yet">
-            Exposure is calculated only from active loan holdings. Allocated primary orders are shown separately until funding closes.
-          </Empty>
-          {pendingOrders.length > 0 ? (
-            <>
-              <div className="grid grid-2">
-                {primaryOrderTotalsByCurrency(pendingOrders).map(([currency, amount]) => (
-                  <div className="stat" key={currency}>
-                    <div className="stat-label">Allocated / pending orders</div>
-                    <div className="stat-value"><span className="ccy">{currency}</span>{formatMoneyMinor(amount, currency)}</div>
-                    <div className="stat-sub">Not yet exposure</div>
-                  </div>
-                ))}
-              </div>
-              <div><Button size="sm" onClick={onViewOrders}>View order pipeline</Button></div>
-            </>
-          ) : null}
+function PfMyLoans({ currency, holdings, onOpen, setRoute, totalMinor }: { currency: string; holdings: Holding[]; onOpen: (holding: Holding) => void; setRoute: (route: AppRoute) => void; totalMinor: number }) {
+  const [view, setView] = useState<"focused" | "detailed">("focused");
+  const [openPanel, setOpenPanel] = useState<"cal" | "hex" | "col" | "risk" | null>(null);
+  const sorted = [...holdings].sort((left, right) => right.current_principal_minor - left.current_principal_minor);
+  const largestMinor = sorted[0]?.current_principal_minor ?? 1;
+  const payments = pfPayments(holdings);
+  const axes = pfAxes(holdings, currency, totalMinor);
+  const lowestAxis = axes.reduce((low, axis) => (axis.score < low.score ? axis : low), axes[0]);
+  const segments = pfRingSegments(holdings);
+  const largestSegment = segments[0];
+  const secured = holdings.filter((holding) => !pfIsUnsecured(holding));
+  const securedLtvs = secured.map((holding) => (holding.loan.ltv_bps ?? 0) / 100);
+  const securedMinor = secured.reduce((sum, holding) => sum + holding.current_principal_minor, 0);
+  const weightedMargin = securedMinor > 0
+    ? secured.reduce((sum, holding) => sum + ((holding.loan.ltv_bps ?? 0) / 100) * holding.current_principal_minor, 0) / securedMinor
+    : null;
+  const unsecuredHoldings = holdings.filter((holding) => pfIsUnsecured(holding));
+  const unsecuredMinor = unsecuredHoldings.reduce((sum, holding) => sum + holding.current_principal_minor, 0);
+  const lateHoldings = holdings.filter((holding) => pfIsLate(holding));
+  const lateMinor = lateHoldings.reduce((sum, holding) => sum + holding.current_principal_minor, 0);
+  const toggle = (panel: "cal" | "hex" | "col" | "risk") => setOpenPanel((current) => (current === panel ? null : panel));
+
+  return (
+    <div className="pf-loans">
+      <div className="pf-sect-row">
+        <div style={{ flex: 1 }}>
+          <h2 className="sect">My loans</h2>
+          <p className="pf-sect-note">The rule under each amount is that loan's share of everything you have lent. Open the loan for the split, the collateral and the full schedule.</p>
         </div>
-      </Card>
-    );
-  }
-  const statusData = portfolio.exposure.by_loan_status.map((bucket) => ({ label: bucket.name, value: bucket.outstanding_principal_minor }));
-  const ratingData = portfolio.exposure.by_risk_rating.map((bucket) => ({ label: bucket.name, value: bucket.outstanding_principal_minor }));
+        <div className="seg" role="tablist">
+          <button aria-selected={view === "focused"} className={view === "focused" ? "on" : ""} onClick={() => setView("focused")} role="tab" type="button">Focused</button>
+          <button aria-selected={view === "detailed"} className={view === "detailed" ? "on" : ""} onClick={() => setView("detailed")} role="tab" type="button">Detailed</button>
+        </div>
+      </div>
+
+      <div className={`pf-table ${view}`}>
+        <div className="pf-thead">
+          <span style={{ flex: 1 }}>Company</span>
+          <span className="detail-col pf-col-rate">Rate</span>
+          <span className="detail-col pf-col-term">Term</span>
+          <span className="detail-col pf-col-pays">Pays</span>
+          <span className="detail-col pf-col-collateral">Collateral</span>
+          <span className="detail-col pf-col-next">Next payment</span>
+          <span className="pf-col-share">Share</span>
+          <span className="pf-col-amount">Amount</span>
+        </div>
+        <div className="pf-tbody">
+          {sorted.map((holding) => {
+            const late = pfIsLate(holding);
+            const next = pfNextPayment(holding);
+            const shareLabel = totalMinor > 0 ? `${((holding.current_principal_minor / totalMinor) * 100).toFixed(1)}%` : "-";
+            const widthPct = (holding.current_principal_minor / largestMinor) * 100;
+            const listing = holding.open_secondary_listing;
+            return (
+              <button className="pf-row" key={holding.id} onClick={() => onOpen(holding)} type="button">
+                <span className="pf-company">
+                  <span className={`pf-company-name${late ? " late" : ""}`}>{holding.loan.borrower_name || holding.loan.loan_title}</span>
+                  {late ? <span className="pf-tag late">late</span> : null}
+                  {listing ? <span className="pf-tag">{listingStatusLabel(listing.status)}</span> : null}
+                  <span className="pf-company-sub">{holding.loan.loan_title}</span>
+                </span>
+                <span className="detail-col num pf-col-rate strong">{formatRateBps(holding.loan.interest_rate_bps)}</span>
+                <span className="detail-col num pf-col-term mut">{holding.loan.term_months} mo</span>
+                <span className="detail-col pf-col-pays mut">{pfPaysLabel(holding.loan.repayment_type)}</span>
+                <span className="detail-col pf-col-collateral mut">{pfCollateralLabel(holding.loan.collateral_type)}</span>
+                <span className={`detail-col num pf-col-next${late ? " late" : " mut"}`}>
+                  {late && holding.loan.days_past_due > 0
+                    ? <>{holding.loan.days_past_due} days late{next ? <> · <b>{formatMoneyMinor(next.projected_total_minor, currency)}</b></> : null}</>
+                    : next
+                      ? <>{pfShortDate(next.due_date)} · <b>{formatMoneyMinor(next.projected_total_minor, currency)}</b></>
+                      : "—"}
+                </span>
+                <span className="num pf-col-share mut">{shareLabel}</span>
+                <span className="pf-col-amount">
+                  <span className={`num pf-amount${late ? " late" : ""}`}>{pfWholeLabel(currency, holding.current_principal_minor)}</span>
+                  <span className="pf-share-track"><span className={late ? "late" : ""} style={{ marginLeft: `${(100 - widthPct).toFixed(1)}%`, width: `${widthPct.toFixed(1)}%` }} /></span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="tfoot">
+          <span className="pf-tfoot-count">{sorted.length} {sorted.length === 1 ? "loan" : "loans"}</span>
+          <span className="pf-tfoot-note">The rule under each amount is that loan's share of your portfolio. Red marks a loan in arrears.</span>
+          <span className="pf-tfoot-ccy">{currency === "EUR" ? "€" : currency}</span>
+          <span className="num pf-tfoot-total">{Math.floor(totalMinor / 100).toLocaleString("en-US")}</span>
+          <span className="num pf-tfoot-cents">.{String(totalMinor % 100).padStart(2, "0")}</span>
+        </div>
+      </div>
+
+      <div className="pf-cards">
+        <PfCalendarCard currency={currency} open={openPanel === "cal"} onToggle={() => toggle("cal")} payments={payments} />
+        {openPanel === "cal" ? <PfCalendarPanel currency={currency} payments={payments} /> : null}
+
+        <PfCard
+          foot={<><span className="big" style={{ color: lowestAxis.score < 50 ? "#c4312c" : "#151719" }}>{lowestAxis.score}</span><span className="note">is the lowest of the six · <span style={{ color: "#151719", fontWeight: 600 }}>{lowestAxis.label.toLowerCase()}</span></span></>}
+          lab="Spread of portfolio"
+          onToggle={() => toggle("hex")}
+          open={openPanel === "hex"}
+          tt="How much rests on one outcome"
+        >
+          <span style={{ display: "flex", justifyContent: "center", marginBottom: 10, width: "100%" }}>
+            <svg height="102" shapeRendering="geometricPrecision" style={{ display: "block" }} viewBox="0 0 44 40" width="112">
+              <polygon fill="none" points="22,2 37.59,11 37.59,29 22,38 6.41,29 6.41,11" stroke="#dde3e1" strokeWidth=".8" />
+              <polygon fill="rgba(21,23,25,.12)" points={pfHexPoints(axes.map((axis) => axis.score), 22, 20, 18)} stroke="#151719" strokeWidth="1" />
+              {(() => {
+                const index = axes.indexOf(lowestAxis);
+                const vertex = pfHexVertex(index, 22, 20, 18, lowestAxis.score);
+                return <circle cx={vertex.x.toFixed(2)} cy={vertex.y.toFixed(2)} fill="#c4312c" r="1.5" />;
+              })()}
+            </svg>
+          </span>
+        </PfCard>
+        {openPanel === "hex" ? <PfHexPanel axes={axes} /> : null}
+
+        <PfCard
+          foot={<><span className="big" style={{ fontSize: 24 }}>{largestSegment ? pfWholeLabel(currency, largestSegment.amount) : "—"}</span><span className="note" style={{ fontSize: 12.5 }}>behind {largestSegment ? largestSegment.label.toLowerCase() : "nothing yet"} — your largest type</span></>}
+          lab="Collateral spread"
+          onToggle={() => toggle("col")}
+          open={openPanel === "col"}
+          tt="What stands behind your money"
+        >
+          <span style={{ alignItems: "center", display: "flex", gap: 22, marginBottom: 20, width: "100%" }}>
+            <PfRing radius={44} segments={segments} size={120} stroke={17} total={totalMinor} />
+            <span style={{ display: "flex", flex: 1, flexDirection: "column", fontSize: 11.5, gap: 6, minWidth: 0 }}>
+              {segments.map((segment) => (
+                <span key={segment.label} style={{ alignItems: "center", display: "flex", gap: 8 }}>
+                  <span style={{ background: segment.color, borderRadius: 2, flex: "none", height: 9, width: 9 }} />
+                  <span style={{ color: segment.bad ? "#c4312c" : "#292d30", flex: 1 }}>{segment.label}</span>
+                  <span className="num" style={{ color: segment.bad ? "#c4312c" : undefined, fontWeight: 600 }}>{totalMinor > 0 ? `${((segment.amount / totalMinor) * 100).toFixed(1)}%` : "-"}</span>
+                </span>
+              ))}
+            </span>
+          </span>
+        </PfCard>
+        {openPanel === "col" ? <PfCollateralPanel currency={currency} holdingCount={holdings.length} segments={segments} totalMinor={totalMinor} /> : null}
+
+        <PfCard
+          foot={<><span className="big" style={{ fontSize: 24 }}>0.10–0.20%</span><span className="note" style={{ fontSize: 12.5 }}>a day, <span style={{ color: "#151719", fontWeight: 600 }}>to you</span>, while a payment is late</span></>}
+          lab="If a borrower stops paying"
+          onToggle={() => toggle("risk")}
+          open={openPanel === "risk"}
+          tt="What protects your money"
+        >
+          <span style={{ alignItems: "center", display: "flex", gap: 22, marginBottom: 20, width: "100%" }}>
+            <span style={{ alignItems: "flex-end", display: "flex", flex: "none", gap: 9, height: 104, width: 104 }}>
+              <span style={{ border: "1.5px solid #c2bfb5", borderRadius: 3, display: "flex", flex: 1, flexDirection: "column", height: 104, justifyContent: "flex-end", overflow: "hidden" }}>
+                <span style={{ background: "#151719", display: "block", height: `${weightedMargin === null ? 0 : weightedMargin.toFixed(1)}%` }} />
+              </span>
+              <span style={{ color: "#626b70", display: "flex", flex: "none", flexDirection: "column", fontSize: 10, height: 104, justifyContent: "space-between", padding: "1px 0" }}>
+                <span>valuation</span>
+                <span style={{ color: "#151719", fontWeight: 600 }}>lent</span>
+              </span>
+            </span>
+            <span style={{ display: "flex", flex: 1, flexDirection: "column", fontSize: 11.5, gap: 7, minWidth: 0 }}>
+              <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#292d30", flex: 1 }}>Weighted margin</span><span className="num" style={{ fontWeight: 600 }}>{weightedMargin === null ? "—" : `${weightedMargin.toFixed(1)}%`}</span></span>
+              <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#292d30", flex: 1 }}>Range per project</span><span className="num" style={{ fontWeight: 600 }}>{securedLtvs.length > 0 ? `${Math.min(...securedLtvs).toFixed(0)} – ${Math.max(...securedLtvs).toFixed(0)}%` : "—"}</span></span>
+              <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#292d30", flex: 1 }}>Nothing pledged</span><span className="num" style={{ color: unsecuredHoldings.length > 0 ? "#c4312c" : undefined, fontWeight: 600 }}>{unsecuredHoldings.length} of {holdings.length}</span></span>
+              <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#292d30", flex: 1 }}>In arrears now</span><span className="num" style={{ color: lateHoldings.length > 0 ? "#c4312c" : undefined, fontWeight: 600 }}>{lateHoldings.length} of {holdings.length}</span></span>
+            </span>
+          </span>
+        </PfCard>
+        {openPanel === "risk" ? (
+          <PfProtectionPanel
+            currency={currency}
+            holdingCount={holdings.length}
+            lateCount={lateHoldings.length}
+            lateMinor={lateMinor}
+            securedLtvs={securedLtvs}
+            unsecuredCount={unsecuredHoldings.length}
+            unsecuredMinor={unsecuredMinor}
+            weightedMargin={weightedMargin}
+          />
+        ) : null}
+      </div>
+
+      <div className="pf-howlink">
+        <button onClick={() => goTo(setRoute, "faq")} type="button">
+          <span className="pf-howlink-i">i</span>
+          <span className="pf-howlink-text">How BANXUM loans work</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PfCalendarCard({ currency, open, onToggle, payments }: { currency: string; open: boolean; onToggle: () => void; payments: PfPayment[] }) {
+  const now = new Date();
+  const monthPayments = payments.filter((payment) => payment.date.getFullYear() === now.getFullYear() && payment.date.getMonth() === now.getMonth());
+  const paymentDays = new Set(monthPayments.map((payment) => payment.date.getDate()));
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const offset = (monthStart.getDay() + 6) % 7;
+  const monthLabel = now.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+  const upcoming = payments.find((payment) => payment.date.getTime() >= new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime());
   return (
-    <div className="col gap-16">
-      <Banner tone="neutral" title="Exposure is informational">{platformName} shows concentration metrics but does not enforce hard concentration limits at launch.</Banner>
-      <div className="grid grid-2">
-        <Card padded><div className="eyebrow" style={{ marginBottom: 14 }}>By status</div><BarBreakdown data={statusData} /></Card>
-        <Card padded><div className="eyebrow" style={{ marginBottom: 14 }}>By risk rating</div><BarBreakdown data={ratingData} /></Card>
+    <PfCard
+      foot={<><span className="big">{paymentDays.size}</span><span className="note">payment dates in {monthLabel} · next is {upcoming ? <span style={{ color: "#151719", fontWeight: 600 }}>{pfShortDate(upcoming.iso)}, {pfMoneyLabel(currency, upcoming.amt)}</span> : "—"}</span></>}
+      lab="Earnings calendar"
+      onToggle={onToggle}
+      open={open}
+      tt="Every date you are owed money"
+    >
+      <span style={{ display: "grid", gap: 4, gridTemplateColumns: "repeat(7,1fr)", marginBottom: 18, width: "100%" }}>
+        {Array.from({ length: 35 }, (_, cell) => {
+          const day = cell - offset + 1;
+          const has = day >= 1 && paymentDays.has(day);
+          return <span key={cell} style={{ background: has ? "#151719" : "#dde3e1", borderRadius: 2, height: 9 }} />;
+        })}
+      </span>
+    </PfCard>
+  );
+}
+
+function PfCalendarPanel({ currency, payments }: { currency: string; payments: PfPayment[] }) {
+  const [monthIndex, setMonthIndex] = useState(0);
+  const [selectedDay, setSelectedDay] = useState<number | null>(null);
+  const now = new Date();
+  const months = Array.from({ length: 12 }, (_, index) => {
+    const start = new Date(now.getFullYear(), now.getMonth() + index, 1);
+    const rows = payments.filter((payment) => payment.date.getFullYear() === start.getFullYear() && payment.date.getMonth() === start.getMonth());
+    const byDay = new Map<number, PfPayment[]>();
+    for (const row of rows) {
+      const day = row.date.getDate();
+      byDay.set(day, [...(byDay.get(day) ?? []), row]);
+    }
+    let max = 0;
+    for (const group of byDay.values()) {
+      const sum = group.reduce((total, row) => total + row.amt, 0);
+      if (sum > max) max = sum;
+    }
+    return {
+      start,
+      short: start.toLocaleDateString("en-GB", { month: "short" }),
+      full: start.toLocaleDateString("en-GB", { month: "long" }),
+      year: start.getFullYear(),
+      offset: (start.getDay() + 6) % 7,
+      length: new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate(),
+      rows,
+      byDay,
+      total: rows.reduce((sum, row) => sum + row.amt, 0),
+      max
+    };
+  });
+  const month = months[monthIndex];
+  const selectMonth = (index: number) => { setMonthIndex(index); setSelectedDay(null); };
+  const selectedGroup = selectedDay !== null ? month.byDay.get(selectedDay) ?? null : null;
+
+  return (
+    <div className="pf-panel">
+      <h2 className="sect">Your earnings calendar, date by date</h2>
+      <p className="sect-sub" style={{ marginBottom: 22 }}>See every day a company owes you money, for the next 12 months. Click on any day for more details.</p>
+      <div className="cal-strip">
+        {months.map((entry, index) => (
+          <button className={index === monthIndex ? "on" : ""} key={index} onClick={() => selectMonth(index)} type="button">
+            <span>{entry.short.toUpperCase()}</span>
+            <span className="yr">{entry.year === now.getFullYear() ? "" : `'${String(entry.year).slice(-2)}`}</span>
+          </button>
+        ))}
+      </div>
+      <div className="cal-box">
+        <div className="cal-head">
+          <button className="cal-nav" disabled={monthIndex === 0} onClick={() => selectMonth(monthIndex - 1)} type="button">‹</button>
+          <span className="cal-title">{month.full} {month.year}</span>
+          <button className="cal-nav" disabled={monthIndex === 11} onClick={() => selectMonth(monthIndex + 1)} type="button">›</button>
+          <span className="cal-meta">{month.rows.length} payments · {pfMoneyLabel(currency, month.total)}</span>
+          <span className="grow" />
+          <span className="cal-legend"><span style={{ background: "#1e6a4b", borderRadius: 2, height: 9, width: 9 }} />payday</span>
+          <span className="cal-legend"><span style={{ background: "#151719", height: 2, width: 9 }} />final payment</span>
+          <span className="cal-legend"><span style={{ background: "#c4312c", borderRadius: 2, height: 9, width: 9 }} />late</span>
+        </div>
+        <div className="cal-dows"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div>
+        <div className="cal-grid">
+          {Array.from({ length: 42 }, (_, cell) => {
+            const day = cell - month.offset + 1;
+            const inMonth = day >= 1 && day <= month.length;
+            const group = inMonth ? month.byDay.get(day) : undefined;
+            if (!inMonth) return <div className="cal-plain" key={cell} />;
+            if (!group) return <div className="cal-plain" key={cell}>{day}</div>;
+            const sum = group.reduce((total, row) => total + row.amt, 0);
+            const isLate = group.some((row) => row.late);
+            const isFinal = group.some((row) => row.final);
+            const who = group.length > 1 ? `${group.length} payments` : group[0].name;
+            return (
+              <button
+                className={`cal-cell${selectedDay === day ? " sel" : ""}${isLate ? " late" : ""}${isFinal ? " final" : ""}`}
+                key={cell}
+                onClick={() => setSelectedDay((current) => (current === day ? null : day))}
+                type="button"
+              >
+                <span className="d">{day}</span>
+                <span className="amt">{formatMoneyMinor(sum, currency)}</span>
+                <span className="who">{who}</span>
+                <span className="bar"><span style={{ width: `${month.max > 0 ? Math.round((sum / month.max) * 100) : 0}%` }} /></span>
+                <span className="endline" />
+              </button>
+            );
+          })}
+        </div>
+        {selectedGroup ? (
+          <div className="cal-detail">
+            <div style={{ alignItems: "flex-start", display: "flex", gap: 20, marginBottom: 20 }}>
+              <div style={{ flex: 1 }}>
+                <div className="microlabel" style={{ marginBottom: 9 }}>{selectedDay} {month.full} {month.year}</div>
+                <div style={{ fontSize: 22, fontWeight: 600, letterSpacing: "-0.025em" }}>
+                  {selectedGroup.length > 1 ? `${selectedGroup.length} companies pay you on this day` : selectedGroup[0].name}
+                </div>
+              </div>
+              <div style={{ alignItems: "baseline", display: "flex", flex: "none" }}>
+                <span className="num" style={{ fontSize: 34, fontWeight: 600, letterSpacing: "-0.05em", lineHeight: 0.9 }}>{pfMoneyLabel(currency, selectedGroup.reduce((sum, row) => sum + row.amt, 0))}</span>
+              </div>
+              <button className="cal-x" onClick={() => setSelectedDay(null)} type="button">×</button>
+            </div>
+            <div style={{ display: "grid", gap: 36, gridTemplateColumns: selectedGroup.length > 1 ? "1fr 1fr" : "1fr 1fr" }}>
+              {selectedGroup.map((row, index) => (
+                <div key={index}>
+                  {selectedGroup.length > 1 ? (
+                    <div style={{ alignItems: "baseline", display: "flex", marginBottom: 12 }}>
+                      <span style={{ color: row.late ? "#c4312c" : "#151719", fontSize: 16, fontWeight: 600, letterSpacing: "-0.02em" }}>{row.name}</span>
+                      <span className="grow" />
+                      <span className="num" style={{ fontSize: 16, fontWeight: 600 }}>{pfMoneyLabel(currency, row.amt)}</span>
+                    </div>
+                  ) : null}
+                  <div style={{ display: "flex", flexDirection: "column", fontSize: 13.5, marginBottom: 12 }}>
+                    <div className="pf-cal-kv"><span style={{ color: "#1e6a4b" }}>Interest — what you earn</span><span className="leader" /><span className="num" style={{ color: "#1e6a4b", fontWeight: 600 }}>{formatMoneyMinor(row.int, currency)}</span></div>
+                    <div className="pf-cal-kv"><span>Your money coming back</span><span className="leader" /><span className="num" style={{ fontWeight: 600 }}>{formatMoneyMinor(row.pri, currency)}</span></div>
+                    <div className="pf-cal-kv"><span>Still outstanding</span><span className="leader" /><span className="num" style={{ fontWeight: 600 }}>{formatMoneyMinor(row.balanceAfter, currency)}</span></div>
+                    <div className="pf-cal-kv"><span>Payments made</span><span className="leader" /><span className="num" style={{ fontWeight: 600 }}>{Math.max(0, row.n - 1)} of {row.term}</span></div>
+                  </div>
+                  <div style={{ color: "#626b70", fontSize: 13, lineHeight: 1.55 }}>
+                    Secured by {row.collateral === "unsecured" ? "no pledged asset" : row.collateral}.
+                    {row.ltvBps !== null ? ` Lent against an independent valuation · ${(row.ltvBps / 100).toFixed(0)}% of the valuation.` : ""}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="cal-footnote">
+            <span style={{ color: "#626b70", fontSize: 13.5 }}>Bars are scaled within the month, so the longest one is that month's largest payment.</span>
+            <span className="grow" />
+            <span style={{ fontSize: 13.5, fontWeight: 600, marginRight: 16 }}>{month.full} in total</span>
+            <span className="num" style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.03em" }}>{pfMoneyLabel(currency, month.total)}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PfHexPanel({ axes }: { axes: PfAxis[] }) {
+  const cx = 220;
+  const cy = 155;
+  const radius = 105;
+  const gridPoints = (r: number) => Array.from({ length: 6 }, (_, index) => {
+    const angle = -Math.PI / 2 + (index * Math.PI) / 3;
+    return `${(cx + r * Math.cos(angle)).toFixed(2)},${(cy + r * Math.sin(angle)).toFixed(2)}`;
+  }).join(" ");
+  const labelAnchors: { x: number; y: number; anchor: "middle" | "start" | "end" }[] = [
+    { x: 220, y: 26, anchor: "middle" },
+    { x: 322, y: 96, anchor: "start" },
+    { x: 322, y: 201, anchor: "start" },
+    { x: 220, y: 282, anchor: "middle" },
+    { x: 118, y: 201, anchor: "end" },
+    { x: 118, y: 96, anchor: "end" }
+  ];
+  const lowest = axes.reduce((low, axis) => (axis.score < low.score ? axis : low), axes[0]);
+  return (
+    <div className="pf-panel">
+      <h2 className="sect">How spread out your portfolio is</h2>
+      <p className="sect-sub" style={{ maxWidth: 700 }}>Six measurements, each on a scale whose two ends are printed beside it. There is no total and no grade — six numbers stay six numbers, because averaging them would be an opinion about your portfolio dressed up as arithmetic.</p>
+      <div className="panel-block" style={{ marginBottom: 26 }}>
+        <div className="pf-hex-layout">
+          <svg height="310" style={{ display: "block", flex: "none", maxWidth: "100%" }} viewBox="0 0 440 310" width="440">
+            <polygon fill="#f5f3ed" points={gridPoints(radius)} stroke="#c2bfb5" strokeWidth="1" />
+            <polygon fill="none" points={gridPoints(radius * 0.75)} stroke="#dde3e1" strokeWidth="1" />
+            <polygon fill="none" points={gridPoints(radius * 0.5)} stroke="#dde3e1" strokeWidth="1" />
+            <polygon fill="none" points={gridPoints(radius * 0.25)} stroke="#dde3e1" strokeWidth="1" />
+            {Array.from({ length: 6 }, (_, index) => {
+              const angle = -Math.PI / 2 + (index * Math.PI) / 3;
+              return <line key={index} stroke="#dde3e1" strokeWidth="1" x1={cx} x2={(cx + radius * Math.cos(angle)).toFixed(2)} y1={cy} y2={(cy + radius * Math.sin(angle)).toFixed(2)} />;
+            })}
+            <polygon fill="rgba(21,23,25,0.12)" points={pfHexPoints(axes.map((axis) => axis.score), cx, cy, radius)} stroke="#151719" strokeWidth="2" />
+            {axes.map((axis, index) => {
+              const vertex = pfHexVertex(index, cx, cy, radius, axis.score);
+              return <circle cx={vertex.x.toFixed(2)} cy={vertex.y.toFixed(2)} fill={axis === lowest ? "#c4312c" : "#151719"} key={axis.label} r="4" />;
+            })}
+            {axes.map((axis, index) => {
+              const anchor = labelAnchors[index];
+              return (
+                <g key={axis.label}>
+                  <text fill="#151719" fontFamily="Instrument Sans, Arial, sans-serif" fontSize="12" fontWeight="600" textAnchor={anchor.anchor} x={anchor.x} y={anchor.y}>{axis.label}</text>
+                  <text fill={axis === lowest ? "#c4312c" : "#151719"} fontFamily="Instrument Sans, Arial, sans-serif" fontSize="13" fontWeight="700" textAnchor={anchor.anchor} x={anchor.x} y={anchor.y + 16}>{axis.score}</text>
+                </g>
+              );
+            })}
+          </svg>
+          <div style={{ flex: 1, minWidth: 0, paddingTop: 4 }}>
+            <div className="microlabel" style={{ marginBottom: 14 }}>What each number is, and what its ends mean</div>
+            <div style={{ display: "flex", flexDirection: "column", fontSize: 13 }}>
+              {axes.map((axis, index) => (
+                <div key={axis.label} style={{ borderBottom: index === axes.length - 1 ? "1px solid #e4e1d8" : undefined, borderTop: "1px solid #e4e1d8", padding: "9px 0" }}>
+                  <div style={{ alignItems: "baseline", display: "flex" }}>
+                    <span style={{ color: axis === lowest ? "#c4312c" : undefined, fontWeight: 600 }}>{axis.label}</span>
+                    <span className="leader" style={{ margin: "0 8px 4px" }} />
+                    <span className="num" style={{ color: axis === lowest ? "#c4312c" : undefined, fontWeight: 700 }}>{axis.score}</span>
+                  </div>
+                  <div style={{ color: "#626b70", lineHeight: 1.5, marginTop: 3 }}>{axis.sentence}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="serif-note" style={{ borderTop: "1px solid #dde3e1", marginTop: 26, maxWidth: 820, paddingTop: 20 }}>
+          <span style={{ fontSize: 17 }}>None of this knows whether a borrower will pay, whether a valuation is right, or what the franc does. A full hexagon is not a safe portfolio — it is a well-spread one.</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PfCollateralPanel({ currency, holdingCount, segments, totalMinor }: { currency: string; holdingCount: number; segments: { label: string; amount: number; color: string; bad?: boolean }[]; totalMinor: number }) {
+  const [view, setView] = useState<"bar" | "ring">("ring");
+  return (
+    <div className="pf-panel">
+      <div className="pf-sect-row">
+        <div style={{ flex: 1 }}>
+          <h2 className="sect">What stands behind your money</h2>
+          <p className="pf-sect-note">Each loan counted once, by its principal asset — so the types add up to {pfWholeLabel(currency, totalMinor)}.</p>
+        </div>
+        <div className="seg">
+          <button className={view === "bar" ? "on" : ""} onClick={() => setView("bar")} type="button">Bar</button>
+          <button className={view === "ring" ? "on" : ""} onClick={() => setView("ring")} type="button">Ring</button>
+        </div>
+      </div>
+      <div className="panel-block" style={{ marginBottom: 26, padding: "26px 30px 24px" }}>
+        {view === "bar" ? (
+          <div style={{ borderRadius: 3, display: "flex", height: 34, marginBottom: 12, overflow: "hidden" }}>
+            {segments.map((segment) => {
+              const pct = totalMinor > 0 ? (segment.amount / totalMinor) * 100 : 0;
+              return (
+                <div key={segment.label} style={{ alignItems: "center", background: segment.color, display: "flex", padding: pct > 12 ? "0 14px" : "0 6px", width: `${pct.toFixed(1)}%` }}>
+                  {pct > 18 ? <span style={{ color: "#f5f3ed", fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap" }}>{segment.label}</span> : null}
+                  <span className="grow" />
+                  {pct > 10 ? <span className="num" style={{ color: "#f5f3ed", fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap" }}>{pfWholeLabel(currency, segment.amount)}</span> : null}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div style={{ alignItems: "center", display: "flex", gap: 40 }}>
+            <PfRing center={{ title: pfWholeLabel(currency, totalMinor), sub: `${holdingCount} loans` }} radius={60} segments={segments} size={200} stroke={34} total={totalMinor} />
+            <div style={{ display: "flex", flex: 1, flexDirection: "column", fontSize: 13.5 }}>
+              {segments.map((segment, index) => (
+                <div key={segment.label} style={{ alignItems: "baseline", borderBottom: index === segments.length - 1 ? "1px solid #e4e1d8" : undefined, borderTop: "1px solid #e4e1d8", display: "flex", gap: 12, padding: "8px 0" }}>
+                  <span style={{ background: segment.color, borderRadius: 2, flex: "none", height: 11, width: 11 }} />
+                  <span style={{ color: segment.bad ? "#c4312c" : undefined, fontWeight: 500 }}>{segment.label}</span>
+                  <span className="leader" style={{ margin: "0 6px 4px" }} />
+                  <span className="num" style={{ color: "#626b70", marginRight: 14 }}>{totalMinor > 0 ? `${((segment.amount / totalMinor) * 100).toFixed(1)}%` : "-"}</span>
+                  <span className="num" style={{ color: segment.bad ? "#c4312c" : undefined, fontWeight: 600 }}>{pfWholeLabel(currency, segment.amount)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PfProtectionPanel({ currency, holdingCount, lateCount, lateMinor, securedLtvs, unsecuredCount, unsecuredMinor, weightedMargin }: { currency: string; holdingCount: number; lateCount: number; lateMinor: number; securedLtvs: number[]; unsecuredCount: number; unsecuredMinor: number; weightedMargin: number | null }) {
+  const marginLabel = weightedMargin === null ? "—" : `${weightedMargin.toFixed(1)}%`;
+  const rangeLabel = securedLtvs.length > 0 ? `${Math.min(...securedLtvs).toFixed(0)} – ${Math.max(...securedLtvs).toFixed(0)}% of valuation` : "—";
+  return (
+    <div className="pf-panel">
+      <h2 className="sect">What protects your money</h2>
+      <p className="sect-sub" style={{ maxWidth: 640 }}>A missed payment is not a loss. Two things stand in the way, and both are set for each project on its own merits.</p>
+      <div className="panel-block pf-risk-block">
+        <div className="pf-risk-grid">
+          <div style={{ paddingRight: 6 }}>
+            <div className="pf-risk-cap">The first is a deliberate gap</div>
+            <div className="pf-risk-copy">We never lend the full value of what is pledged. An independent valuer prices the asset, and the loan is set below that figure. How far below depends on how the asset would sell — a building holds its price, a set of looms does not, so it is discounted harder. The gap is what absorbs a bad sale.</div>
+            <div style={{ alignItems: "baseline", color: "#626b70", display: "flex", fontSize: 11.5, marginBottom: 6 }}><span>Independent valuation</span><span className="grow" /><span className="num" style={{ color: "#151719", fontWeight: 600 }}>100%</span></div>
+            <div style={{ border: "1.5px solid #c2bfb5", borderRadius: 3, height: 34, overflow: "hidden", position: "relative" }}>
+              <div style={{ background: "#151719", bottom: 0, left: 0, position: "absolute", top: 0, width: `${weightedMargin === null ? 0 : weightedMargin.toFixed(1)}%` }} />
+              <div style={{ alignItems: "center", bottom: 0, display: "flex", justifyContent: "center", left: `${weightedMargin === null ? 0 : weightedMargin.toFixed(1)}%`, position: "absolute", right: 0, top: 0 }}><span style={{ color: "#626b70", fontSize: 11, fontWeight: 600 }}>the gap</span></div>
+            </div>
+            <div style={{ alignItems: "baseline", display: "flex", fontSize: 11.5, marginTop: 6 }}><span style={{ color: "#151719", fontWeight: 600 }}>Lent {marginLabel}</span><span className="grow" /><span style={{ color: "#626b70" }}>{weightedMargin === null ? "" : `${(100 - weightedMargin).toFixed(1)}% of headroom`}</span></div>
+            <div style={{ color: "#626b70", fontSize: 12.5, lineHeight: 1.5, marginTop: 14 }}>Weighted across your money. Per project it runs {securedLtvs.length > 0 ? `${Math.min(...securedLtvs).toFixed(0)}% to ${Math.max(...securedLtvs).toFixed(0)}%` : "—"} — equipment at the low end, property at the high.</div>
+          </div>
+          <div style={{ borderLeft: "1px solid #e4e1d8", paddingLeft: 6 }}>
+            <div className="pf-risk-cap">The second is the clock</div>
+            <div className="pf-risk-copy">From the first day a payment is missed, penalty interest accrues on everything outstanding. It is paid to you out of the proceeds <span style={{ fontWeight: 600 }}>before</span> any principal is returned. Delay is charged for — it is not absorbed by you.</div>
+            <div style={{ alignItems: "baseline", color: "#626b70", display: "flex", fontSize: 11.5, marginBottom: 6 }}><span>Order the proceeds are applied in</span></div>
+            <div style={{ border: "1.5px solid #c2bfb5", borderRadius: 3, display: "flex", height: 34, overflow: "hidden" }}>
+              <div style={{ alignItems: "center", background: "#151719", display: "flex", justifyContent: "center", width: "14%" }}><span style={{ color: "#f5f3ed", fontSize: 10.5, fontWeight: 600 }}>1</span></div>
+              <div style={{ alignItems: "center", background: "#4a5257", display: "flex", justifyContent: "center", width: "20%" }}><span style={{ color: "#f5f3ed", fontSize: 10.5, fontWeight: 600 }}>2</span></div>
+              <div style={{ alignItems: "center", background: "#dde3e1", display: "flex", flex: 1, justifyContent: "center" }}><span style={{ color: "#626b70", fontSize: 10.5, fontWeight: 600 }}>3</span></div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", fontSize: 11.5, gap: 5, marginTop: 9 }}>
+              <div style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ background: "#151719", borderRadius: 2, flex: "none", height: 9, width: 9 }} /><span style={{ color: "#292d30", flex: 1 }}>Costs of enforcement</span></div>
+              <div style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ background: "#4a5257", borderRadius: 2, flex: "none", height: 9, width: 9 }} /><span style={{ color: "#292d30", flex: 1 }}>Interest and penalty interest — <span style={{ fontWeight: 600 }}>yours</span></span></div>
+              <div style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ background: "#dde3e1", border: "1px solid #c2bfb5", borderRadius: 2, flex: "none", height: 9, width: 9 }} /><span style={{ color: "#292d30", flex: 1 }}>Principal — yours</span></div>
+            </div>
+            <div style={{ color: "#626b70", fontSize: 12.5, lineHeight: 1.5, marginTop: 14 }}>Widths show the order, not the amounts. Across your loans the penalty runs 0.10% to 0.20% a day.</div>
+          </div>
+        </div>
+        <div className="pf-risk-kvs">
+          <div className="kv-row"><span className="k">Penalty interest across your loans</span><span className="leader" /><span className="v">0.10 – 0.20% a day</span></div>
+          <div className="kv-row"><span className="k">Collateral margin across your loans</span><span className="leader" /><span className="v">{rangeLabel}</span></div>
+          <div className="kv-row"><span className="k">Weighted margin, across your money</span><span className="leader" /><span className="v">{weightedMargin === null ? "—" : `${weightedMargin.toFixed(1)}% of valuation`}</span></div>
+          <div className="kv-row"><span className="k">Loans with no asset pledged</span><span className="leader" /><span className="v">{unsecuredCount} of {holdingCount}{unsecuredCount > 0 ? ` · ${pfWholeLabel(currency, unsecuredMinor)}` : ""}</span></div>
+          <div className="kv-row"><span className="k">Recovery through the courts takes</span><span className="leader" /><span className="v">8 – 14 months</span></div>
+          <div className="kv-row"><span className="k">In arrears right now</span><span className="leader" /><span className="v" style={{ color: lateCount > 0 ? "#c4312c" : undefined }}>{lateCount} of {holdingCount}{lateCount > 0 ? ` · ${pfWholeLabel(currency, lateMinor)}` : ""}</span></div>
+        </div>
+        <div style={{ color: "#626b70", fontSize: 13, lineHeight: 1.55, maxWidth: 760 }}>Open any loan above to see the valuation, the margin and the schedule for that specific loan.</div>
       </div>
     </div>
   );

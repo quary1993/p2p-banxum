@@ -334,10 +334,7 @@ test("portfolio explains allocated orders that are not holdings yet", () => {
     expect(screen.getByText("Primary orders awaiting funding close")).toBeInTheDocument();
     expect(screen.getByText("No loan holdings yet")).toBeInTheDocument();
     expect(screen.getByText(/created only when a published loan is closed/i)).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("tab", { name: "Exposure" }));
-    expect(screen.getByText("No funded exposure yet")).toBeInTheDocument();
-    expect(screen.getByText(/not yet exposure/i)).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Exposure" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: "Orders" }));
     expect(screen.getByText("Balance allocated")).toBeInTheDocument();
@@ -392,6 +389,53 @@ test("primary-order status chips explain released and never-invested outcomes", 
   } finally {
     primaryOrdersFixture.orders = originalOrders;
   }
+});
+
+test("portfolio redesign shows hero, tabs, loans table views and widgets", () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  fireEvent.click(screen.getByRole("button", { name: "Portfolio" }));
+
+  // Hero + three tabs (Exposure is gone), CHF is the default currency scope.
+  expect(screen.getByRole("heading", { name: "Everything you own." })).toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: "My loans" })).toHaveAttribute("aria-selected", "true");
+  expect(screen.getByRole("tab", { name: "Activity" })).toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: "Orders" })).toBeInTheDocument();
+  expect(screen.queryByRole("tab", { name: "Exposure" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "EUR" })).toBeInTheDocument();
+
+  // Focused view hides detail columns via the container class; Detailed shows them.
+  expect(document.querySelector(".pf-table")).toHaveClass("focused");
+  fireEvent.click(screen.getByRole("tab", { name: "Detailed" }));
+  expect(document.querySelector(".pf-table")).toHaveClass("detailed");
+  expect(screen.getAllByText("monthly").length).toBeGreaterThan(0);
+
+  // The four design widgets are present.
+  expect(screen.getByText("Earnings calendar")).toBeInTheDocument();
+  expect(screen.getByText("Spread of portfolio")).toBeInTheDocument();
+  expect(screen.getByText("Collateral spread")).toBeInTheDocument();
+  expect(screen.getByText("If a borrower stops paying")).toBeInTheDocument();
+  expect(screen.getByText("0.10–0.20%")).toBeInTheDocument();
+
+  // Hexagon panel opens with the purpose axis and live sentences.
+  fireEvent.click(screen.getByText("Spread of portfolio"));
+  expect(screen.getByRole("heading", { name: "How spread out your portfolio is" })).toBeInTheDocument();
+  expect(screen.getAllByText("Spread by purpose").length).toBeGreaterThan(0);
+
+  // Earnings calendar panel opens and a payment day expands into the detail.
+  fireEvent.click(screen.getByText("Earnings calendar"));
+  expect(screen.getByRole("heading", { name: "Your earnings calendar, date by date" })).toBeInTheDocument();
+  const jura = screen.getAllByText("Jura Précision SA").find((node) => node.classList.contains("who"));
+  expect(jura).toBeTruthy();
+  fireEvent.click(jura!.closest("button") as HTMLElement);
+  expect(screen.getByText("Interest — what you earn")).toBeInTheDocument();
+  expect(screen.getByText("Your money coming back")).toBeInTheDocument();
 });
 
 test("holding details open in a large modal with the current loan schedule", () => {
@@ -525,7 +569,11 @@ test("listed holdings expose edit and cancel controls plus filtered secondary ac
   expect(screen.getByRole("tab", { name: "Sell a holding" })).toHaveAttribute("aria-selected", "true");
   expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "List" })).not.toBeInTheDocument();
+  // The listed holding's own row swaps List for Edit/Cancel; other active
+  // holdings keep their List buttons.
+  const engadinSellRow = screen.getByText("Engadin Alpine refinancing").closest("tr") as HTMLElement;
+  expect(within(engadinSellRow).queryByRole("button", { name: "List" })).not.toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: "List" }).length).toBeGreaterThan(0);
 
   fireEvent.click(screen.getByRole("button", { name: "Edit" }));
   const editDialog = screen.getByRole("dialog", { name: "Edit listing for Engadin Alpine refinancing" });
