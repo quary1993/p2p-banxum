@@ -113,15 +113,23 @@ complete schedules and zero committed principal. The command is idempotent, requ
 production acknowledgement, and is never part of container startup. Leave the option disabled for
 ordinary deployments.
 
+`seed_originator_demo_loans` is a separate private-QA workflow option. It creates three clearly
+labelled demo Loan Originators and publishes ten `Demo LO - ...` claims through the same strict CSV
+import, reconciliation, target-yield pricing, and publication services used by the admin workflow.
+The catalogue spans CHF/EUR, all supported repayment structures, varied minimum investments and
+more than 30 days to maturity. It is idempotent, requires explicit production acknowledgement, and
+is never part of container startup. Leave it disabled for ordinary deployments.
+
 Container startup applies migrations, collects static files, runs `seed_reference_data`, and
 synchronizes the environment-managed superadmin. `seed_reference_data` creates only currencies and
 platform settings. Never put `seed_demo` in a deployed startup command: it is an explicit local/private
 QA command and may create temporary, non-approved legal templates.
 
-The marketplace demo catalogue is also not production reference data. Before accepting real lender
-money, cancel the demo campaigns through the normal funding-cancellation flow and verify that no
-published loan title starts with `Demo - `. Do not delete the loan rows or their append-only evidence
-directly from the database.
+Neither marketplace demo catalogue is production reference data. Before accepting real lender
+money, cancel direct-loan demo campaigns through the normal funding-cancellation flow, place demo
+originator opportunities on hold, and verify that no open opportunity title starts with `Demo - ` or
+`Demo LO - `. Do not delete loan, originator, import, or append-only evidence rows directly from the
+database. Rebuild a private-QA environment when a completely clean data set is required.
 
 Use the direct server commands below only for emergency or diagnostic work.
 

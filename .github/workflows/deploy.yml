@@ -17,6 +17,11 @@ on:
         required: true
         default: false
         type: boolean
+      seed_originator_demo_loans:
+        description: Publish the idempotent ten-claim Loan Originator QA catalogue.
+        required: true
+        default: false
+        type: boolean
 
 jobs:
   deploy:
@@ -78,6 +83,7 @@ jobs:
         env:
           DEPLOY_TARGET: ${{ inputs.environment }}
           SEED_MARKETPLACE_DEMO_LOANS: ${{ inputs.seed_marketplace_demo_loans }}
+          SEED_ORIGINATOR_DEMO_LOANS: ${{ inputs.seed_originator_demo_loans }}
           SSH_HOST: ${{ secrets.BANXUM_SSH_HOST }}
           SSH_USER: ${{ secrets.BANXUM_SSH_USER }}
           SSH_PORT: ${{ secrets.BANXUM_SSH_PORT || '22' }}
@@ -109,6 +115,7 @@ jobs:
               TARGET="$target" \
               REMOTE_ARCHIVE="$remote_archive" \
               SEED_MARKETPLACE_DEMO_LOANS="$SEED_MARKETPLACE_DEMO_LOANS" \
+              SEED_ORIGINATOR_DEMO_LOANS="$SEED_ORIGINATOR_DEMO_LOANS" \
               'bash -s' <<'REMOTE'
           set -euo pipefail
 
@@ -191,6 +198,20 @@ jobs:
               -f infra/deploy/docker-compose.yml \
               exec -T backend \
               .venv/bin/python backend/manage.py seed_marketplace_demo_loans $seed_args
+          fi
+
+          if [ "${SEED_ORIGINATOR_DEMO_LOANS:-false}" = "true" ]; then
+            seed_args=""
+            if [ "$TARGET" = "production" ]; then
+              seed_args="--allow-production"
+            fi
+            echo "Publishing idempotent Loan Originator demo catalogue in $TARGET."
+            docker compose \
+              --project-name "$project_name" \
+              --env-file infra/deploy/.env \
+              -f infra/deploy/docker-compose.yml \
+              exec -T backend \
+              .venv/bin/python backend/manage.py seed_originator_demo_loans $seed_args
           fi
 
           curl -fsS "$health_url" >/dev/null

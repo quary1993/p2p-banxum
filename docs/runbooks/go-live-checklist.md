@@ -41,10 +41,12 @@ Complete these before calling any environment production-like.
   - CHF QR payload is the verified payload in `docs/payment-assets/chf-collector-qr-payload.txt`.
   - EUR has no supplied QR payload; investors see IBAN/BIC plus their BANXUM payment reference.
 - Demo and QA data:
-  - No published loan title starts with `Demo - ` and the private-test catalogue has been cancelled
-    through the normal funding-cancellation flow before real lender money is accepted.
-  - The deploy workflow's `seed_marketplace_demo_loans` option is disabled for ordinary and go-live
-    deployments; it is an explicit private-QA action, not production reference-data seeding.
+  - No published/open opportunity title starts with `Demo - ` or `Demo LO - `. Direct-loan demo
+    campaigns have been cancelled through the normal funding-cancellation flow and demo Loan
+    Originator opportunities have been placed on hold before real lender money is accepted.
+  - The deploy workflow's `seed_marketplace_demo_loans` and `seed_originator_demo_loans` options are
+    disabled for ordinary and go-live deployments; they are explicit private-QA actions, not
+    production reference-data seeding.
   - Demo financial records and their append-only evidence are not removed with direct database
     deletes. Rebuild an environment when a completely clean QA dataset is required.
 - Legal and documents:
