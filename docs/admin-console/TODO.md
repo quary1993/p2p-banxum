@@ -278,3 +278,26 @@ Each entry should include:
   dashboard API payload shapes so preview-mode tests exercise the same field values the
   live console receives; consider generating fixtures from the serializer.
 - Priority: important.
+
+## 2026-08-04: Loan Originator Administration And Settlement
+
+- Screen or component: Loans, Loan Originators, originator-loan CSV import/manage
+  dialog, Finance Operations originator settlement queue.
+- Current first-version behavior: admins can search/create/update Loan Originators
+  with off-platform KYB evidence, settlement instructions, active/blocked state,
+  and negotiated premium-fee percentage. Originator loans are created separately
+  with anonymized per-loan borrower disclosure, coupon, target effective annual
+  yield, minimum investment, fee override, and strict schedule/payment CSV. The
+  combined loan table identifies the product and originator. Manage supports
+  review/publish, hold/release, and replacement-import repayment recording. Finance
+  Operations groups unsettled purchase and servicing payable by
+  originator/currency and settles a complete batch with bank evidence; day-3/day-5
+  states are visible and scheduler tasks are created.
+- Required admin-console improvement: before production volume, add server-backed
+  pagination to originator and settlement tables, an import-diff viewer that
+  highlights changed future rows versus immutable prior payment rows, downloadable
+  import validation evidence, and a maker-checker confirmation for external
+  settlement. Keep originator legal name, public name, registration number, status,
+  currency, oldest age, and payable totals visible; keep raw UUIDs behind copy
+  controls rather than primary labels.
+- Priority: important.

@@ -5,7 +5,8 @@
     "Finance Operations is the money-movement cockpit of the admin console. It starts with Pending finance operations, a bounded working list that combines unresolved finance tasks with bank exceptions, withdrawals, forced withdrawals, FX settlement items, and reconciliation breaks. Below that, Garanta staff record cash that has actually entered or left the company's bank account and keep the internal ledger in step with reality. Most forms record a bank transfer that you (or the bank) already arranged or observed; the live balance-ageing scan is the exception because it can create forced withdrawals and post penalty charges.",
     "A few terms you will see on every form. 'Minor units' means the amount in the smallest currency unit, i.e. cents (rappen for CHF). So 2,500,000 minor units equals 25,000.00 CHF. Always enter whole numbers in minor units, never decimals. The 'collection account' is Garanta's own pooled bank account that holds all lender money before it is invested or paid out. Launch collection accounts are Garanta_CHF (IBAN CH1183019GARANTAFI001, QR IBAN CH8330334GARANTAFI001, BIC YAPECHZ2) and Garanta_EUR (IBAN CH8183019GARANTAFI002, BIC YAPECHZ2). A 'deposit' is incoming money from an investor; a 'disbursement' is outgoing money to a borrower; a 'withdrawal' is outgoing money back to an investor.",
     "Most forms include an 'investor' (or loan/borrower/withdrawal) autocomplete. You type a name, email, investor reference (a code like L7K3M9PQ2), UUID, or IBAN; the box searches the database and lets you pick a real record. When you pick one, the box quietly stores the matching hidden ID and shows 'Selected ID: ...'. If you type text but never pick a result, the form will refuse to submit. The visible text is just for searching; the hidden ID is what actually gets sent.",
-    "Because each action posts permanent accounting entries, every submit carries an automatic idempotency key so an accidental double-click cannot double-book a transfer. Watch the success and error banners after each action: they tell you exactly what the ledger did."
+    "Because each action posts permanent accounting entries, every submit carries an automatic idempotency key so an accidental double-click cannot double-book a transfer. Watch the success and error banners after each action: they tell you exactly what the ledger did.",
+    "Loan Originator claim purchases and the originator share of borrower repayments accrue in separate originator-payable accounts. The Originator settlement queue groups unsettled items by originator and currency, shows the gross consideration, BANXUM fee, net payable and oldest age, and lets an admin record the complete external bank settlement. A task becomes due at day 3; the oldest item must not pass day 5."
   ],
   "whatYouDoHere": [
     "Start with the pending finance-operations table and open the relevant action or owning module for each unresolved item.",
@@ -14,7 +15,7 @@
     "Look up an investor's ledger balance broken into investable, withdraw-only, overdue, frozen and penalty buckets.",
     "Run the balance ageing scan that fires 30/60-day reminders, forced withdrawals, and penalty charges (with a safe dry-run mode).",
     "Create a reconciliation snapshot that compares the bank's stated balance against what the ledger expects.",
-    "Finalize or cancel investor withdrawals, finalize borrower loan disbursements, and declare external FX (currency-exchange) settlements."
+    "Finalize or cancel investor withdrawals, finalize direct borrower loan disbursements, declare external FX settlements, and settle complete Loan Originator payable batches after the bank transfer executes."
   ],
   "figures": [
     {

@@ -28,6 +28,14 @@ class LedgerAccountType(models.TextChoices):
         "recovery_distribution_payable",
         "Recovery distribution payable",
     )
+    ORIGINATOR_SETTLEMENT_PAYABLE = (
+        "originator_settlement_payable",
+        "Loan Originator settlement payable",
+    )
+    ORIGINATOR_SERVICING_PAYABLE = (
+        "originator_servicing_payable",
+        "Loan Originator servicing payable",
+    )
 
 
 class LedgerPostingSide(models.TextChoices):
@@ -55,6 +63,7 @@ class BankOperationType(models.TextChoices):
         "currency_exchange_external_settlement",
         "Currency exchange external settlement",
     )
+    ORIGINATOR_SETTLEMENT = "originator_settlement", "Loan Originator settlement"
 
 
 class BankOperationStatus(models.TextChoices):
@@ -67,6 +76,10 @@ class BankOperationStatus(models.TextChoices):
 class BalanceLotSourceType(models.TextChoices):
     DEPOSIT = "deposit", "Deposit"
     INSTALLMENT = "installment", "Installment"
+    ORIGINATOR_CLAIM_REPAYMENT = (
+        "originator_claim_repayment",
+        "Loan Originator claim repayment",
+    )
     RECOVERY_DISTRIBUTION = "recovery_distribution", "Recovery distribution"
     SECONDARY_MARKET_PROCEEDS = "secondary_market_proceeds", "Secondary-market proceeds"
     FX_PROCEEDS = "fx_proceeds", "FX proceeds"

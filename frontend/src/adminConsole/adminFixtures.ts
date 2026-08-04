@@ -713,8 +713,22 @@ export const borrowersFixture: BorrowerEntity[] = [
   }
 ];
 
+const directAdminLoanFields = (yieldBps: number, principalMinor: number) => ({
+  product_type: "direct",
+  originator_id: null,
+  originator_name: null,
+  yield_bps: yieldBps,
+  opportunity_status: null,
+  minimum_investment_minor: null,
+  current_outstanding_principal_minor: principalMinor,
+  unsold_principal_minor: null,
+  maturity_date: null,
+  originator_schedule_revision: null
+});
+
 export const loansFixture: Loan[] = [
   {
+    ...directAdminLoanFields(950, 120000000),
     id: "loan-zug-park-ii",
     borrower_id: "borrower-helvetic-wohnbau",
     borrower_name: "Helvetic Wohnbau AG",
@@ -762,6 +776,7 @@ export const loansFixture: Loan[] = [
     updated_at: "2026-06-03T10:30:00+02:00"
   },
   {
+    ...directAdminLoanFields(1025, 42000000),
     id: "loan-basel-riverside",
     borrower_id: "borrower-helvetic-wohnbau",
     borrower_name: "Helvetic Wohnbau AG",
@@ -809,6 +824,7 @@ export const loansFixture: Loan[] = [
     updated_at: "2026-06-05T09:00:00+02:00"
   }
   ,{
+    ...directAdminLoanFields(1150, 35000000),
     id: "loan-luzern-quartier",
     borrower_id: "borrower-ticino-immobilien",
     borrower_name: "Ticino Immobilien AG",
@@ -856,6 +872,7 @@ export const loansFixture: Loan[] = [
     updated_at: "2026-06-20T10:00:00+02:00"
   },
   {
+    ...directAdminLoanFields(950, 34000000),
     id: "loan-seefeld-refi",
     borrower_id: "borrower-helvetic-wohnbau",
     borrower_name: "Helvetic Wohnbau AG",

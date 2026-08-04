@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.core.exceptions import ObjectDoesNotExist
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -24,8 +25,18 @@ class ManualScheduleRowRequestSerializer(serializers.Serializer[Any]):
 
 class LoanSerializer(serializers.Serializer[Any]):
     id = serializers.UUIDField()
-    borrower_id = serializers.UUIDField()
-    borrower_name = serializers.CharField(source="borrower.legal_name")
+    product_type = serializers.CharField()
+    borrower_id = serializers.UUIDField(allow_null=True)
+    borrower_name = serializers.SerializerMethodField()
+    originator_id = serializers.SerializerMethodField()
+    originator_name = serializers.SerializerMethodField()
+    yield_bps = serializers.SerializerMethodField()
+    opportunity_status = serializers.SerializerMethodField()
+    minimum_investment_minor = serializers.SerializerMethodField()
+    current_outstanding_principal_minor = serializers.SerializerMethodField()
+    unsold_principal_minor = serializers.SerializerMethodField()
+    maturity_date = serializers.SerializerMethodField()
+    originator_schedule_revision = serializers.SerializerMethodField()
     status = serializers.CharField()
     title = serializers.CharField()
     investor_summary = serializers.CharField()
@@ -45,7 +56,7 @@ class LoanSerializer(serializers.Serializer[Any]):
     repayment_type = serializers.CharField()
     interest_only_months = serializers.IntegerField()
     loan_start_date = serializers.DateField()
-    funding_deadline = serializers.DateField()
+    funding_deadline = serializers.DateField(allow_null=True)
     first_payment_date = serializers.DateField()
     pre_publication_paid_installments = serializers.ListField(child=serializers.IntegerField())
     collateral_type = serializers.CharField()
@@ -72,6 +83,69 @@ class LoanSerializer(serializers.Serializer[Any]):
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_original_repayment_type(self, obj: Loan) -> str | None:
         return obj.original_repayment_type or None
+
+    def _originator_profile(self, obj: Loan) -> Any | None:
+        try:
+            return obj.originator_profile
+        except (AttributeError, ObjectDoesNotExist):
+            return None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_borrower_name(self, obj: Loan) -> str | None:
+        borrower = obj.borrower
+        if borrower is not None:
+            return str(borrower.legal_name)
+        profile = self._originator_profile(obj)
+        return str(profile.borrower_legal_name) if profile is not None else None
+
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_originator_id(self, obj: Loan) -> Any | None:
+        profile = self._originator_profile(obj)
+        return profile.originator_id if profile is not None else None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_originator_name(self, obj: Loan) -> str | None:
+        profile = self._originator_profile(obj)
+        return str(profile.originator.public_name) if profile is not None else None
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_yield_bps(self, obj: Loan) -> int:
+        profile = self._originator_profile(obj)
+        return int(profile.target_yield_bps) if profile is not None else int(obj.interest_rate_bps)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_opportunity_status(self, obj: Loan) -> str | None:
+        profile = self._originator_profile(obj)
+        return str(profile.opportunity_status) if profile is not None else None
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_minimum_investment_minor(self, obj: Loan) -> int | None:
+        profile = self._originator_profile(obj)
+        return int(profile.minimum_investment_minor) if profile is not None else None
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_current_outstanding_principal_minor(self, obj: Loan) -> int:
+        profile = self._originator_profile(obj)
+        return (
+            int(profile.current_outstanding_principal_minor)
+            if profile is not None
+            else int(obj.principal_minor)
+        )
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_unsold_principal_minor(self, obj: Loan) -> int | None:
+        profile = self._originator_profile(obj)
+        return int(profile.unsold_principal_minor) if profile is not None else None
+
+    @extend_schema_field(serializers.DateField(allow_null=True))
+    def get_maturity_date(self, obj: Loan) -> Any | None:
+        profile = self._originator_profile(obj)
+        return profile.maturity_date if profile is not None else None
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_originator_schedule_revision(self, obj: Loan) -> int | None:
+        profile = self._originator_profile(obj)
+        return int(profile.schedule_revision) if profile is not None else None
 
 
 class LoanCreateRequestSerializer(serializers.Serializer[Any]):
@@ -116,6 +190,18 @@ class LoanCreateRequestSerializer(serializers.Serializer[Any]):
         allow_empty=False,
     )
     note = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("is_refinancing"):
+            raise serializers.ValidationError(
+                {
+                    "is_refinancing": (
+                        "New refinancing loans are disabled. Use the Loan Originator claim "
+                        "workflow for existing loans."
+                    )
+                }
+            )
+        return attrs
 
 
 class LoanUpdateRequestSerializer(serializers.Serializer[Any]):
@@ -162,6 +248,7 @@ class LoanUpdateRequestSerializer(serializers.Serializer[Any]):
 
 class LoanListQuerySerializer(serializers.Serializer[Any]):
     borrower_id = serializers.UUIDField(required=False)
+    product_type = serializers.CharField(required=False, max_length=32)
     status = serializers.ChoiceField(required=False, choices=LoanStatus.choices)
     purpose = serializers.ChoiceField(required=False, choices=LoanPurpose.choices)
     repayment_type = serializers.ChoiceField(required=False, choices=RepaymentType.choices)

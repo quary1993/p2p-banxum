@@ -198,6 +198,10 @@ def _entities_services() -> Any:
     return import_module("backend.apps.entities.services")
 
 
+def _originator_services() -> Any:
+    return import_module("backend.apps.originator_claims.services")
+
+
 def _loan_for_update(loan_id: str) -> Model:
     loan_model = _model("loans", "Loan")
     loan = cast(Model | None, loan_model.objects.select_for_update().filter(id=loan_id).first())
@@ -584,12 +588,10 @@ def allocate_primary_order_from_balance(
 ) -> PrimaryInvestmentOrder:
     _require_investor_financial_access(command.actor)
     idempotency_key = _clean_idempotency_key(command.idempotency_key)
-    order = (
-        PrimaryInvestmentOrder.objects.filter(
-            id=command.order_id,
-            investor_user_id=command.actor.pk,
-        ).first()
-    )
+    order = PrimaryInvestmentOrder.objects.filter(
+        id=command.order_id,
+        investor_user_id=command.actor.pk,
+    ).first()
     if order is None:
         raise MarketplacePrimaryValidationError("Primary investment order does not exist.")
     allocation_fingerprint = _allocation_request_fingerprint(
@@ -1558,22 +1560,38 @@ def public_marketplace_listing_payload(loan: Model) -> dict[str, Any]:
     progress = loan_funding_progress(str(loan_ref.id))
     return {
         **progress,
+        "product_type": str(loan_ref.product_type),
+        "investment_flow": "primary_order",
         "title": str(loan_ref.title),
         "purpose": str(loan_ref.purpose),
         "collateral_type": str(loan_ref.collateral_type),
         "interest_rate_bps": int(loan_ref.interest_rate_bps),
+        "yield_bps": int(loan_ref.interest_rate_bps),
+        "underlying_interest_rate_bps": int(loan_ref.interest_rate_bps),
         "term_months": int(loan_ref.term_months),
+        "remaining_term_days": None,
         "risk_rating": str(loan_ref.risk_rating),
         "funding_deadline": loan_ref.funding_deadline,
+        "maturity_date": None,
         "status": str(loan_ref.status),
+        "loan_status": str(loan_ref.status),
+        "opportunity_status": "open",
+        "fillable_amount_minor": progress["remaining_capacity_minor"],
         "minimum_investment_minor": _minimum_investment_minor(str(loan_ref.currency_id)),
         "ltv_bps": loan_ref.ltv_bps,
         "is_refinancing": bool(loan_ref.is_refinancing),
+        "originator_id": None,
+        "originator_name": None,
+        "borrower_display_name": None,
     }
 
 
 def full_marketplace_listing_payload(loan: Model) -> dict[str, Any]:
     loan_ref = cast(Any, loan)
+    if str(loan_ref.product_type) == "originator_claim":
+        raise MarketplacePrimaryValidationError(
+            "Originator claim details must use the originator investor projection."
+        )
     borrower = cast(Model, loan_ref.borrower)
     entities_services = _entities_services()
     payload = public_marketplace_listing_payload(loan)
@@ -1599,9 +1617,7 @@ def full_marketplace_listing_payload(loan: Model) -> dict[str, Any]:
                 else None
             ),
             "original_repayment_type": (
-                str(loan_ref.original_repayment_type)
-                if loan_ref.original_repayment_type
-                else None
+                str(loan_ref.original_repayment_type) if loan_ref.original_repayment_type else None
             ),
             "original_interest_only_months": (
                 int(loan_ref.original_interest_only_months)
@@ -1613,6 +1629,10 @@ def full_marketplace_listing_payload(loan: Model) -> dict[str, Any]:
             "loan_start_date": loan_ref.loan_start_date,
             "first_payment_date": loan_ref.first_payment_date,
             "schedule_version": int(loan_ref.schedule_version),
+            "originator_schedule": [],
+            "originator_payment_history": [],
+            "schedule_revision": None,
+            "pricing_as_of_date": None,
         }
     )
     if bool(loan_ref.is_refinancing):
@@ -1623,15 +1643,38 @@ def full_marketplace_listing_payload(loan: Model) -> dict[str, Any]:
 
 def list_public_marketplace_loans(*, limit: int = 100) -> list[dict[str, Any]]:
     loan_model = _model("loans", "Loan")
-    loans = loan_model.objects.filter(status="published").order_by("funding_deadline", "id")[
-        :limit
-    ]
-    return [public_marketplace_listing_payload(cast(Model, loan)) for loan in loans]
+    loans = loan_model.objects.filter(status="published", product_type="direct").order_by(
+        "funding_deadline", "id"
+    )[:limit]
+    payloads = [public_marketplace_listing_payload(cast(Model, loan)) for loan in loans]
+    payloads.extend(_originator_services().list_open_originator_marketplace_payloads(limit=limit))
+    # Fetch each product independently before applying the shared response limit so
+    # a full direct-loan page cannot make open originator claims disappear.
+    return sorted(
+        payloads,
+        key=lambda item: (
+            str(item.get("funding_deadline") or item.get("maturity_date") or "9999-12-31"),
+            str(item.get("title", "")),
+            str(item.get("loan_id", "")),
+        ),
+    )[:limit]
 
 
 def get_full_marketplace_loan(*, actor: Model, loan_id: str) -> dict[str, Any]:
     _require_investor_financial_access(actor)
     loan = _loan_for_read(loan_id)
+    if str(cast(Any, loan).product_type) == "originator_claim":
+        originator_services = _originator_services()
+        try:
+            return cast(
+                dict[str, Any],
+                originator_services.get_originator_marketplace_payload(
+                    actor=actor,
+                    loan_id=loan_id,
+                ),
+            )
+        except originator_services.OriginatorClaimsError as exc:
+            raise MarketplacePrimaryValidationError(str(exc)) from exc
     _assert_published_loan_open(loan)
     return full_marketplace_listing_payload(loan)
 

@@ -413,3 +413,11 @@ Future e-signature requirements, if introduced later:
 8. Answered by DOC-DEC-009 and DOC-DEC-010: template change means changes to reusable standard legal/document wording, layout, variables, or acceptance language; superadmin can change/publish templates.
 9. Answered by DOC-DEC-008: generated PDFs are regenerated on the fly from template/data snapshot through investor/admin document-history downloads; legal terms and transaction agreements are not emailed by default.
 10. Partly answered by DOC-DEC-005: claim assignment is generated per investment order; exact legal templates remain to be drafted/approved.
+
+## Loan Originator Claim Documents
+
+### DOC-DEC-012: Dated Assignment Evidence
+
+Each originator purchase requires current primary terms and creates immutable evidence naming the originator as assignor, Garanta/BANXUM as servicer/operator, anonymized loan reference, assigned principal/share, investor consideration, target effective yield, premium/discount, entitlement start, schedule revision, dated projected cash flows, and post-assignment accrual rule.
+
+Evidence states yield is projected before losses/taxes and not guaranteed, coupon may differ, early repayment changes realized return, availability closes automatically, and no originator recourse/buyback exists. The negotiated originator fee is internal. Secondary evidence shows current buyer projected yield and never seller acquisition yield.

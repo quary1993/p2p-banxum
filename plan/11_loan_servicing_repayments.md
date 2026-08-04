@@ -427,3 +427,13 @@ For default recovery events, the project-specific recovery waterfall is applied 
 8. Answered by SERV-DEC-010: no detailed covenant tracking at launch; generic notes/document upload only.
 9. Answered by SERV-DEC-011: closure evidence is the repayment/distribution evidence trail, including attached bank statements/payment records where used.
 10. Updated by SERV-DEC-013 and RISK-DEC-005/RISK-DEC-006: default recovery payments are admin-recorded with gross recovery, externally deducted costs, third-party recovery costs declared at recovery time, optional Garanta percentage recovery fee, net received, project recovery waterfall allocation, category split, lender allocation by current principal balance unless project-specific overrides exist, separate default/penalty interest where applicable, and explicit recovery rounding differences.
+
+## Loan Originator Claim Servicing
+
+### SERV-DEC-015: Dated Entitlements
+
+Garanta services an originator loan once investor claims exist. The borrower pays Garanta. Each payment first follows the underlying contractual/advance-payment waterfall, then allocates principal by current assigned versus unsold principal and allocates interest/penalties by immutable accrual intervals. Pre-assignment accrual belongs to originator; post-assignment accrual to the current holder. Largest-remainder splits reconcile each component exactly. Investor amounts create balance lots; originator amounts create servicing payable. Principal-only weights must not be used for the first post-sale payment.
+
+### SERV-DEC-016: Payments and Repricing
+
+Regular and advance repayments reuse loan-type-specific waterfalls and schedule regeneration. Each payment atomically updates schedule state, holdings, unsold principal, entitlement projections, opportunity availability, and quote validity; secondary listings retain their premium/discount while repricing current principal. No restructuring exists: extensions settle the old loan and create a new one. Opportunity closes at repayment, hold/late/default, or 30 days to maturity. Garanta handles recovery without originator recourse/buyback.

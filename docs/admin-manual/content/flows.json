@@ -273,6 +273,33 @@
         "Do not run normal scheduled jobs concurrently with a manual fast-forward test unless instructed by the runbook; fast-forward already runs the relevant daily jobs.",
         "Always revert at the end of a QA session. Leaving staging in simulated time makes later tests hard to interpret."
       ]
+    },
+    {
+      "title": "Import, publish, service and settle a Loan Originator claim",
+      "goal": "Offer part of an existing performing business loan, record an immediate investor assignment, allocate later borrower payments, and settle the amounts owed to the Loan Originator.",
+      "actor": "Loans admin plus Finance Operations admin.",
+      "preconditions": [
+        "The Loan Originator has completed off-platform KYB/AML, is Active, and has verified settlement account details and an approved premium-fee percentage.",
+        "You have the signed final-borrower contract, originator servicing export, bank/payment evidence, anonymized investor disclosure, and a UTF-8 CSV matching imports_examples/README.md.",
+        "The loan is performing, not held, not repaid, has outstanding principal, and has more than 30 calendar days to maturity."
+      ],
+      "steps": [
+        { "n": 1, "screen": "Loans > Loan Originators", "action": "Search for the originator or create it, then verify legal/public name, registration, jurisdiction, KYB evidence, settlement IBAN/BIC, status, and negotiated fee.", "detail": "Loan Originators do not receive logins. Never activate one solely to make a loan publish; activation confirms the off-platform review is complete." },
+        { "n": 2, "screen": "Loans > Create originator claim", "action": "Choose the originator and enter loan terms, anonymized borrower disclosure, underlying coupon, target effective annual ACT/365 yield, minimum investment, and fee override if approved.", "detail": "Coupon is what the final borrower pays. Target yield prices the investor's dated cash flows. They are separate values, and the investor never sees the private originator fee." },
+        { "n": 3, "screen": "Originator claim import", "action": "Set the import as-of date and upload the full schedule plus every payment through that date.", "detail": "Review current outstanding principal, maturity, row counts and validation summary. The file must conserve every component and future principal exactly. A validation error is an exception to investigate, not an instruction to alter evidence." },
+        { "n": 4, "screen": "Loans table > Manage > Publish", "action": "Review originator, anonymized borrower, coupon, target yield, minimum investment, current outstanding/unsold principal, maturity, daily priced fillable amount and schedule before publishing.", "detail": "Publishing is blocked for an inactive originator, hold, impaired/repaid loan, no unsold principal, invalid import, or 30 days or fewer to maturity." },
+        { "n": 5, "screen": "Investor Investment Opportunities", "action": "Run a controlled purchase and inspect the resulting admin records.", "detail": "Purchase is immediate, not a funding order. Confirm one quote, purchase, holding, dated entitlement and ledger journal were created; unsold principal decreased and originator payable plus BANXUM fee reconcile to investor cash consideration." },
+        { "n": 6, "screen": "Loans table > Manage > Record originator repayment", "action": "After a real borrower payment reaches Garanta, enter its bank evidence and upload a replacement CSV revision.", "detail": "The new CSV must preserve all prior payments exactly and append exactly this payment. Review the investor and originator split. Investors receive post-assignment entitlement; the originator receives unsold-principal and pre-assignment entitlement." },
+        { "n": 7, "screen": "Finance Operations > Originator settlement", "action": "Select the originator/currency batch, reconcile every included item to the payable and external transfer, enter bank/evidence references, then settle the complete batch.", "detail": "A day-3 task means settlement is due. Never allow the oldest item past day 5. V1 does not allow arbitrary partial settlement or settling the same item twice." },
+        { "n": 8, "screen": "Reconciliation / Tasks", "action": "Create a reconciliation snapshot, verify no break, then resolve the linked settlement task.", "detail": "The originator payable is part of the reconciliation identity before settlement and clears against collection cash after the external transfer." }
+      ],
+      "outcome": "The investor owns a dated legal assignment, the originator retains only its unsold/pre-assignment entitlement, borrower payments reconcile exactly, and the external originator payable is settled with immutable evidence.",
+      "pitfalls": [
+        "Do not use direct-loan funding close or borrower disbursement for an originator claim; the claim already exists and purchase is immediate.",
+        "Do not expose the private final-borrower legal name, originator fee, settlement status, or seller acquisition yield to investors.",
+        "Put the opportunity on hold for any schedule, bank, contract, or servicing discrepancy.",
+        "Only performing originator holdings can be resold in v1. Late/defaulted claim pricing and entitlement transfer are intentionally blocked."
+      ]
     }
   ]
 }

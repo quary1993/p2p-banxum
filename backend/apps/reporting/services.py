@@ -1355,7 +1355,11 @@ def _default_exposure_dataset(
         "holding_id",
         "investor_user_id",
         "loan_id",
+        "product_type",
         "borrower_id",
+        "borrower_display_name",
+        "originator_id",
+        "originator_name",
         "loan_status",
         "currency",
         "current_principal_minor",
@@ -1370,32 +1374,51 @@ def _default_exposure_dataset(
     if not isinstance(statuses, list):
         statuses = list(DEFAULT_EXPOSURE_LOAN_STATUSES)
     queryset = (
-        holding_model.objects.select_related("loan", "loan__currency")
+        holding_model.objects.select_related(
+            "loan",
+            "loan__borrower",
+            "loan__currency",
+            "loan__originator_profile__originator",
+        )
         .filter(loan__status__in=statuses, current_principal_minor__gt=0)
         .order_by("loan__status", "loan_id", "investor_user_id", "id")
     )
     queryset = _apply_currency_filter(queryset, filters, field_name="currency")
-    rows = [
-        {
-            "holding_id": str(holding.id),
-            "investor_user_id": _redacted_identifier(
-                holding.investor_user_id,
-                redaction_mode=redaction_mode,
-            ),
-            "loan_id": str(holding.loan_id),
-            "borrower_id": str(holding.loan.borrower_id),
-            "loan_status": holding.loan.status,
-            "currency": holding.currency.code,
-            "current_principal_minor": holding.current_principal_minor,
-            "original_principal_minor": holding.original_principal_minor,
-            "loan_share_ppm": holding.loan_share_ppm,
-            "assignment_effective_at": holding.assignment_effective_at,
-            "holding_status": holding.status,
-            "risk_rating": holding.loan.risk_rating,
-            "collateral_type": holding.loan.collateral_type,
-        }
-        for holding in list(queryset)
-    ]
+    rows: list[dict[str, Any]] = []
+    for holding in list(queryset):
+        loan = holding.loan
+        is_originator_claim = str(getattr(loan, "product_type", "direct")) == "originator_claim"
+        profile = getattr(loan, "originator_profile", None) if is_originator_claim else None
+        originator = getattr(profile, "originator", None) if profile is not None else None
+        borrower = getattr(loan, "borrower", None)
+        rows.append(
+            {
+                "holding_id": str(holding.id),
+                "investor_user_id": _redacted_identifier(
+                    holding.investor_user_id,
+                    redaction_mode=redaction_mode,
+                ),
+                "loan_id": str(holding.loan_id),
+                "product_type": str(getattr(loan, "product_type", "direct")),
+                "borrower_id": str(loan.borrower_id or ""),
+                "borrower_display_name": (
+                    str(getattr(profile, "borrower_display_name", ""))
+                    if is_originator_claim
+                    else str(getattr(borrower, "legal_name", ""))
+                ),
+                "originator_id": str(getattr(originator, "id", "")),
+                "originator_name": str(getattr(originator, "public_name", "")),
+                "loan_status": loan.status,
+                "currency": holding.currency.code,
+                "current_principal_minor": holding.current_principal_minor,
+                "original_principal_minor": holding.original_principal_minor,
+                "loan_share_ppm": holding.loan_share_ppm,
+                "assignment_effective_at": holding.assignment_effective_at,
+                "holding_status": holding.status,
+                "risk_rating": loan.risk_rating,
+                "collateral_type": loan.collateral_type,
+            }
+        )
     return ReportDataset(
         columns=columns,
         rows=rows,
@@ -1807,14 +1830,11 @@ def _failed_outbox_dataset(
     statuses = filters.get("statuses") or ["dead_letter"]
     if not isinstance(statuses, list):
         statuses = ["dead_letter"]
-    queryset = (
-        outbox_model.objects.filter(
-            created_at__gte=start_dt,
-            created_at__lte=end_dt,
-            status__in=statuses,
-        )
-        .order_by("created_at", "id")
-    )
+    queryset = outbox_model.objects.filter(
+        created_at__gte=start_dt,
+        created_at__lte=end_dt,
+        status__in=statuses,
+    ).order_by("created_at", "id")
     topic = str(filters.get("topic", ""))
     if topic:
         queryset = queryset.filter(topic=topic)
@@ -1889,9 +1909,12 @@ def _participant_account_statement_dataset(
     queryset = _apply_currency_filter(queryset, filters)
     if participant_type == "lender":
         if participant_id:
-            queryset = queryset.filter(journal_entry__lender_user_id=participant_id)
+            queryset = queryset.filter(
+                account__owner_type="investor",
+                account__owner_id=participant_id,
+            )
         else:
-            queryset = queryset.filter(journal_entry__lender_user_id__isnull=False)
+            queryset = queryset.filter(account__owner_type="investor")
     elif participant_type == "borrower":
         if participant_id:
             queryset = queryset.filter(journal_entry__borrower_id=participant_id)
@@ -1934,7 +1957,7 @@ def _participant_account_statement_dataset(
             tax_hint = "review_source_tax_metadata"
         participant = participant_id
         if participant_type == "lender":
-            participant = str(entry.lender_user_id or participant_id)
+            participant = str(posting.account.owner_id or participant_id)
         elif participant_type == "borrower":
             participant = str(entry.borrower_id or participant_id)
         rows.append(
@@ -2035,6 +2058,14 @@ def _annual_tax_information_dataset(
 
     if participant_type == "lender":
         repayment_line_model = _external_model("servicing", "InvestorRepaymentDistributionLine")
+        originator_repayment_line_model = _external_model(
+            "originator_claims",
+            "InvestorOriginatorRepaymentDistributionLine",
+        )
+        originator_purchase_model = _external_model(
+            "originator_claims",
+            "OriginatorClaimPurchase",
+        )
         recovery_line_model = _external_model("servicing", "InvestorRecoveryDistributionLine")
         fx_exchange_model = _external_model("fx", "FxExchange")
         purchase_model = _external_model("secondary_market", "SecondaryMarketPurchase")
@@ -2044,6 +2075,19 @@ def _annual_tax_information_dataset(
         repayment_queryset = repayment_line_model.objects.select_related("currency").filter(
             occurred_at__gte=start_dt,
             occurred_at__lte=end_dt,
+        )
+        originator_repayment_queryset = originator_repayment_line_model.objects.select_related(
+            "currency",
+            "repayment",
+        ).filter(
+            repayment__value_date__gte=start_date,
+            repayment__value_date__lte=end_date,
+        )
+        originator_purchase_queryset = originator_purchase_model.objects.select_related(
+            "currency"
+        ).filter(
+            purchased_at__gte=start_dt,
+            purchased_at__lte=end_dt,
         )
         recovery_queryset = recovery_line_model.objects.select_related("currency").filter(
             occurred_at__gte=start_dt,
@@ -2062,6 +2106,12 @@ def _annual_tax_information_dataset(
         holding_queryset = holding_model.objects.select_related("currency").all()
         if participant_id:
             repayment_queryset = repayment_queryset.filter(investor_user_id=participant_id)
+            originator_repayment_queryset = originator_repayment_queryset.filter(
+                investor_user_id=participant_id
+            )
+            originator_purchase_queryset = originator_purchase_queryset.filter(
+                investor_user_id=participant_id
+            )
             recovery_queryset = recovery_queryset.filter(investor_user_id=participant_id)
             fx_queryset = fx_queryset.filter(investor_user_id=participant_id)
             purchase_queryset = purchase_queryset.filter(
@@ -2091,6 +2141,38 @@ def _annual_tax_information_dataset(
             bump(line.currency.code, "information_only", "principal_repaid", line.principal_minor)
             if line.fee_minor:
                 bump(line.currency.code, "tax_summary", "lender_payment_fees_paid", line.fee_minor)
+        for line in list(originator_repayment_queryset):
+            bump(
+                line.currency.code,
+                "tax_summary",
+                "originator_claim_interest_received_or_credited",
+                line.interest_minor,
+            )
+            bump(
+                line.currency.code,
+                "tax_summary",
+                "originator_claim_penalties_received_or_credited",
+                line.penalty_minor,
+            )
+            bump(
+                line.currency.code,
+                "information_only",
+                "originator_claim_principal_repaid",
+                line.principal_minor,
+            )
+        for purchase in list(originator_purchase_queryset):
+            bump(
+                purchase.currency.code,
+                "information_only",
+                "originator_claim_cash_consideration",
+                purchase.cash_consideration_minor,
+            )
+            bump(
+                purchase.currency.code,
+                "information_only",
+                "originator_claim_principal_assigned",
+                purchase.assigned_principal_minor,
+            )
         for line in list(recovery_queryset):
             bump(
                 line.currency.code, "information_only", "principal_recovered", line.principal_minor
@@ -2386,9 +2468,7 @@ def _pdf_wrap_cell(text: str, *, max_chars: int, max_lines: int) -> list[str]:
         lines = lines[:max_lines]
         last = lines[-1]
         lines[-1] = (
-            (last[: max(1, max_chars - 3)] + "...")
-            if len(last) >= max_chars
-            else f"{last}..."
+            (last[: max(1, max_chars - 3)] + "...") if len(last) >= max_chars else f"{last}..."
         )
     return lines
 
@@ -2800,11 +2880,7 @@ def _report_pdf_bytes(*, manifest: dict[str, Any], dataset: ReportDataset) -> by
         for row_number, row in enumerate(dataset.rows, start=1):
             cell_lines = _pdf_row_lines(row=row, columns=columns, widths=widths)
             line_count = max((len(lines) for lines in cell_lines), default=1)
-            row_height = (
-                (line_count * PDF_TABLE_LINE_HEIGHT)
-                + (PDF_TABLE_CELL_PADDING_Y * 2)
-                + 1.5
-            )
+            row_height = (line_count * PDF_TABLE_LINE_HEIGHT) + (PDF_TABLE_CELL_PADDING_Y * 2) + 1.5
             if y - row_height < bottom_limit:
                 canvas.new_page()
                 y = _pdf_page_header(canvas, report_title=report_title, compact=True)
@@ -2856,15 +2932,12 @@ def _report_pdf_bytes(*, manifest: dict[str, Any], dataset: ReportDataset) -> by
             f"<< /Length {len(content)} >>\nstream\n".encode("ascii") + content + b"\nendstream"
         )
         objects[page_id] = (
-            (
-                f"<< /Type /Page /Parent 2 0 R "
-                f"/MediaBox [0 0 {int(PDF_PAGE_WIDTH)} {int(PDF_PAGE_HEIGHT)}] "
-            ).encode("ascii")
-            + (
-                f"/Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> "
-                f"/Contents {content_id} 0 R >>"
-            ).encode("ascii")
-        )
+            f"<< /Type /Page /Parent 2 0 R "
+            f"/MediaBox [0 0 {int(PDF_PAGE_WIDTH)} {int(PDF_PAGE_HEIGHT)}] "
+        ).encode("ascii") + (
+            f"/Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> "
+            f"/Contents {content_id} 0 R >>"
+        ).encode("ascii")
 
     kids = " ".join(f"{page_id} 0 R" for page_id in page_object_ids)
     objects[2] = f"<< /Type /Pages /Kids [{kids}] /Count {len(page_object_ids)} >>".encode("ascii")

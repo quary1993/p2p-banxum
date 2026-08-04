@@ -184,6 +184,8 @@ class PortfolioInstallmentSerializer(serializers.Serializer[Any]):
     due_date = serializers.DateField()
     principal_minor = serializers.IntegerField()
     interest_minor = serializers.IntegerField()
+    penalty_minor = serializers.IntegerField(required=False, default=0)
+    fee_minor = serializers.IntegerField(required=False, default=0)
     total_minor = serializers.IntegerField()
     paid_principal_minor = serializers.IntegerField()
     paid_interest_minor = serializers.IntegerField()
@@ -196,6 +198,10 @@ class PortfolioInstallmentSerializer(serializers.Serializer[Any]):
     row_type = serializers.CharField()
     label = serializers.CharField()  # type: ignore[assignment]
     payment_date = serializers.DateField(allow_null=True)
+    accrual_start_date = serializers.DateField(required=False)
+    opening_principal_minor = serializers.IntegerField(required=False)
+    closing_principal_minor = serializers.IntegerField(required=False)
+    payment_reference = serializers.CharField(required=False, allow_blank=True)
 
 
 class PortfolioHoldingInstallmentSerializer(serializers.Serializer[Any]):
@@ -205,9 +211,12 @@ class PortfolioHoldingInstallmentSerializer(serializers.Serializer[Any]):
     due_date = serializers.DateField()
     projected_principal_minor = serializers.IntegerField()
     projected_interest_minor = serializers.IntegerField()
+    projected_penalty_minor = serializers.IntegerField(required=False, default=0)
+    projected_fee_minor = serializers.IntegerField(required=False, default=0)
     projected_total_minor = serializers.IntegerField()
     days_past_due = serializers.IntegerField()
     status = serializers.CharField()
+    accrual_start_date = serializers.DateField(required=False)
 
 
 class PortfolioExposureSerializer(serializers.Serializer[Any]):
@@ -222,17 +231,24 @@ class PortfolioExposureSerializer(serializers.Serializer[Any]):
 
 class PortfolioLoanSerializer(serializers.Serializer[Any]):
     loan_id = serializers.UUIDField()
+    product_type = serializers.CharField()
     loan_title = serializers.CharField()
     loan_status = serializers.CharField()
-    borrower_id = serializers.UUIDField()
+    borrower_id = serializers.UUIDField(allow_null=True)
     borrower_name = serializers.CharField()
     borrower_country = serializers.CharField(allow_blank=True)
+    originator_id = serializers.UUIDField(allow_null=True)
+    originator_name = serializers.CharField(allow_blank=True)
     purpose = serializers.CharField()
     collateral_type = serializers.CharField()
     risk_rating = serializers.CharField()
     interest_rate_bps = serializers.IntegerField()
+    yield_bps = serializers.IntegerField()
+    underlying_interest_rate_bps = serializers.IntegerField()
     default_penalty_interest_bps = serializers.IntegerField()
     term_months = serializers.IntegerField()
+    remaining_term_days = serializers.IntegerField(required=False)
+    maturity_date = serializers.DateField(required=False)
     repayment_type = serializers.CharField()
     currency = serializers.CharField()
     is_refinancing = serializers.BooleanField()
@@ -240,9 +256,9 @@ class PortfolioLoanSerializer(serializers.Serializer[Any]):
     original_repayment_type = serializers.CharField(allow_null=True)
     original_interest_only_months = serializers.IntegerField(allow_null=True)
     principal_minor = serializers.IntegerField()
-    funding_deadline = serializers.DateField()
+    funding_deadline = serializers.DateField(allow_null=True)
     loan_start_date = serializers.DateField()
-    first_payment_date = serializers.DateField()
+    first_payment_date = serializers.DateField(allow_null=True)
     ltv_bps = serializers.IntegerField(allow_null=True)
     days_past_due = serializers.IntegerField()
     schedule_version = serializers.IntegerField()
@@ -279,8 +295,13 @@ class HoldingSerializer(serializers.Serializer[Any]):
     loan = PortfolioLoanSerializer()
     received_principal_minor = serializers.IntegerField()
     received_interest_minor = serializers.IntegerField()
+    received_penalty_minor = serializers.IntegerField()
     repayment_fee_minor = serializers.IntegerField()
     investment_schedule = PortfolioHoldingInstallmentSerializer(many=True)
+    acquisition_cash_consideration_minor = serializers.IntegerField(allow_null=True)
+    acquisition_cash_flow = serializers.ListField(
+        child=serializers.DictField(),
+    )
     recovered_principal_minor = serializers.IntegerField()
     recovered_contractual_interest_minor = serializers.IntegerField()
     recovered_default_interest_minor = serializers.IntegerField()

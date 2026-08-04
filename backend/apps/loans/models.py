@@ -20,6 +20,11 @@ class LoanStatus(models.TextChoices):
     CANCELLED = "cancelled", "Cancelled"
 
 
+class LoanProductType(models.TextChoices):
+    DIRECT = "direct", "Direct loan"
+    ORIGINATOR_CLAIM = "originator_claim", "Loan Originator claim"
+
+
 class LoanPurpose(models.TextChoices):
     WORKING_CAPITAL = "working_capital", "Working capital"
     LIQUIDITY = "liquidity", "Liquidity"
@@ -109,6 +114,13 @@ class Loan(TimestampedModel):
         "entities.BorrowerEntity",
         on_delete=models.PROTECT,
         related_name="loans",
+        null=True,
+        blank=True,
+    )
+    product_type = models.CharField(
+        max_length=32,
+        choices=LoanProductType.choices,
+        default=LoanProductType.DIRECT,
     )
     status = models.CharField(max_length=32, choices=LoanStatus.choices, default=LoanStatus.DRAFT)
     title = models.CharField(max_length=255)
@@ -138,7 +150,7 @@ class Loan(TimestampedModel):
     repayment_type = models.CharField(max_length=64, choices=RepaymentType.choices)
     interest_only_months = models.PositiveSmallIntegerField(default=0)
     loan_start_date = models.DateField()
-    funding_deadline = models.DateField()
+    funding_deadline = models.DateField(null=True, blank=True)
     first_payment_date = models.DateField()
     pre_publication_paid_installments = models.JSONField(default=list, blank=True)
     collateral_type = models.CharField(
@@ -189,6 +201,22 @@ class Loan(TimestampedModel):
                 ),
                 name="loan_refinancing_requires_original_terms",
             ),
+            models.CheckConstraint(
+                condition=(
+                    (
+                        models.Q(product_type=LoanProductType.DIRECT)
+                        & models.Q(borrower__isnull=False)
+                        & models.Q(funding_deadline__isnull=False)
+                    )
+                    | (
+                        models.Q(product_type=LoanProductType.ORIGINATOR_CLAIM)
+                        & models.Q(borrower__isnull=True)
+                        & models.Q(funding_deadline__isnull=True)
+                        & models.Q(is_refinancing=False)
+                    )
+                ),
+                name="loan_product_type_required_fields",
+            ),
         ]
         indexes = [
             models.Index(fields=["status", "funding_deadline"]),
@@ -196,6 +224,7 @@ class Loan(TimestampedModel):
             models.Index(fields=["currency", "status"]),
             models.Index(fields=["purpose", "status"]),
             models.Index(fields=["risk_rating", "status"]),
+            models.Index(fields=["product_type", "status"]),
         ]
 
     @property

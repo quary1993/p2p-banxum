@@ -59,6 +59,8 @@ class SecondaryMarketBuyerListingSerializer(serializers.Serializer[Any]):
     id = serializers.UUIDField()
     loan_id = serializers.UUIDField()
     loan_title = serializers.CharField(source="loan.title")
+    product_type = serializers.CharField(source="loan.product_type")
+    originator_name = serializers.SerializerMethodField()
     status = serializers.CharField()
     current_principal_minor = serializers.IntegerField()
     currency = serializers.CharField(source="currency.code")
@@ -82,6 +84,9 @@ class SecondaryMarketBuyerListingSerializer(serializers.Serializer[Any]):
     # values are already disclosed on the listing detail; exposing them on the
     # list keeps the coupon and remaining-term columns authoritative.
     interest_rate_bps = serializers.IntegerField(source="loan.interest_rate_bps")
+    underlying_interest_rate_bps = serializers.IntegerField(source="loan.interest_rate_bps")
+    yield_bps = serializers.SerializerMethodField()
+    projected_yield_bps = serializers.SerializerMethodField()
     collateral_type = serializers.CharField(source="loan.collateral_type")
     remaining_term_months = serializers.SerializerMethodField()
 
@@ -91,6 +96,28 @@ class SecondaryMarketBuyerListingSerializer(serializers.Serializer[Any]):
             return int(listing.get("remaining_term_months") or 0)
         return int(getattr(listing, "remaining_term_months", 0))
 
+    @extend_schema_field(serializers.CharField())
+    def get_originator_name(self, listing: Any) -> str:
+        if isinstance(listing, dict):
+            return str(listing.get("originator_name") or "")
+        loan = getattr(listing, "loan", None)
+        if str(getattr(loan, "product_type", "direct")) != "originator_claim":
+            return ""
+        profile = getattr(loan, "originator_profile", None)
+        return str(getattr(getattr(profile, "originator", None), "public_name", ""))
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_projected_yield_bps(self, listing: Any) -> int | None:
+        if isinstance(listing, dict):
+            value = listing.get("projected_yield_bps")
+        else:
+            value = getattr(listing, "projected_yield_bps", None)
+        return int(value) if value is not None else None
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_yield_bps(self, listing: Any) -> int | None:
+        return self.get_projected_yield_bps(listing)
+
 
 class SecondaryMarketLoanInstallmentSerializer(serializers.Serializer[Any]):
     id = serializers.UUIDField()
@@ -99,6 +126,8 @@ class SecondaryMarketLoanInstallmentSerializer(serializers.Serializer[Any]):
     due_date = serializers.DateField()
     principal_minor = serializers.IntegerField()
     interest_minor = serializers.IntegerField()
+    penalty_minor = serializers.IntegerField(required=False, default=0)
+    fee_minor = serializers.IntegerField(required=False, default=0)
     total_minor = serializers.IntegerField()
     paid_principal_minor = serializers.IntegerField()
     paid_interest_minor = serializers.IntegerField()
@@ -111,6 +140,10 @@ class SecondaryMarketLoanInstallmentSerializer(serializers.Serializer[Any]):
     row_type = serializers.CharField()
     label = serializers.CharField()  # type: ignore[assignment]
     payment_date = serializers.DateField(allow_null=True)
+    accrual_start_date = serializers.DateField(required=False)
+    opening_principal_minor = serializers.IntegerField(required=False)
+    closing_principal_minor = serializers.IntegerField(required=False)
+    payment_reference = serializers.CharField(required=False, allow_blank=True)
 
 
 class SecondaryMarketInvestmentInstallmentSerializer(serializers.Serializer[Any]):
@@ -120,9 +153,12 @@ class SecondaryMarketInvestmentInstallmentSerializer(serializers.Serializer[Any]
     due_date = serializers.DateField()
     projected_principal_minor = serializers.IntegerField()
     projected_interest_minor = serializers.IntegerField()
+    projected_penalty_minor = serializers.IntegerField(required=False, default=0)
+    projected_fee_minor = serializers.IntegerField(required=False, default=0)
     projected_total_minor = serializers.IntegerField()
     days_past_due = serializers.IntegerField()
     status = serializers.CharField()
+    accrual_start_date = serializers.DateField(required=False)
 
 
 class SecondaryMarketLatestPublicNoteSerializer(serializers.Serializer[Any]):
@@ -134,17 +170,24 @@ class SecondaryMarketLatestPublicNoteSerializer(serializers.Serializer[Any]):
 class SecondaryMarketBuyerListingDetailSerializer(SecondaryMarketBuyerListingSerializer):
     loan_title = serializers.CharField()
     currency = serializers.CharField()
+    product_type = serializers.CharField()
+    originator_id = serializers.UUIDField(allow_null=True)
+    originator_name = serializers.CharField(allow_blank=True)  # type: ignore[assignment]
     borrower_name = serializers.CharField()
     borrower_country = serializers.CharField(allow_blank=True)
     purpose = serializers.CharField()
     collateral_type = serializers.CharField()
     risk_rating = serializers.CharField()
     interest_rate_bps = serializers.IntegerField()
+    underlying_interest_rate_bps = serializers.IntegerField()
+    yield_bps = serializers.IntegerField(allow_null=True)  # type: ignore[assignment]
+    projected_yield_bps = serializers.IntegerField(allow_null=True)  # type: ignore[assignment]
     term_months = serializers.IntegerField()
     repayment_type = serializers.CharField()
     ltv_bps = serializers.IntegerField(allow_null=True)
     loan_start_date = serializers.DateField()
-    first_payment_date = serializers.DateField()
+    first_payment_date = serializers.DateField(allow_null=True)
+    maturity_date = serializers.DateField(allow_null=True)
     schedule_version = serializers.IntegerField()
     loan_schedule = SecondaryMarketLoanInstallmentSerializer(many=True)
     investment_schedule = SecondaryMarketInvestmentInstallmentSerializer(many=True)

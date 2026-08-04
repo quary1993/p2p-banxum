@@ -692,6 +692,7 @@ paths:
           - payment_reconciliation
           - payout_instruction_verification
           - fx_settlement
+          - originator_settlement
           - document_review
           - email_delivery_failure
           - reporting
@@ -707,6 +708,7 @@ paths:
           * `payment_reconciliation` - Payment reconciliation
           * `payout_instruction_verification` - Payout instruction verification
           * `fx_settlement` - FX settlement
+          * `originator_settlement` - Loan Originator settlement
           * `document_review` - Document review
           * `email_delivery_failure` - Email delivery failure
           * `reporting` - Reporting
@@ -2548,6 +2550,12 @@ paths:
           minimum: 1
           default: 100
       - in: query
+        name: product_type
+        schema:
+          type: string
+          maxLength: 32
+          minLength: 1
+      - in: query
         name: purpose
         schema:
           enum:
@@ -3390,6 +3398,391 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SecondaryMarketPurchase'
+          description: ''
+  /api/v1/originator-claims/admin/loans/:
+    post:
+      operationId: originator_claims_admin_loans_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OriginatorLoanCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OriginatorLoanCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OriginatorLoanCreate'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OriginatorLoanProfileResponse'
+          description: ''
+  /api/v1/originator-claims/admin/loans/{loan_id}/:
+    get:
+      operationId: originator_claims_admin_loans_retrieve
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OriginatorAdminLoanDetailResponse'
+          description: ''
+    patch:
+      operationId: originator_claims_admin_loans_update
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedOriginatorLoanCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedOriginatorLoanCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedOriginatorLoanCreate'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OriginatorLoanProfileResponse'
+          description: ''
+  /api/v1/originator-claims/admin/loans/{loan_id}/hold/:
+    post:
+      operationId: originator_claims_admin_loans_hold
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OriginatorLoanHold'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OriginatorLoanHold'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OriginatorLoanHold'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OriginatorLoanProfileResponse'
+          description: ''
+  /api/v1/originator-claims/admin/loans/{loan_id}/publish/:
+    post:
+      operationId: originator_claims_admin_loans_publish
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OriginatorLoanPublish'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OriginatorLoanPublish'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OriginatorLoanPublish'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OriginatorLoanProfileResponse'
+          description: ''
+  /api/v1/originator-claims/admin/loans/{loan_id}/repayments/:
+    post:
+      operationId: originator_claims_admin_loan_repayments_create
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OriginatorBorrowerRepaymentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OriginatorBorrowerRepaymentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OriginatorBorrowerRepaymentRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OriginatorBorrowerRepaymentResponse'
+          description: ''
+  /api/v1/originator-claims/admin/originators/:
+    get:
+      operationId: originator_claims_admin_originators_list
+      parameters:
+      - in: query
+        name: query
+        schema:
+          type: string
+        description: Case-insensitive search over legal name, public name, and registration
+          number.
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LoanOriginator'
+          description: ''
+    post:
+      operationId: originator_claims_admin_originators_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoanOriginatorCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoanOriginatorCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoanOriginatorCreate'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanOriginator'
+          description: ''
+  /api/v1/originator-claims/admin/originators/{originator_id}/:
+    get:
+      operationId: originator_claims_admin_originators_retrieve
+      parameters:
+      - in: path
+        name: originator_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanOriginator'
+          description: ''
+    patch:
+      operationId: originator_claims_admin_originators_update
+      parameters:
+      - in: path
+        name: originator_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedLoanOriginatorUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedLoanOriginatorUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedLoanOriginatorUpdate'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanOriginator'
+          description: ''
+  /api/v1/originator-claims/admin/settlements/:
+    post:
+      operationId: originator_claims_admin_settlements_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OriginatorSettlementRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OriginatorSettlementRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OriginatorSettlementRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OriginatorSettlementResponse'
+          description: ''
+  /api/v1/originator-claims/admin/settlements/outstanding/:
+    get:
+      operationId: originator_claims_admin_settlements_outstanding_list
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OriginatorSettlementQueueRow'
+          description: ''
+  /api/v1/originator-claims/loans/{loan_id}/quote/:
+    post:
+      operationId: originator_claims_loans_quote_create
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OriginatorClaimQuoteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OriginatorClaimQuoteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OriginatorClaimQuoteRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OriginatorClaimQuoteResponse'
+          description: ''
+  /api/v1/originator-claims/quotes/{quote_id}/purchase/:
+    post:
+      operationId: originator_claims_quotes_purchase_create
+      parameters:
+      - in: path
+        name: quote_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OriginatorClaimPurchaseRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OriginatorClaimPurchaseRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OriginatorClaimPurchaseRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OriginatorClaimPurchaseResponse'
           description: ''
   /api/v1/qa/dev-mode/:
     get:
@@ -4462,6 +4855,7 @@ components:
       - payment_reconciliation
       - payout_instruction_verification
       - fx_settlement
+      - originator_settlement
       - document_review
       - email_delivery_failure
       - reporting
@@ -4476,6 +4870,7 @@ components:
         * `payment_reconciliation` - Payment reconciliation
         * `payout_instruction_verification` - Payout instruction verification
         * `fx_settlement` - FX settlement
+        * `originator_settlement` - Loan Originator settlement
         * `document_review` - Document review
         * `email_delivery_failure` - Email delivery failure
         * `reporting` - Reporting
@@ -6863,12 +7258,22 @@ components:
           type: integer
         received_interest_minor:
           type: integer
+        received_penalty_minor:
+          type: integer
         repayment_fee_minor:
           type: integer
         investment_schedule:
           type: array
           items:
             $ref: '#/components/schemas/PortfolioHoldingInstallment'
+        acquisition_cash_consideration_minor:
+          type: integer
+          nullable: true
+        acquisition_cash_flow:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
         recovered_principal_minor:
           type: integer
         recovered_contractual_interest_minor:
@@ -6888,6 +7293,8 @@ components:
           - $ref: '#/components/schemas/HoldingOpenSecondaryListing'
           nullable: true
       required:
+      - acquisition_cash_consideration_minor
+      - acquisition_cash_flow
       - assignment_effective_at
       - currency
       - current_principal_minor
@@ -6898,6 +7305,7 @@ components:
       - open_secondary_listing
       - original_principal_minor
       - received_interest_minor
+      - received_penalty_minor
       - received_principal_minor
       - recovered_contractual_interest_minor
       - recovered_default_interest_minor
@@ -8244,11 +8652,52 @@ components:
         id:
           type: string
           format: uuid
+        product_type:
+          type: string
         borrower_id:
           type: string
           format: uuid
+          nullable: true
         borrower_name:
           type: string
+          nullable: true
+          readOnly: true
+        originator_id:
+          type: string
+          format: uuid
+          nullable: true
+          readOnly: true
+        originator_name:
+          type: string
+          nullable: true
+          readOnly: true
+        yield_bps:
+          type: integer
+          readOnly: true
+        opportunity_status:
+          type: string
+          nullable: true
+          readOnly: true
+        minimum_investment_minor:
+          type: integer
+          nullable: true
+          readOnly: true
+        current_outstanding_principal_minor:
+          type: integer
+          readOnly: true
+        unsold_principal_minor:
+          type: integer
+          nullable: true
+          readOnly: true
+        maturity_date:
+          type: string
+          format: date
+          nullable: true
+          readOnly: true
+        originator_schedule_revision:
+          type: integer
+          nullable: true
+          readOnly: true
         status:
           type: string
         title:
@@ -8298,6 +8747,7 @@ components:
         funding_deadline:
           type: string
           format: date
+          nullable: true
         first_payment_date:
           type: string
           format: date
@@ -8366,6 +8816,7 @@ components:
       - created_at
       - created_by_admin_id
       - currency
+      - current_outstanding_principal_minor
       - default_penalty_interest_bps
       - first_payment_date
       - funding_deadline
@@ -8378,14 +8829,21 @@ components:
       - loan_start_date
       - ltv_bps
       - ltv_warnings
+      - maturity_date
+      - minimum_investment_minor
+      - opportunity_status
       - original_interest_only_months
       - original_interest_rate_bps
       - original_loan_start_date
       - original_principal_minor
       - original_repayment_type
       - original_term_months
+      - originator_id
+      - originator_name
+      - originator_schedule_revision
       - pre_publication_paid_installments
       - principal_minor
+      - product_type
       - published_at
       - purpose
       - purpose_description
@@ -8399,8 +8857,10 @@ components:
       - title
       - total_scheduled_interest_minor
       - total_scheduled_principal_minor
+      - unsold_principal_minor
       - updated_at
       - updated_by_admin_id
+      - yield_bps
     LoanCreateRequest:
       type: object
       properties:
@@ -8598,6 +9058,140 @@ components:
       - schedule_version
       - status
       - total_minor
+    LoanOriginator:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        legal_name:
+          type: string
+          maxLength: 255
+        public_name:
+          type: string
+          maxLength: 255
+        registration_number:
+          type: string
+          maxLength: 128
+        jurisdiction:
+          type: string
+          maxLength: 64
+        registered_address:
+          type: string
+        contact_info:
+          type: string
+        settlement_account_name:
+          type: string
+          maxLength: 255
+        settlement_iban:
+          type: string
+          maxLength: 128
+        settlement_bic:
+          type: string
+          maxLength: 64
+        kyb_evidence_reference:
+          type: string
+          maxLength: 255
+        kyb_aml_observations:
+          type: string
+        risk_observations:
+          type: string
+        status:
+          $ref: '#/components/schemas/Status828Enum'
+        default_premium_fee_bps:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        created_by_admin_id:
+          type: string
+          format: uuid
+          readOnly: true
+        updated_by_admin_id:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - created_by_admin_id
+      - id
+      - jurisdiction
+      - kyb_evidence_reference
+      - legal_name
+      - public_name
+      - registered_address
+      - registration_number
+      - settlement_account_name
+      - settlement_iban
+      - updated_at
+      - updated_by_admin_id
+    LoanOriginatorCreate:
+      type: object
+      properties:
+        legal_name:
+          type: string
+          maxLength: 255
+        public_name:
+          type: string
+          maxLength: 255
+        registration_number:
+          type: string
+          maxLength: 128
+        jurisdiction:
+          type: string
+          maxLength: 64
+        registered_address:
+          type: string
+        contact_info:
+          type: string
+          default: ''
+        settlement_account_name:
+          type: string
+          maxLength: 255
+        settlement_iban:
+          type: string
+          maxLength: 128
+        settlement_bic:
+          type: string
+          default: ''
+          maxLength: 64
+        kyb_evidence_reference:
+          type: string
+          maxLength: 255
+        kyb_aml_observations:
+          type: string
+          default: ''
+        risk_observations:
+          type: string
+          default: ''
+        status:
+          allOf:
+          - $ref: '#/components/schemas/Status828Enum'
+          default: inactive
+        default_premium_fee_bps:
+          type: integer
+          maximum: 10000
+          minimum: 0
+          default: 5000
+      required:
+      - jurisdiction
+      - kyb_evidence_reference
+      - legal_name
+      - public_name
+      - registered_address
+      - registration_number
+      - settlement_account_name
+      - settlement_iban
     LoanRecoveryEvent:
       type: object
       properties:
@@ -9100,6 +9694,10 @@ components:
         loan_id:
           type: string
           format: uuid
+        product_type:
+          type: string
+        investment_flow:
+          type: string
         title:
           type: string
         purpose:
@@ -9108,14 +9706,30 @@ components:
           type: string
         interest_rate_bps:
           type: integer
+        yield_bps:
+          type: integer
+        underlying_interest_rate_bps:
+          type: integer
         term_months:
           type: integer
+        remaining_term_days:
+          type: integer
+          nullable: true
         risk_rating:
           type: string
         funding_deadline:
           type: string
           format: date
+          nullable: true
+        maturity_date:
+          type: string
+          format: date
+          nullable: true
         status:
+          type: string
+        loan_status:
+          type: string
+        opportunity_status:
           type: string
         currency:
           type: string
@@ -9125,6 +9739,8 @@ components:
           type: integer
         remaining_capacity_minor:
           type: integer
+        fillable_amount_minor:
+          type: integer
         minimum_investment_minor:
           type: integer
         ltv_bps:
@@ -9132,9 +9748,20 @@ components:
           nullable: true
         is_refinancing:
           type: boolean
+        originator_id:
+          type: string
+          format: uuid
+          nullable: true
+        originator_name:
+          type: string
+          nullable: true
+        borrower_display_name:
+          type: string
+          nullable: true
         borrower_id:
           type: string
           format: uuid
+          nullable: true
         borrower_disclosure:
           type: object
           additionalProperties: {}
@@ -9180,48 +9807,80 @@ components:
         first_payment_date:
           type: string
           format: date
+          nullable: true
         schedule_version:
           type: integer
+        originator_schedule:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketplaceOriginatorScheduleRow'
+        originator_payment_history:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketplaceOriginatorPaymentRow'
+        schedule_revision:
+          type: integer
+          nullable: true
+        pricing_as_of_date:
+          type: string
+          format: date
+          nullable: true
       required:
       - borrower_disclosure
+      - borrower_display_name
       - borrower_id
       - collateral_description
       - collateral_type
       - collateral_value_minor
       - committed_principal_minor
       - currency
+      - fillable_amount_minor
       - first_payment_date
       - funding_deadline
       - interest_rate_bps
+      - investment_flow
       - investor_summary
       - is_refinancing
       - loan_id
       - loan_start_date
+      - loan_status
       - ltv_bps
       - ltv_warnings
+      - maturity_date
       - minimum_investment_minor
+      - opportunity_status
       - original_interest_only_months
       - original_interest_rate_bps
       - original_loan_start_date
       - original_principal_minor
       - original_repayment_type
       - original_term_months
+      - originator_id
+      - originator_name
       - principal_minor
+      - product_type
       - purpose
       - purpose_description
       - remaining_capacity_minor
+      - remaining_term_days
       - repayment_type
       - risk_rating
       - schedule_version
       - status
       - term_months
       - title
+      - underlying_interest_rate_bps
+      - yield_bps
     MarketplaceLoanPreview:
       type: object
       properties:
         loan_id:
           type: string
           format: uuid
+        product_type:
+          type: string
+        investment_flow:
+          type: string
         title:
           type: string
         purpose:
@@ -9230,14 +9889,30 @@ components:
           type: string
         interest_rate_bps:
           type: integer
+        yield_bps:
+          type: integer
+        underlying_interest_rate_bps:
+          type: integer
         term_months:
           type: integer
+        remaining_term_days:
+          type: integer
+          nullable: true
         risk_rating:
           type: string
         funding_deadline:
           type: string
           format: date
+          nullable: true
+        maturity_date:
+          type: string
+          format: date
+          nullable: true
         status:
+          type: string
+        loan_status:
+          type: string
+        opportunity_status:
           type: string
         currency:
           type: string
@@ -9247,6 +9922,8 @@ components:
           type: integer
         remaining_capacity_minor:
           type: integer
+        fillable_amount_minor:
+          type: integer
         minimum_investment_minor:
           type: integer
         ltv_bps:
@@ -9254,23 +9931,45 @@ components:
           nullable: true
         is_refinancing:
           type: boolean
+        originator_id:
+          type: string
+          format: uuid
+          nullable: true
+        originator_name:
+          type: string
+          nullable: true
+        borrower_display_name:
+          type: string
+          nullable: true
       required:
+      - borrower_display_name
       - collateral_type
       - committed_principal_minor
       - currency
+      - fillable_amount_minor
       - funding_deadline
       - interest_rate_bps
+      - investment_flow
       - is_refinancing
       - loan_id
+      - loan_status
       - ltv_bps
+      - maturity_date
       - minimum_investment_minor
+      - opportunity_status
+      - originator_id
+      - originator_name
       - principal_minor
+      - product_type
       - purpose
       - remaining_capacity_minor
+      - remaining_term_days
       - risk_rating
       - status
       - term_months
       - title
+      - underlying_interest_rate_bps
+      - yield_bps
     MarketplaceOriginalLoanScheduleRow:
       type: object
       properties:
@@ -9295,6 +9994,74 @@ components:
       - interest_minor
       - outstanding_after_minor
       - paid_before_publication
+      - principal_minor
+      - total_minor
+    MarketplaceOriginatorPaymentRow:
+      type: object
+      properties:
+        reference:
+          type: string
+        value_date:
+          type: string
+          format: date
+        payment_type:
+          type: string
+        principal_minor:
+          type: integer
+        interest_minor:
+          type: integer
+        penalty_minor:
+          type: integer
+        fee_minor:
+          type: integer
+        total_minor:
+          type: integer
+        resulting_principal_minor:
+          type: integer
+      required:
+      - fee_minor
+      - interest_minor
+      - payment_type
+      - penalty_minor
+      - principal_minor
+      - reference
+      - resulting_principal_minor
+      - total_minor
+      - value_date
+    MarketplaceOriginatorScheduleRow:
+      type: object
+      properties:
+        installment_number:
+          type: integer
+        accrual_start_date:
+          type: string
+          format: date
+        due_date:
+          type: string
+          format: date
+        opening_principal_minor:
+          type: integer
+        principal_minor:
+          type: integer
+        interest_minor:
+          type: integer
+        penalty_minor:
+          type: integer
+        fee_minor:
+          type: integer
+        total_minor:
+          type: integer
+        outstanding_after_minor:
+          type: integer
+      required:
+      - accrual_start_date
+      - due_date
+      - fee_minor
+      - installment_number
+      - interest_minor
+      - opening_principal_minor
+      - outstanding_after_minor
+      - penalty_minor
       - principal_minor
       - total_minor
     NaturalPersonRegistrationRequest:
@@ -9406,6 +10173,734 @@ components:
       - paid_before_publication
       - principal_minor
       - total_minor
+    OriginatorAdminLoanDetailResponse:
+      type: object
+      properties:
+        loan_id:
+          type: string
+          format: uuid
+        originator_id:
+          type: string
+          format: uuid
+        originator_name:
+          type: string
+        title:
+          type: string
+        investor_summary:
+          type: string
+        purpose:
+          type: string
+        purpose_description:
+          type: string
+        status:
+          type: string
+        opportunity_status:
+          type: string
+        currency:
+          type: string
+        original_principal_minor:
+          type: integer
+        current_outstanding_principal_minor:
+          type: integer
+        unsold_principal_minor:
+          type: integer
+        interest_rate_bps:
+          type: integer
+        target_yield_bps:
+          type: integer
+        minimum_investment_minor:
+          type: integer
+        premium_fee_bps:
+          type: integer
+        repayment_type:
+          type: string
+        interest_only_months:
+          type: integer
+        collateral_type:
+          type: string
+        collateral_value_minor:
+          type: integer
+        collateral_description:
+          type: string
+        risk_rating:
+          type: string
+        maturity_date:
+          type: string
+          format: date
+        schedule_revision:
+          type: integer
+        borrower_snapshot: {}
+        current_import_id:
+          type: string
+          format: uuid
+        import_as_of_date:
+          type: string
+          format: date
+        source_filename:
+          type: string
+        source_sha256:
+          type: string
+        schedule:
+          type: array
+          items:
+            $ref: '#/components/schemas/OriginatorLoanScheduleRowResponse'
+        payment_history:
+          type: array
+          items:
+            $ref: '#/components/schemas/OriginatorLoanPaymentRowResponse'
+        is_on_hold:
+          type: boolean
+        hold_reason:
+          type: string
+      required:
+      - borrower_snapshot
+      - collateral_description
+      - collateral_type
+      - collateral_value_minor
+      - currency
+      - current_import_id
+      - current_outstanding_principal_minor
+      - hold_reason
+      - import_as_of_date
+      - interest_only_months
+      - interest_rate_bps
+      - investor_summary
+      - is_on_hold
+      - loan_id
+      - maturity_date
+      - minimum_investment_minor
+      - opportunity_status
+      - original_principal_minor
+      - originator_id
+      - originator_name
+      - payment_history
+      - premium_fee_bps
+      - purpose
+      - purpose_description
+      - repayment_type
+      - risk_rating
+      - schedule
+      - schedule_revision
+      - source_filename
+      - source_sha256
+      - status
+      - target_yield_bps
+      - title
+      - unsold_principal_minor
+    OriginatorBorrowerRepaymentRequest:
+      type: object
+      properties:
+        csv_content:
+          type: string
+        source_filename:
+          type: string
+          maxLength: 255
+        as_of_date:
+          type: string
+          format: date
+        payment_reference:
+          type: string
+          maxLength: 128
+        booking_date:
+          type: string
+          format: date
+        value_date:
+          type: string
+          format: date
+        collection_account_identifier:
+          type: string
+          maxLength: 128
+        payer_name:
+          type: string
+          maxLength: 255
+        payer_account_identifier:
+          type: string
+          maxLength: 128
+        bank_reference:
+          type: string
+          maxLength: 160
+        bank_payment_reference:
+          type: string
+          maxLength: 160
+        evidence_reference:
+          type: string
+          maxLength: 255
+        notes:
+          type: string
+        idempotency_key:
+          type: string
+          maxLength: 160
+      required:
+      - as_of_date
+      - booking_date
+      - collection_account_identifier
+      - csv_content
+      - idempotency_key
+      - payer_name
+      - payment_reference
+      - source_filename
+      - value_date
+    OriginatorBorrowerRepaymentResponse:
+      type: object
+      properties:
+        repayment_id:
+          type: string
+          format: uuid
+        loan_id:
+          type: string
+          format: uuid
+        payment_reference:
+          type: string
+        currency:
+          type: string
+        amount_minor:
+          type: integer
+        principal_minor:
+          type: integer
+        interest_minor:
+          type: integer
+        penalty_minor:
+          type: integer
+        fee_minor:
+          type: integer
+        investor_distributed_minor:
+          type: integer
+        originator_payable_minor:
+          type: integer
+        principal_after_minor:
+          type: integer
+        schedule_revision:
+          type: integer
+      required:
+      - amount_minor
+      - currency
+      - fee_minor
+      - interest_minor
+      - investor_distributed_minor
+      - loan_id
+      - originator_payable_minor
+      - payment_reference
+      - penalty_minor
+      - principal_after_minor
+      - principal_minor
+      - repayment_id
+      - schedule_revision
+    OriginatorClaimCashFlowResponse:
+      type: object
+      properties:
+        installment_number:
+          type: integer
+        accrual_start_date:
+          type: string
+          format: date
+        due_date:
+          type: string
+          format: date
+        principal_minor:
+          type: integer
+        interest_minor:
+          type: integer
+        penalty_minor:
+          type: integer
+        total_minor:
+          type: integer
+        days_to_payment:
+          type: integer
+        present_value_minor:
+          type: integer
+      required:
+      - accrual_start_date
+      - days_to_payment
+      - due_date
+      - installment_number
+      - interest_minor
+      - penalty_minor
+      - present_value_minor
+      - principal_minor
+      - total_minor
+    OriginatorClaimPurchaseRequest:
+      type: object
+      properties:
+        document_acceptance_id:
+          type: string
+          format: uuid
+        sensitive_action_code_id:
+          type: string
+          format: uuid
+        sensitive_action_code:
+          type: string
+          pattern: ^\d{6}$
+        idempotency_key:
+          type: string
+          maxLength: 160
+      required:
+      - document_acceptance_id
+      - idempotency_key
+      - sensitive_action_code
+      - sensitive_action_code_id
+    OriginatorClaimPurchaseResponse:
+      type: object
+      properties:
+        purchase_id:
+          type: string
+          format: uuid
+        quote_id:
+          type: string
+          format: uuid
+        loan_id:
+          type: string
+          format: uuid
+        holding_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+        cash_consideration_minor:
+          type: integer
+        assigned_principal_minor:
+          type: integer
+        outstanding_principal_at_pricing_minor:
+          type: integer
+        share_ppm:
+          type: integer
+        target_yield_bps:
+          type: integer
+        purchased_at:
+          type: string
+          format: date-time
+      required:
+      - assigned_principal_minor
+      - cash_consideration_minor
+      - currency
+      - holding_id
+      - loan_id
+      - outstanding_principal_at_pricing_minor
+      - purchase_id
+      - purchased_at
+      - quote_id
+      - share_ppm
+      - target_yield_bps
+    OriginatorClaimQuoteRequest:
+      type: object
+      properties:
+        requested_cash_minor:
+          type: integer
+          minimum: 1
+      required:
+      - requested_cash_minor
+    OriginatorClaimQuoteResponse:
+      type: object
+      properties:
+        quote_id:
+          type: string
+          format: uuid
+        loan_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+        requested_cash_minor:
+          type: integer
+        executable_cash_minor:
+          type: integer
+        assigned_principal_minor:
+          type: integer
+        outstanding_principal_at_pricing_minor:
+          type: integer
+        share_ppm:
+          type: integer
+        target_yield_bps:
+          type: integer
+        premium_discount_minor:
+          type: integer
+        rounding_remainder_minor:
+          type: integer
+        entitlement_start_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        cash_flows:
+          type: array
+          items:
+            $ref: '#/components/schemas/OriginatorClaimCashFlowResponse'
+      required:
+      - assigned_principal_minor
+      - cash_flows
+      - currency
+      - entitlement_start_at
+      - executable_cash_minor
+      - expires_at
+      - loan_id
+      - outstanding_principal_at_pricing_minor
+      - premium_discount_minor
+      - quote_id
+      - requested_cash_minor
+      - rounding_remainder_minor
+      - share_ppm
+      - target_yield_bps
+    OriginatorLoanCreate:
+      type: object
+      properties:
+        originator_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          maxLength: 255
+        investor_summary:
+          type: string
+        purpose:
+          $ref: '#/components/schemas/PurposeEnum'
+        purpose_description:
+          type: string
+          default: ''
+        currency:
+          type: string
+          maxLength: 3
+          minLength: 3
+        original_principal_minor:
+          type: integer
+          minimum: 1
+        interest_rate_bps:
+          type: integer
+          minimum: 1
+        target_yield_bps:
+          type: integer
+          minimum: 1
+        minimum_investment_minor:
+          type: integer
+          minimum: 1
+        repayment_type:
+          $ref: '#/components/schemas/RepaymentTypeEnum'
+        interest_only_months:
+          type: integer
+          minimum: 0
+          default: 0
+        collateral_type:
+          $ref: '#/components/schemas/CollateralTypeEnum'
+        collateral_value_minor:
+          type: integer
+          minimum: 0
+        collateral_description:
+          type: string
+          default: ''
+        risk_rating:
+          $ref: '#/components/schemas/RiskRatingEnum'
+        csv_content:
+          type: string
+        source_filename:
+          type: string
+          maxLength: 255
+        as_of_date:
+          type: string
+          format: date
+        borrower_snapshot: {}
+        premium_fee_bps:
+          type: integer
+          maximum: 10000
+          minimum: 0
+          nullable: true
+      required:
+      - as_of_date
+      - borrower_snapshot
+      - collateral_type
+      - collateral_value_minor
+      - csv_content
+      - currency
+      - interest_rate_bps
+      - investor_summary
+      - minimum_investment_minor
+      - original_principal_minor
+      - originator_id
+      - purpose
+      - repayment_type
+      - risk_rating
+      - source_filename
+      - target_yield_bps
+      - title
+    OriginatorLoanHold:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 255
+      required:
+      - reason
+    OriginatorLoanPaymentRowResponse:
+      type: object
+      properties:
+        reference:
+          type: string
+        value_date:
+          type: string
+          format: date
+        payment_type:
+          type: string
+        principal_minor:
+          type: integer
+        interest_minor:
+          type: integer
+        penalty_minor:
+          type: integer
+        fee_minor:
+          type: integer
+        total_minor:
+          type: integer
+        resulting_principal_minor:
+          type: integer
+      required:
+      - fee_minor
+      - interest_minor
+      - payment_type
+      - penalty_minor
+      - principal_minor
+      - reference
+      - resulting_principal_minor
+      - total_minor
+      - value_date
+    OriginatorLoanProfileResponse:
+      type: object
+      properties:
+        loan_id:
+          type: string
+          format: uuid
+        originator_id:
+          type: string
+          format: uuid
+        originator_name:
+          type: string
+        opportunity_status:
+          type: string
+        target_yield_bps:
+          type: integer
+        minimum_investment_minor:
+          type: integer
+        premium_fee_bps:
+          type: integer
+        current_outstanding_principal_minor:
+          type: integer
+        unsold_principal_minor:
+          type: integer
+        maturity_date:
+          type: string
+          format: date
+        schedule_revision:
+          type: integer
+        borrower_display_name:
+          type: string
+        is_on_hold:
+          type: boolean
+        hold_reason:
+          type: string
+        import_id:
+          type: string
+          format: uuid
+      required:
+      - borrower_display_name
+      - current_outstanding_principal_minor
+      - hold_reason
+      - is_on_hold
+      - loan_id
+      - maturity_date
+      - minimum_investment_minor
+      - opportunity_status
+      - originator_id
+      - originator_name
+      - premium_fee_bps
+      - schedule_revision
+      - target_yield_bps
+      - unsold_principal_minor
+    OriginatorLoanPublish:
+      type: object
+      properties:
+        as_of_date:
+          type: string
+          format: date
+      required:
+      - as_of_date
+    OriginatorLoanScheduleRowResponse:
+      type: object
+      properties:
+        installment_number:
+          type: integer
+        accrual_start_date:
+          type: string
+          format: date
+        due_date:
+          type: string
+          format: date
+        opening_principal_minor:
+          type: integer
+        principal_minor:
+          type: integer
+        interest_minor:
+          type: integer
+        penalty_minor:
+          type: integer
+        fee_minor:
+          type: integer
+        total_minor:
+          type: integer
+        closing_principal_minor:
+          type: integer
+      required:
+      - accrual_start_date
+      - closing_principal_minor
+      - due_date
+      - fee_minor
+      - installment_number
+      - interest_minor
+      - opening_principal_minor
+      - penalty_minor
+      - principal_minor
+      - total_minor
+    OriginatorSettlementQueueRow:
+      type: object
+      properties:
+        originator_id:
+          type: string
+          format: uuid
+        originator_name:
+          type: string
+        currency:
+          type: string
+        amount_minor:
+          type: integer
+        purchase_amount_minor:
+          type: integer
+        servicing_amount_minor:
+          type: integer
+        purchase_count:
+          type: integer
+        repayment_count:
+          type: integer
+        purchase_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        repayment_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        oldest_purchased_at:
+          type: string
+          format: date-time
+        settlement_due_at:
+          type: string
+          format: date-time
+        task_due_at:
+          type: string
+          format: date-time
+      required:
+      - amount_minor
+      - currency
+      - oldest_purchased_at
+      - originator_id
+      - originator_name
+      - purchase_amount_minor
+      - purchase_count
+      - purchase_ids
+      - repayment_count
+      - repayment_ids
+      - servicing_amount_minor
+      - settlement_due_at
+      - task_due_at
+    OriginatorSettlementRequest:
+      type: object
+      properties:
+        originator_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+          maxLength: 3
+          minLength: 3
+        purchase_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        repayment_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        booking_date:
+          type: string
+          format: date
+        value_date:
+          type: string
+          format: date
+        collection_account_identifier:
+          type: string
+          maxLength: 128
+        bank_reference:
+          type: string
+          maxLength: 160
+        payment_reference:
+          type: string
+          maxLength: 160
+        evidence_reference:
+          type: string
+          maxLength: 255
+        notes:
+          type: string
+        idempotency_key:
+          type: string
+          maxLength: 160
+      required:
+      - booking_date
+      - collection_account_identifier
+      - currency
+      - idempotency_key
+      - originator_id
+      - value_date
+    OriginatorSettlementResponse:
+      type: object
+      properties:
+        settlement_id:
+          type: string
+          format: uuid
+        originator_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+        amount_minor:
+          type: integer
+        purchase_count:
+          type: integer
+        repayment_count:
+          type: integer
+        purchase_amount_minor:
+          type: integer
+        servicing_amount_minor:
+          type: integer
+        bank_operation_id:
+          type: string
+          format: uuid
+        journal_entry_id:
+          type: string
+          format: uuid
+        settled_at:
+          type: string
+          format: date-time
+      required:
+      - amount_minor
+      - bank_operation_id
+      - currency
+      - journal_entry_id
+      - originator_id
+      - purchase_amount_minor
+      - purchase_count
+      - repayment_count
+      - servicing_amount_minor
+      - settled_at
+      - settlement_id
     PatchedAdminTaskUpdateRequest:
       type: object
       properties:
@@ -9527,6 +11022,47 @@ components:
           type: string
         evidence_summary:
           type: string
+    PatchedLoanOriginatorUpdate:
+      type: object
+      properties:
+        legal_name:
+          type: string
+          maxLength: 255
+        public_name:
+          type: string
+          maxLength: 255
+        registration_number:
+          type: string
+          maxLength: 128
+        jurisdiction:
+          type: string
+          maxLength: 64
+        registered_address:
+          type: string
+        contact_info:
+          type: string
+        settlement_account_name:
+          type: string
+          maxLength: 255
+        settlement_iban:
+          type: string
+          maxLength: 128
+        settlement_bic:
+          type: string
+          maxLength: 64
+        kyb_evidence_reference:
+          type: string
+          maxLength: 255
+        kyb_aml_observations:
+          type: string
+        risk_observations:
+          type: string
+        status:
+          $ref: '#/components/schemas/Status828Enum'
+        default_premium_fee_bps:
+          type: integer
+          maximum: 10000
+          minimum: 0
     PatchedLoanUpdateRequest:
       type: object
       properties:
@@ -9601,6 +11137,68 @@ components:
       properties:
         marketing_consent:
           type: boolean
+    PatchedOriginatorLoanCreate:
+      type: object
+      properties:
+        originator_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          maxLength: 255
+        investor_summary:
+          type: string
+        purpose:
+          $ref: '#/components/schemas/PurposeEnum'
+        purpose_description:
+          type: string
+          default: ''
+        currency:
+          type: string
+          maxLength: 3
+          minLength: 3
+        original_principal_minor:
+          type: integer
+          minimum: 1
+        interest_rate_bps:
+          type: integer
+          minimum: 1
+        target_yield_bps:
+          type: integer
+          minimum: 1
+        minimum_investment_minor:
+          type: integer
+          minimum: 1
+        repayment_type:
+          $ref: '#/components/schemas/RepaymentTypeEnum'
+        interest_only_months:
+          type: integer
+          minimum: 0
+          default: 0
+        collateral_type:
+          $ref: '#/components/schemas/CollateralTypeEnum'
+        collateral_value_minor:
+          type: integer
+          minimum: 0
+        collateral_description:
+          type: string
+          default: ''
+        risk_rating:
+          $ref: '#/components/schemas/RiskRatingEnum'
+        csv_content:
+          type: string
+        source_filename:
+          type: string
+          maxLength: 255
+        as_of_date:
+          type: string
+          format: date
+        borrower_snapshot: {}
+        premium_fee_bps:
+          type: integer
+          maximum: 10000
+          minimum: 0
+          nullable: true
     PayoutInstruction:
       type: object
       properties:
@@ -9765,12 +11363,21 @@ components:
           type: integer
         projected_interest_minor:
           type: integer
+        projected_penalty_minor:
+          type: integer
+          default: 0
+        projected_fee_minor:
+          type: integer
+          default: 0
         projected_total_minor:
           type: integer
         days_past_due:
           type: integer
         status:
           type: string
+        accrual_start_date:
+          type: string
+          format: date
       required:
       - days_past_due
       - due_date
@@ -9798,6 +11405,12 @@ components:
           type: integer
         interest_minor:
           type: integer
+        penalty_minor:
+          type: integer
+          default: 0
+        fee_minor:
+          type: integer
+          default: 0
         total_minor:
           type: integer
         paid_principal_minor:
@@ -9824,6 +11437,15 @@ components:
           type: string
           format: date
           nullable: true
+        accrual_start_date:
+          type: string
+          format: date
+        opening_principal_minor:
+          type: integer
+        closing_principal_minor:
+          type: integer
+        payment_reference:
+          type: string
       required:
       - days_past_due
       - due_date
@@ -9849,6 +11471,8 @@ components:
         loan_id:
           type: string
           format: uuid
+        product_type:
+          type: string
         loan_title:
           type: string
         loan_status:
@@ -9856,9 +11480,16 @@ components:
         borrower_id:
           type: string
           format: uuid
+          nullable: true
         borrower_name:
           type: string
         borrower_country:
+          type: string
+        originator_id:
+          type: string
+          format: uuid
+          nullable: true
+        originator_name:
           type: string
         purpose:
           type: string
@@ -9868,10 +11499,19 @@ components:
           type: string
         interest_rate_bps:
           type: integer
+        yield_bps:
+          type: integer
+        underlying_interest_rate_bps:
+          type: integer
         default_penalty_interest_bps:
           type: integer
         term_months:
           type: integer
+        remaining_term_days:
+          type: integer
+        maturity_date:
+          type: string
+          format: date
         repayment_type:
           type: string
         currency:
@@ -9891,12 +11531,14 @@ components:
         funding_deadline:
           type: string
           format: date
+          nullable: true
         loan_start_date:
           type: string
           format: date
         first_payment_date:
           type: string
           format: date
+          nullable: true
         ltv_bps:
           type: integer
           nullable: true
@@ -9928,13 +11570,18 @@ components:
       - original_interest_only_months
       - original_principal_minor
       - original_repayment_type
+      - originator_id
+      - originator_name
       - principal_minor
+      - product_type
       - purpose
       - repayment_type
       - risk_rating
       - schedule
       - schedule_version
       - term_months
+      - underlying_interest_rate_bps
+      - yield_bps
     PortfolioSummary:
       type: object
       properties:
@@ -11005,6 +12652,11 @@ components:
           format: uuid
         loan_title:
           type: string
+        product_type:
+          type: string
+        originator_name:
+          type: string
+          readOnly: true
         status:
           type: string
         current_principal_minor:
@@ -11052,6 +12704,16 @@ components:
           nullable: true
         interest_rate_bps:
           type: integer
+        underlying_interest_rate_bps:
+          type: integer
+        yield_bps:
+          type: integer
+          nullable: true
+          readOnly: true
+        projected_yield_bps:
+          type: integer
+          nullable: true
+          readOnly: true
         collateral_type:
           type: string
         remaining_term_months:
@@ -11075,7 +12737,10 @@ components:
       - loan_status_at_listing
       - loan_title
       - minimum_taker_fee_minor
+      - originator_name
       - price_bps
+      - product_type
+      - projected_yield_bps
       - public_disclosure_note
       - remaining_term_months
       - risk_acknowledgement_required
@@ -11083,6 +12748,8 @@ components:
       - taker_fee_bps
       - taker_fee_minor
       - transfer_price_minor
+      - underlying_interest_rate_bps
+      - yield_bps
     SecondaryMarketBuyerListingDetail:
       type: object
       properties:
@@ -11093,6 +12760,10 @@ components:
           type: string
           format: uuid
         loan_title:
+          type: string
+        product_type:
+          type: string
+        originator_name:
           type: string
         status:
           type: string
@@ -11141,11 +12812,23 @@ components:
           nullable: true
         interest_rate_bps:
           type: integer
+        underlying_interest_rate_bps:
+          type: integer
+        yield_bps:
+          type: integer
+          nullable: true
+        projected_yield_bps:
+          type: integer
+          nullable: true
         collateral_type:
           type: string
         remaining_term_months:
           type: integer
           readOnly: true
+        originator_id:
+          type: string
+          format: uuid
+          nullable: true
         borrower_name:
           type: string
         borrower_country:
@@ -11167,6 +12850,11 @@ components:
         first_payment_date:
           type: string
           format: date
+          nullable: true
+        maturity_date:
+          type: string
+          format: date
+          nullable: true
         schedule_version:
           type: integer
         loan_schedule:
@@ -11206,8 +12894,13 @@ components:
       - loan_status_at_listing
       - loan_title
       - ltv_bps
+      - maturity_date
       - minimum_taker_fee_minor
+      - originator_id
+      - originator_name
       - price_bps
+      - product_type
+      - projected_yield_bps
       - public_disclosure_note
       - purpose
       - remaining_term_months
@@ -11220,6 +12913,8 @@ components:
       - taker_fee_minor
       - term_months
       - transfer_price_minor
+      - underlying_interest_rate_bps
+      - yield_bps
     SecondaryMarketInvestmentInstallment:
       type: object
       properties:
@@ -11237,12 +12932,21 @@ components:
           type: integer
         projected_interest_minor:
           type: integer
+        projected_penalty_minor:
+          type: integer
+          default: 0
+        projected_fee_minor:
+          type: integer
+          default: 0
         projected_total_minor:
           type: integer
         days_past_due:
           type: integer
         status:
           type: string
+        accrual_start_date:
+          type: string
+          format: date
       required:
       - days_past_due
       - due_date
@@ -11557,6 +13261,12 @@ components:
           type: integer
         interest_minor:
           type: integer
+        penalty_minor:
+          type: integer
+          default: 0
+        fee_minor:
+          type: integer
+          default: 0
         total_minor:
           type: integer
         paid_principal_minor:
@@ -11583,6 +13293,15 @@ components:
           type: string
           format: date
           nullable: true
+        accrual_start_date:
+          type: string
+          format: date
+        opening_principal_minor:
+          type: integer
+        closing_principal_minor:
+          type: integer
+        payment_reference:
+          type: string
       required:
       - days_past_due
       - due_date
@@ -11832,6 +13551,16 @@ components:
       - code_id
       - expires_at
       - status
+    Status828Enum:
+      enum:
+      - active
+      - blocked
+      - inactive
+      type: string
+      description: |-
+        * `active` - Active
+        * `blocked` - Blocked
+        * `inactive` - Inactive
     UserSummary:
       type: object
       properties:

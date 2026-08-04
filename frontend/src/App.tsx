@@ -31,6 +31,8 @@ import {
   useV1MarketplaceSecondaryListingsCancelCreate,
   useV1MarketplaceSecondaryListingsEditCreate,
   useV1MarketplaceSecondaryListingsPurchaseCreate,
+  useOriginatorClaimsLoansQuoteCreate,
+  useOriginatorClaimsQuotesPurchaseCreate,
   v1AuthMagicLinkConsumeCreate
 } from "./api/generated/banxumApi";
 import { ApiClientError } from "./api/client/httpClient";
@@ -50,6 +52,7 @@ import type {
   InvestorDocumentDownloadResponse,
   MarketplaceLoanDetail,
   MarketplaceLoanPreview,
+  OriginatorClaimQuoteResponse,
   PayoutInstruction,
   PrimaryOrderPortal,
   PublicDocumentTemplateVersion,
@@ -784,6 +787,30 @@ function fundingPercent(loan: Pick<MarketplaceLoanPreview, "principal_minor" | "
   return Math.round((loan.committed_principal_minor / loan.principal_minor) * 100);
 }
 
+function isOriginatorClaimLoan(
+  loan: Pick<MarketplaceLoanPreview, "product_type">
+) {
+  return loan.product_type === "originator_claim";
+}
+
+function marketplaceYieldBps(
+  loan: Pick<MarketplaceLoanPreview, "yield_bps" | "interest_rate_bps">
+) {
+  return loan.yield_bps || loan.interest_rate_bps;
+}
+
+function marketplaceAvailableMinor(
+  loan: Pick<MarketplaceLoanPreview, "fillable_amount_minor" | "remaining_capacity_minor">
+) {
+  return loan.fillable_amount_minor ?? loan.remaining_capacity_minor;
+}
+
+function marketplaceClosingKey(
+  loan: Pick<MarketplaceLoanPreview, "funding_deadline" | "maturity_date">
+) {
+  return loan.funding_deadline ?? loan.maturity_date ?? "9999-12-31";
+}
+
 function marketplaceCurrencySymbol(currency: string) {
   if (currency === "EUR") return "€";
   if (currency === "CHF") return "CHF";
@@ -815,8 +842,15 @@ function sumLotAvailableMinor(lots: BalanceLot[]) {
   return lots.reduce((total, lot) => total + lot.available_amount_minor, 0);
 }
 
-function isOpenMarketplaceLoan(loan: Pick<MarketplaceLoanPreview, "status" | "remaining_capacity_minor">) {
-  return ["open", "published"].includes(loan.status) && loan.remaining_capacity_minor > 0;
+function isOpenMarketplaceLoan(
+  loan: Pick<
+    MarketplaceLoanPreview,
+    "status" | "opportunity_status" | "fillable_amount_minor" | "remaining_capacity_minor"
+  >
+) {
+  const openStatus = ["open", "published"].includes(loan.status)
+    || loan.opportunity_status === "open";
+  return openStatus && marketplaceAvailableMinor(loan) > 0;
 }
 
 function statusTone(status: string) {
@@ -2306,7 +2340,13 @@ function InvestorShell({
           onClose={() => setAddFundsOpen(false)}
         />
       ) : null}
-      {investLoan ? <InvestModal loan={investLoan} onClose={() => setInvestLoan(null)} /> : null}
+      {investLoan ? (
+        isOriginatorClaimLoan(investLoan) ? (
+          <OriginatorClaimInvestModal loan={investLoan} onClose={() => setInvestLoan(null)} />
+        ) : (
+          <InvestModal loan={investLoan} onClose={() => setInvestLoan(null)} />
+        )
+      ) : null}
     </div>
   );
 }
@@ -2520,7 +2560,7 @@ function MarketplaceScreen({
   const [showInvestingRule, setShowInvestingRule] = useState(false);
 
   const filtered = loans.filter((loan) => {
-    const matchesSearch = `${loan.loan_id} ${loan.title} ${loan.purpose} ${loan.collateral_type} ${loan.risk_rating}`
+    const matchesSearch = `${loan.loan_id} ${loan.title} ${loan.originator_name ?? ""} ${loan.borrower_display_name ?? ""} ${loan.purpose} ${loan.collateral_type} ${loan.risk_rating}`
       .toLowerCase()
       .includes(query.trim().toLowerCase());
     const matchesCurrency = currency === "all" || loan.currency === currency;
@@ -2528,11 +2568,11 @@ function MarketplaceScreen({
     return matchesSearch && matchesCurrency && matchesAvailability;
   });
   const sortedLoans = [...filtered].sort((left, right) => {
-    if (sort === "rate") return right.interest_rate_bps - left.interest_rate_bps;
+    if (sort === "rate") return marketplaceYieldBps(right) - marketplaceYieldBps(left);
     if (sort === "funding") return fundingPercent(right) - fundingPercent(left);
-    if (sort === "capacity") return right.remaining_capacity_minor - left.remaining_capacity_minor;
+    if (sort === "capacity") return marketplaceAvailableMinor(right) - marketplaceAvailableMinor(left);
     const openDelta = Number(isOpenMarketplaceLoan(right)) - Number(isOpenMarketplaceLoan(left));
-    return openDelta || left.funding_deadline.localeCompare(right.funding_deadline);
+    return openDelta || marketplaceClosingKey(left).localeCompare(marketplaceClosingKey(right));
   });
   const openCount = loans.filter(isOpenMarketplaceLoan).length;
   const balanceSummaries = balancesQuery.data?.summaries ?? [];
@@ -2557,8 +2597,8 @@ function MarketplaceScreen({
           <p>Two ways to put your money to work</p>
         ) : (
           <p>
-            Review each borrower, target interest, collateral and repayment term. You decide where to
-            place each order; returns are not guaranteed and invested capital is at risk.
+            Review each opportunity, target yield, collateral and repayment term. You decide where to
+            invest; returns are not guaranteed and invested capital is at risk.
           </p>
         )}
       </section>
@@ -2639,7 +2679,7 @@ function MarketplaceScreen({
           </select>
           <select aria-label="Sort opportunities" className="select filter-select" onChange={(event) => setSort(event.target.value as typeof sort)} value={sort}>
             <option value="deadline">Closing soonest</option>
-            <option value="rate">Highest target interest</option>
+            <option value="rate">Highest yield</option>
             <option value="funding">Most funded</option>
             <option value="capacity">Largest remaining capacity</option>
           </select>
@@ -2664,7 +2704,8 @@ function MarketplaceScreen({
         />
       )}
       <p className="marketplace-footnote">
-        Funding progress reflects validated allocations only. Pending orders do not reserve capacity.
+        Direct-loan progress reflects validated allocations. Originator-claim progress reflects the
+        legal claim principal already sold; quoted prices can change as interest accrues or repayments arrive.
       </p>
       </section>
 
@@ -2672,17 +2713,17 @@ function MarketplaceScreen({
         <div>
           <span className="marketplace-process-number">01</span>
           <strong>Choose each opportunity</strong>
-          <p>Open a loan to review its borrower disclosure, collateral, schedule, documents and risks.</p>
+          <p>Open it to review the disclosed counterparty, yield, collateral, cash-flow schedule, documents and risks.</p>
         </div>
         <div>
           <span className="marketplace-process-number">02</span>
-          <strong>Allocation is first come, first served</strong>
-          <p>Your order is an intent until eligible balance is allocated and validated against capacity.</p>
+          <strong>Confirm the applicable investment flow</strong>
+          <p>Direct-loan orders reserve eligible balance after allocation. Originator claims are priced and assigned immediately when purchased.</p>
         </div>
         <div>
           <span className="marketplace-process-number">03</span>
-          <strong>Funding close creates the holding</strong>
-          <p>Allocated orders enter your portfolio only when Garanta closes the loan funding round.</p>
+          <strong>Your portfolio records the legal claim</strong>
+          <p>Direct-loan holdings start at funding close. An originator claim enters your portfolio as soon as the purchase settles on BANXUM.</p>
         </div>
         <button className="marketplace-process-help" onClick={() => setShowOrderGuide(true)} type="button">
           Full order explanation <Icon name="chevR" size={14} />
@@ -2738,14 +2779,16 @@ function MarketplaceOpportunityList({
     <div className={`marketplace-list ${viewMode}`}>
       <div aria-hidden="true" className="marketplace-list-head">
         <span>Company</span>
-        <span>Rate</span>
+        <span>Yield</span>
         <span>Term</span>
         <span>Collateral margin</span>
         <span>Available to invest</span>
-        <span>Closes in</span>
+        <span>Availability</span>
       </div>
       {loans.map((loan) => {
         const fundedPercent = fundingPercent(loan);
+        const originatorClaim = isOriginatorClaimLoan(loan);
+        const availableMinor = marketplaceAvailableMinor(loan);
         return (
           <article className="marketplace-opportunity" key={loan.loan_id} onClick={() => onOpen(loan)}>
             <button
@@ -2760,18 +2803,23 @@ function MarketplaceOpportunityList({
             <div className="marketplace-opportunity-main">
               <div className="marketplace-opportunity-name">
                 <strong>{loan.title}</strong>
-                <span>{loan.purpose}</span>
+                <span>
+                  {originatorClaim && loan.originator_name
+                    ? `${loan.originator_name} · ${loan.purpose}`
+                    : loan.purpose}
+                </span>
                 <div className="marketplace-opportunity-tags">
                   <Rating value={loan.risk_rating} />
                   <span className="tag">{loan.currency}</span>
                   {loan.is_refinancing ? <RefinancedTag /> : null}
+                  {originatorClaim ? <span className="tag">Originator claim</span> : null}
                   <Chip status={loan.status} />
                   <span className="marketplace-copy-id" onClick={(event) => event.stopPropagation()}><CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" /></span>
                 </div>
               </div>
               <div className="marketplace-opportunity-rate">
-                <span className="marketplace-mobile-label">Target interest</span>
-                <strong>{formatRateBps(loan.interest_rate_bps)}</strong>
+                <span className="marketplace-mobile-label">Yield</span>
+                <strong>{formatRateBps(marketplaceYieldBps(loan))}</strong>
                 <small>per annum</small>
               </div>
               <div className="marketplace-opportunity-term">
@@ -2787,26 +2835,45 @@ function MarketplaceOpportunityList({
               <div className="marketplace-opportunity-funding">
                 <span className="marketplace-mobile-label">Available to invest</span>
                 <div className="marketplace-funding-value">
-                  <strong>{loan.currency} {formatMoneyMinor(loan.remaining_capacity_minor, loan.currency)}</strong>
-                  <span>{fundedPercent}% funded</span>
+                  <strong>{loan.currency} {formatMoneyMinor(availableMinor, loan.currency)}</strong>
+                  <span>{fundedPercent}% {originatorClaim ? "claim sold" : "funded"}</span>
                 </div>
                 <Progress percent={fundedPercent} />
-                <small>{loan.currency} {formatMoneyMinor(loan.committed_principal_minor, loan.currency)} of {formatMoneyMinor(loan.principal_minor, loan.currency)}</small>
+                <small>{loan.currency} {formatMoneyMinor(loan.committed_principal_minor, loan.currency)} of {formatMoneyMinor(loan.principal_minor, loan.currency)} principal</small>
               </div>
               <div className="marketplace-opportunity-deadline">
-                <span className="marketplace-mobile-label">Closes in</span>
-                <strong>{fundingDeadlineLabel(loan.funding_deadline, asOf)}</strong>
-                <small>{formatDate(loan.funding_deadline)}</small>
+                <span className="marketplace-mobile-label">{originatorClaim ? "Maturity" : "Closes in"}</span>
+                <strong>
+                  {originatorClaim
+                    ? loan.remaining_term_days === null
+                      ? "See details"
+                      : `${loan.remaining_term_days} days`
+                    : loan.funding_deadline
+                      ? fundingDeadlineLabel(loan.funding_deadline, asOf)
+                      : "-"}
+                </strong>
+                <small>
+                  {originatorClaim
+                    ? loan.maturity_date
+                      ? `Matures ${formatDate(loan.maturity_date)}`
+                      : "Open while performing"
+                    : loan.funding_deadline
+                      ? formatDate(loan.funding_deadline)
+                      : "No deadline"}
+                </small>
                 <Icon className="marketplace-row-arrow" name="chevR" size={16} />
               </div>
             </div>
             {viewMode === "detailed" ? (
               <div className="marketplace-opportunity-details">
-                <div><span>Loan amount</span><strong>{loan.currency} {formatMoneyMinor(loan.principal_minor, loan.currency)}</strong></div>
-                <div><span>Allocated</span><strong>{loan.currency} {formatMoneyMinor(loan.committed_principal_minor, loan.currency)}</strong></div>
+                <div><span>{originatorClaim ? "Current claim principal" : "Loan amount"}</span><strong>{loan.currency} {formatMoneyMinor(loan.principal_minor, loan.currency)}</strong></div>
+                <div><span>{originatorClaim ? "Claim principal sold" : "Allocated"}</span><strong>{loan.currency} {formatMoneyMinor(loan.committed_principal_minor, loan.currency)}</strong></div>
                 <div><span>Collateral / backing</span><strong>{formatEnumLabel(loan.collateral_type)}</strong></div>
                 <div><span>Risk rating</span><strong>{loan.risk_rating}</strong></div>
-                <div><span>Allocation</span><strong>First come, first served</strong></div>
+                <div>
+                  <span>{originatorClaim ? "Underlying borrower rate" : "Allocation"}</span>
+                  <strong>{originatorClaim ? formatRateBps(loan.underlying_interest_rate_bps) : "First come, first served"}</strong>
+                </div>
               </div>
             ) : null}
           </article>
@@ -2839,6 +2906,9 @@ function LoanDetailScreen({
   }
   if (!loan) return <ScreenLoading title="Loan detail" />;
   const blocked = demoState !== "active";
+  const originatorClaim = isOriginatorClaimLoan(loan);
+  const openForInvestment = isOpenMarketplaceLoan(loan);
+  const availableMinor = marketplaceAvailableMinor(loan);
 
   return (
     <main className="content">
@@ -2850,25 +2920,34 @@ function LoanDetailScreen({
             <Rating value={loan.risk_rating} />
             <span className="tag">{loan.currency}</span>
             {loan.is_refinancing ? <RefinancedTag full /> : null}
+            {originatorClaim ? <span className="tag">Originator claim</span> : null}
           </div>
           <h1>{loan.title}</h1>
           <div className="ph-sub"><CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" /></div>
         </div>
       </div>
-      <div className="split">
+      <div className="split loan-detail-layout">
         <div>
           <Card padded>
             <div className="grid grid-4" style={{ gap: 0 }}>
-              <Stat amountMinor={loan.principal_minor} currency={loan.currency} label="Amount" />
-              <Stat label="Target interest" raw={formatRateBps(loan.interest_rate_bps)} sub="per annum" />
-              <Stat label="Term" raw={`${loan.term_months} mo`} sub={loan.repayment_type} />
-              <Stat label="Funded" raw={`${fundingPercent(loan)}%`} sub={`${loan.currency} ${formatMoneyMinor(loan.committed_principal_minor, loan.currency)}`} />
+              <Stat amountMinor={loan.principal_minor} currency={loan.currency} label={originatorClaim ? "Current principal" : "Amount"} />
+              <Stat label="Yield" raw={formatRateBps(marketplaceYieldBps(loan))} sub="effective annual · ACT/365" />
+              <Stat label="Term" raw={loan.remaining_term_days === null ? `${loan.term_months} mo` : `${loan.remaining_term_days} days`} sub={loan.repayment_type} />
+              <Stat label={originatorClaim ? "Claim sold" : "Funded"} raw={`${fundingPercent(loan)}%`} sub={`${loan.currency} ${formatMoneyMinor(loan.committed_principal_minor, loan.currency)}`} />
             </div>
             <div style={{ marginTop: 14 }}>
               <Progress percent={fundingPercent(loan)} />
               <div className="row spread muted" style={{ fontSize: 12, marginTop: 6 }}>
-                <span>{loan.currency} {formatMoneyMinor(loan.committed_principal_minor, loan.currency)} allocated</span>
-                <span>Closes {formatDate(loan.funding_deadline)}</span>
+                <span>{loan.currency} {formatMoneyMinor(loan.committed_principal_minor, loan.currency)} {originatorClaim ? "claim principal sold" : "allocated"}</span>
+                <span>
+                  {originatorClaim
+                    ? loan.maturity_date
+                      ? `Matures ${formatDate(loan.maturity_date)}`
+                      : "Maturity unavailable"
+                    : loan.funding_deadline
+                      ? `Closes ${formatDate(loan.funding_deadline)}`
+                      : "No funding deadline"}
+                </span>
               </div>
             </div>
           </Card>
@@ -2893,15 +2972,26 @@ function LoanDetailScreen({
         </div>
         <aside className="aside-sticky">
           <Card padded>
-            {loan.status !== "published" ? (
-              <Empty icon="checkCircle" title="Fully funded">This loan is closed to new orders.</Empty>
+            {!openForInvestment ? (
+              <Empty icon="checkCircle" title="Not open for investment">
+                {originatorClaim
+                  ? "This originator claim is sold, on hold, repaid, late, defaulted, or within 30 days of maturity."
+                  : "This loan is closed to new orders."}
+              </Empty>
             ) : (
               <>
-                <div className="eyebrow" style={{ marginBottom: 8 }}>Invest in this loan</div>
-                <KeyValue label="Target interest" value={`${formatRateBps(loan.interest_rate_bps)} p.a.`} />
-                <KeyValue label="Minimum order" value={`${loan.currency} 1,000`} />
-                <KeyValue label="Remaining" value={`${loan.currency} ${formatMoneyMinor(loan.remaining_capacity_minor, loan.currency)}`} />
-                <KeyValue label="Closes" value={formatDate(loan.funding_deadline)} />
+                <div className="eyebrow" style={{ marginBottom: 8 }}>{originatorClaim ? "Buy this loan claim" : "Invest in this loan"}</div>
+                {originatorClaim && loan.originator_name ? <KeyValue label="Loan originator" value={loan.originator_name} /> : null}
+                <KeyValue label="Yield" value={`${formatRateBps(marketplaceYieldBps(loan))} p.a.`} />
+                {originatorClaim ? <KeyValue label="Borrower coupon" value={`${formatRateBps(loan.underlying_interest_rate_bps)} p.a.`} /> : null}
+                <KeyValue label="Minimum investment" value={`${loan.currency} ${formatMoneyMinor(loan.minimum_investment_minor, loan.currency)}`} />
+                <KeyValue label="Available now" value={`${loan.currency} ${formatMoneyMinor(availableMinor, loan.currency)}`} />
+                <KeyValue
+                  label={originatorClaim ? "Maturity" : "Closes"}
+                  value={originatorClaim
+                    ? loan.maturity_date ? formatDate(loan.maturity_date) : "Not available"
+                    : loan.funding_deadline ? formatDate(loan.funding_deadline) : "Not available"}
+                />
                 {blocked || isReadonlyImpersonationActive() ? (
                   <Banner tone={demoState === "frozen" ? "bad" : "warn"} title={demoState === "frozen" ? "Financial actions frozen" : "Investing not yet available"}>
                     {isReadonlyImpersonationActive()
@@ -2911,10 +3001,14 @@ function LoanDetailScreen({
                         : "Complete KYC verification to unlock investing."}
                   </Banner>
                 ) : (
-                  <Button block icon="trend" variant="primary" onClick={() => setInvestLoan(loan)}>Place investment order</Button>
+                  <Button block icon="trend" variant="primary" onClick={() => setInvestLoan(loan)}>
+                    {originatorClaim ? "Review claim purchase" : "Place investment order"}
+                  </Button>
                 )}
                 <p className="muted" style={{ fontSize: 11, lineHeight: 1.5, marginTop: 10 }}>
-                  Orders are intents and do not reserve capacity until funds are allocated and validated.
+                  {originatorClaim
+                    ? "BANXUM generates an executable quote from the remaining borrower cash flows. A confirmed purchase assigns the legal claim immediately."
+                    : "Orders are intents and do not reserve capacity until funds are allocated and validated."}
                 </p>
               </>
             )}
@@ -2995,6 +3089,7 @@ function LoanOverview({ loan }: { loan: MarketplaceLoanDetail }) {
       <dl className="kv">
         <KeyValueRow label="Loan reference" value={<CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" />} />
         <KeyValueRow label="Borrower" value={borrowerName} />
+        {isOriginatorClaimLoan(loan) && loan.originator_name ? <KeyValueRow label="Loan originator" value={loan.originator_name} /> : null}
         <KeyValueRow label="Currency" value={loan.currency} />
         <KeyValueRow label="Repayment type" value={loan.repayment_type} />
         <KeyValueRow label="Risk rating" value={loan.risk_rating} />
@@ -3002,8 +3097,100 @@ function LoanOverview({ loan }: { loan: MarketplaceLoanDetail }) {
         {loan.ltv_bps !== null ? <KeyValueRow label="Loan-to-value" value={`${(loan.ltv_bps / 100).toFixed(1)}%`} /> : null}
       </dl>
     </Card>
+    {isOriginatorClaimLoan(loan) ? <OriginatorClaimLoanSection loan={loan} /> : null}
     {loan.is_refinancing ? <OriginalLoanSection loan={loan} /> : null}
     </>
+  );
+}
+
+function OriginatorClaimLoanSection({ loan }: { loan: MarketplaceLoanDetail }) {
+  const schedule = loan.originator_schedule ?? [];
+  const payments = loan.originator_payment_history ?? [];
+  const scheduleTotals = schedule.reduce(
+    (total, row) => ({
+      principal: total.principal + row.principal_minor,
+      interest: total.interest + row.interest_minor,
+      penalty: total.penalty + row.penalty_minor,
+      fee: total.fee + row.fee_minor,
+      amount: total.amount + row.total_minor
+    }),
+    { principal: 0, interest: 0, penalty: 0, fee: 0, amount: 0 }
+  );
+  const paymentTotals = payments.reduce(
+    (total, row) => ({
+      principal: total.principal + row.principal_minor,
+      interest: total.interest + row.interest_minor,
+      penalty: total.penalty + row.penalty_minor,
+      fee: total.fee + row.fee_minor,
+      amount: total.amount + row.total_minor
+    }),
+    { principal: 0, interest: 0, penalty: 0, fee: 0, amount: 0 }
+  );
+
+  return (
+    <Card className="section" padded>
+      <div className="row gap-8 wrap" style={{ marginBottom: 6 }}>
+        <div className="eyebrow">Loan-originator evidence</div>
+        <span className="tag">Revision {loan.schedule_revision ?? loan.schedule_version}</span>
+      </div>
+      <p className="muted" style={{ fontSize: 12, lineHeight: 1.5, maxWidth: 760 }}>
+        The loan originator owns the unsold claim. Your purchase assigns part of the final-borrower
+        claim immediately. The yield shown by BANXUM is the effective annual ACT/365 yield priced from
+        the remaining cash flows; it is distinct from the borrower coupon.
+      </p>
+      <dl className="kv" style={{ marginTop: 10 }}>
+        <KeyValueRow label="Target investor yield" mono value={`${formatRateBps(loan.yield_bps)} p.a.`} />
+        <KeyValueRow label="Underlying borrower coupon" mono value={`${formatRateBps(loan.underlying_interest_rate_bps)} p.a.`} />
+        <KeyValueRow label="Current outstanding principal" mono value={`${loan.currency} ${formatMoneyMinor(loan.principal_minor, loan.currency)}`} />
+        <KeyValueRow label="Unsold principal" mono value={`${loan.currency} ${formatMoneyMinor(loan.remaining_capacity_minor, loan.currency)}`} />
+        {loan.maturity_date ? <KeyValueRow label="Maturity" value={formatDate(loan.maturity_date)} /> : null}
+        {loan.pricing_as_of_date ? <KeyValueRow label="Pricing data as of" value={formatDate(loan.pricing_as_of_date)} /> : null}
+      </dl>
+      {schedule.length > 0 ? (
+        <>
+          <div className="eyebrow" style={{ margin: "16px 0 8px" }}>Current full loan schedule</div>
+          <div className="tbl-wrap">
+            <table className="tbl">
+              <thead><tr><th className="num">#</th><th>Accrual starts</th><th>Due</th><th className="num">Opening principal</th><th className="num">Principal</th><th className="num">Interest</th><th className="num">Penalty</th><th className="num">Total</th><th className="num">Outstanding after</th></tr></thead>
+              <tbody>
+                {schedule.map((row) => (
+                  <tr key={`${row.installment_number}-${row.due_date}`}>
+                    <td className="num muted">{row.installment_number}</td>
+                    <td>{formatDate(row.accrual_start_date)}</td>
+                    <td>{formatDate(row.due_date)}</td>
+                    <td className="num">{formatMoneyMinor(row.opening_principal_minor, loan.currency)}</td>
+                    <td className="num">{formatMoneyMinor(row.principal_minor, loan.currency)}</td>
+                    <td className="num">{formatMoneyMinor(row.interest_minor, loan.currency)}</td>
+                    <td className="num">{formatMoneyMinor(row.penalty_minor, loan.currency)}</td>
+                    <td className="num col-strong">{formatMoneyMinor(row.total_minor, loan.currency)}</td>
+                    <td className="num">{formatMoneyMinor(row.outstanding_after_minor, loan.currency)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot className="schedule-totals"><tr><th colSpan={4}>Totals</th><th className="num">{formatMoneyMinor(scheduleTotals.principal, loan.currency)}</th><th className="num">{formatMoneyMinor(scheduleTotals.interest, loan.currency)}</th><th className="num">{formatMoneyMinor(scheduleTotals.penalty, loan.currency)}</th><th className="num">{formatMoneyMinor(scheduleTotals.amount, loan.currency)}</th><th className="num">-</th></tr></tfoot>
+            </table>
+          </div>
+        </>
+      ) : null}
+      {payments.length > 0 ? (
+        <>
+          <div className="eyebrow" style={{ margin: "16px 0 8px" }}>Historical borrower payments</div>
+          <div className="tbl-wrap">
+            <table className="tbl">
+              <thead><tr><th>Value date</th><th>Type</th><th>Reference</th><th className="num">Principal</th><th className="num">Interest</th><th className="num">Penalty</th><th className="num">Total</th><th className="num">Principal after</th></tr></thead>
+              <tbody>
+                {payments.map((row) => (
+                  <tr key={`${row.reference}-${row.value_date}`}>
+                    <td>{formatDate(row.value_date)}</td><td>{formatEnumLabel(row.payment_type)}</td><td className="mono">{row.reference}</td><td className="num">{formatMoneyMinor(row.principal_minor, loan.currency)}</td><td className="num">{formatMoneyMinor(row.interest_minor, loan.currency)}</td><td className="num">{formatMoneyMinor(row.penalty_minor, loan.currency)}</td><td className="num col-strong">{formatMoneyMinor(row.total_minor, loan.currency)}</td><td className="num">{formatMoneyMinor(row.resulting_principal_minor, loan.currency)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot className="schedule-totals"><tr><th colSpan={3}>Totals</th><th className="num">{formatMoneyMinor(paymentTotals.principal, loan.currency)}</th><th className="num">{formatMoneyMinor(paymentTotals.interest, loan.currency)}</th><th className="num">{formatMoneyMinor(paymentTotals.penalty, loan.currency)}</th><th className="num">{formatMoneyMinor(paymentTotals.amount, loan.currency)}</th><th className="num">-</th></tr></tfoot>
+            </table>
+          </div>
+        </>
+      ) : null}
+    </Card>
   );
 }
 
@@ -3090,9 +3277,13 @@ function OriginalLoanSection({ loan }: { loan: MarketplaceLoanDetail }) {
 }
 
 function LoanTerms({ loan }: { loan: MarketplaceLoanDetail }) {
+  const originatorClaim = isOriginatorClaimLoan(loan);
   return (
     <Card padded>
       <dl className="kv">
+        {originatorClaim && loan.originator_name ? <KeyValueRow label="Loan originator" value={loan.originator_name} /> : null}
+        <KeyValueRow label="Investor yield" mono value={`${formatRateBps(marketplaceYieldBps(loan))} p.a.`} />
+        {originatorClaim ? <KeyValueRow label="Underlying borrower coupon" mono value={`${formatRateBps(loan.underlying_interest_rate_bps)} p.a.`} /> : null}
         <KeyValueRow label="Repayment type" value={loan.repayment_type} />
         <KeyValueRow label="Collateral / backing" value={loan.collateral_description} />
         {loan.collateral_value_minor > 0 ? <KeyValueRow label="Collateral value" mono value={`${loan.currency} ${formatMoneyMinor(loan.collateral_value_minor, loan.currency)}`} /> : null}
@@ -3182,7 +3373,7 @@ function LoansTable({ loans, onOpen, preview = false }: { loans: MarketplaceLoan
               <th>Borrower</th>
               <th>Purpose</th>
               <th className="num">Amount</th>
-              <th className="num">Interest</th>
+              <th className="num">Yield</th>
               <th className="num">Term</th>
               {!preview ? <th>Rating</th> : null}
               {!preview ? <th className="num">Funded</th> : null}
@@ -3202,7 +3393,7 @@ function LoansTable({ loans, onOpen, preview = false }: { loans: MarketplaceLoan
                 </td>
                 <td>{loan.purpose}</td>
                 <td className="num"><Money amountMinor={loan.principal_minor} currency={loan.currency} /></td>
-                <td className="num col-strong">{formatRateBps(loan.interest_rate_bps)}</td>
+                <td className="num col-strong">{formatRateBps(marketplaceYieldBps(loan))}</td>
                 <td className="num">{loan.term_months} mo</td>
                 {!preview ? <td><Rating value={loan.risk_rating} /></td> : null}
                 {!preview ? <td className="num">{fundingPercent(loan)}%</td> : null}
@@ -7175,6 +7366,209 @@ function LegalDocumentPage() {
   );
 }
 
+function OriginatorClaimInvestModal({ loan, onClose }: { loan: MarketplaceLoanDetail; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const balances = useBalancesData().data;
+  const investableLots = currentInvestableLotsForLoanCurrency(balances?.lots, loan);
+  const investableBalanceMinor = sumLotAvailableMinor(investableLots);
+  const maxInvest = Math.min(investableBalanceMinor, loan.fillable_amount_minor);
+  const [amount, setAmount] = useState("");
+  const [step, setStep] = useState<"amount" | "review" | "confirm" | "done">("amount");
+  const [ack1, setAck1] = useState(false);
+  const [ack2, setAck2] = useState(false);
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+  const [quote, setQuote] = useState<OriginatorClaimQuoteResponse | null>(null);
+  const [acceptanceId, setAcceptanceId] = useState<string | null>(null);
+  const [acceptanceKey] = useState(() => idempotencyKey("originator-claim-acceptance"));
+  const [purchaseKey] = useState(() => idempotencyKey("originator-claim-purchase"));
+  const quoteMutation = useOriginatorClaimsLoansQuoteCreate();
+  const purchaseMutation = useOriginatorClaimsQuotesPurchaseCreate();
+  const acceptanceMutation = useV1DocumentsAcceptancesCreate();
+  const codeRequest = useSensitiveActionCode(ActionEnum.primary_investment);
+  useAutoRequestEmailCode(codeRequest, step === "confirm");
+  const termsQuery = useV1DocumentsTemplatesCurrentRetrieve(
+    { category: CategoryEnum.primary_market_investment },
+    { query: { enabled: !isFixturePreview && step !== "amount", retry: false } }
+  );
+  const parsedAmount = parseMoneyInputToMinorUnits(amount, loan.currency);
+  const amountMinor = parsedAmount.amountMinor;
+  const amountError = parsedAmount.error
+    ?? (amountMinor > 0 && amountMinor < loan.minimum_investment_minor
+      ? `Minimum investment is ${loan.currency} ${formatMoneyMinor(loan.minimum_investment_minor, loan.currency)}.`
+      : amountMinor > maxInvest
+        ? "Exceeds investable balance or the executable amount currently available."
+        : undefined);
+
+  const requestQuote = async () => {
+    setError("");
+    if (amountError || amountMinor <= 0) return;
+    if (isFixturePreview) {
+      const assignedPrincipal = Math.min(amountMinor, loan.remaining_capacity_minor);
+      setQuote({
+        quote_id: "preview-originator-quote",
+        loan_id: loan.loan_id,
+        currency: loan.currency,
+        requested_cash_minor: amountMinor,
+        executable_cash_minor: amountMinor,
+        assigned_principal_minor: assignedPrincipal,
+        outstanding_principal_at_pricing_minor: loan.principal_minor,
+        share_ppm: loan.principal_minor > 0 ? Math.round((assignedPrincipal * 1_000_000) / loan.principal_minor) : 0,
+        target_yield_bps: loan.yield_bps,
+        premium_discount_minor: amountMinor - assignedPrincipal,
+        rounding_remainder_minor: 0,
+        entitlement_start_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
+        cash_flows: (loan.originator_schedule ?? []).filter((row) => Date.parse(row.due_date) > Date.now()).map((row) => ({
+          installment_number: row.installment_number,
+          accrual_start_date: row.accrual_start_date,
+          due_date: row.due_date,
+          principal_minor: loan.principal_minor > 0 ? Math.round((row.principal_minor * assignedPrincipal) / loan.principal_minor) : 0,
+          interest_minor: loan.principal_minor > 0 ? Math.round((row.interest_minor * assignedPrincipal) / loan.principal_minor) : 0,
+          penalty_minor: 0,
+          total_minor: loan.principal_minor > 0 ? Math.round((row.total_minor * assignedPrincipal) / loan.principal_minor) : 0,
+          days_to_payment: Math.max(0, Math.ceil((Date.parse(row.due_date) - Date.now()) / 86_400_000)),
+          present_value_minor: 0
+        }))
+      });
+      setStep("review");
+      return;
+    }
+    try {
+      const nextQuote = await quoteMutation.mutateAsync({
+        loanId: loan.loan_id,
+        data: { requested_cash_minor: amountMinor }
+      });
+      setQuote(nextQuote);
+      setStep("review");
+    } catch (mutationError) {
+      setError(apiErrorMessage(mutationError));
+    }
+  };
+
+  const confirmPurchase = async () => {
+    if (!quote) return;
+    setError("");
+    if (isFixturePreview) {
+      setStep("done");
+      return;
+    }
+    const labels = templateLabels(termsQuery.data);
+    if (!termsQuery.data || labels.length === 0) {
+      setError("Current primary-market investment terms are unavailable.");
+      return;
+    }
+    if (!codeRequest.codeId) {
+      setError("Request an email code before confirming the purchase.");
+      return;
+    }
+    try {
+      const acceptance = acceptanceId
+        ? { id: acceptanceId }
+        : await acceptanceMutation.mutateAsync({
+            data: {
+              category: CategoryEnum.primary_market_investment,
+              expected_template_version_id: termsQuery.data.id,
+              accepted_checkbox_labels: labels,
+              context_type: "originator_claim_quote",
+              context_id: quote.quote_id,
+              data_snapshot: {
+                loan_id: loan.loan_id,
+                originator_claim_quote_id: quote.quote_id,
+                requested_cash_minor: quote.requested_cash_minor,
+                executable_cash_minor: quote.executable_cash_minor,
+                assigned_principal_minor: quote.assigned_principal_minor,
+                currency: quote.currency,
+                target_yield_bps: quote.target_yield_bps
+              },
+              idempotency_key: acceptanceKey
+            }
+          });
+      setAcceptanceId(acceptance.id);
+      await purchaseMutation.mutateAsync({
+        quoteId: quote.quote_id,
+        data: {
+          document_acceptance_id: acceptance.id,
+          sensitive_action_code_id: codeRequest.codeId,
+          sensitive_action_code: code,
+          idempotency_key: purchaseKey
+        }
+      });
+      void queryClient.invalidateQueries();
+      setStep("done");
+    } catch (mutationError) {
+      setError(apiErrorMessage(mutationError));
+    }
+  };
+
+  const busy = quoteMutation.isPending || acceptanceMutation.isPending || purchaseMutation.isPending;
+  const footer = step === "done"
+    ? <Button variant="primary" onClick={onClose}>Done</Button>
+    : step === "confirm"
+      ? <><Button variant="ghost" onClick={() => setStep("review")}>Back</Button><Button disabled={code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || busy} variant="primary" onClick={() => void confirmPurchase()}>{busy ? "Purchasing..." : "Purchase claim"}</Button></>
+      : step === "review"
+        ? <><Button variant="ghost" onClick={() => { setQuote(null); setStep("amount"); }}>Reprice</Button><Button disabled={!ack1 || !ack2 || !quote} variant="primary" onClick={() => setStep("confirm")}>Continue</Button></>
+        : <><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={amountMinor <= 0 || Boolean(amountError) || quoteMutation.isPending} variant="primary" onClick={() => void requestQuote()}>{quoteMutation.isPending ? "Pricing..." : "Get executable quote"}</Button></>;
+
+  return (
+    <Modal footer={footer} onClose={onClose} title={step === "done" ? "Claim purchased" : `Buy claim - ${loan.title}`} wide>
+      {step === "amount" ? (
+        <div className="col gap-16">
+          <Banner tone="info" title="Immediate legal assignment">
+            This is an existing final-borrower loan sold by {loan.originator_name || "the loan originator"}.
+            BANXUM prices the remaining cash flows to the displayed yield and assigns the purchased claim immediately.
+          </Banner>
+          <div className="row spread"><span className="muted">Investable {loan.currency} balance</span><span className="mono col-strong">{loan.currency} {formatMoneyMinor(investableBalanceMinor, loan.currency)}</span></div>
+          {investableBalanceMinor === 0 ? <Banner tone="bad" title="No investable balance">Deposit fresh funds or use balance still inside its 30-day investment window.</Banner> : null}
+          <Field error={amountError} hint={`Minimum ${loan.currency} ${formatMoneyMinor(loan.minimum_investment_minor, loan.currency)} · up to ${loan.currency} ${formatMoneyMinor(maxInvest, loan.currency)}`} label="Cash amount to invest">
+            <div className="input-affix"><span className="prefix">{loan.currency}</span><input className="input mono" inputMode="decimal" onChange={(event) => setAmount(event.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" style={{ paddingLeft: 44 }} value={amount} /></div>
+          </Field>
+          <Review rows={[
+            { label: "Investor yield", value: `${formatRateBps(loan.yield_bps)} effective annual · ACT/365` },
+            { label: "Underlying borrower coupon", value: `${formatRateBps(loan.underlying_interest_rate_bps)} p.a.` },
+            { label: "Maturity", value: loan.maturity_date ? formatDate(loan.maturity_date) : "Not available" },
+            { label: "Current unsold principal", value: `${loan.currency} ${formatMoneyMinor(loan.remaining_capacity_minor, loan.currency)}` }
+          ]} />
+          {error ? <Banner tone="bad" title="Could not price this claim">{error}</Banner> : null}
+        </div>
+      ) : step === "review" && quote ? (
+        <div className="col gap-16">
+          <Banner tone="neutral" title="Executable for five minutes">
+            The cash price changes as time passes or the borrower repays. This quote expires {formatDateTime(quote.expires_at)}.
+          </Banner>
+          <Review rows={[
+            { label: "Loan", value: loan.title },
+            { label: "Loan originator", value: loan.originator_name || "Loan originator" },
+            { label: "Cash consideration", value: `${quote.currency} ${formatMoneyMinor(quote.executable_cash_minor, quote.currency)}` },
+            { label: "Legal principal assigned", value: `${quote.currency} ${formatMoneyMinor(quote.assigned_principal_minor, quote.currency)}` },
+            { label: quote.premium_discount_minor >= 0 ? "Premium" : "Discount", value: `${quote.currency} ${formatMoneyMinor(Math.abs(quote.premium_discount_minor), quote.currency)}` },
+            { label: "Target yield", value: `${formatRateBps(quote.target_yield_bps)} effective annual · ACT/365` },
+            { label: "Entitlement starts", value: formatDateTime(quote.entitlement_start_at) }
+          ]} />
+          <div>
+            <div className="eyebrow" style={{ marginBottom: 8 }}>Your quoted cash flows</div>
+            <div className="tbl-wrap">
+              <table className="tbl"><thead><tr><th className="num">#</th><th>Due date</th><th className="num">Principal</th><th className="num">Interest</th><th className="num">Total</th></tr></thead><tbody>{quote.cash_flows.map((flow) => <tr key={`${flow.installment_number}-${flow.due_date}`}><td className="num muted">{flow.installment_number}</td><td>{formatDate(flow.due_date)}</td><td className="num">{formatMoneyMinor(flow.principal_minor, quote.currency)}</td><td className="num">{formatMoneyMinor(flow.interest_minor, quote.currency)}</td><td className="num col-strong">{formatMoneyMinor(flow.total_minor, quote.currency)}</td></tr>)}</tbody><tfoot className="schedule-totals"><tr><th colSpan={2}>Totals</th><th className="num">{formatMoneyMinor(quote.cash_flows.reduce((sum, row) => sum + row.principal_minor, 0), quote.currency)}</th><th className="num">{formatMoneyMinor(quote.cash_flows.reduce((sum, row) => sum + row.interest_minor, 0), quote.currency)}</th><th className="num">{formatMoneyMinor(quote.cash_flows.reduce((sum, row) => sum + row.total_minor, 0), quote.currency)}</th></tr></tfoot></table>
+            </div>
+          </div>
+          <Check checked={ack1} id="originator-claim-ack-1" onChange={setAck1}>I accept the <LegalDocLink category="primary_market_investment">primary-market investment terms and claim assignment</LegalDocLink>.</Check>
+          <Check checked={ack2} id="originator-claim-ack-2" onChange={setAck2}>I acknowledge the <LegalDocLink category="risk_disclosure">risk disclosure</LegalDocLink>, originator servicing structure and possible capital loss.</Check>
+          {!isFixturePreview && termsQuery.isError ? <Banner tone="bad" title="Investment terms unavailable">The current server-published investment terms could not be loaded.</Banner> : null}
+        </div>
+      ) : step === "confirm" && quote ? (
+        <div className="col gap-16">
+          <Banner icon="lock" tone="info" title="Confirm this claim purchase">Enter the 6-digit email confirmation code. A successful confirmation immediately assigns the claim and adds it to your portfolio.</Banner>
+          <Review rows={[{ label: "Cash consideration", value: `${quote.currency} ${formatMoneyMinor(quote.executable_cash_minor, quote.currency)}` }, { label: "Principal assigned", value: `${quote.currency} ${formatMoneyMinor(quote.assigned_principal_minor, quote.currency)}` }, { label: "Yield", value: formatRateBps(quote.target_yield_bps) }, { label: "Quote expires", value: formatDateTime(quote.expires_at) }]} />
+          <CodeRequestField hint={previewHint("Demo: any 6 digits")} label="Email confirmation code" requestDisabled={emailCodeRequestDisabled(codeRequest)} requestLabel={emailCodeRequestLabel(codeRequest)} value={code} onChange={setCode} onRequest={codeRequest.requestCode} />
+          {codeRequest.error || error ? <Banner tone="bad" title="Could not purchase claim">{codeRequest.error || error}</Banner> : null}
+        </div>
+      ) : (
+        <SuccessState title="Claim purchased">The assigned final-borrower claim is now in your portfolio. Its immutable acceptance evidence is available in Documents.</SuccessState>
+      )}
+    </Modal>
+  );
+}
+
 function InvestModal({ loan, onClose }: { loan: MarketplaceLoanDetail; onClose: () => void }) {
   const queryClient = useQueryClient();
   const balances = useBalancesData().data;
@@ -7205,8 +7599,8 @@ function InvestModal({ loan, onClose }: { loan: MarketplaceLoanDetail; onClose: 
   const amountMinor = parsedAmount.amountMinor;
   const amountError =
     parsedAmount.error ??
-    (amountMinor > 0 && amountMinor < 100000
-      ? "Minimum order is 1,000."
+    (amountMinor > 0 && amountMinor < loan.minimum_investment_minor
+      ? `Minimum order is ${loan.currency} ${formatMoneyMinor(loan.minimum_investment_minor, loan.currency)}.`
       : amountMinor > maxInvest
         ? "Exceeds investable balance or remaining capacity."
         : undefined);
@@ -7275,7 +7669,7 @@ function InvestModal({ loan, onClose }: { loan: MarketplaceLoanDetail; onClose: 
         }}>{orderMutation.isPending || acceptanceMutation.isPending || allocateMutation.isPending ? "Submitting..." : "Confirm order"}</Button></>
       : step === "review"
         ? <><Button variant="ghost" onClick={() => setStep("amount")}>Back</Button><Button disabled={!ack1 || !ack2} variant="primary" onClick={() => setStep("confirm")}>Continue</Button></>
-        : <><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={amountMinor < 100000 || Boolean(amountError)} variant="primary" onClick={() => setStep("review")}>Review order</Button></>;
+        : <><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={amountMinor < loan.minimum_investment_minor || Boolean(amountError)} variant="primary" onClick={() => setStep("review")}>Review order</Button></>;
 
   return (
     <Modal footer={footer} onClose={onClose} title={step === "done" ? "Order placed" : `Invest - ${loan.title}`}>
@@ -7287,14 +7681,14 @@ function InvestModal({ loan, onClose }: { loan: MarketplaceLoanDetail; onClose: 
               Deposit fresh funds or use balance that is still inside its 30-day investment window.
             </Banner>
           ) : null}
-          <Field error={amountError} hint={`Between ${loan.currency} 1,000 and ${formatMoneyMinor(maxInvest, loan.currency)}`} label="Investment amount">
+          <Field error={amountError} hint={`Between ${loan.currency} ${formatMoneyMinor(loan.minimum_investment_minor, loan.currency)} and ${formatMoneyMinor(maxInvest, loan.currency)}`} label="Investment amount">
             <div className="input-affix"><span className="prefix">{loan.currency}</span><input className="input mono" inputMode="decimal" onChange={(event) => setAmount(event.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" style={{ paddingLeft: 44 }} value={amount} /></div>
           </Field>
           <Banner tone="neutral" title="Allocation">Orders are intents only. They become effective after funds are allocated and validated, first-come first-served.</Banner>
         </div>
       ) : step === "review" ? (
         <div className="col gap-16">
-          <Review rows={[{ label: "Loan", value: <span className="entity-inline"><span>{loan.title}</span><CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" /></span> }, { label: "Order amount", value: `${loan.currency} ${formatMoneyMinor(amountMinor, loan.currency)}` }, { label: "Target interest", value: `${formatRateBps(loan.interest_rate_bps)} p.a.` }, { label: "Platform fee", value: "None" }]} />
+          <Review rows={[{ label: "Loan", value: <span className="entity-inline"><span>{loan.title}</span><CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" /></span> }, { label: "Order amount", value: `${loan.currency} ${formatMoneyMinor(amountMinor, loan.currency)}` }, { label: "Yield", value: `${formatRateBps(marketplaceYieldBps(loan))} p.a.` }, { label: "Platform fee", value: "None" }]} />
           <Check checked={ack1} id="invest-ack-1" onChange={setAck1}>
             I accept the{" "}
             <LegalDocLink category="primary_market_investment">

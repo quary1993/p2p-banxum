@@ -139,6 +139,24 @@
         "Do not run normal scheduled jobs at the same time as a manual fast-forward test unless the runbook explicitly calls for it. QA fast-forward already runs the relevant daily jobs for the dates it crosses.",
         "Record what you are testing before enabling QA mode, then revert when finished so the staging environment returns to its entry state."
       ]
+    },
+    {
+      "heading": "10. Loan Originators: buying an existing claim",
+      "body": [
+        "A Loan Originator is a professional lender that already owns loans to final business borrowers. It can offer part of a performing loan through BANXUM. This is different from a normal BANXUM loan: investors are not waiting for a new borrower funding round. They immediately buy a legal assignment of part of an existing final-borrower claim.",
+        "The final borrower remains private and is shown to investors through an anonymized per-loan disclosure. The Loan Originator is a separate admin-managed accounting entity with off-platform KYB/AML evidence and verified settlement instructions; it has no BANXUM login.",
+        "Every opportunity has two rates. Coupon is the contractual rate paid by the final borrower. Target yield is the effective annual ACT/365 return used to price the investor's dated remaining cash flows before losses and taxes. The target yield stays fixed while the purchase price changes by day. Coupon and yield are not interchangeable.",
+        "A purchase happens immediately after a short server quote, current terms acceptance and email-code confirmation. Interest and penalties belong to the investor only from the purchase timestamp forward. The originator retains the unsold principal and all earlier accrual. There is no originator buyback or recourse guarantee.",
+        "Investor cash consideration creates an originator payable rather than a borrower disbursement. Finance Operations settles accumulated originator payables in complete batches. A task appears when the oldest amount is three days old and settlement must occur no later than day five.",
+        "Garanta services the loan while investors own claims. The final borrower pays Garanta. Each repayment is allocated exactly between investors' dated entitlements and the originator's unsold or pre-assignment entitlement. An originator opportunity closes when repaid, held, late/defaulted, or when 30 calendar days or fewer remain to maturity."
+      ],
+      "bullets": [
+        "Do not use direct-loan funding close, cancellation or borrower-disbursement actions on an originator claim.",
+        "Do not publish from an unverified spreadsheet. Reconcile the full CSV to the legal contract, originator servicing export and bank evidence.",
+        "Do not change the CSV simply to make validation pass. Put the opportunity on hold and investigate discrepancies.",
+        "New refinancing-loan creation is disabled. Existing legacy refinancing loans remain readable and serviceable; Loan Originator claims are the new product for purchasing an existing loan claim.",
+        "Only performing originator holdings are resellable in v1. Seller acquisition yield is never shown to a secondary buyer."
+      ]
     }
   ]
 }

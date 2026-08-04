@@ -333,3 +333,35 @@ Confirm final legal wording for project recovery fee and default/penalty interes
 7. Launch assumption: usually real-estate backed/secured, with exceptions possible; future products may be secured, unsecured, guaranteed, or mixed.
 8. Answered by PAY-DEC-008/PAY-DEC-014: no fixed minimum funding threshold at launch; admin can proceed with a partial amount case by case and notify lenders.
 9. Answered by PROD-DEC-007: common product settings in superadmin UI; deeper parameters may require deployment/configuration.
+
+## Loan Originator Claim Products
+
+### PROD-DEC-010: Separate Direct and Originator-Claim Product Types
+
+BANXUM supports two new-loan product types: `direct`, which retains the existing funding-close and borrower-disbursement lifecycle, and `originator_claim`, where a Loan Originator sells an existing final-borrower claim and each investor purchase immediately creates a dated assignment and holding. Originator claims have no campaign close or borrower-disbursement step. Product type is immutable after publication and every service branches explicitly by type.
+
+Existing `is_refinancing` records remain legacy direct loans. New refinancing creation is disabled. Existing records are never reinterpreted automatically; conversion requires a future explicit audited workflow.
+
+### PROD-DEC-011: Loan Originator Entity
+
+A Loan Originator is an admin-managed accounting-only legal entity with no portal login. It stores legal/public name, registration and jurisdiction, address/contact/settlement details, off-platform KYB evidence and observations, risk notes, active/blocked state, and default BANXUM fee. The default fee is 50% (`5000` bps) of positive originator premium and may be overridden per loan with a recorded reason.
+
+### PROD-DEC-012: Borrower Snapshot and Imported Contract
+
+An originator claim has no `BorrowerEntity` link. It stores a loan-specific final-borrower snapshot using existing borrower fields. Legal name is internal; investors see an anonymized display name and fields selected under existing disclosure rules. Ownership, bank, KYB/AML, and financial-risk notes remain internal.
+
+Admin imports the full schedule and all pre-publication payments as versioned evidence. Strict CSV validation rejects unknown columns, malformed dates, non-integer money, unsupported/duplicate events, currency mismatch, non-monotonic dates, negative components, total mismatches, principal overpayment, inconsistent running principal, and future rows that do not reconcile to current outstanding. `/imports_examples` contains every supported repayment type and one historical-prepayment example. Corrections create new versions and invalidate quotes.
+
+### PROD-DEC-013: Originator Claim Economics
+
+The contractual borrower coupon remains `interest_rate_bps`; investor `target_yield_bps` is a separate effective annual ACT/365 yield fixed while an opportunity is open. Pricing discounts exact dated post-assignment cash flows:
+
+`purchase_price = sum(cash_flow / (1 + target_yield) ** (days_from_purchase / 365))`
+
+Calculations use `Decimal`, integer minor units, and half-up rounding. The investor owns only principal and interest/penalties accruing from purchase onward; earlier accrual belongs to the originator. First-payment distribution therefore uses dated entitlements, not principal-only weights.
+
+Investor enters cash consideration; the platform assigns the largest exact supportable principal share. The loan minimum applies to cash. Confirmation shows cash, face principal, share, premium/discount, yield, cash flows, and rounding. BANXUM fee is `max(price - assigned_principal, 0) * fee_bps / 10000`, half-up and capped at price. Discounts produce no fee. The investor does not see the negotiated fee split.
+
+### PROD-DEC-014: Availability
+
+Originator opportunities have no admin funding end date. They remain open only while more than 30 calendar days remain to maturity, unsold principal and priced consideration remain positive, the loan is performing and not held/repaid/cancelled/recovered/written off, the originator is active, and schedule evidence is valid. Payments, prepayments, import corrections, status changes, and maturity progression reprice the unsold part and invalidate quotes. Existing holdings continue after the opportunity closes.

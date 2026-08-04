@@ -598,6 +598,34 @@ Primary marketplace and investments:
 - Borrower fee accounting.
 - Disbursement workflow.
 
+### `originator_claims`
+
+Loan Originator claim inventory, pricing, assignment, and settlement:
+
+- Admin-managed Loan Originators with off-platform KYB/AML evidence, settlement
+  instructions, active/blocked state, and negotiated premium-fee percentage.
+- Existing final-borrower loans imported from strict, versioned schedule/payment
+  CSV evidence. Originator loans use anonymized per-loan borrower disclosure and
+  do not link a BANXUM `BorrowerEntity`.
+- Effective annual ACT/365 target-yield pricing from dated contractual cash flows.
+  The underlying borrower coupon remains separate. The price changes daily while
+  target yield remains fixed.
+- Immediate primary-market purchase of a dated legal assignment. The investor
+  owns accrual only from purchase time forward; the originator retains unsold
+  principal and pre-assignment accrual.
+- Originator payable and hidden BANXUM fee accounting, grouped batch settlement,
+  day-3 operations tasks, and a hard day-5 settlement expectation.
+- Borrower-repayment allocation between dated investor entitlements and the
+  originator's unsold/pre-assignment entitlement.
+- Automatic opportunity closure when repaid, held, late/defaulted, or at 30
+  calendar days or fewer before contractual maturity.
+- Secondary-market continuity for performing investor holdings. Seller acquisition
+  yield remains private; the buyer sees only current projected yield.
+
+Direct borrower funding remains the existing `marketplace_primary` flow. Legacy
+refinancing records remain readable and serviceable, but creation of new
+refinancing loans is disabled; the Loan Originator product replaces that use case.
+
 ### `ledger`
 
 Financial ledger and balances:
@@ -777,6 +805,19 @@ The exact model names can change during implementation, but the first schema sho
 - `SecondaryMarketOrder`
 - `SecondaryMarketSettlement`
 - `ClaimTransfer`
+- `LoanOriginator`
+- `OriginatorLoanProfile`
+- `OriginatorLoanImport`
+- `OriginatorLoanScheduleRow`
+- `OriginatorLoanPaymentRow`
+- `OriginatorClaimQuote`
+- `OriginatorClaimPurchase`
+- `OriginatorClaimEntitlement`
+- `OriginatorBorrowerRepayment`
+- `OriginatorRepaymentDistributionLine`
+- `OriginatorSettlementBatch`
+- `OriginatorSettlementItem`
+- `OriginatorClaimEvent`
 
 ### Ledger and Cash
 
@@ -2126,6 +2167,39 @@ These scenarios should become automated end-to-end tests or scripted UAT checks.
 8. Investor balances are credited.
 9. Default/recovery report reflects gross-to-net, recovery costs, recovery fee, waterfall category split, lender allocation, and rounding difference.
 
+### Scenario G: Loan Originator Claim Purchase and Settlement
+
+1. Admin completes off-platform KYB/AML for a Loan Originator and records verified
+   settlement instructions plus the negotiated premium-fee percentage.
+2. Admin creates an originator-claim loan, enters anonymized borrower disclosure,
+   coupon, target effective yield, minimum investment, and imports the full
+   contractual schedule plus historical payments.
+3. The importer rejects any non-conserving schedule, unsupported repayment pattern,
+   inconsistent payment history, or future principal that does not amortize the
+   current outstanding principal to zero.
+4. Admin publishes only if the originator is active, the loan is performing and
+   off hold, principal remains unsold, and maturity is more than 30 calendar days
+   away.
+5. Investor sees the Loan Originator, underlying coupon, target yield, daily priced
+   fillable amount, minimum investment, anonymized borrower disclosure, and dated
+   projected cash flows.
+6. Investor requests a five-minute server quote, accepts current primary terms,
+   confirms the sensitive-action email code, and buys the claim immediately.
+7. The same transaction consumes eligible balance lots, creates the assignment
+   purchase/holding/dated entitlement, reduces unsold principal, posts investor
+   liability to originator payable and BANXUM fee revenue, and invalidates stale
+   quotes.
+8. Finance Ops groups unsettled originator amounts by originator/currency. A task is
+   created when the oldest amount reaches day 3; admin settles the complete selected
+   batch no later than day 5 and attaches bank evidence.
+9. On a borrower repayment, admin uploads a replacement CSV revision preserving all
+   historical payments and adding exactly the new payment. BANXUM allocates dated
+   interest/penalties and principal exactly between investors and the originator,
+   creates investor balance lots, and accrues originator servicing payable.
+10. A performing investor holding can be sold on the secondary market without
+    disclosing seller acquisition yield. Non-performing originator claims remain
+    non-listable until an impaired-claim entitlement/pricing policy is implemented.
+
 ## 10. Ledger Design Requirements
 
 The ledger is the highest-risk component and should be implemented early and tested heavily.
@@ -2522,6 +2596,13 @@ Do not enable production real-money operations until these are complete:
 - Superadmin env credentials verified and rotation procedure documented.
 - Alert recipients configured.
 - First loan data validated.
+- Every launch Loan Originator has approved off-platform KYB/AML evidence, verified
+  settlement instructions, negotiated fee, and an operational owner.
+- Every launch originator loan import reconciles to the signed contract, originator
+  servicing export, and bank/payment evidence; schedule and payment revision UAT is
+  complete for each enabled repayment type.
+- Originator purchase, dated entitlement, repayment split, reconciliation, day-3
+  task, and day-5 batch settlement have passed an end-to-end staging rehearsal.
 - End-to-end UAT scenarios passed.
 - Admin operations runbook completed.
 - Production smoke test passed.
@@ -2560,6 +2641,9 @@ V1 is complete when:
 - Balance-funded primary-market orders are blocked when selected source lots are already older than the 30-day investment window at allocation/pledge time.
 - FX is quote-based, fee-bearing, sanity-checked, and reportable.
 - Primary and secondary market flows generate documents, emails, ledger entries, holdings, and audit events.
+- Performing Loan Originator claims can be imported, yield-priced, bought
+  immediately, serviced by dated entitlement, settled to the originator in batches,
+  and resold without exposing seller acquisition yield.
 - Repayment events can handle regular, partial, multiple-installment, and early-repayment cases.
 - Late/default/recovery flows are operational. Final default resolution/loss recognition is advisor-approved before launch if Garanta requires it as an operational workflow.
 - Accounting, tax, regulatory, and operational exports are available in PDF/CSV/ZIP where applicable.
@@ -2578,6 +2662,13 @@ These are intentionally not part of launch implementation:
 - E-signature provider.
 - Maker-checker approval enforcement.
 - Auto-invest.
+- Restructuring or maturity extension of an originator loan. Settle/close the old
+  claim and import a new contractual loan instead.
+- Originator portal/login and originator self-service imports or settlement.
+- Originator recourse or buyback guarantees.
+- Secondary-market sale of late/defaulted originator claims until impaired accrued
+  interest, penalty entitlement, disclosures, and buyer pricing are explicitly
+  approved and implemented.
 - Sophisticated BI/data warehouse.
 - Sophisticated observability platform.
 - Formal public SLA tooling.

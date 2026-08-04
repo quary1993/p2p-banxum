@@ -19,6 +19,7 @@ class AdminTaskType(models.TextChoices):
         "Payout instruction verification",
     )
     FX_SETTLEMENT = "fx_settlement", "FX settlement"
+    ORIGINATOR_SETTLEMENT = "originator_settlement", "Loan Originator settlement"
     DOCUMENT_REVIEW = "document_review", "Document review"
     EMAIL_DELIVERY_FAILURE = "email_delivery_failure", "Email delivery failure"
     REPORTING = "reporting", "Reporting"
@@ -114,6 +115,14 @@ class AdminTask(TimestampedModel):
                 ),
                 fields=["task_type", "related_object_type", "related_object_id"],
                 name="unique_payout_instruction_verification_task",
+            ),
+            models.UniqueConstraint(
+                condition=models.Q(
+                    task_type=AdminTaskType.ORIGINATOR_SETTLEMENT,
+                    related_object_type="LoanOriginatorSettlementQueue",
+                ),
+                fields=["task_type", "related_object_type", "related_object_id"],
+                name="unique_originator_settlement_task",
             ),
         ]
 

@@ -41,6 +41,17 @@ import {
   useV1LoansAdminLoansPartialUpdate,
   useV1LoansAdminLoansPublishCreate,
   useV1LoansAdminLoansScheduleList,
+  useOriginatorClaimsAdminLoansCreate,
+  useOriginatorClaimsAdminLoansHold,
+  useOriginatorClaimsAdminLoansPublish,
+  useOriginatorClaimsAdminLoansRetrieve,
+  useOriginatorClaimsAdminLoansUpdate,
+  useOriginatorClaimsAdminLoanRepaymentsCreate,
+  useOriginatorClaimsAdminOriginatorsCreate,
+  useOriginatorClaimsAdminOriginatorsList,
+  useOriginatorClaimsAdminOriginatorsUpdate,
+  useOriginatorClaimsAdminSettlementsCreate,
+  useOriginatorClaimsAdminSettlementsOutstandingList,
   useV1MarketplacePrimaryAdminLoansCancelFundingCreate,
   useV1MarketplacePrimaryAdminLoansCloseFundingCreate,
   useV1MarketplacePrimaryAdminLoansExpiryScanCreate,
@@ -92,11 +103,20 @@ import {
   type Loan,
   type LoanCreateRequest,
   type LoanInstallment,
+  type LoanOriginator,
+  type LoanOriginatorCreate,
   type LoanRecoveryPaymentRecordRequest,
   type LoanRiskNoteCreateRequest,
   type LoanServicingStatusScanRequest,
   type NewStatusEnum as AccountNewStatus,
   type OriginalLoanScheduleRow,
+  type OriginatorBorrowerRepaymentRequest,
+  type OriginatorAdminLoanDetailResponse,
+  type OriginatorLoanCreate,
+  type OriginatorSettlementQueueRow,
+  type OriginatorSettlementRequest,
+  type PatchedLoanOriginatorUpdate,
+  type PatchedOriginatorLoanCreate,
   type PatchedBorrowerEntityUpdateRequest,
   type PatchedLoanUpdateRequest,
   type PeriodPresetEnum as ReportPeriodPreset,
@@ -151,6 +171,44 @@ type MutationLike = {
   error: unknown;
 };
 
+function copyAdminText(value: string) {
+  const writeClipboard = navigator.clipboard?.writeText?.bind(navigator.clipboard);
+  if (writeClipboard) {
+    void writeClipboard(value);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.left = "-9999px";
+  textarea.style.position = "fixed";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  document.body.removeChild(textarea);
+}
+
+function AdminCopyIdButton({ id, label }: { id: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  const accessibleLabel = copied ? "Copied" : label;
+  return (
+    <Button
+      aria-label={accessibleLabel}
+      className="copy-id-btn icon-only"
+      icon="copy"
+      onClick={(event) => {
+        event.stopPropagation();
+        copyAdminText(id);
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1400);
+      }}
+      size="sm"
+      title={accessibleLabel}
+      variant="ghost"
+    />
+  );
+}
+
 const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Zurich" });
 const defaultCollectionAccount = adminFormDefaults.collectionAccount;
 
@@ -177,6 +235,44 @@ function refetchLive(refetch: () => Promise<unknown>) {
 function intValue(value: string, fallback = 0) {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+async function readTextFile(file: File | undefined) {
+  return file ? file.text() : "";
+}
+
+function parseJsonObject(value: string, label: string) {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error(`${label} must be a JSON object.`);
+    }
+    return parsed as Record<string, unknown>;
+  } catch (error) {
+    if (error instanceof Error && error.message.endsWith("must be a JSON object.")) throw error;
+    throw new Error(`${label} is not valid JSON.`, { cause: error });
+  }
+}
+
+function parseJsonArray(value: string, label: string) {
+  try {
+    const parsed: unknown = JSON.parse(value || "[]");
+    if (!Array.isArray(parsed)) throw new Error(`${label} must be a JSON list.`);
+    return parsed;
+  } catch (error) {
+    if (error instanceof Error && error.message.endsWith("must be a JSON list.")) throw error;
+    throw new Error(`${label} is not valid JSON.`, { cause: error });
+  }
+}
+
+function recordValue(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function optionalMinorValue(value: string) {
+  return value.trim() ? intValue(value) : null;
 }
 
 function bankAccountDetailsText(value: unknown) {
@@ -963,20 +1059,22 @@ function SelectInput<T extends string>({
   value,
   onChange,
   options,
-  hint
+  hint,
+  optionLabel = labelize
 }: {
   label: string;
   value: T;
   onChange: (value: T) => void;
   options: readonly T[];
   hint?: string;
+  optionLabel?: (option: T) => string;
 }) {
   return (
     <Field hint={hint} label={label}>
       <select onChange={(event) => onChange(event.target.value as T)} value={value}>
         {options.map((option) => (
           <option key={option} value={option}>
-            {labelize(option)}
+            {optionLabel(option)}
           </option>
         ))}
       </select>
@@ -1621,6 +1719,7 @@ export function FinanceOpsPanel() {
     <div className="admin-content">
       <PreviewNotice>Finance forms use dummy IDs in preview. Live submissions post to the ledger, FX and reconciliation services.</PreviewNotice>
       <FinancePendingTasksTable onSelectWithdrawal={setSelectedWithdrawalId} />
+      <OriginatorSettlementQueue />
       <section className="admin-module-grid">
         <DepositForm />
         <PayoutInstructionForm />
@@ -1632,6 +1731,97 @@ export function FinanceOpsPanel() {
         <FxAdminOps />
       </section>
     </div>
+  );
+}
+
+function OriginatorSettlementQueue() {
+  const queueQuery = useOriginatorClaimsAdminSettlementsOutstandingList({
+    query: { enabled: !isFixturePreview, retry: false }
+  });
+  const rows: OriginatorSettlementQueueRow[] = queueQuery.data ?? [];
+  const [selectedKey, setSelectedKey] = useState("");
+  const selected = rows.find((row) => `${row.originator_id}:${row.currency}` === selectedKey)
+    ?? rows[0];
+  const [bookingDate, setBookingDate] = useState(today);
+  const [valueDate, setValueDate] = useState(today);
+  const [collectionAccount, setCollectionAccount] = useState(defaultCollectionAccount);
+  const [bankReference, setBankReference] = useState("");
+  const [paymentReference, setPaymentReference] = useState("");
+  const [evidenceReference, setEvidenceReference] = useState("");
+  const [notes, setNotes] = useState("");
+  const [preview, setPreview] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | undefined>();
+  const mutation = useOriginatorClaimsAdminSettlementsCreate({
+    mutation: {
+      onSuccess: (response) => {
+        setSuccess(`Settled ${response.currency} ${formatMoneyMinor(response.amount_minor, response.currency)} to the Loan Originator.`);
+        void queueQuery.refetch();
+      }
+    }
+  });
+
+  function settle() {
+    if (!selected) return;
+    const data: OriginatorSettlementRequest = {
+      originator_id: selected.originator_id,
+      currency: selected.currency,
+      purchase_ids: selected.purchase_ids,
+      repayment_ids: selected.repayment_ids,
+      booking_date: bookingDate,
+      value_date: valueDate,
+      collection_account_identifier: collectionAccount,
+      bank_reference: bankReference,
+      payment_reference: paymentReference,
+      evidence_reference: evidenceReference,
+      notes,
+      idempotency_key: idempotencyKey("originator-settlement")
+    };
+    if (isFixturePreview) {
+      setPreview("The selected originator purchase and servicing payables would be settled as one bank batch.");
+      return;
+    }
+    mutation.mutate({ data });
+  }
+
+  return (
+    <Card padded>
+      <div className="row spread wrap gap-12">
+        <div><h2>Loan Originator settlement queue</h2><p>Purchase proceeds and servicing proceeds accrue separately, then settle in an evidenced batch within five calendar days.</p></div>
+        <Button icon="refresh" onClick={() => refetchLive(queueQuery.refetch)} size="sm">Refresh</Button>
+      </div>
+      {queueQuery.error ? <Banner tone="bad" title="Could not load originator payables">{errorMessage(queueQuery.error)}</Banner> : null}
+      {rows.length ? (
+        <div className="table-wrap admin-table-wrap">
+          <table className="admin-table">
+            <thead><tr><th>Originator</th><th>Currency</th><th>Total payable</th><th>Purchase proceeds</th><th>Servicing proceeds</th><th>Items</th><th>Settlement due</th><th /></tr></thead>
+            <tbody>{rows.map((row) => {
+              const key = `${row.originator_id}:${row.currency}`;
+              return <tr className={selected && key === `${selected.originator_id}:${selected.currency}` ? "admin-selected-row" : ""} key={key} onClick={() => setSelectedKey(key)}><td><strong>{row.originator_name}</strong></td><td>{row.currency}</td><td><Money amountMinor={row.amount_minor} currency={row.currency} /></td><td><Money amountMinor={row.purchase_amount_minor} currency={row.currency} /></td><td><Money amountMinor={row.servicing_amount_minor} currency={row.currency} /></td><td>{row.purchase_count} purchases · {row.repayment_count} repayments</td><td>{formatDateTime(row.settlement_due_at)}</td><td><Button size="sm" onClick={(event) => { event.stopPropagation(); setSelectedKey(key); }}>Select</Button></td></tr>;
+            })}</tbody>
+          </table>
+        </div>
+      ) : (
+        <Empty icon="checkCircle" title="No Loan Originator payables">Purchase and servicing payables awaiting batch settlement appear here.</Empty>
+      )}
+      {selected ? (
+        <div className="admin-form-panel" style={{ marginTop: 16 }}>
+          <div className="admin-context-bar"><strong>{selected.originator_name}</strong><span>{selected.currency}</span><Money amountMinor={selected.amount_minor} currency={selected.currency} /><span>Due {formatDateTime(selected.settlement_due_at)}</span></div>
+          <FieldGrid>
+            <TextInput label="Booking date" onChange={setBookingDate} required type="date" value={bookingDate} />
+            <TextInput label="Value date" onChange={setValueDate} required type="date" value={valueDate} />
+            <TextInput label="Collection account" onChange={setCollectionAccount} required value={collectionAccount} />
+            <TextInput label="Bank reference" onChange={setBankReference} value={bankReference} />
+            <TextInput label="Payment reference" onChange={setPaymentReference} value={paymentReference} />
+            <TextInput label="Evidence reference" onChange={setEvidenceReference} value={evidenceReference} />
+          </FieldGrid>
+          <TextAreaInput label="Settlement notes" onChange={setNotes} value={notes} />
+          <Button disabled={mutation.isPending} onClick={settle} variant="primary">{mutation.isPending ? "Settling..." : "Finalize originator batch settlement"}</Button>
+          {mutation.error ? <Banner tone="bad" title="Settlement failed">{errorMessage(mutation.error)}</Banner> : null}
+          {preview ? <Banner tone="info" title="Preview action">{preview}</Banner> : null}
+          {success ? <Banner tone="ok" title="Settlement finalized">{success}</Banner> : null}
+        </div>
+      ) : null}
+    </Card>
   );
 }
 
@@ -2225,10 +2415,12 @@ function FxAdminOps() {
 
 export function LoansPanel() {
   const [borrowerSearch, setBorrowerSearch] = useState("");
+  const [originatorSearch, setOriginatorSearch] = useState("");
   const [borrowerKybStatus, setBorrowerKybStatus] = useState<BorrowerListKybStatus | "">("");
   const [loanSearch, setLoanSearch] = useState("");
   const [loanStatus, setLoanStatus] = useState<LoanListStatus | "">("");
   const debouncedBorrowerSearch = useDebouncedValue(borrowerSearch);
+  const debouncedOriginatorSearch = useDebouncedValue(originatorSearch);
   const debouncedLoanSearch = useDebouncedValue(loanSearch);
   const borrowersQuery = useBorrowersData({
     limit: 100,
@@ -2240,16 +2432,27 @@ export function LoansPanel() {
     q: debouncedLoanSearch || undefined,
     status: loanStatus || undefined
   });
+  const originatorsQuery = useOriginatorClaimsAdminOriginatorsList(
+    { query: debouncedOriginatorSearch || undefined },
+    { query: { enabled: !isFixturePreview, retry: false } }
+  );
   const borrowers = useMemo(() => borrowersQuery.data ?? [], [borrowersQuery.data]);
   const loans = useMemo(() => loansQuery.data ?? [], [loansQuery.data]);
+  const originators = useMemo(() => originatorsQuery.data ?? [], [originatorsQuery.data]);
+  const filteredOriginators = originators;
   const [selectedBorrowerId, setSelectedBorrowerId] = useState("");
   const [selectedLoanId, setSelectedLoanId] = useState("");
   const [managingLoan, setManagingLoan] = useState<Loan | null>(null);
   const [showBorrowerCreate, setShowBorrowerCreate] = useState(false);
   const [showLoanCreate, setShowLoanCreate] = useState(false);
+  const [showOriginatorCreate, setShowOriginatorCreate] = useState(false);
+  const [showOriginatorLoanCreate, setShowOriginatorLoanCreate] = useState(false);
   const [editingBorrower, setEditingBorrower] = useState<BorrowerEntity | null>(null);
+  const [editingOriginator, setEditingOriginator] = useState<LoanOriginator | null>(null);
   const [editingLoan, setEditingLoan] = useState<Loan | null>(null);
-  const selectedLoan = loans.find((loan) => loan.id === selectedLoanId) ?? loans[0];
+  const selectedDirectLoan =
+    loans.find((loan) => loan.id === selectedLoanId && loan.product_type === "direct")
+    ?? loans.find((loan) => loan.product_type === "direct");
   const committedByCurrency = useMemo(() => {
     const totals = new Map<string, number>();
     for (const loan of loans) {
@@ -2271,6 +2474,7 @@ export function LoansPanel() {
       <PreviewNotice>Borrower and loan records are dummy setup data. Live actions call the backend entity, loan, marketplace and servicing modules.</PreviewNotice>
       <section className="admin-kpi-grid">
         <StatLike label="Borrowers" value={borrowers.length} sub={`${borrowers.filter((item) => item.can_transact).length} can transact`} />
+        <StatLike label="Loan Originators" value={originators.length} sub={`${originators.filter((item) => item.status === "active").length} active`} />
         <StatLike label="Loans" value={loans.length} sub={`${loans.filter((item) => item.status === "published").length} published`} />
         <StatLike
           label="Committed"
@@ -2291,6 +2495,46 @@ export function LoansPanel() {
       </section>
 
       <section className="admin-stack">
+        <Card padded>
+          <EntityTableHeader
+            action={(
+              <div className="row gap-8 wrap">
+                <Button icon="refresh" onClick={() => refetchLive(originatorsQuery.refetch)} size="sm">Refresh</Button>
+                <Button icon="plus" onClick={() => setShowOriginatorCreate(true)} size="sm" variant="primary">Create Loan Originator</Button>
+              </div>
+            )}
+            description="Offline-KYB accounting entities that own and sell final-borrower loan claims. They do not have portal login accounts."
+            onSearch={setOriginatorSearch}
+            search={originatorSearch}
+            searchPlaceholder="Search public or legal name, or registration number"
+            title="Loan Originators"
+          />
+          {originatorsQuery.error ? <Banner tone="bad" title="Could not load Loan Originators">{errorMessage(originatorsQuery.error)}</Banner> : null}
+          {filteredOriginators.length ? (
+            <div className="table-wrap admin-table-wrap">
+              <table className="admin-table">
+                <thead><tr><th>Originator</th><th>Registration</th><th>Jurisdiction</th><th>Status</th><th>Settlement account</th><th>Premium fee share</th><th>Actions</th></tr></thead>
+                <tbody>
+                  {filteredOriginators.map((originator) => (
+                    <tr key={originator.id}>
+                      <td><div className="col gap-4"><strong>{originator.public_name}</strong><span className="muted">{originator.legal_name}</span><AdminCopyIdButton id={originator.id} label="Copy Loan Originator ID" /></div></td>
+                      <td>{originator.registration_number}</td>
+                      <td>{originator.jurisdiction}</td>
+                      <td><Chip tone={statusTone(originator.status ?? "inactive")}>{labelize(originator.status)}</Chip></td>
+                      <td><div className="col gap-4"><span>{originator.settlement_account_name}</span><span className="mono muted">{originator.settlement_iban}</span></div></td>
+                      <td>{formatRateBps(originator.default_premium_fee_bps ?? 5000)}</td>
+                      <td><Button onClick={() => setEditingOriginator(originator)} size="sm">Edit</Button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <Empty icon="market" title={originators.length ? "No matching Loan Originators" : "No Loan Originators"}>
+              {originators.length ? "Adjust the search terms." : "Create and complete offline KYB for an originator before importing a claim loan."}
+            </Empty>
+          )}
+        </Card>
         <Card padded>
           <EntityTableHeader
             action={
@@ -2377,10 +2621,11 @@ export function LoansPanel() {
             action={
               <div className="row gap-8 wrap">
                 <Button icon="refresh" onClick={() => refetchLive(loansQuery.refetch)} size="sm">Refresh</Button>
-                <Button icon="plus" onClick={() => setShowLoanCreate(true)} size="sm" variant="primary">Create loan</Button>
+                <Button icon="plus" onClick={() => setShowLoanCreate(true)} size="sm" variant="primary">Create direct loan</Button>
+                <Button icon="plus" onClick={() => setShowOriginatorLoanCreate(true)} size="sm">Import originator claim loan</Button>
               </div>
             }
-            description="Loans can only publish when required fields, schedule, funding-window and borrower KYB gates pass."
+            description="Direct loans use borrower KYB and a funding round. Originator claim loans use an immutable imported schedule, anonymized borrower snapshot, executable yield pricing, and immediate assignment."
             filters={
               <select
                 aria-label="Filter loans by status"
@@ -2395,7 +2640,7 @@ export function LoansPanel() {
             }
             onSearch={setLoanSearch}
             search={loanSearch}
-            searchPlaceholder="Search title, borrower, status, UUID"
+            searchPlaceholder="Search title, borrower, originator, product, status, UUID"
             title="Loans"
           />
           {loansQuery.error ? <Banner tone="bad" title="Could not load loans">{errorMessage(loansQuery.error)}</Banner> : null}
@@ -2404,12 +2649,13 @@ export function LoansPanel() {
               <table className="admin-table">
                 <thead>
                   <tr>
-                    <th>Loan / borrower</th>
+                    <th>Loan / counterparty</th>
+                    <th>Product</th>
                     <th>Status</th>
-                    <th>Funding progress</th>
-                    <th>Rate</th>
+                    <th>Progress</th>
+                    <th>Yield</th>
                     <th>LTV</th>
-                    <th>Funding deadline</th>
+                    <th>Availability date</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -2420,24 +2666,29 @@ export function LoansPanel() {
                       key={loan.id}
                       onClick={() => {
                         setSelectedLoanId(loan.id);
-                        setSelectedBorrowerId(loan.borrower_id);
+                        setSelectedBorrowerId(loan.borrower_id ?? "");
                       }}
                     >
                       <td>
                         <div className="col gap-4 admin-loan-name-cell">
                           <strong>{loan.title}</strong>
-                          <span className="muted">Borrower: {loan.borrower_name}</span>
+                          <span className="muted">
+                            {loan.product_type === "originator_claim"
+                              ? `Originator: ${loan.originator_name ?? "-"} · Borrower: ${loan.borrower_name ?? "Anonymized"}`
+                              : `Borrower: ${loan.borrower_name ?? "-"}`}
+                          </span>
                           <span className="mono muted">{loan.id}</span>
                         </div>
                       </td>
-                      <td><Chip tone={statusTone(loan.status)}>{labelize(loan.status)}</Chip></td>
+                      <td><Chip tone={loan.product_type === "originator_claim" ? "info" : "neutral"}>{loan.product_type === "originator_claim" ? "Originator claim" : "Direct"}</Chip></td>
+                      <td><Chip tone={statusTone(loan.opportunity_status ?? loan.status)}>{labelize(loan.opportunity_status ?? loan.status)}</Chip></td>
                       <td><LoanFundingProgress loan={loan} /></td>
-                      <td>{formatRateBps(loan.interest_rate_bps)}</td>
+                      <td>{formatRateBps(loan.yield_bps)}</td>
                       <td>{loan.ltv_bps === null ? "-" : formatRateBps(loan.ltv_bps)}</td>
-                      <td>{formatDate(loan.funding_deadline)}</td>
+                      <td>{formatDate(loan.product_type === "originator_claim" ? loan.maturity_date : loan.funding_deadline)}</td>
                       <td>
                         <div className="row gap-8 wrap" onClick={(event) => event.stopPropagation()}>
-                          <Button onClick={() => setEditingLoan(loan)} size="sm">Edit</Button>
+                          {loan.product_type === "direct" ? <Button onClick={() => setEditingLoan(loan)} size="sm">Edit</Button> : null}
                           <Button
                             size="sm"
                             variant="primary"
@@ -2467,16 +2718,40 @@ export function LoansPanel() {
       <section className="admin-stack">
         <SecondaryMarketApprovalsTable />
         <ServicingOpsForm
-          defaultLoanId={selectedLoan?.id ?? ""}
-          defaultLoanTitle={selectedLoan?.title ?? ""}
+          defaultLoanId={selectedDirectLoan?.id ?? ""}
+          defaultLoanTitle={selectedDirectLoan?.title ?? ""}
         />
       </section>
       {managingLoan ? (
-        <ManageLoanModal
-          loan={loans.find((item) => item.id === managingLoan.id) ?? managingLoan}
-          onChanged={() => refetchLive(loansQuery.refetch)}
-          onClose={() => setManagingLoan(null)}
-        />
+        managingLoan.product_type === "originator_claim" ? (
+          <OriginatorLoanManageModal
+            loan={loans.find((item) => item.id === managingLoan.id) ?? managingLoan}
+            originators={originators}
+            onChanged={() => refetchLive(loansQuery.refetch)}
+            onClose={() => setManagingLoan(null)}
+          />
+        ) : (
+          <ManageLoanModal
+            loan={loans.find((item) => item.id === managingLoan.id) ?? managingLoan}
+            onChanged={() => refetchLive(loansQuery.refetch)}
+            onClose={() => setManagingLoan(null)}
+          />
+        )
+      ) : null}
+      {showOriginatorCreate ? (
+        <Modal title="Create Loan Originator" onClose={() => setShowOriginatorCreate(false)} wide>
+          <LoanOriginatorForm onSaved={() => { setShowOriginatorCreate(false); refetchLive(originatorsQuery.refetch); }} />
+        </Modal>
+      ) : null}
+      {editingOriginator ? (
+        <Modal title={`Edit Loan Originator - ${editingOriginator.public_name}`} onClose={() => setEditingOriginator(null)} wide>
+          <LoanOriginatorForm originator={editingOriginator} onSaved={() => { setEditingOriginator(null); refetchLive(originatorsQuery.refetch); }} />
+        </Modal>
+      ) : null}
+      {showOriginatorLoanCreate ? (
+        <Modal title="Import originator claim loan" onClose={() => setShowOriginatorLoanCreate(false)} wide>
+          <OriginatorLoanCreateForm originators={originators} onCreated={() => { setShowOriginatorLoanCreate(false); refetchLive(loansQuery.refetch); }} />
+        </Modal>
       ) : null}
       {showBorrowerCreate ? (
         <Modal title="Create borrower" onClose={() => setShowBorrowerCreate(false)}>
@@ -2522,6 +2797,450 @@ export function LoansPanel() {
         </Modal>
       ) : null}
     </div>
+  );
+}
+
+function LoanOriginatorForm({
+  originator,
+  onSaved
+}: {
+  originator?: LoanOriginator;
+  onSaved?: () => void;
+}) {
+  const [legalName, setLegalName] = useState(originator?.legal_name ?? "");
+  const [publicName, setPublicName] = useState(originator?.public_name ?? "");
+  const [registrationNumber, setRegistrationNumber] = useState(originator?.registration_number ?? "");
+  const [jurisdiction, setJurisdiction] = useState(originator?.jurisdiction ?? "CH");
+  const [registeredAddress, setRegisteredAddress] = useState(originator?.registered_address ?? "");
+  const [contactInfo, setContactInfo] = useState(originator?.contact_info ?? "");
+  const [accountName, setAccountName] = useState(originator?.settlement_account_name ?? "");
+  const [iban, setIban] = useState(originator?.settlement_iban ?? "");
+  const [bic, setBic] = useState(originator?.settlement_bic ?? "");
+  const [kybEvidence, setKybEvidence] = useState(originator?.kyb_evidence_reference ?? "");
+  const [kybNotes, setKybNotes] = useState(originator?.kyb_aml_observations ?? "");
+  const [riskNotes, setRiskNotes] = useState(originator?.risk_observations ?? "");
+  const [status, setStatus] = useState<LoanOriginatorCreate["status"]>(originator?.status ?? "inactive");
+  const [feeBps, setFeeBps] = useState(String(originator?.default_premium_fee_bps ?? 5000));
+  const [preview, setPreview] = useState<string | null>(null);
+  const createMutation = useOriginatorClaimsAdminOriginatorsCreate({ mutation: { onSuccess: onSaved } });
+  const updateMutation = useOriginatorClaimsAdminOriginatorsUpdate({ mutation: { onSuccess: onSaved } });
+  const mutation = originator ? updateMutation : createMutation;
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    const data: LoanOriginatorCreate = {
+      legal_name: legalName,
+      public_name: publicName,
+      registration_number: registrationNumber,
+      jurisdiction,
+      registered_address: registeredAddress,
+      contact_info: contactInfo,
+      settlement_account_name: accountName,
+      settlement_iban: iban,
+      settlement_bic: bic,
+      kyb_evidence_reference: kybEvidence,
+      kyb_aml_observations: kybNotes,
+      risk_observations: riskNotes,
+      status,
+      default_premium_fee_bps: intValue(feeBps, 5000)
+    };
+    if (isFixturePreview) {
+      setPreview(`${publicName || legalName} would be ${originator ? "updated" : "created"}.`);
+      return;
+    }
+    if (originator) {
+      const patchData: PatchedLoanOriginatorUpdate = data;
+      updateMutation.mutate({ originatorId: originator.id, data: patchData });
+    } else {
+      createMutation.mutate({ data });
+    }
+  }
+
+  return (
+    <form className="admin-action-form" onSubmit={submit}>
+      <Banner tone="neutral" title="Accounting entity, not a portal user">
+        Complete KYB offline and retain the evidence reference. Activating the originator permits its reviewed claim loans to publish; it does not create login credentials.
+      </Banner>
+      <FieldGrid>
+        <TextInput label="Legal name" onChange={setLegalName} required value={legalName} />
+        <TextInput label="Public name" onChange={setPublicName} required value={publicName} />
+        <TextInput label="Registration number" onChange={setRegistrationNumber} required value={registrationNumber} />
+        <TextInput label="Jurisdiction" onChange={setJurisdiction} required value={jurisdiction} />
+        <SelectInput label="Status" onChange={(value) => setStatus(value as LoanOriginatorCreate["status"])} options={["inactive", "active", "blocked"]} value={status ?? "inactive"} />
+        <TextInput hint="Default 5000 = BANXUM receives 50% of the originator premium. Never investor-facing." label="BANXUM premium share bps" onChange={setFeeBps} required value={feeBps} />
+        <TextInput label="Settlement account name" onChange={setAccountName} required value={accountName} />
+        <TextInput label="Settlement IBAN" onChange={setIban} required value={iban} />
+        <TextInput label="Settlement BIC" onChange={setBic} value={bic} />
+        <TextInput label="KYB evidence reference" onChange={setKybEvidence} required value={kybEvidence} />
+      </FieldGrid>
+      <TextAreaInput label="Registered address" onChange={setRegisteredAddress} required value={registeredAddress} />
+      <TextAreaInput label="Contact information" onChange={setContactInfo} value={contactInfo} />
+      <TextAreaInput hint="Internal only." label="KYB / AML observations" onChange={setKybNotes} value={kybNotes} />
+      <TextAreaInput hint="Internal only." label="Risk observations" onChange={setRiskNotes} value={riskNotes} />
+      <ActionFooter mutation={mutation} previewMessage={preview} submitLabel={originator ? "Save Loan Originator" : "Create Loan Originator"} />
+    </form>
+  );
+}
+
+function OriginatorLoanCreateForm({
+  originators,
+  onCreated,
+  loanId,
+  detail
+}: {
+  originators: LoanOriginator[];
+  onCreated?: () => void;
+  loanId?: string;
+  detail?: OriginatorAdminLoanDetailResponse;
+}) {
+  const activeOriginators = originators.filter((originator) => originator.status === "active");
+  const snapshot = recordValue(detail?.borrower_snapshot);
+  const [originatorId, setOriginatorId] = useState(detail?.originator_id ?? activeOriginators[0]?.id ?? "");
+  const [title, setTitle] = useState(detail?.title ?? "");
+  const [summary, setSummary] = useState(detail?.investor_summary ?? "");
+  const [purpose, setPurpose] = useState<OriginatorLoanCreate["purpose"]>((detail?.purpose as OriginatorLoanCreate["purpose"] | undefined) ?? PurposeEnum.working_capital);
+  const [purposeDescription, setPurposeDescription] = useState(detail?.purpose_description ?? "");
+  const [currency, setCurrency] = useState(detail?.currency ?? "CHF");
+  const [originalPrincipal, setOriginalPrincipal] = useState(detail ? String(detail.original_principal_minor) : "");
+  const [couponBps, setCouponBps] = useState(detail ? String(detail.interest_rate_bps) : "");
+  const [yieldBps, setYieldBps] = useState(detail ? String(detail.target_yield_bps) : "");
+  const [minimumInvestment, setMinimumInvestment] = useState(detail ? String(detail.minimum_investment_minor) : "100000");
+  const [repaymentType, setRepaymentType] = useState<OriginatorLoanCreate["repayment_type"]>((detail?.repayment_type as OriginatorLoanCreate["repayment_type"] | undefined) ?? RepaymentTypeEnum.equal_installments);
+  const [interestOnlyMonths, setInterestOnlyMonths] = useState(detail ? String(detail.interest_only_months) : "0");
+  const [collateralType, setCollateralType] = useState<OriginatorLoanCreate["collateral_type"]>((detail?.collateral_type as OriginatorLoanCreate["collateral_type"] | undefined) ?? CollateralTypeEnum.real_estate);
+  const [collateralValue, setCollateralValue] = useState(detail ? String(detail.collateral_value_minor) : "0");
+  const [collateralDescription, setCollateralDescription] = useState(detail?.collateral_description ?? "");
+  const [riskRating, setRiskRating] = useState<OriginatorLoanCreate["risk_rating"]>((detail?.risk_rating as OriginatorLoanCreate["risk_rating"] | undefined) ?? RiskRatingEnum.B);
+  const [asOfDate, setAsOfDate] = useState(detail?.import_as_of_date ?? today);
+  const [csvContent, setCsvContent] = useState("");
+  const [sourceFilename, setSourceFilename] = useState("");
+  const [premiumFeeBps, setPremiumFeeBps] = useState(detail ? String(detail.premium_fee_bps) : "");
+  const [borrowerLegalName, setBorrowerLegalName] = useState(String(snapshot.borrower_legal_name ?? ""));
+  const [borrowerDisplayName, setBorrowerDisplayName] = useState(String(snapshot.borrower_display_name ?? "Anonymized borrower"));
+  const [borrowerYearFounded, setBorrowerYearFounded] = useState(snapshot.year_founded == null ? "" : String(snapshot.year_founded));
+  const [borrowerEntityType, setBorrowerEntityType] = useState(String(snapshot.entity_type ?? "company"));
+  const [borrowerCountry, setBorrowerCountry] = useState(String(snapshot.country ?? "CH"));
+  const [borrowerRegistration, setBorrowerRegistration] = useState(String(snapshot.registration_number ?? ""));
+  const [businessClassification, setBusinessClassification] = useState(String(snapshot.business_classification ?? ""));
+  const [businessClassificationPublic, setBusinessClassificationPublic] = useState(Boolean(snapshot.business_classification_public));
+  const [registeredAddress, setRegisteredAddress] = useState(String(snapshot.registered_address ?? ""));
+  const [registeredAddressPublic, setRegisteredAddressPublic] = useState(Boolean(snapshot.registered_address_public));
+  const [operatingAddress, setOperatingAddress] = useState(String(snapshot.operating_address ?? ""));
+  const [borrowerContact, setBorrowerContact] = useState(String(snapshot.contact_info ?? ""));
+  const [borrowerContactPublic, setBorrowerContactPublic] = useState(Boolean(snapshot.contact_info_public));
+  const [industryActivity, setIndustryActivity] = useState(String(snapshot.industry_activity ?? ""));
+  const [ownershipStructure, setOwnershipStructure] = useState(String(snapshot.ownership_structure ?? ""));
+  const [beneficialOwners, setBeneficialOwners] = useState(JSON.stringify(snapshot.beneficial_owners ?? [], null, 2));
+  const [directorsOfficers, setDirectorsOfficers] = useState(JSON.stringify(snapshot.directors_officers ?? [], null, 2));
+  const [authorizedSignatories, setAuthorizedSignatories] = useState(JSON.stringify(snapshot.authorized_signatories ?? [], null, 2));
+  const [bankAccountDetails, setBankAccountDetails] = useState(JSON.stringify(snapshot.bank_account_details ?? {}, null, 2));
+  const [kybAmlObservations, setKybAmlObservations] = useState(String(snapshot.kyb_aml_observations ?? ""));
+  const [financialRisk, setFinancialRisk] = useState(String(snapshot.financial_risk ?? ""));
+  const [financialsCurrency, setFinancialsCurrency] = useState(String(snapshot.financials_currency ?? currency));
+  const [assetsMinor, setAssetsMinor] = useState(snapshot.assets_minor == null ? "" : String(snapshot.assets_minor));
+  const [liabilitiesMinor, setLiabilitiesMinor] = useState(snapshot.liabilities_minor == null ? "" : String(snapshot.liabilities_minor));
+  const [revenueMinor, setRevenueMinor] = useState(snapshot.revenue_last_year_minor == null ? "" : String(snapshot.revenue_last_year_minor));
+  const [profitMinor, setProfitMinor] = useState(snapshot.profit_last_year_minor == null ? "" : String(snapshot.profit_last_year_minor));
+  const [localError, setLocalError] = useState("");
+  const [preview, setPreview] = useState<string | null>(null);
+  const createMutation = useOriginatorClaimsAdminLoansCreate({ mutation: { onSuccess: onCreated } });
+  const updateMutation = useOriginatorClaimsAdminLoansUpdate({ mutation: { onSuccess: onCreated } });
+  const mutation = loanId ? updateMutation : createMutation;
+
+  async function chooseCsv(file: File | undefined) {
+    setSourceFilename(file?.name ?? "");
+    setCsvContent(await readTextFile(file));
+  }
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    setLocalError("");
+    try {
+      if (!csvContent || !sourceFilename) throw new Error("Select the complete schedule and historical-payments CSV.");
+      const data: OriginatorLoanCreate = {
+        originator_id: originatorId,
+        title,
+        investor_summary: summary,
+        purpose,
+        purpose_description: purposeDescription,
+        currency,
+        original_principal_minor: intValue(originalPrincipal),
+        interest_rate_bps: intValue(couponBps),
+        target_yield_bps: intValue(yieldBps),
+        minimum_investment_minor: intValue(minimumInvestment),
+        repayment_type: repaymentType,
+        interest_only_months: intValue(interestOnlyMonths),
+        collateral_type: collateralType,
+        collateral_value_minor: intValue(collateralValue),
+        collateral_description: collateralDescription,
+        risk_rating: riskRating,
+        csv_content: csvContent,
+        source_filename: sourceFilename,
+        as_of_date: asOfDate,
+        borrower_snapshot: {
+          borrower_legal_name: borrowerLegalName,
+          borrower_display_name: borrowerDisplayName,
+          year_founded: optionalMinorValue(borrowerYearFounded),
+          entity_type: borrowerEntityType,
+          country: borrowerCountry,
+          registration_number: borrowerRegistration,
+          business_classification: businessClassification,
+          business_classification_public: businessClassificationPublic,
+          registered_address: registeredAddress,
+          registered_address_public: registeredAddressPublic,
+          operating_address: operatingAddress,
+          contact_info: borrowerContact,
+          contact_info_public: borrowerContactPublic,
+          industry_activity: industryActivity,
+          ownership_structure: ownershipStructure,
+          beneficial_owners: parseJsonArray(beneficialOwners, "Beneficial owners"),
+          directors_officers: parseJsonArray(directorsOfficers, "Directors and officers"),
+          authorized_signatories: parseJsonArray(authorizedSignatories, "Authorized signatories"),
+          bank_account_details: parseJsonObject(bankAccountDetails || "{}", "Bank account details"),
+          kyb_aml_observations: kybAmlObservations,
+          financial_risk: financialRisk,
+          financials_currency: financialsCurrency.trim().toUpperCase(),
+          assets_minor: optionalMinorValue(assetsMinor),
+          liabilities_minor: optionalMinorValue(liabilitiesMinor),
+          revenue_last_year_minor: optionalMinorValue(revenueMinor),
+          profit_last_year_minor: optionalMinorValue(profitMinor)
+        },
+        premium_fee_bps: premiumFeeBps ? intValue(premiumFeeBps) : null
+      };
+      if (isFixturePreview) {
+        setPreview(`${title || "Originator claim loan"} would be ${loanId ? "replaced with a new immutable draft revision" : "imported as a draft"} after strict schedule/payment validation.`);
+        return;
+      }
+      if (loanId) {
+        updateMutation.mutate({ loanId, data: data as PatchedOriginatorLoanCreate });
+      } else {
+        createMutation.mutate({ data });
+      }
+    } catch (error) {
+      setLocalError(errorMessage(error));
+    }
+  }
+
+  return (
+    <form className="admin-action-form" onSubmit={submit}>
+      <Banner tone="warn" title="Full schedule replacement evidence">
+        Upload the complete contractual schedule and all historical payments through the as-of date. The server validates principal conservation, dates, payment types, prepayments, maturity, and consistency with the selected repayment type. {loanId ? "Saving creates a new immutable import revision; the prior draft evidence remains retained." : "Examples are maintained in imports_examples/."}
+      </Banner>
+      {!activeOriginators.length ? <Banner tone="bad" title="No active Loan Originator">Activate an originator after offline KYB before creating or replacing a claim loan.</Banner> : null}
+      <FieldGrid>
+        <SelectInput
+          label="Loan Originator"
+          onChange={setOriginatorId}
+          optionLabel={(id) => {
+            const originator = originators.find((item) => item.id === id);
+            return originator ? `${originator.public_name} (${originator.registration_number})` : id;
+          }}
+          options={activeOriginators.map((originator) => originator.id)}
+          value={originatorId}
+        />
+        <TextInput label="Title" onChange={setTitle} required value={title} />
+        <SelectInput label="Purpose" onChange={setPurpose} options={Object.values(PurposeEnum)} value={purpose} />
+        <SelectInput label="Currency" onChange={setCurrency} options={["CHF", "EUR"]} value={currency} />
+        <MoneyMinorInput currency={currency} label="Original final-borrower principal minor units" onChange={setOriginalPrincipal} required value={originalPrincipal} />
+        <TextInput label="Underlying borrower coupon bps" onChange={setCouponBps} required value={couponBps} />
+        <TextInput hint="Effective annual ACT/365. This remains constant while the executable cash price changes." label="Target investor yield bps" onChange={setYieldBps} required value={yieldBps} />
+        <MoneyMinorInput currency={currency} label="Minimum investment minor units" onChange={setMinimumInvestment} required value={minimumInvestment} />
+        <SelectInput label="Repayment type" onChange={setRepaymentType} options={Object.values(RepaymentTypeEnum)} value={repaymentType} />
+        <TextInput label="Interest-only months" onChange={setInterestOnlyMonths} value={interestOnlyMonths} />
+        <SelectInput label="Collateral type" onChange={setCollateralType} options={Object.values(CollateralTypeEnum)} value={collateralType} />
+        <MoneyMinorInput currency={currency} label="Collateral value minor units" onChange={setCollateralValue} required value={collateralValue} />
+        <SelectInput label="Risk rating" onChange={setRiskRating} options={Object.values(RiskRatingEnum)} value={riskRating} />
+        <TextInput label="Import as-of date" onChange={setAsOfDate} required type="date" value={asOfDate} />
+        <TextInput hint="Optional loan-specific override; blank inherits the originator default." label="BANXUM premium share bps" onChange={setPremiumFeeBps} value={premiumFeeBps} />
+        <Field label="Schedule and payment CSV"><input accept=".csv,text/csv" onChange={(event) => void chooseCsv(event.target.files?.[0])} required type="file" /></Field>
+      </FieldGrid>
+      <TextAreaInput label="Investor summary" onChange={setSummary} required value={summary} />
+      <TextAreaInput label="Purpose description" onChange={setPurposeDescription} value={purposeDescription} />
+      <TextAreaInput label="Collateral description" onChange={setCollateralDescription} value={collateralDescription} />
+      <h3>Final borrower snapshot</h3>
+      <Banner tone="neutral" title="Private identity, controlled disclosure">The legal borrower identity, ownership, bank, KYB and risk fields remain internal. Investors receive the anonymized display name and only fields explicitly marked public.</Banner>
+      <FieldGrid>
+        <TextInput label="Legal business name (internal)" onChange={setBorrowerLegalName} required value={borrowerLegalName} />
+        <TextInput label="Anonymized borrower name (public)" onChange={setBorrowerDisplayName} required value={borrowerDisplayName} />
+        <TextInput label="Year founded" onChange={setBorrowerYearFounded} value={borrowerYearFounded} />
+        <TextInput label="Entity type" onChange={setBorrowerEntityType} value={borrowerEntityType} />
+        <TextInput label="Country" onChange={setBorrowerCountry} value={borrowerCountry} />
+        <TextInput label="Registration number (internal)" onChange={setBorrowerRegistration} value={borrowerRegistration} />
+        <TextInput label="Business classification" onChange={setBusinessClassification} value={businessClassification} />
+        <TextInput label="Industry / activity" onChange={setIndustryActivity} value={industryActivity} />
+        <TextInput label="Financials currency" onChange={setFinancialsCurrency} value={financialsCurrency} />
+        <MoneyMinorInput currency={financialsCurrency || currency} label="Assets minor units" onChange={setAssetsMinor} value={assetsMinor} />
+        <MoneyMinorInput currency={financialsCurrency || currency} label="Liabilities minor units" onChange={setLiabilitiesMinor} value={liabilitiesMinor} />
+        <MoneyMinorInput currency={financialsCurrency || currency} label="Revenue last year minor units" onChange={setRevenueMinor} value={revenueMinor} />
+        <MoneyMinorInput currency={financialsCurrency || currency} label="Profit last year minor units" onChange={setProfitMinor} value={profitMinor} />
+      </FieldGrid>
+      <label className="check-row"><input checked={businessClassificationPublic} onChange={(event) => setBusinessClassificationPublic(event.target.checked)} type="checkbox" />Show business classification to investors.</label>
+      <TextAreaInput label="Registered address" onChange={setRegisteredAddress} value={registeredAddress} />
+      <label className="check-row"><input checked={registeredAddressPublic} onChange={(event) => setRegisteredAddressPublic(event.target.checked)} type="checkbox" />Show registered address to investors.</label>
+      <TextAreaInput label="Operating address (internal)" onChange={setOperatingAddress} value={operatingAddress} />
+      <TextAreaInput label="Contact information" onChange={setBorrowerContact} value={borrowerContact} />
+      <label className="check-row"><input checked={borrowerContactPublic} onChange={(event) => setBorrowerContactPublic(event.target.checked)} type="checkbox" />Show contact information to investors.</label>
+      <TextAreaInput hint="Internal only." label="Ownership structure" onChange={setOwnershipStructure} value={ownershipStructure} />
+      <FieldGrid>
+        <TextAreaInput hint="JSON list; internal only." label="Beneficial owners" onChange={setBeneficialOwners} value={beneficialOwners} />
+        <TextAreaInput hint="JSON list; internal only." label="Directors and officers" onChange={setDirectorsOfficers} value={directorsOfficers} />
+        <TextAreaInput hint="JSON list; internal only." label="Authorized signatories" onChange={setAuthorizedSignatories} value={authorizedSignatories} />
+        <TextAreaInput hint="JSON object; internal only." label="Bank account details" onChange={setBankAccountDetails} value={bankAccountDetails} />
+      </FieldGrid>
+      <TextAreaInput hint="Internal only." label="KYB / AML observations" onChange={setKybAmlObservations} value={kybAmlObservations} />
+      <TextAreaInput hint="Internal only." label="Financial risk" onChange={setFinancialRisk} value={financialRisk} />
+      {sourceFilename ? <Banner tone="info" title="CSV selected">{sourceFilename} · {csvContent.length.toLocaleString()} characters</Banner> : null}
+      {localError ? <Banner tone="bad" title="Import not ready">{localError}</Banner> : null}
+      <ActionFooter mutation={mutation} previewMessage={preview} submitLabel={loanId ? "Validate and replace draft" : "Validate and create draft"} />
+    </form>
+  );
+}
+
+function OriginatorLoanEvidenceReview({ detail }: { detail: OriginatorAdminLoanDetailResponse }) {
+  const scheduleTotals = detail.schedule.reduce(
+    (totals, row) => ({
+      principal: totals.principal + row.principal_minor,
+      interest: totals.interest + row.interest_minor,
+      penalty: totals.penalty + row.penalty_minor,
+      fee: totals.fee + row.fee_minor,
+      total: totals.total + row.total_minor
+    }),
+    { principal: 0, interest: 0, penalty: 0, fee: 0, total: 0 }
+  );
+  return (
+    <div className="admin-stack">
+      <div className="admin-context-bar">
+        <span>Import revision {detail.schedule_revision}</span>
+        <span>{detail.source_filename}</span>
+        <span>As of {formatDate(detail.import_as_of_date)}</span>
+        <span className="mono">SHA-256 {detail.source_sha256.slice(0, 12)}...</span>
+      </div>
+      <div>
+        <h3>Imported contractual schedule</h3>
+        <div className="table-wrap admin-table-wrap">
+          <table className="admin-table admin-schedule-table">
+            <thead><tr><th>#</th><th>Accrual start</th><th>Due</th><th>Opening</th><th>Principal</th><th>Interest</th><th>Penalty</th><th>Fee</th><th>Total</th><th>Closing</th></tr></thead>
+            <tbody>
+              {detail.schedule.map((row) => (
+                <tr key={row.installment_number}><td>{row.installment_number}</td><td>{formatDate(row.accrual_start_date)}</td><td>{formatDate(row.due_date)}</td><td><Money amountMinor={row.opening_principal_minor} currency={detail.currency} /></td><td><Money amountMinor={row.principal_minor} currency={detail.currency} /></td><td><Money amountMinor={row.interest_minor} currency={detail.currency} /></td><td><Money amountMinor={row.penalty_minor} currency={detail.currency} /></td><td><Money amountMinor={row.fee_minor} currency={detail.currency} /></td><td><Money amountMinor={row.total_minor} currency={detail.currency} /></td><td><Money amountMinor={row.closing_principal_minor} currency={detail.currency} /></td></tr>
+              ))}
+              <tr className="admin-schedule-total-row"><td colSpan={4}><strong>Totals</strong></td><td><strong><Money amountMinor={scheduleTotals.principal} currency={detail.currency} /></strong></td><td><strong><Money amountMinor={scheduleTotals.interest} currency={detail.currency} /></strong></td><td><strong><Money amountMinor={scheduleTotals.penalty} currency={detail.currency} /></strong></td><td><strong><Money amountMinor={scheduleTotals.fee} currency={detail.currency} /></strong></td><td><strong><Money amountMinor={scheduleTotals.total} currency={detail.currency} /></strong></td><td>-</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div>
+        <h3>Historical payments</h3>
+        {detail.payment_history.length ? (
+          <div className="table-wrap admin-table-wrap">
+            <table className="admin-table"><thead><tr><th>Reference</th><th>Value date</th><th>Type</th><th>Principal</th><th>Interest</th><th>Penalty</th><th>Fee</th><th>Total</th><th>Principal after</th></tr></thead><tbody>{detail.payment_history.map((row) => <tr key={row.reference}><td className="mono">{row.reference}</td><td>{formatDate(row.value_date)}</td><td>{labelize(row.payment_type)}</td><td><Money amountMinor={row.principal_minor} currency={detail.currency} /></td><td><Money amountMinor={row.interest_minor} currency={detail.currency} /></td><td><Money amountMinor={row.penalty_minor} currency={detail.currency} /></td><td><Money amountMinor={row.fee_minor} currency={detail.currency} /></td><td><Money amountMinor={row.total_minor} currency={detail.currency} /></td><td><Money amountMinor={row.resulting_principal_minor} currency={detail.currency} /></td></tr>)}</tbody></table>
+          </div>
+        ) : <Empty icon="docs" title="No historical payments">The imported loan had no borrower payments before this revision's as-of date.</Empty>}
+      </div>
+    </div>
+  );
+}
+
+function OriginatorLoanManageModal({
+  loan,
+  originators,
+  onChanged,
+  onClose
+}: {
+  loan: Loan;
+  originators: LoanOriginator[];
+  onChanged: () => void;
+  onClose: () => void;
+}) {
+  const [action, setAction] = useState<"menu" | "edit" | "publish" | "hold" | "repayment">("menu");
+  const [asOfDate, setAsOfDate] = useState(today);
+  const [holdReason, setHoldReason] = useState("");
+  const [csvContent, setCsvContent] = useState("");
+  const [sourceFilename, setSourceFilename] = useState("");
+  const [paymentReference, setPaymentReference] = useState("");
+  const [bookingDate, setBookingDate] = useState(today);
+  const [valueDate, setValueDate] = useState(today);
+  const [collectionAccount, setCollectionAccount] = useState(defaultCollectionAccount);
+  const [payerName, setPayerName] = useState("");
+  const [payerAccount, setPayerAccount] = useState("");
+  const [bankReference, setBankReference] = useState("");
+  const [bankPaymentReference, setBankPaymentReference] = useState("");
+  const [evidenceReference, setEvidenceReference] = useState("");
+  const [notes, setNotes] = useState("");
+  const [preview, setPreview] = useState<string | null>(null);
+  const detailQuery = useOriginatorClaimsAdminLoansRetrieve(loan.id, {
+    query: { enabled: !isFixturePreview, retry: false }
+  });
+  const detail = detailQuery.data;
+  const publishMutation = useOriginatorClaimsAdminLoansPublish({ mutation: { onSuccess: () => { onChanged(); onClose(); } } });
+  const holdMutation = useOriginatorClaimsAdminLoansHold({ mutation: { onSuccess: () => { onChanged(); onClose(); } } });
+  const repaymentMutation = useOriginatorClaimsAdminLoanRepaymentsCreate({ mutation: { onSuccess: () => { onChanged(); onClose(); } } });
+
+  async function chooseCsv(file: File | undefined) {
+    setSourceFilename(file?.name ?? "");
+    setCsvContent(await readTextFile(file));
+  }
+
+  function publish() {
+    if (isFixturePreview) { setPreview("The reviewed originator claim would open in the primary market."); return; }
+    publishMutation.mutate({ loanId: loan.id, data: { as_of_date: asOfDate } });
+  }
+
+  function hold() {
+    if (isFixturePreview) { setPreview("The opportunity would close immediately and existing investor claims would remain serviced."); return; }
+    holdMutation.mutate({ loanId: loan.id, data: { reason: holdReason } });
+  }
+
+  function repayment() {
+    const data: OriginatorBorrowerRepaymentRequest = {
+      csv_content: csvContent,
+      source_filename: sourceFilename,
+      as_of_date: asOfDate,
+      payment_reference: paymentReference,
+      booking_date: bookingDate,
+      value_date: valueDate,
+      collection_account_identifier: collectionAccount,
+      payer_name: payerName,
+      payer_account_identifier: payerAccount,
+      bank_reference: bankReference,
+      bank_payment_reference: bankPaymentReference,
+      evidence_reference: evidenceReference,
+      notes,
+      idempotency_key: idempotencyKey("originator-borrower-repayment")
+    };
+    if (isFixturePreview) { setPreview("The full revised schedule/payment CSV would be validated, distributed by dated entitlement, and stored as a new immutable revision."); return; }
+    repaymentMutation.mutate({ loanId: loan.id, data });
+  }
+
+  const mutationError = publishMutation.error || holdMutation.error || repaymentMutation.error;
+  return (
+    <Modal title={`Manage originator claim - ${loan.title}`} onClose={onClose} wide>
+      <div className="admin-context-bar"><Chip tone="info">Originator claim</Chip><span>{loan.originator_name}</span><Chip tone={statusTone(loan.opportunity_status ?? loan.status)}>{labelize(loan.opportunity_status ?? loan.status)}</Chip><span>Outstanding <Money amountMinor={loan.current_outstanding_principal_minor} currency={loan.currency} /></span><span>Unsold <Money amountMinor={loan.unsold_principal_minor ?? 0} currency={loan.currency} /></span><span>Yield {formatRateBps(loan.yield_bps)}</span></div>
+      {action !== "menu" ? <Button onClick={() => setAction("menu")} size="sm">All actions</Button> : null}
+      {action === "menu" ? (
+        <div className="admin-action-choice-grid">
+          {loan.opportunity_status === "draft" ? <button disabled={!detail} onClick={() => setAction("edit")} type="button"><strong>Edit draft and replace import</strong><span>Correct loan, private borrower, yield, collateral, or CSV data by creating a new immutable draft revision.</span></button> : null}
+          {loan.opportunity_status === "draft" ? <button onClick={() => setAction("publish")} type="button"><strong>Publish opportunity</strong><span>Revalidate maturity, performance, active originator, schedule evidence and the 30-day close boundary.</span></button> : null}
+          {loan.opportunity_status === "open" ? <button onClick={() => setAction("hold")} type="button"><strong>Place opportunity on hold</strong><span>Close new sales immediately while continuing to service claims already sold.</span></button> : null}
+          {["active", "late", "defaulted"].includes(loan.status) ? <button onClick={() => setAction("repayment")} type="button"><strong>Record borrower repayment / schedule revision</strong><span>Upload the complete revised schedule and payment history. Distribute the banked cash using dated claim ownership.</span></button> : null}
+        </div>
+      ) : null}
+      {action === "edit" && detail ? <OriginatorLoanCreateForm detail={detail} loanId={loan.id} originators={originators} onCreated={() => { void detailQuery.refetch(); onChanged(); setAction("menu"); }} /> : null}
+      {action === "publish" ? <div className="admin-form-panel"><TextInput label="Review as-of date" onChange={setAsOfDate} required type="date" value={asOfDate} /><OperationConfirmButton confirmLabel="Publish originator claim" description="Publishing opens immediate claim purchases at the configured target yield. The executable price remains dynamic." details={[{ label: "Loan", value: loan.title }, { label: "Originator", value: loan.originator_name ?? "-" }, { label: "Yield", value: formatRateBps(loan.yield_bps) }, { label: "Maturity", value: formatDate(loan.maturity_date) }]} onConfirm={publish} title="Publish originator claim opportunity" variant="primary">Review and publish</OperationConfirmButton></div> : null}
+      {action === "hold" ? <div className="admin-form-panel"><TextAreaInput label="Hold reason" onChange={setHoldReason} required value={holdReason} /><OperationConfirmButton confirmLabel="Close opportunity" description="No further primary-market claim sales will be allowed. Existing investors continue to be serviced." details={[{ label: "Loan", value: loan.title }, { label: "Unsold principal", value: <Money amountMinor={loan.unsold_principal_minor ?? 0} currency={loan.currency} /> }, { label: "Reason", value: holdReason || "Required" }]} disabled={!holdReason.trim()} onConfirm={hold} title="Place originator claim on hold" variant="danger">Review and close</OperationConfirmButton></div> : null}
+      {action === "repayment" ? (
+        <div className="admin-form-panel">
+          <Banner tone="warn" title="Bank cash and full replacement evidence required">The payment amount and components come from the imported payment row. The new CSV must contain the complete current schedule plus complete historical payments, including this unique reference.</Banner>
+          <FieldGrid><TextInput label="Import as-of date" onChange={setAsOfDate} required type="date" value={asOfDate} /><TextInput label="Unique payment reference" onChange={setPaymentReference} required value={paymentReference} /><TextInput label="Booking date" onChange={setBookingDate} required type="date" value={bookingDate} /><TextInput label="Value date" onChange={setValueDate} required type="date" value={valueDate} /><TextInput label="Collection account" onChange={setCollectionAccount} required value={collectionAccount} /><TextInput label="Payer name" onChange={setPayerName} required value={payerName} /><TextInput label="Payer account" onChange={setPayerAccount} value={payerAccount} /><TextInput label="Bank reference" onChange={setBankReference} value={bankReference} /><TextInput label="Bank payment reference" onChange={setBankPaymentReference} value={bankPaymentReference} /><TextInput label="Evidence reference" onChange={setEvidenceReference} value={evidenceReference} /><Field label="Revised full CSV"><input accept=".csv,text/csv" onChange={(event) => void chooseCsv(event.target.files?.[0])} required type="file" /></Field></FieldGrid>
+          <TextAreaInput label="Admin notes" onChange={setNotes} value={notes} />
+          <OperationConfirmButton confirmLabel="Record repayment" description="This posts borrower cash, distributes investor entitlements, accrues the unsold Loan Originator share, reduces holdings, reprices open secondary listings, and replaces the current schedule revision atomically." details={[{ label: "Loan", value: loan.title }, { label: "Payment reference", value: paymentReference || "Required" }, { label: "CSV", value: sourceFilename || "Required" }, { label: "Value date", value: valueDate }]} disabled={!csvContent || !paymentReference || !payerName || repaymentMutation.isPending} onConfirm={repayment} title="Record originator-loan borrower repayment" variant="primary">Review repayment</OperationConfirmButton>
+        </div>
+      ) : null}
+      {mutationError ? <Banner tone="bad" title="Originator claim action failed">{errorMessage(mutationError)}</Banner> : null}
+      {detailQuery.error ? <Banner tone="bad" title="Could not load imported loan evidence">{errorMessage(detailQuery.error)}</Banner> : null}
+      {preview ? <Banner tone="info" title="Preview action">{preview}</Banner> : null}
+      {action === "menu" && detail ? <OriginatorLoanEvidenceReview detail={detail} /> : null}
+    </Modal>
   );
 }
 
@@ -2944,13 +3663,6 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
   const [title, setTitle] = useState("New real-estate backed facility");
   const [summary, setSummary] = useState("Admin-entered investor summary for the loan.");
   const [principal, setPrincipal] = useState(isFixturePreview ? "100000000" : "");
-  const [isRefinancing, setIsRefinancing] = useState(false);
-  const [originalPrincipal, setOriginalPrincipal] = useState("");
-  const [originalRateBps, setOriginalRateBps] = useState("");
-  const [originalTermMonths, setOriginalTermMonths] = useState("");
-  const [originalRepaymentType, setOriginalRepaymentType] = useState<LoanRepaymentType>(RepaymentTypeEnum.equal_installments);
-  const [originalInterestOnlyMonths, setOriginalInterestOnlyMonths] = useState("0");
-  const [originalStartDate, setOriginalStartDate] = useState("");
   const [currency, setCurrency] = useState("CHF");
   const [rateBps, setRateBps] = useState("950");
   const [termMonths, setTermMonths] = useState("12");
@@ -2984,17 +3696,7 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
       title,
       investor_summary: summary,
       purpose,
-      is_refinancing: isRefinancing,
-      ...(isRefinancing
-        ? {
-            original_principal_minor: intValue(originalPrincipal),
-            original_interest_rate_bps: intValue(originalRateBps),
-            original_term_months: intValue(originalTermMonths),
-            original_repayment_type: originalRepaymentType,
-            original_interest_only_months: intValue(originalInterestOnlyMonths),
-            original_loan_start_date: originalStartDate
-          }
-        : {}),
+      is_refinancing: false,
       principal_minor: intValue(principal),
       currency,
       interest_rate_bps: intValue(rateBps),
@@ -3048,23 +3750,9 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
           />
           <TextInput label="Funding deadline" onChange={setFundingDeadline} type="date" value={fundingDeadline} />
         </FieldGrid>
-        <RefinancingFields
-          currency={currency}
-          isRefinancing={isRefinancing}
-          onIsRefinancingChange={setIsRefinancing}
-          onOriginalPrincipalChange={setOriginalPrincipal}
-          onOriginalRateBpsChange={setOriginalRateBps}
-          onOriginalRepaymentTypeChange={setOriginalRepaymentType}
-          onOriginalInterestOnlyMonthsChange={setOriginalInterestOnlyMonths}
-          onOriginalStartDateChange={setOriginalStartDate}
-          onOriginalTermMonthsChange={setOriginalTermMonths}
-          originalInterestOnlyMonths={originalInterestOnlyMonths}
-          originalPrincipal={originalPrincipal}
-          originalRateBps={originalRateBps}
-          originalRepaymentType={originalRepaymentType}
-          originalStartDate={originalStartDate}
-          originalTermMonths={originalTermMonths}
-        />
+        <Banner tone="neutral" title="Existing-loan acquisitions use Loan Originator claims">
+          New refinancing products are disabled. Import an existing performing final-borrower claim through the Loan Originator workflow instead.
+        </Banner>
         <TextAreaInput label="Investor summary" onChange={setSummary} required value={summary} />
         <ActionFooter mutation={mutation} previewMessage={preview} successMessage={success} submitLabel="Create loan draft" />
       </form>
@@ -3137,7 +3825,7 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
       term_months: intValue(termMonths),
       repayment_type: repaymentType,
       loan_start_date: loanStartDate,
-      funding_deadline: fundingDeadline,
+      funding_deadline: fundingDeadline || undefined,
       collateral_type: collateralType,
       collateral_value_minor: intValue(collateralValue),
       risk_rating: riskRating,
@@ -3182,7 +3870,7 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
             type="date"
             value={loanStartDate}
           />
-          <TextInput label="Funding deadline" onChange={setFundingDeadline} type="date" value={fundingDeadline} />
+          <TextInput label="Funding deadline" onChange={setFundingDeadline} type="date" value={fundingDeadline ?? ""} />
         </FieldGrid>
         <RefinancingFields
           currency={loan.currency}
@@ -4190,7 +4878,7 @@ function ManageDisbursementForm({ loan, onDone }: { loan: Loan; onDone: () => vo
   function submit() {
     const data: BorrowerDisbursementFinalizeRequest = {
       loan_id: loan.id,
-      borrower_id: loan.borrower_id,
+      borrower_id: loan.borrower_id ?? "",
       amount_minor: amount,
       fee_minor: fee,
       currency: loan.currency,

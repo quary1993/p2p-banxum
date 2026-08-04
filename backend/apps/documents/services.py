@@ -487,7 +487,10 @@ def _primary_acceptance_label(acceptance: DocumentAcceptanceEvidence) -> tuple[s
     money = _document_money_label(amount_minor, currency)
     title_fragment = title if title.lower().startswith("loan ") else f"Loan {title}"
     label = f"{title_fragment} {money} agreement" if money else f"{title_fragment} agreement"
-    context = f"Primary order {_short_identifier(acceptance.context_id)}"
+    if acceptance.context_type == "originator_claim_quote":
+        context = f"Originator claim quote {_short_identifier(acceptance.context_id)}"
+    else:
+        context = f"Primary order {_short_identifier(acceptance.context_id)}"
     return label, context
 
 
@@ -692,6 +695,113 @@ def _primary_order_context_snapshot(*, context_type: str, context_id: str) -> di
     }
 
 
+def _originator_claim_context_snapshot(
+    *,
+    context_type: str,
+    context_id: str,
+) -> dict[str, Any]:
+    if context_type != "originator_claim_quote":
+        return {}
+    try:
+        quote_id = uuid.UUID(str(context_id))
+    except ValueError:
+        return {}
+    quote_model = apps.get_model("originator_claims", "OriginatorClaimQuote")
+    quote = (
+        quote_model.objects.select_related(
+            "loan_profile__loan",
+            "loan_profile__originator",
+            "currency",
+        )
+        .filter(id=quote_id)
+        .first()
+    )
+    if quote is None:
+        return {}
+    quote_ref = cast(Any, quote)
+    profile = cast(Any, quote_ref.loan_profile)
+    loan = cast(Any, profile.loan)
+    originator = cast(Any, profile.originator)
+    currency = str(quote_ref.currency_id)
+    return {
+        "lender": {"id": str(quote_ref.investor_user_id)},
+        "order": {
+            "id": str(quote_ref.id),
+            "agreement_no": f"LOQ-{str(quote_ref.id)[:8].upper()}",
+            "confirmation_datetime": quote_ref.created_at.isoformat(),
+            "amount": _format_minor_units_for_document(
+                int(quote_ref.executable_cash_minor),
+                currency,
+            ),
+            "claim_price": _format_minor_units_for_document(
+                int(quote_ref.executable_cash_minor),
+                currency,
+            ),
+            "currency": currency,
+            "requested_amount_minor": int(quote_ref.requested_cash_minor),
+            "allocated_amount_minor": int(quote_ref.executable_cash_minor),
+            "assigned_principal_minor": int(quote_ref.assigned_principal_minor),
+            "outstanding_principal_at_pricing_minor": int(
+                quote_ref.outstanding_principal_at_pricing_minor
+            ),
+            "share_ppm": int(quote_ref.share_ppm),
+            "target_yield_percent": _format_bps_percent_for_document(
+                int(quote_ref.target_yield_bps)
+            ),
+            "premium_discount_minor": int(quote_ref.premium_discount_minor),
+            "entitlement_start_at": quote_ref.entitlement_start_at.isoformat(),
+            "schedule_revision": int(quote_ref.schedule_revision),
+            "cash_flows": list(quote_ref.cash_flows),
+            "status": "quoted",
+        },
+        "loan": {
+            "id": str(loan.id),
+            "title": str(loan.title),
+            "agreement_no": f"LOAN-{str(loan.id)[:8].upper()}",
+            "interest_rate_percent": _format_bps_percent_for_document(
+                int(loan.interest_rate_bps)
+            ),
+            "target_yield_percent": _format_bps_percent_for_document(
+                int(quote_ref.target_yield_bps)
+            ),
+            "maturity_date": profile.maturity_date.isoformat(),
+            "repayment_type": _display_choice(loan, "repayment_type"),
+            "collateral_security": (
+                str(loan.collateral_description).strip()
+                or _display_choice(loan, "collateral_type")
+            ),
+            "buyback_obligation": "No",
+            "currency": currency,
+            "schedule_revision": int(quote_ref.schedule_revision),
+        },
+        "borrower": {
+            "id": f"ANON-{str(loan.id)[:8].upper()}",
+            "legal_name": str(profile.borrower_display_name),
+            "display_name": str(profile.borrower_display_name),
+        },
+        "originator": {
+            "id": str(originator.id),
+            "legal_name": str(originator.legal_name),
+            "public_name": str(originator.public_name),
+            "registration_number": str(originator.registration_number),
+            "jurisdiction": str(originator.jurisdiction),
+        },
+        "holding": {"id": "Assigned immediately after successful purchase"},
+        "assignment": {
+            "assignor_name": str(originator.legal_name),
+            "servicer_name": str(settings.LEGAL_OPERATOR_NAME),
+            "recourse_or_buyback": "None",
+            "accrual_starts_at": quote_ref.entitlement_start_at.isoformat(),
+        },
+        "risk": {
+            "yield_basis": "Effective annual ACT/365 before credit losses and investor taxes",
+            "yield_guaranteed": False,
+            "early_repayment_changes_realized_yield": True,
+            "originator_recourse_or_buyback": False,
+        },
+    }
+
+
 def _acceptance_data_snapshot(
     actor: Model,
     raw_snapshot: dict[str, Any],
@@ -720,6 +830,13 @@ def _acceptance_data_snapshot(
         authoritative = _deep_merge(
             authoritative,
             _primary_order_context_snapshot(context_type=context_type, context_id=context_id),
+        )
+        authoritative = _deep_merge(
+            authoritative,
+            _originator_claim_context_snapshot(
+                context_type=context_type,
+                context_id=context_id,
+            ),
         )
     # Authoritative user/platform/operator values are set server-side so generated documents
     # cannot be made to evidence a forged brand, operator, accepting party, or transaction

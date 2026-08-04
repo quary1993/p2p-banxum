@@ -6,14 +6,15 @@
     "A quick mental model of the product. Individual investors (called lenders) put money into their BANXUM account. The platform then funds loans to vetted business borrowers. Borrowers repay over time with interest. Lenders earn that interest and can later withdraw.",
     "Borrowers are companies, not people with logins. There is no borrower portal. An admin types in every borrower's details by hand. The borrower never sees this screen.",
     "Two jargon terms you will see everywhere. The primary market is where a brand-new loan is first funded by investors. The secondary market is where an investor who already owns a slice of a loan sells that slice to another investor. This screen handles admin tasks for both.",
-    "This page is laid out top to bottom as: key metrics, then a Borrowers table, then a Loans table, then a Secondary-market approvals table, then a Servicing operations panel. Primary-market actions - publish, close funding, cancel funding, expiry scan, order release - plus borrower disbursement on funded loans, recording borrower repayments, and recording a recovery on a defaulted loan all live in the Manage dialog you open from a loan row. The Servicing operations panel keeps only the status scan and public risk notes."
+    "This page is laid out top to bottom as: key metrics, Loan Originators, Borrowers, Loans, Secondary-market approvals, and Servicing operations. Direct-loan actions - publish, close/cancel funding, expiry scan, order release, borrower disbursement, repayments and recovery - live in Manage. Originator-claim Manage actions are deliberately different: review/publish the imported claim, place/release a hold, or record a repayment through a replacement CSV revision."
   ],
   "whatYouDoHere": [
     "Add and edit borrower companies, and watch their KYB status (the company-level identity and compliance check).",
-    "Create loan drafts (standard or refinancing loans), edit them, and review their status, amount, interest rate, LTV and funding deadline.",
+    "Create direct BANXUM loan drafts and review status, amount, yield, LTV and funding deadline. New refinancing-loan creation is disabled; legacy refinancing records remain serviceable.",
+    "Create and maintain Loan Originators after off-platform KYB/AML, then import existing performing claims with anonymized borrower disclosure, coupon, target effective yield, minimum investment and a fully reconciled schedule/payment CSV.",
     "Open Manage on a loan row to publish it to the marketplace so investors can fund it, then close or cancel its funding, run an expiry scan, release a stuck investor order, disburse a funded loan to the borrower, or record borrower repayments.",
     "Approve, reject or remove non-standard secondary-market listings (investor-to-investor resales).",
-    "Service live loans: record borrower repayments from Manage (fixed installment amounts, or 'Repayment in advance' with a bank date and preview), run a status scan that flags late or defaulted loans, publish public notes to investors, and record recovery payments on defaulted loans."
+    "Service live direct loans through their normal repayment/recovery actions. For originator claims, upload a replacement immutable import revision that preserves every historical payment and adds exactly the newly reconciled borrower payment."
   ],
   "figures": [
     {

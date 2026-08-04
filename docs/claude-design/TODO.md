@@ -438,3 +438,35 @@ Before launch, Claude Design should produce or implement:
 - Remaining backend/API dependency: none for these shell and control changes. Available funding currencies continue to come from the backend instruction projection.
 - Suggested improvement: validate unusually long translated navigation labels before localization and confirm native option-menu rendering on the supported iOS, Android, Windows, and macOS browser matrix.
 - Priority: important.
+
+## 2026-08-04: Loan Originator Primary Opportunities And Holdings
+
+- Screen or component: Investment Opportunities common table/detail, immediate
+  claim-purchase confirmation, My Portfolio holding detail, activity, documents,
+  and secondary-market buyer detail.
+- Current behavior: direct BANXUM loans and Loan Originator claims share the primary
+  opportunity table. The common rate column is `Yield`; an originator row carries a
+  Loan Originator badge/name and opens a product-aware detail with anonymized
+  borrower disclosure, underlying coupon, effective annual target yield, minimum
+  investment, maturity, current outstanding/unsold principal, daily priced fillable
+  amount, and dated cash flows. Purchase is immediate after a server quote,
+  clickwrap, and email code rather than a pending funding order. Portfolio and
+  activity identify originator claims and show investor cash-flow projections.
+  Performing originator holdings may be resold; buyer detail shows current projected
+  yield and never seller acquisition yield.
+- Design decision: never present coupon as investor yield, never imply the daily
+  price or realized return is guaranteed, and never expose the private final-borrower
+  legal name, originator fee, originator settlement status, seller acquisition
+  yield, or internal import references. Explain that price changes by day to hold
+  target yield constant, purchase transfers the claim immediately, accrual begins at
+  purchase, early repayment changes realized return, and no originator
+  recourse/buyback exists.
+- Remaining backend/API dependency: non-performing originator-claim resale is
+  intentionally blocked until an approved impaired-accrual/default-entitlement
+  pricing projection exists. Do not design around or bypass that v1 boundary.
+- Suggested improvement: run final mobile/tablet usability and accessibility review
+  with long originator names, non-round prices, residual quotes, mixed currencies,
+  near-maturity closure, empty cash-flow projections, and stale-quote refresh. The
+  review should preserve the existing marketplace table hierarchy rather than
+  introducing a separate marketplace.
+- Priority: important.

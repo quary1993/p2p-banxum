@@ -13,21 +13,33 @@ from backend.apps.marketplace_primary.models import (
 
 class MarketplaceLoanPreviewSerializer(serializers.Serializer[Any]):
     loan_id = serializers.UUIDField()
+    product_type = serializers.CharField()
+    investment_flow = serializers.CharField()
     title = serializers.CharField()
     purpose = serializers.CharField()
     collateral_type = serializers.CharField()
     interest_rate_bps = serializers.IntegerField()
+    yield_bps = serializers.IntegerField()
+    underlying_interest_rate_bps = serializers.IntegerField()
     term_months = serializers.IntegerField()
+    remaining_term_days = serializers.IntegerField(allow_null=True)
     risk_rating = serializers.CharField()
-    funding_deadline = serializers.DateField()
+    funding_deadline = serializers.DateField(allow_null=True)
+    maturity_date = serializers.DateField(allow_null=True)
     status = serializers.CharField()
+    loan_status = serializers.CharField()
+    opportunity_status = serializers.CharField()
     currency = serializers.CharField()
     principal_minor = serializers.IntegerField()
     committed_principal_minor = serializers.IntegerField()
     remaining_capacity_minor = serializers.IntegerField()
+    fillable_amount_minor = serializers.IntegerField()
     minimum_investment_minor = serializers.IntegerField()
     ltv_bps = serializers.IntegerField(allow_null=True)
     is_refinancing = serializers.BooleanField()
+    originator_id = serializers.UUIDField(allow_null=True)
+    originator_name = serializers.CharField(allow_null=True)
+    borrower_display_name = serializers.CharField(allow_null=True)
 
 
 class MarketplaceOriginalLoanScheduleRowSerializer(serializers.Serializer[Any]):
@@ -40,8 +52,33 @@ class MarketplaceOriginalLoanScheduleRowSerializer(serializers.Serializer[Any]):
     paid_before_publication = serializers.BooleanField()
 
 
+class MarketplaceOriginatorScheduleRowSerializer(serializers.Serializer[Any]):
+    installment_number = serializers.IntegerField()
+    accrual_start_date = serializers.DateField()
+    due_date = serializers.DateField()
+    opening_principal_minor = serializers.IntegerField()
+    principal_minor = serializers.IntegerField()
+    interest_minor = serializers.IntegerField()
+    penalty_minor = serializers.IntegerField()
+    fee_minor = serializers.IntegerField()
+    total_minor = serializers.IntegerField()
+    outstanding_after_minor = serializers.IntegerField()
+
+
+class MarketplaceOriginatorPaymentRowSerializer(serializers.Serializer[Any]):
+    reference = serializers.CharField()
+    value_date = serializers.DateField()
+    payment_type = serializers.CharField()
+    principal_minor = serializers.IntegerField()
+    interest_minor = serializers.IntegerField()
+    penalty_minor = serializers.IntegerField()
+    fee_minor = serializers.IntegerField()
+    total_minor = serializers.IntegerField()
+    resulting_principal_minor = serializers.IntegerField()
+
+
 class MarketplaceLoanDetailSerializer(MarketplaceLoanPreviewSerializer):
-    borrower_id = serializers.UUIDField()
+    borrower_id = serializers.UUIDField(allow_null=True)
     borrower_disclosure = serializers.DictField()
     investor_summary = serializers.CharField()
     purpose_description = serializers.CharField()
@@ -60,8 +97,16 @@ class MarketplaceLoanDetailSerializer(MarketplaceLoanPreviewSerializer):
     )
     repayment_type = serializers.CharField()
     loan_start_date = serializers.DateField()
-    first_payment_date = serializers.DateField()
+    first_payment_date = serializers.DateField(allow_null=True)
     schedule_version = serializers.IntegerField()
+    originator_schedule = MarketplaceOriginatorScheduleRowSerializer(
+        many=True, required=False
+    )
+    originator_payment_history = MarketplaceOriginatorPaymentRowSerializer(
+        many=True, required=False
+    )
+    schedule_revision = serializers.IntegerField(allow_null=True, required=False)
+    pricing_as_of_date = serializers.DateField(allow_null=True, required=False)
 
 
 class PrimaryInvestmentOrderSerializer(serializers.Serializer[Any]):

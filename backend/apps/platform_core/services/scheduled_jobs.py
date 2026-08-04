@@ -25,6 +25,8 @@ BALANCE_AGEING_SCAN_JOB = "balance_ageing_scan"
 LOAN_SERVICING_STATUS_SCAN_JOB = "loan_servicing_status_scan"
 PRIMARY_FUNDING_EXPIRY_SCAN_JOB = "primary_funding_expiry_scan"
 RECONCILIATION_BREAK_TASK_SYNC_JOB = "reconciliation_break_task_sync"
+ORIGINATOR_SETTLEMENT_TASK_SYNC_JOB = "originator_settlement_task_sync"
+ORIGINATOR_OPPORTUNITY_LIFECYCLE_SCAN_JOB = "originator_opportunity_lifecycle_scan"
 
 DEFAULT_SCHEDULED_JOB_NAMES = (
     EMAIL_OUTBOX_DISPATCH_JOB,
@@ -32,6 +34,8 @@ DEFAULT_SCHEDULED_JOB_NAMES = (
     LOAN_SERVICING_STATUS_SCAN_JOB,
     PRIMARY_FUNDING_EXPIRY_SCAN_JOB,
     RECONCILIATION_BREAK_TASK_SYNC_JOB,
+    ORIGINATOR_SETTLEMENT_TASK_SYNC_JOB,
+    ORIGINATOR_OPPORTUNITY_LIFECYCLE_SCAN_JOB,
 )
 ALL_SCHEDULED_JOB_NAMES = frozenset(DEFAULT_SCHEDULED_JOB_NAMES)
 ADMIN_ACTOR_JOB_NAMES = frozenset(DEFAULT_SCHEDULED_JOB_NAMES) - {EMAIL_OUTBOX_DISPATCH_JOB}
@@ -400,6 +404,39 @@ def _reconciliation_break_task_sync_summary(*, actor: models.Model) -> dict[str,
     }
 
 
+def _originator_settlement_task_sync_summary(
+    *,
+    actor: models.Model,
+    as_of: datetime,
+) -> dict[str, Any]:
+    services: Any = import_module("backend.apps.originator_claims.services")
+    tasks = services.sync_originator_settlement_tasks(actor=actor, as_of=as_of)
+    return {
+        "as_of": as_of.isoformat(),
+        "task_count": len(tasks),
+        "task_ids": [str(task.id) for task in tasks],
+    }
+
+
+def _originator_opportunity_lifecycle_summary(
+    *,
+    actor: models.Model,
+    as_of: datetime,
+) -> dict[str, Any]:
+    services: Any = import_module("backend.apps.originator_claims.services")
+    as_of_date = business_date(as_of)
+    closed = services.scan_originator_opportunity_lifecycle(
+        actor=actor,
+        as_of_date=as_of_date,
+        limit=5000,
+    )
+    return {
+        "as_of_date": as_of_date.isoformat(),
+        "closed_count": len(closed),
+        "closed": closed,
+    }
+
+
 def _execute_scheduled_job(
     *,
     job_name: str,
@@ -419,6 +456,10 @@ def _execute_scheduled_job(
         return _primary_funding_expiry_summary(actor=actor, as_of=as_of)
     if job_name == RECONCILIATION_BREAK_TASK_SYNC_JOB:
         return _reconciliation_break_task_sync_summary(actor=actor)
+    if job_name == ORIGINATOR_SETTLEMENT_TASK_SYNC_JOB:
+        return _originator_settlement_task_sync_summary(actor=actor, as_of=as_of)
+    if job_name == ORIGINATOR_OPPORTUNITY_LIFECYCLE_SCAN_JOB:
+        return _originator_opportunity_lifecycle_summary(actor=actor, as_of=as_of)
     raise ScheduledJobValidationError(f"Unknown scheduled job: {job_name}.")
 
 

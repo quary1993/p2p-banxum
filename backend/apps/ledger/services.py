@@ -96,6 +96,9 @@ PRIMARY_LOAN_CLOSE_FINGERPRINT_METADATA_KEY = "primary_loan_close_fingerprint"
 FX_EXCHANGE_FINGERPRINT_METADATA_KEY = "fx_exchange_fingerprint"
 FX_EXTERNAL_SETTLEMENT_FINGERPRINT_METADATA_KEY = "fx_external_settlement_fingerprint"
 SECONDARY_MARKET_PURCHASE_FINGERPRINT_METADATA_KEY = "secondary_market_purchase_fingerprint"
+ORIGINATOR_CLAIM_PURCHASE_FINGERPRINT_METADATA_KEY = (
+    "originator_claim_purchase_fingerprint"
+)
 
 
 def _investor_email_for_user_id(investor_user_id: str) -> str:
@@ -341,6 +344,42 @@ class DeclareRecoveryDistributionCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class OriginatorRepaymentCreditLineCommand:
+    investor_user_id: str
+    holding_id: str
+    amount_minor: int
+    principal_minor: int
+    interest_minor: int
+    penalty_minor: int
+    metadata: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DeclareOriginatorBorrowerRepaymentLedgerCommand:
+    actor: Model
+    repayment_id: str
+    loan_id: str
+    originator_id: str
+    amount_minor: int
+    originator_payable_minor: int
+    currency: str
+    booking_date: date
+    value_date: date
+    collection_account_identifier: str
+    payer_name: str
+    source_type: str
+    source_id: str
+    distribution_lines: list[OriginatorRepaymentCreditLineCommand]
+    payer_account_identifier: str = ""
+    bank_reference: str = ""
+    payment_reference: str = ""
+    evidence_reference: str = ""
+    notes: str = ""
+    idempotency_key: str = ""
+    as_of: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class CancelInvestorWithdrawalCommand:
     actor: Model
     withdrawal_request_id: str
@@ -378,6 +417,13 @@ class BorrowerRepaymentDistributionResult:
 
 @dataclass(frozen=True, slots=True)
 class RecoveryDistributionResult:
+    bank_operation: BankOperation
+    journal_entry: LedgerJournalEntry
+    balance_credits: list[InvestorBalanceCreditResult]
+
+
+@dataclass(frozen=True, slots=True)
+class OriginatorBorrowerRepaymentLedgerResult:
     bank_operation: BankOperation
     journal_entry: LedgerJournalEntry
     balance_credits: list[InvestorBalanceCreditResult]
@@ -568,6 +614,49 @@ class SettleSecondaryMarketPurchaseLedgerCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class SettleOriginatorClaimPurchaseLedgerCommand:
+    actor: Model
+    purchase_id: str
+    loan_id: str
+    originator_id: str
+    investor_user_id: str
+    currency: str
+    cash_consideration_minor: int
+    assigned_principal_minor: int
+    platform_fee_minor: int
+    originator_payable_minor: int
+    source_type: str
+    source_id: str
+    idempotency_key: str
+    as_of: datetime | None = None
+    metadata: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class FinalizeOriginatorSettlementLedgerCommand:
+    actor: Model
+    settlement_id: str
+    originator_id: str
+    amount_minor: int
+    purchase_amount_minor: int
+    servicing_amount_minor: int
+    currency: str
+    booking_date: date
+    value_date: date
+    collection_account_identifier: str
+    payee_name: str
+    payee_account_identifier: str
+    purchase_ids: list[str]
+    repayment_ids: list[str]
+    bank_reference: str = ""
+    payment_reference: str = ""
+    evidence_reference: str = ""
+    notes: str = ""
+    idempotency_key: str = ""
+    as_of: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class DeclareFxExternalSettlementLedgerCommand:
     actor: Model
     settlement_id: str
@@ -615,6 +704,18 @@ class SecondaryMarketPurchaseLedgerResult:
     journal_entry: LedgerJournalEntry
     seller_balance_lot: InvestorBalanceLot
     buyer_lot_allocations: list[dict[str, Any]]
+
+
+@dataclass(frozen=True, slots=True)
+class OriginatorClaimPurchaseLedgerResult:
+    journal_entry: LedgerJournalEntry
+    investor_lot_allocations: list[dict[str, Any]]
+
+
+@dataclass(frozen=True, slots=True)
+class OriginatorSettlementLedgerResult:
+    bank_operation: BankOperation
+    journal_entry: LedgerJournalEntry
 
 
 @dataclass(frozen=True, slots=True)
@@ -1245,6 +1346,113 @@ def _secondary_market_purchase_ledger_fingerprint(
             "source_id": command.source_id.strip(),
             "idempotency_key": idempotency_key,
             "metadata": command.metadata or {},
+        }
+    )
+
+
+def _originator_claim_purchase_ledger_fingerprint(
+    command: SettleOriginatorClaimPurchaseLedgerCommand,
+    *,
+    investor_user_id: str,
+    currency_code: str,
+    cash_consideration_minor: int,
+    assigned_principal_minor: int,
+    platform_fee_minor: int,
+    originator_payable_minor: int,
+    idempotency_key: str,
+) -> str:
+    return _stable_json_fingerprint(
+        {
+            "purchase_id": str(command.purchase_id),
+            "loan_id": str(command.loan_id),
+            "originator_id": str(command.originator_id),
+            "investor_user_id": investor_user_id,
+            "currency": currency_code,
+            "cash_consideration_minor": cash_consideration_minor,
+            "assigned_principal_minor": assigned_principal_minor,
+            "platform_fee_minor": platform_fee_minor,
+            "originator_payable_minor": originator_payable_minor,
+            "source_type": command.source_type.strip(),
+            "source_id": command.source_id.strip(),
+            "idempotency_key": idempotency_key,
+            "metadata": command.metadata or {},
+        }
+    )
+
+
+def _originator_settlement_ledger_fingerprint(
+    command: FinalizeOriginatorSettlementLedgerCommand,
+    *,
+    currency_code: str,
+    amount_minor: int,
+    idempotency_key: str,
+) -> str:
+    return _stable_json_fingerprint(
+        {
+            "settlement_id": str(command.settlement_id),
+            "originator_id": str(command.originator_id),
+            "amount_minor": amount_minor,
+            "purchase_amount_minor": command.purchase_amount_minor,
+            "servicing_amount_minor": command.servicing_amount_minor,
+            "currency": currency_code,
+            "booking_date": command.booking_date.isoformat(),
+            "value_date": command.value_date.isoformat(),
+            "collection_account_identifier": command.collection_account_identifier.strip(),
+            "payee_name": command.payee_name.strip(),
+            "payee_account_identifier": command.payee_account_identifier.strip(),
+            "purchase_ids": sorted(str(item) for item in command.purchase_ids),
+            "repayment_ids": sorted(str(item) for item in command.repayment_ids),
+            "bank_reference": command.bank_reference.strip(),
+            "payment_reference": command.payment_reference.strip(),
+            "evidence_reference": command.evidence_reference.strip(),
+            "notes": command.notes.strip(),
+            "idempotency_key": idempotency_key,
+        }
+    )
+
+
+def _originator_borrower_repayment_ledger_fingerprint(
+    command: DeclareOriginatorBorrowerRepaymentLedgerCommand,
+    *,
+    currency_code: str,
+    amount_minor: int,
+    originator_payable_minor: int,
+    idempotency_key: str,
+) -> str:
+    return _stable_json_fingerprint(
+        {
+            "repayment_id": str(command.repayment_id),
+            "loan_id": str(command.loan_id),
+            "originator_id": str(command.originator_id),
+            "amount_minor": amount_minor,
+            "originator_payable_minor": originator_payable_minor,
+            "currency": currency_code,
+            "booking_date": command.booking_date.isoformat(),
+            "value_date": command.value_date.isoformat(),
+            "collection_account_identifier": (
+                command.collection_account_identifier.strip()
+            ),
+            "payer_name": command.payer_name.strip(),
+            "payer_account_identifier": command.payer_account_identifier.strip(),
+            "bank_reference": command.bank_reference.strip(),
+            "payment_reference": command.payment_reference.strip(),
+            "evidence_reference": command.evidence_reference.strip(),
+            "notes": command.notes.strip(),
+            "source_type": command.source_type.strip(),
+            "source_id": command.source_id.strip(),
+            "idempotency_key": idempotency_key,
+            "distribution_lines": [
+                {
+                    "investor_user_id": str(line.investor_user_id),
+                    "holding_id": str(line.holding_id),
+                    "amount_minor": line.amount_minor,
+                    "principal_minor": line.principal_minor,
+                    "interest_minor": line.interest_minor,
+                    "penalty_minor": line.penalty_minor,
+                    "metadata": line.metadata or {},
+                }
+                for line in command.distribution_lines
+            ],
         }
     )
 
@@ -1973,6 +2181,41 @@ def _existing_borrower_repayment_distribution_for_idempotency(
         cast(BankOperation, bank_operation),
         cast(LedgerJournalEntry, journal_entry),
         credits,
+    )
+
+
+def _existing_originator_borrower_repayment_for_idempotency(
+    idempotency_key: str,
+    *,
+    expected_fingerprint: str | None = None,
+) -> OriginatorBorrowerRepaymentLedgerResult | None:
+    bank_operation = BankOperation.objects.filter(idempotency_key=idempotency_key).first()
+    if bank_operation is None:
+        return None
+    _assert_fingerprint_matches(
+        stored_metadata=cast(dict[str, Any], bank_operation.metadata),
+        expected_fingerprint=expected_fingerprint,
+    )
+    journal_entry = bank_operation.journal_entries.first()
+    if journal_entry is None:
+        raise LedgerValidationError(
+            "Existing originator borrower repayment has no journal entry."
+        )
+    credits = [
+        InvestorBalanceCreditResult(
+            line_index=index,
+            investor_user_id=str(lot.investor_user_id),
+            amount_minor=lot.original_amount_minor,
+            balance_lot=cast(InvestorBalanceLot, lot),
+        )
+        for index, lot in enumerate(
+            journal_entry.balance_lots.order_by("created_at", "id")
+        )
+    ]
+    return OriginatorBorrowerRepaymentLedgerResult(
+        bank_operation=cast(BankOperation, bank_operation),
+        journal_entry=cast(LedgerJournalEntry, journal_entry),
+        balance_credits=credits,
     )
 
 
@@ -4678,6 +4921,48 @@ def _existing_secondary_market_purchase_ledger_result(
     )
 
 
+def _existing_originator_claim_purchase_ledger_result(
+    journal_idempotency_key: str,
+    *,
+    expected_fingerprint: str,
+) -> OriginatorClaimPurchaseLedgerResult | None:
+    journal = LedgerJournalEntry.objects.filter(idempotency_key=journal_idempotency_key).first()
+    if journal is None:
+        return None
+    metadata = cast(dict[str, Any], journal.metadata)
+    if (
+        metadata.get(ORIGINATOR_CLAIM_PURCHASE_FINGERPRINT_METADATA_KEY)
+        != expected_fingerprint
+    ):
+        raise LedgerValidationError("Idempotency key was already used for a different request.")
+    return OriginatorClaimPurchaseLedgerResult(
+        journal_entry=cast(LedgerJournalEntry, journal),
+        investor_lot_allocations=list(
+            cast(list[dict[str, Any]], metadata.get("investor_lot_allocations", []))
+        ),
+    )
+
+
+def _existing_originator_settlement_ledger_result(
+    idempotency_key: str,
+    *,
+    expected_fingerprint: str,
+) -> OriginatorSettlementLedgerResult | None:
+    bank_operation = BankOperation.objects.filter(idempotency_key=idempotency_key).first()
+    if bank_operation is None:
+        return None
+    metadata = cast(dict[str, Any], bank_operation.metadata)
+    if metadata.get(REQUEST_FINGERPRINT_METADATA_KEY) != expected_fingerprint:
+        raise LedgerValidationError("Idempotency key was already used for a different request.")
+    journal = bank_operation.journal_entries.first()
+    if journal is None:
+        raise LedgerValidationError("Existing Loan Originator settlement journal is missing.")
+    return OriginatorSettlementLedgerResult(
+        bank_operation=cast(BankOperation, bank_operation),
+        journal_entry=cast(LedgerJournalEntry, journal),
+    )
+
+
 def _existing_fx_external_settlement_ledger_result(
     sold_journal_idempotency_key: str,
     *,
@@ -5143,6 +5428,745 @@ def release_investor_balance_investment_reservation(
         )
     )
     return InvestmentBalanceReleaseResult(journal_entry=journal_entry)
+
+
+@transaction.atomic
+def declare_originator_borrower_repayment_ledger(
+    command: DeclareOriginatorBorrowerRepaymentLedgerCommand,
+) -> OriginatorBorrowerRepaymentLedgerResult:
+    _require_admin_actor(command.actor)
+    currency = _enabled_currency(command.currency)
+    amount_minor = _validate_money(
+        command.amount_minor,
+        currency.code,
+        "Originator borrower repayment amount",
+    )
+    originator_payable_minor = _validate_nonnegative_money(
+        command.originator_payable_minor,
+        currency.code,
+        "Originator servicing payable",
+    )
+    originator_id = _clean_required(str(command.originator_id), "Loan Originator id")
+    source_type = _clean_required(command.source_type, "Source type")
+    source_id = _clean_required(command.source_id, "Source id")
+    collection_account_identifier = _clean_required(
+        command.collection_account_identifier,
+        "Collection account identifier",
+    )
+    payer_name = _clean_required(command.payer_name, "Payer name")
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    lines: list[OriginatorRepaymentCreditLineCommand] = []
+    for line in command.distribution_lines:
+        _lender_account_for_id(line.investor_user_id)
+        line_amount = _validate_money(
+            line.amount_minor,
+            currency.code,
+            "Originator repayment investor amount",
+        )
+        principal = _validate_nonnegative_money(
+            line.principal_minor,
+            currency.code,
+            "Originator repayment investor principal",
+        )
+        interest = _validate_nonnegative_money(
+            line.interest_minor,
+            currency.code,
+            "Originator repayment investor interest",
+        )
+        penalty = _validate_nonnegative_money(
+            line.penalty_minor,
+            currency.code,
+            "Originator repayment investor penalty",
+        )
+        if line_amount != principal + interest + penalty:
+            raise LedgerValidationError(
+                "Originator repayment investor amount must equal its component sum."
+            )
+        lines.append(
+            OriginatorRepaymentCreditLineCommand(
+                investor_user_id=str(line.investor_user_id),
+                holding_id=str(line.holding_id),
+                amount_minor=line_amount,
+                principal_minor=principal,
+                interest_minor=interest,
+                penalty_minor=penalty,
+                metadata=line.metadata or {},
+            )
+        )
+    investor_total = sum(line.amount_minor for line in lines)
+    if investor_total + originator_payable_minor != amount_minor:
+        raise LedgerValidationError(
+            "Investor distributions plus originator payable must equal repayment amount."
+        )
+    normalized = DeclareOriginatorBorrowerRepaymentLedgerCommand(
+        actor=command.actor,
+        repayment_id=str(command.repayment_id),
+        loan_id=str(command.loan_id),
+        originator_id=originator_id,
+        amount_minor=amount_minor,
+        originator_payable_minor=originator_payable_minor,
+        currency=currency.code,
+        booking_date=command.booking_date,
+        value_date=command.value_date,
+        collection_account_identifier=collection_account_identifier,
+        payer_name=payer_name,
+        source_type=source_type,
+        source_id=source_id,
+        distribution_lines=lines,
+        payer_account_identifier=command.payer_account_identifier,
+        bank_reference=command.bank_reference,
+        payment_reference=command.payment_reference,
+        evidence_reference=command.evidence_reference,
+        notes=command.notes,
+        idempotency_key=idempotency_key,
+        as_of=command.as_of,
+    )
+    fingerprint = _originator_borrower_repayment_ledger_fingerprint(
+        normalized,
+        currency_code=currency.code,
+        amount_minor=amount_minor,
+        originator_payable_minor=originator_payable_minor,
+        idempotency_key=idempotency_key,
+    )
+    existing = _existing_originator_borrower_repayment_for_idempotency(
+        idempotency_key,
+        expected_fingerprint=fingerprint,
+    )
+    if existing is not None:
+        return existing
+    as_of = command.as_of or now_utc()
+    metadata = {
+        REQUEST_FINGERPRINT_METADATA_KEY: fingerprint,
+        "repayment_id": str(command.repayment_id),
+        "loan_id": str(command.loan_id),
+        "originator_id": originator_id,
+        "investor_distribution_minor": investor_total,
+        "originator_payable_minor": originator_payable_minor,
+        "distribution_line_count": len(lines),
+    }
+    try:
+        with transaction.atomic():
+            bank_operation = BankOperation.objects.create(
+                operation_type=_bank_operation_type(BankOperationType.BORROWER_REPAYMENT),
+                status=BankOperationStatus.RECONCILED,
+                amount_minor=amount_minor,
+                currency=currency,
+                booking_date=command.booking_date,
+                value_date=command.value_date,
+                collection_account_identifier=collection_account_identifier,
+                payer_name=payer_name,
+                payer_account_identifier=command.payer_account_identifier.strip(),
+                payee_name="Garanta Finanzgruppe AG",
+                payee_account_identifier=collection_account_identifier,
+                bank_reference=command.bank_reference.strip(),
+                payment_reference=command.payment_reference.strip(),
+                linked_object_type="originator_loan",
+                linked_object_id=str(command.loan_id),
+                evidence_reference=command.evidence_reference.strip(),
+                confirmed_by_admin_id=command.actor.pk,
+                confirmed_at=as_of,
+                notes=command.notes.strip(),
+                metadata=metadata,
+                idempotency_key=idempotency_key,
+            )
+    except IntegrityError:
+        existing_after_race = _existing_originator_borrower_repayment_for_idempotency(
+            idempotency_key,
+            expected_fingerprint=fingerprint,
+        )
+        if existing_after_race is None:
+            raise
+        return existing_after_race
+
+    collection_cash = get_or_create_ledger_account(
+        account_type=LedgerAccountType.COLLECTION_CASH,
+        currency=currency,
+        name=f"{currency.code} collection cash",
+    )
+    postings = [
+        PostingCommand(
+            account=collection_cash,
+            side=LedgerPostingSide.DEBIT,
+            amount_minor=amount_minor,
+            memo="Originator-loan borrower repayment received",
+        )
+    ]
+    for line in lines:
+        investor_liability = get_or_create_ledger_account(
+            account_type=LedgerAccountType.INVESTOR_BALANCE_LIABILITY,
+            currency=currency,
+            owner_type="investor",
+            owner_id=str(line.investor_user_id),
+            name=(
+                f"{currency.code} investor balance liability "
+                f"{line.investor_user_id}"
+            ),
+        )
+        postings.append(
+            PostingCommand(
+                account=investor_liability,
+                side=LedgerPostingSide.CREDIT,
+                amount_minor=line.amount_minor,
+                memo="Originator claim repayment credited to investor",
+            )
+        )
+    if originator_payable_minor:
+        servicing_payable = get_or_create_ledger_account(
+            account_type=LedgerAccountType.ORIGINATOR_SERVICING_PAYABLE,
+            currency=currency,
+            owner_type="loan_originator",
+            owner_id=originator_id,
+            name=f"{currency.code} Loan Originator servicing payable {originator_id}",
+        )
+        postings.append(
+            PostingCommand(
+                account=servicing_payable,
+                side=LedgerPostingSide.CREDIT,
+                amount_minor=originator_payable_minor,
+                memo="Unassigned originator-loan repayment payable to originator",
+            )
+        )
+    received_at = _received_at_from_value_date(command.value_date)
+    journal = post_journal_entry(
+        PostJournalEntryCommand(
+            actor=command.actor,
+            event_type="originator_borrower_repayment_distributed",
+            direction=LedgerDirection.IN,
+            currency=currency.code,
+            gross_amount_minor=amount_minor,
+            net_amount_minor=amount_minor,
+            booking_date=command.booking_date,
+            value_date=command.value_date,
+            effective_at=as_of,
+            received_at=received_at,
+            source_type=source_type,
+            source_id=source_id,
+            loan_id=str(command.loan_id),
+            bank_operation=bank_operation,
+            bank_reference=command.bank_reference,
+            evidence_reference=command.evidence_reference,
+            idempotency_key=_derived_idempotency_key(
+                "ledger-originator-repayment",
+                idempotency_key,
+            ),
+            postings=postings,
+            tax_metadata={
+                "client_money_flow_minor": amount_minor,
+                "originator_servicing_payable_minor": originator_payable_minor,
+                "investor_distribution_minor": investor_total,
+                "principal_minor": sum(line.principal_minor for line in lines),
+                "interest_minor": sum(line.interest_minor for line in lines),
+                "penalty_minor": sum(line.penalty_minor for line in lines),
+            },
+            metadata=metadata,
+        )
+    )
+    investment_deadline_at, withdrawal_deadline_at = _lot_deadlines(received_at)
+    credits: list[InvestorBalanceCreditResult] = []
+    for index, line in enumerate(lines):
+        _validate_lot_conservation_values(
+            original_amount_minor=line.amount_minor,
+            available_amount_minor=line.amount_minor,
+            currency_code=currency.code,
+        )
+        lot = InvestorBalanceLot.objects.create(
+            investor_user_id=line.investor_user_id,
+            currency=currency,
+            source_journal_entry=journal,
+            source_type=BalanceLotSourceType.ORIGINATOR_CLAIM_REPAYMENT,
+            source_id=f"{source_id}:{index}",
+            received_at=received_at,
+            investment_deadline_at=investment_deadline_at,
+            withdrawal_deadline_at=withdrawal_deadline_at,
+            original_amount_minor=line.amount_minor,
+            available_amount_minor=line.amount_minor,
+            lineage=[
+                {
+                    "source_type": source_type,
+                    "source_id": source_id,
+                    "line_index": index,
+                    "loan_id": str(command.loan_id),
+                    "holding_id": line.holding_id,
+                    "principal_minor": line.principal_minor,
+                    "interest_minor": line.interest_minor,
+                    "penalty_minor": line.penalty_minor,
+                    "metadata": line.metadata or {},
+                }
+            ],
+        )
+        credits.append(
+            InvestorBalanceCreditResult(
+                line_index=index,
+                investor_user_id=str(line.investor_user_id),
+                amount_minor=line.amount_minor,
+                balance_lot=lot,
+            )
+        )
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(command.actor),
+            action="ledger.originator_borrower_repayment_distributed",
+            target_type="BankOperation",
+            target_id=str(bank_operation.id),
+            metadata={**metadata, "journal_entry_id": str(journal.id)},
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="OriginatorBorrowerRepaymentDistributed",
+            aggregate_type="BankOperation",
+            aggregate_id=str(bank_operation.id),
+            payload={**metadata, "journal_entry_id": str(journal.id)},
+            idempotency_key=(
+                f"bank-operation:{bank_operation.id}:originator-repayment-distributed"
+            ),
+        )
+    )
+    return OriginatorBorrowerRepaymentLedgerResult(
+        bank_operation=bank_operation,
+        journal_entry=journal,
+        balance_credits=credits,
+    )
+
+
+@transaction.atomic
+def settle_originator_claim_purchase_ledger(
+    command: SettleOriginatorClaimPurchaseLedgerCommand,
+) -> OriginatorClaimPurchaseLedgerResult:
+    currency = _enabled_currency(command.currency)
+    cash_consideration_minor = _validate_money(
+        command.cash_consideration_minor,
+        currency.code,
+        "Originator claim cash consideration",
+    )
+    assigned_principal_minor = _validate_money(
+        command.assigned_principal_minor,
+        currency.code,
+        "Originator claim assigned principal",
+    )
+    platform_fee_minor = _validate_nonnegative_money(
+        command.platform_fee_minor,
+        currency.code,
+        "Originator claim platform fee",
+    )
+    originator_payable_minor = _validate_nonnegative_money(
+        command.originator_payable_minor,
+        currency.code,
+        "Originator claim payable",
+    )
+    if platform_fee_minor + originator_payable_minor != cash_consideration_minor:
+        raise LedgerValidationError(
+            "Originator claim consideration must equal originator payable plus platform fee."
+        )
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    source_type = _clean_required(command.source_type, "Source type")
+    source_id = _clean_required(command.source_id, "Source id")
+    originator_id = _clean_required(str(command.originator_id), "Loan Originator id")
+    investor = _investment_actor_for_id(command.actor, command.investor_user_id)
+    investor_id = str(investor.pk)
+    as_of = command.as_of or now_utc()
+    value_date = business_date(as_of)
+    journal_idempotency_key = _derived_idempotency_key(
+        "ledger-originator-claim-purchase",
+        idempotency_key,
+    )
+    request_fingerprint = _originator_claim_purchase_ledger_fingerprint(
+        command,
+        investor_user_id=investor_id,
+        currency_code=currency.code,
+        cash_consideration_minor=cash_consideration_minor,
+        assigned_principal_minor=assigned_principal_minor,
+        platform_fee_minor=platform_fee_minor,
+        originator_payable_minor=originator_payable_minor,
+        idempotency_key=idempotency_key,
+    )
+    existing = _existing_originator_claim_purchase_ledger_result(
+        journal_idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing is not None:
+        return existing
+    if InvestorBalanceLot.objects.filter(
+        investor_user_id=investor_id,
+        status=BalanceLotStatus.PENALTY_MODE,
+        available_amount_minor__gt=0,
+    ).exists():
+        raise LedgerValidationError(
+            "Investor has overdue balance in penalty mode and cannot purchase claims."
+        )
+
+    lots = _investment_lots_for_update(investor_user_id=investor_id, currency=currency)
+    existing_after_locks = _existing_originator_claim_purchase_ledger_result(
+        journal_idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing_after_locks is not None:
+        return existing_after_locks
+    allocations = _consume_lots_for_investment(
+        lots=lots,
+        amount_minor=cash_consideration_minor,
+        currency_code=currency.code,
+        loan_funding_deadline=value_date,
+        as_of=as_of,
+    )
+    investor_liability_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.INVESTOR_BALANCE_LIABILITY,
+        currency=currency,
+        owner_type="investor",
+        owner_id=investor_id,
+        name=f"{currency.code} investor balance liability {investor_id}",
+    )
+    originator_payable_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.ORIGINATOR_SETTLEMENT_PAYABLE,
+        currency=currency,
+        owner_type="loan_originator",
+        owner_id=originator_id,
+        name=f"{currency.code} Loan Originator settlement payable {originator_id}",
+    )
+    postings = [
+        PostingCommand(
+            account=investor_liability_account,
+            side=LedgerPostingSide.DEBIT,
+            amount_minor=cash_consideration_minor,
+            memo="Investor balance exchanged for assigned originator loan claim",
+        ),
+        PostingCommand(
+            account=originator_payable_account,
+            side=LedgerPostingSide.CREDIT,
+            amount_minor=originator_payable_minor,
+            memo="Loan Originator purchase consideration payable",
+        ),
+    ]
+    if platform_fee_minor:
+        platform_fee_account = get_or_create_ledger_account(
+            account_type=LedgerAccountType.PLATFORM_FEE_REVENUE,
+            currency=currency,
+            owner_type="garanta",
+            owner_id="platform",
+            name=f"{currency.code} platform fee revenue",
+        )
+        postings.append(
+            PostingCommand(
+                account=platform_fee_account,
+                side=LedgerPostingSide.CREDIT,
+                amount_minor=platform_fee_minor,
+                memo="Loan Originator premium participation fee revenue",
+            )
+        )
+    journal_entry = post_journal_entry(
+        PostJournalEntryCommand(
+            actor=command.actor,
+            event_type="originator_claim_purchase_settled",
+            direction=LedgerDirection.INTERNAL,
+            currency=currency.code,
+            gross_amount_minor=cash_consideration_minor,
+            net_amount_minor=originator_payable_minor,
+            booking_date=value_date,
+            value_date=value_date,
+            effective_at=as_of,
+            received_at=as_of,
+            source_type=source_type,
+            source_id=source_id,
+            lender_user_id=investor_id,
+            loan_id=str(command.loan_id),
+            idempotency_key=journal_idempotency_key,
+            postings=postings,
+            tax_metadata={
+                "originator_claim_assigned_principal_minor": assigned_principal_minor,
+                "originator_claim_consideration_minor": cash_consideration_minor,
+                "originator_payable_minor": originator_payable_minor,
+                "platform_fee_revenue_minor": platform_fee_minor,
+            },
+            metadata={
+                ORIGINATOR_CLAIM_PURCHASE_FINGERPRINT_METADATA_KEY: request_fingerprint,
+                "purchase_id": str(command.purchase_id),
+                "loan_id": str(command.loan_id),
+                "originator_id": originator_id,
+                "investor_user_id": investor_id,
+                "assigned_principal_minor": assigned_principal_minor,
+                "cash_consideration_minor": cash_consideration_minor,
+                "platform_fee_minor": platform_fee_minor,
+                "originator_payable_minor": originator_payable_minor,
+                "investor_lot_allocations": allocations,
+                "metadata": command.metadata or {},
+            },
+        )
+    )
+    event_metadata = {
+        "purchase_id": str(command.purchase_id),
+        "loan_id": str(command.loan_id),
+        "originator_id": originator_id,
+        "investor_user_id": investor_id,
+        "currency": currency.code,
+        "cash_consideration_minor": cash_consideration_minor,
+        "assigned_principal_minor": assigned_principal_minor,
+        "originator_payable_minor": originator_payable_minor,
+        "platform_fee_minor": platform_fee_minor,
+    }
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(command.actor),
+            action="ledger.originator_claim_purchase_settled",
+            target_type="LedgerJournalEntry",
+            target_id=str(journal_entry.id),
+            metadata=event_metadata,
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="OriginatorClaimPurchaseSettled",
+            aggregate_type="LedgerJournalEntry",
+            aggregate_id=str(journal_entry.id),
+            payload=event_metadata,
+            idempotency_key=f"ledger:{journal_entry.id}:originator-claim-purchase",
+        )
+    )
+    return OriginatorClaimPurchaseLedgerResult(
+        journal_entry=journal_entry,
+        investor_lot_allocations=allocations,
+    )
+
+
+@transaction.atomic
+def finalize_originator_settlement_ledger(
+    command: FinalizeOriginatorSettlementLedgerCommand,
+) -> OriginatorSettlementLedgerResult:
+    _require_admin_actor(command.actor)
+    currency = _enabled_currency(command.currency)
+    amount_minor = _validate_money(
+        command.amount_minor,
+        currency.code,
+        "Loan Originator settlement amount",
+    )
+    purchase_amount_minor = _validate_nonnegative_money(
+        command.purchase_amount_minor,
+        currency.code,
+        "Loan Originator purchase settlement amount",
+    )
+    servicing_amount_minor = _validate_nonnegative_money(
+        command.servicing_amount_minor,
+        currency.code,
+        "Loan Originator servicing settlement amount",
+    )
+    if purchase_amount_minor + servicing_amount_minor != amount_minor:
+        raise LedgerValidationError(
+            "Purchase and servicing settlement amounts must equal the total."
+        )
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    originator_id = _clean_required(str(command.originator_id), "Loan Originator id")
+    settlement_id = _clean_required(str(command.settlement_id), "Settlement id")
+    collection_account_identifier = _clean_required(
+        command.collection_account_identifier,
+        "Collection account identifier",
+    )
+    payee_name = _clean_required(command.payee_name, "Payee name")
+    payee_account_identifier = _clean_required(
+        command.payee_account_identifier,
+        "Payee account identifier",
+    )
+    purchase_ids = sorted(
+        {str(item).strip() for item in command.purchase_ids if str(item).strip()}
+    )
+    repayment_ids = sorted(
+        {str(item).strip() for item in command.repayment_ids if str(item).strip()}
+    )
+    if not purchase_ids and not repayment_ids:
+        raise LedgerValidationError(
+            "At least one originator purchase or servicing repayment is required."
+        )
+    request_fingerprint = _originator_settlement_ledger_fingerprint(
+        command,
+        currency_code=currency.code,
+        amount_minor=amount_minor,
+        idempotency_key=idempotency_key,
+    )
+    existing = _existing_originator_settlement_ledger_result(
+        idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing is not None:
+        return existing
+    purchase_payable_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.ORIGINATOR_SETTLEMENT_PAYABLE,
+        currency=currency,
+        owner_type="loan_originator",
+        owner_id=originator_id,
+        name=f"{currency.code} Loan Originator settlement payable {originator_id}",
+    )
+    servicing_payable_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.ORIGINATOR_SERVICING_PAYABLE,
+        currency=currency,
+        owner_type="loan_originator",
+        owner_id=originator_id,
+        name=f"{currency.code} Loan Originator servicing payable {originator_id}",
+    )
+    locked_accounts = {
+        account.account_type: account
+        for account in LedgerAccount.objects.select_for_update()
+        .filter(id__in=[purchase_payable_account.id, servicing_payable_account.id])
+        .order_by("id")
+    }
+    purchase_payable_account = locked_accounts[
+        LedgerAccountType.ORIGINATOR_SETTLEMENT_PAYABLE
+    ]
+    servicing_payable_account = locked_accounts[
+        LedgerAccountType.ORIGINATOR_SERVICING_PAYABLE
+    ]
+    purchase_payable_balance = _credit_balance_for_account(purchase_payable_account)
+    servicing_payable_balance = _credit_balance_for_account(servicing_payable_account)
+    if purchase_payable_balance < purchase_amount_minor:
+        raise LedgerValidationError(
+            "Loan Originator purchase settlement exceeds the outstanding payable."
+        )
+    if servicing_payable_balance < servicing_amount_minor:
+        raise LedgerValidationError(
+            "Loan Originator servicing settlement exceeds the outstanding payable."
+        )
+    collection_cash_balance = _account_group_balance_minor(
+        currency=currency,
+        account_type=LedgerAccountType.COLLECTION_CASH,
+    )
+    if collection_cash_balance < amount_minor:
+        raise LedgerValidationError(
+            "Collection cash balance is insufficient for Loan Originator settlement."
+        )
+    as_of = command.as_of or now_utc()
+    metadata = {
+        REQUEST_FINGERPRINT_METADATA_KEY: request_fingerprint,
+        "settlement_id": settlement_id,
+        "originator_id": originator_id,
+        "purchase_ids": purchase_ids,
+        "repayment_ids": repayment_ids,
+        "purchase_amount_minor": purchase_amount_minor,
+        "servicing_amount_minor": servicing_amount_minor,
+        "purchase_payable_balance_before_minor": purchase_payable_balance,
+        "servicing_payable_balance_before_minor": servicing_payable_balance,
+    }
+    try:
+        with transaction.atomic():
+            bank_operation = BankOperation.objects.create(
+                operation_type=_bank_operation_type(BankOperationType.ORIGINATOR_SETTLEMENT),
+                status=BankOperationStatus.RECONCILED,
+                amount_minor=amount_minor,
+                currency=currency,
+                booking_date=command.booking_date,
+                value_date=command.value_date,
+                collection_account_identifier=collection_account_identifier,
+                payer_name="Garanta Finanzgruppe AG",
+                payer_account_identifier=collection_account_identifier,
+                payee_name=payee_name,
+                payee_account_identifier=payee_account_identifier,
+                bank_reference=command.bank_reference.strip(),
+                payment_reference=command.payment_reference.strip(),
+                linked_object_type="OriginatorSettlement",
+                linked_object_id=settlement_id,
+                evidence_reference=command.evidence_reference.strip(),
+                confirmed_by_admin_id=command.actor.pk,
+                confirmed_at=as_of,
+                notes=command.notes.strip(),
+                metadata=metadata,
+                idempotency_key=idempotency_key,
+            )
+    except IntegrityError:
+        existing_after_race = _existing_originator_settlement_ledger_result(
+            idempotency_key,
+            expected_fingerprint=request_fingerprint,
+        )
+        if existing_after_race is None:
+            raise
+        return existing_after_race
+    collection_cash_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.COLLECTION_CASH,
+        currency=currency,
+        name=f"{currency.code} collection cash",
+    )
+    postings: list[PostingCommand] = []
+    if purchase_amount_minor:
+        postings.append(
+            PostingCommand(
+                account=purchase_payable_account,
+                side=LedgerPostingSide.DEBIT,
+                amount_minor=purchase_amount_minor,
+                memo="Loan Originator purchase settlement payable cleared",
+            )
+        )
+    if servicing_amount_minor:
+        postings.append(
+            PostingCommand(
+                account=servicing_payable_account,
+                side=LedgerPostingSide.DEBIT,
+                amount_minor=servicing_amount_minor,
+                memo="Loan Originator servicing payable cleared",
+            )
+        )
+    postings.append(
+        PostingCommand(
+            account=collection_cash_account,
+            side=LedgerPostingSide.CREDIT,
+            amount_minor=amount_minor,
+            memo="Collection cash paid to Loan Originator",
+        )
+    )
+    journal_entry = post_journal_entry(
+        PostJournalEntryCommand(
+            actor=command.actor,
+            event_type="originator_settlement_finalized",
+            direction=LedgerDirection.OUT,
+            currency=currency.code,
+            gross_amount_minor=amount_minor,
+            net_amount_minor=amount_minor,
+            booking_date=command.booking_date,
+            value_date=command.value_date,
+            effective_at=as_of,
+            received_at=_received_at_from_value_date(command.value_date),
+            source_type="originator_settlement",
+            source_id=settlement_id,
+            idempotency_key=_derived_idempotency_key(
+                "ledger-originator-settlement",
+                idempotency_key,
+            ),
+            bank_operation=bank_operation,
+            bank_reference=command.bank_reference.strip(),
+            evidence_reference=command.evidence_reference.strip(),
+            postings=postings,
+            tax_metadata={
+                "originator_settlement_minor": amount_minor,
+                "originator_purchase_settlement_minor": purchase_amount_minor,
+                "originator_servicing_settlement_minor": servicing_amount_minor,
+                "client_money_flow_minor": amount_minor,
+            },
+            metadata=metadata,
+        )
+    )
+    event_metadata = {
+        **metadata,
+        "currency": currency.code,
+        "amount_minor": amount_minor,
+        "bank_operation_id": str(bank_operation.id),
+        "journal_entry_id": str(journal_entry.id),
+    }
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(command.actor),
+            action="ledger.originator_settlement_finalized",
+            target_type="BankOperation",
+            target_id=str(bank_operation.id),
+            metadata=event_metadata,
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="OriginatorSettlementFinalized",
+            aggregate_type="BankOperation",
+            aggregate_id=str(bank_operation.id),
+            payload=event_metadata,
+            idempotency_key=f"bank-operation:{bank_operation.id}:originator-settlement",
+        )
+    )
+    return OriginatorSettlementLedgerResult(
+        bank_operation=bank_operation,
+        journal_entry=journal_entry,
+    )
 
 
 @transaction.atomic
@@ -6253,6 +7277,14 @@ def create_reconciliation_snapshot(
         currency=currency,
         account_type=LedgerAccountType.RECOVERY_DISTRIBUTION_PAYABLE,
     )
+    originator_settlement_payable = _credit_balance_minor(
+        currency=currency,
+        account_type=LedgerAccountType.ORIGINATOR_SETTLEMENT_PAYABLE,
+    )
+    originator_servicing_payable = _credit_balance_minor(
+        currency=currency,
+        account_type=LedgerAccountType.ORIGINATOR_SERVICING_PAYABLE,
+    )
     collection_cash_balance = _account_group_balance_minor(
         currency=currency,
         account_type=LedgerAccountType.COLLECTION_CASH,
@@ -6273,6 +7305,14 @@ def create_reconciliation_snapshot(
                 LedgerAccountType.RECOVERY_DISTRIBUTION_PAYABLE,
                 recovery_distribution_payable,
             ),
+            (
+                LedgerAccountType.ORIGINATOR_SETTLEMENT_PAYABLE,
+                originator_settlement_payable,
+            ),
+            (
+                LedgerAccountType.ORIGINATOR_SERVICING_PAYABLE,
+                originator_servicing_payable,
+            ),
         ]
         if amount < 0
     ]
@@ -6281,6 +7321,8 @@ def create_reconciliation_snapshot(
         + withdrawal_payable
         + borrower_disbursement_payable
         + recovery_distribution_payable
+        + originator_settlement_payable
+        + originator_servicing_payable
         + garanta_accrued
         + fx_clearing
         + suspense
@@ -6307,6 +7349,8 @@ def create_reconciliation_snapshot(
             "withdrawal_payable_minor": withdrawal_payable,
             "borrower_disbursement_payable_minor": borrower_disbursement_payable,
             "recovery_distribution_payable_minor": recovery_distribution_payable,
+            "originator_settlement_payable_minor": originator_settlement_payable,
+            "originator_servicing_payable_minor": originator_servicing_payable,
             "collection_cash_ledger_balance_minor": collection_cash_balance,
             "bank_to_collection_cash_difference_minor": bank_to_collection_cash_difference,
             "account_sign_anomalies": account_sign_anomalies,

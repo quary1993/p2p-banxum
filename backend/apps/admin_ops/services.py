@@ -65,6 +65,7 @@ FINANCE_ADMIN_TASK_TYPES = frozenset(
         AdminTaskType.PAYMENT_RECONCILIATION,
         AdminTaskType.PAYOUT_INSTRUCTION_VERIFICATION,
         AdminTaskType.FX_SETTLEMENT,
+        AdminTaskType.ORIGINATOR_SETTLEMENT,
     }
 )
 

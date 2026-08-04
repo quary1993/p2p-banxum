@@ -619,3 +619,21 @@ Investor balance entries are subject to the 30-day investment/reinvestment and 6
 10. Partly answered by DOC-DEC-005: assignment documentation is generated per investment order in v1; exact legal template remains open.
 11. Answered by MKT-DEC-006: secondary market is available at launch.
 12. Answered by MKT-DEC-007/MKT-DEC-009/MKT-DEC-016/MKT-DEC-017/MKT-DEC-020: secondary market is a bulletin-board claim/participation transfer mechanism; seller may list only an entire holding; seller sets price as a discount/premium percentage of current principal balance; accrued interest to settlement belongs to seller and future interest belongs to buyer; launch fees are 0.25% maker/seller and 0.75% taker/buyer, calculated on transfer price excluding accrued interest and rounded half-up; current/performing listings can settle directly after checks, while non-performing/non-standard listings require admin approval, disclosure note, and additional buyer acknowledgement before purchase.
+
+## Loan Originator Primary-Market Purchases
+
+### MKT-DEC-022: Immediate Dated Claim Purchase
+
+An `originator_claim` appears in the existing primary opportunity table with a Loan Originator badge and public originator name. The common rate column is **Yield**: contractual investor rate for direct loans, target yield for originator claims. Detail still shows the underlying coupon separately.
+
+Originator purchases execute immediately. They do not create pending funding intents, reserve escrow, increment direct committed principal, await close, or disburse to a borrower. One atomic transaction locks the opportunity/revision; validates eligibility, current clickwrap, sensitive code, minimum, and balance; consumes FIFO lots; creates purchase, dated entitlements, and holding; posts investor liability to originator payable and fee revenue; reduces unsold principal; and invalidates stale quotes. Fingerprinted idempotency and loan-row locking prevent conflicting replay and oversale.
+
+### MKT-DEC-023: Quotes and Residuals
+
+Server quotes use the current schedule/payment revision and Europe/Zurich business date, expire after five minutes, and invalidate on payment, status/import/yield changes, or another purchase. Evidence records requested/executable cash, assigned principal/share, yield, price, premium/discount, fee, originator net, entitlement start, cash-flow projection, revision, and fingerprint.
+
+If requested cash exceeds the remaining opportunity, the API returns a residual quote for explicit confirmation rather than silently lowering the investment. Minor-unit inversion may produce a disclosed lower executable cash amount and rounding remainder; no money is silently created or lost.
+
+### MKT-DEC-024: Secondary-Market Continuity
+
+Originator-derived holdings may be transferred through the existing secondary market. Seller acquisition yield is private. Buyers see projected yield implied by current listing price and dated remaining cash flows. Accrued interest through secondary settlement belongs to seller and future entitlement to buyer.

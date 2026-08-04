@@ -302,3 +302,11 @@ No high-risk action requires dual approval at launch. Each high-risk action shou
 10. Answered by RPT-DEC-002/RPT-DEC-003: admin-only report exports support PDF, CSV, and ZIP evidence packages with redacted/full modes.
 11. Answered by COMMS-DEC-004/005/007: failed emails create admin notices, admin chooses public note/email/both for material loan updates, and superadmin owns email template changes.
 12. Answered by ACC-DEC-002/ACC-DEC-003: superadmin creates admins and resets passwords; initial superadmin credentials are environment-configured; Garanta collection account/IBAN changes are superadmin-only; no launch admin step-up authentication is required.
+
+## Loan Originator Operations
+
+Admins maintain originators, off-platform KYB evidence, active/blocked state, settlement details, and default fee. They create originator-claim loans separately, upload/validate schedule/payment CSV evidence, review anonymized disclosure and ACT/365 pricing, and publish after all gates.
+
+The Loans table combines products and shows type, borrower/originator, outstanding/unsold principal, investor yield, maturity, priced fillable amount, and status. Originator rows never expose direct funding-close/disbursement actions.
+
+Finance Ops groups originator payable by originator/currency with purchases, gross, fee, net, oldest age, due/overdue state, and settlement action. Tasks start at day 3 and escalate after day 5. Reports/reconciliation show originator payable separately.

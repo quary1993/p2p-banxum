@@ -703,6 +703,19 @@ td.num {
   top: calc(var(--topbar-h) + 20px);
 }
 
+/* Schedule tables have wide intrinsic content. Keep that width inside their
+   scroll containers instead of allowing it to expand the loan-detail grid. */
+.loan-detail-layout > *,
+.loan-detail-layout .aside-sticky,
+.loan-detail-layout .card {
+  min-width: 0;
+}
+
+.loan-detail-layout .tbl-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
 .toolbar {
   align-items: center;
   display: flex;

@@ -15,6 +15,7 @@ class InvestorLoanHoldingStatus(models.TextChoices):
 
 class InvestorLoanHoldingSourceType(models.TextChoices):
     PRIMARY_MARKET = "primary_market", "Primary market"
+    ORIGINATOR_CLAIM = "originator_claim", "Loan Originator claim"
     SECONDARY_MARKET = "secondary_market", "Secondary market"
     MANUAL_ADMIN = "manual_admin", "Manual admin"
 
@@ -60,6 +61,11 @@ class InvestorLoanHolding(TimestampedModel):
     )
     loan_share_ppm = models.PositiveIntegerField()
     assignment_effective_at = models.DateTimeField()
+    # The legal assignment timestamp changes on every secondary transfer. For
+    # originator claims, the economic entitlement began with the first BANXUM
+    # acquisition and must survive later transfers because the secondary buyer
+    # separately compensates the seller for accrued interest.
+    economic_entitlement_start_at = models.DateTimeField(null=True, blank=True)
     created_by_admin_id = models.UUIDField()
     metadata = models.JSONField(default=dict, blank=True)
     idempotency_key = models.CharField(max_length=160, unique=True)

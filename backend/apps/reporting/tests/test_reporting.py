@@ -164,6 +164,124 @@ def _post_platform_fee_revenue(
     )
 
 
+def _post_originator_claim_reporting_entries(
+    admin_user: Model,
+    investor: Model,
+    *,
+    value_date: date = date(2026, 1, 10),
+) -> None:
+    ledger_services: Any = import_module("backend.apps.ledger.services")
+    currency = Currency.objects.get(code="CHF")
+    investor_liability = ledger_services.get_or_create_ledger_account(
+        account_type="investor_balance_liability",
+        currency=currency,
+        owner_type="investor",
+        owner_id=str(investor.pk),
+        name="Investor CHF liability",
+    )
+    originator_purchase_payable = ledger_services.get_or_create_ledger_account(
+        account_type="originator_settlement_payable",
+        currency=currency,
+        owner_type="originator",
+        owner_id="originator-reporting-test",
+        name="Originator purchase settlement payable",
+    )
+    originator_servicing_payable = ledger_services.get_or_create_ledger_account(
+        account_type="originator_servicing_payable",
+        currency=currency,
+        owner_type="originator",
+        owner_id="originator-reporting-test",
+        name="Originator servicing payable",
+    )
+    platform_fee_revenue = ledger_services.get_or_create_ledger_account(
+        account_type="platform_fee_revenue",
+        currency=currency,
+        owner_type="garanta",
+        owner_id="platform",
+        name="CHF platform fee revenue",
+    )
+    collection_cash = ledger_services.get_or_create_ledger_account(
+        account_type="collection_cash",
+        currency=currency,
+    )
+    event_at = _received_at(value_date)
+    ledger_services.post_journal_entry(
+        ledger_services.PostJournalEntryCommand(
+            actor=admin_user,
+            event_type="originator_claim_purchase",
+            direction="internal",
+            currency="CHF",
+            gross_amount_minor=100_00,
+            net_amount_minor=80_00,
+            booking_date=value_date,
+            value_date=value_date,
+            effective_at=event_at,
+            received_at=event_at,
+            source_type="originator_claim_purchase",
+            source_id="originator-reporting-purchase",
+            idempotency_key="originator-reporting-purchase",
+            lender_user_id=str(investor.pk),
+            postings=[
+                ledger_services.PostingCommand(
+                    account=investor_liability,
+                    side="debit",
+                    amount_minor=100_00,
+                    memo="Investor claim purchase consideration",
+                ),
+                ledger_services.PostingCommand(
+                    account=originator_purchase_payable,
+                    side="credit",
+                    amount_minor=80_00,
+                    memo="Private originator payable",
+                ),
+                ledger_services.PostingCommand(
+                    account=platform_fee_revenue,
+                    side="credit",
+                    amount_minor=20_00,
+                    memo="Private BANXUM fee",
+                ),
+            ],
+        )
+    )
+    ledger_services.post_journal_entry(
+        ledger_services.PostJournalEntryCommand(
+            actor=admin_user,
+            event_type="originator_claim_repayment",
+            direction="in",
+            currency="CHF",
+            gross_amount_minor=30_00,
+            net_amount_minor=25_00,
+            booking_date=value_date,
+            value_date=value_date,
+            effective_at=event_at,
+            received_at=event_at,
+            source_type="originator_claim_repayment",
+            source_id="originator-reporting-repayment",
+            idempotency_key="originator-reporting-repayment",
+            postings=[
+                ledger_services.PostingCommand(
+                    account=collection_cash,
+                    side="debit",
+                    amount_minor=30_00,
+                    memo="Borrower repayment cash",
+                ),
+                ledger_services.PostingCommand(
+                    account=investor_liability,
+                    side="credit",
+                    amount_minor=25_00,
+                    memo="Investor claim repayment distribution",
+                ),
+                ledger_services.PostingCommand(
+                    account=originator_servicing_payable,
+                    side="credit",
+                    amount_minor=5_00,
+                    memo="Private originator servicing payable",
+                ),
+            ],
+        )
+    )
+
+
 def _csv_rows(content: str) -> list[dict[str, str]]:
     return list(csv.DictReader(io.StringIO(content)))
 
@@ -188,9 +306,10 @@ def test_operational_subledger_csv_redacts_sensitive_fields_and_logs(
     rows = _csv_rows(artifact.content)
     assert artifact.report_run.row_count == 2
     assert artifact.manifest["row_count"] == 2
-    assert artifact.report_run.content_sha256 == hashlib.sha256(
-        artifact.content.encode("utf-8")
-    ).hexdigest()
+    assert (
+        artifact.report_run.content_sha256
+        == hashlib.sha256(artifact.content.encode("utf-8")).hexdigest()
+    )
     assert {row["posting_side"] for row in rows} == {"debit", "credit"}
     assert {row["lender_user_id"] for row in rows} == {"REDACTED"}
     assert {row["bank_reference"] for row in rows} == {"REDACTED"}
@@ -304,7 +423,7 @@ def test_operational_subledger_neutralizes_csv_formula_cells_in_full_mode(
         '\'=HYPERLINK("https://evil.example","open")'
     }
     assert ',"=HYPERLINK' not in artifact.content
-    assert ',"\'=HYPERLINK' in artifact.content
+    assert ",\"'=HYPERLINK" in artifact.content
 
 
 @pytest.mark.django_db
@@ -620,9 +739,7 @@ def test_participant_statement_and_annual_garanta_tax_info_are_ledger_derived(
         )
     )
     tax_rows = _csv_rows(tax_info.content)
-    assert {
-        row["category"] for row in tax_rows
-    } >= {
+    assert {row["category"] for row in tax_rows} >= {
         "platform_revenue:platform_fee_revenue:secondary_market_purchase_settled",
         "informational_only_not_tax_advice",
     }
@@ -633,6 +750,40 @@ def test_participant_statement_and_annual_garanta_tax_info_are_ledger_derived(
         == "platform_revenue:platform_fee_revenue:secondary_market_purchase_settled"
     )
     assert revenue_row["amount_minor"] == "2500"
+
+
+@pytest.mark.django_db
+def test_lender_statement_shows_originator_cash_flows_without_internal_legs(
+    admin_user: Model,
+    superadmin_user: Model,
+    investor: Model,
+) -> None:
+    _post_originator_claim_reporting_entries(admin_user, investor)
+
+    artifact = generate_report(
+        GenerateReportCommand(
+            actor=superadmin_user,
+            report_type=ReportType.PARTICIPANT_ACCOUNT_STATEMENT,
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 31),
+            redaction_mode=ReportRedactionMode.FULL,
+            filters={"participant_type": "lender", "participant_id": str(investor.pk)},
+        )
+    )
+
+    rows = _csv_rows(artifact.content)
+    assert len(rows) == 2
+    assert {row["participant_id"] for row in rows} == {str(investor.pk)}
+    assert {row["account_type"] for row in rows} == {"investor_balance_liability"}
+    assert {row["event_type"] for row in rows} == {
+        "originator_claim_purchase",
+        "originator_claim_repayment",
+    }
+    assert {int(row["signed_amount_minor"]) for row in rows} == {100_00, -25_00}
+    assert "originator_settlement_payable" not in artifact.content
+    assert "originator_servicing_payable" not in artifact.content
+    assert "platform_fee_revenue" not in artifact.content
+    assert "collection_cash" not in artifact.content
 
 
 @pytest.mark.django_db

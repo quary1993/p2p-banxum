@@ -22,6 +22,7 @@ from backend.apps.platform_core.domain.access import (
     actor_ref_for_user,
     is_admin_actor,
     is_lender_actor,
+    user_can_access_financial_features,
 )
 from backend.apps.platform_core.domain.money import Money, MoneyError, normalize_currency
 from backend.apps.platform_core.models import Currency
@@ -71,6 +72,21 @@ class TransferSecondaryMarketHoldingCommand:
     currency: str
     assignment_effective_at: datetime
     idempotency_key: str
+    metadata: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CreateOriginatorClaimHoldingCommand:
+    actor: Model
+    investor_user_id: str
+    loan_id: str
+    purchase_id: str
+    principal_minor: int
+    current_loan_principal_minor: int
+    currency: str
+    assignment_effective_at: datetime
+    idempotency_key: str
+    loan_share_ppm: int
     metadata: dict[str, Any] | None = None
 
 
@@ -227,6 +243,30 @@ def _secondary_transfer_request_fingerprint(
     )
 
 
+def _originator_claim_request_fingerprint(
+    command: CreateOriginatorClaimHoldingCommand,
+    *,
+    currency_code: str,
+    principal_minor: int,
+    current_loan_principal_minor: int,
+    loan_share_ppm: int,
+    idempotency_key: str,
+) -> str:
+    return _stable_json_fingerprint(
+        {
+            "investor_user_id": str(command.investor_user_id),
+            "loan_id": str(command.loan_id),
+            "purchase_id": str(command.purchase_id),
+            "principal_minor": principal_minor,
+            "current_loan_principal_minor": current_loan_principal_minor,
+            "loan_share_ppm": loan_share_ppm,
+            "currency": currency_code,
+            "assignment_effective_at": command.assignment_effective_at,
+            "idempotency_key": idempotency_key,
+        }
+    )
+
+
 def _record_holding_event(
     *,
     holding: InvestorLoanHolding,
@@ -321,6 +361,14 @@ def transfer_holding_for_secondary_market_purchase(
             currency=currency,
             loan_share_ppm=seller_holding.loan_share_ppm,
             assignment_effective_at=command.assignment_effective_at,
+            economic_entitlement_start_at=(
+                seller_holding.economic_entitlement_start_at
+                or (
+                    seller_holding.assignment_effective_at
+                    if str(seller_holding.loan.product_type) == "originator_claim"
+                    else None
+                )
+            ),
             created_by_admin_id=command.actor.pk,
             metadata=metadata,
             idempotency_key=idempotency_key,
@@ -404,6 +452,118 @@ def transfer_holding_for_secondary_market_purchase(
         seller_holding=seller_holding,
         buyer_holding=buyer_holding,
     )
+
+
+@transaction.atomic
+def create_originator_claim_holding(
+    command: CreateOriginatorClaimHoldingCommand,
+) -> InvestorLoanHolding:
+    investor = _lender_account_for_id(command.investor_user_id)
+    if str(investor.pk) != str(command.actor.pk) or not user_can_access_financial_features(
+        command.actor
+    ):
+        raise HoldingsAuthorizationError(
+            "Only the financially eligible investor can acquire this holding."
+        )
+    currency = _enabled_currency(command.currency)
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    principal_minor = _validate_money(
+        command.principal_minor,
+        currency.code,
+        "Originator claim principal",
+    )
+    current_loan_principal_minor = _validate_money(
+        command.current_loan_principal_minor,
+        currency.code,
+        "Current loan principal",
+    )
+    if principal_minor > current_loan_principal_minor:
+        raise HoldingsValidationError(
+            "Originator claim principal cannot exceed current loan principal."
+        )
+    loan_share_ppm = _validated_loan_share_ppm(command.loan_share_ppm)
+    if loan_share_ppm is None or loan_share_ppm <= 0:
+        raise HoldingsValidationError("Originator claim share ppm must be positive.")
+    request_fingerprint = _originator_claim_request_fingerprint(
+        command,
+        currency_code=currency.code,
+        principal_minor=principal_minor,
+        current_loan_principal_minor=current_loan_principal_minor,
+        loan_share_ppm=loan_share_ppm,
+        idempotency_key=idempotency_key,
+    )
+    existing = _existing_holding_for_idempotency(
+        idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing is not None:
+        return existing
+    metadata = {
+        **(command.metadata or {}),
+        REQUEST_FINGERPRINT_METADATA_KEY: request_fingerprint,
+        "originator_claim_purchase_id": str(command.purchase_id),
+        "current_loan_principal_minor_at_purchase": current_loan_principal_minor,
+    }
+    try:
+        holding = InvestorLoanHolding.objects.create(
+            loan_id=command.loan_id,
+            investor_user_id=command.investor_user_id,
+            source_type=InvestorLoanHoldingSourceType.ORIGINATOR_CLAIM,
+            source_id=str(command.purchase_id),
+            status=InvestorLoanHoldingStatus.ACTIVE,
+            original_principal_minor=principal_minor,
+            current_principal_minor=principal_minor,
+            currency=currency,
+            loan_share_ppm=loan_share_ppm,
+            assignment_effective_at=command.assignment_effective_at,
+            economic_entitlement_start_at=command.assignment_effective_at,
+            created_by_admin_id=command.actor.pk,
+            metadata=metadata,
+            idempotency_key=idempotency_key,
+        )
+    except IntegrityError:
+        existing_after_race = _existing_holding_for_idempotency(
+            idempotency_key,
+            expected_fingerprint=request_fingerprint,
+        )
+        if existing_after_race is None:
+            raise
+        return existing_after_race
+    event_metadata = {
+        "loan_id": str(holding.loan_id),
+        "investor_user_id": str(holding.investor_user_id),
+        "purchase_id": str(command.purchase_id),
+        "currency": currency.code,
+        "principal_minor": principal_minor,
+        "loan_share_ppm": loan_share_ppm,
+        "source_type": InvestorLoanHoldingSourceType.ORIGINATOR_CLAIM,
+    }
+    _record_holding_event(
+        holding=holding,
+        actor=command.actor,
+        event_type=InvestorLoanHoldingEventType.CREATED,
+        new_status=holding.status,
+        metadata=event_metadata,
+    )
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(command.actor),
+            action="holding.originator_claim_created",
+            target_type="InvestorLoanHolding",
+            target_id=str(holding.id),
+            metadata=event_metadata,
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="OriginatorClaimHoldingCreated",
+            aggregate_type="InvestorLoanHolding",
+            aggregate_id=str(holding.id),
+            payload=event_metadata,
+            idempotency_key=f"holding:{holding.id}:originator-claim-created",
+        )
+    )
+    return holding
 
 
 @transaction.atomic

@@ -216,7 +216,7 @@ test("published primary-market loans appear in dashboard and marketplace open vi
 
   fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
 
-  expect(screen.getByText("4 loans")).toBeInTheDocument();
+  expect(screen.getByText("5 loans")).toBeInTheDocument();
   expect(screen.getByText("Helvetia Logistik AG")).toBeInTheDocument();
   expect(screen.getAllByText("Open").length).toBeGreaterThan(0);
 });
@@ -238,7 +238,7 @@ test("marketplace redesign preserves live filters, detail mode, and order guidan
   expect(screen.getByText("Available to commit")).toBeInTheDocument();
   expect(screen.getByText("available to invest")).toBeInTheDocument();
   expect(screen.getAllByText("58.0%").length).toBeGreaterThan(0);
-  expect(screen.getByText("4 loans")).toBeInTheDocument();
+  expect(screen.getByText("5 loans")).toBeInTheDocument();
 
   fireEvent.click(screen.getByRole("button", { name: "Set your investing rule" }));
   const investingRuleDialog = screen.getByRole("dialog", { name: "Investing rule" });
@@ -259,6 +259,49 @@ test("marketplace redesign preserves live filters, detail mode, and order guidan
   fireEvent.click(screen.getByRole("button", { name: "Full order explanation" }));
   const dialog = screen.getByRole("dialog", { name: "How primary-market orders work" });
   expect(within(dialog).getByText(/pending order does not reserve loan capacity/i)).toBeInTheDocument();
+});
+
+test("originator claim purchase validates the minimum and stages an executable quote", () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
+  fireEvent.click(screen.getByText("Swiss SME equipment claim"));
+
+  expect(screen.getByText("Originator claim")).toBeInTheDocument();
+  expect(screen.getAllByText("Alpine Credit Partners AG").length).toBeGreaterThan(0);
+  expect(screen.getAllByText(/7\.1%/).length).toBeGreaterThan(0);
+  fireEvent.click(screen.getByRole("button", { name: "Review claim purchase" }));
+
+  const purchaseDialog = screen.getByRole("dialog", { name: "Buy claim - Swiss SME equipment claim" });
+  const amountInput = within(purchaseDialog).getByPlaceholderText("0.00");
+  const quoteButton = within(purchaseDialog).getByRole("button", { name: "Get executable quote" });
+
+  fireEvent.change(amountInput, { target: { value: "100" } });
+  expect(within(purchaseDialog).getByText("Minimum investment is CHF 500.00.")).toBeInTheDocument();
+  expect(quoteButton).toBeDisabled();
+
+  fireEvent.change(amountInput, { target: { value: "1000" } });
+  fireEvent.click(quoteButton);
+  expect(within(purchaseDialog).getByText("Executable for five minutes")).toBeInTheDocument();
+  expect(within(purchaseDialog).getByRole("row", { name: /Totals/ })).toBeInTheDocument();
+
+  fireEvent.click(
+    within(purchaseDialog).getByLabelText((label) => label.includes("primary-market investment terms"))
+  );
+  fireEvent.click(
+    within(purchaseDialog).getByLabelText((label) => label.includes("originator servicing structure"))
+  );
+  fireEvent.click(within(purchaseDialog).getByRole("button", { name: "Continue" }));
+
+  expect(within(purchaseDialog).getByText("Confirm this claim purchase")).toBeInTheDocument();
+  expect(within(purchaseDialog).getByRole("button", { name: "Send email code" })).toBeEnabled();
+  expect(within(purchaseDialog).getByRole("button", { name: "Purchase claim" })).toBeDisabled();
 });
 
 test("FX redesign uses CHF/EUR preview data and net-rate conversion history", () => {

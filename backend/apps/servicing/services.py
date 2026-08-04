@@ -2834,7 +2834,10 @@ def scan_loan_servicing_statuses(
 ) -> ScanLoanServicingStatusesResult:
     _require_admin_actor(command.actor)
     loan_model = apps.get_model("loans", "Loan")
-    loans = loan_model.objects.select_for_update().filter(status__in=STATUS_SCAN_LOAN_STATUSES)
+    loans = loan_model.objects.select_for_update().filter(
+        status__in=STATUS_SCAN_LOAN_STATUSES,
+        product_type="direct",
+    )
     if command.loan_ids:
         loans = loans.filter(id__in=[str(loan_id) for loan_id in command.loan_ids])
     changes: list[LoanServicingStatusChange] = []

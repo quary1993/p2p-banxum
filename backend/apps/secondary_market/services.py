@@ -13,7 +13,7 @@ from django.apps import apps
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
-from django.db.models import F, Max, Model, Sum
+from django.db.models import F, Max, Model, Q, Sum
 
 from backend.apps.platform_core.domain.access import (
     actor_ref_for_user,
@@ -245,6 +245,26 @@ def _servicing_services() -> Any:
     return import_module("backend.apps.servicing.services")
 
 
+def _originator_services() -> Any:
+    return import_module("backend.apps.originator_claims.services")
+
+
+def _is_originator_claim_loan(loan: Model) -> bool:
+    return str(getattr(cast(Any, loan), "product_type", "direct")) == "originator_claim"
+
+
+def _require_listable_loan_status(loan: Model) -> str:
+    loan_status = str(cast(Any, loan).status)
+    if _is_originator_claim_loan(loan) and loan_status != PERFORMING_LOAN_STATUS:
+        raise SecondaryMarketValidationError(
+            "Late or defaulted Loan Originator claims cannot be transferred on the "
+            "secondary market."
+        )
+    if loan_status not in {PERFORMING_LOAN_STATUS, *NONSTANDARD_LISTABLE_STATUSES}:
+        raise SecondaryMarketValidationError("Loan status is not listable on the secondary market.")
+    return loan_status
+
+
 def _clean_required(value: str, label: str) -> str:
     cleaned = value.strip()
     if not cleaned:
@@ -326,28 +346,140 @@ def _minimum_fee_minor(setting_key: str, currency_code: str) -> int:
 
 
 def _fee_minor(transfer_price_minor: int, fee_bps: int, minimum_fee_minor: int) -> int:
-    calculated = _round_minor(
-        Decimal(transfer_price_minor) * Decimal(fee_bps) / Decimal(10_000)
-    )
+    calculated = _round_minor(Decimal(transfer_price_minor) * Decimal(fee_bps) / Decimal(10_000))
     return max(calculated, minimum_fee_minor)
 
 
 def _transfer_price_minor(current_principal_minor: int, price_bps: int) -> int:
-    return _round_minor(
-        Decimal(current_principal_minor) * Decimal(price_bps) / Decimal(10_000)
-    )
+    return _round_minor(Decimal(current_principal_minor) * Decimal(price_bps) / Decimal(10_000))
 
 
 def _last_payment_date(loan_id: str) -> Any:
     event_model = _model("servicing", "BorrowerRepaymentEvent")
     event = (
-        event_model.objects.filter(loan_id=loan_id)
-        .order_by("-value_date", "-created_at")
-        .first()
+        event_model.objects.filter(loan_id=loan_id).order_by("-value_date", "-created_at").first()
     )
     if event is None:
         return None
     return cast(Any, event).value_date
+
+
+def _originator_last_payment_date(loan_id: str) -> Any:
+    repayment_model = _model("originator_claims", "OriginatorBorrowerRepayment")
+    repayment = (
+        repayment_model.objects.filter(loan_profile__loan_id=loan_id)
+        .order_by("-value_date", "-created_at", "-id")
+        .first()
+    )
+    return cast(Any, repayment).value_date if repayment is not None else None
+
+
+def _originator_holding_projection(
+    *,
+    holding: Model,
+    as_of_date: date,
+) -> list[dict[str, Any]]:
+    return cast(
+        dict[str, list[dict[str, Any]]],
+        _originator_services().get_originator_holding_schedule_payloads(
+            holdings=[holding],
+            as_of_date=as_of_date,
+        ),
+    ).get(str(cast(Any, holding).pk), [])
+
+
+def _direct_holding_projection(
+    *,
+    holding: Model,
+    loan_schedule: list[Any],
+) -> list[dict[str, Any]]:
+    """Return a projection only when legacy direct-loan data reconciles exactly."""
+    servicing = _servicing_services()
+    try:
+        schedules = servicing.get_holding_repayment_schedule_snapshots(
+            holdings=[holding],
+            loan_schedules={str(cast(Any, holding).loan_id): loan_schedule},
+        )
+    except servicing.ServicingValidationError:
+        return []
+    return [asdict(row) for row in schedules.get(str(cast(Any, holding).pk), [])]
+
+
+def _originator_accrued_interest(
+    *,
+    holding: Model,
+    as_of_date: date,
+) -> tuple[int, Any, Any]:
+    current = next(
+        (
+            row
+            for row in _originator_holding_projection(
+                holding=holding,
+                as_of_date=as_of_date,
+            )
+            if isinstance(row.get("accrual_start_date"), date)
+            and row["accrual_start_date"] <= as_of_date <= row["due_date"]
+        ),
+        None,
+    )
+    if current is None:
+        return 0, None, as_of_date
+    holding_ref = cast(Any, holding)
+    entitlement_at = (
+        holding_ref.economic_entitlement_start_at or holding_ref.assignment_effective_at
+    )
+    entitlement_date = to_business_time(entitlement_at).date()
+    from_date = max(current["accrual_start_date"], entitlement_date)
+    eligible_days = max(0, (current["due_date"] - from_date).days)
+    elapsed_days = max(0, (min(as_of_date, current["due_date"]) - from_date).days)
+    if eligible_days <= 0 or elapsed_days <= 0:
+        return 0, from_date, as_of_date
+    accrued = _round_minor(
+        Decimal(int(current["projected_interest_minor"]))
+        * Decimal(elapsed_days)
+        / Decimal(eligible_days)
+    )
+    return accrued, from_date, as_of_date
+
+
+def _projected_effective_yield_bps(
+    *,
+    initial_cost_minor: int,
+    cash_flows: list[dict[str, Any]],
+    pricing_date: date,
+) -> int | None:
+    dated_flows = [
+        (cast(date, row["due_date"]), int(row["projected_total_minor"]))
+        for row in cash_flows
+        if cast(date, row["due_date"]) >= pricing_date and int(row["projected_total_minor"]) > 0
+    ]
+    if initial_cost_minor <= 0 or not dated_flows:
+        return None
+
+    def present_value(rate: Decimal) -> Decimal:
+        base = Decimal(1) + rate
+        if base <= 0:
+            return Decimal("Infinity")
+        total = Decimal(0)
+        for due_date, amount_minor in dated_flows:
+            years = Decimal(max(0, (due_date - pricing_date).days)) / Decimal(365)
+            total += Decimal(amount_minor) / (base**years)
+        return total
+
+    target = Decimal(initial_cost_minor)
+    low = Decimal("-0.9999")
+    high = Decimal("10")
+    while present_value(high) > target and high < Decimal("1000000"):
+        high *= Decimal(2)
+    if present_value(low) < target or present_value(high) > target:
+        return None
+    for _ in range(120):
+        midpoint = (low + high) / Decimal(2)
+        if present_value(midpoint) > target:
+            low = midpoint
+        else:
+            high = midpoint
+    return _round_minor(((low + high) / Decimal(2)) * Decimal(10_000))
 
 
 def _interest_covered_until_date(loan_id: str) -> Any:
@@ -361,9 +493,7 @@ def _interest_covered_until_date(loan_id: str) -> Any:
                 "borrower_repayment_bank_date"
             )
             covered_dates.append(
-                date.fromisoformat(str(raw_bank_date))
-                if raw_bank_date
-                else event_ref.value_date
+                date.fromisoformat(str(raw_bank_date)) if raw_bank_date else event_ref.value_date
             )
         else:
             # A regular installment pays its full contractual interest even
@@ -407,6 +537,23 @@ def _days_past_due(loan: Model, as_of_date: Any) -> int:
     return 0
 
 
+def _originator_days_past_due(loan: Model, as_of_date: date) -> int:
+    profile = cast(Any, cast(Any, loan).originator_profile)
+    if str(cast(Any, loan).status) == PERFORMING_LOAN_STATUS:
+        return 0
+    if profile.current_import_id is None:
+        return 0
+    first_outstanding = (
+        profile.current_import.schedule_rows.filter(due_date__gt=profile.current_import.as_of_date)
+        .order_by("due_date", "installment_number", "id")
+        .first()
+    )
+    if first_outstanding is None:
+        return 0
+    due_date = cast(date, cast(Any, first_outstanding).due_date)
+    return max(0, (as_of_date - due_date).days)
+
+
 def _accrued_interest(
     *,
     holding: Model,
@@ -417,12 +564,15 @@ def _accrued_interest(
     loan_ref = cast(Any, loan)
     if str(loan_ref.status) != PERFORMING_LOAN_STATUS:
         return 0, None, as_of_date
+    if _is_originator_claim_loan(loan):
+        return _originator_accrued_interest(
+            holding=holding,
+            as_of_date=cast(date, as_of_date),
+        )
     holding_ref = cast(Any, holding)
     assigned_date = to_business_time(holding_ref.assignment_effective_at).date()
     from_date = (
-        max(assigned_date, interest_covered_until)
-        if interest_covered_until
-        else assigned_date
+        max(assigned_date, interest_covered_until) if interest_covered_until else assigned_date
     )
     days = max(0, (as_of_date - from_date).days)
     if days == 0:
@@ -468,8 +618,13 @@ def _pricing_snapshot(
     )
     maker_fee_minor = _fee_minor(transfer_price_minor, maker_fee_bps, minimum_maker_fee_minor)
     taker_fee_minor = _fee_minor(transfer_price_minor, taker_fee_bps, minimum_taker_fee_minor)
+    default_last_payment_date = (
+        _originator_last_payment_date(str(loan_ref.id))
+        if _is_originator_claim_loan(loan)
+        else _last_payment_date(str(loan_ref.id))
+    )
     last_payment_date = (
-        _last_payment_date(str(loan_ref.id))
+        default_last_payment_date
         if last_payment_date_override is _USE_DATABASE_PRICING_VALUE
         else last_payment_date_override
     )
@@ -506,7 +661,11 @@ def _pricing_snapshot(
         buyer_total_cost_minor=buyer_total,
         loan_status_at_listing=status,
         days_past_due=(
-            _days_past_due(loan, as_of_date)
+            (
+                _originator_days_past_due(loan, cast(date, as_of_date))
+                if _is_originator_claim_loan(loan)
+                else _days_past_due(loan, as_of_date)
+            )
             if days_past_due_override is _USE_DATABASE_PRICING_VALUE
             else int(days_past_due_override)
         ),
@@ -524,8 +683,7 @@ def _pricing_context_from_schedule(
         row.payment_date if row.status == "paid_in_advance" else row.due_date
         for row in schedule
         if row.row_type == "repayment_event"
-        and (row.payment_date if row.status == "paid_in_advance" else row.due_date)
-        is not None
+        and (row.payment_date if row.status == "paid_in_advance" else row.due_date) is not None
     ]
     interest_covered_until = max(coverage_dates, default=None)
     days_past_due = 0
@@ -597,9 +755,7 @@ def _validate_listing_acceptance(
     if str(acceptance_ref.context_type) != LISTING_CONTEXT_TYPE:
         raise SecondaryMarketValidationError("Document acceptance context is not valid.")
     if str(acceptance_ref.context_id) != str(cast(Any, holding).id):
-        raise SecondaryMarketValidationError(
-            "Document acceptance does not match this holding."
-        )
+        raise SecondaryMarketValidationError("Document acceptance does not match this holding.")
     if str(acceptance_ref.template.current_published_version_id) != str(
         acceptance_ref.template_version_id
     ):
@@ -807,9 +963,7 @@ def _existing_purchase_replay(
         raise SecondaryMarketValidationError(
             "Idempotency key was already used for a different purchase request."
         )
-    if bool(existing.risk_acknowledgement_accepted) != bool(
-        command.risk_acknowledgement_accepted
-    ):
+    if bool(existing.risk_acknowledgement_accepted) != bool(command.risk_acknowledgement_accepted):
         raise SecondaryMarketValidationError(
             "Idempotency key was already used for a different purchase request."
         )
@@ -862,9 +1016,7 @@ def refresh_open_secondary_market_listings_for_loan(
     loan_model = _model("loans", "Loan")
     locked_loan = cast(
         Model | None,
-        loan_model.objects.select_for_update()
-        .filter(id=cast(Any, loan).pk)
-        .first(),
+        loan_model.objects.select_for_update().filter(id=cast(Any, loan).pk).first(),
     )
     if locked_loan is None:
         raise SecondaryMarketValidationError("Listing loan does not exist.")
@@ -886,9 +1038,12 @@ def refresh_open_secondary_market_listings_for_loan(
     )
     refreshed: list[SecondaryMarketListingRefresh] = []
     for listing in listings:
-        event_key = "secondary-refresh:" + hashlib.sha256(
-            f"{source_type_clean}:{source_id_clean}:{listing.id}".encode()
-        ).hexdigest()
+        event_key = (
+            "secondary-refresh:"
+            + hashlib.sha256(
+                f"{source_type_clean}:{source_id_clean}:{listing.id}".encode()
+            ).hexdigest()
+        )
         existing_event = SecondaryMarketListingEvent.objects.filter(
             idempotency_key=event_key
         ).first()
@@ -987,16 +1142,12 @@ def refresh_open_secondary_market_listings_for_loan(
             listing.days_past_due = pricing.days_past_due
             listing.last_payment_date = pricing.last_payment_date
             listing.risk_acknowledgement_required = pricing.risk_acknowledgement_required
-            listing.listed_at = (
-                (listing.listed_at or now_utc()) if is_performing else None
-            )
+            listing.listed_at = (listing.listed_at or now_utc()) if is_performing else None
             if not is_performing:
                 listing.approved_by_admin_id = None
                 listing.approved_at = None
                 listing.approval_reason = ""
-            listing.public_disclosure_note = (
-                "" if is_performing else listing.public_disclosure_note
-            )
+            listing.public_disclosure_note = "" if is_performing else listing.public_disclosure_note
             listing.metadata = {
                 **cast(dict[str, Any], listing.metadata),
                 "last_automatic_refresh": {
@@ -1186,9 +1337,7 @@ def create_secondary_market_listing(
         raise SecondaryMarketValidationError("Only holdings with principal can be listed.")
     if str(holding_ref.currency_id) != str(loan_ref.currency_id):
         raise SecondaryMarketValidationError("Holding currency does not match loan currency.")
-    loan_status = str(loan_ref.status)
-    if loan_status not in {PERFORMING_LOAN_STATUS, *NONSTANDARD_LISTABLE_STATUSES}:
-        raise SecondaryMarketValidationError("Loan status is not listable on the secondary market.")
+    _require_listable_loan_status(loan)
     currency = _enabled_currency(str(holding_ref.currency_id))
     _validate_listing_acceptance(
         acceptance_id=command.document_acceptance_id,
@@ -1265,9 +1414,7 @@ def _create_secondary_market_listing_after_sensitive_code(
         raise SecondaryMarketValidationError("Only holdings with principal can be listed.")
     if str(holding_ref.currency_id) != str(loan_ref.currency_id):
         raise SecondaryMarketValidationError("Holding currency does not match loan currency.")
-    loan_status = str(loan_ref.status)
-    if loan_status not in {PERFORMING_LOAN_STATUS, *NONSTANDARD_LISTABLE_STATUSES}:
-        raise SecondaryMarketValidationError("Loan status is not listable on the secondary market.")
+    loan_status = _require_listable_loan_status(loan)
     currency = _enabled_currency(str(holding_ref.currency_id))
     acceptance = _validate_listing_acceptance(
         acceptance_id=command.document_acceptance_id,
@@ -1550,9 +1697,8 @@ def _edit_secondary_market_listing_after_sensitive_code(
         SecondaryMarketListingStatus.APPROVAL_REQUESTED,
     }:
         raise SecondaryMarketValidationError("Only open listings can be edited.")
-    if (
-        str(listing.loan_id) != str(locator["loan_id"])
-        or str(listing.holding_id) != str(locator["holding_id"])
+    if str(listing.loan_id) != str(locator["loan_id"]) or str(listing.holding_id) != str(
+        locator["holding_id"]
     ):
         raise SecondaryMarketValidationError("Listing ownership changed during the edit.")
     holding_ref = cast(Any, holding)
@@ -1561,9 +1707,7 @@ def _edit_secondary_market_listing_after_sensitive_code(
         raise SecondaryMarketValidationError("Only active holdings with principal can be listed.")
     if str(holding_ref.currency_id) != str(loan_ref.currency_id):
         raise SecondaryMarketValidationError("Holding currency does not match loan currency.")
-    loan_status = str(loan_ref.status)
-    if loan_status not in {PERFORMING_LOAN_STATUS, *NONSTANDARD_LISTABLE_STATUSES}:
-        raise SecondaryMarketValidationError("Loan status is not listable on the secondary market.")
+    loan_status = _require_listable_loan_status(loan)
     acceptance = _validate_listing_acceptance(
         acceptance_id=command.document_acceptance_id,
         actor=command.actor,
@@ -1800,9 +1944,7 @@ def approve_secondary_market_listing(
     reason = _clean_required(command.reason, "Approval reason")
     disclosure_note = _clean_required(command.disclosure_note, "Disclosure note")
     listing = (
-        SecondaryMarketListing.objects.select_for_update()
-        .filter(id=command.listing_id)
-        .first()
+        SecondaryMarketListing.objects.select_for_update().filter(id=command.listing_id).first()
     )
     if listing is None:
         raise SecondaryMarketValidationError("Secondary-market listing does not exist.")
@@ -1894,9 +2036,7 @@ def reject_secondary_market_listing(
     idempotency_key = _clean_idempotency_key(command.idempotency_key)
     reason = _clean_required(command.reason, "Rejection reason")
     listing = (
-        SecondaryMarketListing.objects.select_for_update()
-        .filter(id=command.listing_id)
-        .first()
+        SecondaryMarketListing.objects.select_for_update().filter(id=command.listing_id).first()
     )
     if listing is None:
         raise SecondaryMarketValidationError("Secondary-market listing does not exist.")
@@ -1981,9 +2121,7 @@ def remove_secondary_market_listing(
     idempotency_key = _clean_idempotency_key(command.idempotency_key)
     reason = _clean_required(command.reason, "Removal reason")
     listing = (
-        SecondaryMarketListing.objects.select_for_update()
-        .filter(id=command.listing_id)
-        .first()
+        SecondaryMarketListing.objects.select_for_update().filter(id=command.listing_id).first()
     )
     if listing is None:
         raise SecondaryMarketValidationError("Secondary-market listing does not exist.")
@@ -2071,9 +2209,7 @@ def cancel_secondary_market_listing(
     idempotency_key = _clean_idempotency_key(command.idempotency_key)
     reason = _clean_required(command.reason, "Cancellation reason")
     listing = (
-        SecondaryMarketListing.objects.select_for_update()
-        .filter(id=command.listing_id)
-        .first()
+        SecondaryMarketListing.objects.select_for_update().filter(id=command.listing_id).first()
     )
     if listing is None or str(listing.seller_user_id) != str(command.actor.pk):
         raise SecondaryMarketValidationError("Secondary-market listing does not exist.")
@@ -2168,7 +2304,14 @@ def purchase_secondary_market_listing(
         return replay
 
     listing = (
-        SecondaryMarketListing.objects.select_related("holding", "loan", "currency")
+        SecondaryMarketListing.objects.select_related(
+            "holding",
+            "loan",
+            "loan__originator_profile",
+            "loan__originator_profile__originator",
+            "loan__originator_profile__current_import",
+            "currency",
+        )
         .filter(id=command.listing_id)
         .first()
     )
@@ -2202,6 +2345,7 @@ def purchase_secondary_market_listing(
         raise SecondaryMarketValidationError("Seller holding does not exist.")
     holding_ref = cast(Any, holding)
     loan_ref = cast(Any, loan)
+    _require_listable_loan_status(loan)
     if str(holding_ref.status) != "active":
         raise SecondaryMarketValidationError("Seller holding is no longer active.")
     if str(holding_ref.investor_user_id) != seller_user_id:
@@ -2336,13 +2480,13 @@ def _purchase_secondary_market_listing_after_sensitive_code(
         raise SecondaryMarketValidationError("Buyer cannot purchase their own listing.")
     if SecondaryMarketPurchase.objects.filter(listing=listing).exists():
         raise SecondaryMarketValidationError("Secondary-market listing has already been sold.")
-    if (
-        str(listing.loan_id) != str(locator["loan_id"])
-        or str(listing.holding_id) != str(locator["holding_id"])
+    if str(listing.loan_id) != str(locator["loan_id"]) or str(listing.holding_id) != str(
+        locator["holding_id"]
     ):
         raise SecondaryMarketValidationError("Listing changed during purchase settlement.")
     holding_ref = cast(Any, holding)
     loan_ref = cast(Any, loan)
+    _require_listable_loan_status(loan)
     if str(holding_ref.status) != "active":
         raise SecondaryMarketValidationError("Seller holding is no longer active.")
     if str(holding_ref.investor_user_id) != seller_user_id:
@@ -2379,6 +2523,29 @@ def _purchase_secondary_market_listing_after_sensitive_code(
         raise SecondaryMarketValidationError(
             "Loan status changed after listing; seller must relist with current disclosures."
         )
+    if _is_originator_claim_loan(loan):
+        buyer_cash_flows = _originator_holding_projection(
+            holding=holding,
+            as_of_date=settlement_date,
+        )
+    else:
+        loan_schedule = (
+            _servicing_services()
+            .get_loan_repayment_schedule_snapshots(
+                loans=[loan],
+                as_of_date=settlement_date,
+            )
+            .get(str(loan_ref.id), [])
+        )
+        buyer_cash_flows = _direct_holding_projection(
+            holding=holding,
+            loan_schedule=loan_schedule,
+        )
+    buyer_projected_yield_bps = _projected_effective_yield_bps(
+        initial_cost_minor=pricing.buyer_total_cost_minor,
+        cash_flows=buyer_cash_flows,
+        pricing_date=settlement_date,
+    )
     purchase_id = uuid.uuid4()
     request_fingerprint = _purchase_request_fingerprint(
         command,
@@ -2458,6 +2625,7 @@ def _purchase_secondary_market_listing_after_sensitive_code(
         "buyer_lot_allocations": ledger_result.buyer_lot_allocations,
         "seller_holding_id": str(holding_ref.id),
         "buyer_holding_id": str(holding_result.buyer_holding.id),
+        "buyer_projected_yield_bps": buyer_projected_yield_bps,
     }
     try:
         with transaction.atomic():
@@ -2533,6 +2701,7 @@ def _purchase_secondary_market_listing_after_sensitive_code(
         "taker_fee_minor": pricing.taker_fee_minor,
         "seller_net_proceeds_minor": pricing.seller_net_proceeds_minor,
         "buyer_total_cost_minor": pricing.buyer_total_cost_minor,
+        "buyer_projected_yield_bps": buyer_projected_yield_bps,
     }
     _record_listing_event(
         listing=listing,
@@ -2617,12 +2786,16 @@ def list_active_secondary_market_listings(
             status=SecondaryMarketListingStatus.ACTIVE,
             loan__status=F("loan_status_at_listing"),
         )
+        .filter(~Q(loan__product_type="originator_claim") | Q(loan__status=PERFORMING_LOAN_STATUS))
         .order_by("-listed_at", "-created_at", "-id")[:safe_limit]
     )
     if not listings:
         return listings
 
-    loans_by_id = {str(listing.loan_id): cast(Model, listing.loan) for listing in listings}
+    direct_listings = [
+        listing for listing in listings if not _is_originator_claim_loan(cast(Model, listing.loan))
+    ]
+    loans_by_id = {str(listing.loan_id): cast(Model, listing.loan) for listing in direct_listings}
     as_of_date = business_date(now_utc())
     schedule_by_loan_id = _servicing_services().get_loan_repayment_schedule_snapshots(
         loans=list(loans_by_id.values()),
@@ -2636,6 +2809,29 @@ def list_active_secondary_market_listings(
         .annotate(last_payment_date=Max("value_date"))
     }
     for listing in listings:
+        if _is_originator_claim_loan(cast(Model, listing.loan)):
+            pricing = _pricing_snapshot(
+                holding=cast(Model, listing.holding),
+                loan=cast(Model, listing.loan),
+                price_bps=int(listing.price_bps),
+                as_of_date=as_of_date,
+            )
+            _apply_current_buyer_pricing(listing, pricing)
+            projection = _originator_holding_projection(
+                holding=cast(Model, listing.holding),
+                as_of_date=as_of_date,
+            )
+            profile = cast(Any, listing.loan).originator_profile
+            listing.remaining_term_months = max(  # type: ignore[attr-defined]
+                1,
+                ((profile.maturity_date - as_of_date).days + 29) // 30,
+            )
+            listing.projected_yield_bps = _projected_effective_yield_bps(  # type: ignore[attr-defined]
+                initial_cost_minor=pricing.buyer_total_cost_minor,
+                cash_flows=projection,
+                pricing_date=as_of_date,
+            )
+            continue
         schedule = schedule_by_loan_id.get(str(listing.loan_id), [])
         interest_covered_until, days_past_due = _pricing_context_from_schedule(
             loan=cast(Model, listing.loan),
@@ -2652,9 +2848,16 @@ def list_active_secondary_market_listings(
         )
         _apply_current_buyer_pricing(listing, pricing)
         listing.remaining_term_months = sum(  # type: ignore[attr-defined]
-            1
-            for row in schedule
-            if row.row_type == "scheduled_installment" and not row.is_paid
+            1 for row in schedule if row.row_type == "scheduled_installment" and not row.is_paid
+        )
+        direct_projection = _direct_holding_projection(
+            holding=cast(Model, listing.holding),
+            loan_schedule=schedule,
+        )
+        listing.projected_yield_bps = _projected_effective_yield_bps(  # type: ignore[attr-defined]
+            initial_cost_minor=pricing.buyer_total_cost_minor,
+            cash_flows=direct_projection,
+            pricing_date=as_of_date,
         )
     return listings
 
@@ -2670,6 +2873,9 @@ def get_active_secondary_market_listing_detail(
             "holding",
             "loan",
             "loan__borrower",
+            "loan__originator_profile",
+            "loan__originator_profile__originator",
+            "loan__originator_profile__current_import",
             "currency",
         )
         .filter(
@@ -2684,30 +2890,52 @@ def get_active_secondary_market_listing_detail(
 
     loan = cast(Any, listing.loan)
     holding = cast(Model, listing.holding)
-    servicing = _servicing_services()
     as_of = now_utc()
-    loan_schedules = servicing.get_loan_repayment_schedule_snapshots(
-        loans=[cast(Model, loan)],
-        as_of_date=business_date(as_of),
-    )
-    investment_schedules = servicing.get_holding_repayment_schedule_snapshots(
-        holdings=[holding],
-        loan_schedules=loan_schedules,
-    )
-    loan_schedule = loan_schedules.get(str(loan.pk), [])
-    investment_schedule = investment_schedules.get(str(cast(Any, holding).pk), [])
-    interest_covered_until, days_past_due = _pricing_context_from_schedule(
-        loan=cast(Model, loan),
-        schedule=loan_schedule,
-    )
-    current_pricing = _pricing_snapshot(
-        holding=holding,
-        loan=cast(Model, loan),
-        price_bps=int(listing.price_bps),
-        as_of_date=business_date(as_of),
-        interest_covered_until_override=interest_covered_until,
-        days_past_due_override=days_past_due,
-    )
+    as_of_date = business_date(as_of)
+    is_originator = _is_originator_claim_loan(cast(Model, loan))
+    originator_loan_payload: dict[str, Any] | None = None
+    if is_originator:
+        originator_loan_payload = cast(
+            dict[str, Any],
+            _originator_services().originator_portfolio_loan_payload(
+                loan.originator_profile,
+                as_of_date=as_of_date,
+            ),
+        )
+        loan_schedule = originator_loan_payload["schedule"]
+        investment_schedule = _originator_holding_projection(
+            holding=holding,
+            as_of_date=as_of_date,
+        )
+        current_pricing = _pricing_snapshot(
+            holding=holding,
+            loan=cast(Model, loan),
+            price_bps=int(listing.price_bps),
+            as_of_date=as_of_date,
+        )
+    else:
+        servicing = _servicing_services()
+        loan_schedules = servicing.get_loan_repayment_schedule_snapshots(
+            loans=[cast(Model, loan)],
+            as_of_date=as_of_date,
+        )
+        loan_schedule = loan_schedules.get(str(loan.pk), [])
+        investment_schedule = _direct_holding_projection(
+            holding=holding,
+            loan_schedule=loan_schedule,
+        )
+        interest_covered_until, days_past_due = _pricing_context_from_schedule(
+            loan=cast(Model, loan),
+            schedule=loan_schedule,
+        )
+        current_pricing = _pricing_snapshot(
+            holding=holding,
+            loan=cast(Model, loan),
+            price_bps=int(listing.price_bps),
+            as_of_date=as_of_date,
+            interest_covered_until_override=interest_covered_until,
+            days_past_due_override=days_past_due,
+        )
 
     note_model = _model("servicing", "LoanRiskNote")
     latest_public_note = (
@@ -2715,11 +2943,19 @@ def get_active_secondary_market_listing_detail(
         .order_by("-occurred_at", "-id")
         .first()
     )
-    borrower = cast(Any, loan.borrower)
+    borrower = cast(Any, loan.borrower) if not is_originator else None
+    projected_yield_bps = _projected_effective_yield_bps(
+        initial_cost_minor=current_pricing.buyer_total_cost_minor,
+        cash_flows=[
+            asdict(row) if not isinstance(row, dict) else row for row in investment_schedule
+        ],
+        pricing_date=as_of_date,
+    )
     return {
         "id": str(listing.pk),
         "loan_id": str(listing.loan_id),
         "loan_title": str(loan.title),
+        "product_type": str(getattr(loan, "product_type", "direct")),
         "status": str(listing.status),
         "current_principal_minor": current_pricing.current_principal_minor,
         "currency": str(listing.currency_id),
@@ -2739,34 +2975,82 @@ def get_active_secondary_market_listing_detail(
         "risk_acknowledgement_required": current_pricing.risk_acknowledgement_required,
         "public_disclosure_note": str(listing.public_disclosure_note),
         "listed_at": listing.listed_at,
-        "borrower_name": str(borrower.legal_name),
-        "borrower_country": str(getattr(borrower, "country", "")),
+        "borrower_name": (
+            str(originator_loan_payload["borrower_name"])
+            if originator_loan_payload is not None
+            else str(getattr(borrower, "legal_name", ""))
+        ),
+        "borrower_country": (
+            str(originator_loan_payload["borrower_country"])
+            if originator_loan_payload is not None
+            else str(getattr(borrower, "country", ""))
+        ),
+        "originator_id": (
+            originator_loan_payload["originator_id"]
+            if originator_loan_payload is not None
+            else None
+        ),
+        "originator_name": (
+            str(originator_loan_payload["originator_name"])
+            if originator_loan_payload is not None
+            else ""
+        ),
         "purpose": str(loan.purpose),
         "collateral_type": str(loan.collateral_type),
         "risk_rating": str(loan.risk_rating),
         "interest_rate_bps": int(loan.interest_rate_bps),
-        "term_months": int(loan.term_months),
+        "yield_bps": projected_yield_bps,
+        "projected_yield_bps": projected_yield_bps,
+        "underlying_interest_rate_bps": int(loan.interest_rate_bps),
+        "term_months": (
+            int(originator_loan_payload["term_months"])
+            if originator_loan_payload is not None
+            else int(loan.term_months)
+        ),
         "repayment_type": str(loan.repayment_type),
-        "ltv_bps": loan.ltv_bps,
+        "ltv_bps": (
+            originator_loan_payload["ltv_bps"]
+            if originator_loan_payload is not None
+            else loan.ltv_bps
+        ),
         "loan_start_date": loan.loan_start_date,
-        "first_payment_date": loan.first_payment_date,
-        "schedule_version": int(loan.schedule_version),
+        "first_payment_date": (
+            originator_loan_payload["first_payment_date"]
+            if originator_loan_payload is not None
+            else loan.first_payment_date
+        ),
+        "maturity_date": (
+            originator_loan_payload["maturity_date"]
+            if originator_loan_payload is not None
+            else None
+        ),
+        "schedule_version": (
+            int(originator_loan_payload["schedule_version"])
+            if originator_loan_payload is not None
+            else int(loan.schedule_version)
+        ),
         "remaining_term_months": len(
             [
                 row
                 for row in loan_schedule
-                if row.row_type == "scheduled_installment" and not row.is_paid
+                if (
+                    (row.get("row_type") == "originator_schedule" and not row.get("is_paid"))
+                    if isinstance(row, dict)
+                    else row.row_type == "scheduled_installment" and not row.is_paid
+                )
             ]
         ),
         "loan_schedule": [
-            {
-                key: value
-                for key, value in asdict(row).items()
-                if key != "admin_overridden"
-            }
+            (
+                row
+                if isinstance(row, dict)
+                else {key: value for key, value in asdict(row).items() if key != "admin_overridden"}
+            )
             for row in loan_schedule
         ],
-        "investment_schedule": [asdict(row) for row in investment_schedule],
+        "investment_schedule": [
+            asdict(row) if not isinstance(row, dict) else row for row in investment_schedule
+        ],
         "latest_public_note": (
             {
                 "id": str(latest_public_note.pk),

@@ -4,7 +4,7 @@ from dataclasses import asdict
 from importlib import import_module
 from typing import Any, cast
 
-from django.db.models import Model, QuerySet
+from django.db.models import Model, Q, QuerySet
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -64,8 +64,12 @@ def _manual_rows_from_data(
 
 
 def _loan_queryset_from_query(data: dict[str, Any]) -> QuerySet[Loan]:
-    queryset = Loan.objects.select_related("currency", "borrower").all()
-    for field in ("status", "purpose", "repayment_type", "risk_rating"):
+    queryset = Loan.objects.select_related(
+        "currency",
+        "borrower",
+        "originator_profile__originator",
+    ).all()
+    for field in ("status", "purpose", "repayment_type", "risk_rating", "product_type"):
         if data.get(field):
             queryset = queryset.filter(**{field: data[field]})
     if data.get("borrower_id"):
@@ -74,7 +78,14 @@ def _loan_queryset_from_query(data: dict[str, Any]) -> QuerySet[Loan]:
         queryset = queryset.filter(currency_id=str(data["currency"]).upper())
     if data.get("q"):
         query = data["q"]
-        queryset = queryset.filter(title__icontains=query)
+        queryset = queryset.filter(
+            Q(title__icontains=query)
+            | Q(borrower__legal_name__icontains=query)
+            | Q(originator_profile__originator__legal_name__icontains=query)
+            | Q(originator_profile__originator__public_name__icontains=query)
+            | Q(originator_profile__borrower_legal_name__icontains=query)
+            | Q(originator_profile__borrower_display_name__icontains=query)
+        )
     return queryset
 
 
@@ -160,7 +171,11 @@ class LoanDetailView(APIView):
     def get(self, request: Request, loan_id: str) -> Response:
         if not is_admin_actor(request.user):
             return _admin_forbidden_response()
-        loan = Loan.objects.select_related("currency", "borrower").filter(id=loan_id).first()
+        loan = Loan.objects.select_related(
+            "currency",
+            "borrower",
+            "originator_profile__originator",
+        ).filter(id=loan_id).first()
         if loan is None:
             return Response({"detail": "Loan does not exist."}, status=status.HTTP_404_NOT_FOUND)
         return Response(serialize_loan(loan), status=status.HTTP_200_OK)

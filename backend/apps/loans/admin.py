@@ -9,6 +9,7 @@ from backend.apps.loans.models import Loan, LoanEvent, LoanInstallment
 class LoanAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     list_display = (
         "title",
+        "product_type",
         "borrower",
         "status",
         "principal_minor",
@@ -17,7 +18,14 @@ class LoanAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
         "term_months",
         "funding_deadline",
     )
-    list_filter = ("status", "currency", "purpose", "repayment_type", "risk_rating")
+    list_filter = (
+        "product_type",
+        "status",
+        "currency",
+        "purpose",
+        "repayment_type",
+        "risk_rating",
+    )
     search_fields = ("title", "borrower__legal_name")
     readonly_fields = ("id", "created_at", "updated_at", "published_at")
 

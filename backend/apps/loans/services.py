@@ -26,6 +26,7 @@ from backend.apps.loans.models import (
     LoanEvent,
     LoanEventType,
     LoanInstallment,
+    LoanProductType,
     LoanPurpose,
     LoanStatus,
     RepaymentType,
@@ -240,16 +241,12 @@ def _validate_interest_only_months_for_repayment(
         RepaymentType.BULLET_PERIODIC_INTEREST,
     }:
         if interest_only_months != 0:
-            raise LoanValidationError(
-                f"{label} are only valid for interest-only repayment types."
-            )
+            raise LoanValidationError(f"{label} are only valid for interest-only repayment types.")
         return 0
     if repayment_type == RepaymentType.INTEREST_ONLY_THEN_BULLET:
         return term_months - 1
     if interest_only_months <= 0 or interest_only_months >= term_months:
-        raise LoanValidationError(
-            f"{label} must be between 1 and term_months - 1."
-        )
+        raise LoanValidationError(f"{label} must be between 1 and term_months - 1.")
     return interest_only_months
 
 
@@ -355,9 +352,7 @@ def _validate_original_loan_terms(
                 original_loan_start_date,
             )
         ):
-            raise LoanValidationError(
-                "Original loan data is only allowed for refinancing loans."
-            )
+            raise LoanValidationError("Original loan data is only allowed for refinancing loans.")
         return principal_minor, None, None, "", None, None
     original_principal = _validate_original_principal(original_principal_minor, principal_minor)
     if original_interest_rate_bps is None:
@@ -937,6 +932,10 @@ def update_loan(command: UpdateLoanCommand) -> Loan:
     loan = Loan.objects.select_for_update().filter(id=command.loan_id).first()
     if loan is None:
         raise LoanValidationError("Loan does not exist.")
+    if loan.product_type != LoanProductType.DIRECT:
+        raise LoanValidationError(
+            "Loan Originator claims must be changed through the originator-claims workflow."
+        )
 
     if loan.committed_principal_minor > 0:
         disallowed = _post_commit_change_keys(command)
@@ -1132,14 +1131,14 @@ def update_loan(command: UpdateLoanCommand) -> Loan:
     if not loan.is_refinancing and any(
         value is not None
         for value in (
-                command.original_principal_minor,
-                command.original_interest_rate_bps,
-                command.original_term_months,
-                command.original_repayment_type,
-                command.original_interest_only_months,
-                command.original_loan_start_date,
-            )
-        ):
+            command.original_principal_minor,
+            command.original_interest_rate_bps,
+            command.original_term_months,
+            command.original_repayment_type,
+            command.original_interest_only_months,
+            command.original_loan_start_date,
+        )
+    ):
         raise LoanValidationError("Original loan data is only allowed for refinancing loans.")
     if loan.is_refinancing:
         for field, value in (
@@ -1282,10 +1281,16 @@ def publish_loan(command: PublishLoanCommand) -> Loan:
     )
     if loan is None:
         raise LoanValidationError("Loan does not exist.")
+    if loan.product_type != LoanProductType.DIRECT:
+        raise LoanValidationError(
+            "Loan Originator claims must be published through the originator-claims workflow."
+        )
     if loan.status != LoanStatus.DRAFT:
         raise LoanValidationError("Only draft loans can be published.")
     if not _borrower_can_transact(cast(Model, loan.borrower)):
         raise LoanValidationError("Borrower KYB must be approved and free of compliance hold.")
+    if loan.funding_deadline is None:
+        raise LoanValidationError("Direct loans require a funding deadline before publication.")
     _assert_publishable_funding_deadline(loan.funding_deadline)
     _assert_current_schedule_complete(loan)
     paid_installments, original_loan_state = _validate_publication_original_loan_state(

@@ -939,3 +939,17 @@ Examples:
 25. Answered by PAY-DEC-026: all launch external bank movements are admin-declared bank operations using lender deposit, lender withdrawal, borrower loan disbursement, borrower repayment, Garanta out, Garanta in, and currency-exchange external settlement types.
 26. Answered by PAY-DEC-026/PAY-DEC-027: reconciliation compares bank-stated balances with investor balances, Garanta accrued revenue held in collection accounts, suspense/unmatched cash, and pending/exception balances by currency; external FX settlement records actual execution details and calculates realized FX surplus/deficit by currency.
 25. Updated by PAY-DEC-025 and KYC-DEC-008: admin-created legal-entity lender accounts behave like regular lenders for balances and transactions only after off-platform KYB/AML is recorded and approved by admin.
+
+## Loan Originator Settlement Accounting
+
+### PAY-DEC-028: Purchase Ledger
+
+An originator purchase posts no external cash: debit investor-balance liability for consideration, credit originator-settlement payable for consideration less BANXUM fee, and credit platform-fee revenue for the fee. Evidence includes purchase, loan, originator, investor, principal, revision, and quote fingerprint. FIFO lot conservation remains enforced. Originator payable is included in reconciliation and sign-anomaly checks.
+
+### PAY-DEC-029: Batch Settlement
+
+Garanta settles accumulated originator payable no later than five calendar days after purchase. One batch includes unsettled purchases for one originator/currency and must clear the selected payable; arbitrary partial settlement is out of v1. Settlement debits originator payable and credits collection cash, records bank/evidence fields, and uniquely links purchases. A task is due at day 3 and overdue/high-priority after day 5. Finance Ops groups payable, purchase count, fee, age, and settlement action.
+
+### PAY-DEC-030: Originator Servicing Payable
+
+Borrower repayments after assignments split into investor liabilities and originator servicing payable. Investors receive dated assigned entitlements; originator receives unsold-principal amounts and pre-assignment accrual. The same batch mechanism settles originator amounts. No recourse/buyback payable exists.

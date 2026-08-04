@@ -247,6 +247,26 @@
     {
       "term": "Reverification",
       "definition": "Asking a customer to redo their identity/business verification, for example because the previous one expired or new information is needed. The case status becomes \"re-verification required\"."
+    },
+    {
+      "term": "Loan Originator (LO)",
+      "definition": "A professional lender that already owns loans to final business borrowers and offers part of a performing loan through BANXUM. The originator is an admin-managed accounting/settlement entity with off-platform KYB; it has no BANXUM login."
+    },
+    {
+      "term": "Originator claim",
+      "definition": "A dated legal assignment of part of an existing final-borrower loan. The investor buys it immediately at a price calculated from the target yield and receives interest/penalty entitlement only from purchase time forward. The originator retains the unsold share and earlier accrual."
+    },
+    {
+      "term": "Coupon versus target yield",
+      "definition": "Coupon is the contractual annual rate paid by the final borrower. Target yield is the effective annual ACT/365 return used to price the investor's remaining dated cash flows before losses and taxes. The target yield stays fixed while the claim price changes by day; coupon and yield are not interchangeable."
+    },
+    {
+      "term": "Dated entitlement",
+      "definition": "The immutable start time and claim share that determine which principal, interest and penalty amounts belong to an investor. Accrual before assignment remains with the originator; accrual after assignment belongs to the current investor holder."
+    },
+    {
+      "term": "Originator payable",
+      "definition": "An accounting liability owed by Garanta to a Loan Originator. Claim purchase proceeds (after the private BANXUM fee) and the originator share of borrower repayments accumulate here until Finance Operations executes and records a complete external settlement batch."
     }
   ],
   "statuses": [
