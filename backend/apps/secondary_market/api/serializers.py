@@ -2,11 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from django.apps import apps
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from backend.apps.platform_core.domain.time import business_date, now_utc
 from backend.apps.secondary_market.models import SecondaryMarketListing, SecondaryMarketPurchase
 
 
@@ -82,7 +80,7 @@ class SecondaryMarketBuyerListingSerializer(serializers.Serializer[Any]):
     listed_at = serializers.DateTimeField(allow_null=True)
     # Buyer-safe loan context for the "For sale now" listing table. These
     # values are already disclosed on the listing detail; exposing them on the
-    # list keeps the coupon/left-to-run/return columns of the redesign honest.
+    # list keeps the coupon and remaining-term columns authoritative.
     interest_rate_bps = serializers.IntegerField(source="loan.interest_rate_bps")
     collateral_type = serializers.CharField(source="loan.collateral_type")
     remaining_term_months = serializers.SerializerMethodField()
@@ -91,15 +89,7 @@ class SecondaryMarketBuyerListingSerializer(serializers.Serializer[Any]):
     def get_remaining_term_months(self, listing: Any) -> int:
         if isinstance(listing, dict):
             return int(listing.get("remaining_term_months") or 0)
-        loan = listing.loan
-        installment_model = apps.get_model("loans", "LoanInstallment")
-        return int(
-            installment_model.objects.filter(
-                loan=loan,
-                schedule_version=loan.schedule_version,
-                due_date__gte=business_date(now_utc()),
-            ).count()
-        )
+        return int(getattr(listing, "remaining_term_months", 0))
 
 
 class SecondaryMarketLoanInstallmentSerializer(serializers.Serializer[Any]):

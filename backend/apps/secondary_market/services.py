@@ -13,7 +13,7 @@ from django.apps import apps
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
-from django.db.models import F, Model, Sum
+from django.db.models import F, Max, Model, Sum
 
 from backend.apps.platform_core.domain.access import (
     actor_ref_for_user,
@@ -81,6 +81,7 @@ CANCELLATION_FINGERPRINT_METADATA_KEY = "cancellation_request_fingerprint"
 CANCELLATION_IDEMPOTENCY_METADATA_KEY = "cancellation_idempotency_key"
 PERFORMING_LOAN_STATUS = "active"
 NONSTANDARD_LISTABLE_STATUSES = {"late", "defaulted"}
+_USE_DATABASE_PRICING_VALUE = object()
 
 
 def _investor_email_for_user_id(investor_user_id: str) -> str:
@@ -441,6 +442,9 @@ def _pricing_snapshot(
     loan: Model,
     price_bps: int,
     as_of_date: Any,
+    last_payment_date_override: Any = _USE_DATABASE_PRICING_VALUE,
+    interest_covered_until_override: Any = _USE_DATABASE_PRICING_VALUE,
+    days_past_due_override: Any = _USE_DATABASE_PRICING_VALUE,
 ) -> SecondaryMarketListingPricing:
     holding_ref = cast(Any, holding)
     loan_ref = cast(Any, loan)
@@ -464,8 +468,16 @@ def _pricing_snapshot(
     )
     maker_fee_minor = _fee_minor(transfer_price_minor, maker_fee_bps, minimum_maker_fee_minor)
     taker_fee_minor = _fee_minor(transfer_price_minor, taker_fee_bps, minimum_taker_fee_minor)
-    last_payment_date = _last_payment_date(str(loan_ref.id))
-    interest_covered_until = _interest_covered_until_date(str(loan_ref.id))
+    last_payment_date = (
+        _last_payment_date(str(loan_ref.id))
+        if last_payment_date_override is _USE_DATABASE_PRICING_VALUE
+        else last_payment_date_override
+    )
+    interest_covered_until = (
+        _interest_covered_until_date(str(loan_ref.id))
+        if interest_covered_until_override is _USE_DATABASE_PRICING_VALUE
+        else interest_covered_until_override
+    )
     accrued_interest_minor, accrued_from_date, accrued_to_date = _accrued_interest(
         holding=holding,
         loan=loan,
@@ -493,10 +505,65 @@ def _pricing_snapshot(
         seller_net_proceeds_minor=seller_net,
         buyer_total_cost_minor=buyer_total,
         loan_status_at_listing=status,
-        days_past_due=_days_past_due(loan, as_of_date),
+        days_past_due=(
+            _days_past_due(loan, as_of_date)
+            if days_past_due_override is _USE_DATABASE_PRICING_VALUE
+            else int(days_past_due_override)
+        ),
         last_payment_date=last_payment_date,
         risk_acknowledgement_required=status != PERFORMING_LOAN_STATUS,
     )
+
+
+def _pricing_context_from_schedule(
+    *,
+    loan: Model,
+    schedule: list[Any],
+) -> tuple[Any, int]:
+    coverage_dates = [
+        row.payment_date if row.status == "paid_in_advance" else row.due_date
+        for row in schedule
+        if row.row_type == "repayment_event"
+        and (row.payment_date if row.status == "paid_in_advance" else row.due_date)
+        is not None
+    ]
+    interest_covered_until = max(coverage_dates, default=None)
+    days_past_due = 0
+    if str(cast(Any, loan).status) != PERFORMING_LOAN_STATUS:
+        first_outstanding = next(
+            (
+                row
+                for row in schedule
+                if row.row_type == "scheduled_installment" and not row.is_paid
+            ),
+            None,
+        )
+        if first_outstanding is not None:
+            days_past_due = int(first_outstanding.days_past_due)
+    return interest_covered_until, days_past_due
+
+
+def _apply_current_buyer_pricing(
+    listing: SecondaryMarketListing,
+    pricing: SecondaryMarketListingPricing,
+) -> None:
+    for field_name in (
+        "current_principal_minor",
+        "transfer_price_minor",
+        "discount_premium_bps",
+        "accrued_interest_minor",
+        "accrued_interest_from_date",
+        "accrued_interest_to_date",
+        "taker_fee_bps",
+        "minimum_taker_fee_minor",
+        "taker_fee_minor",
+        "buyer_total_cost_minor",
+        "loan_status_at_listing",
+        "days_past_due",
+        "last_payment_date",
+        "risk_acknowledgement_required",
+    ):
+        setattr(listing, field_name, getattr(pricing, field_name))
 
 
 def _validate_listing_price_bps(price_bps: int) -> int:
@@ -2544,7 +2611,7 @@ def list_active_secondary_market_listings(
 ) -> list[SecondaryMarketListing]:
     _require_investor_financial_access(actor)
     safe_limit = min(max(int(limit), 1), 250)
-    return list(
+    listings = list(
         SecondaryMarketListing.objects.select_related("holding", "loan", "currency")
         .filter(
             status=SecondaryMarketListingStatus.ACTIVE,
@@ -2552,6 +2619,44 @@ def list_active_secondary_market_listings(
         )
         .order_by("-listed_at", "-created_at", "-id")[:safe_limit]
     )
+    if not listings:
+        return listings
+
+    loans_by_id = {str(listing.loan_id): cast(Model, listing.loan) for listing in listings}
+    as_of_date = business_date(now_utc())
+    schedule_by_loan_id = _servicing_services().get_loan_repayment_schedule_snapshots(
+        loans=list(loans_by_id.values()),
+        as_of_date=as_of_date,
+    )
+    event_model = _model("servicing", "BorrowerRepaymentEvent")
+    last_payment_by_loan_id = {
+        str(row["loan_id"]): row["last_payment_date"]
+        for row in event_model.objects.filter(loan_id__in=loans_by_id)
+        .values("loan_id")
+        .annotate(last_payment_date=Max("value_date"))
+    }
+    for listing in listings:
+        schedule = schedule_by_loan_id.get(str(listing.loan_id), [])
+        interest_covered_until, days_past_due = _pricing_context_from_schedule(
+            loan=cast(Model, listing.loan),
+            schedule=schedule,
+        )
+        pricing = _pricing_snapshot(
+            holding=cast(Model, listing.holding),
+            loan=cast(Model, listing.loan),
+            price_bps=int(listing.price_bps),
+            as_of_date=as_of_date,
+            last_payment_date_override=last_payment_by_loan_id.get(str(listing.loan_id)),
+            interest_covered_until_override=interest_covered_until,
+            days_past_due_override=days_past_due,
+        )
+        _apply_current_buyer_pricing(listing, pricing)
+        listing.remaining_term_months = sum(  # type: ignore[attr-defined]
+            1
+            for row in schedule
+            if row.row_type == "scheduled_installment" and not row.is_paid
+        )
+    return listings
 
 
 def get_active_secondary_market_listing_detail(
@@ -2591,6 +2696,18 @@ def get_active_secondary_market_listing_detail(
     )
     loan_schedule = loan_schedules.get(str(loan.pk), [])
     investment_schedule = investment_schedules.get(str(cast(Any, holding).pk), [])
+    interest_covered_until, days_past_due = _pricing_context_from_schedule(
+        loan=cast(Model, loan),
+        schedule=loan_schedule,
+    )
+    current_pricing = _pricing_snapshot(
+        holding=holding,
+        loan=cast(Model, loan),
+        price_bps=int(listing.price_bps),
+        as_of_date=business_date(as_of),
+        interest_covered_until_override=interest_covered_until,
+        days_past_due_override=days_past_due,
+    )
 
     note_model = _model("servicing", "LoanRiskNote")
     latest_public_note = (
@@ -2604,22 +2721,22 @@ def get_active_secondary_market_listing_detail(
         "loan_id": str(listing.loan_id),
         "loan_title": str(loan.title),
         "status": str(listing.status),
-        "current_principal_minor": int(listing.current_principal_minor),
+        "current_principal_minor": current_pricing.current_principal_minor,
         "currency": str(listing.currency_id),
         "price_bps": int(listing.price_bps),
-        "transfer_price_minor": int(listing.transfer_price_minor),
-        "discount_premium_bps": int(listing.discount_premium_bps),
-        "accrued_interest_minor": int(listing.accrued_interest_minor),
-        "accrued_interest_from_date": listing.accrued_interest_from_date,
-        "accrued_interest_to_date": listing.accrued_interest_to_date,
-        "taker_fee_bps": int(listing.taker_fee_bps),
-        "minimum_taker_fee_minor": int(listing.minimum_taker_fee_minor),
-        "taker_fee_minor": int(listing.taker_fee_minor),
-        "buyer_total_cost_minor": int(listing.buyer_total_cost_minor),
-        "loan_status_at_listing": str(listing.loan_status_at_listing),
-        "days_past_due": int(listing.days_past_due),
-        "last_payment_date": listing.last_payment_date,
-        "risk_acknowledgement_required": bool(listing.risk_acknowledgement_required),
+        "transfer_price_minor": current_pricing.transfer_price_minor,
+        "discount_premium_bps": current_pricing.discount_premium_bps,
+        "accrued_interest_minor": current_pricing.accrued_interest_minor,
+        "accrued_interest_from_date": current_pricing.accrued_interest_from_date,
+        "accrued_interest_to_date": current_pricing.accrued_interest_to_date,
+        "taker_fee_bps": current_pricing.taker_fee_bps,
+        "minimum_taker_fee_minor": current_pricing.minimum_taker_fee_minor,
+        "taker_fee_minor": current_pricing.taker_fee_minor,
+        "buyer_total_cost_minor": current_pricing.buyer_total_cost_minor,
+        "loan_status_at_listing": current_pricing.loan_status_at_listing,
+        "days_past_due": current_pricing.days_past_due,
+        "last_payment_date": current_pricing.last_payment_date,
+        "risk_acknowledgement_required": current_pricing.risk_acknowledgement_required,
         "public_disclosure_note": str(listing.public_disclosure_note),
         "listed_at": listing.listed_at,
         "borrower_name": str(borrower.legal_name),

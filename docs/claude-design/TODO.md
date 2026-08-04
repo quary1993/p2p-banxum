@@ -411,3 +411,12 @@ Before launch, Claude Design should produce or implement:
 - Remaining backend/API dependency: none. Compact references are presentation-only and always copy the authoritative complete backend ID.
 - Suggested improvement: validate widget heights with production-scale labels and translated copy, and consider a shared icon-only utility tooltip primitive if the same compact identifier pattern is adopted across more investor tables.
 - Priority: important.
+
+## 2026-08-04: Secondary-Market Redesign And Authoritative Buyer Economics
+
+- Screen or component: Secondary Market `For sale now`, `Sell a holding`, and `Secondary market activity` tabs, buyer listing table, seller summary, and buyer detail modal.
+- Current behavior: the route now follows the redesign's editorial hierarchy and three-tab navigation while preserving the existing anonymous browse, full-holding listing/edit/cancel, filtered activity, terms, risk acknowledgement, schedules, and sensitive-action flows. Buyer rows show server-owned outstanding principal, transfer asking price, premium/discount, remaining unpaid installments, and total buyer cost. Loading, error, empty, frozen, and read-only states remain distinct; frozen/read-only viewers can inspect buyer-safe listing detail but cannot request a code or purchase.
+- Design decision: do not estimate an investor's effective annual return in the browser. Actual yield depends on purchase price, accrued interest, fees, repayment type, timing, future servicing changes, and the complete cash-flow schedule. Until an approved backend yield projection exists, the table uses authoritative buyer total cost and the premium/discount explainer remains qualitative. Seller availability copy distinguishes immediately listable, non-performing approval-required, and funded-awaiting-disbursement holdings.
+- Remaining backend/API dependency: an effective annual buyer-yield or IRR column requires a canonical server-side calculation, definition, rounding policy, disclosures, and tests for every repayment type. It must not be restored as a client-side approximation.
+- Suggested improvement: review long mixed-currency listing tables, compact activity filters, and buyer-detail schedule density at production scale. Preserve contained horizontal scrolling on narrow screens and keep seller identity/economics out of every buyer projection.
+- Priority: important.

@@ -5412,16 +5412,24 @@ function SecondaryMarketScreen({ demoState, initialTab }: { demoState: DemoAccou
     }
   }, [initialTab]);
 
-  const activeLoans = pfActiveHoldings(portfolio?.holdings ?? []);
-  const performingCount = activeLoans.filter((holding) => holding.loan.loan_status === "active").length;
-  const lateCount = activeLoans.length - performingCount;
+  const sellPositions = pfActiveHoldings(portfolio?.holdings ?? []);
+  const immediatelyListableCount = sellPositions.filter((holding) => holding.loan.loan_status === "active").length;
+  const approvalRequiredCount = sellPositions.filter((holding) => ["late", "defaulted"].includes(holding.loan.loan_status)).length;
+  const pendingDisbursementCount = sellPositions.filter((holding) => holding.loan.loan_status === "funded").length;
+  const purchaseBlockedReason = frozen
+    ? "Secondary-market purchases are frozen until a usable payout IBAN is available. You can still inspect every listing."
+    : isReadonlyImpersonationActive()
+      ? "This is a read-only investor view. Listing details are available, but purchases are disabled."
+      : "";
+  const listingsLoading = listingsQuery.isPending && listingsQuery.data === undefined;
+  const activityLoading = activityQuery.isPending && activityQuery.data === undefined;
 
   return (
     <main className="content sm-page">
       <h1 className="sr-only">Secondary market</h1>
       {frozen ? <Banner icon="lock" tone="bad" title="Secondary-market actions are frozen">Provide a usable payout IBAN to unlock buying and listing.</Banner> : null}
       <div className="sm-hero">
-        <div className="eyebrow">{listings.length} {listings.length === 1 ? "listing" : "listings"} · sold by other investors</div>
+        <div className="eyebrow">{listingsLoading ? "Loading listings" : `${listings.length} ${listings.length === 1 ? "listing" : "listings"} · sold by other investors`}</div>
         <h2>Loans other people want out of.</h2>
         <p className="sm-lede">Someone else lent this money and wants it back before the schedule ends. You take over their position, their collateral and their remaining term. Counterparties stay anonymous.</p>
       </div>
@@ -5432,19 +5440,21 @@ function SecondaryMarketScreen({ demoState, initialTab }: { demoState: DemoAccou
       </nav>
       <div>
         {tab === "browse" ? (
-          listingsQuery.isError && listings.length === 0 ? (
+          listingsLoading ? (
+            <LoadingCard title="Loading secondary listings">Fetching current buyer-safe prices and loan context.</LoadingCard>
+          ) : listingsQuery.isError && listings.length === 0 ? (
             <DataErrorCard title="Could not load secondary listings" onRetry={() => void listingsQuery.refetch()}>
               Secondary-market listings are temporarily unavailable.
             </DataErrorCard>
           ) : (
             <SmForSale
-              frozen={frozen}
-              lateCount={lateCount}
+              approvalRequiredCount={approvalRequiredCount}
+              immediatelyListableCount={immediatelyListableCount}
               listings={listings}
               onBuy={setBuy}
               onChooseLoan={() => setTab("sell")}
-              performingCount={performingCount}
-              totalLoans={activeLoans.length}
+              pendingDisbursementCount={pendingDisbursementCount}
+              totalPositions={sellPositions.length}
             />
           )
         ) : null}
@@ -5466,7 +5476,9 @@ function SecondaryMarketScreen({ demoState, initialTab }: { demoState: DemoAccou
           )
         ) : null}
         {tab === "activity" ? (
-          activityQuery.isError && !activity ? (
+          activityLoading ? (
+            <LoadingCard title="Loading secondary-market activity">Fetching your listings, purchases, and sales.</LoadingCard>
+          ) : activityQuery.isError && !activity ? (
             <DataErrorCard title="Could not load secondary-market activity" onRetry={() => void activityQuery.refetch()}>
               Your listing, purchase, and sale history could not be loaded.
             </DataErrorCard>
@@ -5475,7 +5487,7 @@ function SecondaryMarketScreen({ demoState, initialTab }: { demoState: DemoAccou
           )
         ) : null}
       </div>
-      {buy ? <BuyListingModal listing={buy} onClose={() => setBuy(null)} /> : null}
+      {buy ? <BuyListingModal listing={buy} onClose={() => setBuy(null)} purchaseBlockedReason={purchaseBlockedReason} /> : null}
       {sell ? <ListHoldingModal holding={sell.holding} listing={sell.listing} onClose={() => setSell(null)} /> : null}
       {cancelListing ? <CancelSecondaryListingModal holding={cancelListing.holding} listing={cancelListing.listing} onClose={() => setCancelListing(null)} /> : null}
     </main>
@@ -5490,36 +5502,23 @@ function smDiscountLabel(discountPremiumBps: number) {
     : { text: `+${pct}%`, tone: "mut" as const };
 }
 
-function smBuyerReturnLabel(listing: SecondaryMarketBuyerListing) {
-  // Approximate annual return to the buyer: the loan's coupon plus the
-  // discount recovered over the remaining life, assuming the amortizing
-  // average outstanding balance is roughly half the current principal
-  // (matching the redesign's illustrative maths). Premiums reduce it.
-  const couponPct = listing.interest_rate_bps / 100;
-  if (listing.remaining_term_months <= 0) return `${couponPct.toFixed(1)}%`;
-  const discountPct = -listing.discount_premium_bps / 100;
-  const annualised = couponPct + discountPct * (24 / listing.remaining_term_months);
-  return `${annualised.toFixed(1)}%`;
-}
-
 function SmForSale({
-  frozen,
-  lateCount,
+  approvalRequiredCount,
+  immediatelyListableCount,
   listings,
   onBuy,
   onChooseLoan,
-  performingCount,
-  totalLoans
+  pendingDisbursementCount,
+  totalPositions
 }: {
-  frozen: boolean;
-  lateCount: number;
+  approvalRequiredCount: number;
+  immediatelyListableCount: number;
   listings: SecondaryMarketBuyerListing[];
   onBuy: (listing: SecondaryMarketBuyerListing) => void;
   onChooseLoan: () => void;
-  performingCount: number;
-  totalLoans: number;
+  pendingDisbursementCount: number;
+  totalPositions: number;
 }) {
-  const currency = listings[0]?.currency ?? "CHF";
   return (
     <div className="sm-forsale">
       <h2 className="sect">For sale now</h2>
@@ -5534,7 +5533,7 @@ function SmForSale({
             <span className="sm-col-asking">Asking</span>
             <span className="sm-col-discount">Discount</span>
             <span className="sm-col-left">Left to run</span>
-            <span className="sm-col-return">Your return</span>
+            <span className="sm-col-cost">Buyer cost</span>
             <span className="sm-col-cta" />
           </div>
           {listings.map((listing) => {
@@ -5542,7 +5541,6 @@ function SmForSale({
             return (
               <button
                 className="sm-row"
-                disabled={frozen || isReadonlyImpersonationActive()}
                 key={listing.id}
                 onClick={() => onBuy(listing)}
                 type="button"
@@ -5558,7 +5556,7 @@ function SmForSale({
                 <span className="num sm-col-asking">{pfMoneyLabel(listing.currency, listing.transfer_price_minor)}</span>
                 <span className={`num sm-col-discount ${discount.tone}`}>{discount.text}</span>
                 <span className="num sm-col-left">{listing.remaining_term_months} mo</span>
-                <span className="num sm-col-return">{smBuyerReturnLabel(listing)}</span>
+                <span className="num sm-col-cost">{pfMoneyLabel(listing.currency, listing.buyer_total_cost_minor)}</span>
                 <span className="sm-col-cta">details</span>
               </button>
             );
@@ -5567,32 +5565,36 @@ function SmForSale({
       )}
 
       <h2 className="sect">Why do loans sell at a premium or a discount?</h2>
-      <p className="sect-sub" style={{ maxWidth: 680 }}>The same {pfWholeLabel(currency, 2000000)} outstanding, three prices. The full amount is owed to whoever holds the position on the payment date.</p>
+      <p className="sect-sub" style={{ maxWidth: 680 }}>The seller keeps one premium or discount percentage. Actual buyer cost also includes accrued interest and the disclosed taker fee.</p>
       <div className="band band-3 sm-band">
         <div className="cell">
           <div className="microlabel" style={{ color: "#1e6a4b", marginBottom: 14 }}>At a discount</div>
-          <div className="num sm-band-price" style={{ color: "#1e6a4b" }}>{pfMoneyLabel(currency, 1940000)}</div>
-          <div className="num sm-band-yield" style={{ color: "#1e6a4b" }}>your return 17.5% a year</div>
+          <div className="num sm-band-price" style={{ color: "#1e6a4b" }}>Below 100% of principal</div>
+          <div className="sm-band-yield" style={{ color: "#1e6a4b" }}>lower transfer price</div>
           <div className="sm-band-copy">The seller wants out early — a long wait left, or collateral that resells slowly. The full amount is still owed, so the gap is yours.</div>
         </div>
         <div className="cell">
           <div className="microlabel" style={{ marginBottom: 14 }}>At par</div>
-          <div className="num sm-band-price">{pfMoneyLabel(currency, 2000000)}</div>
-          <div className="num sm-band-yield">your return 11.0% a year</div>
-          <div className="sm-band-copy">You step in exactly where the seller stood. Your yield is the loan's own rate.</div>
+          <div className="num sm-band-price">100% of principal</div>
+          <div className="sm-band-yield">same transfer price</div>
+          <div className="sm-band-copy">You step in at the holding's current outstanding principal. Accrued interest and the buyer fee still form part of total cost.</div>
         </div>
         <div className="cell">
           <div className="microlabel" style={{ marginBottom: 14 }}>At a premium</div>
-          <div className="num sm-band-price">{pfMoneyLabel(currency, 2040000)}</div>
-          <div className="num sm-band-yield">your return 7.3% a year</div>
+          <div className="num sm-band-price">Above 100% of principal</div>
+          <div className="sm-band-yield">higher transfer price</div>
           <div className="sm-band-copy">The rate beats anything open today, so the seller charges for access. You take a lower yield to lock it in.</div>
         </div>
       </div>
 
       <h2 className="sect">Selling your own</h2>
       <p className="sm-sell-note">
-        {totalLoans > 0 ? (
-          <><span style={{ color: "#151719", fontWeight: 600 }}>{performingCount} of your {totalLoans} {totalLoans === 1 ? "loan" : "loans"}</span> can be listed today{lateCount > 0 ? ` (${lateCount} in arrears ${lateCount === 1 ? "needs" : "need"} Garanta approval first)` : ""}. </>
+        {totalPositions > 0 ? (
+          <>
+            <span style={{ color: "#151719", fontWeight: 600 }}>{immediatelyListableCount} of your {totalPositions} {totalPositions === 1 ? "holding" : "holdings"}</span> can be listed immediately.
+            {approvalRequiredCount > 0 ? ` ${approvalRequiredCount} non-performing ${approvalRequiredCount === 1 ? "holding can" : "holdings can"} be submitted for Garanta approval.` : ""}
+            {pendingDisbursementCount > 0 ? ` ${pendingDisbursementCount} ${pendingDisbursementCount === 1 ? "holding becomes" : "holdings become"} available after borrower disbursement.` : ""}{" "}
+          </>
         ) : null}
         You set the asking price; BANXUM's maker fee comes out of what you receive, and nothing is charged if it does not sell.
       </p>
@@ -5842,7 +5844,7 @@ function CancelSecondaryListingModal({
   );
 }
 
-function BuyListingModal({ listing, onClose }: { listing: SecondaryMarketBuyerListing; onClose: () => void }) {
+function BuyListingModal({ listing, onClose, purchaseBlockedReason }: { listing: SecondaryMarketBuyerListing; onClose: () => void; purchaseBlockedReason: string }) {
   const queryClient = useQueryClient();
   const detailQuery = useSecondaryListingDetailData(listing.id);
   const detail = detailQuery.data;
@@ -5933,8 +5935,9 @@ function BuyListingModal({ listing, onClose }: { listing: SecondaryMarketBuyerLi
     0
   );
   return (
-    <Modal xwide footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!ack || (needsExtra && !extraAck) || code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || acceptanceMutation.isPending || purchaseMutation.isPending} variant="primary" onClick={submitPurchase}>{acceptanceMutation.isPending || purchaseMutation.isPending ? "Submitting..." : "Confirm purchase"}</Button></>} onClose={onClose} title={`Buy ${listing.loan_title}`}>
+    <Modal xwide footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={Boolean(purchaseBlockedReason) || !ack || (needsExtra && !extraAck) || code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || acceptanceMutation.isPending || purchaseMutation.isPending} variant="primary" onClick={submitPurchase}>{acceptanceMutation.isPending || purchaseMutation.isPending ? "Submitting..." : "Confirm purchase"}</Button></>} onClose={onClose} title={`Buy ${listing.loan_title}`}>
       <div className="col gap-16">
+        {purchaseBlockedReason ? <Banner icon="lock" tone="neutral" title="Purchase unavailable in this view">{purchaseBlockedReason}</Banner> : null}
         {needsExtra ? <Banner tone="bad" title="Non-standard listing - elevated risk">This listing is non-performing or otherwise non-standard. You may receive less than the principal shown, or nothing.</Banner> : null}
         <div className="row gap-8 wrap">
           <Chip status={detail.loan_status_at_listing} tone={statusTone(detail.loan_status_at_listing)} />
@@ -5983,7 +5986,7 @@ function BuyListingModal({ listing, onClose }: { listing: SecondaryMarketBuyerLi
         <CodeRequestField
           hint={previewHint("Demo: any 6 digits")}
           label="Email confirmation code"
-          requestDisabled={emailCodeRequestDisabled(codeRequest)}
+          requestDisabled={Boolean(purchaseBlockedReason) || emailCodeRequestDisabled(codeRequest)}
           requestLabel={emailCodeRequestLabel(codeRequest)}
           value={code}
           onChange={setCode}

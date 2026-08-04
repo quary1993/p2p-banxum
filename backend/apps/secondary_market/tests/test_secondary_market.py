@@ -1061,6 +1061,10 @@ def test_secondary_market_api_create_list_and_approve(
     assert buyer_listing["buyer_total_cost_minor"] > 0
     assert buyer_listing["taker_fee_minor"] > 0
     assert buyer_listing["risk_acknowledgement_required"] is True
+    assert buyer_listing["interest_rate_bps"] == 1_200
+    assert buyer_listing["collateral_type"] == "real_estate"
+    # An overdue but unpaid installment remains part of the remaining term.
+    assert buyer_listing["remaining_term_months"] == 1
     private_fields = {
         "holding_id",
         "seller_user_id",
@@ -1171,6 +1175,59 @@ def test_secondary_market_buyer_detail_exposes_loan_schedules_without_seller_dat
         "approved_by_admin_id",
     }
     assert private_fields.isdisjoint(payload)
+
+
+@pytest.mark.django_db
+def test_buyer_list_and_detail_use_current_accrued_interest_projection(
+    admin_user: Model,
+    investor: Model,
+    other_investor: Model,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _approve_financial_access(investor)
+    _approve_financial_access(other_investor)
+    loan = _create_funded_loan(admin_user, principal_minor=2_000_00)
+    _create_current_installment(loan, due_date=date(2026, 2, 1))
+    holding = _create_holding(
+        admin_user,
+        investor,
+        loan,
+        current_principal_minor=2_000_00,
+        idempotency_key="secondary-current-buyer-pricing-holding",
+    )
+    acceptance = _create_listing_acceptance(investor, holding)
+    listing = create_secondary_market_listing(
+        CreateSecondaryMarketListingCommand(
+            actor=investor,
+            holding_id=str(cast(Any, holding).id),
+            price_bps=9_800,
+            document_acceptance_id=str(acceptance.pk),
+            idempotency_key="secondary-current-buyer-pricing",
+            **_sensitive_code_payload(investor, "secondary_market_listing"),
+        )
+    )
+    listing_day_cost = int(cast(Any, listing).buyer_total_cost_minor)
+
+    secondary_services = import_module("backend.apps.secondary_market.services")
+    next_day = datetime(2026, 1, 17, 12, 0, tzinfo=ZoneInfo("UTC"))
+    monkeypatch.setattr(secondary_services, "now_utc", lambda: next_day)
+
+    client = Client()
+    client.force_login(cast(Any, other_investor))
+    list_response = client.get("/api/v1/marketplace/secondary/listings/")
+    assert list_response.status_code == 200
+    buyer_listing = list_response.json()[0]
+    assert buyer_listing["buyer_total_cost_minor"] > listing_day_cost
+    assert buyer_listing["accrued_interest_to_date"] == "2026-01-17"
+
+    detail_response = client.get(
+        f"/api/v1/marketplace/secondary/listings/{listing.pk}/"
+    )
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert detail["buyer_total_cost_minor"] == buyer_listing["buyer_total_cost_minor"]
+    assert detail["accrued_interest_minor"] == buyer_listing["accrued_interest_minor"]
+    assert detail["accrued_interest_to_date"] == "2026-01-17"
 
 
 @pytest.mark.django_db

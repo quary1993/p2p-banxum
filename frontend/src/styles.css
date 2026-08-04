@@ -7453,11 +7453,11 @@ table.tbl tfoot.schedule-totals th.num,
   text-align: right;
 }
 
-.app .sm-col-return {
+.app .sm-col-cost {
   font-size: 15px;
   font-weight: 600;
   text-align: right;
-  width: 104px;
+  width: 126px;
 }
 
 .app .sm-col-cta {
@@ -7602,7 +7602,7 @@ table.tbl tfoot.schedule-totals th.num,
 
   .app .sm-thead,
   .app .sm-row {
-    min-width: 720px;
+    min-width: 820px;
   }
 
   .app .sm-band {
@@ -7618,5 +7618,19 @@ table.tbl tfoot.schedule-totals th.num,
     align-items: stretch;
     flex-direction: column;
     gap: 18px;
+  }
+}
+
+@media (max-width: 560px) {
+  .app .sm-page .mtabs {
+    gap: 10px;
+  }
+
+  .app .sm-page .mtabs button {
+    font-size: 12.5px;
+  }
+
+  .app .sm-choose-btn {
+    width: 100%;
   }
 }
