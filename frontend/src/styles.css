@@ -6389,6 +6389,33 @@ table.tbl tfoot.schedule-totals th.num,
   margin-bottom: 26px;
 }
 
+.app .pf-widget-pair {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.app .pf-widget-card {
+  min-width: 0;
+}
+
+.app .pf-widget-card.first {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.app .pf-widget-card.second {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.app .pf-widget-pair > .pf-panel {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  margin: 0 0 18px;
+  min-width: 0;
+}
+
 .app .pf-insights {
   margin-top: 38px;
 }
@@ -6436,6 +6463,43 @@ table.tbl tfoot.schedule-totals th.num,
 
 .app .pf-orders-table {
   min-width: 880px;
+}
+
+.app .pf-order-reference,
+.app .pf-order-loan {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.app .pf-order-number,
+.app .pf-order-loan strong {
+  color: #151719;
+  font-weight: 600;
+}
+
+.app .pf-order-id {
+  color: #626b70;
+  font-size: 12px;
+}
+
+.app .pf-data-table .copy-id-btn.icon-only {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: #626b70;
+  height: 22px;
+  min-width: 22px;
+  padding: 0;
+  width: 22px;
+}
+
+.app .pf-data-table .copy-id-btn.icon-only:hover,
+.app .pf-data-table .copy-id-btn.icon-only:focus-visible {
+  background: transparent;
+  border: 0;
+  color: #151719;
 }
 
 .app .pf-data-table th {
@@ -6523,7 +6587,8 @@ table.tbl tfoot.schedule-totals th.num,
   max-width: 100%;
   padding: 24px 26px;
   text-align: left;
-  width: 471px;
+  height: 100%;
+  width: 100%;
 }
 
 .app .pf-page .card471:hover,
@@ -7048,6 +7113,23 @@ table.tbl tfoot.schedule-totals th.num,
 
   .app .pf-page .card471 {
     width: 100%;
+  }
+
+  .app .pf-widget-pair {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .app .pf-widget-card.first,
+  .app .pf-widget-card.second,
+  .app .pf-widget-pair > .pf-panel {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .app .pf-widget-pair > .pf-panel {
+    margin: 0 0 18px;
   }
 
   .app .pf-insights {

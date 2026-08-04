@@ -588,19 +588,23 @@ function copyTextFallback(text: string) {
 function CopyIdButton({
   id,
   label = "Copy ID",
-  ariaLabel
+  ariaLabel,
+  iconOnly = false
 }: {
   id: string;
   label?: string;
   ariaLabel?: string;
+  iconOnly?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
+  const accessibleLabel = copied ? "Copied" : (ariaLabel ?? label);
   return (
     <Button
-      aria-label={ariaLabel ?? label}
-      className="copy-id-btn"
+      aria-label={accessibleLabel}
+      className={`copy-id-btn${iconOnly ? " icon-only" : ""}`}
       icon="copy"
       size="sm"
+      title={accessibleLabel}
       variant="ghost"
       onClick={(event) => {
         event.stopPropagation();
@@ -620,7 +624,7 @@ function CopyIdButton({
         done();
       }}
     >
-      {copied ? "Copied" : label}
+      {iconOnly ? null : (copied ? "Copied" : label)}
     </Button>
   );
 }
@@ -4591,90 +4595,102 @@ function PfPortfolioWidgets({ currency, holdings, setRoute, totalMinor }: { curr
     <section aria-label="Portfolio insights" className="pf-insights">
 
       <div className="pf-cards">
-        <PfCalendarCard currency={currency} open={openPanel === "cal"} onToggle={() => toggle("cal")} payments={payments} />
-        {openPanel === "cal" ? <PfCalendarPanel currency={currency} payments={payments} /> : null}
+        <div className="pf-widget-pair">
+          <div className="pf-widget-card first">
+            <PfCalendarCard currency={currency} open={openPanel === "cal"} onToggle={() => toggle("cal")} payments={payments} />
+          </div>
+          {openPanel === "cal" ? <PfCalendarPanel currency={currency} payments={payments} /> : null}
 
-        <PfCard
-          foot={<><span className="big" style={{ color: lowestAxis.score < 50 ? "#c4312c" : "#151719" }}>{lowestAxis.score}</span><span className="note">is the lowest of the six · <span style={{ color: "#151719", fontWeight: 600 }}>{lowestAxis.label.toLowerCase()}</span></span></>}
-          lab="Spread of portfolio"
-          onToggle={() => toggle("hex")}
-          open={openPanel === "hex"}
-          tt="How much rests on one outcome"
-        >
-          <span style={{ display: "flex", justifyContent: "center", marginBottom: 10, width: "100%" }}>
-            <svg height="102" shapeRendering="geometricPrecision" style={{ display: "block" }} viewBox="0 0 44 40" width="112">
-              <polygon fill="none" points="22,2 37.59,11 37.59,29 22,38 6.41,29 6.41,11" stroke="#dde3e1" strokeWidth=".8" />
-              <polygon fill="rgba(21,23,25,.12)" points={pfHexPoints(axes.map((axis) => axis.score), 22, 20, 18)} stroke="#151719" strokeWidth="1" />
-              {(() => {
-                const index = axes.indexOf(lowestAxis);
-                const vertex = pfHexVertex(index, 22, 20, 18, lowestAxis.score);
-                return <circle cx={vertex.x.toFixed(2)} cy={vertex.y.toFixed(2)} fill="#c4312c" r="1.5" />;
-              })()}
-            </svg>
-          </span>
-        </PfCard>
-        {openPanel === "hex" ? <PfHexPanel axes={axes} /> : null}
+          <div className="pf-widget-card second">
+            <PfCard
+              foot={<><span className="big" style={{ color: lowestAxis.score < 50 ? "#c4312c" : "#151719" }}>{lowestAxis.score}</span><span className="note">is the lowest of the six · <span style={{ color: "#151719", fontWeight: 600 }}>{lowestAxis.label.toLowerCase()}</span></span></>}
+              lab="Spread of portfolio"
+              onToggle={() => toggle("hex")}
+              open={openPanel === "hex"}
+              tt="How much rests on one outcome"
+            >
+              <span style={{ display: "flex", justifyContent: "center", marginBottom: 10, width: "100%" }}>
+                <svg height="102" shapeRendering="geometricPrecision" style={{ display: "block" }} viewBox="0 0 44 40" width="112">
+                  <polygon fill="none" points="22,2 37.59,11 37.59,29 22,38 6.41,29 6.41,11" stroke="#dde3e1" strokeWidth=".8" />
+                  <polygon fill="rgba(21,23,25,.12)" points={pfHexPoints(axes.map((axis) => axis.score), 22, 20, 18)} stroke="#151719" strokeWidth="1" />
+                  {(() => {
+                    const index = axes.indexOf(lowestAxis);
+                    const vertex = pfHexVertex(index, 22, 20, 18, lowestAxis.score);
+                    return <circle cx={vertex.x.toFixed(2)} cy={vertex.y.toFixed(2)} fill="#c4312c" r="1.5" />;
+                  })()}
+                </svg>
+              </span>
+            </PfCard>
+          </div>
+          {openPanel === "hex" ? <PfHexPanel axes={axes} /> : null}
+        </div>
 
-        <PfCard
-          foot={<><span className="big" style={{ fontSize: 24 }}>{largestSegment ? pfWholeLabel(currency, largestSegment.amount) : "—"}</span><span className="note" style={{ fontSize: 12.5 }}>behind {largestSegment ? largestSegment.label.toLowerCase() : "nothing yet"} — your largest type</span></>}
-          lab="Collateral spread"
-          onToggle={() => toggle("col")}
-          open={openPanel === "col"}
-          tt="What stands behind your money"
-        >
-          <span style={{ alignItems: "center", display: "flex", gap: 22, marginBottom: 20, width: "100%" }}>
-            <PfRing radius={44} segments={segments} size={120} stroke={17} total={totalMinor} />
-            <span style={{ display: "flex", flex: 1, flexDirection: "column", fontSize: 11.5, gap: 6, minWidth: 0 }}>
-              {segments.map((segment) => (
-                <span key={segment.label} style={{ alignItems: "center", display: "flex", gap: 8 }}>
-                  <span style={{ background: segment.color, borderRadius: 2, flex: "none", height: 9, width: 9 }} />
-                  <span style={{ color: segment.bad ? "#c4312c" : "#292d30", flex: 1 }}>{segment.label}</span>
-                  <span className="num" style={{ color: segment.bad ? "#c4312c" : undefined, fontWeight: 600 }}>{totalMinor > 0 ? `${((segment.amount / totalMinor) * 100).toFixed(1)}%` : "-"}</span>
+        <div className="pf-widget-pair">
+          <div className="pf-widget-card first">
+            <PfCard
+              foot={<><span className="big" style={{ fontSize: 24 }}>{largestSegment ? pfWholeLabel(currency, largestSegment.amount) : "—"}</span><span className="note" style={{ fontSize: 12.5 }}>behind {largestSegment ? largestSegment.label.toLowerCase() : "nothing yet"} — your largest type</span></>}
+              lab="Collateral spread"
+              onToggle={() => toggle("col")}
+              open={openPanel === "col"}
+              tt="What stands behind your money"
+            >
+              <span style={{ alignItems: "center", display: "flex", gap: 22, marginBottom: 20, width: "100%" }}>
+                <PfRing radius={44} segments={segments} size={120} stroke={17} total={totalMinor} />
+                <span style={{ display: "flex", flex: 1, flexDirection: "column", fontSize: 11.5, gap: 6, minWidth: 0 }}>
+                  {segments.map((segment) => (
+                    <span key={segment.label} style={{ alignItems: "center", display: "flex", gap: 8 }}>
+                      <span style={{ background: segment.color, borderRadius: 2, flex: "none", height: 9, width: 9 }} />
+                      <span style={{ color: segment.bad ? "#c4312c" : "#292d30", flex: 1 }}>{segment.label}</span>
+                      <span className="num" style={{ color: segment.bad ? "#c4312c" : undefined, fontWeight: 600 }}>{totalMinor > 0 ? `${((segment.amount / totalMinor) * 100).toFixed(1)}%` : "-"}</span>
+                    </span>
+                  ))}
                 </span>
-              ))}
-            </span>
-          </span>
-        </PfCard>
-        {openPanel === "col" ? <PfCollateralPanel currency={currency} holdingCount={holdings.length} segments={segments} totalMinor={totalMinor} /> : null}
+              </span>
+            </PfCard>
+          </div>
+          {openPanel === "col" ? <PfCollateralPanel currency={currency} holdingCount={holdings.length} segments={segments} totalMinor={totalMinor} /> : null}
 
-        <PfCard
-          foot={<><span className="big" style={{ fontSize: 24 }}>{defaultInterestLabel}</span><span className="note" style={{ fontSize: 12.5 }}>{configuredDefaultInterestBps.length > 0 ? "configured annual default interest, after default" : "across the loans shown"}</span></>}
-          lab="If a borrower stops paying"
-          onToggle={() => toggle("risk")}
-          open={openPanel === "risk"}
-          tt="What protects your money"
-        >
-          <span style={{ alignItems: "center", display: "flex", gap: 22, marginBottom: 20, width: "100%" }}>
-            <span style={{ alignItems: "flex-end", display: "flex", flex: "none", gap: 9, height: 104, width: 104 }}>
-              <span style={{ border: "1.5px solid #c2bfb5", borderRadius: 3, display: "flex", flex: 1, flexDirection: "column", height: 104, justifyContent: "flex-end", overflow: "hidden" }}>
-                <span style={{ background: "#151719", display: "block", height: `${weightedLtv === null ? 0 : weightedLtv.toFixed(1)}%` }} />
+          <div className="pf-widget-card second">
+            <PfCard
+              foot={<><span className="big" style={{ fontSize: 24 }}>{defaultInterestLabel}</span><span className="note" style={{ fontSize: 12.5 }}>{configuredDefaultInterestBps.length > 0 ? "configured annual default interest, after default" : "across the loans shown"}</span></>}
+              lab="If a borrower stops paying"
+              onToggle={() => toggle("risk")}
+              open={openPanel === "risk"}
+              tt="What protects your money"
+            >
+              <span style={{ alignItems: "center", display: "flex", gap: 22, marginBottom: 20, width: "100%" }}>
+                <span style={{ alignItems: "flex-end", display: "flex", flex: "none", gap: 9, height: 104, width: 104 }}>
+                  <span style={{ border: "1.5px solid #c2bfb5", borderRadius: 3, display: "flex", flex: 1, flexDirection: "column", height: 104, justifyContent: "flex-end", overflow: "hidden" }}>
+                    <span style={{ background: "#151719", display: "block", height: `${weightedLtv === null ? 0 : weightedLtv.toFixed(1)}%` }} />
+                  </span>
+                  <span style={{ color: "#626b70", display: "flex", flex: "none", flexDirection: "column", fontSize: 10, height: 104, justifyContent: "space-between", padding: "1px 0" }}>
+                    <span>valuation</span>
+                    <span style={{ color: "#151719", fontWeight: 600 }}>lent</span>
+                  </span>
+                </span>
+                <span style={{ display: "flex", flex: 1, flexDirection: "column", fontSize: 11.5, gap: 7, minWidth: 0 }}>
+                  <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#292d30", flex: 1 }}>Weighted LTV</span><span className="num" style={{ fontWeight: 600 }}>{weightedLtv === null ? "—" : `${weightedLtv.toFixed(1)}%`}</span></span>
+                  <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#292d30", flex: 1 }}>Range per project</span><span className="num" style={{ fontWeight: 600 }}>{securedLtvs.length > 0 ? `${Math.min(...securedLtvs).toFixed(0)} – ${Math.max(...securedLtvs).toFixed(0)}%` : "—"}</span></span>
+                  <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#292d30", flex: 1 }}>Nothing pledged</span><span className="num" style={{ color: unsecuredHoldings.length > 0 ? "#c4312c" : undefined, fontWeight: 600 }}>{unsecuredHoldings.length} of {holdings.length}</span></span>
+                  <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#292d30", flex: 1 }}>In arrears now</span><span className="num" style={{ color: lateHoldings.length > 0 ? "#c4312c" : undefined, fontWeight: 600 }}>{lateHoldings.length} of {holdings.length}</span></span>
+                </span>
               </span>
-              <span style={{ color: "#626b70", display: "flex", flex: "none", flexDirection: "column", fontSize: 10, height: 104, justifyContent: "space-between", padding: "1px 0" }}>
-                <span>valuation</span>
-                <span style={{ color: "#151719", fontWeight: 600 }}>lent</span>
-              </span>
-            </span>
-            <span style={{ display: "flex", flex: 1, flexDirection: "column", fontSize: 11.5, gap: 7, minWidth: 0 }}>
-              <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#292d30", flex: 1 }}>Weighted LTV</span><span className="num" style={{ fontWeight: 600 }}>{weightedLtv === null ? "—" : `${weightedLtv.toFixed(1)}%`}</span></span>
-              <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#292d30", flex: 1 }}>Range per project</span><span className="num" style={{ fontWeight: 600 }}>{securedLtvs.length > 0 ? `${Math.min(...securedLtvs).toFixed(0)} – ${Math.max(...securedLtvs).toFixed(0)}%` : "—"}</span></span>
-              <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#292d30", flex: 1 }}>Nothing pledged</span><span className="num" style={{ color: unsecuredHoldings.length > 0 ? "#c4312c" : undefined, fontWeight: 600 }}>{unsecuredHoldings.length} of {holdings.length}</span></span>
-              <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#292d30", flex: 1 }}>In arrears now</span><span className="num" style={{ color: lateHoldings.length > 0 ? "#c4312c" : undefined, fontWeight: 600 }}>{lateHoldings.length} of {holdings.length}</span></span>
-            </span>
-          </span>
-        </PfCard>
-        {openPanel === "risk" ? (
-          <PfProtectionPanel
-            currency={currency}
-            holdingCount={holdings.length}
-            lateCount={lateHoldings.length}
-            lateMinor={lateMinor}
-            securedLtvs={securedLtvs}
-            defaultInterestBps={defaultInterestBps}
-            unsecuredCount={unsecuredHoldings.length}
-            unsecuredMinor={unsecuredMinor}
-            weightedLtv={weightedLtv}
-          />
-        ) : null}
+            </PfCard>
+          </div>
+          {openPanel === "risk" ? (
+            <PfProtectionPanel
+              currency={currency}
+              holdingCount={holdings.length}
+              lateCount={lateHoldings.length}
+              lateMinor={lateMinor}
+              securedLtvs={securedLtvs}
+              defaultInterestBps={defaultInterestBps}
+              unsecuredCount={unsecuredHoldings.length}
+              unsecuredMinor={unsecuredMinor}
+              weightedLtv={weightedLtv}
+            />
+          ) : null}
+        </div>
       </div>
 
       <div className="pf-howlink">
@@ -5104,6 +5120,11 @@ const primaryOrderStatusTooltips: Record<string, string> = {
   closed_not_invested: "The order closed without any balance being allocated, or no capacity remained when it was processed. No funds were reserved and no portfolio holding was created."
 };
 
+function compactOrderId(id: string) {
+  const value = id.trim();
+  return value.length > 8 ? `${value.slice(0, 4)}...` : value;
+}
+
 function OrdersTable({ onBrowse, orders }: { onBrowse: () => void; orders: PrimaryOrderPortal[] }) {
   return (
     <section className="pf-data-section">
@@ -5119,7 +5140,29 @@ function OrdersTable({ onBrowse, orders }: { onBrowse: () => void; orders: Prima
         <div className="pf-data-table-wrap">
           <table className="pf-data-table pf-orders-table">
             <thead><tr><th>Order</th><th>Loan</th><th className="num">Requested</th><th className="num">Allocated</th><th>Placed</th><th>Status</th></tr></thead>
-            <tbody>{orders.map((order) => <tr key={order.id}><td><CopyIdButton ariaLabel="Copy order ID" id={order.id} label="Copy order ID" /></td><td><EntityReference id={order.loan_id} idLabel="Copy loan ID" title={order.loan_title} /></td><td className="num"><Money amountMinor={order.requested_amount_minor} currency={order.currency} /></td><td className="num">{order.allocated_amount_minor > 0 ? <Money amountMinor={order.allocated_amount_minor} currency={order.currency} /> : <span className="muted">-</span>}</td><td className="mono muted">{formatDateTime(order.created_at)}</td><td><Chip status={order.status} tooltip={primaryOrderStatusTooltips[order.status]} /></td></tr>)}</tbody>
+            <tbody>
+              {orders.map((order, index) => (
+                <tr key={order.id}>
+                  <td>
+                    <span className="pf-order-reference">
+                      <span className="pf-order-number">#{index + 1}</span>
+                      <span className="mono pf-order-id">{compactOrderId(order.id)}</span>
+                      <CopyIdButton ariaLabel="Copy order ID" iconOnly id={order.id} label="Copy order ID" />
+                    </span>
+                  </td>
+                  <td>
+                    <span className="pf-order-loan">
+                      <strong>{order.loan_title}</strong>
+                      <CopyIdButton ariaLabel="Copy loan ID" iconOnly id={order.loan_id} label="Copy loan ID" />
+                    </span>
+                  </td>
+                  <td className="num"><Money amountMinor={order.requested_amount_minor} currency={order.currency} /></td>
+                  <td className="num">{order.allocated_amount_minor > 0 ? <Money amountMinor={order.allocated_amount_minor} currency={order.currency} /> : <span className="muted">-</span>}</td>
+                  <td className="mono muted">{formatDateTime(order.created_at)}</td>
+                  <td><Chip status={order.status} tooltip={primaryOrderStatusTooltips[order.status]} /></td>
+                </tr>
+              ))}
+            </tbody>
           </table>
         </div>
       )}

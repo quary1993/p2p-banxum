@@ -402,3 +402,12 @@ Before launch, Claude Design should produce or implement:
 - Remaining backend/API dependency: none for this behavior. Server-side pagination will be required before Activity or Orders histories become large enough that returning the complete self-scoped dataset affects response or rendering performance.
 - Suggested improvement: keep this header-rule, restrained-row, tabular-number treatment as the baseline while redesigning the remaining investor tables page by page. Test unusually long loan titles, localized status labels, and high-volume histories before launch; do not solve long histories by shrinking text below the established table scale.
 - Priority: important.
+
+## 2026-08-04: Portfolio Insight Grid And Compact Order References
+
+- Screen or component: Portfolio insight widgets and the `Orders` table identifier columns.
+- Current behavior: the four holdings-derived widgets form two equal-width cards per row when the content area can support them. Opening either card places its full detail panel across the entire width immediately below that two-card row. At 860px and below, each widget expands to the available tab/content width and its detail follows the selected card directly. Orders use a numbered compact reference (`#1`, `#2`, and a shortened identifier) plus an unframed copy icon; the loan column uses the bold loan title plus an equivalent icon. Hover/focus text and accessible names preserve `Copy order ID` and `Copy loan ID`, while the complete identifiers remain out of the visual hierarchy.
+- Design decision: insight cards should scan as a balanced two-column dashboard on wide screens without making their expanded analysis compete for half-width space. On narrow screens, legibility takes priority over retaining two columns. Copy controls are utilities rather than primary actions, so they have no border, pill, padding, or visible label in dense tables.
+- Remaining backend/API dependency: none. Compact references are presentation-only and always copy the authoritative complete backend ID.
+- Suggested improvement: validate widget heights with production-scale labels and translated copy, and consider a shared icon-only utility tooltip primitive if the same compact identifier pattern is adopted across more investor tables.
+- Priority: important.

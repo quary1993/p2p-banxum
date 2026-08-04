@@ -429,6 +429,10 @@ test("portfolio redesign shows hero, tabs, loans table views and widgets", () =>
   expect(screen.getByText("If a borrower stops paying")).toBeInTheDocument();
   expect(screen.getByText("12.0%–16.0% p.a.")).toBeInTheDocument();
   expect(screen.getByText(/CHF 28'110\.50 lent/)).toBeInTheDocument();
+  const widgetPairs = document.querySelectorAll(".pf-widget-pair");
+  expect(widgetPairs).toHaveLength(2);
+  expect(widgetPairs[0].querySelectorAll(".card471")).toHaveLength(2);
+  expect(widgetPairs[1].querySelectorAll(".card471")).toHaveLength(2);
 
   // Portfolio insights stay below the selected tab instead of belonging only to My loans.
   fireEvent.click(screen.getByRole("tab", { name: "Activity" }));
@@ -438,12 +442,19 @@ test("portfolio redesign shows hero, tabs, loans table views and widgets", () =>
   expect(screen.getByRole("heading", { name: "Orders" })).toBeInTheDocument();
   expect(screen.getByText("Earnings calendar")).toBeInTheDocument();
   expect(screen.queryByText("Orders are intents")).not.toBeInTheDocument();
+  expect(screen.getByText("#1")).toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: "Copy order ID" })[0]).toHaveAttribute("title", "Copy order ID");
+  expect(screen.getAllByRole("button", { name: "Copy loan ID" })[0]).toHaveAttribute("title", "Copy loan ID");
+  expect(screen.queryByText("Copy order ID")).not.toBeInTheDocument();
+  expect(screen.queryByText("Copy loan ID")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("tab", { name: "My loans" }));
 
   // Hexagon panel opens with the purpose axis and live sentences.
   fireEvent.click(screen.getByText("Spread of portfolio"));
   expect(screen.getByRole("heading", { name: "How spread out your portfolio is" })).toBeInTheDocument();
   expect(screen.getAllByText("Spread by purpose").length).toBeGreaterThan(0);
+  const spreadPair = screen.getByText("Spread of portfolio").closest(".pf-widget-pair");
+  expect(spreadPair?.querySelector(".pf-panel")).not.toBeNull();
 
   // Earnings calendar panel opens and a payment day expands into the detail.
   fireEvent.click(screen.getByText("Earnings calendar"));
