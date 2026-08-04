@@ -4844,7 +4844,7 @@ table.tbl tfoot.schedule-totals th.num,
 .app table.tbl,
 .public table.tbl,
 .auth-wrap table.tbl {
-  border-top: 1px solid var(--ink);
+  border-top: 2px solid var(--ink);
   font-size: 13px;
 }
 
@@ -4874,6 +4874,112 @@ table.tbl tfoot.schedule-totals th.num,
 .app table.tbl tbody tr.clickable:hover,
 .public table.tbl tbody tr.clickable:hover {
   background: var(--surface-2);
+}
+
+/* Shared investor data-table grammar. Marketplace and Portfolio use bespoke
+   responsive compositions, while these tables share their rule, rhythm, and
+   alignment without forcing every domain into the same columns. */
+.app .portal-data-surface,
+.public .portal-data-surface {
+  max-width: 100%;
+  min-width: 0;
+  width: 100%;
+}
+
+.app table.portal-data-table,
+.public table.portal-data-table {
+  border-top: 2px solid #151719;
+  color: #151719;
+  font-size: 13px;
+}
+
+.app table.portal-data-table thead th,
+.public table.portal-data-table thead th {
+  border-bottom: 1px solid #dde3e1;
+  color: #626b70;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+  padding: 10px 12px;
+}
+
+.app table.portal-data-table tbody td,
+.public table.portal-data-table tbody td {
+  border-bottom: 1px solid #dde3e1;
+  padding: 15px 12px;
+}
+
+.app table.portal-data-table th:first-child,
+.app table.portal-data-table td:first-child,
+.public table.portal-data-table th:first-child,
+.public table.portal-data-table td:first-child {
+  padding-left: 0;
+}
+
+.app table.portal-data-table th:last-child,
+.app table.portal-data-table td:last-child,
+.public table.portal-data-table th:last-child,
+.public table.portal-data-table td:last-child {
+  padding-right: 0;
+}
+
+.app table.portal-data-table tbody tr:last-child td,
+.public table.portal-data-table tbody tr:last-child td {
+  border-bottom: 1px solid #dde3e1;
+}
+
+.app table.portal-data-table tbody tr:hover,
+.public table.portal-data-table tbody tr:hover {
+  background: rgba(251, 250, 247, 0.74);
+}
+
+.app table.portal-data-table .copy-id-btn.icon-only,
+.public table.portal-data-table .copy-id-btn.icon-only {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: #626b70;
+  height: 22px;
+  min-width: 22px;
+  padding: 0;
+  width: 22px;
+}
+
+.app .portal-table-empty,
+.public .portal-table-empty {
+  border-bottom: 1px solid #dde3e1;
+  border-top: 2px solid #151719;
+  min-height: 210px;
+}
+
+.app .portal-table-empty .empty,
+.public .portal-table-empty .empty {
+  min-height: 208px;
+}
+
+.app .loans-data-table,
+.public .loans-data-table {
+  min-width: 880px;
+}
+
+.public .loans-data-table.preview {
+  min-width: 720px;
+}
+
+.app .balance-lots-table {
+  min-width: 820px;
+}
+
+.app .secondary-sell-table {
+  min-width: 860px;
+}
+
+.app .secondary-activity-table {
+  min-width: 820px;
+}
+
+.app .documents-data-table {
+  min-width: 900px;
 }
 
 .app .schedule-totals td,

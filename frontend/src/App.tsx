@@ -3142,20 +3142,20 @@ function RiskDisclosure() {
 function LoansTable({ loans, onOpen, preview = false }: { loans: MarketplaceLoanPreview[]; onOpen: (loan: MarketplaceLoanPreview) => void; preview?: boolean }) {
   if (loans.length === 0) {
     return (
-      <Card>
+      <div className="portal-table-empty">
         <Empty icon="market" title={preview ? "No loan previews available" : "No loans available"}>
           {preview
             ? "There are no published loan previews right now. Check again later or register to receive marketplace updates."
             : "There are no loans in this view right now."}
         </Empty>
-      </Card>
+      </div>
     );
   }
 
   return (
-    <Card>
+    <div className="portal-data-surface">
       <div className="tbl-wrap">
-        <table className="tbl">
+        <table className={`tbl portal-data-table loans-data-table ${preview ? "preview" : ""}`}>
           <thead>
             <tr>
               <th>Borrower</th>
@@ -3192,7 +3192,7 @@ function LoansTable({ loans, onOpen, preview = false }: { loans: MarketplaceLoan
           </tbody>
         </table>
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -3296,13 +3296,13 @@ function BucketTile({ label, value, currency, tone, sub }: { label: string; valu
 
 function BalanceLotsTable({ lots, frozen }: { lots: BalanceLot[]; frozen: boolean }) {
   if (lots.length === 0) {
-    return <Card><Empty icon="balance" title="No balance lots">Incoming deposits, repayments, recoveries, FX proceeds, or sale proceeds will appear here.</Empty></Card>;
+    return <div className="portal-table-empty"><Empty icon="balance" title="No balance lots">Incoming deposits, repayments, recoveries, FX proceeds, or sale proceeds will appear here.</Empty></div>;
   }
 
   return (
-    <Card>
+    <div className="portal-data-surface">
       <div className="tbl-wrap">
-        <table className="tbl">
+        <table className="tbl portal-data-table balance-lots-table">
           <thead><tr><th>Lot</th><th>Source</th><th>Received</th><th className="num">Remaining</th><th>Age/deadline</th><th>Status</th></tr></thead>
           <tbody>
             {lots.map((lot) => {
@@ -3327,7 +3327,7 @@ function BalanceLotsTable({ lots, frozen }: { lots: BalanceLot[]; frozen: boolea
           </tbody>
         </table>
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -5675,13 +5675,13 @@ function SellableHoldingsTable({
   frozen: boolean;
 }) {
   if (holdings.length === 0) {
-    return <Card><Empty icon="portfolio" title="No sellable holdings">Active holdings that can be listed will appear here.</Empty></Card>;
+    return <div className="portal-table-empty"><Empty icon="portfolio" title="No sellable holdings">Active holdings that can be listed will appear here.</Empty></div>;
   }
 
   return (
-    <Card>
+    <div className="portal-data-surface">
       <div className="tbl-wrap">
-        <table className="tbl">
+        <table className="tbl portal-data-table secondary-sell-table">
           <thead><tr><th>Holding</th><th>Loan status</th><th>Listing status</th><th className="num">Current principal</th><th className="num">Rate</th><th /></tr></thead>
           <tbody>{holdings.map((holding) => {
             const listing = holding.open_secondary_listing;
@@ -5714,7 +5714,7 @@ function SellableHoldingsTable({
           })}</tbody>
         </table>
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -5753,14 +5753,16 @@ function SecondaryMarketActivityTable({ entries }: { entries: SecondaryMarketAct
           <Check checked={filters.cancel_listing} id="sm-activity-cancellations" onChange={(checked) => toggle("cancel_listing", checked)}>Listing cancellations</Check>
         </div>
       </Card>
-      <Card>
-        {visible.length === 0 ? (
+      {visible.length === 0 ? (
+        <div className="portal-table-empty">
           <Empty icon="secondary" title={entries.length === 0 ? "No secondary-market activity" : "No activity matches these filters"}>
             {entries.length === 0 ? "Listings, purchases, sales, and cancellations will appear here." : "Select another activity type to expand the history."}
           </Empty>
-        ) : (
+        </div>
+      ) : (
+        <div className="portal-data-surface">
           <div className="tbl-wrap">
-            <table className="tbl">
+            <table className="tbl portal-data-table secondary-activity-table">
               <thead><tr><th>Date</th><th>Activity</th><th>Loan</th><th className="num">Principal</th><th className="num">Cash amount</th><th>State</th></tr></thead>
               <tbody>{visible.map((entry) => (
                 <tr key={entry.id}>
@@ -5774,8 +5776,8 @@ function SecondaryMarketActivityTable({ entries }: { entries: SecondaryMarketAct
               ))}</tbody>
             </table>
           </div>
-        )}
-      </Card>
+        </div>
+      )}
     </div>
   );
 }
@@ -6258,9 +6260,16 @@ function DocumentsScreen() {
         {types.map((item) => <button className={`fchip ${type === item ? "on" : ""}`} key={item} onClick={() => setType(item)} type="button">{item}</button>)}
         <span className="results-count">{rows.length} documents</span>
       </div>
-      <Card>
-        <div className="tbl-wrap">
-          <table className="tbl"><thead><tr><th>Document</th><th>Type</th><th>Version</th><th>Context</th><th>Date</th><th className="num">Artifact</th><th /></tr></thead>
+      {rows.length === 0 ? (
+        <div className="portal-table-empty">
+          <Empty icon="doc" title="No documents match this filter">
+            Choose another document type, or return later after accepting terms or generating a statement.
+          </Empty>
+        </div>
+      ) : (
+        <div className="portal-data-surface">
+          <div className="tbl-wrap">
+            <table className="tbl portal-data-table documents-data-table"><thead><tr><th>Document</th><th>Type</th><th>Version</th><th>Context</th><th>Date</th><th className="num">Artifact</th><th /></tr></thead>
             <tbody>{rows.map((document) => (
               <tr key={document.id}>
                 <td className="row gap-8">
@@ -6284,9 +6293,10 @@ function DocumentsScreen() {
                 </td>
               </tr>
             ))}</tbody>
-          </table>
+            </table>
+          </div>
         </div>
-      </Card>
+      )}
     </main>
   );
 }

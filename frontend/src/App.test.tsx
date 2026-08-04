@@ -104,6 +104,30 @@ test("fixture-backed authenticated portal is visibly marked as preview data", ()
   expect(screen.getByText(/not real account data/i)).toBeInTheDocument();
 });
 
+test("investor data tables use the shared editorial table surface", () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+
+  fireEvent.click(screen.getByRole("button", { name: /^Balances/ }));
+  expect(screen.getByRole("table")).toHaveClass("portal-data-table", "balance-lots-table");
+
+  fireEvent.click(screen.getByRole("button", { name: "Secondary Market" }));
+  fireEvent.click(screen.getByRole("tab", { name: "Sell a holding" }));
+  expect(screen.getByRole("table")).toHaveClass("portal-data-table", "secondary-sell-table");
+
+  fireEvent.click(screen.getByRole("tab", { name: "Secondary market activity" }));
+  expect(screen.getByRole("table")).toHaveClass("portal-data-table", "secondary-activity-table");
+
+  fireEvent.click(screen.getByRole("button", { name: "Documents" }));
+  expect(screen.getByRole("table")).toHaveClass("portal-data-table", "documents-data-table");
+});
+
 test("read-only impersonation token survives a new tab and opens the investor portal", () => {
   writeReadonlyImpersonation("signed-token", "Viorel Nica (viorel.nica1@gmail.com)", 60);
   window.sessionStorage.clear();
