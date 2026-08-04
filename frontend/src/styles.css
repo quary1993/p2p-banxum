@@ -6024,6 +6024,65 @@ table.tbl tfoot.schedule-totals th.num,
   font-weight: 600;
 }
 
+.app .pf-tab-item {
+  align-items: flex-start;
+  display: inline-flex;
+  gap: 5px;
+  position: relative;
+}
+
+.app .pf-tabs-row .mtabs .pf-tab-info-trigger {
+  align-items: center;
+  border: 1px solid #a7afac;
+  border-radius: 50%;
+  color: #626b70;
+  display: inline-flex;
+  height: 18px;
+  justify-content: center;
+  margin-top: 0;
+  padding: 0;
+  width: 18px;
+}
+
+.app .pf-tabs-row .mtabs .pf-tab-info-trigger:hover,
+.app .pf-tabs-row .mtabs .pf-tab-info-trigger:focus-visible {
+  border-color: #151719;
+  color: #151719;
+  outline: none;
+}
+
+.app .pf-tab-info {
+  display: inline-flex;
+  position: relative;
+}
+
+.app .pf-tab-info-tooltip {
+  background: #151719;
+  border-radius: 6px;
+  box-shadow: 0 10px 28px rgba(21, 23, 25, 0.2);
+  color: #f5f3ed;
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  font-weight: 400;
+  gap: 7px;
+  left: 50%;
+  line-height: 1.45;
+  padding: 13px 14px;
+  position: absolute;
+  text-align: left;
+  top: 28px;
+  transform: translateX(-50%);
+  white-space: normal;
+  width: min(330px, calc(100vw - 32px));
+  z-index: 30;
+}
+
+.app .pf-tab-info-tooltip strong {
+  color: #fff;
+  font-size: 12px;
+}
+
 .app .pf-tabs-row > .seg {
   margin-bottom: 34px;
 }
@@ -6119,8 +6178,10 @@ table.tbl tfoot.schedule-totals th.num,
 }
 
 .app .pf-table {
+  max-width: 100%;
   margin-bottom: 26px;
-  overflow-x: auto;
+  min-width: 0;
+  overflow-x: clip;
 }
 
 .app .pf-thead {
@@ -6132,8 +6193,10 @@ table.tbl tfoot.schedule-totals th.num,
   font-weight: 700;
   gap: 18px;
   letter-spacing: 0.14em;
-  padding-bottom: 9px;
+  box-sizing: border-box;
+  padding: 0 8px 9px;
   text-transform: uppercase;
+  width: 100%;
 }
 
 .app .pf-thead .detail-col,
@@ -6161,10 +6224,11 @@ table.tbl tfoot.schedule-totals th.num,
   display: flex;
   font: inherit;
   gap: 18px;
-  margin: 4px -8px 0;
+  box-sizing: border-box;
+  margin: 4px 0 0;
   padding: 5px 8px;
   text-align: left;
-  width: calc(100% + 16px);
+  width: 100%;
 }
 
 .app .pf-row:hover {
@@ -6277,7 +6341,9 @@ table.tbl tfoot.schedule-totals th.num,
   display: flex;
   gap: 18px;
   margin-top: 16px;
-  padding-top: 15px;
+  box-sizing: border-box;
+  padding: 15px 8px 0;
+  width: 100%;
 }
 
 .app .pf-tfoot-count {
@@ -6321,6 +6387,128 @@ table.tbl tfoot.schedule-totals th.num,
   flex-direction: column;
   gap: 18px;
   margin-bottom: 26px;
+}
+
+.app .pf-insights {
+  margin-top: 38px;
+}
+
+.app .pf-data-section {
+  min-width: 0;
+}
+
+.app .pf-data-heading {
+  margin-bottom: 24px;
+}
+
+.app .pf-data-heading .sect {
+  margin-bottom: 6px;
+}
+
+.app .pf-data-heading p {
+  color: #626b70;
+  font-size: 15px;
+  line-height: 1.5;
+  margin: 0;
+  max-width: 660px;
+  text-wrap: pretty;
+}
+
+.app .pf-data-table-wrap {
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  width: 100%;
+  -webkit-overflow-scrolling: touch;
+}
+
+.app .pf-data-table {
+  border-collapse: collapse;
+  border-top: 2px solid #151719;
+  color: #151719;
+  font-size: 13px;
+  width: 100%;
+}
+
+.app .pf-activity-table {
+  min-width: 720px;
+}
+
+.app .pf-orders-table {
+  min-width: 880px;
+}
+
+.app .pf-data-table th {
+  border-bottom: 1px solid #dde3e1;
+  color: #626b70;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+  padding: 10px 12px;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.app .pf-data-table td {
+  border-bottom: 1px solid #dde3e1;
+  padding: 15px 12px;
+  vertical-align: middle;
+}
+
+.app .pf-data-table th:first-child,
+.app .pf-data-table td:first-child {
+  padding-left: 0;
+}
+
+.app .pf-data-table th:last-child,
+.app .pf-data-table td:last-child {
+  padding-right: 0;
+}
+
+.app .pf-data-table th.num,
+.app .pf-data-table td.num {
+  text-align: right;
+}
+
+.app .pf-data-table .col-strong {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.app .pf-data-table .sub {
+  color: #8b939a;
+  font-size: 11.5px;
+}
+
+.app .pf-data-table tbody tr:hover {
+  background: rgba(251, 250, 247, 0.74);
+}
+
+.app .pf-empty-state {
+  border-bottom: 1px solid #dde3e1;
+  border-top: 2px solid #151719;
+  min-height: 230px;
+  padding-bottom: 38px;
+}
+
+.app .pf-empty-state .empty {
+  padding-bottom: 20px;
+}
+
+.app .pf-empty-action {
+  display: flex;
+  justify-content: center;
+}
+
+.app .pf-pending-orders-empty {
+  padding-left: 24px;
+  padding-right: 24px;
+}
+
+.app .pf-pending-orders-empty > .col {
+  margin: 0 auto;
+  max-width: 720px;
 }
 
 .app .pf-page .card471 {
@@ -6849,12 +7037,21 @@ table.tbl tfoot.schedule-totals th.num,
     min-width: 640px;
   }
 
+  .app .pf-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
   .app .pf-page .tfoot {
     min-width: 640px;
   }
 
   .app .pf-page .card471 {
     width: 100%;
+  }
+
+  .app .pf-insights {
+    margin-top: 30px;
   }
 
   .app .pf-risk-grid,
@@ -6942,5 +7139,40 @@ table.tbl tfoot.schedule-totals th.num,
     margin-left: auto;
     max-width: 100%;
     text-align: right;
+  }
+
+  .app .pf-tab-info-tooltip {
+    left: 0;
+    right: 0;
+    top: 100%;
+    transform: none;
+    width: auto;
+  }
+
+  .app .pf-data-heading {
+    margin-bottom: 18px;
+  }
+
+  .app .pf-data-heading p {
+    font-size: 14px;
+  }
+
+  .app .pf-empty-state {
+    min-height: 210px;
+    padding-bottom: 30px;
+  }
+
+  .app .pf-pending-orders-empty {
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .app .pf-tabs-row {
+    position: relative;
+  }
+
+  .app .pf-tab-item,
+  .app .pf-tab-info {
+    position: static;
   }
 }

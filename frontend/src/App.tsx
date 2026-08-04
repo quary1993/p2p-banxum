@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import QRCode from "qrcode";
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ComponentProps, type FormEvent, type ReactNode } from "react";
 import { AdminApp } from "./adminConsole/AdminApp";
 import {
   ActionEnum,
@@ -4073,14 +4073,16 @@ function PortfolioScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) 
         <h2>Everything you own.</h2>
         <p className="pf-lede">Largest first, because the largest is the one that matters most if it goes wrong. Click any loan for the split, the collateral and the schedule.</p>
       </div>
-      {openOrders.length > 0 ? <PendingOrdersNotice orders={openOrders} onViewOrders={() => setTab("orders")} /> : null}
       <div className="pf-tabs-row">
         <nav aria-label="Portfolio sections" className="mtabs" role="tablist">
           <button aria-selected={tab === "holdings"} className={tab === "holdings" ? "on" : ""} onClick={() => setTab("holdings")} role="tab" type="button">My loans</button>
           <button aria-selected={tab === "activity"} className={tab === "activity" ? "on" : ""} onClick={() => setTab("activity")} role="tab" type="button">Activity</button>
-          <button aria-selected={tab === "orders"} className={tab === "orders" ? "on" : ""} onClick={() => setTab("orders")} role="tab" type="button">Orders</button>
+          <span className="pf-tab-item">
+            <button aria-selected={tab === "orders"} className={tab === "orders" ? "on" : ""} onClick={() => setTab("orders")} role="tab" type="button">Orders</button>
+            <PrimaryOrdersInfo orders={openOrders} />
+          </span>
         </nav>
-        {currencies.length > 1 && tab === "holdings" ? (
+        {currencies.length > 1 ? (
           <div aria-label="Portfolio currency" className="seg">
             {currencies.map((code) => (
               <button className={code === scopedCurrency ? "on" : ""} key={code} onClick={() => setCurrency(code)} type="button">{code}</button>
@@ -4094,15 +4096,24 @@ function PortfolioScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) 
             openOrders.length > 0 ? (
               <PendingOrdersEmptyState orders={openOrders} onViewOrders={() => setTab("orders")} />
             ) : (
-              <Card><Empty icon="portfolio" title="No loan holdings yet">Funded loan claims and settled secondary-market purchases will appear here.</Empty></Card>
+              <PortfolioEmptyState
+                action={<Button size="sm" onClick={() => goTo(setRoute, "market")}>Browse marketplace</Button>}
+                icon="portfolio"
+                title="No loan holdings yet"
+              >
+                Funded loan claims and settled secondary-market purchases will appear here.
+              </PortfolioEmptyState>
             )
           ) : (
-            <PfMyLoans currency={scopedCurrency} holdings={scoped} onOpen={setDetail} setRoute={setRoute} totalMinor={totalMinor} />
+            <PfMyLoans currency={scopedCurrency} holdings={scoped} onOpen={setDetail} totalMinor={totalMinor} />
           )
         ) : null}
-        {tab === "activity" ? <div style={{ paddingTop: 6 }}><ActivityTable entries={activity.entries} /></div> : null}
-        {tab === "orders" ? <div style={{ paddingTop: 6 }}><OrdersTable orders={orders.orders} /></div> : null}
+        {tab === "activity" ? <ActivityTable entries={activity.entries} /> : null}
+        {tab === "orders" ? <OrdersTable onBrowse={() => goTo(setRoute, "market")} orders={orders.orders} /> : null}
       </div>
+      {scoped.length > 0 ? (
+        <PfPortfolioWidgets currency={scopedCurrency} holdings={scoped} setRoute={setRoute} totalMinor={totalMinor} />
+      ) : null}
       {detail ? <HoldingDetail holding={detail} onClose={() => setDetail(null)} setRoute={setRoute} /> : null}
     </main>
   );
@@ -4126,28 +4137,54 @@ function primaryOrderTotalsByCurrency(orders: PrimaryOrderPortal[]) {
   return Array.from(totals.entries()).sort(([left], [right]) => left.localeCompare(right));
 }
 
-function PendingOrdersNotice({ orders, onViewOrders }: { orders: PrimaryOrderPortal[]; onViewOrders: () => void }) {
+function PrimaryOrdersInfo({ orders }: { orders: PrimaryOrderPortal[] }) {
+  const [visible, setVisible] = useState(false);
   const allocatedCount = orders.filter((order) => order.allocated_amount_minor > 0).length;
   const totals = primaryOrderTotalsByCurrency(orders);
+  const totalsLabel = totals
+    .map(([currency, amount]) => `${currency} ${formatMoneyMinor(amount, currency)}`)
+    .join(" / ");
+  const tooltipId = "portfolio-primary-orders-info";
   return (
-    <div style={{ marginBottom: 16 }}>
-      <Banner
-        actions={<Button size="sm" onClick={onViewOrders}>View orders</Button>}
-        tone="info"
-        title="Primary orders awaiting funding close"
+    <span
+      className="pf-tab-info"
+      onMouseEnter={() => setVisible(true)}
+      onMouseLeave={() => setVisible(false)}
+    >
+      <button
+        aria-describedby={visible ? tooltipId : undefined}
+        aria-label="About primary orders"
+        className="pf-tab-info-trigger"
+        type="button"
+        onBlur={() => setVisible(false)}
+        onClick={() => setVisible(true)}
+        onFocus={() => setVisible(true)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") setVisible(false);
+        }}
       >
-        {allocatedCount > 0
-          ? "Allocated order balances are reserved for published loans. They become portfolio holdings only after Garanta closes the loan funding round."
-          : "Your primary orders are still waiting for balance allocation. They are not portfolio holdings yet."}{" "}
-        {totals.map(([currency, amount]) => `${currency} ${formatMoneyMinor(amount, currency)}`).join(" / ")} is currently open in primary orders.
-      </Banner>
-    </div>
+        <Icon name="info" size={14} />
+      </button>
+      {visible ? (
+        <span className="pf-tab-info-tooltip" id={tooltipId} role="tooltip">
+          <strong>Primary orders awaiting funding close</strong>
+          <span>
+            Pending orders do not reserve balance. Allocated balances are reserved and become loan holdings only after Garanta closes the funding round.
+          </span>
+          <span>
+            {orders.length > 0
+              ? `${orders.length} open ${orders.length === 1 ? "order" : "orders"}${allocatedCount > 0 ? `, ${allocatedCount} with allocated balance` : ""}: ${totalsLabel}.`
+              : "You have no open primary orders."}
+          </span>
+        </span>
+      ) : null}
+    </span>
   );
 }
 
 function PendingOrdersEmptyState({ orders, onViewOrders }: { orders: PrimaryOrderPortal[]; onViewOrders: () => void }) {
   return (
-    <Card padded>
+    <div className="pf-empty-state pf-pending-orders-empty">
       <div className="col gap-12">
         <Empty icon="portfolio" title="No loan holdings yet">
           Holdings are created only when a published loan is closed and your allocated order converts into a loan claim.
@@ -4163,7 +4200,16 @@ function PendingOrdersEmptyState({ orders, onViewOrders }: { orders: PrimaryOrde
         </div>
         <div><Button size="sm" onClick={onViewOrders}>Open Orders tab</Button></div>
       </div>
-    </Card>
+    </div>
+  );
+}
+
+function PortfolioEmptyState({ action, children, icon, title }: { action?: ReactNode; children: ReactNode; icon: ComponentProps<typeof Empty>["icon"]; title: string }) {
+  return (
+    <div className="pf-empty-state">
+      <Empty icon={icon} title={title}>{children}</Empty>
+      {action ? <div className="pf-empty-action">{action}</div> : null}
+    </div>
   );
 }
 
@@ -4441,32 +4487,11 @@ function PfCard({ lab, tt, open, onToggle, children, foot }: { lab: string; tt: 
   );
 }
 
-function PfMyLoans({ currency, holdings, onOpen, setRoute, totalMinor }: { currency: string; holdings: Holding[]; onOpen: (holding: Holding) => void; setRoute: (route: AppRoute) => void; totalMinor: number }) {
+function PfMyLoans({ currency, holdings, onOpen, totalMinor }: { currency: string; holdings: Holding[]; onOpen: (holding: Holding) => void; totalMinor: number }) {
   const [view, setView] = useState<"focused" | "detailed">("focused");
-  const [openPanel, setOpenPanel] = useState<"cal" | "hex" | "col" | "risk" | null>(null);
   const sorted = [...holdings].sort((left, right) => right.current_principal_minor - left.current_principal_minor);
   const largestMinor = sorted[0]?.current_principal_minor ?? 1;
-  const payments = pfPayments(holdings);
-  const axes = pfAxes(holdings, currency, totalMinor);
-  const lowestAxis = axes.reduce((low, axis) => (axis.score < low.score ? axis : low), axes[0]);
-  const segments = pfRingSegments(holdings);
-  const largestSegment = segments[0];
-  const secured = holdings.filter((holding) => !pfIsUnsecured(holding));
-  const valuedSecured = secured.filter((holding) => holding.loan.ltv_bps !== null);
-  const securedLtvs = valuedSecured.map((holding) => (holding.loan.ltv_bps ?? 0) / 100);
-  const valuedSecuredMinor = valuedSecured.reduce((sum, holding) => sum + holding.current_principal_minor, 0);
-  const weightedLtv = valuedSecuredMinor > 0
-    ? valuedSecured.reduce((sum, holding) => sum + ((holding.loan.ltv_bps ?? 0) / 100) * holding.current_principal_minor, 0) / valuedSecuredMinor
-    : null;
-  const defaultInterestBps = holdings.map((holding) => holding.loan.default_penalty_interest_bps);
-  const configuredDefaultInterestBps = defaultInterestBps.filter((value) => value > 0);
-  const defaultInterestLabel = pfDefaultInterestLabel(defaultInterestBps);
-  const unsecuredHoldings = holdings.filter((holding) => pfIsUnsecured(holding));
-  const unsecuredMinor = unsecuredHoldings.reduce((sum, holding) => sum + holding.current_principal_minor, 0);
-  const lateHoldings = holdings.filter((holding) => pfIsLate(holding));
-  const lateMinor = lateHoldings.reduce((sum, holding) => sum + holding.current_principal_minor, 0);
   const [totalWhole, totalCents = "00"] = formatMoneyMinor(totalMinor, currency).split(".");
-  const toggle = (panel: "cal" | "hex" | "col" | "risk") => setOpenPanel((current) => (current === panel ? null : panel));
 
   return (
     <div className="pf-loans">
@@ -4535,6 +4560,35 @@ function PfMyLoans({ currency, holdings, onOpen, setRoute, totalMinor }: { curre
           <span className="num pf-tfoot-cents">.{totalCents}</span>
         </div>
       </div>
+    </div>
+  );
+}
+
+function PfPortfolioWidgets({ currency, holdings, setRoute, totalMinor }: { currency: string; holdings: Holding[]; setRoute: (route: AppRoute) => void; totalMinor: number }) {
+  const [openPanel, setOpenPanel] = useState<"cal" | "hex" | "col" | "risk" | null>(null);
+  const payments = pfPayments(holdings);
+  const axes = pfAxes(holdings, currency, totalMinor);
+  const lowestAxis = axes.reduce((low, axis) => (axis.score < low.score ? axis : low), axes[0]);
+  const segments = pfRingSegments(holdings);
+  const largestSegment = segments[0];
+  const secured = holdings.filter((holding) => !pfIsUnsecured(holding));
+  const valuedSecured = secured.filter((holding) => holding.loan.ltv_bps !== null);
+  const securedLtvs = valuedSecured.map((holding) => (holding.loan.ltv_bps ?? 0) / 100);
+  const valuedSecuredMinor = valuedSecured.reduce((sum, holding) => sum + holding.current_principal_minor, 0);
+  const weightedLtv = valuedSecuredMinor > 0
+    ? valuedSecured.reduce((sum, holding) => sum + ((holding.loan.ltv_bps ?? 0) / 100) * holding.current_principal_minor, 0) / valuedSecuredMinor
+    : null;
+  const defaultInterestBps = holdings.map((holding) => holding.loan.default_penalty_interest_bps);
+  const configuredDefaultInterestBps = defaultInterestBps.filter((value) => value > 0);
+  const defaultInterestLabel = pfDefaultInterestLabel(defaultInterestBps);
+  const unsecuredHoldings = holdings.filter((holding) => pfIsUnsecured(holding));
+  const unsecuredMinor = unsecuredHoldings.reduce((sum, holding) => sum + holding.current_principal_minor, 0);
+  const lateHoldings = holdings.filter((holding) => pfIsLate(holding));
+  const lateMinor = lateHoldings.reduce((sum, holding) => sum + holding.current_principal_minor, 0);
+  const toggle = (panel: "cal" | "hex" | "col" | "risk") => setOpenPanel((current) => (current === panel ? null : panel));
+
+  return (
+    <section aria-label="Portfolio insights" className="pf-insights">
 
       <div className="pf-cards">
         <PfCalendarCard currency={currency} open={openPanel === "cal"} onToggle={() => toggle("cal")} payments={payments} />
@@ -4629,7 +4683,7 @@ function PfMyLoans({ currency, holdings, onOpen, setRoute, totalMinor }: { curre
           <span className="pf-howlink-text">How BANXUM loans work</span>
         </button>
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -5000,14 +5054,19 @@ function ActivityAmount({ entry }: { entry: ActivityEntry }) {
 }
 
 function ActivityTable({ entries, dense = false }: { entries: ActivityEntry[]; dense?: boolean }) {
-  if (entries.length === 0) {
-    return <Card><Empty icon="clock" title="No activity yet">Deposits, investments, repayments, FX, and secondary-market activity will appear here.</Empty></Card>;
-  }
-
   return (
-    <Card>
-      <div className="tbl-wrap">
-        <table className={`tbl ${dense ? "dense" : ""}`}>
+    <section className="pf-data-section">
+      <header className="pf-data-heading">
+        <h2 className="sect">Activity</h2>
+        <p>Every deposit, investment, repayment, FX conversion and market event in one timeline.</p>
+      </header>
+      {entries.length === 0 ? (
+        <PortfolioEmptyState icon="clock" title="No activity yet">
+          Deposits, investments, repayments, FX, and secondary-market activity will appear here.
+        </PortfolioEmptyState>
+      ) : (
+      <div className="pf-data-table-wrap">
+        <table className={`pf-data-table pf-activity-table ${dense ? "dense" : ""}`}>
           <thead><tr><th>Date</th><th>Activity</th><th>Reference</th><th>Type</th><th className="num">Amount</th></tr></thead>
           <tbody>
             {entries.map((entry) => {
@@ -5025,7 +5084,8 @@ function ActivityTable({ entries, dense = false }: { entries: ActivityEntry[]; d
           </tbody>
         </table>
       </div>
-    </Card>
+      )}
+    </section>
   );
 }
 
@@ -5044,23 +5104,26 @@ const primaryOrderStatusTooltips: Record<string, string> = {
   closed_not_invested: "The order closed without any balance being allocated, or no capacity remained when it was processed. No funds were reserved and no portfolio holding was created."
 };
 
-function OrdersTable({ orders }: { orders: PrimaryOrderPortal[] }) {
+function OrdersTable({ onBrowse, orders }: { onBrowse: () => void; orders: PrimaryOrderPortal[] }) {
   return (
-    <div>
-      <Banner tone="neutral" title="Orders are intents">Pending orders do not reserve loan capacity until funds are allocated and validated, first-come first-served.</Banner>
+    <section className="pf-data-section">
+      <header className="pf-data-heading">
+        <h2 className="sect">Orders</h2>
+        <p>Track each investment intent from submission through allocation, release, or funding close.</p>
+      </header>
       {orders.length === 0 ? (
-        <Card className="section"><Empty icon="market" title="No primary orders">Investment intents will appear here after you place an order.</Empty></Card>
+        <PortfolioEmptyState action={<Button size="sm" onClick={onBrowse}>Browse marketplace</Button>} icon="market" title="No primary orders">
+          Investment intents will appear here after you place an order.
+        </PortfolioEmptyState>
       ) : (
-      <Card className="section">
-        <div className="tbl-wrap">
-          <table className="tbl">
+        <div className="pf-data-table-wrap">
+          <table className="pf-data-table pf-orders-table">
             <thead><tr><th>Order</th><th>Loan</th><th className="num">Requested</th><th className="num">Allocated</th><th>Placed</th><th>Status</th></tr></thead>
             <tbody>{orders.map((order) => <tr key={order.id}><td><CopyIdButton ariaLabel="Copy order ID" id={order.id} label="Copy order ID" /></td><td><EntityReference id={order.loan_id} idLabel="Copy loan ID" title={order.loan_title} /></td><td className="num"><Money amountMinor={order.requested_amount_minor} currency={order.currency} /></td><td className="num">{order.allocated_amount_minor > 0 ? <Money amountMinor={order.allocated_amount_minor} currency={order.currency} /> : <span className="muted">-</span>}</td><td className="mono muted">{formatDateTime(order.created_at)}</td><td><Chip status={order.status} tooltip={primaryOrderStatusTooltips[order.status]} /></td></tr>)}</tbody>
           </table>
         </div>
-      </Card>
       )}
-    </div>
+    </section>
   );
 }
 

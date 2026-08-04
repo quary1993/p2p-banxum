@@ -8,7 +8,7 @@ import {
   readReadonlyImpersonationToken,
   writeReadonlyImpersonation
 } from "./api/client/impersonation";
-import { portfolioFixture, primaryOrdersFixture } from "./investorPortal/fixtures";
+import { activityFixture, portfolioFixture, primaryOrdersFixture } from "./investorPortal/fixtures";
 import { onboardingStepForUser } from "./onboarding";
 
 function renderApp(path = "/") {
@@ -331,13 +331,19 @@ test("portfolio explains allocated orders that are not holdings yet", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
     fireEvent.click(screen.getByRole("button", { name: "Portfolio" }));
 
-    expect(screen.getByText("Primary orders awaiting funding close")).toBeInTheDocument();
+    expect(screen.queryByText("Primary orders awaiting funding close")).not.toBeInTheDocument();
+    const ordersInfo = screen.getByRole("button", { name: "About primary orders" });
+    fireEvent.mouseEnter(ordersInfo);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Primary orders awaiting funding close");
+    expect(screen.getByRole("tooltip")).toHaveTextContent("CHF 5'000.00");
     expect(screen.getByText("No loan holdings yet")).toBeInTheDocument();
     expect(screen.getByText(/created only when a published loan is closed/i)).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Exposure" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Earnings calendar")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: "Orders" }));
     expect(screen.getByText("Balance allocated")).toBeInTheDocument();
+    expect(screen.queryByText("Earnings calendar")).not.toBeInTheDocument();
   } finally {
     portfolioFixture.holdings = originalHoldings;
     portfolioFixture.exposure = originalExposure;
@@ -424,6 +430,16 @@ test("portfolio redesign shows hero, tabs, loans table views and widgets", () =>
   expect(screen.getByText("12.0%–16.0% p.a.")).toBeInTheDocument();
   expect(screen.getByText(/CHF 28'110\.50 lent/)).toBeInTheDocument();
 
+  // Portfolio insights stay below the selected tab instead of belonging only to My loans.
+  fireEvent.click(screen.getByRole("tab", { name: "Activity" }));
+  expect(screen.getByRole("heading", { name: "Activity" })).toBeInTheDocument();
+  expect(screen.getByText("Earnings calendar")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("tab", { name: "Orders" }));
+  expect(screen.getByRole("heading", { name: "Orders" })).toBeInTheDocument();
+  expect(screen.getByText("Earnings calendar")).toBeInTheDocument();
+  expect(screen.queryByText("Orders are intents")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("tab", { name: "My loans" }));
+
   // Hexagon panel opens with the purpose axis and live sentences.
   fireEvent.click(screen.getByText("Spread of portfolio"));
   expect(screen.getByRole("heading", { name: "How spread out your portfolio is" })).toBeInTheDocument();
@@ -442,6 +458,36 @@ test("portfolio redesign shows hero, tabs, loans table views and widgets", () =>
   fireEvent.click(screen.getByText("If a borrower stops paying"));
   expect(screen.getByText("Project-specific; not guaranteed")).toBeInTheDocument();
   expect(screen.queryByText(/a day/i)).not.toBeInTheDocument();
+});
+
+test("portfolio activity and order empty states retain meaningful holding insights", () => {
+  const originalActivity = activityFixture.entries;
+  const originalOrders = primaryOrdersFixture.orders;
+  activityFixture.entries = [];
+  primaryOrdersFixture.orders = [];
+
+  try {
+    renderApp();
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+    fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+      target: { value: "lukas.brunner@example.ch" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Portfolio" }));
+
+    fireEvent.click(screen.getByRole("tab", { name: "Activity" }));
+    expect(screen.getByText("No activity yet")).toBeInTheDocument();
+    expect(screen.getByText("Earnings calendar")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Orders" }));
+    expect(screen.getByText("No primary orders")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Browse marketplace" })).toBeInTheDocument();
+    expect(screen.getByText("Earnings calendar")).toBeInTheDocument();
+  } finally {
+    activityFixture.entries = originalActivity;
+    primaryOrdersFixture.orders = originalOrders;
+  }
 });
 
 test("holding details open in a large modal with the current loan schedule", () => {
