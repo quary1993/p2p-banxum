@@ -429,3 +429,12 @@ Before launch, Claude Design should produce or implement:
 - Remaining backend/API dependency: high-volume Activity, Orders, Documents, and balance-lot datasets need server-side pagination before production volume makes full self-scoped responses expensive. No client-side truncation was introduced in this pass.
 - Suggested improvement: validate long translated labels, large histories, mixed currencies, and screen-reader table navigation with production-scale fixtures. Consider stacked mobile rows only for the highest-frequency user workflows after usability testing; retain native table semantics for schedules and audit-like histories.
 - Priority: important.
+
+## 2026-08-04: Navigation, Add Funds, And Select Controls
+
+- Screen or component: investor sidebar, sticky header, Add Funds bank-transfer modal, registration, Marketplace filters, payout controls, QA state switcher, and admin select inputs.
+- Current behavior: the primary navigation now uses `Investment Opportunities` and `My Portfolio`; Notifications remains available from the persistent header bell and no longer consumes a duplicate sidebar row. `Add Funds` is the single action label on Dashboard and Balances, and a persistent green header action opens the existing self-scoped bank-transfer instructions with an explicit CHF/EUR selector. On mobile, balances collapse while Add Funds stays beside the notification control. Sidebar labels remain single-line at the supported 320px minimum viewport. Native select elements retain platform/mobile accessibility while sharing one deliberate surface, chevron, hover, focus, and disabled treatment across investor, onboarding, and admin interfaces.
+- Design decision: technical and regulatory nouns such as deposit reconciliation and deposit protection remain unchanged where they describe actual concepts; only the user command is normalized to `Add Funds`. The Notifications route and history screen remain intact even though its sidebar link was removed. The header action reuses the canonical deposit-instruction projection and does not introduce a second funding workflow or any client-side bank-account logic.
+- Remaining backend/API dependency: none for these shell and control changes. Available funding currencies continue to come from the backend instruction projection.
+- Suggested improvement: validate unusually long translated navigation labels before localization and confirm native option-menu rendering on the supported iOS, Android, Windows, and macOS browser matrix.
+- Priority: important.

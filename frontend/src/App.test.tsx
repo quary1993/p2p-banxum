@@ -102,6 +102,17 @@ test("fixture-backed authenticated portal is visibly marked as preview data", ()
   expect(screen.getByRole("heading", { name: "Welcome back, Lukas" })).toBeInTheDocument();
   expect(screen.getByText("Preview data")).toBeInTheDocument();
   expect(screen.getByText(/not real account data/i)).toBeInTheDocument();
+
+  const portalNav = screen.getByRole("navigation", { name: "Investor portal navigation" });
+  expect(within(portalNav).getByRole("button", { name: "Investment Opportunities" })).toBeInTheDocument();
+  expect(within(portalNav).getByRole("button", { name: "My Portfolio" })).toBeInTheDocument();
+  expect(within(portalNav).queryByRole("button", { name: "Notifications" })).not.toBeInTheDocument();
+
+  const topbar = screen.getByRole("banner", { name: "Investor account header" });
+  expect(within(topbar).getByRole("button", { name: "Notifications" })).toBeInTheDocument();
+  fireEvent.click(within(topbar).getByRole("button", { name: "Add Funds" }));
+  expect(screen.getByRole("heading", { name: "Add Funds · CHF" })).toBeInTheDocument();
+  expect(screen.getByLabelText("Currency")).toHaveClass("select");
 });
 
 test("investor data tables use the shared editorial table surface", () => {
@@ -203,7 +214,7 @@ test("published primary-market loans appear in dashboard and marketplace open vi
   expect(screen.getByRole("heading", { name: "Open opportunities" })).toBeInTheDocument();
   expect(screen.getByText("Helvetia Logistik AG")).toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole("button", { name: "Marketplace" }));
+  fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
 
   expect(screen.getByText("4 loans")).toBeInTheDocument();
   expect(screen.getByText("Helvetia Logistik AG")).toBeInTheDocument();
@@ -219,7 +230,7 @@ test("marketplace redesign preserves live filters, detail mode, and order guidan
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "Marketplace" }));
+  fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
 
   expect(screen.getByRole("heading", { name: "These companies want your investment" })).toBeInTheDocument();
   expect(screen.getByText("Two ways to put your money to work")).toBeInTheDocument();
@@ -294,7 +305,7 @@ test("refinanced marketplace loan shows badge and informational original loan sc
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "Marketplace" }));
+  fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
 
   // Listing row of the refinancing loan carries the short tag.
   expect(screen.getAllByText("Refinanced").length).toBeGreaterThan(0);
@@ -353,7 +364,7 @@ test("portfolio explains allocated orders that are not holdings yet", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
     fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-    fireEvent.click(screen.getByRole("button", { name: "Portfolio" }));
+    fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
 
     expect(screen.queryByText("Primary orders awaiting funding close")).not.toBeInTheDocument();
     const ordersInfo = screen.getByRole("button", { name: "About primary orders" });
@@ -407,7 +418,7 @@ test("primary-order status chips explain released and never-invested outcomes", 
     });
     fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
     fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-    fireEvent.click(screen.getByRole("button", { name: "Portfolio" }));
+    fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
     fireEvent.click(screen.getByRole("tab", { name: "Orders" }));
 
     expect(screen.getByTitle(/previously reserved.*released before funding closed/i)).toHaveTextContent(
@@ -466,7 +477,7 @@ test("portfolio redesign shows hero, tabs, loans table views and widgets", () =>
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "Portfolio" }));
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
 
   // Hero + three tabs (Exposure is gone), CHF is the default currency scope.
   expect(screen.getByRole("heading", { name: "Everything you own." })).toBeInTheDocument();
@@ -545,7 +556,7 @@ test("portfolio activity and order empty states retain meaningful holding insigh
     });
     fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
     fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-    fireEvent.click(screen.getByRole("button", { name: "Portfolio" }));
+    fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
 
     fireEvent.click(screen.getByRole("tab", { name: "Activity" }));
     expect(screen.getByText("No activity yet")).toBeInTheDocument();
@@ -570,7 +581,7 @@ test("holding details open in a large modal with the current loan schedule", () 
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "Portfolio" }));
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
   fireEvent.click(screen.getByText("Engadin Alpine refinancing"));
 
   const dialog = screen.getByRole("dialog", { name: "Engadin Alpine refinancing" });
@@ -609,7 +620,7 @@ test("funded holdings explain that secondary listing starts after disbursement",
     });
     fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
     fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-    fireEvent.click(screen.getByRole("button", { name: "Portfolio" }));
+    fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
     fireEvent.click(screen.getByText("Engadin Alpine refinancing"));
 
     const dialog = screen.getByRole("dialog", { name: "Engadin Alpine refinancing" });
@@ -647,7 +658,7 @@ test("portfolio listing action opens the sell tab and separates review from emai
     });
     fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
     fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-    fireEvent.click(screen.getByRole("button", { name: "Portfolio" }));
+    fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
     fireEvent.click(screen.getByText("Engadin Alpine refinancing"));
 
     const holdingDialog = screen.getByRole("dialog", { name: "Engadin Alpine refinancing" });
@@ -682,7 +693,7 @@ test("listed holdings expose edit and cancel controls plus filtered secondary ac
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "Portfolio" }));
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
 
   expect(screen.getByText("Listed")).toBeInTheDocument();
   fireEvent.click(screen.getByText("Engadin Alpine refinancing"));
@@ -893,7 +904,7 @@ test("deposit instructions explain how to use the required payment reference", (
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
   fireEvent.click(screen.getByRole("button", { name: /^Balances/ }));
-  fireEvent.click(screen.getByRole("button", { name: "Deposit funds" }));
+  fireEvent.click(within(screen.getByRole("main")).getByRole("button", { name: "Add Funds" }));
 
   expect(screen.getByText("Payment reference - required")).toBeInTheDocument();
   expect(screen.getByText(/enter this reference unchanged in the payment details/i)).toBeInTheDocument();

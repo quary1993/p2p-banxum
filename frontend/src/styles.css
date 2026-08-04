@@ -4390,9 +4390,15 @@ table.tbl tfoot.schedule-totals th.num,
   border-left: 2px solid transparent;
   border-radius: 0;
   color: var(--ink-3);
-  font-size: 13.5px;
-  gap: 11px;
-  padding: 9px 11px;
+  font-size: 13px;
+  gap: 8px;
+  padding: 9px 8px;
+  white-space: nowrap;
+}
+
+.app .nav-link-label {
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .app .nav-link:hover {
@@ -4451,6 +4457,10 @@ table.tbl tfoot.schedule-totals th.num,
   background: transparent;
   border-color: var(--line);
   border-radius: var(--r-pill);
+}
+
+.app .topbar-add-funds {
+  flex: none;
 }
 
 .app .state-switch {
@@ -5040,6 +5050,72 @@ table.tbl tfoot.schedule-totals th.num,
 .auth-wrap .select:focus {
   border-color: var(--ink);
   box-shadow: none;
+}
+
+/* Native selects use one intentional control treatment across the product.
+   Options remain native for keyboard, screen-reader, and mobile picker support. */
+.app select.select,
+.public select.select,
+.auth-wrap select.select,
+.admin-app select,
+.admin-login select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath d='m3.5 5.25 3.5 3.5 3.5-3.5' fill='none' stroke='%23626b70' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: right 13px center;
+  background-repeat: no-repeat;
+  background-size: 14px;
+  cursor: pointer;
+  padding-right: 40px;
+}
+
+.app select.select:hover,
+.public select.select:hover,
+.auth-wrap select.select:hover,
+.admin-app select:hover,
+.admin-login select:hover {
+  border-color: var(--ink-3);
+}
+
+.app select.select:disabled,
+.public select.select:disabled,
+.auth-wrap select.select:disabled,
+.admin-app select:disabled,
+.admin-login select:disabled {
+  background-color: var(--surface-2);
+  color: var(--ink-4);
+  cursor: not-allowed;
+}
+
+.app select.filter-select {
+  height: 34px;
+  min-height: 34px;
+  padding-left: 12px;
+  padding-right: 36px;
+}
+
+.app select.state-switch-select {
+  border: 0;
+  height: 28px;
+  min-height: 28px;
+  padding: 0 30px 0 9px;
+  width: auto;
+}
+
+.admin-app select,
+.admin-login select {
+  background-color: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  min-height: 36px;
+  padding-left: 10px;
+}
+
+.admin-app select:focus,
+.admin-login select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  outline: none;
 }
 
 .app .search .input,
@@ -5857,6 +5933,10 @@ table.tbl tfoot.schedule-totals th.num,
     padding: 0 18px;
   }
 
+  .app .topbar-add-funds {
+    margin-left: auto;
+  }
+
   .app .scrim,
   .public .scrim,
   .auth-wrap .scrim {
@@ -5897,11 +5977,22 @@ table.tbl tfoot.schedule-totals th.num,
 }
 
 @media (max-width: 560px) {
+  .app .topbar {
+    gap: 8px;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
   .app .topbar .crumbs {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .app .topbar-add-funds {
+    padding-left: 12px;
+    padding-right: 12px;
   }
 
   .app .topbar .state-switch select {
@@ -6051,6 +6142,12 @@ table.tbl tfoot.schedule-totals th.num,
     min-width: 0;
     text-align: right;
     white-space: normal;
+  }
+}
+
+@media (max-width: 480px) {
+  .app .topbar .state-switch {
+    display: none;
   }
 }
 

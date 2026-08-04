@@ -431,9 +431,9 @@ const routeTitles: Record<RouteName, string> = {
   register: "Register",
   kyc: "Verification",
   dashboard: "Dashboard",
-  market: "Marketplace",
-  loan: "Marketplace",
-  portfolio: "Portfolio",
+  market: "Investment Opportunities",
+  loan: "Investment Opportunities",
+  portfolio: "My Portfolio",
   secondary: "Secondary Market",
   balances: "Balances",
   fx: "Currency Exchange",
@@ -451,8 +451,8 @@ const navGroups: Array<{
     label: "Invest",
     items: [
       { route: "dashboard", label: "Dashboard", icon: "dashboard" },
-      { route: "market", label: "Marketplace", icon: "market" },
-      { route: "portfolio", label: "Portfolio", icon: "portfolio" },
+      { route: "market", label: "Investment Opportunities", icon: "market" },
+      { route: "portfolio", label: "My Portfolio", icon: "portfolio" },
       { route: "secondary", label: "Secondary Market", icon: "secondary" }
     ]
   },
@@ -467,7 +467,6 @@ const navGroups: Array<{
     label: "Account",
     items: [
       { route: "documents", label: "Documents", icon: "docs" },
-      { route: "notifications", label: "Notifications", icon: "bell" },
       { route: "settings", label: "Settings", icon: "settings" },
       { route: "faq", label: "Help & FAQ", icon: "info" }
     ]
@@ -2023,7 +2022,7 @@ function AuthShell({ children, onClose }: { children: React.ReactNode; onClose: 
         <div className="row" style={{ justifyContent: "center" }}><Wordmark /></div>
         {children}
         <button className="btn-link center" onClick={onClose} style={{ alignSelf: "center", fontSize: 12.5 }} type="button">
-          Back to marketplace preview
+          Back to investment opportunities preview
         </button>
       </div>
     </div>
@@ -2043,6 +2042,7 @@ function InvestorShell({
 }) {
   const queryClient = useQueryClient();
   const [navOpen, setNavOpen] = useState(false);
+  const [addFundsOpen, setAddFundsOpen] = useState(false);
   const [investLoan, setInvestLoan] = useState<MarketplaceLoanDetail | null>(null);
   const [readonlyImpersonation, setReadonlyImpersonation] = useState(() => ({
     active: isReadonlyImpersonationActive(),
@@ -2054,6 +2054,7 @@ function InvestorShell({
     setReadonlyImpersonation({ active: false, label: "" });
     goTo(setRoute, "public");
     setNavOpen(false);
+    setAddFundsOpen(false);
     setInvestLoan(null);
   };
   const logoutMutation = useV1AuthLogoutCreate({
@@ -2167,6 +2168,9 @@ function InvestorShell({
       : screen;
 
   const overdueCount = balances.lots.filter((lot) => lot.bucket === "overdue" || lot.bucket === "penalty").length;
+  const addFundsCurrency = balances.summaries.find((summary) => summary.currency === "CHF")?.currency
+    ?? balances.summaries[0]?.currency
+    ?? "CHF";
   const displayRouteName = !financialAccessAllowed && !isFixturePreview ? "kyc" : route.name;
   const activeRoute = displayRouteName === "loan" ? "market" : displayRouteName;
 
@@ -2193,7 +2197,7 @@ function InvestorShell({
                     type="button"
                   >
                     <Icon name={item.icon} size={17} />
-                    {item.label}
+                    <span className="nav-link-label">{item.label}</span>
                     {showBalanceBadge ? <span className={`nav-badge ${demoState === "frozen" ? "bad" : "warn"}`}>{demoState === "frozen" ? "!" : overdueCount}</span> : null}
                   </button>
                 );
@@ -2233,7 +2237,7 @@ function InvestorShell({
         </div>
       </aside>
       <div className="main">
-        <header className="topbar">
+        <header aria-label="Investor account header" className="topbar">
           <button aria-label="Menu" className="icon-btn menu-btn" onClick={() => setNavOpen((open) => !open)} type="button">
             <Icon name="menu" size={18} />
           </button>
@@ -2246,6 +2250,16 @@ function InvestorShell({
               </div>
             ))}
           </div>
+          <Button
+            aria-label="Add Funds"
+            className="btn-green topbar-add-funds"
+            disabled={!financialAccessAllowed || demoState === "frozen" || readonlyImpersonation.active}
+            icon="plus"
+            onClick={() => setAddFundsOpen(true)}
+            size="sm"
+          >
+            Add Funds
+          </Button>
           <button
             aria-label="Notifications"
             className="icon-btn"
@@ -2258,7 +2272,7 @@ function InvestorShell({
           {isFixturePreview ? (
             <div className="state-switch">
               <span>UX state</span>
-              <select onChange={(event) => setDemoState(event.target.value as DemoAccountState)} value={demoState}>
+              <select className="select state-switch-select" onChange={(event) => setDemoState(event.target.value as DemoAccountState)} value={demoState}>
                 <option value="active">Active investor</option>
                 <option value="kyc_pending">KYC pending</option>
                 <option value="frozen">Day-60 freeze</option>
@@ -2285,6 +2299,13 @@ function InvestorShell({
         ) : null}
         {gatedScreen}
       </div>
+      {addFundsOpen ? (
+        <DepositModal
+          allowCurrencySelection
+          currency={addFundsCurrency}
+          onClose={() => setAddFundsOpen(false)}
+        />
+      ) : null}
       {investLoan ? <InvestModal loan={investLoan} onClose={() => setInvestLoan(null)} /> : null}
     </div>
   );
@@ -2324,7 +2345,7 @@ function Dashboard({ demoState, setRoute }: { demoState: DemoAccountState; setRo
           <div className="ph-sub">Account overview - {formatDate(dashboard.as_of)} - Europe/Zurich</div>
         </div>
         <div className="page-actions">
-          <Button className="btn-green-line" icon="wallet" onClick={() => goTo(setRoute, "balances")}>Deposit</Button>
+          <Button className="btn-green-line" icon="wallet" onClick={() => goTo(setRoute, "balances")}>Add Funds</Button>
           <Button icon="market" variant="primary" onClick={() => goTo(setRoute, "market")}>Browse loans</Button>
         </div>
       </div>
@@ -2438,7 +2459,7 @@ function BalanceCard({ summary, setRoute, frozen }: { summary: BalanceSummary; s
       <BalanceRow currency={summary.currency} label="Overdue" tone="warn" value={summary.overdue_minor} />
       <BalanceRow currency={summary.currency} label="Penalty mode" tone="bad" value={summary.penalty_mode_minor + summary.frozen_minor} />
       <div className="row gap-8" style={{ marginTop: 14 }}>
-        <Button block className="btn-green-line" disabled={frozen} size="sm" onClick={() => goTo(setRoute, "balances")}>Deposit</Button>
+        <Button block className="btn-green-line" disabled={frozen} size="sm" onClick={() => goTo(setRoute, "balances")}>Add Funds</Button>
         <Button block size="sm" variant="ghost" onClick={() => goTo(setRoute, "balances")}>Withdraw</Button>
       </div>
     </Card>
@@ -2821,7 +2842,7 @@ function LoanDetailScreen({
 
   return (
     <main className="content">
-      <button className="backlink" onClick={() => goTo(setRoute, "market")} type="button"><Icon name="arrowL" size={14} /> Marketplace</button>
+      <button className="backlink" onClick={() => goTo(setRoute, "market")} type="button"><Icon name="arrowL" size={14} /> Investment Opportunities</button>
       <div className="page-head">
         <div>
           <div className="row gap-8 wrap" style={{ marginBottom: 5 }}>
@@ -3246,7 +3267,7 @@ function BalancesScreen({ demoState }: { demoState: DemoAccountState }) {
         <BucketTile label="Penalty/frozen" value={frozen ? summary.overdue_minor : summary.penalty_mode_minor + summary.frozen_minor} currency={currency} tone={frozen ? "bad" : "neutral"} sub={frozen ? "IBAN required" : "None"} />
       </div>
       <div className="row gap-8 wrap" style={{ marginBottom: 20 }}>
-        <Button className="btn-green" disabled={frozen || isReadonlyImpersonationActive()} icon="plus" variant="primary" onClick={() => setModal("deposit")}>Deposit funds</Button>
+        <Button className="btn-green" disabled={frozen || isReadonlyImpersonationActive()} icon="plus" variant="primary" onClick={() => setModal("deposit")}>Add Funds</Button>
         <Button disabled={isReadonlyImpersonationActive()} icon="download" onClick={() => setModal("withdraw")}>Withdraw</Button>
         <Button disabled={isReadonlyImpersonationActive()} icon="balance" variant="ghost" onClick={() => setModal("iban")}>Payout IBANs</Button>
       </div>
@@ -3331,39 +3352,60 @@ function BalanceLotsTable({ lots, frozen }: { lots: BalanceLot[]; frozen: boolea
   );
 }
 
-function DepositModal({ currency, onClose }: { currency: string; onClose: () => void }) {
+function DepositModal({
+  allowCurrencySelection = false,
+  currency: initialCurrency,
+  onClose
+}: {
+  allowCurrencySelection?: boolean;
+  currency: string;
+  onClose: () => void;
+}) {
+  const [currency, setCurrency] = useState(initialCurrency);
   const instructionsQuery = useDepositInstructionsData();
   const payload = instructionsQuery.data;
   if (instructionsQuery.isError && !payload) {
     return (
-      <Modal footer={<Button variant="primary" onClick={onClose}>Done</Button>} onClose={onClose} title={`Deposit ${currency}`}>
-        <DataErrorCard title="Could not load deposit instructions" onRetry={() => void instructionsQuery.refetch()}>
-          We could not load the live deposit instructions. Try again before sending funds.
+      <Modal footer={<Button variant="primary" onClick={onClose}>Done</Button>} onClose={onClose} title="Add Funds">
+        <DataErrorCard title="Could not load funding instructions" onRetry={() => void instructionsQuery.refetch()}>
+          We could not load the live bank-transfer instructions. Try again before sending funds.
         </DataErrorCard>
       </Modal>
     );
   }
   if (!payload) {
     return (
-      <Modal footer={<Button variant="primary" onClick={onClose}>Done</Button>} onClose={onClose} title={`Deposit ${currency}`}>
-        <ScreenLoading title="Deposit instructions" />
+      <Modal footer={<Button variant="primary" onClick={onClose}>Done</Button>} onClose={onClose} title="Add Funds">
+        <ScreenLoading title="Loading funding instructions" />
       </Modal>
     );
   }
-  const instruction = payload.instructions.find((item) => item.currency === currency);
+  const selectedCurrency = allowCurrencySelection && !payload.instructions.some((item) => item.currency === currency)
+    ? payload.instructions[0]?.currency ?? currency
+    : currency;
+  const instruction = payload.instructions.find((item) => item.currency === selectedCurrency);
   if (!instruction) {
     return (
-      <Modal footer={<Button variant="primary" onClick={onClose}>Done</Button>} onClose={onClose} title={`Deposit ${currency}`}>
-        <Empty icon="info" title={`No ${currency} deposit account`}>
-          Garanta has not enabled deposit instructions for this currency.
+      <Modal footer={<Button variant="primary" onClick={onClose}>Done</Button>} onClose={onClose} title={`Add Funds · ${selectedCurrency}`}>
+        <Empty icon="info" title={`No ${selectedCurrency} funding account`}>
+          Garanta has not enabled bank-transfer instructions for this currency.
         </Empty>
       </Modal>
     );
   }
   return (
-    <Modal footer={<Button variant="primary" onClick={onClose}>Done</Button>} onClose={onClose} title={`Deposit ${currency}`}>
+    <Modal footer={<Button variant="primary" onClick={onClose}>Done</Button>} onClose={onClose} title={`Add Funds · ${selectedCurrency}`}>
       <div className="col gap-16">
-        <Banner tone={instruction.is_configured ? "warn" : "bad"} title={`Send ${currency} only to this ${currency} account`}>
+        {allowCurrencySelection && payload.instructions.length > 1 ? (
+          <Field label="Currency">
+            <select aria-label="Currency" className="select" onChange={(event) => setCurrency(event.target.value)} value={selectedCurrency}>
+              {payload.instructions.map((item) => (
+                <option key={item.currency} value={item.currency}>{item.currency}</option>
+              ))}
+            </select>
+          </Field>
+        ) : null}
+        <Banner tone={instruction.is_configured ? "warn" : "bad"} title={`Send ${selectedCurrency} only to this ${selectedCurrency} account`}>
           {instruction.is_configured
             ? "Matching depends on amount, currency, sender name/IBAN and the reference below."
             : "This deposit account is not fully configured yet. Do not send funds until Garanta confirms the live bank details."}
@@ -3381,7 +3423,7 @@ function DepositModal({ currency, onClose }: { currency: string; onClose: () => 
             <div>
               <div className="eyebrow" style={{ marginBottom: 6 }}>Swiss QR-bill code</div>
               <p className="muted" style={{ fontSize: 11.5, margin: 0 }}>
-                Scan this code only for {currency} deposits. If your bank app does not carry the
+                Scan this code only for {selectedCurrency} transfers. If your bank app does not carry the
                 BANXUM payment reference automatically, enter the reference below unchanged.
               </p>
             </div>
@@ -6517,7 +6559,7 @@ function PayoutIbanModal({ onClose }: { onClose: () => void }) {
       <div className="col gap-16">
         <Banner tone="warn" title="Adding payout details">A newly submitted IBAN is added to your existing payout accounts and remains unavailable until Garanta verifies it. Existing verified IBANs stay usable. The 60-day balance deadline is not extended.</Banner>
         <Field label="Currency">
-          <select value={currency} onChange={(event) => setCurrency(event.target.value)}>
+          <select className="select" value={currency} onChange={(event) => setCurrency(event.target.value)}>
             <option value="CHF">CHF</option>
             <option value="EUR">EUR</option>
           </select>
@@ -6731,10 +6773,10 @@ const faqSections: FaqSection[] = [
     summary: "Operational balances are controlled by 30-day and 60-day regulatory ageing rules.",
     items: [
       {
-        question: "How do I deposit money?",
+        question: "How do I add funds?",
         answer: (
           <>
-            Open Balances and choose Deposit. You will see the collection account (IBAN) for each enabled
+            Open Balances and choose Add Funds. You will see the collection account (IBAN) for each enabled
             currency together with your personal payment reference. Send a normal bank transfer from your own
             account in the same currency and include the reference exactly as shown — it is how your payment
             is matched to your account. Your balance is credited once {operatorName} reconciles the incoming
@@ -6989,7 +7031,7 @@ function PublicFaqPage({ setRoute }: { setRoute: (route: AppRoute) => void }) {
         <Wordmark />
         <div className="grow" />
         <nav className="public-nav" aria-label="Public navigation">
-          <a href="/" onClick={(event) => { event.preventDefault(); goTo(setRoute, "public"); }}>Marketplace preview</a>
+          <a href="/" onClick={(event) => { event.preventDefault(); goTo(setRoute, "public"); }}>Investment opportunities preview</a>
           <span aria-current="page">FAQ</span>
         </nav>
         <Button variant="ghost" onClick={() => goTo(setRoute, "login")}>
@@ -7002,7 +7044,7 @@ function PublicFaqPage({ setRoute }: { setRoute: (route: AppRoute) => void }) {
       <main className="public-body public-faq">
         <div className="public-mobile-links" aria-label="Public links">
           <button className="btn-link" onClick={() => goTo(setRoute, "public")} type="button">
-            Marketplace preview
+            Investment opportunities preview
           </button>
           <button className="btn-link" onClick={() => goTo(setRoute, "register")} type="button">
             Register
