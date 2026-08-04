@@ -337,13 +337,13 @@ td.num {
 
 .investor-brand.compact .investor-brand-art {
   height: 21px;
-  width: 99px;
+  width: 112px;
 }
 
 .investor-brand.compact .investor-brand-art img {
-  left: -11px;
-  top: -14px;
-  width: 120px;
+  left: -10px;
+  top: -10px;
+  width: 128px;
 }
 
 .nav {
@@ -6310,6 +6310,12 @@ table.tbl tfoot.schedule-totals th.num,
   font-weight: 600;
 }
 
+.app .pf-collateral-ring-layout {
+  align-items: center;
+  display: flex;
+  gap: 40px;
+}
+
 .app .pf-cards {
   display: flex;
   flex-direction: column;
@@ -6843,6 +6849,10 @@ table.tbl tfoot.schedule-totals th.num,
     min-width: 640px;
   }
 
+  .app .pf-page .tfoot {
+    min-width: 640px;
+  }
+
   .app .pf-page .card471 {
     width: 100%;
   }
@@ -6879,6 +6889,16 @@ table.tbl tfoot.schedule-totals th.num,
   .app .pf-page .cal-legend {
     margin-left: 10px;
   }
+
+  .app .pf-collateral-ring-layout {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .app .pf-collateral-ring-layout > svg {
+    align-self: center;
+  }
 }
 
 @media (max-width: 560px) {
@@ -6896,5 +6916,31 @@ table.tbl tfoot.schedule-totals th.num,
 
   .app .pf-panel .panel-block {
     padding: 20px;
+  }
+
+  .app .pf-risk-kvs,
+  .app .pf-risk-kvs .kv-row {
+    min-width: 0;
+  }
+
+  .app .pf-risk-kvs .kv-row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+  }
+
+  .app .pf-risk-kvs .kv-row .k,
+  .app .pf-risk-kvs .kv-row .v {
+    white-space: normal;
+  }
+
+  .app .pf-risk-kvs .kv-row .leader {
+    display: none;
+  }
+
+  .app .pf-risk-kvs .kv-row .v {
+    margin-left: auto;
+    max-width: 100%;
+    text-align: right;
   }
 }

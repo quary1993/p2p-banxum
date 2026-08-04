@@ -624,6 +624,7 @@ def _loan_projection(
         "collateral_type": str(loan.collateral_type),
         "risk_rating": str(loan.risk_rating),
         "interest_rate_bps": int(loan.interest_rate_bps),
+        "default_penalty_interest_bps": int(loan.default_penalty_interest_bps),
         "term_months": int(loan.term_months),
         "repayment_type": str(loan.repayment_type),
         "currency": _currency_code(loan.currency),

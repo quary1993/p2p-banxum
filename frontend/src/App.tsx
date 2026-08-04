@@ -908,7 +908,7 @@ function Wordmark({ compact = false }: { compact?: boolean }) {
         <span className="investor-brand-art">
           <img
             alt={platformName}
-            src={compact ? "/brand/logo.png" : "/brand/logo-symbol.png"}
+            src="/brand/logo-symbol.png"
           />
         </span>
       ) : (
@@ -4186,7 +4186,17 @@ function pfMoneyLabel(currency: string, amountMinor: number) {
 }
 
 function pfWholeLabel(currency: string, amountMinor: number) {
-  return `${currency === "EUR" ? "€" : currency} ${Math.round(amountMinor / 100).toLocaleString("en-US")}`;
+  return pfMoneyLabel(currency, amountMinor);
+}
+
+function pfDefaultInterestLabel(values: number[]) {
+  const configured = values.filter((value) => value > 0);
+  if (configured.length === 0) return "Not configured";
+  const minimum = Math.min(...configured);
+  const maximum = Math.max(...configured);
+  return minimum === maximum
+    ? `${formatRateBps(minimum)} p.a.`
+    : `${formatRateBps(minimum)}–${formatRateBps(maximum)} p.a.`;
 }
 
 const pfCollateralShortLabels: Record<string, string> = {
@@ -4221,7 +4231,7 @@ function pfIsLate(holding: Holding) {
 }
 
 function pfIsUnsecured(holding: Holding) {
-  return holding.loan.collateral_type === "unsecured_exception" || holding.loan.ltv_bps === null;
+  return holding.loan.collateral_type === "unsecured_exception";
 }
 
 function pfShortDate(iso: string) {
@@ -4301,8 +4311,10 @@ function pfAxes(holdings: Holding[], currency: string, totalMinor: number): PfAx
 
   const secured = holdings.filter((holding) => !pfIsUnsecured(holding));
   const securedMinor = secured.reduce((sum, holding) => sum + holding.current_principal_minor, 0);
-  const weightedLtvBps = securedMinor > 0
-    ? secured.reduce((sum, holding) => sum + (holding.loan.ltv_bps ?? 0) * holding.current_principal_minor, 0) / securedMinor
+  const valuedSecured = secured.filter((holding) => holding.loan.ltv_bps !== null);
+  const valuedSecuredMinor = valuedSecured.reduce((sum, holding) => sum + holding.current_principal_minor, 0);
+  const weightedLtvBps = valuedSecuredMinor > 0
+    ? valuedSecured.reduce((sum, holding) => sum + (holding.loan.ltv_bps ?? 0) * holding.current_principal_minor, 0) / valuedSecuredMinor
     : 0;
   const coverPct = weightedLtvBps / 100;
 
@@ -4313,21 +4325,10 @@ function pfAxes(holdings: Holding[], currency: string, totalMinor: number): PfAx
   }
   const [topCollateral, topCollateralMinor] = Array.from(byCollateral.entries()).sort((a, b) => b[1] - a[1])[0];
 
-  let dueCount = 0;
-  let onTimeCount = 0;
-  const today = new Date();
-  for (const holding of holdings) {
-    for (const row of holding.loan.schedule) {
-      if (row.row_type === "repayment_event") {
-        dueCount += 1;
-        if (row.payment_date && row.payment_date <= row.due_date) onTimeCount += 1;
-      } else if (new Date(`${row.due_date}T00:00:00`) < today) {
-        dueCount += 1;
-        if (row.is_paid) onTimeCount += 1;
-      }
-    }
-  }
-  const onTimeRatio = dueCount > 0 ? onTimeCount / dueCount : 1;
+  const lateMinor = holdings
+    .filter((holding) => pfIsLate(holding))
+    .reduce((sum, holding) => sum + holding.current_principal_minor, 0);
+  const currentMinor = Math.max(0, totalMinor - lateMinor);
 
   return [
     {
@@ -4358,11 +4359,9 @@ function pfAxes(holdings: Holding[], currency: string, totalMinor: number): PfAx
       sentence: `${humanizeToken(topCollateral)} is ${pfMoneyLabel(currency, topCollateralMinor)}, or ${(share(topCollateralMinor) * 100).toFixed(1)}% of your money — counted by each loan's principal asset. Scale: 0 if one type is everything, 100 if none is over 35%.`
     },
     {
-      label: "Payments on time",
-      score: dueCount > 0 ? pfScore(onTimeRatio, 0.9, 1) : 100,
-      sentence: dueCount > 0
-        ? `${onTimeCount} of the ${dueCount} payments due so far arrived on time. Scale: 0 at 90% or below, 100 if every payment arrived.`
-        : "No payments have come due yet."
+      label: "Current performance",
+      score: Math.round(share(currentMinor) * 100),
+      sentence: `${pfMoneyLabel(currency, currentMinor)} of your ${pfMoneyLabel(currency, totalMinor)} is not currently late or defaulted. Scale: 0 if all current principal is in arrears, 100 if none is.`
     }
   ];
 }
@@ -4421,7 +4420,7 @@ function PfRing({ segments, total, radius, stroke, size, center }: { segments: {
       </g>
       {center ? (
         <>
-          <text fill="#151719" fontFamily="Instrument Sans, Arial, sans-serif" fontSize="17" fontWeight="600" letterSpacing="-0.5" textAnchor="middle" x={size / 2} y={size / 2 - 3}>{center.title}</text>
+          <text fill="#151719" fontFamily="Instrument Sans, Arial, sans-serif" fontSize={center.title.length > 11 ? "12.5" : "17"} fontWeight="600" letterSpacing="-0.3" textAnchor="middle" x={size / 2} y={size / 2 - 3}>{center.title}</text>
           <text fill="#626b70" fontFamily="Instrument Sans, Arial, sans-serif" fontSize="9.5" fontWeight="600" letterSpacing=".02em" textAnchor="middle" x={size / 2} y={size / 2 + 12}>{center.sub}</text>
         </>
       ) : null}
@@ -4431,7 +4430,7 @@ function PfRing({ segments, total, radius, stroke, size, center }: { segments: {
 
 function PfCard({ lab, tt, open, onToggle, children, foot }: { lab: string; tt: string; open: boolean; onToggle: () => void; children: ReactNode; foot: ReactNode }) {
   return (
-    <button className={`card471${open ? " open" : ""}`} onClick={onToggle} type="button">
+    <button aria-expanded={open} className={`card471${open ? " open" : ""}`} onClick={onToggle} type="button">
       <span className="head">
         <span style={{ flex: 1 }}><span className="lab">{lab}</span><span className="tt">{tt}</span></span>
         <span aria-hidden="true" className="sig">{open ? "−" : "+"}</span>
@@ -4453,15 +4452,20 @@ function PfMyLoans({ currency, holdings, onOpen, setRoute, totalMinor }: { curre
   const segments = pfRingSegments(holdings);
   const largestSegment = segments[0];
   const secured = holdings.filter((holding) => !pfIsUnsecured(holding));
-  const securedLtvs = secured.map((holding) => (holding.loan.ltv_bps ?? 0) / 100);
-  const securedMinor = secured.reduce((sum, holding) => sum + holding.current_principal_minor, 0);
-  const weightedMargin = securedMinor > 0
-    ? secured.reduce((sum, holding) => sum + ((holding.loan.ltv_bps ?? 0) / 100) * holding.current_principal_minor, 0) / securedMinor
+  const valuedSecured = secured.filter((holding) => holding.loan.ltv_bps !== null);
+  const securedLtvs = valuedSecured.map((holding) => (holding.loan.ltv_bps ?? 0) / 100);
+  const valuedSecuredMinor = valuedSecured.reduce((sum, holding) => sum + holding.current_principal_minor, 0);
+  const weightedLtv = valuedSecuredMinor > 0
+    ? valuedSecured.reduce((sum, holding) => sum + ((holding.loan.ltv_bps ?? 0) / 100) * holding.current_principal_minor, 0) / valuedSecuredMinor
     : null;
+  const defaultInterestBps = holdings.map((holding) => holding.loan.default_penalty_interest_bps);
+  const configuredDefaultInterestBps = defaultInterestBps.filter((value) => value > 0);
+  const defaultInterestLabel = pfDefaultInterestLabel(defaultInterestBps);
   const unsecuredHoldings = holdings.filter((holding) => pfIsUnsecured(holding));
   const unsecuredMinor = unsecuredHoldings.reduce((sum, holding) => sum + holding.current_principal_minor, 0);
   const lateHoldings = holdings.filter((holding) => pfIsLate(holding));
   const lateMinor = lateHoldings.reduce((sum, holding) => sum + holding.current_principal_minor, 0);
+  const [totalWhole, totalCents = "00"] = formatMoneyMinor(totalMinor, currency).split(".");
   const toggle = (panel: "cal" | "hex" | "col" | "risk") => setOpenPanel((current) => (current === panel ? null : panel));
 
   return (
@@ -4527,8 +4531,8 @@ function PfMyLoans({ currency, holdings, onOpen, setRoute, totalMinor }: { curre
           <span className="pf-tfoot-count">{sorted.length} {sorted.length === 1 ? "loan" : "loans"}</span>
           <span className="pf-tfoot-note">The rule under each amount is that loan's share of your portfolio. Red marks a loan in arrears.</span>
           <span className="pf-tfoot-ccy">{currency === "EUR" ? "€" : currency}</span>
-          <span className="num pf-tfoot-total">{Math.floor(totalMinor / 100).toLocaleString("en-US")}</span>
-          <span className="num pf-tfoot-cents">.{String(totalMinor % 100).padStart(2, "0")}</span>
+          <span className="num pf-tfoot-total">{totalWhole}</span>
+          <span className="num pf-tfoot-cents">.{totalCents}</span>
         </div>
       </div>
 
@@ -4580,7 +4584,7 @@ function PfMyLoans({ currency, holdings, onOpen, setRoute, totalMinor }: { curre
         {openPanel === "col" ? <PfCollateralPanel currency={currency} holdingCount={holdings.length} segments={segments} totalMinor={totalMinor} /> : null}
 
         <PfCard
-          foot={<><span className="big" style={{ fontSize: 24 }}>0.10–0.20%</span><span className="note" style={{ fontSize: 12.5 }}>a day, <span style={{ color: "#151719", fontWeight: 600 }}>to you</span>, while a payment is late</span></>}
+          foot={<><span className="big" style={{ fontSize: 24 }}>{defaultInterestLabel}</span><span className="note" style={{ fontSize: 12.5 }}>{configuredDefaultInterestBps.length > 0 ? "configured annual default interest, after default" : "across the loans shown"}</span></>}
           lab="If a borrower stops paying"
           onToggle={() => toggle("risk")}
           open={openPanel === "risk"}
@@ -4589,7 +4593,7 @@ function PfMyLoans({ currency, holdings, onOpen, setRoute, totalMinor }: { curre
           <span style={{ alignItems: "center", display: "flex", gap: 22, marginBottom: 20, width: "100%" }}>
             <span style={{ alignItems: "flex-end", display: "flex", flex: "none", gap: 9, height: 104, width: 104 }}>
               <span style={{ border: "1.5px solid #c2bfb5", borderRadius: 3, display: "flex", flex: 1, flexDirection: "column", height: 104, justifyContent: "flex-end", overflow: "hidden" }}>
-                <span style={{ background: "#151719", display: "block", height: `${weightedMargin === null ? 0 : weightedMargin.toFixed(1)}%` }} />
+                <span style={{ background: "#151719", display: "block", height: `${weightedLtv === null ? 0 : weightedLtv.toFixed(1)}%` }} />
               </span>
               <span style={{ color: "#626b70", display: "flex", flex: "none", flexDirection: "column", fontSize: 10, height: 104, justifyContent: "space-between", padding: "1px 0" }}>
                 <span>valuation</span>
@@ -4597,7 +4601,7 @@ function PfMyLoans({ currency, holdings, onOpen, setRoute, totalMinor }: { curre
               </span>
             </span>
             <span style={{ display: "flex", flex: 1, flexDirection: "column", fontSize: 11.5, gap: 7, minWidth: 0 }}>
-              <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#292d30", flex: 1 }}>Weighted margin</span><span className="num" style={{ fontWeight: 600 }}>{weightedMargin === null ? "—" : `${weightedMargin.toFixed(1)}%`}</span></span>
+              <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#292d30", flex: 1 }}>Weighted LTV</span><span className="num" style={{ fontWeight: 600 }}>{weightedLtv === null ? "—" : `${weightedLtv.toFixed(1)}%`}</span></span>
               <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#292d30", flex: 1 }}>Range per project</span><span className="num" style={{ fontWeight: 600 }}>{securedLtvs.length > 0 ? `${Math.min(...securedLtvs).toFixed(0)} – ${Math.max(...securedLtvs).toFixed(0)}%` : "—"}</span></span>
               <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#292d30", flex: 1 }}>Nothing pledged</span><span className="num" style={{ color: unsecuredHoldings.length > 0 ? "#c4312c" : undefined, fontWeight: 600 }}>{unsecuredHoldings.length} of {holdings.length}</span></span>
               <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#292d30", flex: 1 }}>In arrears now</span><span className="num" style={{ color: lateHoldings.length > 0 ? "#c4312c" : undefined, fontWeight: 600 }}>{lateHoldings.length} of {holdings.length}</span></span>
@@ -4611,9 +4615,10 @@ function PfMyLoans({ currency, holdings, onOpen, setRoute, totalMinor }: { curre
             lateCount={lateHoldings.length}
             lateMinor={lateMinor}
             securedLtvs={securedLtvs}
+            defaultInterestBps={defaultInterestBps}
             unsecuredCount={unsecuredHoldings.length}
             unsecuredMinor={unsecuredMinor}
-            weightedMargin={weightedMargin}
+            weightedLtv={weightedLtv}
           />
         ) : null}
       </div>
@@ -4768,7 +4773,7 @@ function PfCalendarPanel({ currency, payments }: { currency: string; payments: P
                     <div className="pf-cal-kv"><span style={{ color: "#1e6a4b" }}>Interest — what you earn</span><span className="leader" /><span className="num" style={{ color: "#1e6a4b", fontWeight: 600 }}>{formatMoneyMinor(row.int, currency)}</span></div>
                     <div className="pf-cal-kv"><span>Your money coming back</span><span className="leader" /><span className="num" style={{ fontWeight: 600 }}>{formatMoneyMinor(row.pri, currency)}</span></div>
                     <div className="pf-cal-kv"><span>Still outstanding</span><span className="leader" /><span className="num" style={{ fontWeight: 600 }}>{formatMoneyMinor(row.balanceAfter, currency)}</span></div>
-                    <div className="pf-cal-kv"><span>Payments made</span><span className="leader" /><span className="num" style={{ fontWeight: 600 }}>{Math.max(0, row.n - 1)} of {row.term}</span></div>
+                    <div className="pf-cal-kv"><span>Installment</span><span className="leader" /><span className="num" style={{ fontWeight: 600 }}>{row.n} of {row.term}</span></div>
                   </div>
                   <div style={{ color: "#626b70", fontSize: 13, lineHeight: 1.55 }}>
                     Secured by {row.collateral === "unsecured" ? "no pledged asset" : row.collateral}.
@@ -4891,7 +4896,7 @@ function PfCollateralPanel({ currency, holdingCount, segments, totalMinor }: { c
             })}
           </div>
         ) : (
-          <div style={{ alignItems: "center", display: "flex", gap: 40 }}>
+          <div className="pf-collateral-ring-layout">
             <PfRing center={{ title: pfWholeLabel(currency, totalMinor), sub: `${holdingCount} loans` }} radius={60} segments={segments} size={200} stroke={34} total={totalMinor} />
             <div style={{ display: "flex", flex: 1, flexDirection: "column", fontSize: 13.5 }}>
               {segments.map((segment, index) => (
@@ -4911,52 +4916,53 @@ function PfCollateralPanel({ currency, holdingCount, segments, totalMinor }: { c
   );
 }
 
-function PfProtectionPanel({ currency, holdingCount, lateCount, lateMinor, securedLtvs, unsecuredCount, unsecuredMinor, weightedMargin }: { currency: string; holdingCount: number; lateCount: number; lateMinor: number; securedLtvs: number[]; unsecuredCount: number; unsecuredMinor: number; weightedMargin: number | null }) {
-  const marginLabel = weightedMargin === null ? "—" : `${weightedMargin.toFixed(1)}%`;
+function PfProtectionPanel({ currency, defaultInterestBps, holdingCount, lateCount, lateMinor, securedLtvs, unsecuredCount, unsecuredMinor, weightedLtv }: { currency: string; defaultInterestBps: number[]; holdingCount: number; lateCount: number; lateMinor: number; securedLtvs: number[]; unsecuredCount: number; unsecuredMinor: number; weightedLtv: number | null }) {
+  const ltvLabel = weightedLtv === null ? "—" : `${weightedLtv.toFixed(1)}%`;
   const rangeLabel = securedLtvs.length > 0 ? `${Math.min(...securedLtvs).toFixed(0)} – ${Math.max(...securedLtvs).toFixed(0)}% of valuation` : "—";
+  const defaultInterestLabel = pfDefaultInterestLabel(defaultInterestBps);
   return (
     <div className="pf-panel">
       <h2 className="sect">What protects your money</h2>
-      <p className="sect-sub" style={{ maxWidth: 640 }}>A missed payment is not a loss. Two things stand in the way, and both are set for each project on its own merits.</p>
+      <p className="sect-sub" style={{ maxWidth: 720 }}>Collateral and contractual recovery terms may reduce a loss, but neither guarantees repayment. Each project has its own disclosed terms and recovery evidence.</p>
       <div className="panel-block pf-risk-block">
         <div className="pf-risk-grid">
           <div style={{ paddingRight: 6 }}>
-            <div className="pf-risk-cap">The first is a deliberate gap</div>
-            <div className="pf-risk-copy">We never lend the full value of what is pledged. An independent valuer prices the asset, and the loan is set below that figure. How far below depends on how the asset would sell — a building holds its price, a set of looms does not, so it is discounted harder. The gap is what absorbs a bad sale.</div>
-            <div style={{ alignItems: "baseline", color: "#626b70", display: "flex", fontSize: 11.5, marginBottom: 6 }}><span>Independent valuation</span><span className="grow" /><span className="num" style={{ color: "#151719", fontWeight: 600 }}>100%</span></div>
+            <div className="pf-risk-cap">The first is disclosed collateral cover</div>
+            <div className="pf-risk-copy">For loans with a disclosed loan-to-value ratio, BANXUM shows how much was lent relative to the stated collateral valuation. A lower LTV means more valuation headroom, but valuations and enforcement proceeds can change and may not cover the loan.</div>
+            <div style={{ alignItems: "baseline", color: "#626b70", display: "flex", fontSize: 11.5, marginBottom: 6 }}><span>Disclosed collateral valuation</span><span className="grow" /><span className="num" style={{ color: "#151719", fontWeight: 600 }}>100%</span></div>
             <div style={{ border: "1.5px solid #c2bfb5", borderRadius: 3, height: 34, overflow: "hidden", position: "relative" }}>
-              <div style={{ background: "#151719", bottom: 0, left: 0, position: "absolute", top: 0, width: `${weightedMargin === null ? 0 : weightedMargin.toFixed(1)}%` }} />
-              <div style={{ alignItems: "center", bottom: 0, display: "flex", justifyContent: "center", left: `${weightedMargin === null ? 0 : weightedMargin.toFixed(1)}%`, position: "absolute", right: 0, top: 0 }}><span style={{ color: "#626b70", fontSize: 11, fontWeight: 600 }}>the gap</span></div>
+              <div style={{ background: "#151719", bottom: 0, left: 0, position: "absolute", top: 0, width: `${weightedLtv === null ? 0 : weightedLtv.toFixed(1)}%` }} />
+              <div style={{ alignItems: "center", bottom: 0, display: "flex", justifyContent: "center", left: `${weightedLtv === null ? 0 : weightedLtv.toFixed(1)}%`, position: "absolute", right: 0, top: 0 }}><span style={{ color: "#626b70", fontSize: 11, fontWeight: 600 }}>headroom</span></div>
             </div>
-            <div style={{ alignItems: "baseline", display: "flex", fontSize: 11.5, marginTop: 6 }}><span style={{ color: "#151719", fontWeight: 600 }}>Lent {marginLabel}</span><span className="grow" /><span style={{ color: "#626b70" }}>{weightedMargin === null ? "" : `${(100 - weightedMargin).toFixed(1)}% of headroom`}</span></div>
-            <div style={{ color: "#626b70", fontSize: 12.5, lineHeight: 1.5, marginTop: 14 }}>Weighted across your money. Per project it runs {securedLtvs.length > 0 ? `${Math.min(...securedLtvs).toFixed(0)}% to ${Math.max(...securedLtvs).toFixed(0)}%` : "—"} — equipment at the low end, property at the high.</div>
+            <div style={{ alignItems: "baseline", display: "flex", fontSize: 11.5, marginTop: 6 }}><span style={{ color: "#151719", fontWeight: 600 }}>Weighted LTV {ltvLabel}</span><span className="grow" /><span style={{ color: "#626b70" }}>{weightedLtv === null ? "" : `${(100 - weightedLtv).toFixed(1)}% valuation headroom`}</span></div>
+            <div style={{ color: "#626b70", fontSize: 12.5, lineHeight: 1.5, marginTop: 14 }}>Weighted only across secured holdings with a disclosed LTV. Per-project disclosed LTV ranges from {securedLtvs.length > 0 ? `${Math.min(...securedLtvs).toFixed(0)}% to ${Math.max(...securedLtvs).toFixed(0)}%` : "not available"}.</div>
           </div>
           <div style={{ borderLeft: "1px solid #e4e1d8", paddingLeft: 6 }}>
-            <div className="pf-risk-cap">The second is the clock</div>
-            <div className="pf-risk-copy">From the first day a payment is missed, penalty interest accrues on everything outstanding. It is paid to you out of the proceeds <span style={{ fontWeight: 600 }}>before</span> any principal is returned. Delay is charged for — it is not absorbed by you.</div>
-            <div style={{ alignItems: "baseline", color: "#626b70", display: "flex", fontSize: 11.5, marginBottom: 6 }}><span>Order the proceeds are applied in</span></div>
+            <div className="pf-risk-cap">The second is the recovery contract</div>
+            <div className="pf-risk-copy">If a loan reaches default, recovery follows that project's agreement and recorded waterfall. Contractual interest stops at the official default date. Default interest starts only where the project terms configure it, and recovery timing or proceeds are never guaranteed.</div>
+            <div style={{ alignItems: "baseline", color: "#626b70", display: "flex", fontSize: 11.5, marginBottom: 6 }}><span>Default recovery order, unless project terms override it</span></div>
             <div style={{ border: "1.5px solid #c2bfb5", borderRadius: 3, display: "flex", height: 34, overflow: "hidden" }}>
-              <div style={{ alignItems: "center", background: "#151719", display: "flex", justifyContent: "center", width: "14%" }}><span style={{ color: "#f5f3ed", fontSize: 10.5, fontWeight: 600 }}>1</span></div>
-              <div style={{ alignItems: "center", background: "#4a5257", display: "flex", justifyContent: "center", width: "20%" }}><span style={{ color: "#f5f3ed", fontSize: 10.5, fontWeight: 600 }}>2</span></div>
+              <div style={{ alignItems: "center", background: "#151719", display: "flex", justifyContent: "center", width: "25%" }}><span style={{ color: "#f5f3ed", fontSize: 10.5, fontWeight: 600 }}>1</span></div>
+              <div style={{ alignItems: "center", background: "#4a5257", display: "flex", justifyContent: "center", width: "34%" }}><span style={{ color: "#f5f3ed", fontSize: 10.5, fontWeight: 600 }}>2</span></div>
               <div style={{ alignItems: "center", background: "#dde3e1", display: "flex", flex: 1, justifyContent: "center" }}><span style={{ color: "#626b70", fontSize: 10.5, fontWeight: 600 }}>3</span></div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", fontSize: 11.5, gap: 5, marginTop: 9 }}>
-              <div style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ background: "#151719", borderRadius: 2, flex: "none", height: 9, width: 9 }} /><span style={{ color: "#292d30", flex: 1 }}>Costs of enforcement</span></div>
-              <div style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ background: "#4a5257", borderRadius: 2, flex: "none", height: 9, width: 9 }} /><span style={{ color: "#292d30", flex: 1 }}>Interest and penalty interest — <span style={{ fontWeight: 600 }}>yours</span></span></div>
-              <div style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ background: "#dde3e1", border: "1px solid #c2bfb5", borderRadius: 2, flex: "none", height: 9, width: 9 }} /><span style={{ color: "#292d30", flex: 1 }}>Principal — yours</span></div>
+              <div style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ background: "#151719", borderRadius: 2, flex: "none", height: 9, width: 9 }} /><span style={{ color: "#292d30", flex: 1 }}>External and platform-approved recovery costs</span></div>
+              <div style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ background: "#4a5257", borderRadius: 2, flex: "none", height: 9, width: 9 }} /><span style={{ color: "#292d30", flex: 1 }}>Principal</span></div>
+              <div style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ background: "#dde3e1", border: "1px solid #c2bfb5", borderRadius: 2, flex: "none", height: 9, width: 9 }} /><span style={{ color: "#292d30", flex: 1 }}>Contractual interest, configured default interest, then other amounts</span></div>
             </div>
-            <div style={{ color: "#626b70", fontSize: 12.5, lineHeight: 1.5, marginTop: 14 }}>Widths show the order, not the amounts. Across your loans the penalty runs 0.10% to 0.20% a day.</div>
+            <div style={{ color: "#626b70", fontSize: 12.5, lineHeight: 1.5, marginTop: 14 }}>Widths show sequence groups, not expected amounts. Configured default interest across these loans is {defaultInterestLabel}.</div>
           </div>
         </div>
         <div className="pf-risk-kvs">
-          <div className="kv-row"><span className="k">Penalty interest across your loans</span><span className="leader" /><span className="v">0.10 – 0.20% a day</span></div>
-          <div className="kv-row"><span className="k">Collateral margin across your loans</span><span className="leader" /><span className="v">{rangeLabel}</span></div>
-          <div className="kv-row"><span className="k">Weighted margin, across your money</span><span className="leader" /><span className="v">{weightedMargin === null ? "—" : `${weightedMargin.toFixed(1)}% of valuation`}</span></div>
+          <div className="kv-row"><span className="k">Configured default interest across your loans</span><span className="leader" /><span className="v">{defaultInterestLabel}</span></div>
+          <div className="kv-row"><span className="k">Disclosed LTV range across your loans</span><span className="leader" /><span className="v">{rangeLabel}</span></div>
+          <div className="kv-row"><span className="k">Weighted LTV across disclosed secured holdings</span><span className="leader" /><span className="v">{weightedLtv === null ? "—" : `${weightedLtv.toFixed(1)}% of valuation`}</span></div>
           <div className="kv-row"><span className="k">Loans with no asset pledged</span><span className="leader" /><span className="v">{unsecuredCount} of {holdingCount}{unsecuredCount > 0 ? ` · ${pfWholeLabel(currency, unsecuredMinor)}` : ""}</span></div>
-          <div className="kv-row"><span className="k">Recovery through the courts takes</span><span className="leader" /><span className="v">8 – 14 months</span></div>
+          <div className="kv-row"><span className="k">Recovery timing</span><span className="leader" /><span className="v">Project-specific; not guaranteed</span></div>
           <div className="kv-row"><span className="k">In arrears right now</span><span className="leader" /><span className="v" style={{ color: lateCount > 0 ? "#c4312c" : undefined }}>{lateCount} of {holdingCount}{lateCount > 0 ? ` · ${pfWholeLabel(currency, lateMinor)}` : ""}</span></div>
         </div>
-        <div style={{ color: "#626b70", fontSize: 13, lineHeight: 1.55, maxWidth: 760 }}>Open any loan above to see the valuation, the margin and the schedule for that specific loan.</div>
+        <div style={{ color: "#626b70", fontSize: 13, lineHeight: 1.55, maxWidth: 820 }}>Open any loan above to review its disclosed collateral, LTV, agreement terms, public risk notes and repayment schedule. These figures describe current records, not guaranteed recovery value.</div>
       </div>
     </div>
   );

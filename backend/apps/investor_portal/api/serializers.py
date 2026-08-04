@@ -231,6 +231,7 @@ class PortfolioLoanSerializer(serializers.Serializer[Any]):
     collateral_type = serializers.CharField()
     risk_rating = serializers.CharField()
     interest_rate_bps = serializers.IntegerField()
+    default_penalty_interest_bps = serializers.IntegerField()
     term_months = serializers.IntegerField()
     repayment_type = serializers.CharField()
     currency = serializers.CharField()

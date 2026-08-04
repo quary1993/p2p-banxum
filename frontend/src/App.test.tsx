@@ -421,7 +421,8 @@ test("portfolio redesign shows hero, tabs, loans table views and widgets", () =>
   expect(screen.getByText("Spread of portfolio")).toBeInTheDocument();
   expect(screen.getByText("Collateral spread")).toBeInTheDocument();
   expect(screen.getByText("If a borrower stops paying")).toBeInTheDocument();
-  expect(screen.getByText("0.10–0.20%")).toBeInTheDocument();
+  expect(screen.getByText("12.0%–16.0% p.a.")).toBeInTheDocument();
+  expect(screen.getByText(/CHF 28'110\.50 lent/)).toBeInTheDocument();
 
   // Hexagon panel opens with the purpose axis and live sentences.
   fireEvent.click(screen.getByText("Spread of portfolio"));
@@ -436,6 +437,11 @@ test("portfolio redesign shows hero, tabs, loans table views and widgets", () =>
   fireEvent.click(jura!.closest("button") as HTMLElement);
   expect(screen.getByText("Interest — what you earn")).toBeInTheDocument();
   expect(screen.getByText("Your money coming back")).toBeInTheDocument();
+
+  // Recovery and default-interest copy stays tied to the actual project terms.
+  fireEvent.click(screen.getByText("If a borrower stops paying"));
+  expect(screen.getByText("Project-specific; not guaranteed")).toBeInTheDocument();
+  expect(screen.queryByText(/a day/i)).not.toBeInTheDocument();
 });
 
 test("holding details open in a large modal with the current loan schedule", () => {

@@ -194,6 +194,7 @@ def _create_loan(
             collateral_type="real_estate",
             collateral_value_minor=20_000_00,
             risk_rating="BBB",
+            default_penalty_interest_bps=1200,
             borrower_success_fee_bps=200,
             committed_principal_minor=principal_minor,
             total_scheduled_principal_minor=principal_minor,
@@ -491,6 +492,7 @@ def test_portfolio_exposure_uses_only_actor_holdings(
         if holding["loan"]["loan_title"] == "Portal loan"
     )
     portal_loan = portal_holding["loan"]
+    assert portal_loan["default_penalty_interest_bps"] == 1200
     assert portal_loan["schedule_version"] == 1
     assert [row["installment_number"] for row in portal_loan["schedule"]] == [1, 2]
     assert portal_loan["schedule"][0]["status"] == "overdue"

@@ -9868,6 +9868,8 @@ components:
           type: string
         interest_rate_bps:
           type: integer
+        default_penalty_interest_bps:
+          type: integer
         term_months:
           type: integer
         repayment_type:
@@ -9913,6 +9915,7 @@ components:
       - collateral_type
       - currency
       - days_past_due
+      - default_penalty_interest_bps
       - first_payment_date
       - funding_deadline
       - interest_rate_bps
