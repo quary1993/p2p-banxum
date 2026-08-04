@@ -319,7 +319,7 @@ def _locked_profile_for_loan(
     loan_id: str,
     *related_fields: str,
 ) -> OriginatorLoanProfile:
-    queryset = OriginatorLoanProfile.objects.select_for_update()
+    queryset = OriginatorLoanProfile.objects.select_for_update(of=("self",))
     if related_fields:
         queryset = queryset.select_related(*related_fields)
     profile = queryset.filter(loan_id=loan_id).first()
@@ -930,7 +930,7 @@ def replace_originator_loan_draft(
     _validate_borrower_snapshot(command.borrower_snapshot)
     parsed = _parse_import(command)
     profile = (
-        OriginatorLoanProfile.objects.select_for_update()
+        OriginatorLoanProfile.objects.select_for_update(of=("self",))
         .select_related("loan__currency", "originator", "current_import")
         .filter(loan_id=loan_id)
         .first()
@@ -1915,7 +1915,7 @@ def _purchase_originator_claim_after_sensitive_code(
     request_fingerprint: str,
 ) -> OriginatorClaimPurchase:
     quote = (
-        OriginatorClaimQuote.objects.select_for_update()
+        OriginatorClaimQuote.objects.select_for_update(of=("self",))
         .select_related(
             "loan_profile__loan__currency",
             "loan_profile__originator",
@@ -1927,7 +1927,7 @@ def _purchase_originator_claim_after_sensitive_code(
     if quote is None:
         raise OriginatorClaimsValidationError("Originator claim quote does not exist.")
     profile = (
-        OriginatorLoanProfile.objects.select_for_update()
+        OriginatorLoanProfile.objects.select_for_update(of=("self",))
         .select_related("loan", "originator", "current_import", "loan__currency")
         .get(id=quote.loan_profile_id)
     )
@@ -3115,7 +3115,7 @@ def scan_originator_opportunity_lifecycle(
     if limit < 1 or limit > 5000:
         raise OriginatorClaimsValidationError("Lifecycle scan limit must be between 1 and 5000.")
     profiles = list(
-        OriginatorLoanProfile.objects.select_for_update()
+        OriginatorLoanProfile.objects.select_for_update(of=("self",))
         .select_related("loan", "originator", "current_import")
         .filter(
             Q(opportunity_status=OriginatorOpportunityStatus.OPEN)

@@ -1274,7 +1274,7 @@ def update_loan(command: UpdateLoanCommand) -> Loan:
 def publish_loan(command: PublishLoanCommand) -> Loan:
     _require_admin_actor(command.actor)
     loan = (
-        Loan.objects.select_for_update()
+        Loan.objects.select_for_update(of=("self",))
         .select_related("borrower")
         .filter(id=command.loan_id)
         .first()

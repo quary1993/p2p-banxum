@@ -752,7 +752,7 @@ def _locked_funded_loan_for_disbursement(
     loan_model = apps.get_model("loans", "Loan")
     loan = cast(
         Model | None,
-        loan_model.objects.select_for_update()
+        loan_model.objects.select_for_update(of=("self",))
         .select_related("borrower")
         .filter(id=loan_id)
         .first(),

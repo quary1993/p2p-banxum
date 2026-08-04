@@ -451,7 +451,7 @@ def _loan_event_model() -> Any:
 def _locked_loan(loan_id: str) -> Model:
     loan = cast(
         Model | None,
-        _loan_model().objects.select_for_update()
+        _loan_model().objects.select_for_update(of=("self",))
         .select_related("borrower", "currency")
         .filter(id=loan_id)
         .first(),
