@@ -11,7 +11,7 @@
   "whatYouDoHere": [
     "Add and edit borrower companies, and watch their KYB status (the company-level identity and compliance check).",
     "Create direct BANXUM loan drafts and review status, amount, yield, LTV and funding deadline. New refinancing-loan creation is disabled; legacy refinancing records remain serviceable.",
-    "Create and maintain Loan Originators after off-platform KYB/AML, then import existing performing claims with anonymized borrower disclosure, coupon, target effective yield, minimum investment and a fully reconciled schedule/payment CSV.",
+    "Create and maintain Loan Originators after off-platform KYB/AML, then import existing performing claims with anonymized borrower disclosure, coupon, target effective yield, minimum investment and a fully reconciled schedule/payment CSV. Optionally declare the originator's skin in the game: 0 bps disables the rule; a positive value is the minimum share of current outstanding principal the originator must retain, rounded up to a minor currency unit. The retained slice is never sold and caps every quote and purchase.",
     "Open Manage on a loan row to publish it to the marketplace so investors can fund it, then close or cancel its funding, run an expiry scan, release a stuck investor order, disburse a funded loan to the borrower, or record borrower repayments.",
     "Approve, reject or remove non-standard secondary-market listings (investor-to-investor resales).",
     "Service live direct loans through their normal repayment/recovery actions. For originator claims, upload a replacement immutable import revision that preserves every historical payment and adds exactly the newly reconciled borrower payment."

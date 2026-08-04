@@ -470,3 +470,12 @@ Before launch, Claude Design should produce or implement:
   review should preserve the existing marketplace table hierarchy rather than
   introducing a separate marketplace.
 - Priority: important.
+
+## 2026-08-04: Loan-Originator Retention Disclosure
+
+- Screen or component: originator-claim marketplace detail, investment terms, and portfolio holding detail.
+- Current behavior: a positive server-owned retention percentage is disclosed as the minimum share of current outstanding principal retained by the named Loan Originator. The holding view states only that the retained claim is not offered to investors; it does not infer historical cash flows, loss parity, recourse, or recovery outcomes in the browser. A zero value is intentionally omitted.
+- Design decision: describe the mechanism factually as an ownership/availability floor, not as protection or a guarantee. All retained and sellable amounts are calculated by the backend with ceiling rounding in minor units. Investor screens consume only the percentage and authoritative schedules supplied by the API.
+- Remaining backend/API dependency: none for the current disclosure. Any future comparison of originator and investor realized losses or recoveries requires a dedicated server projection and approved legal wording.
+- Suggested improvement: validate the disclosure with legal/compliance and test 0%, fractional percentages, 99.99%, long originator names, and narrow screens without promoting the retention percentage into an implied credit rating.
+- Priority: important.

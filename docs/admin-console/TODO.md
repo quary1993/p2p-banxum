@@ -301,3 +301,10 @@ Each entry should include:
   currency, oldest age, and payable totals visible; keep raw UUIDs behind copy
   controls rather than primary labels.
 - Priority: important.
+
+## 2026-08-04: Loan-Originator Retention Controls
+
+- Screen or component: originator-claim create/edit form and Manage context bar.
+- Current first-version behavior: admins may set an optional whole-number retention percentage in basis points while the claim is a draft. The Manage context separates total originator-owned principal from the ceiling-rounded required retained amount and the amount still available for sale. Published claims cannot change the declaration through the service, and the legacy Django admin field is read-only.
+- Required admin-console improvement: replace the raw basis-point input with a percent/basis-point control that previews the retained and sellable amounts against the imported current outstanding principal before publication. Preserve the exact server values and do not duplicate the financial calculation as an authoritative client rule.
+- Priority: important.

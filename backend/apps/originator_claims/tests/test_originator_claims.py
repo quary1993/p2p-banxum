@@ -6,6 +6,7 @@ import uuid
 from datetime import date, timedelta
 from importlib import import_module
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -41,6 +42,8 @@ from backend.apps.originator_claims.services import (
     PublishOriginatorLoanCommand,
     PurchaseOriginatorClaimCommand,
     RecordOriginatorBorrowerRepaymentCommand,
+    _originator_repayment_plan,
+    _skin_bps,
     create_loan_originator,
     create_originator_claim_quote,
     create_originator_loan,
@@ -290,6 +293,7 @@ def _create_dated_originator_loan(
     today: date,
     suffix: str,
     final_due_days: int = 90,
+    skin_in_the_game_bps: int = 0,
 ) -> Any:
     originator = create_loan_originator(
         CreateLoanOriginatorCommand(
@@ -335,6 +339,7 @@ def _create_dated_originator_loan(
                 "borrower_legal_name": f"Confidential Borrower {suffix} AG",
                 "borrower_display_name": "Swiss SME borrower",
             },
+            skin_in_the_game_bps=skin_in_the_game_bps,
         )
     )
     publish_originator_loan(
@@ -1321,3 +1326,108 @@ def test_originator_settlement_task_appears_after_three_calendar_days(
     assert len(tasks) == 1
     assert tasks[0].task_type == "originator_settlement"
     assert tasks[0].due_at == purchase.purchased_at + timedelta(days=5)
+
+
+@pytest.mark.django_db
+def test_skin_in_the_game_caps_sellable_claim_and_survives_repricing(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    from backend.apps.originator_claims.services import (
+        originator_marketplace_payload,
+        originator_retained_principal_minor,
+        originator_sellable_principal_minor,
+    )
+
+    today = business_date(timezone.now())
+    result = _create_dated_originator_loan(
+        admin_user=admin_user,
+        today=today,
+        suffix="SKIN",
+        skin_in_the_game_bps=2_000,
+    )
+    profile = OriginatorLoanProfile.objects.get(id=result.profile.id)
+
+    assert int(result.loan.skin_in_the_game_bps) == 2_000
+    assert originator_retained_principal_minor(profile) == 200_000
+    assert originator_sellable_principal_minor(profile) == 800_000
+
+    payload = originator_marketplace_payload(profile, include_detail=True)
+    assert payload["skin_in_the_game_bps"] == 2_000
+    assert payload["remaining_capacity_minor"] == 800_000
+
+    _approve_financial_access(investor)
+    quote = create_originator_claim_quote(
+        CreateOriginatorClaimQuoteCommand(
+            actor=investor,
+            loan_id=str(result.loan.id),
+            requested_cash_minor=2_000_000,
+        )
+    )
+    assert quote.assigned_principal_minor <= 800_000
+
+    admin_payload = get_originator_admin_loan_payload(
+        actor=admin_user, loan_id=str(result.loan.id)
+    )
+    assert admin_payload["skin_in_the_game_bps"] == 2_000
+    assert admin_payload["retained_principal_minor"] == 200_000
+    assert admin_payload["sellable_principal_minor"] == 800_000
+
+    # Once unsold principal reaches the retained floor nothing more can be sold.
+    profile.unsold_principal_minor = 200_000
+    profile.save(update_fields=["unsold_principal_minor"])
+    assert originator_sellable_principal_minor(profile) == 0
+    with pytest.raises(OriginatorClaimsValidationError):
+        originator_marketplace_payload(profile, include_detail=False)
+
+    profile.unsold_principal_minor = 199_999
+    profile.save(update_fields=["unsold_principal_minor"])
+    with pytest.raises(
+        OriginatorClaimsValidationError,
+        match="below the declared skin-in-the-game floor",
+    ):
+        originator_sellable_principal_minor(profile)
+
+
+@pytest.mark.django_db
+def test_skin_in_the_game_rejects_invalid_declarations(admin_user: Model) -> None:
+    for invalid in (True, 2.5, "2000", 10_000):
+        with pytest.raises(OriginatorClaimsValidationError):
+            _skin_bps(invalid)
+
+    today = business_date(timezone.now())
+    with pytest.raises(OriginatorClaimsValidationError):
+        _create_dated_originator_loan(
+            admin_user=admin_user,
+            today=today,
+            suffix="SKINBAD",
+            skin_in_the_game_bps=10_000,
+        )
+
+
+def test_skin_in_the_game_repayment_rounding_preserves_retained_floor() -> None:
+    entitlement_start = timezone.now()
+    holding = SimpleNamespace(
+        investor_user_id="rounding-investor",
+        current_principal_minor=8_000,
+        economic_entitlement_start_at=entitlement_start,
+        assignment_effective_at=entitlement_start,
+    )
+
+    plan, originator_components = _originator_repayment_plan(
+        holdings=[holding],
+        originator_principal_minor=2_000,
+        skin_in_the_game_bps=2_000,
+        principal_minor=3,
+        interest_minor=0,
+        penalty_minor=0,
+        fee_minor=0,
+        value_date=entitlement_start.date(),
+        accrual_start_date=entitlement_start.date(),
+        currency="CHF",
+    )
+
+    assert plan[0].principal_minor == 3
+    assert originator_components["principal_minor"] == 0
+    retained_after_minor = -(-(9_997 * 2_000) // 10_000)
+    assert 2_000 - originator_components["principal_minor"] == retained_after_minor

@@ -241,6 +241,7 @@ class PortfolioLoanSerializer(serializers.Serializer[Any]):
     originator_name = serializers.CharField(allow_blank=True)
     purpose = serializers.CharField()
     collateral_type = serializers.CharField()
+    skin_in_the_game_bps = serializers.IntegerField()
     risk_rating = serializers.CharField()
     interest_rate_bps = serializers.IntegerField()
     yield_bps = serializers.IntegerField()

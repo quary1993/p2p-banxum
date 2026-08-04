@@ -9757,6 +9757,9 @@ components:
         borrower_display_name:
           type: string
           nullable: true
+        skin_in_the_game_bps:
+          type: integer
+          default: 0
         borrower_id:
           type: string
           format: uuid
@@ -9940,6 +9943,9 @@ components:
         borrower_display_name:
           type: string
           nullable: true
+        skin_in_the_game_bps:
+          type: integer
+          default: 0
       required:
       - borrower_display_name
       - collateral_type
@@ -10203,6 +10209,10 @@ components:
           type: integer
         unsold_principal_minor:
           type: integer
+        retained_principal_minor:
+          type: integer
+        sellable_principal_minor:
+          type: integer
         interest_rate_bps:
           type: integer
         target_yield_bps:
@@ -10210,6 +10220,8 @@ components:
         minimum_investment_minor:
           type: integer
         premium_fee_bps:
+          type: integer
+        skin_in_the_game_bps:
           type: integer
         repayment_type:
           type: string
@@ -10277,9 +10289,12 @@ components:
       - purpose
       - purpose_description
       - repayment_type
+      - retained_principal_minor
       - risk_rating
       - schedule
       - schedule_revision
+      - sellable_principal_minor
+      - skin_in_the_game_bps
       - source_filename
       - source_sha256
       - status
@@ -10601,6 +10616,11 @@ components:
           maximum: 10000
           minimum: 0
           nullable: true
+        skin_in_the_game_bps:
+          type: integer
+          maximum: 9999
+          minimum: 0
+          default: 0
       required:
       - as_of_date
       - borrower_snapshot
@@ -10682,6 +10702,12 @@ components:
           type: integer
         unsold_principal_minor:
           type: integer
+        skin_in_the_game_bps:
+          type: integer
+        retained_principal_minor:
+          type: integer
+        sellable_principal_minor:
+          type: integer
         maturity_date:
           type: string
           format: date
@@ -10708,7 +10734,10 @@ components:
       - originator_id
       - originator_name
       - premium_fee_bps
+      - retained_principal_minor
       - schedule_revision
+      - sellable_principal_minor
+      - skin_in_the_game_bps
       - target_yield_bps
       - unsold_principal_minor
     OriginatorLoanPublish:
@@ -11198,6 +11227,11 @@ components:
           maximum: 10000
           minimum: 0
           nullable: true
+        skin_in_the_game_bps:
+          type: integer
+          maximum: 9999
+          minimum: 0
+          default: 0
     PayoutInstruction:
       type: object
       properties:
@@ -11494,6 +11528,8 @@ components:
           type: string
         collateral_type:
           type: string
+        skin_in_the_game_bps:
+          type: integer
         risk_rating:
           type: string
         interest_rate_bps:
@@ -11578,6 +11614,7 @@ components:
       - risk_rating
       - schedule
       - schedule_version
+      - skin_in_the_game_bps
       - term_months
       - underlying_interest_rate_bps
       - yield_bps

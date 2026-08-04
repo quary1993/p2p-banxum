@@ -637,3 +637,11 @@ If requested cash exceeds the remaining opportunity, the API returns a residual 
 ### MKT-DEC-024: Secondary-Market Continuity
 
 Originator-derived holdings may be transferred through the existing secondary market. Seller acquisition yield is private. Buyers see projected yield implied by current listing price and dated remaining cash flows. Accrued interest through secondary settlement belongs to seller and future entitlement to buyer.
+
+### MKT-DEC-025: Optional Loan-Originator Retention Floor
+
+An originator-claim loan may declare a loan-specific `skin_in_the_game_bps` from `0` to `9,999`. A value of `0` disables the retention requirement for that loan. A positive value requires the Loan Originator to retain at least that percentage of the loan's **current outstanding principal**; the required amount is rounded up to the nearest minor currency unit so rounding can never dilute the declared floor.
+
+The originator-owned principal consists of the required retained amount plus any additional principal still available for sale. Only the amount above the retained floor is sellable. Marketplace capacity, pricing, quotes, purchases, and automatic opportunity closure use that sellable amount. The declaration is editable only while the opportunity remains a draft and is disclosed to investors without implying a guarantee, recourse, buyback obligation, or identical recovery outcome.
+
+Borrower principal repayments reduce investor and originator claims using the contractual allocation, with minor-unit remainders assigned so the originator remains at or above the recalculated floor after every payment. The retained claim continues to receive its applicable borrower-payment entitlement and is never converted into an investor holding. A service or data inconsistency below the floor fails loudly instead of being hidden as zero sellable principal.

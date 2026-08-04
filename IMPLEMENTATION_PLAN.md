@@ -613,6 +613,10 @@ Loan Originator claim inventory, pricing, assignment, and settlement:
 - Immediate primary-market purchase of a dated legal assignment. The investor
   owns accrual only from purchase time forward; the originator retains unsold
   principal and pre-assignment accrual.
+- Optional per-loan originator retention (`skin_in_the_game_bps`). A positive
+  declaration reserves a ceiling-rounded percentage of current outstanding
+  principal for the originator; only principal above that floor is sellable, and
+  repayment rounding must preserve the floor. Zero disables the rule.
 - Originator payable and hidden BANXUM fee accounting, grouped batch settlement,
   day-3 operations tasks, and a hard day-5 settlement expectation.
 - Borrower-repayment allocation between dated investor entitlements and the
@@ -2172,8 +2176,8 @@ These scenarios should become automated end-to-end tests or scripted UAT checks.
 1. Admin completes off-platform KYB/AML for a Loan Originator and records verified
    settlement instructions plus the negotiated premium-fee percentage.
 2. Admin creates an originator-claim loan, enters anonymized borrower disclosure,
-   coupon, target effective yield, minimum investment, and imports the full
-   contractual schedule plus historical payments.
+   coupon, target effective yield, minimum investment, optional originator-retention
+   basis points, and imports the full contractual schedule plus historical payments.
 3. The importer rejects any non-conserving schedule, unsupported repayment pattern,
    inconsistent payment history, or future principal that does not amortize the
    current outstanding principal to zero.
@@ -2181,8 +2185,8 @@ These scenarios should become automated end-to-end tests or scripted UAT checks.
    off hold, principal remains unsold, and maturity is more than 30 calendar days
    away.
 5. Investor sees the Loan Originator, underlying coupon, target yield, daily priced
-   fillable amount, minimum investment, anonymized borrower disclosure, and dated
-   projected cash flows.
+   fillable amount, minimum investment, any declared originator-retention percentage,
+   anonymized borrower disclosure, and dated projected cash flows.
 6. Investor requests a five-minute server quote, accepts current primary terms,
    confirms the sensitive-action email code, and buys the claim immediately.
 7. The same transaction consumes eligible balance lots, creates the assignment
@@ -2195,6 +2199,7 @@ These scenarios should become automated end-to-end tests or scripted UAT checks.
 9. On a borrower repayment, admin uploads a replacement CSV revision preserving all
    historical payments and adding exactly the new payment. BANXUM allocates dated
    interest/penalties and principal exactly between investors and the originator,
+   preserves any declared originator-retention floor after minor-unit rounding,
    creates investor balance lots, and accrues originator servicing payable.
 10. A performing investor holding can be sold on the secondary market without
     disclosing seller acquisition yield. Non-performing originator claims remain

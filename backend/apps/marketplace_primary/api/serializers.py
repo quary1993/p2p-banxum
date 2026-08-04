@@ -40,6 +40,7 @@ class MarketplaceLoanPreviewSerializer(serializers.Serializer[Any]):
     originator_id = serializers.UUIDField(allow_null=True)
     originator_name = serializers.CharField(allow_null=True)
     borrower_display_name = serializers.CharField(allow_null=True)
+    skin_in_the_game_bps = serializers.IntegerField(required=False, default=0)
 
 
 class MarketplaceOriginalLoanScheduleRowSerializer(serializers.Serializer[Any]):

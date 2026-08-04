@@ -648,6 +648,29 @@ test("holding details open in a large modal with the current loan schedule", () 
   expect(within(dialog).getAllByRole("row")).toHaveLength(5);
 });
 
+test("originator claim holdings disclose the retained claim without implying protection", () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  fireEvent.click(screen.getByRole("button", { name: "EUR" }));
+  fireEvent.click(screen.getByText("Nord Trans Cargo working capital"));
+
+  const dialog = screen.getByRole("dialog", { name: "Nord Trans Cargo working capital" });
+  expect(within(dialog).getByText("Originator-retained claim")).toBeInTheDocument();
+  expect(
+    within(dialog).getByText(
+      /Nord Capital Finance retains at least 15\.0% of the loan's current outstanding principal/
+    )
+  ).toBeInTheDocument();
+  expect(within(dialog).queryByText(/loses alongside you/i)).not.toBeInTheDocument();
+});
+
 test("funded holdings explain that secondary listing starts after disbursement", () => {
   const holding = portfolioFixture.holdings[0];
   const originalStatus = holding.loan.loan_status;

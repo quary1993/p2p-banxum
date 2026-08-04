@@ -27,7 +27,13 @@ class LoanAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
         "risk_rating",
     )
     search_fields = ("title", "borrower__legal_name")
-    readonly_fields = ("id", "created_at", "updated_at", "published_at")
+    readonly_fields = (
+        "id",
+        "skin_in_the_game_bps",
+        "created_at",
+        "updated_at",
+        "published_at",
+    )
 
 
 @admin.register(LoanInstallment)

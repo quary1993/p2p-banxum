@@ -2915,6 +2915,7 @@ function OriginatorLoanCreateForm({
   const [csvContent, setCsvContent] = useState("");
   const [sourceFilename, setSourceFilename] = useState("");
   const [premiumFeeBps, setPremiumFeeBps] = useState(detail ? String(detail.premium_fee_bps) : "");
+  const [skinBps, setSkinBps] = useState(detail ? String(detail.skin_in_the_game_bps ?? 0) : "0");
   const [borrowerLegalName, setBorrowerLegalName] = useState(String(snapshot.borrower_legal_name ?? ""));
   const [borrowerDisplayName, setBorrowerDisplayName] = useState(String(snapshot.borrower_display_name ?? "Anonymized borrower"));
   const [borrowerYearFounded, setBorrowerYearFounded] = useState(snapshot.year_founded == null ? "" : String(snapshot.year_founded));
@@ -2957,6 +2958,14 @@ function OriginatorLoanCreateForm({
     setLocalError("");
     try {
       if (!csvContent || !sourceFilename) throw new Error("Select the complete schedule and historical-payments CSV.");
+      const normalizedSkinBps = skinBps.trim();
+      if (!/^\d+$/.test(normalizedSkinBps)) {
+        throw new Error("Skin in the game must be a whole number of basis points.");
+      }
+      const parsedSkinBps = Number(normalizedSkinBps);
+      if (!Number.isSafeInteger(parsedSkinBps) || parsedSkinBps < 0 || parsedSkinBps > 9_999) {
+        throw new Error("Skin in the game must be between 0 and 9,999 basis points.");
+      }
       const data: OriginatorLoanCreate = {
         originator_id: originatorId,
         title,
@@ -3005,7 +3014,8 @@ function OriginatorLoanCreateForm({
           revenue_last_year_minor: optionalMinorValue(revenueMinor),
           profit_last_year_minor: optionalMinorValue(profitMinor)
         },
-        premium_fee_bps: premiumFeeBps ? intValue(premiumFeeBps) : null
+        premium_fee_bps: premiumFeeBps ? intValue(premiumFeeBps) : null,
+        skin_in_the_game_bps: parsedSkinBps
       };
       if (isFixturePreview) {
         setPreview(`${title || "Originator claim loan"} would be ${loanId ? "replaced with a new immutable draft revision" : "imported as a draft"} after strict schedule/payment validation.`);
@@ -3052,6 +3062,7 @@ function OriginatorLoanCreateForm({
         <SelectInput label="Risk rating" onChange={setRiskRating} options={Object.values(RiskRatingEnum)} value={riskRating} />
         <TextInput label="Import as-of date" onChange={setAsOfDate} required type="date" value={asOfDate} />
         <TextInput hint="Optional loan-specific override; blank inherits the originator default." label="BANXUM premium share bps" onChange={setPremiumFeeBps} value={premiumFeeBps} />
+        <TextInput hint="Optional. Enter 0 to disable it, or 1-9,999 basis points. The required retained amount is rounded up to the nearest minor unit and cannot be sold." label="Skin in the game bps" onChange={setSkinBps} required type="number" value={skinBps} />
         <Field label="Schedule and payment CSV"><input accept=".csv,text/csv" onChange={(event) => void chooseCsv(event.target.files?.[0])} required type="file" /></Field>
       </FieldGrid>
       <TextAreaInput label="Investor summary" onChange={setSummary} required value={summary} />
@@ -3215,7 +3226,7 @@ function OriginatorLoanManageModal({
   const mutationError = publishMutation.error || holdMutation.error || repaymentMutation.error;
   return (
     <Modal title={`Manage originator claim - ${loan.title}`} onClose={onClose} wide>
-      <div className="admin-context-bar"><Chip tone="info">Originator claim</Chip><span>{loan.originator_name}</span><Chip tone={statusTone(loan.opportunity_status ?? loan.status)}>{labelize(loan.opportunity_status ?? loan.status)}</Chip><span>Outstanding <Money amountMinor={loan.current_outstanding_principal_minor} currency={loan.currency} /></span><span>Unsold <Money amountMinor={loan.unsold_principal_minor ?? 0} currency={loan.currency} /></span><span>Yield {formatRateBps(loan.yield_bps)}</span></div>
+      <div className="admin-context-bar"><Chip tone="info">Originator claim</Chip><span>{loan.originator_name}</span><Chip tone={statusTone(loan.opportunity_status ?? loan.status)}>{labelize(loan.opportunity_status ?? loan.status)}</Chip><span>Outstanding <Money amountMinor={loan.current_outstanding_principal_minor} currency={loan.currency} /></span><span>Originator owned <Money amountMinor={detail?.unsold_principal_minor ?? loan.unsold_principal_minor ?? 0} currency={loan.currency} /></span>{detail ? <><span>Required retained <Money amountMinor={detail.retained_principal_minor} currency={loan.currency} /></span><span>Available to sell <Money amountMinor={detail.sellable_principal_minor} currency={loan.currency} /></span></> : null}<span>Yield {formatRateBps(loan.yield_bps)}</span></div>
       {action !== "menu" ? <Button onClick={() => setAction("menu")} size="sm">All actions</Button> : null}
       {action === "menu" ? (
         <div className="admin-action-choice-grid">

@@ -164,6 +164,7 @@ class Loan(TimestampedModel):
     borrower_success_fee_bps = models.PositiveSmallIntegerField(default=200)
     lender_payment_fee_minor = models.BigIntegerField(default=0)
     default_penalty_interest_bps = models.PositiveIntegerField(default=0)
+    skin_in_the_game_bps = models.PositiveSmallIntegerField(default=0)
     recovery_fee_bps = models.PositiveIntegerField(default=0)
     recovery_waterfall_version = models.CharField(max_length=64, default="v1")
     schedule_version = models.PositiveIntegerField(default=1)
@@ -187,6 +188,17 @@ class Loan(TimestampedModel):
             models.CheckConstraint(
                 condition=models.Q(original_principal_minor__gte=models.F("principal_minor")),
                 name="loan_original_principal_not_below_financeable",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(skin_in_the_game_bps__lt=10_000),
+                name="loan_skin_in_the_game_bps_valid",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(skin_in_the_game_bps=0)
+                    | models.Q(product_type="originator_claim")
+                ),
+                name="loan_skin_in_the_game_originator_only",
             ),
             models.CheckConstraint(
                 condition=(

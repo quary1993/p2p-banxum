@@ -637,6 +637,7 @@ def _loan_projection(
         "originator_name": "",
         "purpose": str(loan.purpose),
         "collateral_type": str(loan.collateral_type),
+        "skin_in_the_game_bps": int(getattr(loan, "skin_in_the_game_bps", 0)),
         "risk_rating": str(loan.risk_rating),
         "interest_rate_bps": int(loan.interest_rate_bps),
         "yield_bps": int(loan.interest_rate_bps),

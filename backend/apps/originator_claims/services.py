@@ -131,6 +131,7 @@ class CreateOriginatorLoanCommand:
     as_of_date: date
     borrower_snapshot: dict[str, Any]
     premium_fee_bps: int | None = None
+    skin_in_the_game_bps: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -333,6 +334,111 @@ def _operation_uuid(scope: str, idempotency_key: str) -> uuid.UUID:
         uuid.NAMESPACE_URL,
         f"https://banxum.com/idempotency/{scope}/{idempotency_key}",
     )
+
+
+def _skin_bps(value: Any) -> int:
+    if type(value) is not int:
+        raise OriginatorClaimsValidationError(
+            "Skin in the game must be a whole number of basis points."
+        )
+    parsed = value
+    if parsed < 0 or parsed >= 10_000:
+        raise OriginatorClaimsValidationError(
+            "Skin in the game must be between 0% and 99.99%."
+        )
+    return parsed
+
+
+def originator_retained_principal_minor(profile: OriginatorLoanProfile) -> int:
+    """Outstanding principal the originator must keep (skin in the game floor)."""
+    skin_bps = _skin_bps(cast(Any, profile.loan).skin_in_the_game_bps)
+    if skin_bps <= 0:
+        return 0
+    outstanding = int(profile.current_outstanding_principal_minor)
+    return -(-outstanding * skin_bps // 10_000)
+
+
+def originator_sellable_principal_minor(profile: OriginatorLoanProfile) -> int:
+    """Unsold principal that may still be assigned to investors."""
+    retained_principal = originator_retained_principal_minor(profile)
+    unsold_principal = int(profile.unsold_principal_minor)
+    if unsold_principal < retained_principal:
+        raise OriginatorClaimsValidationError(
+            "Originator-owned principal is below the declared skin-in-the-game floor."
+        )
+    return unsold_principal - retained_principal
+
+
+def _allocate_principal_with_retention(
+    *,
+    holding_principals: list[int],
+    originator_principal_minor: int,
+    skin_in_the_game_bps: int,
+    principal_minor: int,
+    currency: str,
+) -> tuple[list[Money], int]:
+    """Allocate principal while preserving the originator's post-payment floor."""
+    parsed_skin_bps = _skin_bps(skin_in_the_game_bps)
+    if any(value < 0 for value in holding_principals) or originator_principal_minor < 0:
+        raise OriginatorClaimsValidationError("Principal ownership cannot be negative.")
+    principal_weights = [*holding_principals, originator_principal_minor]
+    principal_before_minor = sum(principal_weights)
+    if principal_before_minor <= 0:
+        raise OriginatorClaimsValidationError(
+            "Originator loan has no principal ownership to distribute."
+        )
+    retained_before_minor = -(
+        -(principal_before_minor * parsed_skin_bps) // 10_000
+    )
+    if originator_principal_minor < retained_before_minor:
+        raise OriginatorClaimsValidationError(
+            "Originator-owned principal is below the declared skin-in-the-game floor."
+        )
+    principal_after_minor = principal_before_minor - principal_minor
+    if principal_minor < 0 or principal_after_minor < 0:
+        raise OriginatorClaimsValidationError(
+            "Repayment principal exceeds the current outstanding principal."
+        )
+    retained_after_minor = -(
+        -(principal_after_minor * parsed_skin_bps) // 10_000
+    )
+    proportional_parts = allocate_by_weights(
+        Money(principal_minor, currency), principal_weights
+    )
+    max_originator_principal_minor = originator_principal_minor - retained_after_minor
+    originator_principal_part_minor = min(
+        proportional_parts[-1].amount_minor,
+        max_originator_principal_minor,
+    )
+    investor_principal_minor = principal_minor - originator_principal_part_minor
+    if holding_principals:
+        investor_principal_parts = allocate_by_weights(
+            Money(investor_principal_minor, currency), holding_principals
+        )
+    elif investor_principal_minor == 0:
+        investor_principal_parts = []
+    else:
+        raise OriginatorClaimsValidationError(
+            "Repayment principal cannot be allocated without investor holdings."
+        )
+    if any(
+        part.amount_minor > owned_minor
+        for part, owned_minor in zip(
+            investor_principal_parts, holding_principals, strict=True
+        )
+    ):
+        raise OriginatorClaimsValidationError(
+            "Repayment principal allocation exceeds an investor holding."
+        )
+    principal_parts = [
+        *investor_principal_parts,
+        Money(originator_principal_part_minor, currency),
+    ]
+    if sum(part.amount_minor for part in principal_parts) != principal_minor:
+        raise OriginatorClaimsValidationError(
+            "Repayment principal allocation does not reconcile."
+        )
+    return principal_parts, retained_after_minor
 
 
 def _positive_minor(value: Any, label: str) -> int:
@@ -721,6 +827,7 @@ def create_originator_loan(command: CreateOriginatorLoanCommand) -> OriginatorLo
         collateral_value_minor=command.collateral_value_minor,
         collateral_description=command.collateral_description.strip(),
         risk_rating=command.risk_rating,
+        skin_in_the_game_bps=_skin_bps(command.skin_in_the_game_bps),
         borrower_success_fee_bps=0,
         lender_payment_fee_minor=0,
         schedule_version=1,
@@ -836,6 +943,7 @@ def create_originator_loan(command: CreateOriginatorLoanCommand) -> OriginatorLo
         metadata={
             "current_outstanding_principal_minor": parsed.current_outstanding_principal_minor,
             "target_yield_bps": profile.target_yield_bps,
+            "skin_in_the_game_bps": int(loan.skin_in_the_game_bps),
             "schedule_revision": 1,
         },
     )
@@ -869,10 +977,13 @@ def get_originator_admin_loan_payload(*, actor: Model, loan_id: str) -> dict[str
         "original_principal_minor": int(loan.original_principal_minor),
         "current_outstanding_principal_minor": int(profile.current_outstanding_principal_minor),
         "unsold_principal_minor": int(profile.unsold_principal_minor),
+        "retained_principal_minor": originator_retained_principal_minor(profile),
+        "sellable_principal_minor": originator_sellable_principal_minor(profile),
         "interest_rate_bps": int(loan.interest_rate_bps),
         "target_yield_bps": int(profile.target_yield_bps),
         "minimum_investment_minor": int(profile.minimum_investment_minor),
         "premium_fee_bps": int(profile.premium_fee_bps),
+        "skin_in_the_game_bps": int(loan.skin_in_the_game_bps),
         "repayment_type": str(loan.repayment_type),
         "interest_only_months": int(loan.interest_only_months),
         "collateral_type": str(loan.collateral_type),
@@ -979,6 +1090,7 @@ def replace_originator_loan_draft(
     loan.collateral_value_minor = command.collateral_value_minor
     loan.collateral_description = command.collateral_description.strip()
     loan.risk_rating = command.risk_rating
+    loan.skin_in_the_game_bps = _skin_bps(command.skin_in_the_game_bps)
     loan.total_scheduled_principal_minor = sum(row.principal_minor for row in future_rows)
     loan.total_scheduled_interest_minor = sum(row.interest_minor for row in future_rows)
     revision = int(profile.schedule_revision) + 1
@@ -1023,6 +1135,7 @@ def replace_originator_loan_draft(
             "action": "draft_replaced",
             "schedule_revision": revision,
             "current_outstanding_principal_minor": (parsed.current_outstanding_principal_minor),
+            "skin_in_the_game_bps": int(loan.skin_in_the_game_bps),
             "source_sha256": loan_import.source_sha256,
         },
     )
@@ -1053,6 +1166,10 @@ def publish_originator_loan(command: PublishOriginatorLoanCommand) -> Originator
         raise OriginatorClaimsValidationError("A validated schedule/payment import is required.")
     if profile.current_outstanding_principal_minor <= 0:
         raise OriginatorClaimsValidationError("A repaid loan cannot be published.")
+    if originator_sellable_principal_minor(profile) <= 0:
+        raise OriginatorClaimsValidationError(
+            "The declared skin in the game leaves no principal available to investors."
+        )
     if profile.is_on_hold:
         raise OriginatorClaimsValidationError("A held originator loan cannot be published.")
     if profile.maturity_date <= command.as_of_date + timedelta(days=30):
@@ -1074,7 +1191,12 @@ def publish_originator_loan(command: PublishOriginatorLoanCommand) -> Originator
         event_type=OriginatorClaimEventType.OPPORTUNITY_PUBLISHED,
         originator=profile.originator,
         loan_id=loan.id,
-        metadata={"maturity_date": profile.maturity_date.isoformat()},
+        metadata={
+            "maturity_date": profile.maturity_date.isoformat(),
+            "skin_in_the_game_bps": int(loan.skin_in_the_game_bps),
+            "retained_principal_minor": originator_retained_principal_minor(profile),
+            "sellable_principal_minor": originator_sellable_principal_minor(profile),
+        },
     )
     return profile
 
@@ -1386,8 +1508,12 @@ def get_originator_holding_schedule_payloads(
                     "Imported originator schedule does not reconcile to current claim ownership."
                 )
             currency = str(profile.loan.currency_id)
-            principal_parts = allocate_by_weights(
-                Money(int(row.principal_minor), currency), weights
+            principal_parts, retained_after_minor = _allocate_principal_with_retention(
+                holding_principals=holding_weights,
+                originator_principal_minor=originator_remaining,
+                skin_in_the_game_bps=int(profile.loan.skin_in_the_game_bps),
+                principal_minor=int(row.principal_minor),
+                currency=currency,
             )
             penalty_parts = allocate_by_weights(Money(int(row.penalty_minor), currency), weights)
             full_period_days = max(0, (row.due_date - row.accrual_start_date).days)
@@ -1445,9 +1571,9 @@ def get_originator_holding_schedule_payloads(
                     }
                 )
             originator_remaining -= principal_parts[-1].amount_minor
-            if originator_remaining < 0:
+            if originator_remaining < retained_after_minor:
                 raise OriginatorClaimsValidationError(
-                    "Projected repayment exceeds originator-owned principal."
+                    "Projected repayment breaches the originator retention floor."
                 )
         if any(remaining.values()) or originator_remaining:
             raise OriginatorClaimsValidationError(
@@ -1498,6 +1624,7 @@ def originator_portfolio_loan_payload(
         "purpose": str(loan.purpose),
         "collateral_type": str(loan.collateral_type),
         "risk_rating": str(loan.risk_rating),
+        "skin_in_the_game_bps": int(loan.skin_in_the_game_bps),
         "interest_rate_bps": int(profile.target_yield_bps),
         "yield_bps": int(profile.target_yield_bps),
         "underlying_interest_rate_bps": int(loan.interest_rate_bps),
@@ -1535,7 +1662,7 @@ def originator_marketplace_payload(
         profile.opportunity_status != OriginatorOpportunityStatus.OPEN
         or profile.loan.status != "active"
         or profile.originator.status != LoanOriginatorStatus.ACTIVE
-        or profile.unsold_principal_minor <= 0
+        or originator_sellable_principal_minor(profile) <= 0
         or profile.is_on_hold
     ):
         raise OriginatorClaimsValidationError("Originator claim opportunity is not open.")
@@ -1552,11 +1679,12 @@ def originator_marketplace_payload(
     if loan_import is None:
         raise OriginatorClaimsValidationError("Current schedule evidence is unavailable.")
     schedule_rows = list(loan_import.schedule_rows.order_by("installment_number", "id"))
+    sellable_principal_minor = originator_sellable_principal_minor(profile)
     try:
         fillable_amount_minor, _fillable_cashflows = price_assigned_principal(
             schedule_rows=schedule_rows,
             current_outstanding_principal_minor=profile.current_outstanding_principal_minor,
-            assigned_principal_minor=profile.unsold_principal_minor,
+            assigned_principal_minor=sellable_principal_minor,
             target_yield_bps=profile.target_yield_bps,
             pricing_date=as_of_date,
             currency=profile.loan.currency_id,
@@ -1596,8 +1724,9 @@ def originator_marketplace_payload(
         "committed_principal_minor": int(
             profile.current_outstanding_principal_minor - profile.unsold_principal_minor
         ),
-        "remaining_capacity_minor": int(profile.unsold_principal_minor),
+        "remaining_capacity_minor": sellable_principal_minor,
         "fillable_amount_minor": fillable_amount_minor,
+        "skin_in_the_game_bps": int(cast(Any, profile.loan).skin_in_the_game_bps),
         "minimum_investment_minor": int(profile.minimum_investment_minor),
         "ltv_bps": ltv_bps,
         "is_refinancing": False,
@@ -1757,7 +1886,7 @@ def _create_originator_claim_quote_locked(
         priced = quote_cash_consideration(
             schedule_rows=schedule_rows,
             current_outstanding_principal_minor=profile.current_outstanding_principal_minor,
-            unsold_principal_minor=profile.unsold_principal_minor,
+            unsold_principal_minor=originator_sellable_principal_minor(profile),
             requested_cash_minor=command.requested_cash_minor,
             minimum_investment_minor=profile.minimum_investment_minor,
             target_yield_bps=profile.target_yield_bps,
@@ -1961,7 +2090,7 @@ def _purchase_originator_claim_after_sensitive_code(
         raise OriginatorClaimsValidationError(
             "The loan schedule changed after this quote was issued. Request a new quote."
         )
-    if quote.assigned_principal_minor > profile.unsold_principal_minor:
+    if quote.assigned_principal_minor > originator_sellable_principal_minor(profile):
         raise OriginatorClaimsValidationError(
             "The remaining originator claim is smaller than this quote. Request a new quote."
         )
@@ -2087,10 +2216,14 @@ def _purchase_originator_claim_after_sensitive_code(
     OriginatorClaimEntitlement.objects.bulk_create(entitlements)
     profile.unsold_principal_minor -= quote.assigned_principal_minor
     update_fields = ["unsold_principal_minor", "updated_at"]
-    if profile.unsold_principal_minor == 0:
+    if originator_sellable_principal_minor(profile) == 0:
         profile.opportunity_status = OriginatorOpportunityStatus.CLOSED
         profile.closed_at = now
-        profile.close_reason = "fully_sold"
+        profile.close_reason = (
+            "skin_in_the_game_floor_reached"
+            if profile.unsold_principal_minor > 0
+            else "fully_sold"
+        )
         update_fields.extend(["opportunity_status", "closed_at", "close_reason"])
     profile.save(update_fields=update_fields)
     profile.loan.committed_principal_minor += quote.assigned_principal_minor
@@ -2231,6 +2364,7 @@ def _originator_repayment_plan(
     *,
     holdings: list[Any],
     originator_principal_minor: int,
+    skin_in_the_game_bps: int,
     principal_minor: int,
     interest_minor: int,
     penalty_minor: int,
@@ -2241,11 +2375,13 @@ def _originator_repayment_plan(
 ) -> tuple[list[OriginatorRepaymentPlanLine], dict[str, int]]:
     holding_principals = [int(holding.current_principal_minor) for holding in holdings]
     principal_weights = [*holding_principals, originator_principal_minor]
-    if sum(principal_weights) <= 0:
-        raise OriginatorClaimsValidationError(
-            "Originator loan has no principal ownership to distribute."
-        )
-    principal_parts = allocate_by_weights(Money(principal_minor, currency), principal_weights)
+    principal_parts, retained_after_minor = _allocate_principal_with_retention(
+        holding_principals=holding_principals,
+        originator_principal_minor=originator_principal_minor,
+        skin_in_the_game_bps=skin_in_the_game_bps,
+        principal_minor=principal_minor,
+        currency=currency,
+    )
     penalty_parts = allocate_by_weights(Money(penalty_minor, currency), principal_weights)
     full_period_days = max(0, (value_date - accrual_start_date).days)
     investor_interest_numerators: list[int] = []
@@ -2298,6 +2434,13 @@ def _originator_repayment_plan(
         "penalty_minor": penalty_parts[-1].amount_minor,
         "fee_minor": fee_minor,
     }
+    if (
+        originator_principal_minor - originator_components["principal_minor"]
+        < retained_after_minor
+    ):
+        raise OriginatorClaimsValidationError(
+            "Repayment would breach the declared skin-in-the-game floor."
+        )
     if sum(line.amount_minor for line in plan) + sum(originator_components.values()) != (
         principal_minor + interest_minor + penalty_minor + fee_minor
     ):
@@ -2462,6 +2605,7 @@ def record_originator_borrower_repayment(
     plan, originator_components = _originator_repayment_plan(
         holdings=holdings,
         originator_principal_minor=int(profile.unsold_principal_minor),
+        skin_in_the_game_bps=int(loan.skin_in_the_game_bps),
         principal_minor=payment.principal_minor,
         interest_minor=payment.interest_minor,
         penalty_minor=payment.penalty_minor,
@@ -2618,6 +2762,14 @@ def record_originator_borrower_repayment(
         profile.opportunity_status = OriginatorOpportunityStatus.CLOSED
         profile.closed_at = now_utc()
         profile.close_reason = "within_30_days_of_maturity"
+        profile_fields.extend(["opportunity_status", "closed_at", "close_reason"])
+    elif (
+        profile.opportunity_status == OriginatorOpportunityStatus.OPEN
+        and originator_sellable_principal_minor(profile) == 0
+    ):
+        profile.opportunity_status = OriginatorOpportunityStatus.CLOSED
+        profile.closed_at = now_utc()
+        profile.close_reason = "skin_in_the_game_floor_reached"
         profile_fields.extend(["opportunity_status", "closed_at", "close_reason"])
     profile.save(update_fields=profile_fields)
     investor_principal_repaid = sum(line.principal_minor for line in plan)
@@ -3179,6 +3331,8 @@ def scan_originator_opportunity_lifecycle(
             reason = "originator_not_active"
         elif profile.current_outstanding_principal_minor <= 0 or loan.status == "repaid":
             reason = "repaid"
+        elif originator_sellable_principal_minor(profile) <= 0:
+            reason = "skin_in_the_game_floor_reached"
         elif loan.status in {"late", "defaulted", "written_off", "cancelled"}:
             reason = f"loan_status_{loan.status}"
         elif loan.status != "active":

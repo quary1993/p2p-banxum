@@ -1583,6 +1583,7 @@ def public_marketplace_listing_payload(loan: Model) -> dict[str, Any]:
         "originator_id": None,
         "originator_name": None,
         "borrower_display_name": None,
+        "skin_in_the_game_bps": int(getattr(loan_ref, "skin_in_the_game_bps", 0)),
     }
 
 

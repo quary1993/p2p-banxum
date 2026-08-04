@@ -127,6 +127,9 @@ class OriginatorLoanCreateSerializer(serializers.Serializer[dict[str, object]]):
     premium_fee_bps = serializers.IntegerField(
         min_value=0, max_value=10_000, required=False, allow_null=True
     )
+    skin_in_the_game_bps = serializers.IntegerField(
+        min_value=0, max_value=9_999, required=False, default=0
+    )
 
 
 class OriginatorLoanScheduleRowResponseSerializer(serializers.Serializer[dict[str, object]]):
@@ -168,10 +171,13 @@ class OriginatorAdminLoanDetailResponseSerializer(serializers.Serializer[dict[st
     original_principal_minor = serializers.IntegerField()
     current_outstanding_principal_minor = serializers.IntegerField()
     unsold_principal_minor = serializers.IntegerField()
+    retained_principal_minor = serializers.IntegerField()
+    sellable_principal_minor = serializers.IntegerField()
     interest_rate_bps = serializers.IntegerField()
     target_yield_bps = serializers.IntegerField()
     minimum_investment_minor = serializers.IntegerField()
     premium_fee_bps = serializers.IntegerField()
+    skin_in_the_game_bps = serializers.IntegerField()
     repayment_type = serializers.CharField()
     interest_only_months = serializers.IntegerField()
     collateral_type = serializers.CharField()
@@ -278,6 +284,9 @@ class OriginatorLoanProfileResponseSerializer(serializers.Serializer[dict[str, o
     premium_fee_bps = serializers.IntegerField()
     current_outstanding_principal_minor = serializers.IntegerField()
     unsold_principal_minor = serializers.IntegerField()
+    skin_in_the_game_bps = serializers.IntegerField()
+    retained_principal_minor = serializers.IntegerField()
+    sellable_principal_minor = serializers.IntegerField()
     maturity_date = serializers.DateField()
     schedule_revision = serializers.IntegerField()
     borrower_display_name = serializers.CharField()

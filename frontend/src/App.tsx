@@ -2982,6 +2982,7 @@ function LoanDetailScreen({
               <>
                 <div className="eyebrow" style={{ marginBottom: 8 }}>{originatorClaim ? "Buy this loan claim" : "Invest in this loan"}</div>
                 {originatorClaim && loan.originator_name ? <KeyValue label="Loan originator" value={loan.originator_name} /> : null}
+                {originatorClaim && (loan.skin_in_the_game_bps ?? 0) > 0 ? <KeyValue label="Skin in the game" value={`${formatRateBps(loan.skin_in_the_game_bps ?? 0)} kept by the originator`} /> : null}
                 <KeyValue label="Yield" value={`${formatRateBps(marketplaceYieldBps(loan))} p.a.`} />
                 {originatorClaim ? <KeyValue label="Borrower coupon" value={`${formatRateBps(loan.underlying_interest_rate_bps)} p.a.`} /> : null}
                 <KeyValue label="Minimum investment" value={`${loan.currency} ${formatMoneyMinor(loan.minimum_investment_minor, loan.currency)}`} />
@@ -3090,6 +3091,7 @@ function LoanOverview({ loan }: { loan: MarketplaceLoanDetail }) {
         <KeyValueRow label="Loan reference" value={<CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" />} />
         <KeyValueRow label="Borrower" value={borrowerName} />
         {isOriginatorClaimLoan(loan) && loan.originator_name ? <KeyValueRow label="Loan originator" value={loan.originator_name} /> : null}
+        {isOriginatorClaimLoan(loan) && (loan.skin_in_the_game_bps ?? 0) > 0 ? <KeyValueRow label="Skin in the game" value={`${formatRateBps(loan.skin_in_the_game_bps ?? 0)} of the outstanding principal stays with the originator`} /> : null}
         <KeyValueRow label="Currency" value={loan.currency} />
         <KeyValueRow label="Repayment type" value={loan.repayment_type} />
         <KeyValueRow label="Risk rating" value={loan.risk_rating} />
@@ -3142,7 +3144,7 @@ function OriginatorClaimLoanSection({ loan }: { loan: MarketplaceLoanDetail }) {
         <KeyValueRow label="Target investor yield" mono value={`${formatRateBps(loan.yield_bps)} p.a.`} />
         <KeyValueRow label="Underlying borrower coupon" mono value={`${formatRateBps(loan.underlying_interest_rate_bps)} p.a.`} />
         <KeyValueRow label="Current outstanding principal" mono value={`${loan.currency} ${formatMoneyMinor(loan.principal_minor, loan.currency)}`} />
-        <KeyValueRow label="Unsold principal" mono value={`${loan.currency} ${formatMoneyMinor(loan.remaining_capacity_minor, loan.currency)}`} />
+        <KeyValueRow label="Available claim principal" mono value={`${loan.currency} ${formatMoneyMinor(loan.remaining_capacity_minor, loan.currency)}`} />
         {loan.maturity_date ? <KeyValueRow label="Maturity" value={formatDate(loan.maturity_date)} /> : null}
         {loan.pricing_as_of_date ? <KeyValueRow label="Pricing data as of" value={formatDate(loan.pricing_as_of_date)} /> : null}
       </dl>
@@ -3282,6 +3284,7 @@ function LoanTerms({ loan }: { loan: MarketplaceLoanDetail }) {
     <Card padded>
       <dl className="kv">
         {originatorClaim && loan.originator_name ? <KeyValueRow label="Loan originator" value={loan.originator_name} /> : null}
+        {originatorClaim && (loan.skin_in_the_game_bps ?? 0) > 0 ? <KeyValueRow label="Skin in the game" mono value={`${formatRateBps(loan.skin_in_the_game_bps ?? 0)} kept by the originator`} /> : null}
         <KeyValueRow label="Investor yield" mono value={`${formatRateBps(marketplaceYieldBps(loan))} p.a.`} />
         {originatorClaim ? <KeyValueRow label="Underlying borrower coupon" mono value={`${formatRateBps(loan.underlying_interest_rate_bps)} p.a.`} /> : null}
         <KeyValueRow label="Repayment type" value={loan.repayment_type} />
@@ -5578,6 +5581,11 @@ function HoldingDetail({ holding, onClose, setRoute }: { holding: Holding; onClo
       <div className="col gap-16">
         <div className="row gap-8 wrap"><Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} />{holding.open_secondary_listing ? <Chip status={listingStatusLabel(holding.open_secondary_listing.status)} tone={holding.open_secondary_listing.status === "active" ? "ok" : "warn"} tooltip={listingStatusTooltip(holding.open_secondary_listing.status, holding.loan.loan_status)} /> : null}<Rating value={holding.loan.risk_rating} /><Country code={holding.loan.borrower_country} />{holding.loan.is_refinancing ? <RefinancedTag full /> : null}<CopyIdButton ariaLabel="Copy loan ID" id={holding.loan.loan_id} label="Copy loan ID" /></div>
         <div className="sub">Borrower: {holding.loan.borrower_name}</div>
+        {holding.loan.product_type === "originator_claim" && holding.loan.originator_name && holding.loan.skin_in_the_game_bps > 0 ? (
+          <Banner tone="neutral" title="Originator-retained claim">
+            {holding.loan.originator_name} retains at least {formatRateBps(holding.loan.skin_in_the_game_bps)} of the loan&apos;s current outstanding principal. That retained claim is not offered for sale to investors.
+          </Banner>
+        ) : null}
         {!hasOpenListing && !listingAction.allowed ? <Banner tone="neutral" title={listingAction.title}>{listingAction.hint}</Banner> : null}
         {impaired ? <Banner tone="warn" title={`${holding.loan.loan_status.replaceAll("_", " ")} - ${holding.loan.days_past_due} DPD`}>This position is not a normal live loan. Review public notes and recovery updates before taking action.</Banner> : null}
         <div className="grid grid-4">
@@ -7527,7 +7535,7 @@ function OriginatorClaimInvestModal({ loan, onClose }: { loan: MarketplaceLoanDe
             { label: "Investor yield", value: `${formatRateBps(loan.yield_bps)} effective annual · ACT/365` },
             { label: "Underlying borrower coupon", value: `${formatRateBps(loan.underlying_interest_rate_bps)} p.a.` },
             { label: "Maturity", value: loan.maturity_date ? formatDate(loan.maturity_date) : "Not available" },
-            { label: "Current unsold principal", value: `${loan.currency} ${formatMoneyMinor(loan.remaining_capacity_minor, loan.currency)}` }
+            { label: "Available claim principal", value: `${loan.currency} ${formatMoneyMinor(loan.remaining_capacity_minor, loan.currency)}` }
           ]} />
           {error ? <Banner tone="bad" title="Could not price this claim">{error}</Banner> : null}
         </div>
