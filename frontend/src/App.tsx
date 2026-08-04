@@ -5412,20 +5412,40 @@ function SecondaryMarketScreen({ demoState, initialTab }: { demoState: DemoAccou
     }
   }, [initialTab]);
 
+  const activeLoans = pfActiveHoldings(portfolio?.holdings ?? []);
+  const performingCount = activeLoans.filter((holding) => holding.loan.loan_status === "active").length;
+  const lateCount = activeLoans.length - performingCount;
+
   return (
-    <main className="content">
-      <div className="page-head"><div><h1>Secondary market</h1><div className="ph-sub">Bulletin-board transfer of whole loan claim holdings. Counterparties are anonymous.</div></div></div>
+    <main className="content sm-page">
+      <h1 className="sr-only">Secondary market</h1>
       {frozen ? <Banner icon="lock" tone="bad" title="Secondary-market actions are frozen">Provide a usable payout IBAN to unlock buying and listing.</Banner> : null}
-      <Banner tone="neutral" title="How it works">Sellers list an entire holding at a discount or premium. Accrued interest to settlement belongs to the seller; future interest belongs to the buyer.</Banner>
-      <div style={{ marginTop: 16 }}><Tabs tabs={[{ value: "browse", label: "Browse listings" }, { value: "sell", label: "Sell a holding" }, { value: "activity", label: "Secondary market activity" }]} value={tab} onChange={setTab} /></div>
-      <div style={{ paddingTop: 18 }}>
+      <div className="sm-hero">
+        <div className="eyebrow">{listings.length} {listings.length === 1 ? "listing" : "listings"} · sold by other investors</div>
+        <h2>Loans other people want out of.</h2>
+        <p className="sm-lede">Someone else lent this money and wants it back before the schedule ends. You take over their position, their collateral and their remaining term. Counterparties stay anonymous.</p>
+      </div>
+      <nav aria-label="Secondary market sections" className="mtabs" role="tablist">
+        <button aria-selected={tab === "browse"} className={tab === "browse" ? "on" : ""} onClick={() => setTab("browse")} role="tab" type="button">For sale now</button>
+        <button aria-selected={tab === "sell"} className={tab === "sell" ? "on" : ""} onClick={() => setTab("sell")} role="tab" type="button">Sell a holding</button>
+        <button aria-selected={tab === "activity"} className={tab === "activity" ? "on" : ""} onClick={() => setTab("activity")} role="tab" type="button">Secondary market activity</button>
+      </nav>
+      <div>
         {tab === "browse" ? (
           listingsQuery.isError && listings.length === 0 ? (
             <DataErrorCard title="Could not load secondary listings" onRetry={() => void listingsQuery.refetch()}>
               Secondary-market listings are temporarily unavailable.
             </DataErrorCard>
           ) : (
-            <BuyerListingsTable frozen={frozen} listings={listings} onBuy={setBuy} />
+            <SmForSale
+              frozen={frozen}
+              lateCount={lateCount}
+              listings={listings}
+              onBuy={setBuy}
+              onChooseLoan={() => setTab("sell")}
+              performingCount={performingCount}
+              totalLoans={activeLoans.length}
+            />
           )
         ) : null}
         {tab === "sell" ? (
@@ -5462,34 +5482,131 @@ function SecondaryMarketScreen({ demoState, initialTab }: { demoState: DemoAccou
   );
 }
 
-function BuyerListingsTable({ listings, onBuy, frozen }: { listings: SecondaryMarketBuyerListing[]; onBuy: (listing: SecondaryMarketBuyerListing) => void; frozen: boolean }) {
-  if (listings.length === 0) {
-    return <Card><Empty icon="secondary" title="No active secondary listings">There are no buyer-visible holdings listed right now.</Empty></Card>;
-  }
+function smDiscountLabel(discountPremiumBps: number) {
+  if (discountPremiumBps === 0) return { text: "par", tone: "mut" as const };
+  const pct = (Math.abs(discountPremiumBps) / 100).toFixed(1);
+  return discountPremiumBps < 0
+    ? { text: `−${pct}%`, tone: "good" as const }
+    : { text: `+${pct}%`, tone: "mut" as const };
+}
 
+function smBuyerReturnLabel(listing: SecondaryMarketBuyerListing) {
+  // Approximate annual return to the buyer: the loan's coupon plus the
+  // discount recovered over the remaining life, assuming the amortizing
+  // average outstanding balance is roughly half the current principal
+  // (matching the redesign's illustrative maths). Premiums reduce it.
+  const couponPct = listing.interest_rate_bps / 100;
+  if (listing.remaining_term_months <= 0) return `${couponPct.toFixed(1)}%`;
+  const discountPct = -listing.discount_premium_bps / 100;
+  const annualised = couponPct + discountPct * (24 / listing.remaining_term_months);
+  return `${annualised.toFixed(1)}%`;
+}
+
+function SmForSale({
+  frozen,
+  lateCount,
+  listings,
+  onBuy,
+  onChooseLoan,
+  performingCount,
+  totalLoans
+}: {
+  frozen: boolean;
+  lateCount: number;
+  listings: SecondaryMarketBuyerListing[];
+  onBuy: (listing: SecondaryMarketBuyerListing) => void;
+  onChooseLoan: () => void;
+  performingCount: number;
+  totalLoans: number;
+}) {
+  const currency = listings[0]?.currency ?? "CHF";
   return (
-    <Card>
-      <div className="tbl-wrap">
-        <table className="tbl">
-          <thead><tr><th>Listing</th><th>Status</th><th className="num">Principal</th><th className="num">Price</th><th className="num">Accrued</th><th className="num">Total cost</th><th className="num">DPD</th><th /></tr></thead>
-          <tbody>
-            {listings.map((listing) => (
-              <tr className="clickable" key={listing.id} onClick={() => !frozen && !isReadonlyImpersonationActive() && onBuy(listing)}>
-                <td><EntityReference id={listing.id} idLabel="Copy listing ID" title={listing.loan_title} /></td>
-                <td><div className="row gap-6 wrap"><Chip status={listing.loan_status_at_listing} tone={statusTone(listing.loan_status_at_listing)} />{listing.risk_acknowledgement_required ? <Chip square tone="warn">Non-standard</Chip> : null}</div></td>
-                <td className="num"><Money amountMinor={listing.current_principal_minor} currency={listing.currency} /></td>
-                <td className="num">{priceLabel(listing.discount_premium_bps)}</td>
-                <td className="num">{formatMoneyMinor(listing.accrued_interest_minor, listing.currency)}</td>
-                <td className="num col-strong"><Money amountMinor={listing.buyer_total_cost_minor} currency={listing.currency} /></td>
-                <td className="num">{listing.days_past_due > 0 ? <span className="neg col-strong">{listing.days_past_due}</span> : "0"}</td>
-                <td className="right"><Icon className="faint" name="chevR" size={15} /></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div className="sm-forsale">
+      <h2 className="sect">For sale now</h2>
+      <p className="sect-sub" style={{ maxWidth: 680 }}>A discount raises what you earn; a premium lowers it. The interest rate on the loan itself never changes — only what you paid for it.</p>
+      {listings.length === 0 ? (
+        <div className="sm-empty"><Empty icon="secondary" title="No active secondary listings">There are no buyer-visible holdings listed right now.</Empty></div>
+      ) : (
+        <div className="rule-top sm-table">
+          <div className="sm-thead">
+            <span className="sm-col-loan">Loan</span>
+            <span className="sm-col-outstanding">Outstanding</span>
+            <span className="sm-col-asking">Asking</span>
+            <span className="sm-col-discount">Discount</span>
+            <span className="sm-col-left">Left to run</span>
+            <span className="sm-col-return">Your return</span>
+            <span className="sm-col-cta" />
+          </div>
+          {listings.map((listing) => {
+            const discount = smDiscountLabel(listing.discount_premium_bps);
+            return (
+              <button
+                className="sm-row"
+                disabled={frozen || isReadonlyImpersonationActive()}
+                key={listing.id}
+                onClick={() => onBuy(listing)}
+                type="button"
+              >
+                <span className="sm-col-loan">
+                  <span className="sm-loan-title">{listing.loan_title}</span>
+                  <span className="num sm-loan-sub">
+                    {humanizeToken(listing.collateral_type)} · {formatRateBps(listing.interest_rate_bps)} coupon
+                    {listing.risk_acknowledgement_required ? <span className="sm-nonstandard"> · non-standard</span> : null}
+                  </span>
+                </span>
+                <span className="num sm-col-outstanding">{pfMoneyLabel(listing.currency, listing.current_principal_minor)}</span>
+                <span className="num sm-col-asking">{pfMoneyLabel(listing.currency, listing.transfer_price_minor)}</span>
+                <span className={`num sm-col-discount ${discount.tone}`}>{discount.text}</span>
+                <span className="num sm-col-left">{listing.remaining_term_months} mo</span>
+                <span className="num sm-col-return">{smBuyerReturnLabel(listing)}</span>
+                <span className="sm-col-cta">details</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      <h2 className="sect">Why do loans sell at a premium or a discount?</h2>
+      <p className="sect-sub" style={{ maxWidth: 680 }}>The same {pfWholeLabel(currency, 2000000)} outstanding, three prices. The full amount is owed to whoever holds the position on the payment date.</p>
+      <div className="band band-3 sm-band">
+        <div className="cell">
+          <div className="microlabel" style={{ color: "#1e6a4b", marginBottom: 14 }}>At a discount</div>
+          <div className="num sm-band-price" style={{ color: "#1e6a4b" }}>{pfMoneyLabel(currency, 1940000)}</div>
+          <div className="num sm-band-yield" style={{ color: "#1e6a4b" }}>your return 17.5% a year</div>
+          <div className="sm-band-copy">The seller wants out early — a long wait left, or collateral that resells slowly. The full amount is still owed, so the gap is yours.</div>
+        </div>
+        <div className="cell">
+          <div className="microlabel" style={{ marginBottom: 14 }}>At par</div>
+          <div className="num sm-band-price">{pfMoneyLabel(currency, 2000000)}</div>
+          <div className="num sm-band-yield">your return 11.0% a year</div>
+          <div className="sm-band-copy">You step in exactly where the seller stood. Your yield is the loan's own rate.</div>
+        </div>
+        <div className="cell">
+          <div className="microlabel" style={{ marginBottom: 14 }}>At a premium</div>
+          <div className="num sm-band-price">{pfMoneyLabel(currency, 2040000)}</div>
+          <div className="num sm-band-yield">your return 7.3% a year</div>
+          <div className="sm-band-copy">The rate beats anything open today, so the seller charges for access. You take a lower yield to lock it in.</div>
+        </div>
       </div>
-      <p className="muted" style={{ fontSize: 11.5, margin: "12px 16px 16px" }}>Buyer views never expose seller identity, seller net proceeds, maker fee, document evidence IDs, or admin fields.</p>
-    </Card>
+
+      <h2 className="sect">Selling your own</h2>
+      <p className="sm-sell-note">
+        {totalLoans > 0 ? (
+          <><span style={{ color: "#151719", fontWeight: 600 }}>{performingCount} of your {totalLoans} {totalLoans === 1 ? "loan" : "loans"}</span> can be listed today{lateCount > 0 ? ` (${lateCount} in arrears ${lateCount === 1 ? "needs" : "need"} Garanta approval first)` : ""}. </>
+        ) : null}
+        You set the asking price; BANXUM's maker fee comes out of what you receive, and nothing is charged if it does not sell.
+      </p>
+      <div className="sm-caution-card">
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="microlabel" style={{ color: "#c4312c", marginBottom: 11 }}>Caution</div>
+          <div className="sm-caution-copy">This is not a withdrawal button. There is no guaranteed buyer and no guaranteed price. If nobody wants your loan at a price you accept, you hold it to the end of its term.</div>
+        </div>
+        <div style={{ flex: "none" }}>
+          <button className="sm-choose-btn" onClick={onChooseLoan} type="button">Choose a loan to sell</button>
+        </div>
+      </div>
+      <p className="sm-anon-note">Buyer views never expose seller identity, seller net proceeds, maker fee, document evidence IDs, or admin fields.</p>
+    </div>
   );
 }
 

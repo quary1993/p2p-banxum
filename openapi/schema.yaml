@@ -11050,16 +11050,25 @@ components:
           type: string
           format: date-time
           nullable: true
+        interest_rate_bps:
+          type: integer
+        collateral_type:
+          type: string
+        remaining_term_months:
+          type: integer
+          readOnly: true
       required:
       - accrued_interest_from_date
       - accrued_interest_minor
       - accrued_interest_to_date
       - buyer_total_cost_minor
+      - collateral_type
       - currency
       - current_principal_minor
       - days_past_due
       - discount_premium_bps
       - id
+      - interest_rate_bps
       - last_payment_date
       - listed_at
       - loan_id
@@ -11068,6 +11077,7 @@ components:
       - minimum_taker_fee_minor
       - price_bps
       - public_disclosure_note
+      - remaining_term_months
       - risk_acknowledgement_required
       - status
       - taker_fee_bps
@@ -11129,18 +11139,21 @@ components:
           type: string
           format: date-time
           nullable: true
+        interest_rate_bps:
+          type: integer
+        collateral_type:
+          type: string
+        remaining_term_months:
+          type: integer
+          readOnly: true
         borrower_name:
           type: string
         borrower_country:
           type: string
         purpose:
           type: string
-        collateral_type:
-          type: string
         risk_rating:
           type: string
-        interest_rate_bps:
-          type: integer
         term_months:
           type: integer
         repayment_type:
@@ -11197,6 +11210,7 @@ components:
       - price_bps
       - public_disclosure_note
       - purpose
+      - remaining_term_months
       - repayment_type
       - risk_acknowledgement_required
       - risk_rating

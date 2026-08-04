@@ -1431,7 +1431,10 @@ export const secondaryListingsFixture: SecondaryMarketBuyerListing[] = [
     last_payment_date: "2026-05-20",
     risk_acknowledgement_required: false,
     public_disclosure_note: "",
-    listed_at: "2026-06-01T09:00:00+02:00"
+    listed_at: "2026-06-01T09:00:00+02:00",
+    interest_rate_bps: 940,
+    collateral_type: "equipment",
+    remaining_term_months: 24
   },
   {
     id: "SM-3298",
@@ -1455,7 +1458,10 @@ export const secondaryListingsFixture: SecondaryMarketBuyerListing[] = [
     last_payment_date: "2026-04-15",
     risk_acknowledgement_required: true,
     public_disclosure_note: "Payment overdue; buyer must acknowledge non-standard listing risk.",
-    listed_at: "2026-06-02T09:00:00+02:00"
+    listed_at: "2026-06-02T09:00:00+02:00",
+    interest_rate_bps: 810,
+    collateral_type: "real_estate",
+    remaining_term_months: 14
   }
 ];
 

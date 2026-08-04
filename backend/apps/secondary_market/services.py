@@ -2634,6 +2634,13 @@ def get_active_secondary_market_listing_detail(
         "loan_start_date": loan.loan_start_date,
         "first_payment_date": loan.first_payment_date,
         "schedule_version": int(loan.schedule_version),
+        "remaining_term_months": len(
+            [
+                row
+                for row in loan_schedule
+                if row.row_type == "scheduled_installment" and not row.is_paid
+            ]
+        ),
         "loan_schedule": [
             {
                 key: value

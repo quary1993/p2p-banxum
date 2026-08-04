@@ -397,6 +397,41 @@ test("primary-order status chips explain released and never-invested outcomes", 
   }
 });
 
+test("secondary market redesign shows for-sale table, explainer band and selling card", () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  fireEvent.click(screen.getByRole("button", { name: "Secondary Market" }));
+
+  expect(screen.getByRole("heading", { name: "Loans other people want out of." })).toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: "For sale now" })).toHaveAttribute("aria-selected", "true");
+  expect(screen.getByRole("tab", { name: "Sell a holding" })).toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: "Secondary market activity" })).toBeInTheDocument();
+
+  // Design table columns with buyer-safe loan context.
+  expect(screen.getByText("Asking")).toBeInTheDocument();
+  expect(screen.getByText("Left to run")).toBeInTheDocument();
+  expect(screen.getByText("Your return")).toBeInTheDocument();
+  expect(screen.getByText(/Equipment · 9.4% coupon/)).toBeInTheDocument();
+  expect(screen.getByText("24 mo")).toBeInTheDocument();
+  expect(screen.getByText("−2.0%")).toBeInTheDocument();
+  // Coupon 9.4% plus a 2% discount recovered over 24 months ≈ 11.4%.
+  expect(screen.getByText("11.4%")).toBeInTheDocument();
+  expect(screen.getByText(/non-standard/)).toBeInTheDocument();
+
+  // Premium/discount explainer band and the selling caution card.
+  expect(screen.getByRole("heading", { name: "Why do loans sell at a premium or a discount?" })).toBeInTheDocument();
+  expect(screen.getByText("At a discount")).toBeInTheDocument();
+  expect(screen.getByText(/not a withdrawal button/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Choose a loan to sell" }));
+  expect(screen.getByRole("tab", { name: "Sell a holding" })).toHaveAttribute("aria-selected", "true");
+});
+
 test("portfolio redesign shows hero, tabs, loans table views and widgets", () => {
   renderApp();
 

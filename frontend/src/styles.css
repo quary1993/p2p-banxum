@@ -7258,3 +7258,365 @@ table.tbl tfoot.schedule-totals th.num,
     position: static;
   }
 }
+
+/* Secondary market: port of website_redesign/secondary-market.html, scoped
+   to .sm-page. Values copied verbatim from the design. */
+.app .sm-page {
+  max-width: 1040px;
+}
+
+.app .sm-hero {
+  margin-bottom: 44px;
+  text-align: center;
+}
+
+.app .sm-hero .eyebrow {
+  color: #626b70;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  margin-bottom: 22px;
+  text-transform: uppercase;
+}
+
+.app .sm-hero h2 {
+  font-size: 52px;
+  font-weight: 600;
+  letter-spacing: -0.045em;
+  line-height: 1.02;
+  margin: 0 0 20px;
+}
+
+.app .sm-lede {
+  color: #626b70;
+  font-size: 19px;
+  line-height: 1.5;
+  margin: 0 auto;
+  max-width: 620px;
+  text-wrap: pretty;
+}
+
+.app .sm-page .mtabs {
+  border-bottom: 1px solid #dde3e1;
+  display: flex;
+  gap: 26px;
+  margin-bottom: 34px;
+  padding-bottom: 16px;
+}
+
+.app .sm-page .mtabs button {
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: #626b70;
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 0 0 3px;
+  white-space: nowrap;
+}
+
+.app .sm-page .mtabs button:hover {
+  color: #151719;
+}
+
+.app .sm-page .mtabs button.on {
+  border-bottom-color: #151719;
+  color: #151719;
+  font-weight: 600;
+}
+
+.app .sm-page .sect {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  margin: 0 0 6px;
+}
+
+.app .sm-page .sect-sub {
+  color: #626b70;
+  font-size: 15px;
+  margin: 0 0 26px;
+  text-wrap: pretty;
+}
+
+.app .sm-page .microlabel {
+  color: #626b70;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.app .sm-page .rule-top {
+  border-top: 2px solid #151719;
+}
+
+.app .sm-table {
+  margin-bottom: 34px;
+  overflow-x: auto;
+}
+
+.app .sm-thead {
+  align-items: baseline;
+  border-bottom: 1px solid #dde3e1;
+  color: #626b70;
+  display: flex;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  padding: 11px 0;
+  text-transform: uppercase;
+  width: 100%;
+}
+
+.app .sm-row {
+  align-items: baseline;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid #dde3e1;
+  color: #151719;
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  padding: 15px 0;
+  text-align: left;
+  width: 100%;
+}
+
+.app .sm-row:hover .sm-loan-title {
+  text-decoration: underline;
+}
+
+.app .sm-row:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.app .sm-col-loan {
+  flex: none;
+  min-width: 0;
+  width: 216px;
+}
+
+.app .sm-loan-title {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.app .sm-loan-sub {
+  color: #626b70;
+  display: block;
+  font-size: 12.5px;
+  margin-top: 3px;
+}
+
+.app .sm-nonstandard {
+  color: #c4312c;
+  font-weight: 600;
+}
+
+.app .sm-col-outstanding {
+  font-size: 14px;
+  text-align: right;
+  width: 110px;
+}
+
+.app .sm-col-asking {
+  font-size: 15px;
+  font-weight: 600;
+  text-align: right;
+  width: 110px;
+}
+
+.app .sm-col-discount {
+  font-size: 14px;
+  text-align: right;
+  width: 96px;
+}
+
+.app .sm-col-discount.mut {
+  color: #626b70;
+}
+
+.app .sm-col-discount.good {
+  color: #1e6a4b;
+}
+
+.app .sm-col-left {
+  color: #626b70;
+  flex: 1;
+  font-size: 14px;
+  text-align: right;
+}
+
+.app .sm-col-return {
+  font-size: 15px;
+  font-weight: 600;
+  text-align: right;
+  width: 104px;
+}
+
+.app .sm-col-cta {
+  color: #626b70;
+  font-size: 13.5px;
+  text-align: right;
+  width: 88px;
+}
+
+.app .sm-thead .sm-col-outstanding,
+.app .sm-thead .sm-col-asking {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.app .sm-empty {
+  border-bottom: 1px solid #dde3e1;
+  border-top: 2px solid #151719;
+  margin-bottom: 34px;
+}
+
+.app .sm-band {
+  background: #fbfaf7;
+  border: 1px solid #dde3e1;
+  border-radius: 8px;
+  display: grid;
+  gap: 0;
+  grid-template-columns: 1fr 1fr 1fr;
+  margin-bottom: 60px;
+}
+
+.app .sm-band .cell {
+  padding: 26px 28px;
+}
+
+.app .sm-band .cell + .cell {
+  border-left: 1px solid #dde3e1;
+}
+
+.app .sm-band-price {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  margin-bottom: 6px;
+}
+
+.app .sm-band-yield {
+  color: #626b70;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.app .sm-band-copy {
+  color: #292d30;
+  font-size: 13px;
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+.app .sm-sell-note {
+  color: #626b70;
+  font-size: 15px;
+  margin: 0 0 20px;
+  max-width: 700px;
+  text-wrap: pretty;
+}
+
+.app .sm-caution-card {
+  align-items: center;
+  background: #fbfaf7;
+  border: 1px solid #dde3e1;
+  border-radius: 10px;
+  display: flex;
+  gap: 34px;
+  margin-bottom: 16px;
+  padding: 26px 30px;
+}
+
+.app .sm-caution-copy {
+  color: #292d30;
+  font-size: 13.5px;
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.app .sm-choose-btn {
+  align-items: center;
+  background: transparent;
+  border: 1px solid #151719;
+  border-radius: 999px;
+  color: #151719;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  gap: 8px;
+  justify-content: center;
+  padding: 11px 24px;
+  white-space: nowrap;
+}
+
+.app .sm-choose-btn:hover {
+  background: #edeae2;
+}
+
+.app .sm-anon-note {
+  color: #8b939a;
+  font-size: 11.5px;
+  margin: 0 0 34px;
+}
+
+@media (max-width: 1080px) {
+  .app .sm-hero h2 {
+    font-size: 40px;
+  }
+}
+
+@media (max-width: 860px) {
+  .app .sm-hero {
+    margin-bottom: 30px;
+  }
+
+  .app .sm-hero h2 {
+    font-size: 32px;
+  }
+
+  .app .sm-lede {
+    font-size: 16px;
+  }
+
+  .app .sm-page .mtabs {
+    gap: 18px;
+    margin-bottom: 24px;
+    overflow-x: auto;
+  }
+
+  .app .sm-page .mtabs button {
+    flex: none;
+  }
+
+  .app .sm-thead,
+  .app .sm-row {
+    min-width: 720px;
+  }
+
+  .app .sm-band {
+    grid-template-columns: 1fr;
+  }
+
+  .app .sm-band .cell + .cell {
+    border-left: 0;
+    border-top: 1px solid #dde3e1;
+  }
+
+  .app .sm-caution-card {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 18px;
+  }
+}
