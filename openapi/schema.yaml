@@ -9101,9 +9101,8 @@ components:
           $ref: '#/components/schemas/Status828Enum'
         default_premium_fee_bps:
           type: integer
-          maximum: 9223372036854775807
+          maximum: 10000
           minimum: 0
-          format: int64
         created_by_admin_id:
           type: string
           format: uuid

@@ -22,6 +22,11 @@ RISK_RATING_CHOICES = _loan_field_choices("risk_rating")
 
 
 class LoanOriginatorSerializer(serializers.ModelSerializer[LoanOriginator]):
+    # Keep schema generation independent of each database backend's integer ranges.
+    default_premium_fee_bps = serializers.IntegerField(
+        min_value=0, max_value=10_000, required=False
+    )
+
     class Meta:
         model = LoanOriginator
         fields = (
