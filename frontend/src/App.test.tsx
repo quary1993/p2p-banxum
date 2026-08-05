@@ -105,6 +105,7 @@ test("fixture-backed authenticated portal is visibly marked as preview data", ()
 
   const portalNav = screen.getByRole("navigation", { name: "Investor portal navigation" });
   expect(within(portalNav).getByRole("button", { name: "Investment Opportunities" })).toBeInTheDocument();
+  expect(within(portalNav).getByRole("button", { name: "Smart Invest" })).toBeInTheDocument();
   expect(within(portalNav).getByRole("button", { name: "My Portfolio" })).toBeInTheDocument();
   expect(within(portalNav).queryByRole("button", { name: "Notifications" })).not.toBeInTheDocument();
 
@@ -113,6 +114,70 @@ test("fixture-backed authenticated portal is visibly marked as preview data", ()
   fireEvent.click(within(topbar).getByRole("button", { name: "Add Funds" }));
   expect(screen.getByRole("heading", { name: "Add Funds · CHF" })).toBeInTheDocument();
   expect(screen.getByLabelText("Currency")).toHaveClass("select");
+});
+
+test("Smart Invest uses the five approved wizard steps and never implies automatic investing", async () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  fireEvent.click(screen.getByRole("button", { name: "Smart Invest" }));
+
+  expect(screen.getByRole("heading", { name: "It finds them. You approve them." })).toBeInTheDocument();
+  expect(screen.getByText(/never invests for you/i)).toBeInTheDocument();
+  expect(screen.queryByText(/cap on any one originator/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/reinvest/i)).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Deactivate the rule" }));
+  expect(await screen.findByText("Not active", { selector: ".smart-invest-state" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /Walk me through it/ }));
+
+  const wizard = screen.getByRole("dialog", { name: "Set the conditions. Review every match." });
+  expect(within(wizard).getByText("Step 1 of 5")).toBeInTheDocument();
+  expect(within(wizard).queryByRole("heading", { name: /originator cap/i })).not.toBeInTheDocument();
+  expect(within(wizard).queryByRole("heading", { name: /repayment/i })).not.toBeInTheDocument();
+  fireEvent.click(within(wizard).getByRole("button", { name: /Required/ }));
+  fireEvent.click(within(wizard).getByRole("button", { name: "Continue" }));
+  expect(within(wizard).getByText("Step 2 of 5")).toBeInTheDocument();
+  fireEvent.click(within(wizard).getByRole("button", { name: /CHF only/ }));
+  fireEvent.click(within(wizard).getByRole("button", { name: "Continue" }));
+  expect(within(wizard).getByText("Optional · step 3 of 5")).toBeInTheDocument();
+  fireEvent.click(within(wizard).getByRole("button", { name: "Continue" }));
+  expect(within(wizard).getByText("Optional · step 4 of 5")).toBeInTheDocument();
+  fireEvent.click(within(wizard).getByRole("button", { name: "Continue" }));
+  expect(within(wizard).getByText("Step 5 of 5 · review")).toBeInTheDocument();
+  expect(within(wizard).getByRole("button", { name: "Collateral Collateral required change" })).toBeInTheDocument();
+  expect(within(wizard).getByRole("button", { name: "Currency CHF change" })).toBeInTheDocument();
+  expect(within(wizard).getByRole("button", { name: "Minimum yield No minimum change" })).toBeInTheDocument();
+  expect(within(wizard).getByRole("button", { name: "Maximum term Any term change" })).toBeInTheDocument();
+  expect(within(wizard).queryByText(/originator cap/i)).not.toBeInTheDocument();
+  expect(within(wizard).queryByText(/repayment preference/i)).not.toBeInTheDocument();
+});
+
+test("Marketplace filters can be saved as the active Smart Invest rule", async () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
+  fireEvent.click(screen.getByRole("button", { name: /Filter/ }));
+
+  const panel = document.getElementById("marketplace-filter-panel");
+  expect(panel).not.toBeNull();
+  fireEvent.click(within(panel as HTMLElement).getByRole("button", { name: /^CHF\s/ }));
+  fireEvent.click(within(panel as HTMLElement).getByRole("button", { name: "Save Smart Filters" }));
+
+  expect(await screen.findByRole("heading", { name: "It finds them. You approve them." })).toBeInTheDocument();
+  expect(screen.getByText("CHF", { selector: ".smart-rule-summary strong" })).toBeInTheDocument();
+  expect(window.location.pathname).toBe("/smart-invest");
 });
 
 test("investor data tables use the shared editorial table surface", () => {
@@ -245,10 +310,8 @@ test("marketplace redesign preserves live filters, detail mode, and order guidan
   ).toBeInTheDocument();
 
   fireEvent.click(screen.getByRole("button", { name: "Set your investing rule" }));
-  const investingRuleDialog = screen.getByRole("dialog", { name: "Investing rule" });
-  expect(investingRuleDialog).toBeInTheDocument();
-  expect(screen.getByText(/future BANXUM module/i)).toBeInTheDocument();
-  fireEvent.click(within(investingRuleDialog).getAllByRole("button", { name: "Close" })[1]);
+  expect(screen.getByRole("heading", { name: "It finds them. You approve them." })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
 
   fireEvent.click(screen.getByRole("tab", { name: "Detailed" }));
   expect(screen.getAllByText("Loan amount")).toHaveLength(4);
@@ -311,6 +374,45 @@ test("marketplace filters combine chips, sliders and tokens with live counts", (
   expect(
     screen.getByText((_, element) => element?.className === "fs-count" && element.textContent === "5 of 5 match")
   ).toBeInTheDocument();
+});
+
+test("marketplace sheet shows the v9 opportunity layout and hands off to the order flow", () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
+  fireEvent.click(screen.getByText("Helvetia Logistik AG"));
+
+  const sheet = screen.getByRole("dialog", { name: "Helvetia Logistik AG" });
+  expect(within(sheet).getByText("originated by Banxum · written when this opportunity funds")).toBeInTheDocument();
+  expect(within(sheet).getByText("Use of funds")).toBeInTheDocument();
+  expect(within(sheet).getByText("Collateral")).toBeInTheDocument();
+  expect(within(sheet).getByText("Valuation")).toBeInTheDocument();
+  expect(within(sheet).getByText(/What your/)).toBeInTheDocument();
+  expect(within(sheet).getByText("Illustrative — if paid as scheduled")).toBeInTheDocument();
+  expect(within(sheet).queryByText(/Reinvested at/)).not.toBeInTheDocument();
+  expect(within(sheet).getByText("If it stops paying")).toBeInTheDocument();
+
+  // Direct loans show the subscription window with the configured minimum.
+  expect(within(sheet).getByText("Subscription window")).toBeInTheDocument();
+  expect(within(sheet).getByText("minimum 50%")).toBeInTheDocument();
+  expect(within(sheet).getByText("Minimum reached")).toBeInTheDocument();
+  expect(within(sheet).getByText("Who you are lending to")).toBeInTheDocument();
+  expect(within(sheet).getByText(/We underwrote this loan ourselves/)).toBeInTheDocument();
+
+  // Inline amount step renames Confirm to Review Order and hands off to the compliant flow.
+  fireEvent.click(within(sheet).getByRole("button", { name: "Invest now" }));
+  expect(within(sheet).getByText("How much do you want to lend")).toBeInTheDocument();
+  fireEvent.change(within(sheet).getByLabelText("Amount to invest"), { target: { value: "2000" } });
+  fireEvent.click(within(sheet).getByRole("button", { name: "Review Order" }));
+
+  const orderDialog = screen.getByRole("dialog", { name: "Invest - Helvetia Logistik AG" });
+  expect(within(orderDialog).getAllByText(/2.000\.00/).length).toBeGreaterThan(0);
 });
 
 test("marketplace sorts from the header and the sort menu", () => {
@@ -398,6 +500,10 @@ test("originator claim purchase validates the minimum and stages an executable q
   fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
   fireEvent.click(screen.getByText("Swiss SME equipment claim"));
 
+  const claimSheet = screen.getByRole("dialog", { name: "Swiss SME equipment claim" });
+  expect(within(claimSheet).getByText(/taken by other investors/)).toBeInTheDocument();
+  fireEvent.click(within(claimSheet).getByRole("button", { name: "The full credit file →" }));
+
   expect(screen.getByText("Originator claim")).toBeInTheDocument();
   expect(screen.getAllByText("Alpine Credit Partners AG").length).toBeGreaterThan(0);
   expect(screen.getAllByText(/7\.1%/).length).toBeGreaterThan(0);
@@ -479,6 +585,10 @@ test("refinanced marketplace loan shows badge and informational original loan sc
   expect(screen.getAllByText("Refinanced").length).toBeGreaterThan(0);
 
   fireEvent.click(screen.getByText("Helvetia Logistik AG"));
+
+  // The v9 sheet opens first; the credit file lives behind "Meet the borrower".
+  const refiSheet = screen.getByRole("dialog", { name: "Helvetia Logistik AG" });
+  fireEvent.click(within(refiSheet).getByRole("button", { name: "Meet the borrower →" }));
 
   // Detail header badge plus the informational original-loan section.
   expect(screen.getAllByText("Refinanced loan").length).toBeGreaterThan(0);

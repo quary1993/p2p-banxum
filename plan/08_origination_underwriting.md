@@ -175,7 +175,7 @@ The workflow must separate loan purpose from collateral/backing. A loan may be r
 The workflow should be extensible to richer collateral/backing records later, but launch underwriting must support:
 
 - Admin-recorded off-platform legal-entity KYB and beneficial ownership checks.
-- Borrower KYB/AML approval before loan publication, funding close, disbursement, or other platform transaction activity.
+- Borrower KYB/AML approval before loan publication, disbursement, or other platform transaction activity. Routine post-publication KYB expiry is allowed only for deterministic funding close; explicit holds and adverse/review statuses remain blocking.
 - Collateral/backing type.
 - Collateral value.
 - Calculated LTV.

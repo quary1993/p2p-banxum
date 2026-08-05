@@ -114,8 +114,10 @@ Use this as the daily operating checklist once the environment is live.
 - Loans and marketplace:
   - Publish only approved-KYB/no-hold borrowers.
   - Keep funding deadlines inside the publishable campaign window.
-  - Cancel expired campaigns through the campaign-expiry scan or manual cancellation.
-  - Close funding only after confirming allocations/accepted amount.
+  - Confirm each direct loan's minimum subscription (default 50%) before publication; publication freezes it even when no commitment exists yet.
+  - Run the funding-deadline resolver: at/above the threshold it closes automatically at the subscribed amount; below it, it cancels and restores reservations.
+  - Confirm `funding_close_failed` loans are not public, retain reservations, create an urgent task, and send an alert to `OPERATIONS_ALERT_EMAIL`.
+  - Resolve the root cause, then retry the deterministic resolver or cancel/refund. Do not manually choose a partial-close amount.
   - Record borrower repayments with exact value date and warning acknowledgement for irregular payments.
   - Record recoveries only for defaulted loans and use final loss recognition only after Garanta/legal/accounting approval.
   - For an originator claim, verify originator status and settlement instructions,
@@ -200,7 +202,9 @@ Run this as an end-to-end staging rehearsal with test users and small provider-s
   - Publish a test borrower/loan with valid KYB and funding deadline.
   - Place an investment order with automatic email-code issuance.
   - Accept project investment confirmation and download the generated PDF.
-  - Allocate, close funding, and verify holding creation.
+  - Allocate above the configured minimum, advance past the deadline/run the resolver, and verify automatic close plus holding creation.
+  - Repeat below the threshold and verify cancellation plus exact reservation restoration.
+  - Exercise a controlled resolution failure and verify the non-public failure status, preserved reservations, urgent task, operations email, and successful retry.
   - Confirm the loan no longer accepts release/cancel actions after close.
 - Loan Originator claim:
   - Import and publish one controlled loan for every enabled repayment type, plus a

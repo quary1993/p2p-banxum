@@ -127,6 +127,7 @@ def _create_published_loan(
     *,
     principal_minor: int = 100_000_00,
     funding_deadline: date = date(2030, 1, 10),
+    minimum_subscription_bps: int = 5_000,
 ) -> Model:
     borrower = _create_borrower(admin_user)
     loan_model = apps.get_model("loans", "Loan")
@@ -135,6 +136,7 @@ def _create_published_loan(
         Model,
         loan_model.objects.create(
             borrower=borrower,
+            minimum_subscription_bps=minimum_subscription_bps,
             status="published",
             title="Real estate bridge loan",
             investor_summary="Short real-estate backed bridge facility.",
@@ -1076,6 +1078,7 @@ def test_close_full_funding_creates_holdings_and_moves_escrow(
             reason="Funding target reached.",
             investor_message="Funding target reached.",
             idempotency_key="market-close-full",
+            as_of_date=date(2030, 1, 11),
         )
     )
     loan.refresh_from_db()
@@ -1112,8 +1115,7 @@ def test_close_full_funding_creates_holdings_and_moves_escrow(
     assert close.funding_close_journal_entry.event_type == "primary_loan_funding_closed"
     assert sum(posting.amount_minor for posting in postings if posting.side == "debit") == 30_000_00
     assert (
-        sum(posting.amount_minor for posting in postings if posting.side == "credit")
-        == 30_000_00
+        sum(posting.amount_minor for posting in postings if posting.side == "credit") == 30_000_00
     )
     assert AuditEvent.objects.filter(action="marketplace_primary.loan_funding_closed").exists()
     assert DomainEvent.objects.filter(event_type="PrimaryLoanFundingClosed").exists()
@@ -1177,6 +1179,7 @@ def test_close_reconciles_holding_share_ppm_with_largest_remainder(
             reason="Funding target reached.",
             investor_message="Funding target reached.",
             idempotency_key="market-share-close",
+            as_of_date=date(2030, 1, 11),
         )
     )
     holding_model = apps.get_model("holdings", "InvestorLoanHolding")
@@ -1193,7 +1196,11 @@ def test_close_partial_funding_regenerates_schedule_and_requires_message(
     investor: Model,
 ) -> None:
     _approve_financial_access(investor)
-    loan = _create_published_loan(admin_user, principal_minor=100_000_00)
+    loan = _create_published_loan(
+        admin_user,
+        principal_minor=100_000_00,
+        minimum_subscription_bps=4_000,
+    )
     _declare_deposit(admin_user, investor, amount_minor=40_000_00, idempotency_key="partial-dep")
     _create_and_allocate_order(
         investor=investor,
@@ -1210,6 +1217,7 @@ def test_close_partial_funding_regenerates_schedule_and_requires_message(
                 reason="Partial close approved.",
                 investor_message="",
                 idempotency_key="market-close-partial-missing-message",
+                as_of_date=date(2030, 1, 11),
             )
         )
 
@@ -1220,6 +1228,7 @@ def test_close_partial_funding_regenerates_schedule_and_requires_message(
             reason="Partial close approved.",
             investor_message="The loan is closing at the accepted funded amount.",
             idempotency_key="market-close-partial-ok",
+            as_of_date=date(2030, 1, 11),
         )
     )
     loan.refresh_from_db()
@@ -1265,6 +1274,7 @@ def test_close_rejects_allocated_order_and_committed_principal_drift(
                 reason="Drift should block close.",
                 investor_message="Drift should block close.",
                 idempotency_key="market-close-drift",
+                as_of_date=date(2030, 1, 11),
             )
         )
 
@@ -1291,6 +1301,7 @@ def test_close_is_idempotent_and_rejects_conflicting_replay(
             reason="Funding target reached.",
             investor_message="Funding target reached.",
             idempotency_key="market-close-idem",
+            as_of_date=date(2030, 1, 11),
         )
     )
     second = close_primary_loan_funding(
@@ -1300,6 +1311,7 @@ def test_close_is_idempotent_and_rejects_conflicting_replay(
             reason="Funding target reached.",
             investor_message="Funding target reached.",
             idempotency_key="market-close-idem",
+            as_of_date=date(2030, 1, 11),
         )
     )
 
@@ -1312,6 +1324,7 @@ def test_close_is_idempotent_and_rejects_conflicting_replay(
                 reason="Different reason.",
                 investor_message="Funding target reached.",
                 idempotency_key="market-close-idem",
+                as_of_date=date(2030, 1, 11),
             )
         )
 
@@ -1322,7 +1335,11 @@ def test_close_requires_admin_allocated_orders_and_borrower_clearance(
     investor: Model,
 ) -> None:
     _approve_financial_access(investor)
-    loan = _create_published_loan(admin_user, principal_minor=10_000_00)
+    loan = _create_published_loan(
+        admin_user,
+        principal_minor=10_000_00,
+        minimum_subscription_bps=0,
+    )
 
     with pytest.raises(MarketplacePrimaryAuthorizationError):
         close_primary_loan_funding(
@@ -1332,6 +1349,7 @@ def test_close_requires_admin_allocated_orders_and_borrower_clearance(
                 reason="Investor cannot close.",
                 investor_message="",
                 idempotency_key="market-close-non-admin",
+                as_of_date=date(2030, 1, 11),
             )
         )
     with pytest.raises(MarketplacePrimaryValidationError, match="no allocated"):
@@ -1342,6 +1360,7 @@ def test_close_requires_admin_allocated_orders_and_borrower_clearance(
                 reason="No allocations.",
                 investor_message="",
                 idempotency_key="market-close-no-allocations",
+                as_of_date=date(2030, 1, 11),
             )
         )
 
@@ -1355,7 +1374,7 @@ def test_close_requires_admin_allocated_orders_and_borrower_clearance(
         idempotency_prefix="market-close-clearance",
     )
 
-    with pytest.raises(MarketplacePrimaryValidationError, match="Borrower KYB"):
+    with pytest.raises(MarketplacePrimaryValidationError, match="compliance hold"):
         close_primary_loan_funding(
             ClosePrimaryLoanFundingCommand(
                 actor=admin_user,
@@ -1363,6 +1382,7 @@ def test_close_requires_admin_allocated_orders_and_borrower_clearance(
                 reason="Borrower blocked.",
                 investor_message="Borrower blocked.",
                 idempotency_key="market-close-borrower-blocked",
+                as_of_date=date(2030, 1, 11),
             )
         )
 
@@ -1427,7 +1447,7 @@ def test_cancel_funding_releases_allocations_closes_pending_and_cancels_loan(
     assert DomainEvent.objects.filter(event_type="PrimaryLoanFundingCancelled").exists()
     assert DomainEvent.objects.filter(event_type="LoanFundingCancelled").exists()
 
-    with pytest.raises(MarketplacePrimaryValidationError, match="Only published"):
+    with pytest.raises(MarketplacePrimaryValidationError, match="expired published"):
         close_primary_loan_funding(
             ClosePrimaryLoanFundingCommand(
                 actor=admin_user,
@@ -1435,6 +1455,7 @@ def test_cancel_funding_releases_allocations_closes_pending_and_cancels_loan(
                 reason="Cannot close a cancelled campaign.",
                 investor_message="Cannot close.",
                 idempotency_key="market-cancel-then-close",
+                as_of_date=date(2030, 1, 11),
             )
         )
 
@@ -1534,6 +1555,7 @@ def test_cancel_funding_rejects_closed_or_non_admin(
             reason="Funding target reached.",
             investor_message="Funding target reached.",
             idempotency_key="market-close-before-cancel",
+            as_of_date=date(2030, 1, 11),
         )
     )
 
@@ -1549,12 +1571,17 @@ def test_cancel_funding_rejects_closed_or_non_admin(
 
 
 @pytest.mark.django_db
-def test_expiry_scan_cancels_only_expired_published_campaigns(
+def test_expiry_scan_closes_at_minimum_and_cancels_below(
     admin_user: Model,
     investor: Model,
 ) -> None:
     _approve_financial_access(investor)
-    expired_allocated = _create_published_loan(
+    expired_at_minimum = _create_published_loan(
+        admin_user,
+        principal_minor=10_000_00,
+        funding_deadline=date(2030, 1, 10),
+    )
+    expired_below_minimum = _create_published_loan(
         admin_user,
         principal_minor=10_000_00,
         funding_deadline=date(2030, 1, 10),
@@ -1576,11 +1603,19 @@ def test_expiry_scan_cancels_only_expired_published_campaigns(
         value_date=date(2029, 12, 15),
         idempotency_key="expiry-scan-deposit",
     )
-    allocated_order = _create_and_allocate_order(
+    # Exactly the 50% default minimum: the loan is made at the subscribed amount.
+    at_minimum_order = _create_and_allocate_order(
         investor=investor,
-        loan=expired_allocated,
+        loan=expired_at_minimum,
         amount_minor=5_000_00,
         idempotency_prefix="expiry-scan-allocated",
+    )
+    # 20% subscribed is below the minimum: cancelled and refunded.
+    below_minimum_order = _create_and_allocate_order(
+        investor=investor,
+        loan=expired_below_minimum,
+        amount_minor=2_000_00,
+        idempotency_prefix="expiry-scan-below",
     )
     pending_order = create_primary_investment_order(
         CreatePrimaryInvestmentOrderCommand(
@@ -1597,19 +1632,25 @@ def test_expiry_scan_cancels_only_expired_published_campaigns(
             as_of_date=date(2030, 1, 11),
         )
     )
-    expired_allocated.refresh_from_db()
+    expired_at_minimum.refresh_from_db()
+    expired_below_minimum.refresh_from_db()
     expired_pending.refresh_from_db()
     deadline_today.refresh_from_db()
-    allocated_order.refresh_from_db()
+    at_minimum_order.refresh_from_db()
+    below_minimum_order.refresh_from_db()
     pending_order.refresh_from_db()
 
-    assert result["scanned_count"] == 2
+    assert result["scanned_count"] == 3
+    assert result["closed_count"] == 1
     assert result["cancelled_count"] == 2
     assert result["skipped_count"] == 0
-    assert cast(Any, expired_allocated).status == "cancelled"
+    assert cast(Any, expired_at_minimum).status == "funded"
+    assert cast(Any, expired_at_minimum).principal_minor == 5_000_00
+    assert cast(Any, expired_below_minimum).status == "cancelled"
     assert cast(Any, expired_pending).status == "cancelled"
     assert cast(Any, deadline_today).status == "published"
-    assert allocated_order.status == PrimaryInvestmentOrderStatus.BALANCE_RELEASED
+    assert at_minimum_order.status == PrimaryInvestmentOrderStatus.CLOSED_INVESTED
+    assert below_minimum_order.status == PrimaryInvestmentOrderStatus.BALANCE_RELEASED
     assert pending_order.status == PrimaryInvestmentOrderStatus.CLOSED_NOT_INVESTED
     assert PrimaryLoanCancellation.objects.count() == 2
 
@@ -1621,6 +1662,171 @@ def test_expiry_scan_cancels_only_expired_published_campaigns(
     )
     assert rerun["scanned_count"] == 0
     assert PrimaryLoanCancellation.objects.count() == 2
+
+
+@pytest.mark.django_db
+def test_expiry_resolution_uses_exact_minor_unit_threshold_and_allows_kyb_expiry(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    below_threshold = _create_published_loan(
+        admin_user,
+        principal_minor=10_000_01,
+        funding_deadline=date(2030, 1, 10),
+    )
+    exact_threshold = _create_published_loan(
+        admin_user,
+        principal_minor=10_000_01,
+        funding_deadline=date(2030, 1, 10),
+    )
+    cast(Any, exact_threshold).borrower.kyb_status = "expired"
+    cast(Any, exact_threshold).borrower.save(update_fields=["kyb_status"])
+    _declare_deposit(
+        admin_user,
+        investor,
+        amount_minor=10_000_01,
+        value_date=date(2029, 12, 15),
+        idempotency_key="exact-threshold-deposit",
+    )
+    below_order = _create_and_allocate_order(
+        investor=investor,
+        loan=below_threshold,
+        amount_minor=5_000_00,
+        idempotency_prefix="exact-threshold-below",
+    )
+    exact_order = _create_and_allocate_order(
+        investor=investor,
+        loan=exact_threshold,
+        amount_minor=5_000_01,
+        idempotency_prefix="exact-threshold-met",
+    )
+
+    result = scan_expired_primary_loan_funding(
+        ScanExpiredPrimaryFundingCommand(
+            actor=admin_user,
+            as_of_date=date(2030, 1, 11),
+            loan_ids=(str(below_threshold.pk), str(exact_threshold.pk)),
+        )
+    )
+
+    below_threshold.refresh_from_db()
+    exact_threshold.refresh_from_db()
+    below_order.refresh_from_db()
+    exact_order.refresh_from_db()
+    assert result["cancelled_count"] == 1
+    assert result["closed_count"] == 1
+    assert cast(Any, below_threshold).status == "cancelled"
+    assert cast(Any, exact_threshold).status == "funded"
+    assert below_order.status == PrimaryInvestmentOrderStatus.BALANCE_RELEASED
+    assert exact_order.status == PrimaryInvestmentOrderStatus.CLOSED_INVESTED
+
+
+@pytest.mark.django_db
+def test_expiry_close_failure_unpublishes_preserves_reservations_and_escalates(
+    admin_user: Model,
+    investor: Model,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _approve_financial_access(investor)
+    loan = _create_published_loan(
+        admin_user,
+        principal_minor=10_000_00,
+        funding_deadline=date(2030, 1, 10),
+    )
+    deposit = _declare_deposit(
+        admin_user,
+        investor,
+        amount_minor=5_000_00,
+        value_date=date(2029, 12, 15),
+        idempotency_key="failed-close-deposit",
+    )
+    order = _create_and_allocate_order(
+        investor=investor,
+        loan=loan,
+        amount_minor=5_000_00,
+        idempotency_prefix="failed-close-order",
+    )
+    marketplace_services = import_module("backend.apps.marketplace_primary.services")
+
+    def fail_holding_plan(**_kwargs: Any) -> dict[str, int]:
+        raise RuntimeError("simulated holding conversion failure")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(marketplace_services, "_holding_share_ppm_by_order", fail_holding_plan)
+        failed = scan_expired_primary_loan_funding(
+            ScanExpiredPrimaryFundingCommand(
+                actor=admin_user,
+                as_of_date=date(2030, 1, 11),
+                loan_ids=(str(loan.pk),),
+            )
+        )
+
+    loan.refresh_from_db()
+    order.refresh_from_db()
+    deposit.balance_lot.refresh_from_db()
+    admin_task_model = apps.get_model("admin_ops", "AdminTask")
+    outbox_model = apps.get_model("platform_core", "OutboxMessage")
+    task = admin_task_model.objects.get(
+        related_object_type="LoanFundingCloseFailure",
+        related_object_id=str(loan.pk),
+    )
+    alert = outbox_model.objects.get(topic="email.loan_funding_close_failed")
+
+    assert failed["failed_count"] == 1
+    assert cast(Any, loan).status == "funding_close_failed"
+    assert cast(Any, loan).committed_principal_minor == 5_000_00
+    assert order.status == PrimaryInvestmentOrderStatus.BALANCE_ALLOCATED
+    assert deposit.balance_lot.available_amount_minor == 0
+    assert deposit.balance_lot.invested_amount_minor == 5_000_00
+    assert not PrimaryLoanClose.objects.filter(loan_id=loan.pk).exists()
+    assert task.status == "open"
+    assert alert.payload["email"] == "hq@banxum.com"
+    assert all(
+        row["loan_id"] != str(loan.pk)
+        for row in marketplace_services.list_public_marketplace_loans()
+    )
+
+    admin_ops_services = import_module("backend.apps.admin_ops.services")
+
+    def fail_task_resolution(**_kwargs: Any) -> None:
+        raise RuntimeError("simulated task resolution failure")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            admin_ops_services,
+            "resolve_loan_funding_close_failure_task",
+            fail_task_resolution,
+        )
+        failed_retry = scan_expired_primary_loan_funding(
+            ScanExpiredPrimaryFundingCommand(
+                actor=admin_user,
+                as_of_date=date(2030, 1, 11),
+                loan_ids=(str(loan.pk),),
+            )
+        )
+
+    loan.refresh_from_db()
+    order.refresh_from_db()
+    assert failed_retry["failed_count"] == 1
+    assert cast(Any, loan).status == "funding_close_failed"
+    assert order.status == PrimaryInvestmentOrderStatus.BALANCE_ALLOCATED
+    assert not PrimaryLoanClose.objects.filter(loan_id=loan.pk).exists()
+
+    retried = scan_expired_primary_loan_funding(
+        ScanExpiredPrimaryFundingCommand(
+            actor=admin_user,
+            as_of_date=date(2030, 1, 11),
+            loan_ids=(str(loan.pk),),
+        )
+    )
+    loan.refresh_from_db()
+    order.refresh_from_db()
+    task.refresh_from_db()
+    assert retried["closed_count"] == 1
+    assert cast(Any, loan).status == "funded"
+    assert order.status == PrimaryInvestmentOrderStatus.CLOSED_INVESTED
+    assert task.status == "resolved"
 
 
 @pytest.mark.django_db
@@ -1661,6 +1867,7 @@ def test_primary_close_and_holding_events_have_append_only_guards(
             reason="Funding target reached.",
             investor_message="Funding target reached.",
             idempotency_key="market-close-guard",
+            as_of_date=date(2030, 1, 11),
         )
     )
     holding_event_model = apps.get_model("holdings", "InvestorLoanHoldingEvent")
@@ -1681,8 +1888,7 @@ def test_primary_close_and_holding_events_have_append_only_guards(
     with pytest.raises(DatabaseError), transaction.atomic():
         with connection.cursor() as cursor:
             cursor.execute(
-                "UPDATE marketplace_primary_primaryloanclose "
-                "SET reason = %s WHERE id = %s",
+                "UPDATE marketplace_primary_primaryloanclose SET reason = %s WHERE id = %s",
                 ["mutated", close.id],
             )
     with pytest.raises(DatabaseError), transaction.atomic():
@@ -1716,8 +1922,7 @@ def test_primary_cancellation_has_append_only_guards(
     with pytest.raises(DatabaseError), transaction.atomic():
         with connection.cursor() as cursor:
             cursor.execute(
-                "UPDATE marketplace_primary_primaryloancancellation "
-                "SET reason = %s WHERE id = %s",
+                "UPDATE marketplace_primary_primaryloancancellation SET reason = %s WHERE id = %s",
                 ["mutated", cancellation.id],
             )
 
@@ -1773,7 +1978,7 @@ def test_primary_marketplace_api_flow(
 ) -> None:
     _approve_financial_access(investor)
     loan = _create_published_loan(admin_user)
-    _declare_deposit(admin_user, investor, amount_minor=20_000_00)
+    _declare_deposit(admin_user, investor, amount_minor=50_000_00)
 
     preview_response = client.get("/api/v1/marketplace/primary/loans/")
     client.force_login(cast(Any, investor))
@@ -1782,7 +1987,7 @@ def test_primary_marketplace_api_flow(
         "/api/v1/marketplace/primary/orders/",
         data={
             "loan_id": str(loan.pk),
-            "amount_minor": 10_000_00,
+            "amount_minor": 50_000_00,
             "idempotency_key": "api-market-order-1",
         },
         content_type="application/json",
@@ -1816,19 +2021,31 @@ def test_primary_marketplace_api_flow(
     assert PrimaryInvestmentOrder.objects.count() == 1
 
     client.force_login(cast(Any, admin_user))
-    close_response = client.post(
+    manual_close_response = client.post(
         f"/api/v1/marketplace/primary/admin/loans/{loan.pk}/close-funding/",
         data={
-            "reason": "Partial funding accepted by operations.",
-            "investor_message": "The loan is closing at the accepted funded amount.",
+            "reason": "An admin must not put a published loan into effect manually.",
+            "investor_message": "",
+            "idempotency_key": "api-market-manual-close-rejected",
+        },
+        content_type="application/json",
+    )
+    close_response = client.post(
+        "/api/v1/marketplace/primary/admin/loans/expiry-scan/",
+        data={
+            "as_of_date": "2030-01-11",
+            "loan_ids": [str(loan.pk)],
             "idempotency_key": "api-market-close-1",
         },
         content_type="application/json",
     )
 
+    assert manual_close_response.status_code == 400
+    assert "automatically" in manual_close_response.json()["detail"]
     assert close_response.status_code == 200
-    assert close_response.json()["close_type"] == PrimaryLoanCloseType.PARTIAL
-    assert close_response.json()["accepted_principal_minor"] == 10_000_00
+    assert close_response.json()["closed_count"] == 1
+    assert close_response.json()["closes"][0]["close_type"] == PrimaryLoanCloseType.PARTIAL
+    assert close_response.json()["closes"][0]["accepted_principal_minor"] == 50_000_00
 
 
 @pytest.mark.django_db

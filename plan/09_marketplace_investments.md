@@ -71,7 +71,7 @@ Date: 2026-05-16.
 Owner: Garanta product / legal / operations.
 
 Decision:
-The investor becomes committed when investor balance is allocated/reserved to the order or external funds are received and matched/validated by admin, provided the loan target is met or Garanta decides to proceed with an admin-approved partial amount. If the loan does not proceed, funds are returned, released back to investor balance, or otherwise handled under the balance ageing policy.
+The investor becomes committed when investor balance is allocated/reserved to the order or external funds are received and matched/validated by admin. Whether the loan proceeds is determined after the deadline by the loan's disclosed minimum subscription. If it does not proceed, funds are returned, released back to investor balance, or otherwise handled under the balance ageing policy.
 
 Pending orders are intents until sufficient balance is allocated/reserved or external funds are validated. They do not affect the loan funding amount and do not create a valid funded order until allocation/validation occurs.
 
@@ -211,8 +211,8 @@ Define exact balance reservation/debit timing, ordering timestamp, partial alloc
 
 ### MKT-DEC-011: Primary-Market Investment Limits
 
-Status: Accepted.
-Date: 2026-05-22.
+Status: Superseded in part by PAY-DEC-014 on 2026-08-05.
+Date: 2026-05-22. Updated 2026-08-05.
 Owner: Garanta product / operations / superadmin.
 
 Decision:
@@ -263,14 +263,12 @@ Date: 2026-05-22.
 Owner: Garanta operations / product / legal.
 
 Decision:
-Before a loan has committed investments, admin may edit any listing/loan field subject to mandatory-field validation and audit logging.
+Admins may edit draft loan fields subject to mandatory-field validation and audit logging. After publication, the advertised financeable principal and disclosed minimum subscription cannot be changed through an admin edit, even before the first commitment. Other published-listing edits remain subject to disclosure and commitment controls.
 
-After a loan has committed investments, admin may only reduce the total loan amount. Admin cannot increase the total loan amount after committed investments exist.
-
-When admin lowers the total amount after committed investments exist, the system requires admin to write a custom investor message explaining the change and reason. Affected investors are notified. Re-acceptance is not required at launch.
+Only the deterministic funding-deadline resolver may reduce the financeable principal. It does so when the frozen minimum subscription is met but the campaign is not fully subscribed, setting the final principal to the exact committed amount and regenerating the schedule. That automatic partial close records a custom investor message and reason; affected investors are notified. Re-acceptance is not required at launch.
 
 Rationale:
-Before commitments, the listing remains operationally editable. After investor commitment, investor economics and disclosure stability matter; only lowering the target amount is allowed, with notification and reason capture.
+Draft editing preserves operational flexibility. Publication freezes the two values that determine the automatic funding outcome, preventing an admin from changing the threshold or target after investors relied on the disclosure.
 
 ### MKT-DEC-015: Generic Investor Confirmations
 
@@ -425,7 +423,7 @@ Keeping the percentage premium/discount while refreshing every derived amount ho
 6. Eligible investors place pending orders.
 7. Investor allocates available balance or receives deposit instructions if more funds are needed.
 8. Funding progress updates only from allocated balance or admin-validated received funds.
-9. Loan reaches full funding, an admin-approved partial close, or expires.
+9. After the funding deadline, the configured minimum subscription automatically determines whether the loan closes at the subscribed amount or cancels and releases reservations.
 10. Oversubscription handling runs if needed.
 11. Final closing approvals complete.
 12. Contracts become effective.
@@ -546,7 +544,9 @@ Launch uses one segregated collection account/IBAN per enabled currency. Investo
 
 Each loan is single-currency. Cross-currency transfers are not advised, but Garanta does not block them from the platform side if the correct amount arrives in the correct collection account with the correct client/payment identifier.
 
-If a loan does not reach full funding by the funding deadline or approaches the 60-day holding limit, admin decides whether to release funds back to investor balances/withdraw funds or proceed with a partial funding amount. If the loan proceeds partially funded, lenders must be notified. Lender reconfirmation is not required because partial funding consent will be included in the initial terms of service.
+Each direct loan has a disclosed minimum subscription threshold, defaulting to 50% and configurable while the loan is a draft. Publication freezes the threshold permanently, including when no investment has yet been committed. After the Europe/Zurich funding deadline, a scheduled resolver locks the loan and compares committed principal with the exact threshold rounded up to a minor unit. At or above the threshold, the loan closes automatically at the subscribed amount; below it, the campaign cancels and reservations return to their original balance lots. A partial close notifies lenders but does not require reconfirmation because partial-funding consent is included in the initial terms.
+
+If close or cancellation fails, the platform removes the loan from public listings, preserves all reservations, marks it `funding_close_failed`, creates an urgent admin task, and emails operations. An admin may fix the cause and retry the deterministic result or cancel and refund; the admin cannot substitute a discretionary close result. Routine KYB expiry does not block close, while an explicit compliance hold or unresolved adverse status does.
 
 Investor balance entries are subject to the 30-day investment/reinvestment and 60-day withdrawal/holding rules defined in the payments module.
 
@@ -557,7 +557,7 @@ Investor balance entries are subject to the 30-day investment/reinvestment and 6
 - V1 does not implement a hard suitability questionnaire or hard concentration limits. Generic risk acknowledgements and exposure metrics are used at launch.
 - Natural-person lender KYC/AML must be valid before full marketplace/dashboard, deposit, balance, FX, or investment access.
 - Legal-entity lender KYB/AML must be approved before manual/admin-entered investments, balance use, FX, withdrawals, or secondary-market activity.
-- Borrower KYB/AML must be approved before loan publication, funding close, disbursement, repayment processing, or other platform transaction activity involving the entity.
+- Borrower KYB/AML must be approved before loan publication, disbursement, repayment processing, or other platform transaction activity involving the entity. A routine KYB expiry after publication does not block deterministic funding close; an explicit compliance hold or adverse/review status does.
 - KYC-approved logged-in users may see full loan data; unauthenticated users see only preview listing data.
 - Investor acknowledgements must be current.
 - Pending orders do not reserve loan capacity and do not affect the funding progress amount until balance/funds are allocated.
@@ -569,7 +569,7 @@ Investor balance entries are subject to the 30-day investment/reinvestment and 6
 - First-come-first-served allocation is based on bank value date of validated received funds or balance reservation/allocation timestamp for balance-funded orders.
 - Orders cannot exceed available amount after validation/allocation; excess funds are returned, credited, or released to balance according to policy.
 - Investors cannot cancel orders.
-- Before committed investments exist, admin may edit all listing fields subject to validation/audit. After committed investments exist, admin may only lower total loan amount, must enter a custom investor message and reason, and investor notification is enough.
+- Draft listing fields may be edited subject to validation/audit. Publication freezes financeable principal and minimum subscription; only deterministic deadline close may reduce principal to the subscribed amount, with a custom investor message, recorded reason, and notification.
 - Closing requires operational, compliance, credit, and payment readiness checks.
 - Closing must respect the maximum 60-day project settlement holding period defined by the operating model.
 - Closing can proceed at a partial funding amount after admin approval and lender notification.
@@ -608,13 +608,13 @@ Investor balance entries are subject to the 30-day investment/reinvestment and 6
 ## Q/A Backlog
 
 1. Updated by MKT-DEC-001/MKT-DEC-010: primary allocation is first-come-first-served based on balance reservation/allocation timestamp or bank value date of validated external funds.
-2. Updated by MKT-DEC-003/MKT-DEC-010: pending orders are intents only; commitment follows balance allocation or matched/validated external funds and a full or admin-approved partial close.
-3. Answered by PAY-DEC-008: admin decides refund all or proceed with partial funding and notify lenders.
+2. Updated by MKT-DEC-003/MKT-DEC-010 and PAY-DEC-014: pending orders are intents only; commitment follows balance allocation or matched/validated external funds and a deterministic full/partial close after the funding deadline.
+3. Superseded by PAY-DEC-008/PAY-DEC-014: the disclosed per-loan minimum subscription determines automatic close or cancellation; a partial close triggers lender notification.
 4. Answered by MKT-DEC-005: accepted portion is allocated and excess returned; if no capacity remains, order closes final non-invested and full refund is due.
 5. Answered by MKT-DEC-013: v1 has no private, invitation-only, or segmented listings; published listings are visible to all eligible investors.
-6. Answered by MKT-DEC-014: before committed investments, all fields can be edited; after committed investments, only total amount can be lowered with a custom investor message/reason and notification.
+6. Superseded by PAY-DEC-014: principal and minimum subscription are frozen at publication. Only deterministic deadline close may reduce principal to the subscribed amount when the disclosed threshold is met; that partial close records and sends the investor notice.
 7. Answered by MKT-DEC-015: keep generic checkbox/clickwrap confirmations for now; exact labels/acknowledgements are legal/template TODOs.
-8. Answered by MKT-DEC-003: investor commitment is tied to sent/validated funds and successful full or admin-approved partial close; exact legal wording remains open.
+8. Answered by MKT-DEC-003 and PAY-DEC-014: investor commitment is tied to sent/validated funds and successful automatic full/partial close under the disclosed minimum subscription; exact legal wording remains open.
 9. Answered by launch scope/admin TODO: auto-invest is future scope and not included at launch.
 10. Partly answered by DOC-DEC-005: assignment documentation is generated per investment order in v1; exact legal template remains open.
 11. Answered by MKT-DEC-006: secondary market is available at launch.
@@ -645,3 +645,19 @@ An originator-claim loan may declare a loan-specific `skin_in_the_game_bps` from
 The originator-owned principal consists of the required retained amount plus any additional principal still available for sale. Only the amount above the retained floor is sellable. Marketplace capacity, pricing, quotes, purchases, and automatic opportunity closure use that sellable amount. The declaration is editable only while the opportunity remains a draft and is disclosed to investors without implying a guarantee, recourse, buyback obligation, or identical recovery outcome.
 
 Borrower principal repayments reduce investor and originator claims using the contractual allocation, with minor-unit remainders assigned so the originator remains at or above the recalculated floor after every payment. The retained claim continues to receive its applicable borrower-payment entitlement and is never converted into an investor holding. A service or data inconsistency below the floor fails loudly instead of being hidden as zero sellable principal.
+
+### MKT-DEC-026: Smart Invest Is One Saved Alert Rule, Not Auto-Invest
+
+Status: Accepted.
+Date: 2026-08-06.
+Owner: Garanta product / compliance / technology.
+
+Each eligible investor may maintain one current Smart Invest rule made from structured Marketplace criteria: minimum yield, maximum remaining term, BANXUM/direct versus Loan-Originator source (including one specific originator), secured/unsecured/specific collateral, CHF/EUR scope, risk rating, purpose, and new/refinancing loan type. Search text, sorting, and visual display mode are not persisted. At least one effective criterion is required; a zero yield floor is treated as no floor.
+
+Saving activates and replaces the current rule. Deactivation clears its criteria; v1 does not retain inactive presets or rule history for reuse, although immutable rule events preserve the audit trail. Admins cannot create, edit, or deactivate an investor's rule.
+
+The investor setup wizard contains five steps only: collateral, currency, optional minimum yield, optional maximum term, and review. It intentionally contains no repayment/reinvestment question and no originator-concentration cap. Launch continues to show portfolio exposure metrics rather than enforcing hard concentration limits.
+
+When an opportunity first becomes public and investable, the platform evaluates active rules for investors who still have financial access. Each investor/loan pair may produce at most one transactional match email and notification. Activating or changing a rule does not backfill already-open opportunities, and ordinary loan updates do not resend the first-publication alert.
+
+Smart Invest is a discovery mechanism only. It does not rank credit quality, assess suitability, reserve balance, create a primary order, execute an originator-claim purchase, or invest automatically. Every investment still requires the ordinary detail review, current terms acceptance, sensitive-action verification, balance/capacity checks, and explicit investor confirmation.

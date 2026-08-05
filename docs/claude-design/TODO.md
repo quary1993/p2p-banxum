@@ -43,7 +43,7 @@ These rules must be visible in UX decisions and must not be simplified away:
 
 - Investors can hold platform balances, but every incoming balance lot has regulatory ageing deadlines. Funds must be invested within the 30-day investment window or withdrawn within the 60-day withdrawal window.
 - FX conversion does not reset balance ageing. Converted money inherits the source balance deadline. UI must not imply a fresh 30/60-day timer after FX.
-- If a balance cannot be invested because its remaining window is too short for a loan funding deadline, the UI must explain that the amount is withdraw-only for that purpose.
+- A balance is eligible for investment when it is pledged within its own 30-day investment window. The loan may resolve later under its separately capped funding campaign. Do not incorrectly compare the lot investment deadline with the loan funding deadline.
 - If funds reach the 60-day deadline and a usable payout IBAN exists, Garanta may initiate forced withdrawal. If no usable IBAN exists, financial actions are frozen until the investor provides a usable IBAN, and penalty mode may apply according to configurable policy.
 - Amounts are stored in minor units. User-facing normal balances and monetary amounts should display two decimals. FX confirmation may display the exchange rate and conversion detail with four decimals where useful; internal precision is higher.
 - Supported launch currencies are CHF and EUR, but currency UI should be configurable/extendable.
@@ -104,7 +104,7 @@ Public/unauthenticated routes should include:
 
 - Balance views must show per-currency totals and actionable buckets:
   - investable within the 30-day window.
-  - withdraw-only because investment deadline passed or loan funding deadline would exceed the remaining window.
+  - withdraw-only because the lot's investment deadline passed.
   - overdue/60-day attention required.
   - penalty-mode/frozen funds.
   - pending withdrawal.
@@ -119,7 +119,7 @@ Public/unauthenticated routes should include:
 - Full loan detail after financial access should show borrower disclosure, amount, currency, target interest, term, repayment type, collateral type/value/LTV where applicable, risk rating, country, funding progress, deadline, documents, and status.
 - Investment intent must communicate that the order is not effective until funds are allocated/validated.
 - If only part of an order can be allocated, show the accepted amount, unaccepted amount, and what happens to the excess.
-- If loan amount is lowered after committed investments, show the admin's investor message/reason in the relevant loan/order/notification surfaces.
+- If deterministic deadline close funds a loan below its original target, show the final subscribed principal and the platform's investor notice in the relevant loan/order/notification surfaces. Do not imply that an admin chose the partial amount.
 
 ### Portfolio And Servicing
 
@@ -370,10 +370,18 @@ Before launch, Claude Design should produce or implement:
 ## 2026-08-03: Marketplace Redesign And Brand-System Adoption
 
 - Screen or component: authenticated investor shell brand lockup and primary Marketplace route.
-- Current behavior: the investor frontend now self-hosts the `Instrument Sans` and `Newsreader` variable fonts and uses the BANXUM redesign palette (`website_redesign/styles.css`) through the production token layer. The existing sidebar navigation, routes, generated API hooks, balance projection, loan-detail route, investment modal, and all backend write flows are unchanged. The Marketplace page uses the approved editorial heading and account-aware supporting copy, displays the configured minimum investment, labels the selected currency balance as available to invest, and exposes a compact `Investing rule / NOT ACTIVE` control. The rule control opens an honest future-module notice and cannot activate or move money. Focused rows now follow the redesign's Company, Rate, Term, Collateral margin, Available to invest, and Closes in order; LTV and minimum investment come from the backend preview projection. Search, currency and Open/All filters, four sort modes, the Detailed secondary row, loan status/rating/currency/refinancing provenance, IDs, funding progress, and all existing routes remain intact. The factual primary-order explanation sits below the opportunity table.
-- Design decision: `website_redesign/` is a visual/IA reference, not executable production code. The investing-rule pill is present to establish the future navigation and status treatment, but it is deliberately fixed to `NOT ACTIVE` until a server-owned rule entity, authorization flow, matching preview, and audit trail exist. Fabricated 30/60-day capacity forecasts remain excluded; the capacity band uses only server-projected `investable_minor`. Unsupported reference-table fields such as originator stake and repayment-history rollups are not invented in the client.
-- Remaining backend/API dependency: implement the investing-rule module and expose its authoritative state before enabling the active green variant. The marketplace preview still omits borrower country, repayment type, collateral value, repayment history, originator stake, and installment-payment status; these remain available where applicable on authenticated loan detail. Add them only through backend investor projections after product/compliance approval, never by copying disclosure logic or financial calculations into the frontend.
+- Current behavior: the investor frontend self-hosts the `Instrument Sans` and `Newsreader` variable fonts and uses the BANXUM redesign palette through the production token layer. The Marketplace page uses the approved editorial heading and account-aware supporting copy, displays the configured minimum investment, labels the selected currency balance as available to invest, and exposes the authoritative Smart Invest state. Marketplace structured filters can be saved as the investor's one active rule and route to the Smart Invest page; search text, sorting, and focused/detailed view are not persisted. Focused rows follow the redesign's Company, Yield, Term, Collateral margin, Available to invest, and Availability order. Search, filter/sort controls, the Detailed secondary row, loan status/rating/currency/refinancing provenance, funding progress, and all existing investment flows remain intact.
+- Design decision: `website_redesign/` is a visual/IA reference, not executable production code. Smart Invest is a server-owned discovery and first-publication alert rule, never an automated investment mandate. The setup wizard has five steps only: collateral, currency, optional minimum yield, optional maximum term, and review. The design-reference repayment/reinvestment and originator-concentration questions are intentionally excluded because the product neither auto-invests nor enforces a concentration cap. Fabricated 30/60-day capacity forecasts remain excluded; financial eligibility and investment actions continue through the ordinary server-enforced flow.
+- Remaining backend/API dependency: none for the one-rule Smart Invest foundation, matching projection, transactional match alert, Marketplace save action, or dashboard widget. The marketplace preview still omits some authenticated detail fields; add them only through backend investor projections after product/compliance approval, never by copying disclosure logic or financial calculations into the frontend.
 - Suggested improvement: continue the redesign route by route while retaining the current menu and data contracts. Recheck the opportunity desk with production-scale row counts, add backend pagination before the list becomes large, and conduct a final keyboard/screen-reader pass after the remaining investor screens adopt the new tokens.
+- Priority: important.
+
+## 2026-08-06: Smart Invest Rule And Setup Wizard
+
+- Screen or component: Smart Invest menu route, five-step setup wizard, manual criteria editor, Marketplace `Save Smart Filters` action, dashboard match widget, and active/inactive rule state.
+- Current behavior: an eligible investor can activate one server-owned rule from structured Marketplace criteria, review current matching opportunities, adjust it, or deactivate and clear it. The wizard asks only about collateral, CHF/EUR scope, optional minimum yield, optional maximum term, and review. It has no repayment/reinvestment preference and no originator-concentration step. A newly published match creates one transactional alert per investor/loan pair; it never reserves funds or places an order. Superadmin read-only impersonation can view but cannot change the rule.
+- Design decision: preserve the v9 editorial hierarchy and rule-state treatment while keeping every financial action explicit. Do not reintroduce the design-artifact concentration or repayment questions unless a later product decision introduces an enforceable portfolio-policy model.
+- Suggested improvement: perform a final production-data visual pass for long Loan Originator names, zero-match and many-match states, keyboard focus inside the wizard, and small mobile viewports. Keep risk wording visibly adjacent to matching results.
 - Priority: important.
 
 ## 2026-08-03: CHF/EUR Currency Exchange Redesign

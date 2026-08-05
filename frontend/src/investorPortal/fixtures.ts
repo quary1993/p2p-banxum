@@ -14,7 +14,8 @@ import type {
   PrimaryOrdersPortal,
   SecondaryMarketActivityPortal,
   SecondaryMarketBuyerListing,
-  SecondaryMarketBuyerListingDetail
+  SecondaryMarketBuyerListingDetail,
+  SmartInvestResponse
 } from "../api/generated/banxumApi";
 import type { InvestorPortalFixture } from "./types";
 
@@ -395,7 +396,8 @@ const directMarketplaceLoansFixture: DirectMarketplaceFixtureInput[] = [
     remaining_capacity_minor: amount(362500),
     minimum_investment_minor: amount(1000),
     ltv_bps: 5800,
-    is_refinancing: true
+    is_refinancing: true,
+    minimum_subscription_bps: 5000
   },
   {
     loan_id: "GA-2399",
@@ -413,7 +415,8 @@ const directMarketplaceLoansFixture: DirectMarketplaceFixtureInput[] = [
     remaining_capacity_minor: amount(62000),
     minimum_investment_minor: amount(1000),
     ltv_bps: 4900,
-    is_refinancing: false
+    is_refinancing: false,
+    minimum_subscription_bps: 5000
   },
   {
     loan_id: "GA-2402",
@@ -431,7 +434,8 @@ const directMarketplaceLoansFixture: DirectMarketplaceFixtureInput[] = [
     remaining_capacity_minor: amount(1564200),
     minimum_investment_minor: amount(1000),
     ltv_bps: 5800,
-    is_refinancing: false
+    is_refinancing: false,
+    minimum_subscription_bps: 5000
   },
   {
     loan_id: "GA-2395",
@@ -449,7 +453,8 @@ const directMarketplaceLoansFixture: DirectMarketplaceFixtureInput[] = [
     remaining_capacity_minor: 0,
     minimum_investment_minor: amount(1000),
     ltv_bps: 6200,
-    is_refinancing: false
+    is_refinancing: false,
+    minimum_subscription_bps: 5000
   },
   {
     loan_id: "GA-2390",
@@ -467,7 +472,8 @@ const directMarketplaceLoansFixture: DirectMarketplaceFixtureInput[] = [
     remaining_capacity_minor: amount(30000),
     minimum_investment_minor: amount(1000),
     ltv_bps: null,
-    is_refinancing: false
+    is_refinancing: false,
+    minimum_subscription_bps: 5000
   }
 ];
 
@@ -526,6 +532,66 @@ export const marketplaceLoansFixture: MarketplaceLoanPreview[] = [
   originatorMarketplaceLoanFixture
 ];
 
+export const smartInvestFixture: SmartInvestResponse = {
+  rule: {
+    id: "smart-invest-rule-preview",
+    is_active: true,
+    revision: 1,
+    minimum_yield_bps: 850,
+    maximum_term_months: 36,
+    originator_scope: "all",
+    originator_id: null,
+    collateral_scope: "secured",
+    collateral_type: "",
+    currency_scope: "all",
+    risk_rating: "",
+    purpose: "",
+    loan_kind: "all",
+    activated_at: "2026-06-05T10:00:00+02:00",
+    deactivated_at: null,
+    created_at: "2026-06-05T10:00:00+02:00",
+    updated_at: "2026-06-05T10:00:00+02:00"
+  },
+  open_opportunity_count: marketplaceLoansFixture.length,
+  matches: marketplaceLoansFixture
+    .filter((loan) => loan.yield_bps >= 850 && loan.term_months <= 36 && !/unsecured/i.test(loan.collateral_type))
+    .map((loan) => ({
+      loan_id: loan.loan_id,
+      product_type: loan.product_type,
+      investment_flow: loan.investment_flow,
+      title: loan.title,
+      purpose: loan.purpose,
+      collateral_type: loan.collateral_type,
+      interest_rate_bps: loan.interest_rate_bps,
+      yield_bps: loan.yield_bps,
+      underlying_interest_rate_bps: loan.underlying_interest_rate_bps,
+      term_months: loan.term_months,
+      remaining_term_days: loan.remaining_term_days,
+      risk_rating: loan.risk_rating,
+      funding_deadline: loan.funding_deadline,
+      maturity_date: loan.maturity_date,
+      status: loan.status,
+      loan_status: loan.loan_status,
+      opportunity_status: loan.opportunity_status,
+      currency: loan.currency,
+      principal_minor: loan.principal_minor,
+      committed_principal_minor: loan.committed_principal_minor,
+      remaining_capacity_minor: loan.remaining_capacity_minor,
+      fillable_amount_minor: loan.fillable_amount_minor,
+      minimum_investment_minor: loan.minimum_investment_minor,
+      ltv_bps: loan.ltv_bps,
+      is_refinancing: loan.is_refinancing,
+      originator_id: loan.originator_id,
+      originator_name: loan.originator_name,
+      borrower_display_name: loan.borrower_display_name,
+      skin_in_the_game_bps: loan.skin_in_the_game_bps,
+      minimum_subscription_bps: loan.minimum_subscription_bps
+    })),
+  match_count: 0
+};
+
+smartInvestFixture.match_count = smartInvestFixture.matches.length;
+
 // Original loan being refinanced by GA-2401 (Helvetia Logistik AG). Equal-installment
 // schedule: CHF 2,400,000 over 24 months at 8.4% p.a. (0.7% per month on outstanding),
 // CHF 100,000 principal per installment. The borrower paid the first 9 installments
@@ -557,6 +623,7 @@ const refinancedOriginalScheduleFixture: MarketplaceOriginalLoanScheduleRow[] = 
 
 const directLoanDetailsFixture: MarketplaceLoanDetail[] = directMarketplaceLoanPreviews.map((loan) => ({
   ...loan,
+  default_penalty_interest_bps: loan.loan_id === "GA-2390" ? 0 : 1200,
   borrower_id: `borrower-${loan.loan_id}`,
   borrower_disclosure: {
     legal_name: loan.title,

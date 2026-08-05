@@ -117,12 +117,12 @@
   {
     "id": "loans-11-manage-loan-actions",
     "w": 852,
-    "h": 549
+    "h": 471
   },
   {
-    "id": "loans-12-manage-close-funding",
+    "id": "loans-12-manage-funding-deadline",
     "w": 852,
-    "h": 533
+    "h": 663
   },
   {
     "id": "loans-9-secondary-market-approvals",

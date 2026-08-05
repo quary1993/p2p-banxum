@@ -338,7 +338,7 @@ Confirm final legal wording for project recovery fee and default/penalty interes
 5. Answered by PROD-DEC-006: rates are set by admin after offline negotiation.
 6. Answered by PAY-DEC-006: borrower success fee defaults to 2% of the funded principal, is withheld from the borrower disbursement, and books as Garanta revenue at disbursement rather than at funding close; configurable lender payment fee per installment, launch value 0.
 7. Launch assumption: usually real-estate backed/secured, with exceptions possible; future products may be secured, unsecured, guaranteed, or mixed.
-8. Answered by PAY-DEC-008/PAY-DEC-014: no fixed minimum funding threshold at launch; admin can proceed with a partial amount case by case and notify lenders.
+8. Superseded by PAY-DEC-008/PAY-DEC-014: direct loans use a per-loan minimum subscription threshold, default 50%, set while the loan is a draft and frozen at publication. Deadline resolution is automatic and deterministic.
 9. Answered by PROD-DEC-007: common product settings in superadmin UI; deeper parameters may require deployment/configuration.
 
 ## Loan Originator Claim Products

@@ -12,6 +12,7 @@ from backend.apps.platform_core.models.base import AppendOnlyModel, TimestampedM
 class LoanStatus(models.TextChoices):
     DRAFT = "draft", "Draft"
     PUBLISHED = "published", "Published"
+    FUNDING_CLOSE_FAILED = "funding_close_failed", "Funding close failed"
     FUNDED = "funded", "Funded"
     ACTIVE = "active", "Active"
     LATE = "late", "Late"
@@ -101,6 +102,7 @@ class LoanEventType(models.TextChoices):
     UPDATED = "updated", "Updated"
     PUBLISHED = "published", "Published"
     FUNDING_CLOSED = "funding_closed", "Funding closed"
+    FUNDING_CLOSE_FAILED = "funding_close_failed", "Funding close failed"
     DISBURSED = "disbursed", "Disbursed"
     FUNDING_CANCELLED = "funding_cancelled", "Funding cancelled"
     SCHEDULE_GENERATED = "schedule_generated", "Schedule generated"
@@ -166,6 +168,7 @@ class Loan(TimestampedModel):
     lender_payment_fee_minor = models.BigIntegerField(default=0)
     default_penalty_interest_bps = models.PositiveIntegerField(default=0)
     skin_in_the_game_bps = models.PositiveSmallIntegerField(default=0)
+    minimum_subscription_bps = models.PositiveSmallIntegerField(default=5_000)
     recovery_fee_bps = models.PositiveIntegerField(default=0)
     recovery_waterfall_version = models.CharField(
         max_length=64,
@@ -196,6 +199,10 @@ class Loan(TimestampedModel):
             models.CheckConstraint(
                 condition=models.Q(skin_in_the_game_bps__lt=10_000),
                 name="loan_skin_in_the_game_bps_valid",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(minimum_subscription_bps__lte=10_000),
+                name="loan_minimum_subscription_bps_valid",
             ),
             models.CheckConstraint(
                 condition=(

@@ -12,7 +12,8 @@ import {
   useV1MarketplacePrimaryLoansList,
   useV1MarketplacePrimaryLoansRetrieve,
   useV1MarketplaceSecondaryListingsRetrieve,
-  useV1MarketplaceSecondaryListingsList
+  useV1MarketplaceSecondaryListingsList,
+  useV1InvestorSmartInvestRetrieve
 } from "../api/generated/banxumApi";
 import type {
   InvestorDepositInstructions,
@@ -30,7 +31,8 @@ import {
   primaryOrdersFixture,
   secondaryActivityFixture,
   secondaryListingDetailsFixture,
-  secondaryListingsFixture
+  secondaryListingsFixture,
+  smartInvestFixture
 } from "./fixtures";
 import { portalFixture } from "./fixtures";
 
@@ -190,6 +192,12 @@ export function useFxData(limit = 50, enabled = true) {
 export function useMarketplaceLoansData() {
   return useV1MarketplacePrimaryLoansList({ limit: 250 }, {
     query: previewQuery(marketplaceLoansFixture)
+  });
+}
+
+export function useSmartInvestData(enabled = true) {
+  return useV1InvestorSmartInvestRetrieve({
+    query: previewQuery(smartInvestFixture, enabled)
   });
 }
 

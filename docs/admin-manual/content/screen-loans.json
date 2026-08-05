@@ -6,13 +6,14 @@
     "A quick mental model of the product. Individual investors (called lenders) put money into their BANXUM account. The platform then funds loans to vetted business borrowers. Borrowers repay over time with interest. Lenders earn that interest and can later withdraw.",
     "Borrowers are companies, not people with logins. There is no borrower portal. An admin types in every borrower's details by hand. The borrower never sees this screen.",
     "Two jargon terms you will see everywhere. The primary market is where a brand-new loan is first funded by investors. The secondary market is where an investor who already owns a slice of a loan sells that slice to another investor. This screen handles admin tasks for both.",
-    "This page is laid out top to bottom as: key metrics, Loan Originators, Borrowers, Loans, Secondary-market approvals, and Servicing operations. Direct-loan actions - publish, close/cancel funding, expiry scan, order release, borrower disbursement, repayments and recovery - live in Manage. Originator-claim Manage actions are deliberately different: review/publish the imported claim, place/release a hold, or record a repayment through a replacement CSV revision."
+    "This page is laid out top to bottom as: key metrics, Loan Originators, Borrowers, Loans, Secondary-market approvals, and Servicing operations. Direct-loan actions - publish, deterministic deadline resolution, cancellation, order release, borrower disbursement, repayments and recovery - live in Manage. Originator-claim Manage actions are deliberately different: review/publish the imported claim, place/release a hold, or record a repayment through a replacement CSV revision."
   ],
   "whatYouDoHere": [
     "Add and edit borrower companies, and watch their KYB status (the company-level identity and compliance check).",
     "Create direct BANXUM loan drafts and review status, amount, yield, LTV and funding deadline. New refinancing-loan creation is disabled; legacy refinancing records remain serviceable.",
     "Create and maintain Loan Originators after off-platform KYB/AML, then import existing performing claims with anonymized borrower disclosure, coupon, target effective yield, minimum investment and a fully reconciled schedule/payment CSV. Optionally declare the originator's skin in the game: 0 bps disables the rule; a positive value is the minimum share of current outstanding principal the originator must retain, rounded up to a minor currency unit. The retained slice is never sold and caps every quote and purchase.",
-    "Open Manage on a loan row to publish it to the marketplace so investors can fund it, then close or cancel its funding, run an expiry scan, release a stuck investor order, disburse a funded loan to the borrower, or record borrower repayments.",
+    "Set each direct loan's minimum subscription (default 50% of the financeable principal) while it is a draft. Publication discloses and permanently freezes the threshold. When the funding deadline passes with the minimum met, the loan is closed and made at the amount subscribed; below the minimum the campaign is cancelled and every reservation is refunded.",
+    "Open Manage on a loan row to publish it to the marketplace, resolve its passed funding deadline from the stored minimum, cancel it when required, release a stuck investor order, disburse a funded loan to the borrower, or record borrower repayments. Published loans cannot be put into effect through a discretionary manual close.",
     "Approve, reject or remove non-standard secondary-market listings (investor-to-investor resales).",
     "Service live direct loans through their normal repayment/recovery actions. For originator claims, upload a replacement immutable import revision that preserves every historical payment and adds exactly the newly reconciled borrower payment."
   ],
@@ -248,7 +249,7 @@
     {
       "id": "loans-11-manage-loan-actions",
       "caption": "The Manage dialog: pick the action to apply to this loan.",
-      "summary": "Clicking Manage on a loan row opens this dialog. The bar at the top restates the loan you are acting on: its status chip, funding deadline, committed versus total amount, and ID. Below it is the action menu - only actions that are valid for the loan's current status are listed, each with a one-line explanation. Draft loans offer 'Publish loan'; published loans offer the four actions shown here; funded loans offer 'Borrower disbursement' and 'Record borrower repayment'; late loans offer 'Record borrower repayment'; defaulted loans offer 'Record a recovery payment'.",
+      "summary": "Clicking Manage on a loan row opens this dialog. The bar at the top restates the loan you are acting on: its status chip, funding deadline, committed versus total amount, and ID. Below it is the action menu - only actions valid for the current status are listed. Draft loans offer Publish; published loans offer Cancel funding, Resolve funding deadline, and Release an order's balance; a funding-close failure offers the same actions so operations can retry or refund; funded loans offer Borrower disbursement; active/late loans offer Record borrower repayment; defaulted loans offer Record a recovery payment.",
       "annotations": [
         {
           "item": 0,
@@ -256,69 +257,65 @@
           "text": "Names the loan you are managing, so you cannot mix up rows. Everything you do in this dialog applies to this loan only."
         },
         {
-          "item": 10,
+          "item": 8,
           "label": "Loan context bar",
-          "text": "The loan's current status ('Published' here), funding deadline and committed/total amounts. Check this before acting - the menu is built from this status."
+          "text": "The highlighted status sits inside the loan context bar, alongside the funding deadline and committed/total amounts. Check the whole bar before acting - the menu is built from this status."
         },
         {
-          "item": 1,
-          "label": "Close funding",
-          "text": "Ends the funding round. Allocated orders become holdings, escrow moves the FULL accepted principal into the borrower disbursement payable (no fee is accrued at close - the planned fee is recorded as evidence only and books as Garanta revenue at disbursement), and the loan activates. If less than the full amount was raised, this is the partial close: the accepted amount becomes the final financeable principal and the schedule is regenerated with the same term, interest rate, and percentage BANXUM fee."
-        },
-        {
-          "item": 2,
+          "item": 5,
           "label": "Cancel funding",
           "text": "Stops the campaign before close. Reserved balances are released back to investors, pending orders close as not invested, and the loan moves to cancelled. Only valid before funding close. The 'Confirmation required' tag means a summary dialog asks you to confirm before anything runs."
         },
         {
-          "item": 3,
-          "label": "Run funding expiry scan",
-          "text": "Cancels published campaigns whose funding deadline has passed. A checkbox in the form limits the scan to this loan (default) or widens it to all expired published campaigns."
+          "item": 6,
+          "label": "Resolve funding deadline",
+          "text": "After the deadline, compares committed principal with the stored minimum subscription under the same loan lock. At or above the minimum it closes at the subscribed amount; below it, it cancels and refunds. There is no discretionary admin partial-close choice. A processing failure removes the loan from public view, preserves reservations and opens an urgent task."
         },
         {
-          "item": 4,
+          "item": 7,
           "label": "Release an order's balance",
           "text": "Returns one allocated order's reserved balance to its investor without touching the rest of the campaign - used when a single order must be unwound, for example after a validation problem."
         },
         {
-          "item": 5,
+          "item": 4,
           "label": "Close (X)",
           "text": "Closes the dialog without doing anything. Nothing runs until you pick an action and confirm it inside the form."
         }
       ],
       "notes": [
-        "The menu is status-aware: a draft loan only offers Publish; a published loan offers Close/Cancel/Expiry scan/Release; a funded loan offers Borrower disbursement and Record borrower repayment; a late loan offers Record borrower repayment; a Defaulted loan offers 'Record a recovery payment'. The Servicing operations panel below keeps only the status scan and public risk notes.",
+        "The menu is status-aware: a draft loan offers Publish; a published or funding-close-failed loan offers Cancel/Resolve deadline/Release; a funded loan offers Borrower disbursement; an active or late loan offers Record borrower repayment; a Defaulted loan offers Record a recovery payment. The Servicing operations panel below keeps only the status scan and public risk notes.",
         "Dangerous actions carry a 'Confirmation required' tag: after filling the form you still get a summary dialog restating loan, reason and message before the backend is called. Repayments in advance additionally show a preview of the allocation and the old and new schedules.",
         "Publishing is subject to backend gates: borrower KYB approved, no compliance hold, complete loan data, a valid funding deadline, schedule principal equal to the financeable principal, and for refinancing loans a financeable principal not above the remaining outstanding of the original schedule."
       ]
     },
     {
-      "id": "loans-12-manage-close-funding",
-      "caption": "After choosing an action, only that action's fields appear.",
-      "summary": "The second step of the Manage dialog, shown here for Close funding. The context bar stays visible, a back link returns to the action list, and the form contains only the fields this action needs. Other actions follow the same pattern - Cancel funding asks for a cancellation reason and investor message, the expiry scan asks for an as-of date and scope, and the order release asks for the order and a reason.",
+      "id": "loans-12-manage-funding-deadline",
+      "caption": "Resolve a passed funding deadline from the stored minimum subscription.",
+      "summary": "The context bar stays visible while the deterministic resolver asks only for an as-of date and scope. The server decides close versus cancellation from the stored minimum under a loan lock. Optional reason/message overrides apply to the below-minimum cancellation path; they cannot change the threshold result.",
       "annotations": [
         {
-          "item": 4,
+          "item": 6,
           "label": "All actions (back)",
           "text": "Returns to the action menu without running anything. Use it if you picked the wrong action."
         },
         {
           "item": 1,
-          "label": "Funding close reason",
-          "text": "The operator-facing reason recorded with the close - part of the immutable evidence for why funding ended."
+          "label": "Funding resolution as-of date",
+          "text": "The Europe/Zurich business date used to decide whether the deadline has passed. Do not future-date it in normal operations."
         },
         {
           "item": 2,
-          "label": "Investor message",
-          "text": "The message investors receive about the close. For a partial close, explain that the funded amount became the final loan amount."
+          "label": "Scan this loan only",
+          "text": "Leave enabled for a targeted retry. Disable only when intentionally resolving every expired published campaign. Failed campaigns are never swept into a broad scan; select them explicitly after fixing the cause."
         },
         {
-          "item": 5,
-          "label": "Close funding button",
-          "text": "Opens the confirmation summary (loan, reason, message). Confirming runs the close: holdings are created, escrow moves, and the loan activates. The result banner appears in this dialog."
+          "item": 7,
+          "label": "Resolve funding deadline button",
+          "text": "Opens a confirmation summary, then closes at the subscribed amount when the threshold is met or cancels/refunds below it. If processing fails, investor reservations remain unchanged and an urgent operations case is opened."
         }
       ],
       "notes": [
+        "The exact minimum is rounded up to a whole minor unit. The decision and close/cancellation run under the same loan lock, preventing an allocation from racing the threshold check.",
         "Success, preview-mode and error messages appear at the bottom of the dialog, and the loan table refreshes automatically after a successful action.",
         "In preview/demo mode the buttons record a 'Preview action' note instead of calling the backend."
       ]

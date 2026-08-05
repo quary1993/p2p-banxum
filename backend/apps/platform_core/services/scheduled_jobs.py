@@ -184,11 +184,7 @@ def _claim_job_run(
     started_at = now_utc()
     try:
         with transaction.atomic():
-            existing = (
-                ScheduledJobRun.objects.select_for_update()
-                .filter(run_key=run_key)
-                .first()
-            )
+            existing = ScheduledJobRun.objects.select_for_update().filter(run_key=run_key).first()
             if existing is not None:
                 stale_running = _is_stale_running_run(existing, now=started_at)
                 was_failed = existing.status == ScheduledJobRunStatus.FAILED
@@ -332,8 +328,7 @@ def _balance_ageing_summary(
         "penalty_mode_transition_count": len(result.penalty_mode_transitions),
         "skipped_lot_ids": list(result.skipped_lot_ids),
         "forced_withdrawal_request_ids": [
-            str(withdrawal_request.id)
-            for withdrawal_request in result.forced_withdrawal_requests
+            str(withdrawal_request.id) for withdrawal_request in result.forced_withdrawal_requests
         ],
     }
 
@@ -383,10 +378,14 @@ def _primary_funding_expiry_summary(
         "as_of_date": result["as_of_date"].isoformat(),
         "scanned_count": result["scanned_count"],
         "cancelled_count": result["cancelled_count"],
+        "closed_count": result.get("closed_count", 0),
+        "failed_count": result.get("failed_count", 0),
+        "close_ids": [str(close.id) for close in result.get("closes", [])],
         "skipped_count": result["skipped_count"],
         "cancellation_ids": [
             str(cancellation.id) for cancellation in result.get("cancellations", [])
         ],
+        "failures": list(result.get("failures", [])),
         "skipped": list(result.get("skipped", [])),
     }
 

@@ -150,6 +150,7 @@ class LoanListCreateView(APIView):
                     lender_payment_fee_minor=data.get("lender_payment_fee_minor", 0),
                     default_penalty_interest_bps=data.get("default_penalty_interest_bps", 0),
                     recovery_fee_bps=data.get("recovery_fee_bps", 0),
+                    minimum_subscription_bps=data.get("minimum_subscription_bps", 5_000),
                     manual_schedule_rows=_manual_rows_from_data(
                         data.get("manual_schedule_rows")
                     ),
@@ -220,6 +221,7 @@ class LoanDetailView(APIView):
                     lender_payment_fee_minor=data.get("lender_payment_fee_minor"),
                     default_penalty_interest_bps=data.get("default_penalty_interest_bps"),
                     recovery_fee_bps=data.get("recovery_fee_bps"),
+                    minimum_subscription_bps=data.get("minimum_subscription_bps"),
                     manual_schedule_rows=_manual_rows_from_data(
                         data.get("manual_schedule_rows")
                     ),

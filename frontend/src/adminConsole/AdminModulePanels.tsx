@@ -53,7 +53,6 @@ import {
   useOriginatorClaimsAdminSettlementsCreate,
   useOriginatorClaimsAdminSettlementsOutstandingList,
   useV1MarketplacePrimaryAdminLoansCancelFundingCreate,
-  useV1MarketplacePrimaryAdminLoansCloseFundingCreate,
   useV1MarketplacePrimaryAdminLoansExpiryScanCreate,
   useV1MarketplacePrimaryAdminOrdersReleaseBalanceCreate,
   useV1MarketplaceSecondaryAdminListingsApproveCreate,
@@ -125,7 +124,6 @@ import {
   type RepaymentTypeEnum as LoanRepaymentType,
   type PrimaryInvestmentOrderReleaseRequest,
   type PrimaryLoanCancellationRequest,
-  type PrimaryLoanCloseRequest,
   type PrimaryLoanExpiryScanRequest,
   type ReconciliationSnapshotCreateRequest,
   type RedactionModeEnum as ReportRedactionMode,
@@ -379,7 +377,8 @@ function TextInput({
   required = false,
   type = "text",
   hint,
-  placeholder
+  placeholder,
+  readOnly = false
 }: {
   label: string;
   value: string;
@@ -388,6 +387,7 @@ function TextInput({
   type?: string;
   hint?: string;
   placeholder?: string;
+  readOnly?: boolean;
 }) {
   return (
     <Field hint={hint} label={label}>
@@ -395,6 +395,7 @@ function TextInput({
         aria-label={label}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
+        readOnly={readOnly}
         required={required}
         type={type}
         value={value}
@@ -3684,6 +3685,7 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
   const [riskRating, setRiskRating] = useState<LoanRiskRating>(RiskRatingEnum.BBB);
   const [loanStartDate, setLoanStartDate] = useState("");
   const [fundingDeadline, setFundingDeadline] = useState("");
+  const [minimumSubscriptionBps, setMinimumSubscriptionBps] = useState("5000");
   const [preview, setPreview] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | undefined>();
   const mutation = useV1LoansAdminLoansCreate({
@@ -3717,7 +3719,8 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
       funding_deadline: fundingDeadline || undefined,
       collateral_type: collateralType,
       collateral_value_minor: intValue(collateralValue),
-      risk_rating: riskRating
+      risk_rating: riskRating,
+      minimum_subscription_bps: minimumSubscriptionBps ? intValue(minimumSubscriptionBps) : 5000
     };
     if (isFixturePreview) {
       setPreview(`${title} loan draft would be created for ${borrowerId}.`);
@@ -3760,6 +3763,12 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
             value={loanStartDate}
           />
           <TextInput label="Funding deadline" onChange={setFundingDeadline} type="date" value={fundingDeadline} />
+          <TextInput
+            hint="If subscriptions reach this share of the principal by the deadline, the loan closes at the subscribed amount; below it, the campaign is cancelled and refunded."
+            label="Minimum subscription bps"
+            onChange={setMinimumSubscriptionBps}
+            value={minimumSubscriptionBps}
+          />
         </FieldGrid>
         <Banner tone="neutral" title="Existing-loan acquisitions use Loan Originator claims">
           New refinancing products are disabled. Import an existing performing final-borrower claim through the Loan Originator workflow instead.
@@ -3801,6 +3810,9 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
   const [riskRating, setRiskRating] = useState<LoanRiskRating>(loan.risk_rating as LoanRiskRating);
   const [loanStartDate, setLoanStartDate] = useState(loan.loan_start_date);
   const [fundingDeadline, setFundingDeadline] = useState(loan.funding_deadline);
+  const [minimumSubscriptionBps, setMinimumSubscriptionBps] = useState(
+    String(loan.minimum_subscription_bps ?? 5000)
+  );
   const [investorMessage, setInvestorMessage] = useState("");
   const [note, setNote] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
@@ -3837,6 +3849,9 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
       repayment_type: repaymentType,
       loan_start_date: loanStartDate,
       funding_deadline: fundingDeadline || undefined,
+      ...(loan.status === "draft"
+        ? { minimum_subscription_bps: intValue(minimumSubscriptionBps) }
+        : {}),
       collateral_type: collateralType,
       collateral_value_minor: intValue(collateralValue),
       risk_rating: riskRating,
@@ -3861,12 +3876,26 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
         </div>
         {loan.committed_principal_minor > 0 ? (
           <Banner tone="warn" title="Committed investments exist">
-            Backend policy allows only a principal reduction with an investor message once committed investments exist.
+            Published principal and minimum subscription are frozen. Use Resolve funding deadline
+            after expiry; the deterministic resolver alone may reduce principal to the subscribed
+            amount when the disclosed threshold is met.
           </Banner>
         ) : null}
         <FieldGrid>
           <TextInput label="Title" onChange={setTitle} required value={title} />
-          <MoneyMinorInput currency={loan.currency} label="Financeable principal minor units" onChange={setPrincipal} required value={principal} />
+          <MoneyMinorInput
+            currency={loan.currency}
+            hint={
+              loan.status === "draft"
+                ? "Editable until publication."
+                : "Frozen at publication. Only deterministic funding close may reduce it to the subscribed amount."
+            }
+            label="Financeable principal minor units"
+            onChange={setPrincipal}
+            readOnly={loan.status !== "draft"}
+            required
+            value={principal}
+          />
           <TextInput label="Interest bps" onChange={setRateBps} required value={rateBps} />
           <TextInput label="Term months" onChange={setTermMonths} required value={termMonths} />
           <SelectInput label="Purpose" onChange={setPurpose} options={Object.values(PurposeEnum)} value={purpose} />
@@ -3882,6 +3911,17 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
             value={loanStartDate}
           />
           <TextInput label="Funding deadline" onChange={setFundingDeadline} type="date" value={fundingDeadline ?? ""} />
+          <TextInput
+            hint={
+              loan.status === "draft"
+                ? "Editable until publication. Publishing discloses and permanently freezes this threshold. At the deadline, it automatically decides whether the loan closes or is cancelled and refunded."
+                : "Frozen at publication. At the deadline, this disclosed percentage automatically decides whether the loan closes or is cancelled and refunded."
+            }
+            label="Minimum subscription bps"
+            onChange={setMinimumSubscriptionBps}
+            readOnly={loan.status !== "draft"}
+            value={minimumSubscriptionBps}
+          />
         </FieldGrid>
         <RefinancingFields
           currency={loan.currency}
@@ -3914,7 +3954,7 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
   );
 }
 
-type ManageLoanActionId = "publish" | "close" | "cancel" | "expiry" | "release" | "disburse" | "servicing" | "recovery";
+type ManageLoanActionId = "publish" | "cancel" | "expiry" | "release" | "disburse" | "servicing" | "recovery";
 
 const MANAGE_LOAN_ACTIONS: Array<{
   id: ManageLoanActionId;
@@ -3930,34 +3970,26 @@ const MANAGE_LOAN_ACTIONS: Array<{
     statuses: ["draft"]
   },
   {
-    id: "close",
-    title: "Close funding",
-    description:
-      "End the funding round: allocated orders become holdings, escrow moves on, and the loan activates (full or partial close).",
-    statuses: ["published"]
-  },
-  {
     id: "cancel",
     title: "Cancel funding",
     description:
       "Stop the campaign before close: reserved balances are released and pending orders close as not invested.",
-    statuses: ["published"],
+    statuses: ["published", "funding_close_failed"],
     danger: true
   },
   {
     id: "expiry",
-    title: "Run funding expiry scan",
+    title: "Resolve funding deadline",
     description:
-      "Cancel published campaigns whose funding deadline has passed - just this loan, or all expired campaigns.",
-    statuses: ["published"],
-    danger: true
+      "Apply the stored minimum automatically: close at the subscribed amount, or cancel and refund below the minimum. Failed resolutions can be retried after the cause is fixed.",
+    statuses: ["published", "funding_close_failed"]
   },
   {
     id: "release",
     title: "Release an order's balance",
     description:
       "Return one allocated order's reserved balance to its investor without touching the rest of the campaign.",
-    statuses: ["published"],
+    statuses: ["published", "funding_close_failed"],
     danger: true
   },
   {
@@ -4278,8 +4310,6 @@ function ManageLoanModal({
 }) {
   const [action, setAction] = useState<ManageLoanActionId | null>(null);
   const [note, setNote] = useState("");
-  const [closeReason, setCloseReason] = useState("Accepted funding close after admin review.");
-  const [investorMessage, setInvestorMessage] = useState("Loan funding has closed. Your assigned claim is now active.");
   const [cancelReason, setCancelReason] = useState("Campaign cancelled before funding close.");
   const [cancelInvestorMessage, setCancelInvestorMessage] = useState(
     "The campaign was cancelled before funding close. Any reserved balance has been released to your BANXUM account."
@@ -4352,16 +4382,15 @@ function ManageLoanModal({
   const publish = useV1LoansAdminLoansPublishCreate({
     mutation: { onSuccess: () => succeed("The loan is now published on the primary market.") }
   });
-  const closeFunding = useV1MarketplacePrimaryAdminLoansCloseFundingCreate({
-    mutation: { onSuccess: () => succeed("Funding close was submitted.") }
-  });
   const cancelFunding = useV1MarketplacePrimaryAdminLoansCancelFundingCreate({
     mutation: { onSuccess: () => succeed("Funding cancellation was submitted.") }
   });
   const expiryScan = useV1MarketplacePrimaryAdminLoansExpiryScanCreate({
     mutation: {
       onSuccess: (data) => {
-        succeed(`Expiry scan cancelled ${data.cancelled_count} campaign(s) and skipped ${data.skipped_count}.`);
+        succeed(
+          `Funding resolution closed ${data.closed_count ?? 0}, cancelled ${data.cancelled_count}, failed ${data.failed_count ?? 0}, and skipped ${data.skipped_count}.`
+        );
       }
     }
   });
@@ -4406,7 +4435,7 @@ function ManageLoanModal({
   const available = MANAGE_LOAN_ACTIONS.filter((item) => item.statuses.includes(loan.status));
   const active = MANAGE_LOAN_ACTIONS.find((item) => item.id === action) ?? null;
   const anyError =
-    publish.error || closeFunding.error || cancelFunding.error || expiryScan.error || releaseOrder.error || recordRecovery.error;
+    publish.error || cancelFunding.error || expiryScan.error || releaseOrder.error || recordRecovery.error;
 
   function choose(id: ManageLoanActionId) {
     setPreview(null);
@@ -4439,19 +4468,6 @@ function ManageLoanModal({
         ? { note, pre_publication_paid_installment_numbers: prePublicationPaidNumbers }
         : { note }
     });
-  }
-
-  function closeLoan() {
-    const data: PrimaryLoanCloseRequest = {
-      reason: closeReason,
-      investor_message: investorMessage,
-      idempotency_key: idempotencyKey("close-funding")
-    };
-    if (isFixturePreview) {
-      setPreview(`Funding close would run for ${loanId}.`);
-      return;
-    }
-    closeFunding.mutate({ loanId, data });
   }
 
   function cancelLoan() {
@@ -4637,28 +4653,6 @@ function ManageLoanModal({
               </>
             ) : null}
 
-            {action === "close" ? (
-              <>
-                <TextAreaInput label="Funding close reason" onChange={setCloseReason} value={closeReason} />
-                <TextAreaInput label="Investor message" onChange={setInvestorMessage} value={investorMessage} />
-                <OperationConfirmButton
-                  confirmLabel="Close funding"
-                  description="Closing funding creates holdings, moves escrow into borrower payable and Garanta fee revenue, and blocks later order releases for the closed loan."
-                  details={[
-                    { label: "Loan", value: loanId },
-                    { label: "Reason", value: closeReason },
-                    { label: "Investor message", value: investorMessage }
-                  ]}
-                  disabled={closeFunding.isPending}
-                  onConfirm={closeLoan}
-                  title="Confirm primary funding close"
-                  variant="primary"
-                >
-                  Close funding
-                </OperationConfirmButton>
-              </>
-            ) : null}
-
             {action === "cancel" ? (
               <>
                 <TextAreaInput label="Cancellation reason" onChange={setCancelReason} required value={cancelReason} />
@@ -4690,8 +4684,8 @@ function ManageLoanModal({
             {action === "expiry" ? (
               <>
                 <FieldGrid>
-                  <TextInput label="Expiry scan as-of date" onChange={setExpiryAsOfDate} type="date" value={expiryAsOfDate} />
-                  <Field hint="When enabled, only this loan is scanned. Disable to scan all expired published campaigns.">
+                  <TextInput label="Funding resolution as-of date" onChange={setExpiryAsOfDate} type="date" value={expiryAsOfDate} />
+                  <Field hint="When enabled, only this loan is resolved. Disable to process every expired published campaign. Failed campaigns are retried only when selected explicitly.">
                     <label className="check-row">
                       <input checked={scanSelectedOnly} onChange={(event) => setScanSelectedOnly(event.target.checked)} type="checkbox" />
                       Scan this loan only
@@ -4699,30 +4693,30 @@ function ManageLoanModal({
                   </Field>
                 </FieldGrid>
                 <TextAreaInput
-                  hint="Optional. If blank, the backend uses the standard expiry reason."
-                  label="Expiry scan reason override"
+                  hint="Optional. Used only if the campaign is below its minimum and must be cancelled."
+                  label="Below-minimum cancellation reason"
                   onChange={setExpiryReason}
                   value={expiryReason}
                 />
                 <TextAreaInput
-                  hint="Optional. If blank, the backend uses the standard investor message."
-                  label="Expiry scan investor message override"
+                  hint="Optional. Sent only if the campaign is below its minimum and investor reservations are refunded."
+                  label="Below-minimum investor message"
                   onChange={setExpiryInvestorMessage}
                   value={expiryInvestorMessage}
                 />
                 <OperationConfirmButton
-                  confirmLabel="Run expiry scan"
-                  description="The scan cancels published campaigns whose funding deadline is before the as-of date by calling the same conservation-checked cancellation backend primitive."
+                  confirmLabel="Resolve funding deadline"
+                  description="Under the loan lock, the server compares committed principal with the stored minimum. It closes at the subscribed amount when the minimum is met, cancels and refunds below it, or preserves reservations and opens an urgent task if resolution fails."
                   details={[
                     { label: "As-of date", value: expiryAsOfDate },
                     { label: "Scope", value: scanSelectedOnly ? `Selected loan ${loanId}` : "All expired published campaigns" }
                   ]}
                   disabled={expiryScan.isPending}
                   onConfirm={scanExpiredCampaigns}
-                  title="Confirm funding expiry scan"
-                  variant="danger"
+                  title="Confirm funding deadline resolution"
+                  variant="primary"
                 >
-                  Run expiry scan
+                  Resolve funding deadline
                 </OperationConfirmButton>
               </>
             ) : null}

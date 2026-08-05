@@ -2164,6 +2164,58 @@ paths:
               schema:
                 $ref: '#/components/schemas/SecondaryMarketActivityPortal'
           description: ''
+  /api/v1/investor/smart-invest/:
+    get:
+      operationId: v1_investor_smart_invest_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmartInvestResponse'
+          description: ''
+    put:
+      operationId: v1_investor_smart_invest_update
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SmartInvestRuleSaveRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SmartInvestRuleSaveRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SmartInvestRuleSaveRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmartInvestResponse'
+          description: ''
+  /api/v1/investor/smart-invest/deactivate/:
+    post:
+      operationId: v1_investor_smart_invest_deactivate_create
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmartInvestResponse'
+          description: ''
   /api/v1/kyc/admin/cases/{case_id}/manual-review/:
     post:
       operationId: v1_kyc_admin_cases_manual_review_create
@@ -2663,6 +2715,7 @@ paths:
           enum:
           - draft
           - published
+          - funding_close_failed
           - funded
           - active
           - late
@@ -2675,6 +2728,7 @@ paths:
         description: |-
           * `draft` - Draft
           * `published` - Published
+          * `funding_close_failed` - Funding close failed
           * `funded` - Funded
           * `active` - Active
           * `late` - Late
@@ -6191,6 +6245,18 @@ components:
         * `secondary_market_purchase` - Secondary-market purchase
         * `secondary_market_listing` - Secondary-market listing
         * `risk_disclosure` - Risk disclosure
+    CollateralScopeEnum:
+      enum:
+      - all
+      - secured
+      - unsecured
+      - specific
+      type: string
+      description: |-
+        * `all` - Any collateral
+        * `secured` - With collateral
+        * `unsecured` - Without collateral
+        * `specific` - Specific collateral type
     CollateralTypeEnum:
       enum:
       - real_estate
@@ -6223,6 +6289,16 @@ components:
         * `mixed_collateral` - Mixed collateral
         * `unsecured_exception` - Unsecured exception
         * `other` - Other
+    CurrencyScopeEnum:
+      enum:
+      - all
+      - CHF
+      - EUR
+      type: string
+      description: |-
+        * `all` - CHF and EUR
+        * `CHF` - CHF
+        * `EUR` - EUR
     DecisionEnum:
       enum:
       - approve
@@ -8771,6 +8847,9 @@ components:
           type: integer
         recovery_fee_bps:
           type: integer
+        minimum_subscription_bps:
+          type: integer
+          default: 5000
         recovery_waterfall_version:
           type: string
         schedule_version:
@@ -8936,6 +9015,11 @@ components:
         recovery_fee_bps:
           type: integer
           default: 0
+        minimum_subscription_bps:
+          type: integer
+          maximum: 10000
+          minimum: 0
+          default: 5000
         manual_schedule_rows:
           type: array
           items:
@@ -9055,6 +9139,16 @@ components:
       - schedule_version
       - status
       - total_minor
+    LoanKindEnum:
+      enum:
+      - all
+      - new
+      - refinancing
+      type: string
+      description: |-
+        * `all` - New lending and refinancing
+        * `new` - New lending
+        * `refinancing` - Refinancing
     LoanOriginator:
       type: object
       properties:
@@ -9748,6 +9842,12 @@ components:
         skin_in_the_game_bps:
           type: integer
           default: 0
+        minimum_subscription_bps:
+          type: integer
+          default: 5000
+        default_penalty_interest_bps:
+          type: integer
+          default: 0
         borrower_id:
           type: string
           format: uuid
@@ -9934,6 +10034,9 @@ components:
         skin_in_the_game_bps:
           type: integer
           default: 0
+        minimum_subscription_bps:
+          type: integer
+          default: 5000
       required:
       - borrower_display_name
       - collateral_type
@@ -10775,6 +10878,16 @@ components:
       - penalty_minor
       - principal_minor
       - total_minor
+    OriginatorScopeEnum:
+      enum:
+      - all
+      - banxum
+      - specific
+      type: string
+      description: |-
+        * `all` - All sources
+        * `banxum` - BANXUM direct lending
+        * `specific` - Specific Loan Originator
     OriginatorSettlementQueueRow:
       type: object
       properties:
@@ -11141,6 +11254,10 @@ components:
           type: integer
         recovery_fee_bps:
           type: integer
+        minimum_subscription_bps:
+          type: integer
+          maximum: 10000
+          minimum: 0
         manual_schedule_rows:
           type: array
           items:
@@ -11934,6 +12051,21 @@ components:
           type: integer
         cancelled_count:
           type: integer
+        closed_count:
+          type: integer
+          default: 0
+        closes:
+          type: array
+          items:
+            $ref: '#/components/schemas/PrimaryLoanClose'
+        failed_count:
+          type: integer
+          default: 0
+        failures:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
         skipped_count:
           type: integer
         cancellations:
@@ -13582,6 +13714,239 @@ components:
       - code_id
       - expires_at
       - status
+    SmartInvestOpportunity:
+      type: object
+      properties:
+        loan_id:
+          type: string
+          format: uuid
+        product_type:
+          type: string
+        investment_flow:
+          type: string
+        title:
+          type: string
+        purpose:
+          type: string
+        collateral_type:
+          type: string
+        interest_rate_bps:
+          type: integer
+        yield_bps:
+          type: integer
+        underlying_interest_rate_bps:
+          type: integer
+        term_months:
+          type: integer
+        remaining_term_days:
+          type: integer
+          nullable: true
+        risk_rating:
+          type: string
+        funding_deadline:
+          type: string
+          format: date
+          nullable: true
+        maturity_date:
+          type: string
+          format: date
+          nullable: true
+        status:
+          type: string
+        loan_status:
+          type: string
+        opportunity_status:
+          type: string
+        currency:
+          type: string
+        principal_minor:
+          type: integer
+        committed_principal_minor:
+          type: integer
+        remaining_capacity_minor:
+          type: integer
+        fillable_amount_minor:
+          type: integer
+        minimum_investment_minor:
+          type: integer
+        ltv_bps:
+          type: integer
+          nullable: true
+        is_refinancing:
+          type: boolean
+        originator_id:
+          type: string
+          format: uuid
+          nullable: true
+        originator_name:
+          type: string
+          nullable: true
+        borrower_display_name:
+          type: string
+          nullable: true
+        skin_in_the_game_bps:
+          type: integer
+          default: 0
+        minimum_subscription_bps:
+          type: integer
+          default: 5000
+      required:
+      - borrower_display_name
+      - collateral_type
+      - committed_principal_minor
+      - currency
+      - fillable_amount_minor
+      - funding_deadline
+      - interest_rate_bps
+      - investment_flow
+      - is_refinancing
+      - loan_id
+      - loan_status
+      - ltv_bps
+      - maturity_date
+      - minimum_investment_minor
+      - opportunity_status
+      - originator_id
+      - originator_name
+      - principal_minor
+      - product_type
+      - purpose
+      - remaining_capacity_minor
+      - remaining_term_days
+      - risk_rating
+      - status
+      - term_months
+      - title
+      - underlying_interest_rate_bps
+      - yield_bps
+    SmartInvestResponse:
+      type: object
+      properties:
+        rule:
+          allOf:
+          - $ref: '#/components/schemas/SmartInvestRule'
+          nullable: true
+        match_count:
+          type: integer
+        open_opportunity_count:
+          type: integer
+        matches:
+          type: array
+          items:
+            $ref: '#/components/schemas/SmartInvestOpportunity'
+      required:
+      - match_count
+      - matches
+      - open_opportunity_count
+      - rule
+    SmartInvestRule:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        is_active:
+          type: boolean
+        revision:
+          type: integer
+        minimum_yield_bps:
+          type: integer
+          nullable: true
+        maximum_term_months:
+          type: integer
+          nullable: true
+        originator_scope:
+          $ref: '#/components/schemas/OriginatorScopeEnum'
+        originator_id:
+          type: string
+          format: uuid
+          nullable: true
+        collateral_scope:
+          $ref: '#/components/schemas/CollateralScopeEnum'
+        collateral_type:
+          type: string
+        currency_scope:
+          $ref: '#/components/schemas/CurrencyScopeEnum'
+        risk_rating:
+          type: string
+        purpose:
+          type: string
+        loan_kind:
+          $ref: '#/components/schemas/LoanKindEnum'
+        activated_at:
+          type: string
+          format: date-time
+          nullable: true
+        deactivated_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - activated_at
+      - collateral_scope
+      - collateral_type
+      - created_at
+      - currency_scope
+      - deactivated_at
+      - id
+      - is_active
+      - loan_kind
+      - maximum_term_months
+      - minimum_yield_bps
+      - originator_id
+      - originator_scope
+      - purpose
+      - revision
+      - risk_rating
+      - updated_at
+    SmartInvestRuleSaveRequest:
+      type: object
+      properties:
+        minimum_yield_bps:
+          type: integer
+          maximum: 100000
+          minimum: 0
+          nullable: true
+        maximum_term_months:
+          type: integer
+          maximum: 1200
+          minimum: 1
+          nullable: true
+        originator_scope:
+          allOf:
+          - $ref: '#/components/schemas/OriginatorScopeEnum'
+          default: all
+        originator_id:
+          type: string
+          format: uuid
+          nullable: true
+        collateral_scope:
+          allOf:
+          - $ref: '#/components/schemas/CollateralScopeEnum'
+          default: all
+        collateral_type:
+          type: string
+          maxLength: 64
+        currency_scope:
+          allOf:
+          - $ref: '#/components/schemas/CurrencyScopeEnum'
+          default: all
+        risk_rating:
+          type: string
+          maxLength: 32
+        purpose:
+          type: string
+          maxLength: 64
+        loan_kind:
+          allOf:
+          - $ref: '#/components/schemas/LoanKindEnum'
+          default: all
     Status828Enum:
       enum:
       - active

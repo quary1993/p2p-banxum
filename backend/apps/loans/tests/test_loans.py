@@ -117,6 +117,7 @@ def test_admin_can_create_complete_loan_with_equal_installment_schedule(admin_us
     installments = list(loan.installments.order_by("installment_number"))
 
     assert loan.status == LoanStatus.DRAFT
+    assert loan.minimum_subscription_bps == 5_000
     assert loan.ltv_bps == 5000
     assert loan.ltv_warnings == ["collateral_value_exceeds_principal"]
     assert loan.total_scheduled_principal_minor == 1200_00
@@ -138,6 +139,60 @@ def test_admin_can_create_complete_loan_with_equal_installment_schedule(admin_us
     assert LoanEvent.objects.filter(loan=loan, event_type="created").exists()
     assert AuditEvent.objects.filter(action="loan.created", target_id=str(loan.id)).exists()
     assert DomainEvent.objects.filter(event_type="LoanCreated", aggregate_id=str(loan.id)).exists()
+
+
+@pytest.mark.django_db
+def test_admin_can_override_minimum_subscription_before_publication(admin_user: Model) -> None:
+    borrower = _borrower(admin_user)
+    loan = create_loan(
+        replace(
+            _loan_command(admin_user, borrower),
+            minimum_subscription_bps=6_500,
+        )
+    )
+
+    assert loan.minimum_subscription_bps == 6_500
+    updated = update_loan(
+        UpdateLoanCommand(
+            actor=admin_user,
+            loan_id=str(loan.id),
+            minimum_subscription_bps=7_500,
+            note="Raised the campaign minimum before accepting investor commitments.",
+        )
+    )
+    assert updated.minimum_subscription_bps == 7_500
+
+    published = publish_loan(PublishLoanCommand(actor=admin_user, loan_id=str(updated.id)))
+    with pytest.raises(LoanValidationError, match="only be changed while the loan is a draft"):
+        update_loan(
+            UpdateLoanCommand(
+                actor=admin_user,
+                loan_id=str(published.id),
+                minimum_subscription_bps=8_000,
+            )
+        )
+
+    published.refresh_from_db()
+    assert published.minimum_subscription_bps == 7_500
+
+
+@pytest.mark.django_db
+def test_published_minimum_subscription_is_frozen_even_without_commitments(
+    admin_user: Model,
+) -> None:
+    borrower = _borrower(admin_user)
+    loan = create_loan(_loan_command(admin_user, borrower))
+    published = publish_loan(PublishLoanCommand(actor=admin_user, loan_id=str(loan.id)))
+
+    assert published.committed_principal_minor == 0
+    with pytest.raises(LoanValidationError, match="only be changed while the loan is a draft"):
+        update_loan(
+            UpdateLoanCommand(
+                actor=admin_user,
+                loan_id=str(published.id),
+                minimum_subscription_bps=6_000,
+            )
+        )
 
 
 @pytest.mark.django_db
@@ -283,9 +338,7 @@ def test_refinancing_loan_schedule_is_generated_from_financeable_principal(
 ) -> None:
     borrower = _borrower(admin_user)
     loan = create_loan(_refinancing_command(admin_user, borrower))
-    installments = list(
-        loan.installments.filter(schedule_version=loan.schedule_version)
-    )
+    installments = list(loan.installments.filter(schedule_version=loan.schedule_version))
 
     assert loan.is_refinancing is True
     assert loan.original_principal_minor == 1500_00
@@ -416,9 +469,10 @@ def test_publish_rejects_funding_deadline_at_thirty_day_cutoff(admin_user: Model
 
 
 @pytest.mark.django_db
-def test_post_commit_edit_allows_only_lowering_amount_with_message(admin_user: Model) -> None:
+def test_published_loan_principal_cannot_be_lowered_by_admin_edit(admin_user: Model) -> None:
     borrower = _borrower(admin_user)
     loan = create_loan(_loan_command(admin_user, borrower))
+    loan = publish_loan(PublishLoanCommand(actor=admin_user, loan_id=str(loan.id)))
     loan.committed_principal_minor = 600_00
     loan.save(update_fields=["committed_principal_minor", "updated_at"])
 
@@ -431,7 +485,7 @@ def test_post_commit_edit_allows_only_lowering_amount_with_message(admin_user: M
             )
         )
 
-    with pytest.raises(LoanValidationError):
+    with pytest.raises(LoanValidationError, match="frozen at publication"):
         update_loan(
             UpdateLoanCommand(
                 actor=admin_user,
@@ -440,22 +494,20 @@ def test_post_commit_edit_allows_only_lowering_amount_with_message(admin_user: M
             )
         )
 
-    updated = update_loan(
-        UpdateLoanCommand(
-            actor=admin_user,
-            loan_id=str(loan.id),
-            principal_minor=1000_00,
-            investor_message="The target amount was lowered before funding close.",
-            note="Lowered target.",
+    with pytest.raises(LoanValidationError, match="frozen at publication"):
+        update_loan(
+            UpdateLoanCommand(
+                actor=admin_user,
+                loan_id=str(loan.id),
+                principal_minor=1000_00,
+                investor_message="Attempted manual target reduction.",
+                note="Must use deterministic funding resolution.",
+            )
         )
-    )
 
-    assert updated.principal_minor == 1000_00
-    assert updated.schedule_version == 2
-    assert sum(
-        row.principal_minor
-        for row in updated.installments.filter(schedule_version=updated.schedule_version)
-    ) == 1000_00
+    loan.refresh_from_db()
+    assert loan.principal_minor == 1200_00
+    assert loan.schedule_version == 1
 
 
 @pytest.mark.django_db

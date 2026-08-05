@@ -678,6 +678,10 @@ def _primary_order_context_snapshot(*, context_type: str, context_id: str) -> di
                 else ""
             ),
             "repayment_type": _display_choice(loan, "repayment_type"),
+            "minimum_subscription_bps": int(loan_ref.minimum_subscription_bps),
+            "minimum_subscription_percent": _format_bps_percent_for_document(
+                int(loan_ref.minimum_subscription_bps)
+            ),
             "collateral_security": collateral_security,
             "buyback_obligation": "No",
             "currency": currency,

@@ -195,7 +195,7 @@ Legal-entity lender evidence must be recorded before financial activation. Exact
 - Approve borrower for listing.
 - Record final loan terms.
 - Publish loan listing.
-- Close funding round.
+- Resolve funding deadline automatically from the loan's configured minimum subscription; retry or cancel a `funding_close_failed` operations case.
 - Validate received investment funds and order allocation.
 - Confirm excess/refund-due handling.
 - Release funds.
@@ -243,7 +243,7 @@ No high-risk action requires dual approval at launch. Each high-risk action shou
 - Generate KYC/KYB/AML evidence package: admin only.
 - Record offline credit approval / approve loans for publication: admin.
 - Publish listing: admin, subject to workflow rules.
-- Close funding round: admin, subject to workflow rules.
+- Funding-deadline resolution: scheduler/admin-triggered deterministic close or cancellation. Admins may retry a failed resolution or cancel/refund, but cannot choose a discretionary partial close.
 - Confirm payments: admin.
 - Enter borrower repayment amount and generate lender distribution: admin.
 - Attach lender payment evidence/bank statement: admin.

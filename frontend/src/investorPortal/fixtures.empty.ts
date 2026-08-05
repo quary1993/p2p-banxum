@@ -12,7 +12,8 @@ import type {
   PrimaryOrdersPortal,
   SecondaryMarketActivityPortal,
   SecondaryMarketBuyerListing,
-  SecondaryMarketBuyerListingDetail
+  SecondaryMarketBuyerListingDetail,
+  SmartInvestResponse
 } from "../api/generated/banxumApi";
 import type { InvestorPortalFixture } from "./types";
 
@@ -68,6 +69,13 @@ export const balancesFixture: InvestorBalancePortal = {
 };
 
 export const marketplaceLoansFixture: MarketplaceLoanPreview[] = [];
+
+export const smartInvestFixture: SmartInvestResponse = {
+  rule: null,
+  match_count: 0,
+  open_opportunity_count: 0,
+  matches: []
+};
 
 export const loanDetailsFixture: MarketplaceLoanDetail[] = [];
 

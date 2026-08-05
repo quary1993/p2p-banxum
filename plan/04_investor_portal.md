@@ -13,6 +13,7 @@ Define the user-facing portal where investors onboard, assess loans, invest, mon
 - KYC/AML status visibility for natural-person lenders. Legal-entity lender KYC/AML status is admin-recorded/offline.
 - Generic P2P lending risk acknowledgements and disclosures.
 - Marketplace browsing.
+- Smart Invest saved-filter matching and newly published opportunity alerts.
 - Multi-currency investor balances.
 - Deposits, withdrawals, and balance ageing reminders.
 - Currency exchange.
@@ -51,6 +52,18 @@ Legal-entity lenders do not self-register. Their registration and KYC/KYB/AML ar
 5. Review borrower/entity details, loan terms, risk rating, documents, repayment schedule, collateral, fees, and disclosures. The repayment schedule is always generated from the financeable principal.
 6. For refinancing loans, the loan detail page shows a "Refinanced loan" badge plus the informational original loan data (original contractual principal, original interest rate, original term, original loan start date) and the computed original schedule, including which original installments were paid before publication. This original schedule is informational only and is never serviced.
 7. Mark interest or create investment order.
+
+### Use Smart Invest
+
+1. Open Smart Invest below Investment Opportunities, or save the current structured Marketplace filters as the rule.
+2. Configure at least one criterion: minimum yield, maximum remaining term, source (BANXUM/direct or a Loan Originator), collateral requirement/type, currency, risk rating, purpose, or new/refinancing loan type.
+3. Optionally use the five-question setup wizard covering collateral, CHF/EUR scope, minimum yield, maximum term, and review. The wizard has no repayment/reinvestment question and no originator-concentration limit.
+4. Activate one current rule. Saving replaces the prior current criteria; deactivation clears them rather than retaining inactive presets.
+5. Review currently open matching opportunities on the Smart Invest page and dashboard widget.
+6. Receive one mandatory transactional email/in-app notification when a newly published opportunity first matches the active rule.
+7. Open the ordinary loan detail and complete the normal investment flow manually if interested.
+
+Smart Invest is discovery and alerting only. It never scores suitability, ranks credit quality, reserves balance, creates an order, buys a claim, or invests automatically. Search text, Marketplace sort order, and focused/detailed view choice are not rule criteria. Rule changes do not backfill alerts for already-open opportunities, and ordinary opportunity updates do not resend the initial match alert.
 
 ### Invest
 
@@ -156,6 +169,7 @@ Holdings in non-performing or otherwise non-standard loans/projects may be sold 
 - Pending withdrawals.
 - Pending currency exchanges.
 - Required actions.
+- Active Smart Invest rule status and current matching-opportunity count, or a setup call to action when no rule is active.
 
 ## Investor Documents and Tax Outputs
 
@@ -265,6 +279,9 @@ This text is not final legal wording. It is a generic placeholder for product de
 - Do not show pending orders as reserved capacity or funded progress until balance/funds are allocated.
 - Enforce the launch pending order limit, assumed to be 50 per investor.
 - Do not provide investor cancellation for orders.
+- Require at least one effective structured criterion before activating Smart Invest; treat a 0% yield floor as no criterion.
+- Keep one self-scoped current Smart Invest rule per investor. Deactivation clears the criteria and admins cannot edit investor rules.
+- Alert eligible active investors once per newly published matching loan, independently of marketing consent. Do not backfill, reserve funds, create orders, or auto-invest.
 - Show exposure metrics and concentration warnings, but do not enforce hard concentration limits in v1.
 - Enforce product eligibility restrictions.
 - Require current terms acceptance.
@@ -304,7 +321,7 @@ This text is not final legal wording. It is a generic placeholder for product de
 4. Updated by MKT-DEC-001: primary-market orders are first-come-first-served based on balance reservation/allocation timestamp or bank value date of validated external funds.
 5. Answered by MKT-DEC-004: investors cannot cancel orders.
 6. Superseded by PAY-DEC-003/PAY-DEC-017/PAY-DEC-018: investors have multi-currency website balances, can deposit/withdraw/exchange, and receive repayment/SM proceeds as balance credits subject to ageing deadlines.
-7. Answered by marketplace/admin TODO: auto-invest and automated reinvestment are future scope, not launch scope.
+7. Updated by MKT-DEC-026: Smart Invest is implemented as a saved-filter discovery and first-publication alert tool only. Auto-invest, automated reinvestment, balance reservation, and automatic order creation remain out of scope.
 8. Updated by KYC-DEC-003 and ORIG-DEC-003: full loan data requires registration-time KYC approval; optional borrower financial fields are hidden when not declared.
 9. Answered by DOC-DEC-001 and FIN-DEC-001: investor statements, repayment statements, and annual lender tax information statement for all investors are required; generated/accepted transaction documents are downloadable from portal document history and are not emailed as legal-document attachments by default.
 10. Answered by MKT-DEC-006/MKT-DEC-007/MKT-DEC-009/MKT-DEC-020: secondary-market selling and buying are available at launch as full-holding bulletin-board transfers; sellers set discount/premium price as a percentage of current principal balance; accrued interest to settlement belongs to seller and future interest belongs to buyer; non-performing/non-standard listings require admin approval and additional buyer acknowledgement.

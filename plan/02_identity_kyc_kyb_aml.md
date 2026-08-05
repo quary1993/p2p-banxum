@@ -74,7 +74,7 @@ Owner: Garanta compliance / operations.
 Decision:
 UBO, director, authorized signatory, and legal-entity KYB rules are not in scope for automated client-portal onboarding. Legal-entity lenders and borrowers are onboarded off-platform or through external providers. The platform stores their admin-entered data, documents, compliance status, provider references, reports, decisions, and evidence, but does not expose a legal-entity self-service KYC/KYB workflow at launch.
 
-KYC/KYB approval is required before any legal-entity lender can transact as a lender and before any borrower can be used in a platform transaction, including loan publication, funding close, disbursement, repayment processing, or secondary operational workflows where applicable.
+KYC/KYB approval is required before any legal-entity lender can transact as a lender and before a borrower can be published, disbursed, processed for repayment, or used in secondary operational workflows where applicable. A routine borrower KYB expiry after publication does not block deterministic funding close; an explicit compliance hold or adverse/review status still blocks it and creates an operations failure case with reservations preserved.
 
 Rationale:
 The platform must support operational records and regulatory evidence without exposing a borrower or legal-entity lender self-service onboarding workflow.
@@ -238,7 +238,7 @@ For natural-person lenders, this blocks dashboard, deposit, balance, FX, primary
 
 For legal-entity lenders, this blocks account activation for financial transactions and manual/admin-entered investments until KYB/AML is approved and no compliance hold applies.
 
-For borrowers, which do not have borrower portal accounts at launch, this blocks operational platform transactions involving that entity. Admin cannot publish a loan, close funding, disburse funds, process borrower-side transactional workflows, or otherwise activate loan operations for the entity until KYB/AML is approved and no compliance hold applies.
+For borrowers, which do not have borrower portal accounts at launch, this blocks operational platform transactions involving that entity. Admin cannot publish a loan, disburse funds, process borrower-side transactional workflows, or otherwise activate loan operations until KYB/AML is approved and no compliance hold applies. The sole funding-close exception is routine expiry after publication: the deterministic deadline resolver may close the campaign, but a compliance hold or adverse/review status still blocks it and creates an urgent operations case.
 
 Rationale:
 The platform should not allow financial, contractual, or settlement activity for parties that have not passed KYC/KYB/AML approval.
@@ -352,7 +352,7 @@ Confirm where Didit provider-side monitoring alerts are reviewed operationally a
 - Support suspicious activity escalation and reporting workflow.
 - Prevent lenders under compliance hold from accessing balances, depositing, withdrawing, exchanging currency, completing investments, or changing critical details.
 - Prevent legal-entity lenders without approved KYB/AML from financial activity.
-- Prevent borrowers without approved KYB/AML from loan publication, funding close, disbursement, repayment processing, or other platform transaction activity.
+- Prevent borrowers without approved KYB/AML from loan publication, disbursement, repayment processing, or other platform transaction activity. Funding close is the narrow exception: routine post-publication expiry is permitted, while holds and adverse/review statuses remain blocking.
 - Store relevant KYC/KYB/AML data and documents on Garanta-controlled infrastructure located in Switzerland.
 - Retain KYC/KYB/AML files, reports, decisions, audit logs, raw provider webhook payloads where possible, and related evidence for at least 10 years, subject to final legal/compliance confirmation.
 - Support local evidence export packages for VQF/SRO, auditors, banks, payment partners, and internal compliance reviews.

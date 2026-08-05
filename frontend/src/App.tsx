@@ -5,8 +5,13 @@ import { AdminApp } from "./adminConsole/AdminApp";
 import {
   ActionEnum,
   CategoryEnum,
+  CollateralScopeEnum,
+  CurrencyScopeEnum,
   DocumentKindEnum,
   InvestorDocumentDownloadRequestOutputFormatEnum,
+  LoanKindEnum,
+  OriginatorScopeEnum,
+  getV1InvestorSmartInvestRetrieveQueryKey,
   useV1AuthMeRetrieve,
   useV1AuthLogoutCreate,
   useV1AuthMagicLinkRequestCreate,
@@ -31,6 +36,8 @@ import {
   useV1MarketplaceSecondaryListingsCancelCreate,
   useV1MarketplaceSecondaryListingsEditCreate,
   useV1MarketplaceSecondaryListingsPurchaseCreate,
+  useV1InvestorSmartInvestDeactivateCreate,
+  useV1InvestorSmartInvestUpdate,
   useOriginatorClaimsLoansQuoteCreate,
   useOriginatorClaimsQuotesPurchaseCreate,
   v1AuthMagicLinkConsumeCreate
@@ -60,6 +67,10 @@ import type {
   SecondaryMarketBuyerListing,
   SecondaryMarketInvestmentInstallment,
   SecondaryMarketLoanInstallment,
+  SmartInvestOpportunity,
+  SmartInvestResponse,
+  SmartInvestRule,
+  SmartInvestRuleSaveRequest,
   UserSummary
 } from "./api/generated/banxumApi";
 import {
@@ -77,6 +88,7 @@ import {
   useSecondaryActivityData,
   useSecondaryListingDetailData,
   useSecondaryListingsData,
+  useSmartInvestData,
   isFixturePreview
 } from "./investorPortal/data";
 import { portalFixture } from "./investorPortal/fixtures";
@@ -255,6 +267,7 @@ const routeNames: RouteName[] = [
   "kyc",
   "dashboard",
   "market",
+  "smartInvest",
   "loan",
   "portfolio",
   "secondary",
@@ -284,6 +297,7 @@ function routeFromPathname(pathname: string): AppRoute | null {
     "/verification": "kyc",
     "/dashboard": "dashboard",
     "/marketplace": "market",
+    "/smart-invest": "smartInvest",
     "/portfolio": "portfolio",
     "/secondary-market": "secondary",
     "/balances": "balances",
@@ -312,6 +326,7 @@ function routePath(route: AppRoute) {
     kyc: "/verification",
     dashboard: "/dashboard",
     market: "/marketplace",
+    smartInvest: "/smart-invest",
     loan: `/marketplace/${encodeURIComponent(route.params?.loanId ?? "")}`,
     portfolio: "/portfolio",
     secondary: "/secondary-market",
@@ -435,6 +450,7 @@ const routeTitles: Record<RouteName, string> = {
   kyc: "Verification",
   dashboard: "Dashboard",
   market: "Investment Opportunities",
+  smartInvest: "Smart Invest",
   loan: "Investment Opportunities",
   portfolio: "My Portfolio",
   secondary: "Secondary Market",
@@ -455,6 +471,7 @@ const navGroups: Array<{
     items: [
       { route: "dashboard", label: "Dashboard", icon: "dashboard" },
       { route: "market", label: "Investment Opportunities", icon: "market" },
+      { route: "smartInvest", label: "Smart Invest", icon: "trend" },
       { route: "portfolio", label: "My Portfolio", icon: "portfolio" },
       { route: "secondary", label: "Secondary Market", icon: "secondary" }
     ]
@@ -828,7 +845,10 @@ function fundingDeadlineLabel(deadline: string, asOf?: string) {
   return `${days} days`;
 }
 
-function currentInvestableLotsForLoanCurrency(lots: BalanceLot[] | undefined, loan: MarketplaceLoanDetail) {
+function currentInvestableLotsForLoanCurrency(
+  lots: BalanceLot[] | undefined,
+  loan: Pick<MarketplaceLoanPreview, "currency">
+) {
   return (lots ?? []).filter(
     (lot) =>
       lot.currency === loan.currency &&
@@ -2077,7 +2097,14 @@ function InvestorShell({
   const queryClient = useQueryClient();
   const [navOpen, setNavOpen] = useState(false);
   const [addFundsOpen, setAddFundsOpen] = useState(false);
-  const [investLoan, setInvestLoan] = useState<MarketplaceLoanDetail | null>(null);
+  const [investState, setInvestState] = useState<{ loan: MarketplaceLoanDetail; initialAmount?: string } | null>(null);
+  const investLoan = investState?.loan ?? null;
+  const setInvestLoan = useCallback(
+    (loan: MarketplaceLoanDetail | null, initialAmount?: string) => {
+      setInvestState(loan ? { loan, initialAmount } : null);
+    },
+    []
+  );
   const [readonlyImpersonation, setReadonlyImpersonation] = useState(() => ({
     active: isReadonlyImpersonationActive(),
     label: readReadonlyImpersonationLabel()
@@ -2162,6 +2189,8 @@ function InvestorShell({
         return <Dashboard demoState={demoState} setRoute={setRoute} />;
       case "market":
         return <MarketplaceScreen demoState={demoState} setInvestLoan={setInvestLoan} setRoute={setRoute} />;
+      case "smartInvest":
+        return <SmartInvestScreen setRoute={setRoute} />;
       case "loan":
         return (
           <LoanDetailScreen
@@ -2222,7 +2251,7 @@ function InvestorShell({
                 const showBalanceBadge = item.route === "balances" && (demoState === "frozen" || overdueCount > 0);
                 return (
                   <button
-                    className={`nav-link ${isActive ? "on" : ""}`}
+                    className={`nav-link ${item.route === "smartInvest" ? "nav-link-sub" : ""} ${isActive ? "on" : ""}`}
                     key={item.route}
                     onClick={() => {
                       goTo(setRoute, item.route);
@@ -2342,9 +2371,9 @@ function InvestorShell({
       ) : null}
       {investLoan ? (
         isOriginatorClaimLoan(investLoan) ? (
-          <OriginatorClaimInvestModal loan={investLoan} onClose={() => setInvestLoan(null)} />
+          <OriginatorClaimInvestModal initialAmount={investState?.initialAmount} loan={investLoan} onClose={() => setInvestLoan(null)} />
         ) : (
-          <InvestModal loan={investLoan} onClose={() => setInvestLoan(null)} />
+          <InvestModal initialAmount={investState?.initialAmount} loan={investLoan} onClose={() => setInvestLoan(null)} />
         )
       ) : null}
     </div>
@@ -2355,6 +2384,7 @@ function Dashboard({ demoState, setRoute }: { demoState: DemoAccountState; setRo
   const dashboardQuery = useDashboardData();
   const balancesQuery = useBalancesData();
   const loansQuery = useMarketplaceLoansData();
+  const smartInvestQuery = useSmartInvestData();
   const dashboard = dashboardQuery.data;
   const balances = balancesQuery.data;
   const loans = loansQuery.data ?? [];
@@ -2376,10 +2406,17 @@ function Dashboard({ demoState, setRoute }: { demoState: DemoAccountState; setRo
 
   const openLoans = loans.filter(isOpenMarketplaceLoan).slice(0, 4);
   const firstName = displayProfile().name.split(" ")[0] || "Investor";
+  const portfolioCurrencies = Array.from(new Set([
+    ...dashboard.portfolio_summary.outstanding_principal_by_currency.map((amount) => amount.currency),
+    ...dashboard.portfolio_summary.realized_interest_by_currency.map((amount) => amount.currency),
+    ...dashboard.portfolio_summary.late_or_defaulted_exposure_by_currency.map((amount) => amount.currency)
+  ])).sort();
+  const smartInvest = smartInvestQuery.data;
+  const smartRuleActive = smartInvest?.rule?.is_active === true;
 
   return (
-    <main className="content">
-      <div className="page-head">
+    <main className="content dashboard-v9">
+      <div className="page-head dashboard-v9-head">
         <div>
           <h1>Welcome back, {firstName}</h1>
           <div className="ph-sub">Account overview - {formatDate(dashboard.as_of)} - Europe/Zurich</div>
@@ -2396,11 +2433,40 @@ function Dashboard({ demoState, setRoute }: { demoState: DemoAccountState; setRo
         {demoState === "active" ? <AgeingAlerts balances={balances.summaries} setRoute={setRoute} /> : null}
       </div>
 
-      <div className="grid-stat" style={{ marginBottom: 20 }}>
-        <Stat amountMinor={sumAmounts(dashboard.portfolio_summary.outstanding_principal_by_currency)} currency="CHF" label="Outstanding principal" sub={countLabel(dashboard.portfolio_summary.active_holding_count, "active holding")} />
-        <Stat amountMinor={sumAmounts(dashboard.portfolio_summary.realized_interest_by_currency)} currency="CHF" label="Interest received" sub="lifetime distributions" />
-        <Stat amountMinor={sumAmounts(dashboard.portfolio_summary.late_or_defaulted_exposure_by_currency)} currency="CHF" label="Late/default principal" sub="watch status updates" />
-        <Stat label="Weighted yield" raw="7.6%" sub="display projection" />
+      {smartInvestQuery.isError && !smartInvest ? (
+        <DataErrorCard title="Smart Invest is temporarily unavailable" onRetry={() => void smartInvestQuery.refetch()}>
+          Your dashboard is still available. Retry to load your saved rule and matching opportunities.
+        </DataErrorCard>
+      ) : (
+        <section className={`dashboard-smart-widget ${smartRuleActive ? "active" : "inactive"}`}>
+          <div>
+            <div className="dashboard-smart-title">
+              <span>{smartRuleActive ? "Investing rule" : "No investing rule is running"}</span>
+              {smartRuleActive ? <b>Active</b> : null}
+            </div>
+            <p>
+              {smartRuleActive
+                ? `${smartInvest?.match_count ?? 0} open ${(smartInvest?.match_count ?? 0) === 1 ? "opportunity matches" : "opportunities match"} your conditions. You review every match before anything is committed.`
+                : "Smart Invest watches newly published opportunities against your conditions and alerts you first. It never invests automatically."}
+            </p>
+          </div>
+          <button onClick={() => goTo(setRoute, "smartInvest")} type="button">{smartRuleActive ? "Review matches →" : "Set one up →"}</button>
+        </section>
+      )}
+
+      <div className="dashboard-currency-stats" style={{ marginBottom: 20 }}>
+        {portfolioCurrencies.length === 0 ? (
+          <div className="dashboard-currency-empty">No active loan exposure yet.</div>
+        ) : portfolioCurrencies.map((currency) => (
+          <section key={currency}>
+            <div className="eyebrow">{currency} loan portfolio</div>
+            <div className="dashboard-currency-stat-grid">
+              <Stat amountMinor={dashboard.portfolio_summary.outstanding_principal_by_currency.find((amount) => amount.currency === currency)?.amount_minor ?? 0} currency={currency} label="Outstanding principal" sub={countLabel(dashboard.portfolio_summary.active_holding_count, "active holding")} />
+              <Stat amountMinor={dashboard.portfolio_summary.realized_interest_by_currency.find((amount) => amount.currency === currency)?.amount_minor ?? 0} currency={currency} label="Interest received" sub="lifetime distributions" />
+              <Stat amountMinor={dashboard.portfolio_summary.late_or_defaulted_exposure_by_currency.find((amount) => amount.currency === currency)?.amount_minor ?? 0} currency={currency} label="Late/default principal" sub="watch status updates" />
+            </div>
+          </section>
+        ))}
       </div>
 
       <div className="dash-split">
@@ -2573,7 +2639,7 @@ function mkMatches(loan: MarketplaceLoanPreview, filters: MkFilters, skip?: keyo
     ["q", filters.q.trim() === "" || haystack.includes(filters.q.trim().toLowerCase())],
     ["minRate", filters.minRate === null || mkYieldPct(loan) >= filters.minRate - 0.001],
     ["maxTerm", filters.maxTerm === null || loan.term_months <= filters.maxTerm],
-    ["orig", filters.orig === "all" || (filters.orig === "banxum" ? !isOriginatorClaimLoan(loan) : loan.originator_name === filters.orig)],
+    ["orig", filters.orig === "all" || (filters.orig === "banxum" ? !isOriginatorClaimLoan(loan) : loan.originator_id === filters.orig)],
     [
       "col",
       filters.col === "all"
@@ -2589,6 +2655,132 @@ function mkMatches(loan: MarketplaceLoanPreview, filters: MkFilters, skip?: keyo
     ["kind", filters.kind === "all" || (filters.kind === "refi" ? loan.is_refinancing : !loan.is_refinancing)]
   ];
   return checks.every(([key, ok]) => key === skip || ok);
+}
+
+function hasSmartInvestCriteria(filters: MkFilters) {
+  return filters.minRate !== null
+    || filters.maxTerm !== null
+    || filters.orig !== "all"
+    || filters.col !== "all"
+    || filters.ccy !== "all"
+    || filters.rating !== "all"
+    || filters.purpose !== "all"
+    || filters.kind !== "all";
+}
+
+function smartInvestRequestFromFilters(filters: MkFilters): SmartInvestRuleSaveRequest {
+  const specificOriginator = filters.orig !== "all" && filters.orig !== "banxum";
+  const specificCollateral = !["all", "secured", "unsecured"].includes(filters.col);
+  return {
+    minimum_yield_bps: filters.minRate === null ? null : Math.round(filters.minRate * 100),
+    maximum_term_months: filters.maxTerm,
+    originator_scope: filters.orig === "all"
+      ? OriginatorScopeEnum.all
+      : filters.orig === "banxum"
+        ? OriginatorScopeEnum.banxum
+        : OriginatorScopeEnum.specific,
+    originator_id: specificOriginator ? filters.orig : null,
+    collateral_scope: specificCollateral
+      ? CollateralScopeEnum.specific
+      : filters.col as SmartInvestRuleSaveRequest["collateral_scope"],
+    collateral_type: specificCollateral ? filters.col : "",
+    currency_scope: filters.ccy as SmartInvestRuleSaveRequest["currency_scope"],
+    risk_rating: filters.rating === "all" ? "" : filters.rating,
+    purpose: filters.purpose === "all" ? "" : filters.purpose,
+    loan_kind: filters.kind === "refi"
+      ? LoanKindEnum.refinancing
+      : filters.kind === "new"
+        ? LoanKindEnum.new
+        : LoanKindEnum.all
+  };
+}
+
+function smartInvestFiltersFromRule(rule: SmartInvestRule | null | undefined): MkFilters {
+  if (!rule?.is_active) return mkDefaultFilters;
+  return {
+    q: "",
+    minRate: rule.minimum_yield_bps === null ? null : rule.minimum_yield_bps / 100,
+    maxTerm: rule.maximum_term_months,
+    orig: rule.originator_scope === OriginatorScopeEnum.specific
+      ? rule.originator_id ?? "all"
+      : rule.originator_scope,
+    col: rule.collateral_scope === CollateralScopeEnum.specific
+      ? rule.collateral_type
+      : rule.collateral_scope,
+    ccy: rule.currency_scope,
+    rating: rule.risk_rating || "all",
+    purpose: rule.purpose || "all",
+    kind: rule.loan_kind === LoanKindEnum.refinancing ? "refi" : rule.loan_kind
+  };
+}
+
+function marketplaceLoanAsSmartOpportunity(loan: MarketplaceLoanPreview): SmartInvestOpportunity {
+  return {
+    loan_id: loan.loan_id,
+    product_type: loan.product_type,
+    investment_flow: loan.investment_flow,
+    title: loan.title,
+    purpose: loan.purpose,
+    collateral_type: loan.collateral_type,
+    interest_rate_bps: loan.interest_rate_bps,
+    yield_bps: loan.yield_bps,
+    underlying_interest_rate_bps: loan.underlying_interest_rate_bps,
+    term_months: loan.term_months,
+    remaining_term_days: loan.remaining_term_days,
+    risk_rating: loan.risk_rating,
+    funding_deadline: loan.funding_deadline,
+    maturity_date: loan.maturity_date,
+    status: loan.status,
+    loan_status: loan.loan_status,
+    opportunity_status: loan.opportunity_status,
+    currency: loan.currency,
+    principal_minor: loan.principal_minor,
+    committed_principal_minor: loan.committed_principal_minor,
+    remaining_capacity_minor: loan.remaining_capacity_minor,
+    fillable_amount_minor: loan.fillable_amount_minor,
+    minimum_investment_minor: loan.minimum_investment_minor,
+    ltv_bps: loan.ltv_bps,
+    is_refinancing: loan.is_refinancing,
+    originator_id: loan.originator_id,
+    originator_name: loan.originator_name,
+    borrower_display_name: loan.borrower_display_name,
+    skin_in_the_game_bps: loan.skin_in_the_game_bps,
+    minimum_subscription_bps: loan.minimum_subscription_bps
+  };
+}
+
+function previewSmartInvestResponse(
+  filters: MkFilters,
+  loans: MarketplaceLoanPreview[],
+  currentRule?: SmartInvestRule | null
+): SmartInvestResponse {
+  const request = smartInvestRequestFromFilters(filters);
+  const matches = loans.filter(isOpenMarketplaceLoan).filter((loan) => mkMatches(loan, filters));
+  const timestamp = new Date().toISOString();
+  return {
+    rule: {
+      id: currentRule?.id ?? "smart-invest-rule-preview",
+      is_active: true,
+      revision: (currentRule?.revision ?? 0) + 1,
+      minimum_yield_bps: request.minimum_yield_bps ?? null,
+      maximum_term_months: request.maximum_term_months ?? null,
+      originator_scope: request.originator_scope ?? OriginatorScopeEnum.all,
+      originator_id: request.originator_id ?? null,
+      collateral_scope: request.collateral_scope ?? CollateralScopeEnum.all,
+      collateral_type: request.collateral_type ?? "",
+      currency_scope: request.currency_scope ?? CurrencyScopeEnum.all,
+      risk_rating: request.risk_rating ?? "",
+      purpose: request.purpose ?? "",
+      loan_kind: request.loan_kind ?? LoanKindEnum.all,
+      activated_at: timestamp,
+      deactivated_at: null,
+      created_at: currentRule?.created_at ?? timestamp,
+      updated_at: timestamp
+    },
+    match_count: matches.length,
+    open_opportunity_count: loans.filter(isOpenMarketplaceLoan).length,
+    matches: matches.map(marketplaceLoanAsSmartOpportunity)
+  };
 }
 
 const mkSortOptions: FsSortOption[] = [
@@ -2610,14 +2802,19 @@ function mkSortValue(loan: MarketplaceLoanPreview, key: string): number | string
 }
 
 function MarketplaceScreen({
+  setInvestLoan,
   setRoute
 }: {
   demoState: DemoAccountState;
-  setInvestLoan: (loan: MarketplaceLoanDetail) => void;
+  setInvestLoan: (loan: MarketplaceLoanDetail | null, initialAmount?: string) => void;
   setRoute: (route: AppRoute) => void;
 }) {
+  const queryClient = useQueryClient();
+  const [sheetLoanId, setSheetLoanId] = useState<string | null>(null);
   const loansQuery = useMarketplaceLoansData();
   const balancesQuery = useBalancesData();
+  const smartInvestQuery = useSmartInvestData();
+  const smartInvestMutation = useV1InvestorSmartInvestUpdate();
   const loans = loansQuery.data ?? [];
   const [filters, setFilters] = useState<MkFilters>(mkDefaultFilters);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -2626,7 +2823,7 @@ function MarketplaceScreen({
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [capacityCurrency, setCapacityCurrency] = useState("CHF");
   const [showOrderGuide, setShowOrderGuide] = useState(false);
-  const [showInvestingRule, setShowInvestingRule] = useState(false);
+  const [smartInvestError, setSmartInvestError] = useState("");
 
   const setFlt = <K extends keyof MkFilters>(key: K, value: MkFilters[K]) => {
     setFilters((current) => ({ ...current, [key]: value }));
@@ -2675,9 +2872,14 @@ function MarketplaceScreen({
   }));
   const termBinMax = Math.max(1, ...termBins.map((bin) => bin.n));
 
-  const originatorNames = Array.from(
-    new Set(openLoans.filter(isOriginatorClaimLoan).map((loan) => loan.originator_name ?? "").filter(Boolean))
-  ).sort();
+  const originators = Array.from(
+    new Map(
+      openLoans
+        .filter(isOriginatorClaimLoan)
+        .filter((loan) => loan.originator_id && loan.originator_name)
+        .map((loan) => [loan.originator_id as string, loan.originator_name as string])
+    ).entries()
+  ).map(([id, name]) => ({ id, name })).sort((left, right) => left.name.localeCompare(right.name));
   const collateralKinds = Array.from(
     new Set(openLoans.filter((loan) => !mkIsUnsecured(loan)).map((loan) => loan.collateral_type))
   ).sort();
@@ -2707,7 +2909,13 @@ function MarketplaceScreen({
   if (filters.q.trim() !== "") tokens.push({ label: `matching "${filters.q.trim()}"`, clear: () => setFlt("q", "") });
   if (filters.minRate !== null) tokens.push({ label: `${filters.minRate.toFixed(1)}% and up`, clear: () => setFlt("minRate", null) });
   if (filters.maxTerm !== null) tokens.push({ label: `up to ${filters.maxTerm} months`, clear: () => setFlt("maxTerm", null) });
-  if (filters.orig !== "all") tokens.push({ label: filters.orig === "banxum" ? "from BANXUM" : `from ${filters.orig}`, clear: () => setFlt("orig", "all") });
+  if (filters.orig !== "all") {
+    const originatorName = originators.find((originator) => originator.id === filters.orig)?.name;
+    tokens.push({
+      label: filters.orig === "banxum" ? "from BANXUM" : `from ${originatorName ?? "selected originator"}`,
+      clear: () => setFlt("orig", "all")
+    });
+  }
   if (filters.col !== "all") tokens.push({ label: filters.col === "secured" ? "with collateral" : filters.col === "unsecured" ? "no collateral" : humanizeToken(filters.col).toLowerCase(), clear: () => setFlt("col", "all") });
   if (filters.ccy !== "all") tokens.push({ label: filters.ccy, clear: () => setFlt("ccy", "all") });
   if (filters.rating !== "all") tokens.push({ label: `rated ${filters.rating}`, clear: () => setFlt("rating", "all") });
@@ -2729,7 +2937,28 @@ function MarketplaceScreen({
   );
   const minimumCurrency = minimumLoan?.currency ?? "EUR";
   const minimumInvestmentMinor = minimumLoan?.minimum_investment_minor ?? 100000;
-  const investingRuleActive = false;
+  const investingRuleActive = smartInvestQuery.data?.rule?.is_active === true;
+  const saveSmartFilters = async () => {
+    setSmartInvestError("");
+    if (!hasSmartInvestCriteria(filters)) {
+      setSmartInvestError("Choose at least one filter before saving a Smart Invest rule.");
+      return;
+    }
+    if (isReadonlyImpersonationActive()) {
+      setSmartInvestError("Smart Invest cannot be changed in a superadmin read-only view.");
+      return;
+    }
+    try {
+      const response = isFixturePreview
+        ? previewSmartInvestResponse(filters, loans, smartInvestQuery.data?.rule)
+        : await smartInvestMutation.mutateAsync({ data: smartInvestRequestFromFilters(filters) });
+      queryClient.setQueryData(getV1InvestorSmartInvestRetrieveQueryKey(), response);
+      setPanelOpen(false);
+      goTo(setRoute, "smartInvest");
+    } catch (error) {
+      setSmartInvestError(apiErrorMessage(error));
+    }
+  };
 
   return (
     <main className="content marketplace-page">
@@ -2771,7 +3000,7 @@ function MarketplaceScreen({
         <button
           aria-label="Set your investing rule"
           className={`marketplace-investing-rule ${investingRuleActive ? "active" : "inactive"}`}
-          onClick={() => setShowInvestingRule(true)}
+          onClick={() => goTo(setRoute, "smartInvest")}
           type="button"
         >
           <span aria-hidden="true" className="marketplace-investing-rule-dot" />
@@ -2909,7 +3138,7 @@ function MarketplaceScreen({
                 </div>
                 <div className="fs-chips">
                   {chipButton(chip("orig", "banxum", "BANXUM", (loan) => !isOriginatorClaimLoan(loan)))}
-                  {originatorNames.map((name) => chipButton(chip("orig", name, name, (loan) => loan.originator_name === name)))}
+                  {originators.map((originator) => chipButton(chip("orig", originator.id, originator.name, (loan) => loan.originator_id === originator.id)))}
                 </div>
               </div>
               <div className="fs-group">
@@ -2974,8 +3203,12 @@ function MarketplaceScreen({
               <span className="fs-panel-note">
                 Filters never rank or score opportunities. Without a selected sort, results stay closing soonest.
               </span>
+              <button className="fs-save-rule" disabled={smartInvestMutation.isPending} onClick={() => void saveSmartFilters()} type="button">
+                {smartInvestMutation.isPending ? "Saving..." : "Save Smart Filters"}
+              </button>
               <button className="fs-done" onClick={() => setPanelOpen(false)} type="button">Done</button>
             </div>
+            {smartInvestError ? <div className="fs-save-error" role="alert">{smartInvestError}</div> : null}
           </div>
         ) : null}
 
@@ -2997,7 +3230,7 @@ function MarketplaceScreen({
       ) : (
         <MarketplaceOpportunityList
           loans={sortedLoans}
-          onOpen={(loan) => goTo(setRoute, "loan", { loanId: loan.loan_id })}
+          onOpen={(loan) => setSheetLoanId(loan.loan_id)}
           asOf={balancesQuery.data?.as_of}
           viewMode={viewMode}
           sortKey={sortKey}
@@ -3005,6 +3238,21 @@ function MarketplaceScreen({
           onPickSort={pickSort}
         />
       )}
+      {sheetLoanId ? (() => {
+        const sheetPreview = loans.find((loan) => loan.loan_id === sheetLoanId);
+        if (!sheetPreview) return null;
+        return (
+          <MarketplaceLoanSheet
+            onClose={() => setSheetLoanId(null)}
+            onInvest={(detail, amount) => {
+              setSheetLoanId(null);
+              setInvestLoan(detail, amount);
+            }}
+            preview={sheetPreview}
+            setRoute={setRoute}
+          />
+        );
+      })() : null}
       <p className="marketplace-footnote">
         Direct-loan progress reflects validated allocations. Originator-claim progress reflects the
         legal claim principal already sold; quoted prices can change as interest accrues or repayments arrive.
@@ -3032,18 +3280,6 @@ function MarketplaceScreen({
         </button>
       </section>
 
-      {showInvestingRule ? (
-        <Modal
-          footer={<Button variant="primary" onClick={() => setShowInvestingRule(false)}>Close</Button>}
-          onClose={() => setShowInvestingRule(false)}
-          title="Investing rule"
-        >
-          <Banner tone="neutral" title="Not active yet">
-            Investing rules are a future BANXUM module. Until it is available, you choose and confirm every investment order individually; no balance is invested automatically.
-          </Banner>
-        </Modal>
-      ) : null}
-
       {showOrderGuide ? (
         <Modal
           footer={<Button variant="primary" onClick={() => setShowOrderGuide(false)}>Close</Button>}
@@ -3063,6 +3299,657 @@ function MarketplaceScreen({
         </Modal>
       ) : null}
     </main>
+  );
+}
+
+function smartInvestRuleSummary(filters: MkFilters, originators: Array<{ id: string; name: string }>) {
+  const originator = originators.find((item) => item.id === filters.orig)?.name;
+  const rows = [
+    {
+      label: "Collateral",
+      value: filters.col === "all"
+        ? "Any collateral"
+        : filters.col === "secured"
+          ? "Collateral required"
+          : filters.col === "unsecured"
+            ? "No collateral required"
+            : humanizeToken(filters.col)
+    },
+    { label: "Currency", value: filters.ccy === "all" ? "CHF and EUR" : filters.ccy },
+    { label: "Minimum yield", value: filters.minRate === null ? "No minimum" : `${filters.minRate.toFixed(1)}% p.a.` },
+    { label: "Maximum term", value: filters.maxTerm === null ? "Any term" : `${filters.maxTerm} months` },
+    {
+      label: "Source",
+      value: filters.orig === "all" ? "BANXUM and all Loan Originators" : filters.orig === "banxum" ? "BANXUM direct loans" : originator ?? "Selected Loan Originator"
+    },
+    { label: "Risk rating", value: filters.rating === "all" ? "Any rating" : filters.rating },
+    { label: "Purpose", value: filters.purpose === "all" ? "Any purpose" : humanizeToken(filters.purpose) },
+    { label: "Loan type", value: filters.kind === "all" ? "New lending and refinancing" : filters.kind === "refi" ? "Refinancing" : "New lending" }
+  ];
+  return rows;
+}
+
+function SmartInvestMatchTable({
+  matches,
+  setRoute
+}: {
+  matches: SmartInvestOpportunity[];
+  setRoute: (route: AppRoute) => void;
+}) {
+  if (matches.length === 0) {
+    return (
+      <div className="smart-invest-empty">
+        <div>Nothing open today matches every condition in your rule.</div>
+        <p>The rule remains active and will alert you when a newly published opportunity qualifies.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="smart-invest-match-table" role="table" aria-label="Smart Invest matches">
+      <div className="smart-invest-match-head" role="row">
+        <span>Company</span><span>Yield</span><span>Term</span><span>Collateral</span><span>Available</span><span />
+      </div>
+      {matches.map((match) => (
+        <button
+          className="smart-invest-match-row"
+          key={match.loan_id}
+          onClick={() => goTo(setRoute, "loan", { loanId: match.loan_id })}
+          role="row"
+          type="button"
+        >
+          <span>
+            <strong>{match.borrower_display_name || match.title}</strong>
+            <small>{match.originator_name ? `Originated by ${match.originator_name}` : match.purpose}</small>
+          </span>
+          <span>{formatRateBps(match.yield_bps)}</span>
+          <span>{match.term_months} mo</span>
+          <span>{match.ltv_bps === null ? "Unsecured" : `${((10_000 - match.ltv_bps) / 100).toFixed(1)}% margin`}</span>
+          <span>{formatMoneyMinor(match.fillable_amount_minor, match.currency)}</span>
+          <span aria-hidden="true">→</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function SmartInvestWizard({
+  initialFilters,
+  onClose,
+  onSave,
+  saving
+}: {
+  initialFilters: MkFilters;
+  onClose: () => void;
+  onSave: (filters: MkFilters) => Promise<void>;
+  saving: boolean;
+}) {
+  const [step, setStep] = useState(0);
+  const [filters, setFilters] = useState(initialFilters);
+  const [error, setError] = useState("");
+  const steps = ["Collateral", "Currency", "Yield", "Term", "Review"];
+  const update = <K extends keyof MkFilters>(key: K, value: MkFilters[K]) => {
+    setFilters((current) => ({ ...current, [key]: value }));
+    setError("");
+  };
+  const finish = async () => {
+    if (!hasSmartInvestCriteria(filters)) {
+      setError("Choose at least one condition before activating Smart Invest.");
+      return;
+    }
+    await onSave(filters);
+  };
+  return (
+    <div className="smart-wizard-backdrop" role="presentation">
+      <button aria-label="Close Smart Invest setup" className="smart-wizard-scrim" onClick={onClose} type="button" />
+      <section aria-labelledby="smart-wizard-title" aria-modal="true" className="smart-wizard" role="dialog">
+        <header>
+          <div>
+            <div className="eyebrow">Smart Invest setup</div>
+            <h2 id="smart-wizard-title">Set the conditions. Review every match.</h2>
+          </div>
+          <button aria-label="Close" className="smart-wizard-close" onClick={onClose} type="button">×</button>
+        </header>
+        <div className="smart-wizard-progress" aria-label={`Step ${step + 1} of ${steps.length}`}>
+          {steps.map((label, index) => (
+            <span className={index <= step ? "on" : ""} key={label}><i />{label}</span>
+          ))}
+        </div>
+        <div className="smart-wizard-body">
+          {step === 0 ? (
+            <>
+              <div className="eyebrow">Step 1 of 5</div>
+              <h3>Must an asset be pledged?</h3>
+              <p>Collateral can reduce loss severity, but it does not guarantee repayment or complete recovery.</p>
+              <div className="smart-choice-grid three">
+                {[
+                  ["secured", "Required", "Only opportunities with disclosed collateral."],
+                  ["unsecured", "Not required", "Only opportunities without pledged collateral."],
+                  ["all", "Either", "Do not filter by collateral." ]
+                ].map(([value, label, note]) => (
+                  <button className={filters.col === value ? "selected" : ""} key={value} onClick={() => update("col", value)} type="button">
+                    <strong>{label}</strong><span>{note}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : null}
+          {step === 1 ? (
+            <>
+              <div className="eyebrow">Step 2 of 5</div>
+              <h3>Which currency should the loan use?</h3>
+              <p>The rule never converts funds and never combines CHF and EUR balances.</p>
+              <div className="smart-choice-grid three">
+                {[["CHF", "CHF only"], ["EUR", "EUR only"], ["all", "CHF and EUR"]].map(([value, label]) => (
+                  <button className={filters.ccy === value ? "selected" : ""} key={value} onClick={() => update("ccy", value)} type="button">
+                    <strong>{label}</strong><span>Match opportunities denominated in {value === "all" ? "either supported currency" : value}.</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : null}
+          {step === 2 ? (
+            <>
+              <div className="eyebrow">Optional · step 3 of 5</div>
+              <h3>Only if it yields at least?</h3>
+              <p>A higher yield is not a quality score. It can be compensation for higher credit risk.</p>
+              <div className="smart-range-value">{filters.minRate === null ? "Any yield" : `${filters.minRate.toFixed(1)}% p.a.`}</div>
+              <input aria-label="Minimum Smart Invest yield" max="25" min="0" onChange={(event) => update("minRate", Number(event.target.value) === 0 ? null : Number(event.target.value))} step="0.1" type="range" value={filters.minRate ?? 0} />
+              <div className="smart-range-ends"><span>No floor</span><span>25%</span></div>
+            </>
+          ) : null}
+          {step === 3 ? (
+            <>
+              <div className="eyebrow">Optional · step 4 of 5</div>
+              <h3>A ceiling on how long?</h3>
+              <p>The term controls how long the scheduled claim can remain outstanding, subject to early repayment, delay or default.</p>
+              <div className="smart-range-value">{filters.maxTerm === null ? "Any term" : `${filters.maxTerm} months`}</div>
+              <input aria-label="Maximum Smart Invest term" max="120" min="6" onChange={(event) => update("maxTerm", Number(event.target.value) === 120 ? null : Number(event.target.value))} step="6" type="range" value={filters.maxTerm ?? 120} />
+              <div className="smart-range-ends"><span>6 months</span><span>No ceiling</span></div>
+            </>
+          ) : null}
+          {step === 4 ? (
+            <>
+              <div className="eyebrow">Step 5 of 5 · review</div>
+              <h3>This is your rule.</h3>
+              <div className="smart-review-list">
+                {smartInvestRuleSummary(filters, []).slice(0, 4).map((row, index) => (
+                  <button key={row.label} onClick={() => setStep(index)} type="button">
+                    <span>{row.label}</span><i /><strong>{row.value}</strong><small>change</small>
+                  </button>
+                ))}
+              </div>
+              <div className="smart-wizard-disclosure">
+                Smart Invest sends you a transactional alert when a newly published opportunity matches. It never places an order, reserves balance or judges whether the borrower is suitable for you.
+              </div>
+            </>
+          ) : null}
+          {error ? <div className="smart-inline-error" role="alert">{error}</div> : null}
+        </div>
+        <footer>
+          <button disabled={step === 0 || saving} onClick={() => setStep((current) => Math.max(0, current - 1))} type="button">Back</button>
+          <span />
+          {step < steps.length - 1 ? (
+            <button className="primary" onClick={() => setStep((current) => Math.min(steps.length - 1, current + 1))} type="button">Continue</button>
+          ) : (
+            <button className="primary" disabled={saving} onClick={() => void finish()} type="button">{saving ? "Activating..." : "Activate the rule"}</button>
+          )}
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function SmartInvestScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) {
+  const queryClient = useQueryClient();
+  const smartQuery = useSmartInvestData();
+  const loansQuery = useMarketplaceLoansData();
+  const updateMutation = useV1InvestorSmartInvestUpdate();
+  const deactivateMutation = useV1InvestorSmartInvestDeactivateCreate();
+  const [filters, setFilters] = useState<MkFilters>(mkDefaultFilters);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [error, setError] = useState("");
+  const data = smartQuery.data;
+  const rule = data?.rule;
+  const active = rule?.is_active === true;
+  const loans = loansQuery.data ?? [];
+  const originators = Array.from(
+    new Map(loans.filter((loan) => loan.originator_id && loan.originator_name).map((loan) => [loan.originator_id as string, loan.originator_name as string])).entries()
+  ).map(([id, name]) => ({ id, name })).sort((left, right) => left.name.localeCompare(right.name));
+  const collateralKinds = Array.from(new Set(loans.filter((loan) => !mkIsUnsecured(loan)).map((loan) => loan.collateral_type))).sort();
+  const ratings = Array.from(new Set(loans.map((loan) => loan.risk_rating).filter(Boolean))).sort();
+  const purposes = Array.from(new Set(loans.map((loan) => loan.purpose).filter(Boolean))).sort();
+
+  useEffect(() => {
+    if (rule?.is_active) setFilters(smartInvestFiltersFromRule(rule));
+  }, [rule]);
+
+  const save = async (nextFilters: MkFilters) => {
+    setError("");
+    if (!hasSmartInvestCriteria(nextFilters)) {
+      setError("Choose at least one condition before activating Smart Invest.");
+      return;
+    }
+    if (isReadonlyImpersonationActive()) {
+      setError("Smart Invest cannot be changed in a superadmin read-only view.");
+      return;
+    }
+    try {
+      const response = isFixturePreview
+        ? previewSmartInvestResponse(nextFilters, loans, rule)
+        : await updateMutation.mutateAsync({ data: smartInvestRequestFromFilters(nextFilters) });
+      queryClient.setQueryData(getV1InvestorSmartInvestRetrieveQueryKey(), response);
+      setFilters(nextFilters);
+      setWizardOpen(false);
+      setEditorOpen(false);
+    } catch (saveError) {
+      setError(apiErrorMessage(saveError));
+    }
+  };
+  const deactivate = async () => {
+    setError("");
+    if (isReadonlyImpersonationActive()) {
+      setError("Smart Invest cannot be changed in a superadmin read-only view.");
+      return;
+    }
+    try {
+      const response = isFixturePreview
+        ? {
+            rule: rule ? {
+              ...rule,
+              is_active: false,
+              revision: rule.revision + 1,
+              minimum_yield_bps: null,
+              maximum_term_months: null,
+              originator_scope: OriginatorScopeEnum.all,
+              originator_id: null,
+              collateral_scope: CollateralScopeEnum.all,
+              collateral_type: "",
+              currency_scope: CurrencyScopeEnum.all,
+              risk_rating: "",
+              purpose: "",
+              loan_kind: LoanKindEnum.all,
+              deactivated_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            } : null,
+            match_count: 0,
+            open_opportunity_count: loans.filter(isOpenMarketplaceLoan).length,
+            matches: []
+          } satisfies SmartInvestResponse
+        : await deactivateMutation.mutateAsync();
+      queryClient.setQueryData(getV1InvestorSmartInvestRetrieveQueryKey(), response);
+      setFilters(mkDefaultFilters);
+      setEditorOpen(false);
+    } catch (deactivateError) {
+      setError(apiErrorMessage(deactivateError));
+    }
+  };
+
+  if (smartQuery.isError && !data) {
+    return <ScreenError onRetry={() => void smartQuery.refetch()} title="Smart Invest">We could not load your Smart Invest rule.</ScreenError>;
+  }
+  if (!data) return <ScreenLoading title="Smart Invest" />;
+  const saving = updateMutation.isPending || deactivateMutation.isPending;
+  const update = <K extends keyof MkFilters>(key: K, value: MkFilters[K]) => setFilters((current) => ({ ...current, [key]: value }));
+
+  return (
+    <main className="content smart-invest-page">
+      <section className="smart-invest-hero">
+        <div className={`smart-invest-state ${active ? "active" : "inactive"}`}>{active ? "Active" : "Not active"}</div>
+        <h1>It finds them. You approve them.</h1>
+        <p>You decide the conditions. Nothing is ever committed without your explicit approval.</p>
+        {!active ? (
+          <div className="smart-invest-entry-actions">
+            <button className="smart-invest-start" onClick={() => setWizardOpen(true)} type="button">
+              <span><i><b /><b /><b /><b /><b /></i><small>Five questions · about 2 min</small><strong>Walk me through it</strong><em>first: what must be behind the loan</em></span>
+              <span>Start →</span>
+            </button>
+            <button className="smart-invest-manual" onClick={() => setEditorOpen(true)} type="button"><strong>Set them myself</strong><span>all conditions, in any order ↓</span></button>
+          </div>
+        ) : (
+          <div className="smart-invest-active-card">
+            <div><div className="eyebrow">Active</div><p>The rule checks every newly published opportunity against these conditions and sends you a transactional alert for each new match.</p></div>
+            <div><button onClick={() => setEditorOpen(true)} type="button">Adjust the rule</button><button className="dark" disabled={saving} onClick={() => void deactivate()} type="button">Deactivate the rule</button></div>
+          </div>
+        )}
+      </section>
+
+      {active || editorOpen ? (
+        <section className="smart-invest-conditions">
+          <div className="smart-invest-section-title">
+            <div><div className="eyebrow">Your conditions</div><h2>{editorOpen ? "Set the rule" : "See your rule"}</h2></div>
+            {!editorOpen ? <button onClick={() => setEditorOpen(true)} type="button">Adjust</button> : null}
+          </div>
+          {editorOpen ? (
+            <div className="smart-condition-grid">
+              <div className="smart-condition-card">
+                <label htmlFor="smart-min-yield">Only if it yields at least</label>
+                <strong>{filters.minRate === null ? "Any yield" : `${filters.minRate.toFixed(1)}% p.a.`}</strong>
+                <input id="smart-min-yield" max="25" min="0" onChange={(event) => update("minRate", Number(event.target.value) === 0 ? null : Number(event.target.value))} step="0.1" type="range" value={filters.minRate ?? 0} />
+              </div>
+              <div className="smart-condition-card">
+                <label htmlFor="smart-max-term">Runs no longer than</label>
+                <strong>{filters.maxTerm === null ? "Any term" : `${filters.maxTerm} months`}</strong>
+                <input id="smart-max-term" max="120" min="6" onChange={(event) => update("maxTerm", Number(event.target.value) === 120 ? null : Number(event.target.value))} step="6" type="range" value={filters.maxTerm ?? 120} />
+              </div>
+              <div className="smart-condition-card">
+                <label htmlFor="smart-source">Originated by</label>
+                <select className="select" id="smart-source" onChange={(event) => update("orig", event.target.value)} value={filters.orig}>
+                  <option value="all">BANXUM and all Loan Originators</option>
+                  <option value="banxum">BANXUM direct loans</option>
+                  {originators.map((originator) => <option key={originator.id} value={originator.id}>{originator.name}</option>)}
+                </select>
+              </div>
+              <div className="smart-condition-card">
+                <label htmlFor="smart-collateral">Collateral</label>
+                <select className="select" id="smart-collateral" onChange={(event) => update("col", event.target.value)} value={filters.col}>
+                  <option value="all">Any collateral</option><option value="secured">With collateral</option><option value="unsecured">Without collateral</option>
+                  {collateralKinds.map((kind) => <option key={kind} value={kind}>{humanizeToken(kind)}</option>)}
+                </select>
+              </div>
+              <div className="smart-condition-card"><label>Currency</label><Segmented options={[{ value: "all", label: "CHF + EUR" }, { value: "CHF", label: "CHF" }, { value: "EUR", label: "EUR" }]} value={filters.ccy} onChange={(value) => update("ccy", value)} /></div>
+              <div className="smart-condition-card">
+                <label htmlFor="smart-rating">Risk rating</label>
+                <select className="select" id="smart-rating" onChange={(event) => update("rating", event.target.value)} value={filters.rating}><option value="all">Any rating</option>{ratings.map((rating) => <option key={rating} value={rating}>{rating}</option>)}</select>
+              </div>
+              <div className="smart-condition-card">
+                <label htmlFor="smart-purpose">Purpose</label>
+                <select className="select" id="smart-purpose" onChange={(event) => update("purpose", event.target.value)} value={filters.purpose}><option value="all">Any purpose</option>{purposes.map((purpose) => <option key={purpose} value={purpose}>{humanizeToken(purpose)}</option>)}</select>
+              </div>
+              <div className="smart-condition-card"><label>Loan type</label><Segmented options={[{ value: "all", label: "All" }, { value: "new", label: "New" }, { value: "refi", label: "Refinancing" }]} value={filters.kind} onChange={(value) => update("kind", value)} /></div>
+              <div className="smart-condition-actions">
+                <p>{loans.filter(isOpenMarketplaceLoan).filter((loan) => mkMatches(loan, filters)).length} of {loans.filter(isOpenMarketplaceLoan).length} open opportunities match these conditions now.</p>
+                <button onClick={() => { setEditorOpen(false); setFilters(smartInvestFiltersFromRule(rule)); }} type="button">Cancel</button>
+                <button className="primary" disabled={saving || !hasSmartInvestCriteria(filters)} onClick={() => void save(filters)} type="button">{saving ? "Saving..." : active ? "Save changes" : "Activate the rule"}</button>
+              </div>
+            </div>
+          ) : (
+            <div className="smart-rule-summary">
+              {smartInvestRuleSummary(smartInvestFiltersFromRule(rule), originators).map((row) => <div key={row.label}><span>{row.label}</span><i /><strong>{row.value}</strong></div>)}
+            </div>
+          )}
+          {error ? <div className="smart-inline-error" role="alert">{error}</div> : null}
+        </section>
+      ) : null}
+
+      {active ? (
+        <section className="smart-invest-matches">
+          <div className="smart-invest-section-title"><div><div className="eyebrow">Matched by your rule</div><h2>{data.match_count} open {data.match_count === 1 ? "opportunity" : "opportunities"}</h2></div><button onClick={() => goTo(setRoute, "market")} type="button">Open full marketplace</button></div>
+          <SmartInvestMatchTable matches={data.matches} setRoute={setRoute} />
+        </section>
+      ) : null}
+
+      <section className="smart-invest-limitations">
+        <h2>What the rule will not do</h2>
+        <div>
+          <p><b>01</b><strong>It does not judge a borrower.</strong> A yield above your floor is not a sign of quality. The rule matches disclosed fields only.</p>
+          <p><b>02</b><strong>It never invests for you.</strong> No balance is reserved and no order is placed until you review an opportunity and complete its normal confirmation flow.</p>
+          <p><b>03</b><strong>It does not guarantee availability.</strong> A match can fill, close, change status or stop accepting investments before you act.</p>
+          <p><b>04</b><strong>It does not combine currencies.</strong> CHF and EUR opportunities and balances remain separate, even when your rule accepts both.</p>
+        </div>
+      </section>
+      {wizardOpen ? <SmartInvestWizard initialFilters={mkDefaultFilters} onClose={() => setWizardOpen(false)} onSave={save} saving={saving} /> : null}
+    </main>
+  );
+}
+
+function osProjection(amountMinor: number, yieldBps: number, termMonths: number, repaymentType: string) {
+  const monthlyRate = yieldBps / 120_000;
+  if (repaymentType === "equal_installments" && monthlyRate > 0) {
+    const payment = (amountMinor * monthlyRate) / (1 - Math.pow(1 + monthlyRate, -termMonths));
+    const total = payment * termMonths;
+    return { totalMinor: Math.round(total), interestMinor: Math.round(total - amountMinor), monthlyMinor: Math.round(payment) };
+  }
+  const interest = amountMinor * (yieldBps / 10_000) * (termMonths / 12);
+  return { totalMinor: Math.round(amountMinor + interest), interestMinor: Math.round(interest), monthlyMinor: null };
+}
+
+function MarketplaceLoanSheet({
+  preview,
+  onClose,
+  onInvest,
+  setRoute
+}: {
+  preview: MarketplaceLoanPreview;
+  onClose: () => void;
+  onInvest: (loan: MarketplaceLoanDetail, amount: string) => void;
+  setRoute: (route: AppRoute) => void;
+}) {
+  const detailQuery = useLoanDetailData(preview.loan_id);
+  const balances = useBalancesData().data;
+  const portfolio = usePortfolioData(true).data;
+  const [stepOpen, setStepOpen] = useState(false);
+  const [amountText, setAmountText] = useState<string | null>(null);
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", listener);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", listener);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  const detail = detailQuery.data ?? null;
+  const loan = detail ?? preview;
+  const ccy = loan.currency;
+  const claim = isOriginatorClaimLoan(loan);
+  const yieldBps = marketplaceYieldBps(loan);
+  const openLoan = isOpenMarketplaceLoan(loan);
+  const ltvBps = loan.ltv_bps;
+  const collateralValueMinor = detail?.collateral_value_minor ?? 0;
+  const hasAsset = collateralValueMinor > 0 && ltvBps !== null && ltvBps !== undefined;
+  const penaltyBps = detail?.default_penalty_interest_bps ?? 0;
+  const repaymentType = detail?.repayment_type ?? "equal_installments";
+  const minimumBps = loan.minimum_subscription_bps ?? 5_000;
+  const pct = loan.principal_minor > 0 ? Math.round((loan.committed_principal_minor / loan.principal_minor) * 100) : 0;
+  const availableMinor = marketplaceAvailableMinor(loan);
+  const todayMs = Date.now();
+  const daysToClose = !claim && loan.funding_deadline
+    ? Math.max(0, Math.ceil((new Date(`${loan.funding_deadline}T00:00:00`).getTime() - todayMs) / 86_400_000))
+    : claim && typeof loan.remaining_term_days === "number"
+      ? Math.max(0, loan.remaining_term_days - 30)
+      : null;
+  const investableMinor = sumLotAvailableMinor(currentInvestableLotsForLoanCurrency(balances?.lots, loan));
+  const commitableMinor = Math.min(investableMinor, availableMinor);
+  const minInvestMinor = loan.minimum_investment_minor;
+  const parsed = amountText === null ? null : parseMoneyInputToMinorUnits(amountText, ccy);
+  const amountMinor = amountText === null ? Math.max(Math.min(commitableMinor, availableMinor), 0) : (parsed?.amountMinor ?? 0);
+  const amountValue = amountText ?? formatMoneyMinor(amountMinor, ccy);
+  const overCash = amountMinor > commitableMinor;
+  const underMin = amountMinor < minInvestMinor;
+  const projection = osProjection(investableMinor > 0 ? investableMinor : minInvestMinor, yieldBps, loan.term_months, repaymentType);
+  const walletBase = investableMinor > 0 ? investableMinor : minInvestMinor;
+  const commitProjection = osProjection(amountMinor, yieldBps, loan.term_months, repaymentType);
+  const bookMinor = (portfolio?.holdings ?? [])
+    .filter((holding) => holding.currency === ccy)
+    .reduce((sum, holding) => sum + holding.current_principal_minor, 0);
+  const originLine = claim
+    ? `originated by ${loan.originator_name ?? "a loan originator"}${detail?.loan_start_date ? ` · ${new Date(`${detail.loan_start_date}T00:00:00`).toLocaleDateString("en-GB", { month: "long", year: "numeric" })}` : ""}${(loan.skin_in_the_game_bps ?? 0) > 0 ? ` · kept ${formatRateBps(loan.skin_in_the_game_bps ?? 0)}` : ""}`
+    : "originated by Banxum · written when this opportunity funds";
+  const borrowerLabel = loan.borrower_display_name || loan.title;
+  const chain = claim
+    ? `Your claim is against ${borrowerLabel}. Banxum collects it and holds the charge — ${loan.originator_name ?? "the originator"} is not in that chain${(loan.skin_in_the_game_bps ?? 0) > 0 ? `, and it kept ${formatRateBps(loan.skin_in_the_game_bps ?? 0)} of this loan, so it loses alongside you` : ""}.`
+    : `We underwrote this loan ourselves and we collect it. Your claim is against ${borrowerLabel}, and Banxum holds the charge over the collateral on your behalf.`;
+  const metMinimum = loan.principal_minor > 0
+    && loan.committed_principal_minor * 10_000 >= loan.principal_minor * minimumBps;
+  const minPct = Math.round(minimumBps / 100);
+  const goDetail = () => {
+    onClose();
+    goTo(setRoute, "loan", { loanId: loan.loan_id });
+  };
+  const reviewOrder = () => {
+    if (!detail || underMin || amountMinor <= 0 || overCash) return;
+    onInvest(detail, formatMoneyMinor(amountMinor, ccy).replace(/[^\d.]/g, ""));
+  };
+  const presets: { label: string; minor: number }[] = [
+    { label: "Minimum", minor: minInvestMinor },
+    { label: "Half", minor: Math.max(minInvestMinor, Math.floor(commitableMinor / 2)) },
+    { label: "Maximum", minor: commitableMinor }
+  ];
+
+  return (
+    <div className="ls-scrim">
+      <button aria-label="Dismiss" className="ls-overlay-btn" onClick={onClose} tabIndex={-1} type="button" />
+      <div aria-label={loan.title} aria-modal="true" className="ls-modal" role="dialog">
+        <div className="ls-scroll" style={{ opacity: stepOpen ? 0.5 : 1 }}>
+          <div className="os-head">
+            <div className="os-head-main">
+              <div className="os-name">{loan.title}</div>
+              <div className="os-origin">{originLine}</div>
+            </div>
+            <div className="os-stats">
+              <div className="os-stat"><div className="os-stat-val">{formatRateBps(yieldBps)}</div><div className="os-stat-cap">a year</div></div>
+              <div className="os-stat"><div className="os-stat-val">{loan.term_months} mo</div><div className="os-stat-cap">{pfPaysLabel(repaymentType)}</div></div>
+              <div className="os-stat"><div className="os-stat-val" style={hasAsset ? undefined : { color: "#C4312C" }}>{hasAsset ? formatRateBps(ltvBps ?? 0) : "none"}</div><div className="os-stat-cap">{hasAsset ? "of valuation" : "no asset"}</div></div>
+              {daysToClose !== null ? (
+                <div className="os-stat"><div className="os-stat-val" style={daysToClose <= 7 ? { color: "#C4312C" } : undefined}>{daysToClose} {daysToClose === 1 ? "day" : "days"}</div><div className="os-stat-cap">to close</div></div>
+              ) : null}
+            </div>
+            <button aria-label="Close" className="ls-x" onClick={onClose} type="button">×</button>
+          </div>
+
+          <div className="os-body">
+            <div className="os-grid2">
+              <div className="os-card">
+                <div className="os-cap">Use of funds</div>
+                <div className="os-text">{detail?.purpose_description || humanizeToken(loan.purpose)}</div>
+                {hasAsset ? (
+                  <div className="os-kv"><span className="os-kv-lbl">Amount lent</span><span className="os-kv-dots" /><span className="os-kv-val">{pfMoneyLabel(ccy, loan.principal_minor)}</span></div>
+                ) : null}
+              </div>
+              <div className="os-card">
+                <div className="os-cap">Collateral</div>
+                <div className="os-text os-text-gap">{detail?.collateral_description || humanizeToken(loan.collateral_type)}</div>
+                {hasAsset ? (
+                  <>
+                    <div className="os-ltv-bar"><div style={{ width: `${Math.min(100, (ltvBps ?? 0) / 100)}%` }} /></div>
+                    <div className="os-trio">
+                      <div><div className="os-trio-val">{pfMoneyLabel(ccy, collateralValueMinor)}</div><div className="os-stat-cap">Valuation</div></div>
+                      <div><div className="os-trio-val">{pfMoneyLabel(ccy, loan.principal_minor)}</div><div className="os-stat-cap">Lent against it</div></div>
+                      <div><div className="os-trio-val">{formatRateBps(ltvBps ?? 0)}</div><div className="os-stat-cap">Margin</div></div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="os-none">
+                    <span className="os-none-word">None</span>
+                    <span className="os-none-text">Nothing is pledged. If it stops paying there is no asset to sell — only a claim against the owner.</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="os-card">
+              <div className="os-card-head"><span className="os-cap">What your {pfMoneyLabel(ccy, walletBase)} does here</span><span className="os-over">over {loan.term_months} months</span></div>
+              <div className="os-wallet">
+                <div className="os-wallet-col">
+                  <div className="os-wallet-cap">Illustrative — if paid as scheduled</div>
+                  <div className="os-wallet-val">{pfMoneyLabel(ccy, projection.totalMinor)}</div>
+                  <div className="os-wallet-sub">{pfMoneyLabel(ccy, walletBase)} your capital returning + {pfMoneyLabel(ccy, projection.interestMinor)} interest{projection.monthlyMinor ? `, arriving as ${pfMoneyLabel(ccy, projection.monthlyMinor)} a month — not in one payment` : repaymentType === "bullet_periodic_interest" ? ", interest monthly and capital at maturity" : ", paid at maturity"}</div>
+                </div>
+                <div className="os-wallet-col last">
+                  <div className="os-wallet-cap red">If it stops paying</div>
+                  <div className="os-wallet-val">{penaltyBps > 0 ? `${formatRateBps(penaltyBps)} a year` : "—"}</div>
+                  <div className="os-wallet-sub">{penaltyBps > 0 ? "penalty interest accrues to you on what is outstanding" : "no penalty interest is configured for this loan"}</div>
+                </div>
+              </div>
+            </div>
+
+            {!claim ? (
+              <div className="os-card">
+                <div className="os-card-head"><span className="os-cap">Subscription window</span><span className="os-over">{loan.funding_deadline ? `closes ${formatDate(loan.funding_deadline)}` : ""}</span></div>
+                <div className="os-window">
+                  <div className="os-window-fill" style={{ width: `${Math.min(100, pct)}%`, background: metMinimum ? "#1E6A4B" : "#151719" }} />
+                  <div className="os-window-min" style={{ left: `${Math.min(100, minPct)}%` }} />
+                  <div className="os-window-knob" style={{ left: `${Math.min(100, pct)}%`, borderColor: metMinimum ? "#1E6A4B" : "#151719" }} />
+                </div>
+                <div className="os-window-line"><span className="os-window-sub"><strong>{pct}%</strong> subscribed · {pfMoneyLabel(ccy, availableMinor)} available</span><span className="ls-spacer" /><span className="os-window-sub">minimum {minPct}%</span></div>
+                {openLoan ? (
+                  metMinimum ? (
+                    <div className="os-strip met">
+                      <span className="os-strip-lead">Minimum reached</span>
+                      <span className="os-strip-text">At the deadline, BANXUM automatically closes the loan at the subscribed amount if settlement controls complete. If a technical or accounting control blocks close, the opportunity is paused and escalated while reservations remain unchanged.</span>
+                    </div>
+                  ) : (
+                    <div className="os-strip short">
+                      <span className="os-strip-lead">{Math.max(0, minPct - pct)} points to the minimum</span>
+                      <span className="os-strip-text">Every opportunity starts here. If subscriptions are still below {minPct}% at the close, no loan is made and every franc returns to your account — you are not committed to a loan that stays undersubscribed.</span>
+                    </div>
+                  )
+                ) : null}
+              </div>
+            ) : (
+              <div className="os-card">
+                <div className="os-cap os-cap-gap">Availability</div>
+                <div className="os-window plain"><div className="os-window-fill" style={{ width: `${Math.min(100, pct)}%`, background: "#151719" }} /></div>
+                <div className="os-window-line"><span className="os-window-sub"><strong>{pct}%</strong> taken by other investors · {pfMoneyLabel(ccy, availableMinor)} available</span></div>
+              </div>
+            )}
+
+            <div className="os-card">
+              <div className="os-cap">Who you are lending to</div>
+              <div className="os-text">{chain}</div>
+            </div>
+          </div>
+        </div>
+
+        {!stepOpen ? (
+          <div className="os-invest-bar">
+            <div className="os-bar-col">
+              <div className="os-wallet-cap">You can commit</div>
+              <div className="os-bar-row"><span className="os-bar-val">{pfMoneyLabel(ccy, commitableMinor)}</span><span className="os-bar-sub">{pfMoneyLabel(ccy, investableMinor)} not lent</span></div>
+            </div>
+            <div className="os-bar-col split">
+              <div className="os-wallet-cap green">You would earn</div>
+              <div className="os-bar-row"><span className="os-bar-val green">≈ {pfMoneyLabel(ccy, osProjection(commitableMinor, yieldBps, loan.term_months, repaymentType).interestMinor)}</span><span className="os-bar-sub">interest, over {loan.term_months} months</span></div>
+            </div>
+            <span className="ls-spacer" />
+            {!claim && detail ? (
+              <button className="os-meet-btn" onClick={goDetail} type="button">Meet the borrower →</button>
+            ) : claim && detail ? (
+              <button className="os-meet-btn" onClick={goDetail} type="button">The full credit file →</button>
+            ) : null}
+            <button className="ls-sell-btn" disabled={!openLoan || !detail || commitableMinor <= 0} onClick={() => setStepOpen(true)} title={!openLoan ? "This opportunity is not open to new investment." : commitableMinor <= 0 ? "No investable balance is available in this currency." : undefined} type="button">Invest now</button>
+          </div>
+        ) : (
+          <div className="os-step">
+            <div className="os-step-head"><span className="os-cap">How much do you want to lend</span><span className="ls-spacer" /><span className="os-over">minimum {pfMoneyLabel(ccy, minInvestMinor)} · {pfMoneyLabel(ccy, availableMinor)} available in this opportunity</span></div>
+            <div className="os-step-grid">
+              <div className="os-step-amount">
+                <div className="os-amt-box">
+                  <span className="os-amt-ccy">{ccy === "EUR" ? "€" : ccy}</span>
+                  <input aria-label="Amount to invest" className="os-amt-input" inputMode="decimal" onChange={(event) => setAmountText(event.target.value)} type="text" value={amountValue} />
+                </div>
+                <div className="os-chips">
+                  {presets.map((preset) => (
+                    <button className="os-chip" key={preset.label} onClick={() => setAmountText(formatMoneyMinor(preset.minor, ccy).replace(/[^\d.]/g, ""))} type="button">{preset.label}</button>
+                  ))}
+                </div>
+                {overCash ? <div className="os-step-note">Only {pfMoneyLabel(ccy, investableMinor)} is not lent — today's maximum here.</div> : null}
+                {underMin && amountMinor > 0 ? <div className="os-step-note">The minimum in any one loan is {pfMoneyLabel(ccy, minInvestMinor)}.</div> : null}
+              </div>
+              <div className="os-step-mid">
+                <div className="os-kv"><span className="os-kv-lbl">Scheduled — to your account</span><span className="os-kv-dots" /><span className="os-kv-val">{pfMoneyLabel(ccy, commitProjection.totalMinor)}</span></div>
+                <div className="os-kv"><span className="os-kv-lbl">Of which interest</span><span className="os-kv-dots" /><span className="os-kv-val">{pfMoneyLabel(ccy, commitProjection.interestMinor)}</span></div>
+              </div>
+              <div className="os-step-commit">
+                <div className="os-wallet-cap">You commit</div>
+                <div className="os-commit-val">{pfMoneyLabel(ccy, amountMinor)}</div>
+                <div className="os-commit-sub">
+                  {availableMinor > 0 ? `${((amountMinor / availableMinor) * 100).toFixed(1)}% of what is available here` : ""}
+                  <br />
+                  {bookMinor > 0 ? `${((amountMinor / (bookMinor + amountMinor)) * 100).toFixed(1)}% of everything you have lent` : "your first loan in this currency"}
+                </div>
+                <button className="os-confirm" disabled={underMin || overCash || amountMinor <= 0 || !detail} onClick={reviewOrder} type="button">Review Order</button>
+                <button className="os-cancel" onClick={() => { setStepOpen(false); setAmountText(null); }} type="button">Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -8047,13 +8934,13 @@ function LegalDocumentPage() {
   );
 }
 
-function OriginatorClaimInvestModal({ loan, onClose }: { loan: MarketplaceLoanDetail; onClose: () => void }) {
+function OriginatorClaimInvestModal({ loan, onClose, initialAmount }: { loan: MarketplaceLoanDetail; onClose: () => void; initialAmount?: string }) {
   const queryClient = useQueryClient();
   const balances = useBalancesData().data;
   const investableLots = currentInvestableLotsForLoanCurrency(balances?.lots, loan);
   const investableBalanceMinor = sumLotAvailableMinor(investableLots);
   const maxInvest = Math.min(investableBalanceMinor, loan.fillable_amount_minor);
-  const [amount, setAmount] = useState("");
+  const [amount, setAmount] = useState(initialAmount ?? "");
   const [step, setStep] = useState<"amount" | "review" | "confirm" | "done">("amount");
   const [ack1, setAck1] = useState(false);
   const [ack2, setAck2] = useState(false);
@@ -8250,14 +9137,14 @@ function OriginatorClaimInvestModal({ loan, onClose }: { loan: MarketplaceLoanDe
   );
 }
 
-function InvestModal({ loan, onClose }: { loan: MarketplaceLoanDetail; onClose: () => void }) {
+function InvestModal({ loan, onClose, initialAmount }: { loan: MarketplaceLoanDetail; onClose: () => void; initialAmount?: string }) {
   const queryClient = useQueryClient();
   const balances = useBalancesData().data;
   const investableLots = currentInvestableLotsForLoanCurrency(balances?.lots, loan);
   const investableBalanceMinor = sumLotAvailableMinor(investableLots);
   const maxInvest = Math.min(investableBalanceMinor, loan.remaining_capacity_minor);
-  const [amount, setAmount] = useState("");
-  const [step, setStep] = useState<"amount" | "review" | "confirm" | "done">("amount");
+  const [amount, setAmount] = useState(initialAmount ?? "");
+  const [step, setStep] = useState<"amount" | "review" | "confirm" | "done">(initialAmount ? "review" : "amount");
   const [ack1, setAck1] = useState(false);
   const [ack2, setAck2] = useState(false);
   const [code, setCode] = useState("");
@@ -8485,8 +9372,4 @@ function ScreenLoading({ title }: { title: string }) {
 function priceLabel(discountPremiumBps: number) {
   if (discountPremiumBps === 0) return "At par";
   return discountPremiumBps < 0 ? `${Math.abs(discountPremiumBps / 100).toFixed(1)}% discount` : `${(discountPremiumBps / 100).toFixed(1)}% premium`;
-}
-
-function sumAmounts(amounts: Array<{ amount_minor: number }>) {
-  return amounts.reduce((sum, item) => sum + item.amount_minor, 0);
 }

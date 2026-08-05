@@ -23,6 +23,7 @@ ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.
 
 PLATFORM_BRAND_NAME = env("PLATFORM_BRAND_NAME", default="BANXUM")
 LEGAL_OPERATOR_NAME = env("LEGAL_OPERATOR_NAME", default="Garanta Finanzgruppe AG")
+OPERATIONS_ALERT_EMAIL = env("OPERATIONS_ALERT_EMAIL", default="hq@banxum.com")
 PUBLIC_APP_BASE_URL = env("PUBLIC_APP_BASE_URL", default="http://localhost:5173")
 DJANGO_ADMIN_ENABLED = env.bool("DJANGO_ADMIN_ENABLED", default=ENVIRONMENT == "local")
 API_DOCS_ENABLED = env.bool("API_DOCS_ENABLED", default=ENVIRONMENT == "local")
@@ -52,6 +53,7 @@ INSTALLED_APPS = [
     "backend.apps.communications",
     "backend.apps.reporting",
     "backend.apps.investor_portal",
+    "backend.apps.smart_invest",
     "backend.apps.admin_ops",
 ]
 

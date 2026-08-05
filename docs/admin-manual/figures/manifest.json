@@ -3299,7 +3299,7 @@
         "kind": "modal",
         "title": "Manage loan - choose an action",
         "cssWidth": 720,
-        "cssHeight": 549,
+        "cssHeight": 471,
         "scale": 2,
         "items": [
           {
@@ -3312,33 +3312,25 @@
           },
           {
             "role": "action",
-            "text": "Close funding",
+            "text": "Cancel fundingConfirmation required",
             "x": 36,
             "y": 221,
+            "w": 648,
+            "h": 21
+          },
+          {
+            "role": "action",
+            "text": "Resolve funding deadline",
+            "x": 36,
+            "y": 300,
             "w": 648,
             "h": 20
           },
           {
             "role": "action",
-            "text": "Cancel fundingConfirmation required",
-            "x": 36,
-            "y": 316,
-            "w": 648,
-            "h": 21
-          },
-          {
-            "role": "action",
-            "text": "Run funding expiry scanConfirmation required",
-            "x": 36,
-            "y": 394,
-            "w": 648,
-            "h": 21
-          },
-          {
-            "role": "action",
             "text": "Release an order's balanceConfirmation required",
             "x": 36,
-            "y": 473,
+            "y": 394,
             "w": 648,
             "h": 21
           },
@@ -3352,33 +3344,25 @@
           },
           {
             "role": "button",
-            "text": "Close fundingEnd the funding round: allocated orders become holdings, escrow moves on, and",
+            "text": "Cancel fundingConfirmation requiredStop the campaign before close: reserved balances are r",
             "x": 21,
             "y": 208,
+            "w": 678,
+            "h": 68
+          },
+          {
+            "role": "button",
+            "text": "Resolve funding deadlineApply the stored minimum automatically: close at the subscribed am",
+            "x": 21,
+            "y": 287,
             "w": 678,
             "h": 84
           },
           {
             "role": "button",
-            "text": "Cancel fundingConfirmation requiredStop the campaign before close: reserved balances are r",
-            "x": 21,
-            "y": 303,
-            "w": 678,
-            "h": 68
-          },
-          {
-            "role": "button",
-            "text": "Run funding expiry scanConfirmation requiredCancel published campaigns whose funding deadl",
-            "x": 21,
-            "y": 381,
-            "w": 678,
-            "h": 68
-          },
-          {
-            "role": "button",
             "text": "Release an order's balanceConfirmation requiredReturn one allocated order's reserved balan",
             "x": 21,
-            "y": 460,
+            "y": 381,
             "w": 678,
             "h": 68
           },
@@ -3394,7 +3378,7 @@
             "role": "status",
             "text": "Confirmation required",
             "x": 535,
-            "y": 316,
+            "y": 221,
             "w": 149,
             "h": 21
           },
@@ -3405,23 +3389,15 @@
             "y": 394,
             "w": 149,
             "h": 21
-          },
-          {
-            "role": "status",
-            "text": "Confirmation required",
-            "x": 535,
-            "y": 473,
-            "w": 149,
-            "h": 21
           }
         ]
       },
       {
-        "id": "loans-12-manage-close-funding",
+        "id": "loans-12-manage-funding-deadline",
         "kind": "modal",
-        "title": "Manage loan - close funding",
+        "title": "Manage loan - resolve funding deadline",
         "cssWidth": 720,
-        "cssHeight": 533,
+        "cssHeight": 663,
         "scale": 2,
         "items": [
           {
@@ -3434,17 +3410,33 @@
           },
           {
             "role": "field",
-            "text": "Funding close reason",
+            "text": "Funding resolution as-of date",
             "x": 21,
             "y": 221,
+            "w": 333,
+            "h": 18
+          },
+          {
+            "role": "field",
+            "text": "Scan this loan only",
+            "x": 366,
+            "y": 221,
+            "w": 333,
+            "h": 19
+          },
+          {
+            "role": "field",
+            "text": "Below-minimum cancellation reason",
+            "x": 21,
+            "y": 308,
             "w": 678,
             "h": 18
           },
           {
             "role": "field",
-            "text": "Investor message",
+            "text": "Below-minimum investor message",
             "x": 21,
-            "y": 349,
+            "y": 458,
             "w": 678,
             "h": 18
           },
@@ -3466,9 +3458,9 @@
           },
           {
             "role": "button",
-            "text": "Close funding",
+            "text": "Resolve funding deadline",
             "x": 21,
-            "y": 478,
+            "y": 608,
             "w": 678,
             "h": 34
           },

@@ -8,6 +8,7 @@ export type RouteName =
   | "kyc"
   | "dashboard"
   | "market"
+  | "smartInvest"
   | "loan"
   | "portfolio"
   | "secondary"

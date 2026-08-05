@@ -194,6 +194,7 @@ class PrimaryLoanCloseView(APIView):
                     reason=data["reason"],
                     investor_message=data.get("investor_message", ""),
                     idempotency_key=data["idempotency_key"],
+                    retry_failed=True,
                 )
             )
         except (MarketplacePrimaryAuthorizationError, MarketplacePrimaryValidationError) as exc:

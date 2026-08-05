@@ -124,6 +124,14 @@ class AdminTask(TimestampedModel):
                 fields=["task_type", "related_object_type", "related_object_id"],
                 name="unique_originator_settlement_task",
             ),
+            models.UniqueConstraint(
+                condition=models.Q(
+                    task_type=AdminTaskType.LOAN_SETUP,
+                    related_object_type="LoanFundingCloseFailure",
+                ),
+                fields=["task_type", "related_object_type", "related_object_id"],
+                name="unique_loan_funding_close_failure_task",
+            ),
         ]
 
     @property

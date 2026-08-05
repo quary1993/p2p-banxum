@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, timedelta
+from importlib import import_module
 from typing import Any, cast
 
 from django.apps import apps
@@ -102,6 +103,7 @@ class CreateLoanCommand:
     lender_payment_fee_minor: int = 0
     default_penalty_interest_bps: int = 0
     recovery_fee_bps: int = 0
+    minimum_subscription_bps: int = 5_000
     manual_schedule_rows: list[ManualScheduleRowCommand] | None = None
     note: str = ""
 
@@ -136,9 +138,11 @@ class UpdateLoanCommand:
     lender_payment_fee_minor: int | None = None
     default_penalty_interest_bps: int | None = None
     recovery_fee_bps: int | None = None
+    minimum_subscription_bps: int | None = None
     manual_schedule_rows: list[ManualScheduleRowCommand] | None = None
     investor_message: str = ""
     note: str = ""
+    funding_close_adjustment: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -642,6 +646,7 @@ def _loan_metadata(
         "term_months": loan.term_months,
         "repayment_type": loan.repayment_type,
         "risk_rating": loan.risk_rating,
+        "minimum_subscription_bps": loan.minimum_subscription_bps,
         "ltv_bps": loan.ltv_bps,
         "ltv_warnings": loan.ltv_warnings,
         "loan_start_date": loan.loan_start_date.isoformat(),
@@ -796,6 +801,9 @@ def create_loan(command: CreateLoanCommand) -> Loan:
         allow_zero=True,
     )
     recovery_fee_bps = _validate_fee_bps(command.recovery_fee_bps, "Recovery fee")
+    minimum_subscription_bps = int(command.minimum_subscription_bps)
+    if minimum_subscription_bps < 0 or minimum_subscription_bps > 10_000:
+        raise LoanValidationError("Minimum subscription must be between 0% and 100%.")
     schedule_rows, effective_interest_only_months = generate_schedule_for_terms(
         principal_minor=principal_minor,
         currency=currency.code,
@@ -836,6 +844,7 @@ def create_loan(command: CreateLoanCommand) -> Loan:
         lender_payment_fee_minor=lender_payment_fee_minor,
         default_penalty_interest_bps=default_penalty_interest_bps,
         recovery_fee_bps=recovery_fee_bps,
+        minimum_subscription_bps=minimum_subscription_bps,
         recovery_waterfall_version=PAYMENT_WATERFALL_VERSION,
         total_scheduled_principal_minor=sum(row.principal_minor for row in schedule_rows),
         total_scheduled_interest_minor=sum(row.interest_minor for row in schedule_rows),
@@ -903,6 +912,7 @@ def _post_commit_change_keys(command: UpdateLoanCommand) -> set[str]:
         "lender_payment_fee_minor": command.lender_payment_fee_minor,
         "default_penalty_interest_bps": command.default_penalty_interest_bps,
         "recovery_fee_bps": command.recovery_fee_bps,
+        "minimum_subscription_bps": command.minimum_subscription_bps,
         "manual_schedule_rows": command.manual_schedule_rows,
     }
     return {key for key, value in values.items() if value is not None}
@@ -932,11 +942,31 @@ def update_loan(command: UpdateLoanCommand) -> Loan:
             "Loan Originator claims must be changed through the originator-claims workflow."
         )
 
+    if (
+        command.minimum_subscription_bps is not None
+        and int(command.minimum_subscription_bps) != int(loan.minimum_subscription_bps)
+        and loan.status != LoanStatus.DRAFT
+    ):
+        raise LoanValidationError(
+            "Minimum subscription can only be changed while the loan is a draft."
+        )
+
+    if (
+        command.principal_minor is not None
+        and int(command.principal_minor) != int(loan.principal_minor)
+        and loan.status != LoanStatus.DRAFT
+        and not command.funding_close_adjustment
+    ):
+        raise LoanValidationError(
+            "Financeable principal is frozen at publication and can only be reduced by "
+            "deterministic funding close."
+        )
+
     if loan.committed_principal_minor > 0:
         disallowed = _post_commit_change_keys(command)
         if disallowed:
             raise LoanValidationError(
-                "After committed investments exist, only the total amount may be lowered."
+                "Loan terms cannot be edited after committed investments exist."
             )
         if command.principal_minor is None:
             raise LoanValidationError("No allowed loan change was provided.")
@@ -1105,6 +1135,16 @@ def update_loan(command: UpdateLoanCommand) -> Loan:
             loan=loan,
             field="recovery_fee_bps",
             value=_validate_fee_bps(command.recovery_fee_bps, "Recovery fee"),
+            changes=changes,
+        )
+    if command.minimum_subscription_bps is not None:
+        minimum_subscription_bps = int(command.minimum_subscription_bps)
+        if minimum_subscription_bps < 0 or minimum_subscription_bps > 10_000:
+            raise LoanValidationError("Minimum subscription must be between 0% and 100%.")
+        _set_if_changed(
+            loan=loan,
+            field="minimum_subscription_bps",
+            value=minimum_subscription_bps,
             changes=changes,
         )
     if command.is_refinancing is not None:
@@ -1326,5 +1366,11 @@ def publish_loan(command: PublishLoanCommand) -> Loan:
             payload=metadata,
             idempotency_key=f"loan:{loan.id}:published",
         )
+    )
+    import_module(
+        "backend.apps.smart_invest.services"
+    ).notify_smart_invest_matches_for_published_loan(
+        loan_id=str(loan.id),
+        product_type=LoanProductType.DIRECT,
     )
     return loan

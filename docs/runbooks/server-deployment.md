@@ -267,6 +267,13 @@ Use `--job <name>` to run a subset, and `--force` only for an explicit operator-
 In staging and production, `SCHEDULED_JOBS_ACTOR_EMAIL` must point to a dedicated active scheduler
 service admin account, not a human admin account.
 
+Set `OPERATIONS_ALERT_EMAIL` to the monitored operations mailbox (`hq@banxum.com` at launch).
+The daily primary-funding resolver uses this address when a deadline close/cancellation fails. Such
+a failure removes the loan from public listings, preserves investor reservations, and creates an
+urgent admin task. Alerting must page on the email/outbox failure as well as on open
+`LoanFundingCloseFailure` tasks; operators then fix the cause and retry the deterministic resolver
+or cancel/refund the campaign.
+
 Monitoring should call the read-only check command and alert on any non-zero exit:
 
 ```bash
@@ -281,6 +288,11 @@ The monitor fails when it finds:
 
 - a scheduled-job run still marked `failed`; or
 - a `running` scheduled-job run older than `SCHEDULED_JOBS_RUNNING_TIMEOUT_MINUTES`.
+
+Separately monitor open urgent admin tasks whose related object type is
+`LoanFundingCloseFailure`. Scheduled-job success only proves the scan completed; an individual
+campaign can intentionally finish the scan in the preserved-reservation failure state and still
+require immediate operations action.
 
 Example cron shape for the current shared-server launch, using only BANXUM project names and paths:
 

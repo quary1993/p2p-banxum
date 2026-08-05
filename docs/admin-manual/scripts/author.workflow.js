@@ -123,14 +123,14 @@ const SCREENS = [
   },
   {
     key: 'loans', title: 'Loans & Marketplace',
-    figures: ['loans-5-borrowers', 'loans-6-loans', 'loans-7-primary-marketplace-operations', 'loans-8-secondary-market-approvals', 'loans-9-servicing-and-recovery'],
+    figures: ['loans-6-loan-originators', 'loans-7-borrowers', 'loans-8-loans', 'loans-11-manage-loan-actions', 'loans-12-manage-funding-deadline', 'loans-9-secondary-market-approvals', 'loans-10-servicing-operations'],
     kpiFigure: 'loans-0-key-metrics',
     files: [
-      '${ROOT}/frontend/src/adminConsole/AdminModulePanels.tsx (LoansPanel ~line 1680: Borrowers table, Loans table, Create borrower/loan, LoanPublishCloseForm/Primary marketplace operations, ServicingOpsForm, SecondaryMarketAdminForm)',
+      '${ROOT}/frontend/src/adminConsole/AdminModulePanels.tsx (LoansPanel: Loan Originators, Borrowers and Loans tables; draft create/edit; status-aware Manage dialog; deterministic funding-deadline resolution; servicing/recovery; secondary-market approvals)',
       '${ROOT}/backend/apps/entities (BorrowerEntity, KYB, can_transact, compliance_hold)',
-      '${ROOT}/backend/apps/loans/services.py (draft/publish/close/cancel gates), ${ROOT}/backend/apps/marketplace_primary (orders, allocate, release), ${ROOT}/backend/apps/secondary_market (listing approvals), ${ROOT}/backend/apps/servicing (repayments, ageing scan, recovery)',
+      '${ROOT}/backend/apps/loans/services.py (draft/publish gates and publication-frozen principal/minimum subscription), ${ROOT}/backend/apps/marketplace_primary (orders, allocation, deterministic deadline close/cancellation, failure escalation and release), ${ROOT}/backend/apps/secondary_market (listing approvals), ${ROOT}/backend/apps/servicing (repayments, ageing scan, recovery)',
     ],
-    focus: 'The lending engine. Borrowers are companies admins enter by hand (no borrower login). Explain: the Borrowers table & KYB gate; the Loans table (status/amount/rate/LTV/funding deadline) and that loans only publish when fields+schedule+funding window+borrower KYB pass; Primary marketplace operations (publish/close/cancel a loan, release a stuck investor order); Servicing and recovery (record a repayment, run a servicing scan, add notes, recovery); Secondary-market approvals (approve/reject reselling of holdings). Define LTV, funding deadline, allocation, primary vs secondary.',
+    focus: 'The lending engine. Borrowers are companies admins enter by hand (no borrower login). Explain: the Borrowers table and publication-time KYB gate; the unified Loans table; direct-loan draft fields including the default-50%-but-configurable minimum subscription; publication permanently freezes financeable principal and minimum subscription; after the deadline the server automatically closes at the subscribed amount when the threshold is met or cancels/refunds below it. There is no discretionary manual close. Explain the funding_close_failed state: the opportunity is removed from public view, reservations stay untouched, and an urgent task plus operations email require an explicit retry or cancellation. Routine KYB expiry after publication does not block deterministic close, but a compliance hold or adverse/review status does. Cover release of a stuck order, servicing/recovery and secondary-market approvals. Define LTV, funding deadline, allocation, primary vs secondary.',
   },
   {
     key: 'reports', title: 'Reports & Audit',

@@ -24,6 +24,7 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("api/v1/documents/", include("backend.apps.documents.api.urls")),
     path("api/v1/reporting/", include("backend.apps.reporting.api.urls")),
     path("api/v1/investor/portal/", include("backend.apps.investor_portal.api.urls")),
+    path("api/v1/investor/smart-invest/", include("backend.apps.smart_invest.api.urls")),
 ]
 
 if settings.DJANGO_ADMIN_ENABLED:

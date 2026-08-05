@@ -307,6 +307,7 @@ def test_admin_dashboard_aggregates_daily_operations(
         "withdrawals_requested": 1,
         "forced_withdrawals_requested": 1,
         "published_loans": 1,
+        "funding_close_failed_loans": 0,
         "late_loans": 0,
         "defaulted_loans": 1,
         "written_off_loans": 0,
@@ -417,9 +418,12 @@ def test_reconciliation_break_task_sync_creates_idempotent_tasks(
     assert "reconciliation_difference" in diff_task.notes
     assert integrity_task.priority == AdminTaskPriority.URGENT
     assert "investor_balance_integrity_breaks" in integrity_task.notes
-    assert AuditEvent.objects.filter(
-        action="admin_ops.reconciliation_break_tasks_synced",
-    ).count() == 2
+    assert (
+        AuditEvent.objects.filter(
+            action="admin_ops.reconciliation_break_tasks_synced",
+        ).count()
+        == 2
+    )
     assert DomainEvent.objects.filter(event_type="ReconciliationBreakTasksSynced").count() == 2
 
 

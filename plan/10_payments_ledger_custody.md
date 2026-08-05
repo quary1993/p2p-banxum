@@ -199,22 +199,30 @@ Define minimum evidence for manual matching, refund approval workflow, and how l
 ### PAY-DEC-008: Underfunded or Deadline-Reached Campaigns
 
 Status: Accepted.
-Date: 2026-05-15.
+Date: 2026-05-15. Superseded 2026-08-05.
 Owner: Garanta operations / finance / credit.
 
 Decision:
-When a loan reaches the funding deadline or approaches the 60-day holding limit without full funding, admin decides whether to release funds back to investor balances/withdraw funds or move forward with the loan using a partial amount. Lenders must be notified if the loan proceeds with a partial amount.
+Each direct primary-market loan has a `minimum_subscription_bps` threshold. The default is 5,000 bps (50% of the advertised financeable principal), and an admin may override it per loan only while the loan is a draft. Publication discloses and permanently freezes both the threshold and advertised financeable principal, even when no investor funds have yet been committed.
+
+After the Europe/Zurich funding deadline passes, the scheduled funding resolver locks the loan and determines the outcome from the committed principal and the configured threshold. The exact required amount is rounded up to the next minor unit: `ceil(principal_minor * minimum_subscription_bps / 10,000)`.
+
+- At or above the threshold, the loan closes automatically at the committed amount. A partial close reduces the financeable principal to that amount and regenerates the repayment schedule.
+- Below the threshold, the campaign is cancelled automatically and all allocated reservations are released to their original balance lots.
+- Admins do not choose a discretionary partial-close outcome after the deadline.
 
 Lender reconfirmation is not required for partial funding, because this will be covered in the initial terms of service. Notification is enough.
 
-There is no fixed minimum partial funding threshold at launch. Admin decides case by case.
+If the deterministic close/cancellation cannot complete, the loan moves to `funding_close_failed`, is removed from the public marketplace, and retains every investor reservation unchanged. The platform opens one urgent admin task and emails the configured operations mailbox. Admin fixes the cause and retries the same deterministic resolution, or explicitly cancels and refunds the campaign. The retry cannot choose a different threshold outcome.
 
-If admin accepts a partially funded loan, the accepted funded amount becomes the final financeable principal. The repayment schedule is regenerated from the accepted funded principal with the same term, the same interest percentage, and the same percentage BANXUM fee. The borrower success fee applies to the accepted funded principal and books as Garanta revenue at disbursement, and the borrower repays the accepted funded principal plus agreed interest. For refinancing loans, the declared original loan data and informational original schedule are preserved unchanged.
+Routine KYB expiry does not block funding close. An explicit compliance hold, declined/review status, or another integrity/processing failure does block close and enters the operational failure path above.
+
+The accepted funded amount becomes the final financeable principal. The repayment schedule is regenerated from the accepted funded principal with the same term, interest percentage, and percentage BANXUM fee. The borrower success fee applies to the accepted funded principal and books as Garanta revenue at disbursement. For legacy refinancing loans, declared original-loan data and the informational original schedule remain unchanged.
 
 If funds are not used for the loan and are credited back to investor balance, the credited amount receives its own balance ledger entry and ageing deadlines according to the balance policy.
 
 Rationale:
-The platform must support both refund and admin-approved partial close outcomes, while preserving the 60-day holding limit and investor notification requirements.
+The outcome must be predictable to investors, race-safe at the deadline, and independent of discretionary admin judgment. The same loan-row lock protects the threshold decision and close/cancellation, and the failure state preserves investor money if an operational dependency fails.
 
 Follow-ups:
 Define the initial TOS language for partial funding and investor notification wording.
@@ -306,7 +314,7 @@ Date: 2026-05-15.
 Owner: Garanta legal / product / operations.
 
 Decision:
-If admin decides to proceed with a partially funded loan, lender reconfirmation is not required. Notification is enough because partial funding permission will be included in the initial terms of service.
+If the configured minimum subscription is met and the deterministic resolver proceeds with a partially funded loan, lender reconfirmation is not required. Notification is enough because partial funding permission is included in the initial terms of service.
 
 Rationale:
 This keeps partial-close operations practical while making the consent basis explicit in the initial legal terms.
@@ -317,17 +325,17 @@ Add partial-funding consent language to platform terms and investment acknowledg
 ### PAY-DEC-014: Partial Funding Threshold
 
 Status: Accepted.
-Date: 2026-05-15.
+Date: 2026-05-15. Superseded 2026-08-05.
 Owner: Garanta credit / operations.
 
 Decision:
-There is no fixed minimum partial funding threshold at launch. Admin decides case by case whether to proceed with a partial amount.
+Every direct primary-market loan has a configurable minimum subscription in basis points. The launch default is 5,000 bps (50%), with a case-by-case override allowed while the loan remains a draft. Publication discloses and permanently freezes the threshold, even when no investor commitment exists yet. The threshold is applied automatically after the funding deadline.
 
 Rationale:
-Real estate backed loan economics may vary by deal, and the first launch version should preserve operational flexibility.
+Per-loan configuration preserves deal-specific credit judgment while giving investors a deterministic disclosed close rule and removing deadline-time discretion.
 
 Follow-ups:
-Capture admin reason codes for partial funding decisions and consider configurable thresholds later.
+Final legal templates must disclose the configured threshold and automatic partial-close/cancellation outcome.
 
 ### PAY-DEC-015: Internal Distribution Artifacts
 
@@ -922,11 +930,11 @@ Examples:
 8. Answered by PAY-DEC-007 and PAY-DEC-016: surplus can be credited to balance where policy permits or returned; wrong-reference payments are investigated off-platform and held in suspense until matched, credited, or returned.
 9. Answered by FIN-DEC-002: platform ledger is the immutable transaction-level operational subledger/source of truth and exports configurable monthly debit/credit accounting data to Bexio.
 10. Answered by PAY-DEC-009: secondary-market money moves through Garanta's collection account or investor balance for full-holding transfers; maker/seller fee is 0.25% and taker/buyer fee is 0.75%, both calculated on transfer price excluding accrued interest, rounded half-up, and charged at settlement; accrued interest to settlement belongs to seller; net proceeds are credited to seller balance within the maximum operational period.
-11. Answered by PAY-DEC-008: admin decides refund all or proceed with partial funding and notify lenders when a deadline/limit is reached.
+11. Superseded by PAY-DEC-008/PAY-DEC-014: the configured per-loan minimum subscription determines automatic close or cancellation after the deadline; admins do not choose case by case.
 12. Answered by PAY-DEC-010: one collection account/IBAN per enabled currency.
 13. Answered by PAY-DEC-011: each loan is single-currency.
 14. Answered by PAY-DEC-012: cross-currency transfers are not advised but not blocked if correct amount/reference arrives.
-15. Answered by PAY-DEC-013 and PAY-DEC-014: partial close requires notification only, with no fixed minimum threshold; admin decides case by case.
+15. Answered by PAY-DEC-013 and PAY-DEC-014: partial close requires notification only and occurs automatically when the disclosed per-loan minimum subscription is met.
 16. Answered by PAY-DEC-016: when lender funds exceed remaining loan capacity, accepted amount is allocated and excess is refund due or balance-creditable according to policy; if no capacity remains, no investor exposure is created.
 17. Answered by PAY-DEC-017: balance reminders occur on days 25, 46, 53, 58, 59, and 60; day-60 reminder announces penalties.
 18. Answered by PAY-DEC-018: currency exchange is an auxiliary settlement function, not trading/speculation; launch pairs are CHF/EUR and EUR/CHF, with no minimum amount, CHF 100,000 per-investor daily maximum or equivalent configurable by admin, Yahoo Finance source rates, configurable 1.5% launch platform fee, live executable quotes fixed for 1 minute, background display polling, same-provider sanity checks, at-least-6-decimal stored precision, 2-decimal normal display, 4-decimal FX confirmation display, and half-up rounding.

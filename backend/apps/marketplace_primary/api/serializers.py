@@ -41,6 +41,7 @@ class MarketplaceLoanPreviewSerializer(serializers.Serializer[Any]):
     originator_name = serializers.CharField(allow_null=True)
     borrower_display_name = serializers.CharField(allow_null=True)
     skin_in_the_game_bps = serializers.IntegerField(required=False, default=0)
+    minimum_subscription_bps = serializers.IntegerField(required=False, default=5_000)
 
 
 class MarketplaceOriginalLoanScheduleRowSerializer(serializers.Serializer[Any]):
@@ -79,6 +80,7 @@ class MarketplaceOriginatorPaymentRowSerializer(serializers.Serializer[Any]):
 
 
 class MarketplaceLoanDetailSerializer(MarketplaceLoanPreviewSerializer):
+    default_penalty_interest_bps = serializers.IntegerField(required=False, default=0)
     borrower_id = serializers.UUIDField(allow_null=True)
     borrower_disclosure = serializers.DictField()
     investor_summary = serializers.CharField()
@@ -214,6 +216,10 @@ class PrimaryLoanExpiryScanResponseSerializer(serializers.Serializer[Any]):
     as_of_date = serializers.DateField()
     scanned_count = serializers.IntegerField()
     cancelled_count = serializers.IntegerField()
+    closed_count = serializers.IntegerField(required=False, default=0)
+    closes = PrimaryLoanCloseSerializer(many=True, required=False)
+    failed_count = serializers.IntegerField(required=False, default=0)
+    failures = serializers.ListField(child=serializers.DictField(), required=False)
     skipped_count = serializers.IntegerField()
     cancellations = PrimaryLoanCancellationSerializer(many=True)
     skipped = serializers.ListField(child=serializers.DictField())
@@ -242,6 +248,7 @@ def serialize_primary_expiry_scan_result(result: dict[str, Any]) -> dict[str, An
     return {
         **result,
         "as_of_date": as_of_date.isoformat() if hasattr(as_of_date, "isoformat") else as_of_date,
+        "closes": [serialize_primary_loan_close(close) for close in result.get("closes", [])],
         "cancellations": [
             serialize_primary_loan_cancellation(cancellation)
             for cancellation in result["cancellations"]

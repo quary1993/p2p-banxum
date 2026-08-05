@@ -117,7 +117,7 @@
         {
           "item": 13,
           "label": "Queue tab: Funding loans (Marketplace)",
-          "text": "Loans that are published on the marketplace and are being funded by investors, approaching their funding deadline or close review. Populated from loans in status 'published', sorted by funding deadline. The amount shown is the principal still left to fund. Act on these in the Loans module."
+          "text": "Direct loans still raising funds plus non-public funding-close failures that need intervention. Published campaigns are sorted by deadline; a funding_close_failed item has preserved investor reservations and an urgent operations task. Fix its cause in Loans, then retry deterministic resolution or cancel/refund."
         },
         {
           "item": 14,

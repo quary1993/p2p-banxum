@@ -32,6 +32,7 @@ PORTAL_BODY_VISIBLE_EMAIL_TOPICS = frozenset(
         "email.recovery_distribution_credited",
         "email.loan_status_changed",
         "email.loan_risk_note_published",
+        "email.smart_invest_opportunity_match",
     }
 )
 

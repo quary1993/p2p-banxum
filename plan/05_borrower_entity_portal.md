@@ -122,7 +122,7 @@ Mandatory borrower display fields for launch are entity name and year founded. A
 - Borrower must be a supported legal entity before a loan record is saved or published.
 - Borrower cannot publish to marketplace directly and has no portal access.
 - Off-platform compliance status must be acceptable before listing.
-- KYB/AML approval is required before loan publication, funding close, disbursement, repayment processing, or any other platform transaction involving the borrower.
+- KYB/AML approval is required before loan publication, disbursement, repayment processing, or any other platform transaction involving the borrower. Routine KYB expiry after publication does not block deterministic funding close; compliance holds and adverse/review statuses remain blocking.
 - Off-platform credit review must be complete before admin saves or publishes the loan.
 - Signatory authority must be verified before contract signature.
 - Bank account changes require elevated verification and approval.

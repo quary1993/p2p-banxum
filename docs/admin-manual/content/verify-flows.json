@@ -15,7 +15,7 @@
     {
       "location": "Flow 'Disburse a funded loan to the borrower' > step 3 and step 4 (GATES).",
       "problem": "HISTORICAL (pre-refinancing slice): at the time, finalize_borrower_disbursement required the entered Amount to equal the loan's outstanding borrower-disbursement-payable balance exactly, plus sufficient collection cash. The equality rule has since been replaced by the default funded-principal-minus-fee model with an explained joint override.",
-      "fix": "SUPERSEDED in the refinancing-loans slice: 'Close funding' now moves the FULL accepted principal into the borrower payable (no fee accrual at close; planned fee recorded as evidence only). The disbursement defaults to funded principal minus the BANXUM fee (default 2% via borrower_success_fee_bps), the fee books as Garanta revenue at disbursement, amount and fee are readonly and can only be overwritten together with a required explanation note, validations are transfer + fee <= funded amount and fee between 0 and 10% of funded, collection cash must cover the transfer, and any unpaid remainder stays in the payable. The flow text now documents that model.",
+      "fix": "SUPERSEDED: deterministic deadline resolution moves the full accepted principal into borrower payable (no fee accrual at close). Disbursement defaults to funded principal minus the BANXUM fee, books the fee at disbursement, and permits an explained amount/fee override only when the two values still exactly clear the full payable. No residual borrower payable is allowed.",
       "severity": "high"
     },
     {

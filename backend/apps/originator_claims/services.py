@@ -352,9 +352,7 @@ def _skin_bps(value: Any) -> int:
         )
     parsed = value
     if parsed < 0 or parsed >= 10_000:
-        raise OriginatorClaimsValidationError(
-            "Skin in the game must be between 0% and 99.99%."
-        )
+        raise OriginatorClaimsValidationError("Skin in the game must be between 0% and 99.99%.")
     return parsed
 
 
@@ -396,9 +394,7 @@ def _allocate_principal_with_retention(
         raise OriginatorClaimsValidationError(
             "Originator loan has no principal ownership to distribute."
         )
-    retained_before_minor = -(
-        -(principal_before_minor * parsed_skin_bps) // 10_000
-    )
+    retained_before_minor = -(-(principal_before_minor * parsed_skin_bps) // 10_000)
     if originator_principal_minor < retained_before_minor:
         raise OriginatorClaimsValidationError(
             "Originator-owned principal is below the declared skin-in-the-game floor."
@@ -408,12 +404,8 @@ def _allocate_principal_with_retention(
         raise OriginatorClaimsValidationError(
             "Repayment principal exceeds the current outstanding principal."
         )
-    retained_after_minor = -(
-        -(principal_after_minor * parsed_skin_bps) // 10_000
-    )
-    proportional_parts = allocate_by_weights(
-        Money(principal_minor, currency), principal_weights
-    )
+    retained_after_minor = -(-(principal_after_minor * parsed_skin_bps) // 10_000)
+    proportional_parts = allocate_by_weights(Money(principal_minor, currency), principal_weights)
     max_originator_principal_minor = originator_principal_minor - retained_after_minor
     originator_principal_part_minor = min(
         proportional_parts[-1].amount_minor,
@@ -432,9 +424,7 @@ def _allocate_principal_with_retention(
         )
     if any(
         part.amount_minor > owned_minor
-        for part, owned_minor in zip(
-            investor_principal_parts, holding_principals, strict=True
-        )
+        for part, owned_minor in zip(investor_principal_parts, holding_principals, strict=True)
     ):
         raise OriginatorClaimsValidationError(
             "Repayment principal allocation exceeds an investor holding."
@@ -444,9 +434,7 @@ def _allocate_principal_with_retention(
         Money(originator_principal_part_minor, currency),
     ]
     if sum(part.amount_minor for part in principal_parts) != principal_minor:
-        raise OriginatorClaimsValidationError(
-            "Repayment principal allocation does not reconcile."
-        )
+        raise OriginatorClaimsValidationError("Repayment principal allocation does not reconcile.")
     return principal_parts, retained_after_minor
 
 
@@ -1207,6 +1195,12 @@ def publish_originator_loan(command: PublishOriginatorLoanCommand) -> Originator
             "sellable_principal_minor": originator_sellable_principal_minor(profile),
         },
     )
+    import_module(
+        "backend.apps.smart_invest.services"
+    ).notify_smart_invest_matches_for_published_loan(
+        loan_id=str(loan.id),
+        product_type="originator_claim",
+    )
     return profile
 
 
@@ -1755,6 +1749,7 @@ def originator_marketplace_payload(
             "purpose_description": profile.loan.purpose_description,
             "collateral_value_minor": collateral_value,
             "collateral_description": profile.loan.collateral_description,
+            "default_penalty_interest_bps": int(profile.loan.default_penalty_interest_bps),
             "ltv_warnings": (
                 ["Loan-to-value exceeds 100%."] if ltv_bps and ltv_bps > 10_000 else []
             ),
@@ -2231,9 +2226,7 @@ def _purchase_originator_claim_after_sensitive_code(
         profile.opportunity_status = OriginatorOpportunityStatus.CLOSED
         profile.closed_at = now
         profile.close_reason = (
-            "skin_in_the_game_floor_reached"
-            if profile.unsold_principal_minor > 0
-            else "fully_sold"
+            "skin_in_the_game_floor_reached" if profile.unsold_principal_minor > 0 else "fully_sold"
         )
         update_fields.extend(["opportunity_status", "closed_at", "close_reason"])
     profile.save(update_fields=update_fields)
@@ -2397,9 +2390,7 @@ def _originator_payment_waterfall(
 
     if payment.payment_type == "repayment_in_advance":
         containing = [
-            row
-            for row in rows
-            if row.accrual_start_date <= payment.value_date < row.due_date
+            row for row in rows if row.accrual_start_date <= payment.value_date < row.due_date
         ]
         if containing:
             row = containing[-1]
@@ -2407,9 +2398,7 @@ def _originator_payment_waterfall(
             elapsed_days = max(0, (payment.value_date - row.accrual_start_date).days)
             prorated_interest = int(
                 (
-                    Decimal(int(row.interest_minor))
-                    * Decimal(elapsed_days)
-                    / Decimal(period_days)
+                    Decimal(int(row.interest_minor)) * Decimal(elapsed_days) / Decimal(period_days)
                 ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
             )
             interest_due = max(
@@ -2534,10 +2523,7 @@ def _originator_repayment_plan(
         "penalty_minor": penalty_parts[-1].amount_minor,
         "fee_minor": 0,
     }
-    if (
-        originator_principal_minor - originator_components["principal_minor"]
-        < retained_after_minor
-    ):
+    if originator_principal_minor - originator_components["principal_minor"] < retained_after_minor:
         raise OriginatorClaimsValidationError(
             "Repayment would breach the declared skin-in-the-game floor."
         )

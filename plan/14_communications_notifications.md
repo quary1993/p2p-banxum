@@ -33,6 +33,7 @@ Define transactional notifications, operational messaging, support communication
 - KYC/KYB session started/completed.
 - Compliance information request.
 - Investment order confirmation.
+- Smart Invest newly published opportunity match.
 - Primary investment document package generated and sent.
 - Pending order created.
 - Payment received pending validation.
@@ -260,6 +261,25 @@ Template editing needs guardrails so superadmin can safely use valid variables w
 Follow-ups:
 Define the template variable registry, validation rules, preview/test-send behavior, legal review evidence fields, and template rollback process.
 
+### COMMS-DEC-008: Smart Invest Match Alerts Are Transactional And First-Publication-Only
+
+Status: Accepted.
+Date: 2026-08-06.
+Owner: Garanta product / compliance / technology.
+
+Decision:
+When a loan first becomes public and investable, the platform evaluates every active Smart Invest rule owned by an investor who still has financial access. A matching investor receives one transactional email and one portal notification for that investor/loan pair, regardless of marketing consent.
+
+Activating or changing a rule does not backfill alerts for opportunities that were already open. Ordinary changes to an open loan do not resend the match alert. The rule and alert contain discovery information only: they do not reserve a balance, create an order, buy a claim, rank credit quality, or invest automatically.
+
+The Smart Invest setup wizard contains collateral, currency, optional minimum yield, optional maximum term, and review. It intentionally has no repayment/reinvestment preference and no originator-concentration step.
+
+Rationale:
+This gives investors timely notice without presenting Smart Invest as discretionary management, suitability advice, or an automated investment mandate. Per-investor/per-loan deduplication prevents repeated promotional pressure and creates a clear notification audit boundary.
+
+Follow-ups:
+Final legal/compliance review should approve the match-email wording and confirm whether later material loan changes require a separate event-driven notice rather than another Smart Invest match alert.
+
 ## Communication Channels
 
 - Email: primary channel for documents, notices, and confirmations.
@@ -354,6 +374,7 @@ The current backend queues idempotent transactional email outbox messages for:
 - Recovery distributions credited to lender balances.
 - Secondary-market listing lifecycle updates for sellers.
 - Secondary-market buyer and seller purchase/sale confirmations, without exposing counterparty identity.
+- Smart Invest first-publication matches for active, financially eligible investors, deduplicated per investor and loan.
 
 Local development uses the mock email provider. Staging and production must set `COMMUNICATIONS_EMAIL_PROVIDER=sendgrid`, `SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`, and sender-domain DNS before sending real notices. Final advisor-approved template wording, template versioning UI, attachments/secure document links, bounce/suppression webhook handling, and admin dead-letter task creation remain provider/content follow-ups before launch.
 

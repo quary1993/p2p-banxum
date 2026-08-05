@@ -178,9 +178,9 @@ await captureScreen("Loans", "loans", {});
 await clickButtonByText("Manage");
 await sleep(900);
 await captureModalFigure("loans", "manage-loan-actions", "Manage loan - choose an action");
-await evaluate(`(() => { const b = [...document.querySelectorAll('.admin-manage-option')].find(x => x.textContent.includes('Close funding')); if (b) b.click(); })()`);
+await evaluate(`(() => { const b = [...document.querySelectorAll('.admin-manage-option')].find(x => x.textContent.includes('Resolve funding deadline')); if (b) b.click(); })()`);
 await sleep(700);
-await captureModalFigure("loans", "manage-close-funding", "Manage loan - close funding");
+await captureModalFigure("loans", "manage-funding-deadline", "Manage loan - resolve funding deadline");
 await evaluate(`(() => { const b = document.querySelector('.x-btn, .modal-close') || [...document.querySelectorAll('button')].find(x => (x.getAttribute('aria-label')||'') === 'Close'); if (b) b.click(); })()`);
 await sleep(500);
 // Recovery action: open Manage on the defaulted loan, choose Record recovery

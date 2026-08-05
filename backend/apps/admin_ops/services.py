@@ -50,7 +50,7 @@ KYC_ADMIN_REVIEW_STATUSES = frozenset(
         "reverification_required",
     }
 )
-LOAN_FUNDING_STATUS = "published"
+LOAN_FUNDING_STATUSES = frozenset({"published", "funding_close_failed"})
 LOAN_SERVICING_STATUSES = frozenset({"active", "late"})
 LOAN_RISK_STATUSES = frozenset({"late", "defaulted", "written_off"})
 BANK_OPERATION_EXCEPTION_STATUSES = frozenset({"pending_review", "unmatched"})
@@ -370,6 +370,19 @@ class EnsurePayoutInstructionVerificationTaskCommand:
     destination_account_name: str
 
 
+@dataclass(frozen=True, slots=True)
+class EnsureLoanFundingCloseFailureTaskCommand:
+    actor: Model
+    loan_id: str
+    loan_title: str
+    currency: str
+    committed_principal_minor: int
+    target_principal_minor: int
+    minimum_subscription_bps: int
+    failure_reason: str
+    failure_event_id: str
+
+
 def _document_subject_user(user_id: str) -> Model:
     user = get_user_model().objects.filter(id=user_id).first()
     if user is None:
@@ -507,6 +520,98 @@ def create_admin_task(command: CreateAdminTaskCommand) -> AdminTask:
         )
     )
     return task
+
+
+@transaction.atomic
+def ensure_loan_funding_close_failure_task(
+    command: EnsureLoanFundingCloseFailureTaskCommand,
+) -> AdminTask:
+    """Create or reopen the single operational close-failure task for a loan."""
+
+    _require_admin_actor(command.actor)
+    title = f"Funding close failed: {_clean_required(command.loan_title, 'Loan title')}"
+    notes = (
+        "The automatic funding-deadline resolution failed. Investor reservations remain "
+        "locked and the loan has been removed from the marketplace. Resolve the reported "
+        "cause, then retry the deterministic funding resolution or cancel and refund the "
+        "campaign.\n\n"
+        f"Failure: {command.failure_reason.strip() or 'Unknown close failure.'}\n"
+        f"Reserved: {command.currency} {command.committed_principal_minor} minor units\n"
+        f"Target: {command.currency} {command.target_principal_minor} minor units\n"
+        f"Minimum subscription: {command.minimum_subscription_bps} bps\n"
+        f"Failure event: {command.failure_event_id}"
+    )
+    existing = (
+        AdminTask.objects.select_for_update()
+        .filter(
+            task_type=AdminTaskType.LOAN_SETUP,
+            related_object_type="LoanFundingCloseFailure",
+            related_object_id=command.loan_id,
+        )
+        .first()
+    )
+    if existing is None:
+        try:
+            with transaction.atomic():
+                return create_admin_task(
+                    CreateAdminTaskCommand(
+                        actor=command.actor,
+                        task_type=AdminTaskType.LOAN_SETUP,
+                        title=title,
+                        priority=AdminTaskPriority.URGENT,
+                        due_at=timezone.now(),
+                        notes=notes,
+                        related_object_type="LoanFundingCloseFailure",
+                        related_object_id=command.loan_id,
+                    )
+                )
+        except IntegrityError:
+            existing = AdminTask.objects.select_for_update().get(
+                task_type=AdminTaskType.LOAN_SETUP,
+                related_object_type="LoanFundingCloseFailure",
+                related_object_id=command.loan_id,
+            )
+
+    return update_admin_task(
+        UpdateAdminTaskCommand(
+            actor=command.actor,
+            task_id=str(existing.id),
+            title=title,
+            priority=AdminTaskPriority.URGENT,
+            status=AdminTaskStatus.OPEN,
+            due_at=timezone.now(),
+            notes=notes,
+        )
+    )
+
+
+@transaction.atomic
+def resolve_loan_funding_close_failure_task(
+    *,
+    actor: Model,
+    loan_id: str,
+    completion_note: str,
+) -> AdminTask | None:
+    _require_admin_actor(actor)
+    task = (
+        AdminTask.objects.select_for_update()
+        .filter(
+            task_type=AdminTaskType.LOAN_SETUP,
+            related_object_type="LoanFundingCloseFailure",
+            related_object_id=loan_id,
+        )
+        .first()
+    )
+    if task is None or task.status == AdminTaskStatus.RESOLVED:
+        return task
+    return update_admin_task(
+        UpdateAdminTaskCommand(
+            actor=actor,
+            task_id=str(task.id),
+            status=AdminTaskStatus.RESOLVED,
+            completion_note=completion_note,
+        )
+    )
 
 
 @transaction.atomic
@@ -821,10 +926,9 @@ def sync_reconciliation_break_tasks(
     skipped_count = 0
     synced_at = now_utc()
 
-    for snapshot in (
-        reconciliation_model.objects.select_related("currency")
-        .order_by("-as_of_date", "-created_at", "-id")[:limit]
-    ):
+    for snapshot in reconciliation_model.objects.select_related("currency").order_by(
+        "-as_of_date", "-created_at", "-id"
+    )[:limit]:
         break_signals = _reconciliation_break_signals(snapshot)
         if not break_signals:
             skipped_count += 1
@@ -918,10 +1022,9 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
 
     open_task_queryset = AdminTask.objects.exclude(status__in=TERMINAL_ADMIN_TASK_STATUSES)
     overdue_task_count = open_task_queryset.filter(due_at__lt=as_of).count()
-    for task in (
-        open_task_queryset.select_related("assigned_admin")
-        .order_by("due_at", "-created_at", "id")[:queue_limit]
-    ):
+    for task in open_task_queryset.select_related("assigned_admin").order_by(
+        "due_at", "-created_at", "id"
+    )[:queue_limit]:
         queues["admin_tasks"].append(
             _queue_item(
                 kind="admin_task",
@@ -954,9 +1057,7 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
                     "subject_type": str(getattr(case, "subject_type", "")),
                     "subject_reference": str(getattr(case, "subject_reference", "")),
                     "provider": str(getattr(case, "provider", "")),
-                    "manual_review_required": bool(
-                        getattr(case, "manual_review_required", False)
-                    ),
+                    "manual_review_required": bool(getattr(case, "manual_review_required", False)),
                 },
             )
         )
@@ -1114,7 +1215,7 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
                 )
 
     loan_model = _model("loans", "Loan")
-    funding_loans = loan_model.objects.filter(status=LOAN_FUNDING_STATUS).select_related(
+    funding_loans = loan_model.objects.filter(status__in=LOAN_FUNDING_STATUSES).select_related(
         "currency", "borrower"
     )
     for loan in funding_loans.order_by("funding_deadline", "id")[:queue_limit]:
@@ -1132,9 +1233,7 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
                 object_id=str(loan.pk),
                 metadata={
                     "principal_minor": int(getattr(loan, "principal_minor", 0)),
-                    "committed_principal_minor": int(
-                        getattr(loan, "committed_principal_minor", 0)
-                    ),
+                    "committed_principal_minor": int(getattr(loan, "committed_principal_minor", 0)),
                     "borrower_id": str(getattr(loan, "borrower_id", "")),
                 },
             )
@@ -1214,9 +1313,7 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
                 object_id=str(listing.pk),
                 metadata={
                     "loan_id": str(getattr(listing, "loan_id", "")),
-                    "loan_status_at_listing": str(
-                        getattr(listing, "loan_status_at_listing", "")
-                    ),
+                    "loan_status_at_listing": str(getattr(listing, "loan_status_at_listing", "")),
                     "days_past_due": int(getattr(listing, "days_past_due", 0)),
                     "risk_acknowledgement_required": bool(
                         getattr(listing, "risk_acknowledgement_required", False)
@@ -1344,7 +1441,8 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
         "bank_operations_pending": bank_exception_queryset.count(),
         "withdrawals_requested": requested_withdrawals.count(),
         "forced_withdrawals_requested": forced_withdrawals.count(),
-        "published_loans": funding_loans.count(),
+        "published_loans": funding_loans.filter(status="published").count(),
+        "funding_close_failed_loans": funding_loans.filter(status="funding_close_failed").count(),
         "late_loans": risk_loans.filter(status="late").count(),
         "defaulted_loans": risk_loans.filter(status="defaulted").count(),
         "written_off_loans": risk_loans.filter(status="written_off").count(),

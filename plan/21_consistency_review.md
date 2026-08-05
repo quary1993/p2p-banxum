@@ -40,7 +40,7 @@ No unresolved contradiction was found around the major operating model:
 - Marked the first Q/A in the workflow module as historical/completed.
 - Removed stale wording that implied legal-entity lender multi-user/signatory permissions in v1.
 - Removed duplicate/stale "lender payment notification" wording where lender balance-credit notification is the correct v1 behavior.
-- Marked several Q/A backlog items as answered by later decisions, including KYC exception authority, auto-invest future scope, borrower multi-loan handling, no structured borrower post-funding reporting, no fixed partial-funding threshold, no in-platform external credit data source, admin loan approval authority, document retention baseline, and event retention baseline.
+- Marked several Q/A backlog items as answered by later decisions, including KYC exception authority, auto-invest future scope, borrower multi-loan handling, no structured borrower post-funding reporting, the disclosed per-loan partial-funding threshold, no in-platform external credit data source, admin loan approval authority, document retention baseline, and event retention baseline.
 
 ## Module-by-Module Consistency Notes
 
@@ -75,7 +75,7 @@ No unresolved contradiction was found around the major operating model:
 6. Answered: no separate restricted support view or support role in v1; launch admin model is superadmin/admin, with normal email support outside the platform.
 7. Answered: legal-entity lender mandatory fields are legal name, registration number, jurisdiction, registered address, representative name/email/phone, bank IBAN, onboarding/KYB status and date, risk rating, and tax residency. Uploads are optional.
 8. Answered: no private, invitation-only, or segmented listings in v1; listings are visible to all eligible investors.
-9. Answered: before committed investments, all fields can be edited; after committed investments, only total amount can be lowered, with custom investor message/reason and notification only.
+9. Superseded by the 2026-08-05 funding-threshold policy: draft terms can be edited before publication. Financeable principal and the disclosed minimum subscription are immutable from publication onward; only deterministic deadline close may reduce principal to the amount subscribed when the threshold is met, with an investor notice.
 10. Answered for product scope: keep generic checkbox/clickwrap confirmations; exact labels/acknowledgements are legal/template TODOs.
 11. Answered: secondary-market is a bulletin-board claim/participation transfer mechanism. Current/performing listings can be purchased directly after system checks and document acceptance; non-performing/non-standard listings require admin approval before publication and additional buyer acknowledgement before purchase.
 12. Answered: launch secondary-market fees are 0.25% maker/seller and 0.75% taker/buyer, calculated on transfer price excluding accrued interest, rounded half-up to the nearest cent/minor unit, and charged at settlement. Minimum fee support is configurable.
