@@ -1720,7 +1720,7 @@ def _resolve_expired_primary_loan_funding(
 
     loan_model = _model("loans", "Loan")
     loan = (
-        loan_model.objects.select_for_update()
+        loan_model.objects.select_for_update(of=("self",))
         .select_related("currency", "borrower")
         .filter(id=loan_id)
         .first()
