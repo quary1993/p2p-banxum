@@ -183,7 +183,6 @@ class LoanCreateRequestSerializer(serializers.Serializer[Any]):
     lender_payment_fee_minor = serializers.IntegerField(required=False, default=0)
     default_penalty_interest_bps = serializers.IntegerField(required=False, default=0)
     recovery_fee_bps = serializers.IntegerField(required=False, default=0)
-    recovery_waterfall_version = serializers.CharField(required=False, default="v1")
     manual_schedule_rows = ManualScheduleRowRequestSerializer(
         many=True,
         required=False,
@@ -231,7 +230,6 @@ class LoanUpdateRequestSerializer(serializers.Serializer[Any]):
     lender_payment_fee_minor = serializers.IntegerField(required=False)
     default_penalty_interest_bps = serializers.IntegerField(required=False)
     recovery_fee_bps = serializers.IntegerField(required=False)
-    recovery_waterfall_version = serializers.CharField(required=False)
     manual_schedule_rows = ManualScheduleRowRequestSerializer(
         many=True,
         required=False,

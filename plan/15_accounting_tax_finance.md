@@ -98,7 +98,7 @@ The platform must generate a complete annual account statement for each involved
 
 All annual statements and tax summaries must be generated from the same immutable transaction-level ledger used for operational reporting and accounting exports. The tax-relevant summary means income received/credited and costs incurred. Principal movements are separated and shown only for information, reconciliation, and balance explanation, not as income.
 
-For lenders, the tax-relevant summary includes interest received or credited, fees paid, FX costs/fees, potential losses after final default resolution where advisor-approved, recoveries, secondary-market results, and balance penalties if any. Recovery reporting must separate principal recovered, contractual interest accrued until default date, default/penalty interest after default date if applicable, third-party recovery costs, Garanta recovery fee if charged to the recovery waterfall, penalties/costs, and rounding differences. Deposits, withdrawals, funded principal, repaid principal, outstanding principal, and balance movements are shown as information-only principal/balance movements.
+For lenders, the tax-relevant summary includes interest received or credited, fees paid, FX costs/fees, potential losses after final default resolution where advisor-approved, recoveries, secondary-market results, and balance penalties if any. Recovery reporting must separate Garanta recovery fee and third-party costs, penalties/default interest, contractual interest, principal recovered, and rounding differences. Deposits, withdrawals, funded principal, repaid principal, outstanding principal, and balance movements are shown as information-only principal/balance movements.
 
 For borrowers, the tax-relevant summary includes interest paid, Garanta fees including borrower success fee where applicable, administrative costs, FX costs if applicable, penalties, default/penalty interest if applicable, and recovery costs if applicable. Principal received, principal repaid, outstanding principal, drawdown movements, repayment principal, and recovered principal are separated from income/cost items.
 
@@ -201,7 +201,7 @@ Owner: Garanta finance / tax / product.
 Decision:
 The platform stores tax-relevant amounts and makes them available for exports. It does not hardcode VAT, reverse-charge, withholding tax, or other tax obligations at launch unless a later legal/accounting review requires it.
 
-Stored/exportable statement and tax-summary source data includes fees, contractual interest, default/penalty interest if applicable, principal movements, losses after final default resolution where advisor-approved, gross recoveries, externally deducted legal/recovery costs, third-party recovery costs declared at recovery time, Garanta recovery fee if applied, project recovery waterfall configuration/version, net recoveries received by Garanta, net amount available for waterfall allocation, lender recovery distributions, recovery rounding differences, secondary-market results, FX activity, balance penalties, borrower success fee, lender payment fee if non-zero later, secondary-market maker/taker fees, FX fees, configurable tax categories, tax-code placeholders, and source-country/counterparty metadata where available.
+Stored/exportable statement and tax-summary source data includes fees, contractual interest, default/penalty interest if applicable, principal movements, losses after final default resolution where advisor-approved, gross recoveries, externally deducted legal/recovery costs, third-party recovery costs declared at recovery time, Garanta recovery fee if applied, universal recovery-waterfall version, net recoveries received by Garanta, net amount available for waterfall allocation, lender recovery distributions, recovery rounding differences, secondary-market results, FX activity, balance penalties, borrower success fee, lender payment fee if non-zero later, secondary-market maker/taker fees, FX fees, configurable tax categories, tax-code placeholders, and source-country/counterparty metadata where available.
 
 Principal movements are retained for account-statement, reconciliation, and information-only sections. They must not be included in income/cost totals unless a later accountant-approved rule explicitly classifies a specific principal-related loss/recovery/final-resolution amount as tax-relevant.
 
@@ -320,11 +320,11 @@ Confirm final accounting account names, Bexio mappings, and tax treatment for FX
 - Currency-exchange ledger records must retain source-entry lineage for audit/regulatory review, and target-currency entries must inherit balance-ageing deadlines from the source entries consumed by the FX transaction rather than receiving fresh 30/60-day deadlines.
 - Balance ageing penalties must be separately ledgered and reportable if applied.
 - Withdrawals and forced withdrawals must be separately ledgered/reportable as finalized once admin records execution; later bank failures or returns are handled offline and may be attached as notes/documents.
-- Borrower repayments allocate to fees, penalties, then loan interest and principal according to the current schedule; borrower-side penalties are configurable but 0/inactive at launch.
+- Every borrower repayment allocates through the universal order: Garanta legal costs/recovery fee, penalty/default interest, contractual interest, then principal. Borrower-side penalties are configurable but 0/inactive at launch, so a zero-due tier is skipped without changing the order.
 - Normal contractual interest stops accruing on the official default declaration date.
-- Default/penalty interest starts accruing from the official default declaration date instead of regular interest only if provided in the relevant loan/project agreement or project recovery configuration and must be reported separately from contractual interest.
+- Default/penalty interest starts accruing from the official default declaration date instead of regular interest only if provided in the relevant loan agreement or recorded loan recovery terms and must be reported separately from contractual interest.
 - Recovery records must separately show gross recovered amount, externally deducted legal/recovery costs, third-party recovery costs declared at recovery time, Garanta recovery fee decision/amount, net amount received by Garanta, net amount available for waterfall allocation, lender distributions, recovery category split, and recovery rounding differences.
-- Recovery records must store the project recovery waterfall version/configuration used for the calculation.
+- Recovery records must store the universal payment-waterfall version used for the calculation. Payment priority is fixed as Garanta legal costs/recovery fee, penalty/default interest, contractual interest, then principal.
 - Externally deducted legal/recovery costs are not treated as Garanta revenue by default. They are stored as project-linked recovery cost metadata/accounting categories unless the accountant maps a specific event differently.
 - Garanta recovery fee, when applied, is Garanta revenue and must be separately ledgered/exportable from lender principal/interest recovery flows.
 - Recovery distributions are client-money/settlement flows and are not Garanta revenue.
@@ -358,7 +358,7 @@ Confirm final accounting account names, Bexio mappings, and tax treatment for FX
 - Balance ageing penalties, if any.
 - Losses after final default resolution, if advisor-approved.
 - Recoveries.
-- Recovery category split: principal, contractual interest until default date, default/penalty interest after default date if applicable, third-party recovery costs, Garanta recovery fee if applied, other penalties/costs, and rounding differences.
+- Recovery category split: Garanta recovery fee and third-party costs, default/penalty interest and other penalties, contractual interest until default date, principal, and rounding differences.
 - Secondary-market results.
 - Information-only deposits, withdrawals, funded principal, repaid principal, and balance movements.
 - Tax forms if required by jurisdiction.

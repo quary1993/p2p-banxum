@@ -436,6 +436,7 @@ class OriginatorBorrowerRepaymentCreateView(APIView):
                 "fee_minor": repayment.fee_minor,
                 "investor_distributed_minor": repayment.investor_distributed_minor,
                 "originator_payable_minor": repayment.originator_payable_minor,
+                "platform_costs_minor": repayment.platform_costs_minor,
                 "principal_after_minor": repayment.principal_after_minor,
                 "schedule_revision": repayment.loan_profile.schedule_revision,
             },

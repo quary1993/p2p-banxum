@@ -218,26 +218,33 @@ These defaults make schedule generation, arrears status, investor display, and f
 Follow-ups:
 If Garanta later needs other day-count conventions, frequencies, or interest structures, add them as explicit product configuration with schedule golden tests.
 
-### PROD-DEC-009: Project Recovery Waterfall Configuration
+### PROD-DEC-009: Universal Payment Waterfall And Recovery Terms
 
 Status: Accepted.
 Date: 2026-06-01.
 Owner: Garanta product / operations / finance / legal.
 
 Decision:
-Each loan/project must support recovery waterfall configuration for default/recovery handling.
+Every borrower payment uses the same payment-allocation order regardless of loan type, originator, project, or servicing status:
+
+1. Garanta legal costs and recovery fee.
+2. Penalty, including separately reported default/penalty interest where applicable.
+3. Contractual interest.
+4. Principal.
+
+The order is server-owned and cannot be overridden per loan/project. A tier may be zero when no amount is due, but principal is never paid while a higher-priority due amount remains unpaid.
 
 Launch configuration fields:
 
 - Default/penalty interest percentage. This interest starts accruing from the official default declaration date instead of regular contractual interest. Launch interpretation is annual nominal percentage unless the project agreement defines another basis.
 - Garanta recovery fee percentage, meaning Garanta's commission for handling recovery.
 - Recovery fee base, defaulting to net recovered amount after declared third-party recovery/legal costs unless the project agreement defines another base.
-- Recovery waterfall order/version. Unless overridden for a project, the default waterfall is external recovery/legal costs, platform-approved recovery costs including applied Garanta recovery fee, principal, contractual interest accrued until default, default/penalty interest, and other penalties/costs.
+- Universal waterfall version, stored as evidence so historical allocations remain explainable. The stored version identifies the fixed order above; it is not an editable project priority.
 
-At recovery-payment recording time, admin declares third-party recovery costs and chooses whether to apply the configured Garanta recovery fee for that specific payment.
+At recovery-payment recording time, admin declares third-party recovery costs, chooses whether to apply the configured Garanta recovery fee for that payment, and records evidence-backed outstanding penalty/default-interest and contractual-interest obligations. The server derives the actual allocation and current principal.
 
 Rationale:
-Recovery economics are negotiated/legal terms and may vary by project. The platform needs project-level configuration so recovery events can be calculated deterministically without hardcoding a single global policy.
+Recovery rates and amounts may vary by loan agreement, but payment priority must not. One shared allocator prevents direct, Loan-Originator, late, and default paths from drifting or moving principal ahead of costs, penalties, or interest.
 
 Follow-ups:
 Confirm final legal wording for project recovery fee and default/penalty interest disclosures in loan documentation.
@@ -261,7 +268,7 @@ Confirm final legal wording for project recovery fee and default/penalty interes
 - Default/penalty interest percentage for recovery/default period.
 - Recovery fee percentage.
 - Recovery fee base.
-- Recovery waterfall order/version.
+- Universal payment-waterfall version (read-only evidence; not a configurable priority).
 - Repayment type.
 - Grace period rules.
 - Collateral type.
@@ -296,7 +303,7 @@ Confirm final legal wording for project recovery fee and default/penalty interes
 - Currency exchange between enabled investor balance currencies is a platform/payment feature, not a loan-product feature.
 - Borrower success fee defaults to 2% of the funded principal (`borrower_success_fee_bps`) and is withheld from the borrower disbursement. At funding close the full accepted principal moves to the borrower disbursement payable and the planned fee is recorded as evidence only; the fee books as Garanta/BANXUM revenue at disbursement. The default disbursement amount and fee are readonly and may only be overwritten together with a required explanation note, subject to borrower transfer + fee <= funded amount and fee between 0 and 10% of the funded amount. The fee has no investor/client website impact and does not affect the borrower repayment schedule.
 - `lender_payment_fee` should be configurable per lender installment distribution; launch value is 0.
-- Default/penalty interest, recovery fee percentage, recovery fee base, and recovery waterfall order are project-level terms used only after default/recovery status.
+- Default/penalty interest rate, recovery-fee percentage, and recovery-fee base may be loan terms used after default/recovery status; the payment-waterfall order remains universal and non-overridable.
 - Product constraints are enforced in origination and investment flows.
 - Default collateral/backing type is real estate collateral, but admin can choose other collateral types.
 - V1 collateral capture is limited to collateral type, collateral value, and optional free-text collateral description for all collateral types.

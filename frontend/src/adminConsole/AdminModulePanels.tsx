@@ -3130,7 +3130,7 @@ function OriginatorLoanEvidenceReview({ detail }: { detail: OriginatorAdminLoanD
         <h3>Imported contractual schedule</h3>
         <div className="table-wrap admin-table-wrap">
           <table className="admin-table admin-schedule-table">
-            <thead><tr><th>#</th><th>Accrual start</th><th>Due</th><th>Opening</th><th>Principal</th><th>Interest</th><th>Penalty</th><th>Fee</th><th>Total</th><th>Closing</th></tr></thead>
+            <thead><tr><th>#</th><th>Accrual start</th><th>Due</th><th>Opening</th><th>Principal</th><th>Interest</th><th>Penalty</th><th>Legal / recovery costs</th><th>Total</th><th>Closing</th></tr></thead>
             <tbody>
               {detail.schedule.map((row) => (
                 <tr key={row.installment_number}><td>{row.installment_number}</td><td>{formatDate(row.accrual_start_date)}</td><td>{formatDate(row.due_date)}</td><td><Money amountMinor={row.opening_principal_minor} currency={detail.currency} /></td><td><Money amountMinor={row.principal_minor} currency={detail.currency} /></td><td><Money amountMinor={row.interest_minor} currency={detail.currency} /></td><td><Money amountMinor={row.penalty_minor} currency={detail.currency} /></td><td><Money amountMinor={row.fee_minor} currency={detail.currency} /></td><td><Money amountMinor={row.total_minor} currency={detail.currency} /></td><td><Money amountMinor={row.closing_principal_minor} currency={detail.currency} /></td></tr>
@@ -3144,7 +3144,7 @@ function OriginatorLoanEvidenceReview({ detail }: { detail: OriginatorAdminLoanD
         <h3>Historical payments</h3>
         {detail.payment_history.length ? (
           <div className="table-wrap admin-table-wrap">
-            <table className="admin-table"><thead><tr><th>Reference</th><th>Value date</th><th>Type</th><th>Principal</th><th>Interest</th><th>Penalty</th><th>Fee</th><th>Total</th><th>Principal after</th></tr></thead><tbody>{detail.payment_history.map((row) => <tr key={row.reference}><td className="mono">{row.reference}</td><td>{formatDate(row.value_date)}</td><td>{labelize(row.payment_type)}</td><td><Money amountMinor={row.principal_minor} currency={detail.currency} /></td><td><Money amountMinor={row.interest_minor} currency={detail.currency} /></td><td><Money amountMinor={row.penalty_minor} currency={detail.currency} /></td><td><Money amountMinor={row.fee_minor} currency={detail.currency} /></td><td><Money amountMinor={row.total_minor} currency={detail.currency} /></td><td><Money amountMinor={row.resulting_principal_minor} currency={detail.currency} /></td></tr>)}</tbody></table>
+            <table className="admin-table"><thead><tr><th>Reference</th><th>Value date</th><th>Type</th><th>Principal</th><th>Interest</th><th>Penalty</th><th>Legal / recovery costs</th><th>Total</th><th>Principal after</th></tr></thead><tbody>{detail.payment_history.map((row) => <tr key={row.reference}><td className="mono">{row.reference}</td><td>{formatDate(row.value_date)}</td><td>{labelize(row.payment_type)}</td><td><Money amountMinor={row.principal_minor} currency={detail.currency} /></td><td><Money amountMinor={row.interest_minor} currency={detail.currency} /></td><td><Money amountMinor={row.penalty_minor} currency={detail.currency} /></td><td><Money amountMinor={row.fee_minor} currency={detail.currency} /></td><td><Money amountMinor={row.total_minor} currency={detail.currency} /></td><td><Money amountMinor={row.resulting_principal_minor} currency={detail.currency} /></td></tr>)}</tbody></table>
           </div>
         ) : <Empty icon="docs" title="No historical payments">The imported loan had no borrower payments before this revision's as-of date.</Empty>}
       </div>
@@ -4296,11 +4296,9 @@ function ManageLoanModal({
   const [recThirdPartyCosts, setRecThirdPartyCosts] = useState("0");
   const [recFeeApplied, setRecFeeApplied] = useState(false);
   const [recFeeBps, setRecFeeBps] = useState("0");
-  const [recPrincipal, setRecPrincipal] = useState("1000000");
-  const [recContractualInterest, setRecContractualInterest] = useState("0");
-  const [recDefaultInterest, setRecDefaultInterest] = useState("0");
-  const [recPenalties, setRecPenalties] = useState("0");
-  const [recOtherCosts, setRecOtherCosts] = useState("0");
+  const [recContractualInterestDue, setRecContractualInterestDue] = useState("0");
+  const [recDefaultInterestDue, setRecDefaultInterestDue] = useState("0");
+  const [recPenaltiesDue, setRecPenaltiesDue] = useState("0");
   const [recBookingDate, setRecBookingDate] = useState(today);
   const [recValueDate, setRecValueDate] = useState(today);
   const [recPayerName, setRecPayerName] = useState(loan.title);
@@ -4386,10 +4384,8 @@ function ManageLoanModal({
     setOriginalPaidInitializedFor(scheduleKey);
   }, [action, loan.id, loan.is_refinancing, originalPaidInitializedFor, originalScheduleRows]);
 
-  // Recovery conservation preview (mirrors the backend waterfall math):
-  // net received = gross - external costs; fee base = net - third-party costs;
-  // net available to distribute = fee base - recovery fee. The category split
-  // (principal + interest + penalties + other) must equal net available.
+  // The backend owns the allocation. The UI previews the same fixed order after
+  // external costs, third-party costs, and Garanta's recovery fee are deducted.
   const recGrossMinor = intValue(recGross);
   const recExternalMinor = intValue(recExternalCosts);
   const recThirdPartyMinor = intValue(recThirdPartyCosts);
@@ -4397,13 +4393,15 @@ function ManageLoanModal({
   const recFeeBaseMinor = recNetReceivedMinor - recThirdPartyMinor;
   const recFeeMinor = recFeeApplied ? Math.round((recFeeBaseMinor * intValue(recFeeBps)) / 10000) : 0;
   const recNetAvailableMinor = recFeeBaseMinor - recFeeMinor;
-  const recSplitMinor =
-    intValue(recPrincipal) +
-    intValue(recContractualInterest) +
-    intValue(recDefaultInterest) +
-    intValue(recPenalties) +
-    intValue(recOtherCosts);
-  const recSplitBalanced = recNetAvailableMinor > 0 && recSplitMinor === recNetAvailableMinor;
+  const recPenaltyDueMinor = intValue(recDefaultInterestDue) + intValue(recPenaltiesDue);
+  const recPenaltyAppliedMinor = Math.min(Math.max(recNetAvailableMinor, 0), recPenaltyDueMinor);
+  const recAfterPenaltyMinor = Math.max(recNetAvailableMinor - recPenaltyAppliedMinor, 0);
+  const recInterestAppliedMinor = Math.min(
+    recAfterPenaltyMinor,
+    intValue(recContractualInterestDue)
+  );
+  const recProjectedPrincipalMinor = Math.max(recAfterPenaltyMinor - recInterestAppliedMinor, 0);
+  const recCanSubmit = recNetAvailableMinor > 0;
 
   const available = MANAGE_LOAN_ACTIONS.filter((item) => item.statuses.includes(loan.status));
   const active = MANAGE_LOAN_ACTIONS.find((item) => item.id === action) ?? null;
@@ -4496,11 +4494,9 @@ function ManageLoanModal({
       third_party_costs_from_received_minor: recThirdPartyMinor,
       recovery_fee_applied: recFeeApplied,
       recovery_fee_bps: recFeeApplied ? intValue(recFeeBps) : 0,
-      principal_recovered_minor: intValue(recPrincipal),
-      contractual_interest_recovered_minor: intValue(recContractualInterest),
-      default_interest_recovered_minor: intValue(recDefaultInterest),
-      penalties_recovered_minor: intValue(recPenalties),
-      other_costs_recovered_minor: intValue(recOtherCosts),
+      contractual_interest_due_minor: intValue(recContractualInterestDue),
+      default_interest_due_minor: intValue(recDefaultInterestDue),
+      penalties_due_minor: intValue(recPenaltiesDue),
       booking_date: recBookingDate,
       value_date: recValueDate,
       collection_account_identifier: defaultCollectionAccount,
@@ -4767,8 +4763,8 @@ function ManageLoanModal({
               <>
                 <p className="muted admin-manage-hint">
                   Record funds recovered on this defaulted loan. The recovered amount, minus external and
-                  third-party costs and the optional Garanta recovery fee, is distributed to lenders through
-                  the recovery waterfall. The category split below must equal the net amount available.
+                  third-party costs and the optional Garanta recovery fee, is allocated by the server in one
+                  non-overridable order: penalty, contractual interest, then principal.
                 </p>
                 <FieldGrid>
                   <MoneyMinorInput currency={loan.currency} label="Gross recovered" onChange={setRecGross} value={recGross} />
@@ -4794,26 +4790,26 @@ function ManageLoanModal({
                   </span>
                 </div>
                 <FieldGrid>
-                  <MoneyMinorInput currency={loan.currency} label="Principal recovered" onChange={setRecPrincipal} value={recPrincipal} />
-                  <MoneyMinorInput currency={loan.currency} label="Contractual interest recovered" onChange={setRecContractualInterest} value={recContractualInterest} />
+                  <MoneyMinorInput currency={loan.currency} label="Outstanding default/penalty interest" onChange={setRecDefaultInterestDue} value={recDefaultInterestDue} />
+                  <MoneyMinorInput currency={loan.currency} label="Outstanding other penalties" onChange={setRecPenaltiesDue} value={recPenaltiesDue} />
                 </FieldGrid>
-                <FieldGrid>
-                  <MoneyMinorInput currency={loan.currency} label="Default/penalty interest recovered" onChange={setRecDefaultInterest} value={recDefaultInterest} />
-                  <MoneyMinorInput currency={loan.currency} label="Penalties recovered" onChange={setRecPenalties} value={recPenalties} />
-                </FieldGrid>
-                <MoneyMinorInput currency={loan.currency} label="Other costs recovered" onChange={setRecOtherCosts} value={recOtherCosts} />
+                <MoneyMinorInput currency={loan.currency} label="Outstanding contractual interest" onChange={setRecContractualInterestDue} value={recContractualInterestDue} />
+                <div className="admin-context-bar admin-recovery-summary">
+                  <span>1. Costs and recovery fee <Money amountMinor={Math.max(recGrossMinor - recNetAvailableMinor, 0)} currency={loan.currency} /></span>
+                  <span>2. Penalty <Money amountMinor={recPenaltyAppliedMinor} currency={loan.currency} /></span>
+                  <span>3. Interest <Money amountMinor={recInterestAppliedMinor} currency={loan.currency} /></span>
+                  <span>4. Principal <strong><Money amountMinor={recProjectedPrincipalMinor} currency={loan.currency} /></strong></span>
+                </div>
+                <p className="muted admin-manage-hint">
+                  Enter evidence-backed amounts currently due. Principal is derived from active holdings and
+                  receives only the remainder after every higher tier is satisfied. The backend rejects any
+                  recovery larger than the total outstanding obligations.
+                </p>
                 <FieldGrid>
                   <TextInput label="Booking date" onChange={setRecBookingDate} type="date" value={recBookingDate} />
                   <TextInput label="Value date" onChange={setRecValueDate} type="date" value={recValueDate} />
                 </FieldGrid>
                 <TextInput label="Payer name" onChange={setRecPayerName} value={recPayerName} />
-                {!recSplitBalanced ? (
-                  <Banner tone="warn" title="Category split does not balance">
-                    The split currently totals {recSplitMinor} minor units but the net amount available to
-                    distribute is {recNetAvailableMinor} minor units. Adjust the categories so they match
-                    before recording.
-                  </Banner>
-                ) : null}
                 <OperationConfirmButton
                   confirmLabel="Record recovery"
                   description="Recording a recovery credits affected investor balance lots via the recovery waterfall, reduces current holding principal, and posts Garanta recovery-fee revenue. Recovery is only valid on a defaulted loan."
@@ -4821,9 +4817,12 @@ function ManageLoanModal({
                     { label: "Loan", value: loanId },
                     { label: "Gross recovered", value: `${recGrossMinor} minor units` },
                     { label: "Net to distribute", value: `${recNetAvailableMinor} minor units` },
+                    { label: "Penalty applied first", value: `${recPenaltyAppliedMinor} minor units` },
+                    { label: "Interest applied next", value: `${recInterestAppliedMinor} minor units` },
+                    { label: "Projected principal", value: `${recProjectedPrincipalMinor} minor units` },
                     { label: "Fee applied", value: recFeeApplied ? `Yes (${intValue(recFeeBps)} bps)` : "No" }
                   ]}
-                  disabled={recordRecovery.isPending || !recSplitBalanced}
+                  disabled={recordRecovery.isPending || !recCanSubmit}
                   onConfirm={recordRecoveryPayment}
                   title="Confirm recovery payment"
                   variant="danger"

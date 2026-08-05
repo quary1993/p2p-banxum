@@ -128,8 +128,8 @@ Needed before production recovery/default reports are finalized.
 Resolved baseline:
 
 - Recovery allocation applies to amounts recovered from projects/loans in default or recovery.
-- Each loan/project supports a configurable recovery waterfall. Unless otherwise defined in the project documentation, the default waterfall is external recovery/legal costs, platform-approved recovery costs including the applied Garanta recovery fee, principal, contractual interest accrued until default, default/penalty interest, and other penalties/costs.
-- Project recovery configuration includes default/penalty interest percentage, Garanta percentage recovery fee, and the recovery waterfall order/version.
+- Every loan uses the universal non-overridable payment waterfall: Garanta legal costs/recovery fee, penalty/default interest, contractual interest, then principal. Project documentation may define rates and amounts due but must not define a different priority.
+- Project recovery configuration includes default/penalty interest percentage and the Garanta percentage recovery fee. The platform records the universal waterfall version as calculation evidence; neither Garanta nor project documentation can configure a different order.
 - If a payment/installment is recorded for a defaulted loan, admin must declare any third-party recovery costs and choose whether the Garanta recovery fee applies to that payment.
 - Lender-facing recovery buckets are allocated pro rata to lenders holding participations in the relevant project based on the current principal balance of each holding at the time of the recovery event, unless the project agreement defines a different allocation method.
 - The platform must separately show gross recovered amount, externally deducted legal/recovery costs, third-party recovery costs declared at recovery time, Garanta recovery fee if applied, net amount received by Garanta, net amount available for waterfall allocation, and net amount distributed to each lender.

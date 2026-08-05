@@ -12,7 +12,7 @@
   {
     "id": "dashboard-4-card",
     "w": 980,
-    "h": 272
+    "h": 210
   },
   {
     "id": "tasks-1-operational-task-queue",
@@ -22,7 +22,7 @@
   {
     "id": "tasks-2-card",
     "w": 980,
-    "h": 73
+    "h": 82
   },
   {
     "id": "tasks-3-card",
@@ -32,7 +32,7 @@
   {
     "id": "users-0-user-accounts",
     "w": 980,
-    "h": 815
+    "h": 828
   },
   {
     "id": "compliance-5-kyc-manual-review",
@@ -42,7 +42,7 @@
   {
     "id": "compliance-6-record-aml-decision",
     "w": 980,
-    "h": 621
+    "h": 632
   },
   {
     "id": "finance-0-pending-finance-operations",
@@ -50,99 +50,109 @@
     "h": 503
   },
   {
-    "id": "finance-1-lender-deposit",
+    "id": "finance-1-loan-originator-settlement-queue",
+    "w": 980,
+    "h": 242
+  },
+  {
+    "id": "finance-2-lender-deposit",
     "w": 640,
     "h": 558
   },
   {
-    "id": "finance-2-payout-instruction",
+    "id": "finance-3-payout-instruction",
     "w": 640,
     "h": 477
   },
   {
-    "id": "finance-3-investor-balance-lookup",
+    "id": "finance-4-investor-balance-lookup",
     "w": 640,
     "h": 459
   },
   {
-    "id": "finance-4-balance-ageing-scan",
+    "id": "finance-5-balance-ageing-scan",
     "w": 640,
     "h": 249
   },
   {
-    "id": "finance-5-reconciliation-snapshot",
+    "id": "finance-6-reconciliation-snapshot",
     "w": 640,
     "h": 429
   },
   {
-    "id": "finance-6-withdrawal-execution",
+    "id": "finance-7-withdrawal-execution",
     "w": 640,
     "h": 429
   },
   {
-    "id": "finance-7-borrower-disbursement",
+    "id": "finance-8-borrower-disbursement",
     "w": 640,
     "h": 686
   },
   {
-    "id": "finance-8-fx-settlement",
+    "id": "finance-9-fx-settlement",
     "w": 980,
     "h": 543
   },
   {
     "id": "loans-0-key-metrics",
     "w": 980,
-    "h": 208
+    "h": 296
   },
   {
-    "id": "loans-5-borrowers",
+    "id": "loans-6-loan-originators",
+    "w": 980,
+    "h": 263
+  },
+  {
+    "id": "loans-7-borrowers",
     "w": 980,
     "h": 242
   },
   {
-    "id": "loans-6-loans",
+    "id": "loans-8-loans",
     "w": 980,
-    "h": 327
+    "h": 573
   },
   {
-    "id": "loans-9-manage-loan-actions",
+    "id": "loans-11-manage-loan-actions",
     "w": 852,
     "h": 549
   },
   {
-    "id": "loans-10-manage-close-funding",
+    "id": "loans-12-manage-close-funding",
     "w": 852,
     "h": 533
   },
   {
-    "id": "loans-7-secondary-market-approvals",
+    "id": "loans-9-secondary-market-approvals",
     "w": 980,
-    "h": 329
+    "h": 279
   },
   {
-    "id": "loans-8-servicing-operations",
+    "id": "loans-10-servicing-operations",
     "w": 980,
     "h": 400
   },
   {
-    "id": "loans-11-manage-record-recovery",
+    "id": "loans-13-manage-record-recovery",
     "w": 852,
-    "h": 941
+    "h": 974
   },
   {
     "id": "reports-0-report-generation",
     "w": 640,
-    "h": 440
+    "h": 470
   },
   {
     "id": "reports-1-audit-event-search",
     "w": 640,
-    "h": 440
+    "h": 470
   },
   {
     "id": "settings-0-document-templates",
     "w": 980,
-    "h": 197
+    "h": 199
   },
   {
     "id": "settings-1-user-account-administration",

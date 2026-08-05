@@ -1,6 +1,6 @@
 # Risk Monitoring, Collections, and Recoveries
 
-Status: Draft. Updated with servicing, configurable recovery waterfall/reporting, non-standard secondary-market listing decisions, and final default loss-recognition handling on 2026-06-06.
+Status: Draft. Updated with servicing, recovery reporting, non-standard secondary-market listing decisions, and final default loss-recognition handling on 2026-06-06, plus the universal non-overridable payment waterfall on 2026-08-05.
 
 ## Purpose
 
@@ -159,29 +159,29 @@ Impacted modules:
 Follow-ups:
 Finalize accountant-approved Bexio/accounting mapping and final report labels for externally deducted legal/recovery costs, third-party recovery costs, Garanta recovery fee revenue, and recovery-cost deductions from received funds.
 
-### RISK-DEC-006: Configurable Recovery Waterfall and Lender Allocation
+### RISK-DEC-006: Universal Recovery Waterfall and Lender Allocation
 
 Status: Accepted.
 Date: 2026-05-16. Updated 2026-06-01.
 Owner: Garanta operations / finance.
 
 Decision:
-Each loan/project must support a configurable recovery waterfall. Unless a project-specific agreement/configuration defines a different waterfall, recovered amounts are applied in this default order:
+Every recovered payment uses the same server-owned order as every other borrower payment:
 
-1. External recovery/legal costs.
-2. Platform-approved recovery costs, including the Garanta percentage recovery fee when applied to that recovery payment.
-3. Principal.
-4. Contractual interest accrued until the official default declaration date.
-5. Default/penalty interest accrued after the official default declaration date.
-6. Other penalties/costs.
+1. Garanta legal costs and recovery fee, including externally deducted and third-party recovery/legal costs evidenced for the payment.
+2. Penalty, including separately reported default/penalty interest accrued after the official default declaration date where applicable.
+3. Contractual interest accrued until the official default declaration date.
+4. Principal.
 
-The project recovery configuration must include:
+The order applies to direct and Loan-Originator loans and cannot be overridden by project agreement configuration, admin input, or imported data. A tier may be zero when no amount is due. Principal is never allocated while a higher tier remains due.
+
+Recovery terms stored for each loan include:
 
 - `default_penalty_interest_percent`: default/penalty interest percentage that accrues from the official default declaration date instead of the regular contractual interest. Launch interpretation is annual nominal percentage unless the loan/project agreement defines another basis. If not defined, default/penalty interest is 0.
 - `recovery_fee_percent`: Garanta's percentage commission for handling recovery. The fee is configurable per project and applied only when admin explicitly chooses to apply it for a specific recovery payment. The fee base must be configurable; default implementation should use the net recovered amount after declared third-party recovery/legal costs unless the project agreement defines another basis.
-- `recovery_waterfall_order`: project-specific ordering of recovery categories, with the default order above.
+- `recovery_waterfall_version`: read-only evidence identifying the universal allocator version; it is not an editable priority.
 
-When admin records a recovery payment for a defaulted/recovery loan, the system applies the configured waterfall and then allocates each lender-facing distributable bucket pro rata to the lenders holding participations in the relevant project based on the current principal balance of each holding at the time of the recovery event, unless the project agreement defines a different allocation method.
+When admin records a recovery payment for a defaulted loan, the admin supplies evidence-backed costs and outstanding penalty/default-interest and contractual-interest obligations. The system derives current principal from holdings, applies the universal waterfall, and allocates each lender-facing distributable bucket pro rata to lenders based on the current principal balance of each holding at the recovery event time, with deterministic largest-remainder rounding.
 
 Amounts recovered after default may include:
 
@@ -198,7 +198,7 @@ Normal contractual interest stops accruing on the official default declaration d
 Lender recovery distributions are calculated deterministically and rounded to the currency minor unit. Launch rounding uses half-up rounding for each lender distribution line. Any rounding difference between the net amount received and the sum of rounded lender distributions is recorded separately as a recovery rounding difference.
 
 Rationale:
-The platform should handle recovery economics deterministically while preserving project-level legal flexibility. Costs, Garanta recovery fees, lender distributions, interest cutoff, default/penalty interest, and rounding differences must be explicit rather than hidden inside a generic net recovery number.
+Rates and due amounts may reflect loan-specific legal terms, but priority must remain global. One allocator makes costs, fees, penalties, interest, principal, lender distributions, interest cutoff, and rounding explicit and prevents principal-first drift.
 
 Impacted modules:
 - Loan Servicing and Repayments.
@@ -206,7 +206,7 @@ Impacted modules:
 - Accounting, Tax, and Finance Operations.
 
 Follow-ups:
-Finalize lender notification wording, final PDF/CSV report labels, and any non-default project waterfall language required by legal agreements.
+Finalize lender notification wording and final PDF/CSV report labels. Legal agreements must describe the universal order rather than introduce an alternate project waterfall.
 
 ### RISK-DEC-007: Generic v1 Recovery Events
 
@@ -368,8 +368,8 @@ Loan risk/recovery records may include:
 - Garanta recovery fee percentage, fee base, and fee amount where applied.
 - Net amount received by Garanta.
 - Net amount available for waterfall allocation.
-- Project recovery waterfall version/configuration.
-- Recovery category split: principal, contractual interest accrued until default date, default/penalty interest after default date if applicable, penalties, and costs.
+- Universal recovery-waterfall version.
+- Server-derived recovery category split in priority order: costs/recovery fee, penalties/default interest, contractual interest accrued until default date, and principal.
 - Default/penalty interest percentage and accrual period, where applicable.
 - Recovery bank value date or receipt date.
 - Notes/observations explaining recovered amount calculation.
@@ -387,7 +387,7 @@ Detailed borrower contact history, promises to pay, contact methods, and notice 
 - Admin can publish a public loan note to affected investors when needed.
 - Admin can send a bulk email to affected lenders when something material changes.
 - Recovery distributions appear as balance-credit/payment events in investor payment history.
-- Recovery notifications are sent to affected lenders and show at least loan/project, recovery event date, currency, lender credited amount, and where available the split between principal, contractual interest, default/penalty interest, penalties, costs, and rounding difference.
+- Recovery notifications are sent to affected lenders and show at least loan/project, recovery event date, currency, lender credited amount, and where available the split between costs/recovery fee, penalties/default interest, contractual interest, principal, and rounding difference.
 - Secondary-market listings for late/defaulted/non-standard loans require admin approval before publication and must clearly disclose the loan status.
 - Internal recovery notes, internal documents, and bank evidence are not exposed to investors unless admin marks specific content as public.
 
@@ -398,11 +398,11 @@ Detailed borrower contact history, promises to pay, contact methods, and notice 
 - Final loss recognition can be performed only through the dedicated default-resolution workflow, requires advisor-approved operating policy before production use, and must close remaining active holdings with immutable investor-level loss evidence.
 - Admin can close a defaulted loan and input recovered amount plus notes/observations.
 - Recovery records must preserve gross recovered amount, externally deducted legal/recovery costs, third-party recovery costs declared at recovery time, Garanta recovery fee decision/amount, net amount received by Garanta, net amount available for waterfall allocation, and net amount distributed to lenders.
-- Recovery payments must apply the project-specific recovery waterfall. If no project-specific waterfall overrides exist, the default order is external recovery/legal costs, platform-approved recovery costs including applied Garanta recovery fee, principal, contractual interest accrued until default, default/penalty interest, and other penalties/costs.
-- Lender-facing recovery buckets are allocated pro rata to current lender holdings based on current principal balance at the time of the recovery event unless the project agreement defines a different allocation method.
-- Recovery category splits must separately classify principal, contractual interest accrued until default date, default/penalty interest after default date if applicable, other penalties/costs, third-party recovery costs, and Garanta recovery fee.
+- Recovery payments must apply the universal non-overridable order: Garanta legal costs/recovery fee, penalty/default interest, contractual interest, then principal.
+- Lender-facing recovery buckets are allocated pro rata to current lender holdings based on current principal balance at the recovery event time, with deterministic largest-remainder rounding.
+- Recovery category splits must separately classify Garanta recovery fee and third-party costs, default/penalty interest and other penalties, contractual interest accrued until default date, and principal.
 - Contractual interest stops accruing on the official default declaration date.
-- Default/penalty interest starts accruing from the official default declaration date only if provided in the relevant loan/project agreement or configured project waterfall. It accrues instead of regular contractual interest from default time and is reported separately.
+- Default/penalty interest starts accruing from the official default declaration date only if provided in the relevant loan/project agreement. It accrues instead of regular contractual interest from default time, is reported separately, and belongs to the penalty tier.
 - Recovery distribution rounding differences must be recorded separately.
 - Each recovery payment must generate ledger entries, a default/recovery report, and affected-lender notifications.
 - Investor communications are event-driven and should be timely and consistent.
@@ -427,7 +427,7 @@ Detailed borrower contact history, promises to pay, contact methods, and notice 
 4. Answered by RISK-DEC-003: no predefined notice templates in v1.
 5. Answered by RISK-DEC-004: investors see status and days past due; admin may add public note or send bulk email.
 6. Answered by RISK-DEC-004: investor updates are event-driven when something material changes.
-7. Updated by RISK-DEC-005 and RISK-DEC-006: recovery records show gross recovered amount, externally deducted legal/recovery costs, third-party recovery costs declared at recovery time, optional Garanta percentage recovery fee, net amount received by Garanta, waterfall allocation, category split, lender allocation based on current principal balance unless project-specific allocation overrides exist, and separate rounding differences.
+7. Updated by RISK-DEC-005 and RISK-DEC-006: recovery records show gross recovered amount, externally deducted legal/recovery costs, third-party recovery costs, optional Garanta percentage recovery fee, net amount received by Garanta, server-derived universal waterfall allocation, category split, lender allocation based on current principal balance, and separate rounding differences.
 8. Answered by RISK-DEC-007: v1 recovery fields are generic, not collateral-specific.
 9. Updated by RISK-DEC-008: admin can mark/confirm default, record notes/documents/recovery payments, and record final default loss recognition only through the dedicated advisor-policy-controlled workflow.
 10. Answered by RISK-DEC-009: track actual recovered payments only.

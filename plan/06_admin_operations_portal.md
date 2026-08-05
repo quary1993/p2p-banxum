@@ -207,7 +207,7 @@ Legal-entity lender evidence must be recorded before financial activation. Exact
 - Override generated repayment schedule.
 - Record repayment in advance (early, partial, or multi-installment borrower repayment) or operational loan change.
 - Finalize borrower disbursement from the Loans table Manage action or the Finance ops card, including any explained override of the default amount and BANXUM fee.
-- Record default recovery event with gross recovered amount, externally deducted legal/recovery costs, third-party recovery costs declared at recovery time, Garanta recovery fee application decision/amount, net amount received, waterfall category split, evidence, and recovery rounding difference.
+- Record a default recovery event with gross recovered amount, externally deducted legal/recovery costs, third-party costs, Garanta recovery-fee decision/amount, outstanding penalty/default-interest and contractual-interest obligations, evidence, and rounding difference. The server, not the admin, derives the applied split under the fixed order of costs/fee, penalty, interest, then principal.
 - Publish public loan note or send bulk investor email for material loan changes.
 - Choose public loan note only, bulk email only, or both for material loan changes.
 - Attach bank statement/payment evidence for lender distributions.
@@ -249,7 +249,7 @@ No high-risk action requires dual approval at launch. Each high-risk action shou
 - Attach lender payment evidence/bank statement: admin.
 - Override generated repayment schedule: admin, subject to workflow rules.
 - Record repayment in advance (early, partial, or multi-installment borrower repayment) or operational loan change: admin, subject to workflow rules.
-- Record default recovery event, recovery costs, recovery fee decision, waterfall allocation, and recovered amount details: admin, subject to workflow rules.
+- Record default recovery evidence, costs, recovery-fee decision, outstanding penalty/interest obligations, and recovered amount details: admin, subject to workflow rules. Waterfall allocation priority is server-owned and cannot be overridden.
 - Publish public loan note or bulk investor email for material loan changes: admin, subject to workflow rules.
 - Validate investment orders after receipt of funds: admin.
 - Process primary-market excess/full-excess refund tasks: admin.

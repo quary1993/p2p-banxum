@@ -5,6 +5,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from django.db import models
 
+from backend.apps.platform_core.domain.payment_waterfall import PAYMENT_WATERFALL_VERSION
 from backend.apps.platform_core.models.base import AppendOnlyModel, TimestampedModel
 
 
@@ -166,7 +167,10 @@ class Loan(TimestampedModel):
     default_penalty_interest_bps = models.PositiveIntegerField(default=0)
     skin_in_the_game_bps = models.PositiveSmallIntegerField(default=0)
     recovery_fee_bps = models.PositiveIntegerField(default=0)
-    recovery_waterfall_version = models.CharField(max_length=64, default="v1")
+    recovery_waterfall_version = models.CharField(
+        max_length=64,
+        default=PAYMENT_WATERFALL_VERSION,
+    )
     schedule_version = models.PositiveIntegerField(default=1)
     total_scheduled_principal_minor = models.BigIntegerField(default=0)
     total_scheduled_interest_minor = models.BigIntegerField(default=0)

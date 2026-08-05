@@ -351,15 +351,13 @@ class LoanRecoveryPaymentRecordView(APIView):
                     ],
                     recovery_fee_applied=data["recovery_fee_applied"],
                     recovery_fee_bps=data["recovery_fee_bps"],
-                    principal_recovered_minor=data["principal_recovered_minor"],
-                    contractual_interest_recovered_minor=data[
-                        "contractual_interest_recovered_minor"
+                    contractual_interest_due_minor=data[
+                        "contractual_interest_due_minor"
                     ],
-                    default_interest_recovered_minor=data[
-                        "default_interest_recovered_minor"
+                    default_interest_due_minor=data[
+                        "default_interest_due_minor"
                     ],
-                    penalties_recovered_minor=data["penalties_recovered_minor"],
-                    other_costs_recovered_minor=data["other_costs_recovered_minor"],
+                    penalties_due_minor=data["penalties_due_minor"],
                     booking_date=data["booking_date"],
                     value_date=data["value_date"],
                     collection_account_identifier=data["collection_account_identifier"],
@@ -369,7 +367,6 @@ class LoanRecoveryPaymentRecordView(APIView):
                     payment_reference=data.get("payment_reference", ""),
                     evidence_reference=data.get("evidence_reference", ""),
                     notes=data.get("notes", ""),
-                    recovery_waterfall_config=data.get("recovery_waterfall_config", {}),
                     metadata=data.get("metadata", {}),
                     idempotency_key=data["idempotency_key"],
                 )

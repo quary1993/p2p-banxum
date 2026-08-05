@@ -34,6 +34,7 @@ from backend.apps.loans.models import (
 )
 from backend.apps.platform_core.domain.access import actor_ref_for_user, is_admin_actor
 from backend.apps.platform_core.domain.money import Money, normalize_currency
+from backend.apps.platform_core.domain.payment_waterfall import PAYMENT_WATERFALL_VERSION
 from backend.apps.platform_core.domain.time import business_date, now_utc
 from backend.apps.platform_core.models import Currency
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
@@ -101,7 +102,6 @@ class CreateLoanCommand:
     lender_payment_fee_minor: int = 0
     default_penalty_interest_bps: int = 0
     recovery_fee_bps: int = 0
-    recovery_waterfall_version: str = "v1"
     manual_schedule_rows: list[ManualScheduleRowCommand] | None = None
     note: str = ""
 
@@ -136,7 +136,6 @@ class UpdateLoanCommand:
     lender_payment_fee_minor: int | None = None
     default_penalty_interest_bps: int | None = None
     recovery_fee_bps: int | None = None
-    recovery_waterfall_version: str | None = None
     manual_schedule_rows: list[ManualScheduleRowCommand] | None = None
     investor_message: str = ""
     note: str = ""
@@ -837,10 +836,7 @@ def create_loan(command: CreateLoanCommand) -> Loan:
         lender_payment_fee_minor=lender_payment_fee_minor,
         default_penalty_interest_bps=default_penalty_interest_bps,
         recovery_fee_bps=recovery_fee_bps,
-        recovery_waterfall_version=_clean_required(
-            command.recovery_waterfall_version,
-            "Recovery waterfall version",
-        ),
+        recovery_waterfall_version=PAYMENT_WATERFALL_VERSION,
         total_scheduled_principal_minor=sum(row.principal_minor for row in schedule_rows),
         total_scheduled_interest_minor=sum(row.interest_minor for row in schedule_rows),
         created_by_admin_id=command.actor.pk,
@@ -907,7 +903,6 @@ def _post_commit_change_keys(command: UpdateLoanCommand) -> set[str]:
         "lender_payment_fee_minor": command.lender_payment_fee_minor,
         "default_penalty_interest_bps": command.default_penalty_interest_bps,
         "recovery_fee_bps": command.recovery_fee_bps,
-        "recovery_waterfall_version": command.recovery_waterfall_version,
         "manual_schedule_rows": command.manual_schedule_rows,
     }
     return {key for key, value in values.items() if value is not None}
@@ -1112,15 +1107,6 @@ def update_loan(command: UpdateLoanCommand) -> Loan:
             value=_validate_fee_bps(command.recovery_fee_bps, "Recovery fee"),
             changes=changes,
         )
-    optional_waterfall = _optional_clean(command.recovery_waterfall_version)
-    if optional_waterfall is not None:
-        _set_if_changed(
-            loan=loan,
-            field="recovery_waterfall_version",
-            value=_clean_required(optional_waterfall, "Recovery waterfall version"),
-            changes=changes,
-        )
-
     if command.is_refinancing is not None:
         _set_if_changed(
             loan=loan,

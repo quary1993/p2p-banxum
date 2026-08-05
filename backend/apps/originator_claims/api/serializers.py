@@ -366,6 +366,7 @@ class OriginatorBorrowerRepaymentResponseSerializer(serializers.Serializer[dict[
     fee_minor = serializers.IntegerField()
     investor_distributed_minor = serializers.IntegerField()
     originator_payable_minor = serializers.IntegerField()
+    platform_costs_minor = serializers.IntegerField()
     principal_after_minor = serializers.IntegerField()
     schedule_revision = serializers.IntegerField()
 

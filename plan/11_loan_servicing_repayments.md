@@ -1,6 +1,6 @@
 # Loan Servicing and Repayments
 
-Status: Draft. Updated with payment, balance, servicing, and configurable recovery waterfall decisions on 2026-06-01, with the fixed-amount installment / repayment-in-advance servicing model on 2026-07-08, and with disbursement activation, ACT/365 interest, and canonical schedule-history rules on 2026-07-27.
+Status: Draft. Updated with payment, balance, servicing, and recovery decisions on 2026-06-01, with the fixed-amount installment / repayment-in-advance servicing model on 2026-07-08, with disbursement activation, ACT/365 interest, and canonical schedule-history rules on 2026-07-27, and with the universal non-overridable payment waterfall on 2026-08-05.
 
 ## Purpose
 
@@ -95,13 +95,14 @@ Date: 2026-05-16.
 Owner: Garanta finance / operations / legal.
 
 Decision:
-Launch repayment allocation waterfall:
+Every payment uses the following universal allocation order:
 
-1. Fees.
-2. Penalties.
-3. Current installment interest.
-4. Current installment principal.
-5. Future outstanding principal when the received amount exceeds currently due scheduled amounts.
+1. Garanta legal costs and recovery fee.
+2. Penalty, including separately reported default/penalty interest where applicable.
+3. Contractual interest.
+4. Principal.
+
+This order applies to direct loans and Loan-Originator loans and to active, late, and default/recovery handling. It cannot be overridden by loan terms, project configuration, admin input, or an imported payment split. A tier may be zero when no amount is due. Principal never receives cash while any higher tier remains due.
 
 Late fees are not charged at launch, so late-fee allocation is inactive unless added later.
 
@@ -110,7 +111,7 @@ Borrower-side penalties remain configurable in the data model but are set to 0/i
 For a healthy loan with a CHF 1,000 regular installment, if the borrower pays CHF 3,000, admin declares it as a repayment in advance with the borrower repayment bank date. The system pays all unpaid scheduled interest of installments due on or before the bank date, plus exact ACT/365 interest on outstanding principal from the latest date through which interest was already paid up to, but excluding, the new bank date; the remainder reduces outstanding principal. Interest accrues at end of day, so two advance repayments with the same bank date produce no additional elapsed-day interest on the second payment. The future schedule is then regenerated as a new schedule version for the same remaining due dates using the new outstanding principal.
 
 Rationale:
-The waterfall preserves fee/penalty priority while keeping loan economics tied to the agreed schedule.
+One server-owned allocator prevents loan types and servicing states from drifting and prevents a caller from relabeling principal in order to bypass costs, penalties, or interest.
 
 Follow-ups:
 Define future borrower-side penalty policy before activating any non-zero penalty configuration.
@@ -154,11 +155,7 @@ Owner: Garanta operations / finance / legal.
 Decision:
 Early repayment is allowed at launch. Both full and partial early repayment are allowed. No early repayment fee is charged.
 
-Early repayment is declared as a "Repayment in advance": admin checks the repayment-in-advance option in Manage > "Record borrower repayment", enters the received amount, and selects the "Borrower repayment bank date". The waterfall then pays:
-
-1. All unpaid scheduled interest of installments due on or before the bank date.
-2. ACT/365 accrued interest on outstanding principal from the latest interest-paid-through date up to, but excluding, the bank date: `outstanding principal x annual rate bps x elapsed days / (10,000 x 365)`, rounded half-up to integer currency minor units. A regular installment pays interest through its contractual due date; a prior repayment in advance pays interest through its actual borrower bank date. No future interest is collected.
-3. The remainder reduces outstanding principal.
+Early repayment is declared as a "Repayment in advance": admin checks the repayment-in-advance option in Manage > "Record borrower repayment", enters the received amount, and selects the "Borrower repayment bank date". The universal waterfall first pays any recorded Garanta legal costs/recovery fee and penalty due; both tiers are zero in the current ordinary active/late advance flow. The contractual-interest tier then pays all unpaid scheduled interest through the bank date plus ACT/365 accrued interest on outstanding principal from the latest interest-paid-through date up to, but excluding, the bank date: `outstanding principal x annual rate bps x elapsed days / (10,000 x 365)`, rounded half-up to integer currency minor units. A regular installment pays interest through its contractual due date; a prior repayment in advance pays interest through its actual borrower bank date. No future interest is collected. Only the remainder reduces outstanding principal.
 
 The future schedule is then regenerated as a new immutable schedule version: only future rows are regenerated, original due dates are preserved, and the first regenerated installment's interest uses the same ACT/365 rule from the repayment bank date to its due date. Before anything is written, the admin gets a preview/confirmation dialog showing the allocation, accrual period/day count, and both the old and new schedule (backend endpoint `POST /api/v1/servicing/admin/borrower-repayments/advance-preview/`). A full payoff through repayment in advance marks the loan repaid.
 
@@ -268,20 +265,13 @@ Date: 2026-05-16. Updated 2026-06-01.
 Owner: Garanta operations / finance.
 
 Decision:
-When a defaulted loan has a recovered amount available, admin records the recovery event, notes/observations, and supporting documents. The recovery record must include gross recovered amount, externally deducted legal/recovery costs, third-party recovery/legal costs declared at recovery time, whether the Garanta percentage recovery fee is applied, net amount received by Garanta, net amount available for waterfall allocation, recovery bank value date/receipt date, and the recovery category split.
+When a defaulted loan has a recovered amount available, admin records the recovery event, notes/observations, and supporting documents. The recovery record must include gross recovered amount, externally deducted legal/recovery costs, third-party recovery/legal costs declared at recovery time, whether the Garanta percentage recovery fee is applied, net amount received by Garanta, net amount available for allocation, recovery bank value date/receipt date, and evidence-backed outstanding penalty/default-interest and contractual-interest obligations. Current principal is derived from active holdings; admin does not submit the applied category split.
 
-The platform applies the project-specific recovery waterfall before lender distribution. Unless the project agreement/configuration defines another waterfall, the default recovery waterfall is:
+The server applies the same universal order before lender distribution: Garanta legal/recovery costs and applied recovery fee, penalty/default interest, contractual interest accrued until default, then principal. The order is not project-configurable.
 
-1. External recovery/legal costs.
-2. Platform-approved recovery costs, including the Garanta percentage recovery fee where applied.
-3. Principal.
-4. Contractual interest accrued until the official default declaration date.
-5. Default/penalty interest accrued after the official default declaration date.
-6. Other penalties/costs.
+Lender-facing recovery buckets are distributed pro rata to lenders holding participations in the relevant project, based on the current principal balance of each holding at the time of the recovery event, with deterministic largest-remainder rounding.
 
-Lender-facing recovery buckets are distributed pro rata to lenders holding participations in the relevant project, based on the current principal balance of each holding at the time of the recovery event, unless the project agreement defines another allocation method.
-
-Normal contractual interest stops accruing on the official default declaration date. Default/penalty interest starts accruing from that date instead of regular interest only if provided in the relevant loan/project agreement or project recovery configuration. It must be calculated using the project `default_penalty_interest_percent` and reported separately from normal contractual interest.
+Normal contractual interest stops accruing on the official default declaration date. Default/penalty interest starts accruing from that date instead of regular interest only if provided in the relevant loan agreement or recorded loan recovery terms. It must be calculated using the loan `default_penalty_interest_percent` and reported separately from normal contractual interest.
 
 Recovered amounts may include principal, contractual interest accrued until default date, default/penalty interest, penalties, and costs. These categories must be classified separately in the ledger, default/recovery report, and lender reports.
 
@@ -293,7 +283,7 @@ Rationale:
 Default recovery is case-specific and handled offline, but the waterfall, lender distribution, interest cutoff, category classification, recovery fee, third-party costs, rounding, reporting, and notification must still be deterministic and auditable.
 
 Follow-ups:
-Finalize lender notification wording, accountant-approved recovery report labels, and any non-default project waterfall wording required by project agreements.
+Finalize lender notification wording and accountant-approved recovery report labels. Loan agreements must describe the universal priority rather than define an alternate project order.
 
 ### SERV-DEC-014: Funding Close, Disbursement, and Servicing Activation
 
@@ -346,15 +336,15 @@ Uploaded disbursement evidence files and controlled correction/reversal events r
 
 ## Repayment Allocation Waterfall
 
-Launch waterfall:
+Launch waterfall and servicing mechanics:
 
-1. A regular installment declaration uses the fixed outstanding amount of the next due installment; it is allocated to that installment's fees, penalties, interest, and principal. More than one day before due, admin must acknowledge that the full contractual installment is intended; otherwise use repayment in advance.
-2. Any other amount (except for defaulted loans, which go through recovery) is declared as a repayment in advance with a borrower repayment bank date.
-3. For a repayment in advance, allocate to fees.
-4. Allocate to penalties.
-5. Allocate to all unpaid scheduled interest of installments due on or before the bank date.
-6. Allocate to ACT/365 interest on outstanding principal from the latest interest-paid-through date up to, but excluding, the bank date (`principal x annual bps x days / (10,000 x 365)`, half-up minor-unit rounding). Interest accrues end of day and future interest is never collected.
-7. Allocate the remainder to outstanding principal.
+1. Apply Garanta legal costs and recovery fee due for the payment.
+2. Apply penalty/default interest due.
+3. Apply contractual interest due.
+4. Apply the remainder to principal. Principal cannot be paid until every earlier due tier is satisfied.
+5. A regular installment declaration uses the fixed outstanding amount of the next due installment. More than one day before due, admin must acknowledge that the full contractual installment is intended; otherwise use repayment in advance.
+6. Any other amount (except for defaulted loans, which go through recovery) is declared as a repayment in advance with a borrower repayment bank date.
+7. For repayment in advance, contractual interest due comprises all unpaid scheduled interest through the bank date plus ACT/365 interest on outstanding principal from the latest interest-paid-through date up to, but excluding, the bank date (`principal x annual bps x days / (10,000 x 365)`, half-up minor-unit rounding). Interest accrues end of day and future interest is never collected.
 8. Regenerate the future schedule as a new schedule version: only future rows, original due dates preserved, first regenerated installment interest calculated by ACT/365 from bank date to due date. A full payoff marks the loan repaid.
 9. Require admin confirmation of the previewed allocation and old/new schedules before any ledger write.
 10. Calculate each lender's pro-rata distribution.
@@ -363,7 +353,7 @@ Launch waterfall:
 
 Investor-facing treatment must match contracts.
 
-For default recovery events, the project-specific recovery waterfall is applied before lender distribution. Unless overridden per project, the default waterfall is external recovery/legal costs, platform-approved recovery costs including applied Garanta recovery fee, principal, contractual interest accrued until default date, default/penalty interest after default date if applicable, and other penalties/costs. Lender-facing buckets are allocated pro rata to current lender holdings based on current principal balance at the time of the recovery event unless the project agreement defines a different method. The recovery record separately classifies gross recovered amount, third-party/external recovery costs, Garanta recovery fee, net amount received, net amount available for waterfall allocation, principal, contractual interest accrued until default date, default/penalty interest after default date if applicable, other penalties/costs, lender distributions, and recovery rounding difference.
+For default recovery events, the same universal waterfall is applied before lender distribution: Garanta legal/recovery costs and recovery fee, penalty/default interest, contractual interest accrued until default, then principal. Lender-facing buckets are allocated pro rata to current lender holdings based on current principal balance at the time of the recovery event. The recovery record separately classifies gross recovered amount, third-party/external recovery costs, Garanta recovery fee, net amount received, net amount available for allocation, principal, contractual interest accrued until default date, default/penalty interest after default date if applicable, other penalties/costs, lender distributions, and recovery rounding difference.
 
 ## Offline Borrower Servicing Operations
 
@@ -426,14 +416,16 @@ For default recovery events, the project-specific recovery waterfall is applied 
 7. Answered by SERV-DEC-009: no direct free-form restructuring; changes happen through defined operational events.
 8. Answered by SERV-DEC-010: no detailed covenant tracking at launch; generic notes/document upload only.
 9. Answered by SERV-DEC-011: closure evidence is the repayment/distribution evidence trail, including attached bank statements/payment records where used.
-10. Updated by SERV-DEC-013 and RISK-DEC-005/RISK-DEC-006: default recovery payments are admin-recorded with gross recovery, externally deducted costs, third-party recovery costs declared at recovery time, optional Garanta percentage recovery fee, net received, project recovery waterfall allocation, category split, lender allocation by current principal balance unless project-specific overrides exist, separate default/penalty interest where applicable, and explicit recovery rounding differences.
+10. Updated by SERV-DEC-013 and RISK-DEC-005/RISK-DEC-006: default recovery payments are admin-recorded with gross recovery, externally deducted costs, third-party recovery costs, optional Garanta percentage recovery fee, net received, outstanding penalty/interest obligations, server-derived universal waterfall allocation, lender allocation by current principal balance, separate default/penalty interest where applicable, and explicit recovery rounding differences.
 
 ## Loan Originator Claim Servicing
 
 ### SERV-DEC-015: Dated Entitlements
 
-Garanta services an originator loan once investor claims exist. The borrower pays Garanta. Each payment first follows the underlying contractual/advance-payment waterfall, then allocates principal by current assigned versus unsold principal and allocates interest/penalties by immutable accrual intervals. Pre-assignment accrual belongs to originator; post-assignment accrual to the current holder. Largest-remainder splits reconcile each component exactly. Investor amounts create balance lots; originator amounts create servicing payable. Principal-only weights must not be used for the first post-sale payment.
+Garanta services an originator loan once investor claims exist. The borrower pays Garanta. Each payment first follows the same universal waterfall as a direct loan: Garanta legal costs/recovery fee, penalty, contractual interest, then principal. The platform then allocates principal by current assigned versus unsold principal and allocates interest/penalties by immutable accrual intervals. Pre-assignment accrual belongs to originator; post-assignment accrual to the current holder. Largest-remainder splits reconcile each component exactly. Investor amounts create balance lots; originator amounts create servicing payable. Principal-only weights must not be used for the first post-sale payment.
+
+In the Loan Originator replacement CSV, `fee_minor` is the evidence field for Garanta legal costs/recovery fee due in the first waterfall tier. It is not a caller-defined platform fee or an amount payable to investors or the originator. `penalty_minor`, `interest_minor`, and `principal_minor` represent the remaining tiers in that exact order. The server recomputes the amount due for every tier from the immutable prior import and the current schedule, then rejects an imported payment row whose component split attempts to relabel principal or bypass a higher tier.
 
 ### SERV-DEC-016: Payments and Repricing
 
-Regular and advance repayments reuse loan-type-specific waterfalls and schedule regeneration. Each payment atomically updates schedule state, holdings, unsold principal, entitlement projections, opportunity availability, and quote validity; secondary listings retain their premium/discount while repricing current principal. No restructuring exists: extensions settle the old loan and create a new one. Opportunity closes at repayment, hold/late/default, or 30 days to maturity. Garanta handles recovery without originator recourse/buyback.
+Regular and advance repayments reuse loan-type-specific schedule and accrual calculations but always use the universal payment-allocation priority. The imported CSV component split is evidence, not authority, and is rejected if it attempts to pay a lower tier before a higher due tier. Each payment atomically updates schedule state, holdings, unsold principal, entitlement projections, opportunity availability, and quote validity; secondary listings retain their premium/discount while repricing current principal. No restructuring exists: extensions settle the old loan and create a new one. Opportunity closes at repayment, hold/late/default, or 30 days to maturity. Garanta handles recovery without originator recourse/buyback.

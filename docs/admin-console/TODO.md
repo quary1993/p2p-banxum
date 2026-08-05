@@ -308,3 +308,10 @@ Each entry should include:
 - Current first-version behavior: admins may set an optional whole-number retention percentage in basis points while the claim is a draft. The Manage context separates total originator-owned principal from the ceiling-rounded required retained amount and the amount still available for sale. Published claims cannot change the declaration through the service, and the legacy Django admin field is read-only.
 - Required admin-console improvement: replace the raw basis-point input with a percent/basis-point control that previews the retained and sellable amounts against the imported current outstanding principal before publication. Preserve the exact server values and do not duplicate the financial calculation as an authoritative client rule.
 - Priority: important.
+
+## 2026-08-05: Universal Borrower-Payment Waterfall
+
+- Screen or component: Loans > Manage > Record borrower repayment / Record recovery payment, plus Loan Originator replacement-import repayment review.
+- Current first-version behavior: every direct and Loan Originator payment uses the server-owned order Garanta legal costs/recovery fee, penalty/default interest, contractual interest, then principal. Recovery admins enter evidence-backed obligations rather than a desired category split; the server derives current principal and the applied allocation. Loan Originator CSV `fee_minor` is treated as first-tier legal/recovery-cost evidence, and a replacement import is rejected when its split attempts to pay principal before a due higher tier.
+- Required admin-console improvement: when legal-cost and penalty accrual evidence becomes structured data, replace manual recovery-obligation entry with an authoritative read-only obligation projection and evidence links. Until then, keep the four-tier preview and clearly distinguish amounts due from amounts applied.
+- Priority: important.

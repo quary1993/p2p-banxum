@@ -362,6 +362,7 @@ class DeclareOriginatorBorrowerRepaymentLedgerCommand:
     originator_id: str
     amount_minor: int
     originator_payable_minor: int
+    platform_costs_minor: int
     currency: str
     booking_date: date
     value_date: date
@@ -1417,6 +1418,7 @@ def _originator_borrower_repayment_ledger_fingerprint(
     currency_code: str,
     amount_minor: int,
     originator_payable_minor: int,
+    platform_costs_minor: int,
     idempotency_key: str,
 ) -> str:
     return _stable_json_fingerprint(
@@ -1426,6 +1428,7 @@ def _originator_borrower_repayment_ledger_fingerprint(
             "originator_id": str(command.originator_id),
             "amount_minor": amount_minor,
             "originator_payable_minor": originator_payable_minor,
+            "platform_costs_minor": platform_costs_minor,
             "currency": currency_code,
             "booking_date": command.booking_date.isoformat(),
             "value_date": command.value_date.isoformat(),
@@ -5446,6 +5449,11 @@ def declare_originator_borrower_repayment_ledger(
         currency.code,
         "Originator servicing payable",
     )
+    platform_costs_minor = _validate_nonnegative_money(
+        command.platform_costs_minor,
+        currency.code,
+        "Garanta legal costs and recovery fee",
+    )
     originator_id = _clean_required(str(command.originator_id), "Loan Originator id")
     source_type = _clean_required(command.source_type, "Source type")
     source_id = _clean_required(command.source_id, "Source id")
@@ -5494,9 +5502,10 @@ def declare_originator_borrower_repayment_ledger(
             )
         )
     investor_total = sum(line.amount_minor for line in lines)
-    if investor_total + originator_payable_minor != amount_minor:
+    if investor_total + originator_payable_minor + platform_costs_minor != amount_minor:
         raise LedgerValidationError(
-            "Investor distributions plus originator payable must equal repayment amount."
+            "Investor distributions, originator payable, and Garanta costs must equal "
+            "the repayment amount."
         )
     normalized = DeclareOriginatorBorrowerRepaymentLedgerCommand(
         actor=command.actor,
@@ -5505,6 +5514,7 @@ def declare_originator_borrower_repayment_ledger(
         originator_id=originator_id,
         amount_minor=amount_minor,
         originator_payable_minor=originator_payable_minor,
+        platform_costs_minor=platform_costs_minor,
         currency=currency.code,
         booking_date=command.booking_date,
         value_date=command.value_date,
@@ -5526,6 +5536,7 @@ def declare_originator_borrower_repayment_ledger(
         currency_code=currency.code,
         amount_minor=amount_minor,
         originator_payable_minor=originator_payable_minor,
+        platform_costs_minor=platform_costs_minor,
         idempotency_key=idempotency_key,
     )
     existing = _existing_originator_borrower_repayment_for_idempotency(
@@ -5542,6 +5553,7 @@ def declare_originator_borrower_repayment_ledger(
         "originator_id": originator_id,
         "investor_distribution_minor": investor_total,
         "originator_payable_minor": originator_payable_minor,
+        "platform_costs_minor": platform_costs_minor,
         "distribution_line_count": len(lines),
     }
     try:
@@ -5626,6 +5638,22 @@ def declare_originator_borrower_repayment_ledger(
                 memo="Unassigned originator-loan repayment payable to originator",
             )
         )
+    if platform_costs_minor:
+        platform_fee_revenue = get_or_create_ledger_account(
+            account_type=LedgerAccountType.PLATFORM_FEE_REVENUE,
+            currency=currency,
+            owner_type="platform",
+            owner_id="garanta",
+            name=f"{currency.code} Garanta legal costs and recovery-fee revenue",
+        )
+        postings.append(
+            PostingCommand(
+                account=platform_fee_revenue,
+                side=LedgerPostingSide.CREDIT,
+                amount_minor=platform_costs_minor,
+                memo="Garanta legal costs and recovery fee applied first",
+            )
+        )
     received_at = _received_at_from_value_date(command.value_date)
     journal = post_journal_entry(
         PostJournalEntryCommand(
@@ -5653,6 +5681,7 @@ def declare_originator_borrower_repayment_ledger(
             tax_metadata={
                 "client_money_flow_minor": amount_minor,
                 "originator_servicing_payable_minor": originator_payable_minor,
+                "platform_costs_minor": platform_costs_minor,
                 "investor_distribution_minor": investor_total,
                 "principal_minor": sum(line.principal_minor for line in lines),
                 "interest_minor": sum(line.interest_minor for line in lines),

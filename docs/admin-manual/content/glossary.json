@@ -186,7 +186,7 @@
     },
     {
       "term": "Recovery",
-      "definition": "Efforts to get money back from a borrower that has stopped paying (is late or in default), for example by enforcing the collateral. Money clawed back is distributed to investors through a recovery distribution following a defined waterfall (order of who gets paid first)."
+      "definition": "Efforts to get money back from a borrower that has stopped paying (is late or in default), for example by enforcing collateral. Every recovered payment follows the same fixed order: Garanta legal costs/recovery fee, penalty/default interest, contractual interest, then principal. The order cannot be changed per loan or by the operator."
     },
     {
       "term": "Default",

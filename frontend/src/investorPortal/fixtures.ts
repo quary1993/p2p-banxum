@@ -786,10 +786,16 @@ const exposureFixture: PortfolioExposure = {
   ]
 };
 
-const directPortfolioLoanFields = (yieldBps: number) => ({
+const directPortfolioLoanFields = (
+  yieldBps: number,
+  collateralValueMinor: number,
+  collateralDescription: string
+) => ({
   product_type: "direct",
   originator_id: null,
   originator_name: "",
+  collateral_value_minor: collateralValueMinor,
+  collateral_description: collateralDescription,
   yield_bps: yieldBps,
   underlying_interest_rate_bps: yieldBps,
   skin_in_the_game_bps: 0
@@ -817,7 +823,7 @@ export const portfolioFixture: InvestorPortfolio = {
       loan_share_ppm: 100000,
       assignment_effective_at: "2026-01-18T10:00:00+01:00",
       loan: {
-        ...directPortfolioLoanFields(720),
+        ...directPortfolioLoanFields(720, amount(163934.43), "Registered real-estate security supporting the borrower obligation."),
         loan_id: "GA-2310",
         loan_title: "Engadin Alpine refinancing",
         loan_status: "active",
@@ -961,7 +967,7 @@ export const portfolioFixture: InvestorPortfolio = {
       loan_share_ppm: 60000,
       assignment_effective_at: "2026-02-10T10:00:00+01:00",
       loan: {
-        ...directPortfolioLoanFields(940),
+        ...directPortfolioLoanFields(940, amount(173076.92), "Registered security over financed precision tooling and equipment."),
         loan_id: "GA-2410",
         loan_title: "Jura precision tooling loan",
         loan_status: "active",
@@ -1107,7 +1113,7 @@ export const portfolioFixture: InvestorPortfolio = {
       loan_share_ppm: 80000,
       assignment_effective_at: "2026-03-02T10:00:00+01:00",
       loan: {
-        ...directPortfolioLoanFields(1050),
+        ...directPortfolioLoanFields(1050, amount(181818.18), "Assigned trade receivables supporting the borrower obligation."),
         loan_id: "GA-2405",
         loan_title: "Rheintal logistics receivables",
         loan_status: "active",
@@ -1233,7 +1239,7 @@ export const portfolioFixture: InvestorPortfolio = {
       loan_share_ppm: 50000,
       assignment_effective_at: "2026-04-15T10:00:00+02:00",
       loan: {
-        ...directPortfolioLoanFields(1400),
+        ...directPortfolioLoanFields(1400, 0, "Unsecured exception; no investor-facing collateral valuation."),
         loan_id: "GA-2402",
         loan_title: "Helvetia bridge to Series B",
         loan_status: "active",
@@ -1350,6 +1356,8 @@ export const portfolioFixture: InvestorPortfolio = {
         originator_name: "Nord Capital Finance",
         purpose: "working_capital",
         collateral_type: "receivables",
+        collateral_value_minor: amount(179687.5),
+        collateral_description: "Assigned trade receivables supporting the underlying borrower claim.",
         skin_in_the_game_bps: 1500,
         risk_rating: "BB",
         interest_rate_bps: 980,
@@ -1459,7 +1467,7 @@ export const portfolioFixture: InvestorPortfolio = {
       loan_share_ppm: 90000,
       assignment_effective_at: "2025-11-15T10:00:00+01:00",
       loan: {
-        ...directPortfolioLoanFields(800),
+        ...directPortfolioLoanFields(800, amount(1230769.23), "Registered real-estate security supporting the borrower obligation."),
         loan_id: "GA-2256",
         loan_title: "Bodensee Immobilien GmbH",
         loan_status: "late",
@@ -1515,7 +1523,7 @@ export const portfolioFixture: InvestorPortfolio = {
       loan_share_ppm: 45000,
       assignment_effective_at: "2025-09-01T10:00:00+02:00",
       loan: {
-        ...directPortfolioLoanFields(910),
+        ...directPortfolioLoanFields(910, amount(571428.57), "Assigned receivables supporting the borrower obligation."),
         loan_id: "GA-2201",
         loan_title: "Savoie Logistique SAS",
         loan_status: "defaulted",
@@ -1571,7 +1579,7 @@ export const portfolioFixture: InvestorPortfolio = {
       loan_share_ppm: 80000,
       assignment_effective_at: "2025-06-01T10:00:00+02:00",
       loan: {
-        ...directPortfolioLoanFields(840),
+        ...directPortfolioLoanFields(840, amount(333333.33), "Registered security over financed solar equipment."),
         loan_id: "GA-2150",
         loan_title: "Ticino Solar SA",
         loan_status: "defaulted",

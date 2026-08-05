@@ -8936,9 +8936,6 @@ components:
         recovery_fee_bps:
           type: integer
           default: 0
-        recovery_waterfall_version:
-          type: string
-          default: v1
         manual_schedule_rows:
           type: array
           items:
@@ -9325,22 +9322,15 @@ components:
           maximum: 10000
           minimum: 0
           default: 0
-        principal_recovered_minor:
-          type: integer
-          minimum: 0
-        contractual_interest_recovered_minor:
+        contractual_interest_due_minor:
           type: integer
           minimum: 0
           default: 0
-        default_interest_recovered_minor:
+        default_interest_due_minor:
           type: integer
           minimum: 0
           default: 0
-        penalties_recovered_minor:
-          type: integer
-          minimum: 0
-          default: 0
-        other_costs_recovered_minor:
+        penalties_due_minor:
           type: integer
           minimum: 0
           default: 0
@@ -9370,7 +9360,6 @@ components:
           maxLength: 255
         notes:
           type: string
-        recovery_waterfall_config: {}
         metadata: {}
         idempotency_key:
           type: string
@@ -9382,7 +9371,6 @@ components:
       - idempotency_key
       - loan_id
       - payer_name
-      - principal_recovered_minor
       - value_date
     LoanRecoveryPaymentRecordResponse:
       type: object
@@ -10381,6 +10369,8 @@ components:
           type: integer
         originator_payable_minor:
           type: integer
+        platform_costs_minor:
+          type: integer
         principal_after_minor:
           type: integer
         schedule_revision:
@@ -10395,6 +10385,7 @@ components:
       - originator_payable_minor
       - payment_reference
       - penalty_minor
+      - platform_costs_minor
       - principal_after_minor
       - principal_minor
       - repayment_id
@@ -11150,8 +11141,6 @@ components:
           type: integer
         recovery_fee_bps:
           type: integer
-        recovery_waterfall_version:
-          type: string
         manual_schedule_rows:
           type: array
           items:
@@ -11528,6 +11517,10 @@ components:
           type: string
         collateral_type:
           type: string
+        collateral_value_minor:
+          type: integer
+        collateral_description:
+          type: string
         skin_in_the_game_bps:
           type: integer
         risk_rating:
@@ -11589,7 +11582,9 @@ components:
       - borrower_country
       - borrower_id
       - borrower_name
+      - collateral_description
       - collateral_type
+      - collateral_value_minor
       - currency
       - days_past_due
       - default_penalty_interest_bps

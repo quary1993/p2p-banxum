@@ -1777,11 +1777,9 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
             third_party_costs_from_received_minor=500_00,
             recovery_fee_applied=True,
             recovery_fee_bps=1000,
-            principal_recovered_minor=6_000_00,
-            contractual_interest_recovered_minor=1_000_00,
-            default_interest_recovered_minor=500_00,
-            penalties_recovered_minor=100_00,
-            other_costs_recovered_minor=50_00,
+            contractual_interest_due_minor=1_000_00,
+            default_interest_due_minor=500_00,
+            penalties_due_minor=100_00,
             booking_date=date(2026, 3, 20),
             value_date=date(2026, 3, 20),
             collection_account_identifier="CH00GARANTARECOVERY",
@@ -1804,6 +1802,17 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
     assert event.recovery_fee_minor == 850_00
     assert event.net_available_for_distribution_minor == 7_650_00
     assert event.rounding_difference_minor == 0
+    assert event.principal_recovered_minor == 6_050_00
+    assert event.contractual_interest_recovered_minor == 1_000_00
+    assert event.default_interest_recovered_minor == 500_00
+    assert event.penalties_recovered_minor == 100_00
+    assert event.other_costs_recovered_minor == 0
+    assert event.recovery_waterfall_config["waterfall_order"] == [
+        "garanta_legal_costs_and_recovery_fee",
+        "penalty",
+        "interest",
+        "principal",
+    ]
     assert event.recovery_waterfall_config["allocation_method"] == (
         "pro_rata_by_current_principal"
     )
@@ -1813,16 +1822,16 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
     investor_two_line = lines[str(investor_two.pk)]
     assert investor_one_line.amount_minor == 2_550_00
     assert investor_two_line.amount_minor == 5_100_00
-    assert investor_one_line.principal_minor == 2_000_00
-    assert investor_two_line.principal_minor == 4_000_00
+    assert investor_one_line.principal_minor == 2_016_67
+    assert investor_two_line.principal_minor == 4_033_33
     assert investor_one_line.contractual_interest_minor == 333_33
     assert investor_two_line.contractual_interest_minor == 666_67
     assert investor_one_line.default_interest_minor == 166_67
     assert investor_two_line.default_interest_minor == 333_33
     assert investor_one_line.penalties_minor == 33_33
     assert investor_two_line.penalties_minor == 66_67
-    assert investor_one_line.other_costs_minor == 16_67
-    assert investor_two_line.other_costs_minor == 33_33
+    assert investor_one_line.other_costs_minor == 0
+    assert investor_two_line.other_costs_minor == 0
     assert {line.balance_lot.source_type for line in lines.values()} == {
         "recovery_distribution"
     }
@@ -1844,8 +1853,8 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
         str(holding.investor_user_id): holding
         for holding in holding_model.objects.filter(loan=loan).order_by("investor_user_id")
     }
-    assert holdings[str(investor_one.pk)].current_principal_minor == 8_000_00
-    assert holdings[str(investor_two.pk)].current_principal_minor == 16_000_00
+    assert holdings[str(investor_one.pk)].current_principal_minor == 7_983_33
+    assert holdings[str(investor_two.pk)].current_principal_minor == 15_966_67
 
     postings = {
         (
@@ -1886,11 +1895,9 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
             third_party_costs_from_received_minor=500_00,
             recovery_fee_applied=True,
             recovery_fee_bps=1000,
-            principal_recovered_minor=6_000_00,
-            contractual_interest_recovered_minor=1_000_00,
-            default_interest_recovered_minor=500_00,
-            penalties_recovered_minor=100_00,
-            other_costs_recovered_minor=50_00,
+            contractual_interest_due_minor=1_000_00,
+            default_interest_due_minor=500_00,
+            penalties_due_minor=100_00,
             booking_date=date(2026, 3, 20),
             value_date=date(2026, 3, 20),
             collection_account_identifier="CH00GARANTARECOVERY",
@@ -1907,7 +1914,7 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
 
 
 @pytest.mark.django_db
-def test_recovery_payment_requires_defaulted_loan_and_reconciled_category_split(
+def test_recovery_payment_requires_defaulted_loan_and_never_pays_principal_first(
     admin_user: Model,
     investor_one: Model,
     investor_two: Model,
@@ -1924,11 +1931,9 @@ def test_recovery_payment_requires_defaulted_loan_and_reconciled_category_split(
                 third_party_costs_from_received_minor=0,
                 recovery_fee_applied=False,
                 recovery_fee_bps=0,
-                principal_recovered_minor=1_000_00,
-                contractual_interest_recovered_minor=0,
-                default_interest_recovered_minor=0,
-                penalties_recovered_minor=0,
-                other_costs_recovered_minor=0,
+                contractual_interest_due_minor=0,
+                default_interest_due_minor=0,
+                penalties_due_minor=0,
                 booking_date=date(2026, 3, 20),
                 value_date=date(2026, 3, 20),
                 collection_account_identifier="CH00GARANTARECOVERY",
@@ -1944,28 +1949,33 @@ def test_recovery_payment_requires_defaulted_loan_and_reconciled_category_split(
             loan_ids=(str(loan.pk),),
         )
     )
-    with pytest.raises(ServicingValidationError, match="category split"):
-        record_loan_recovery_payment(
-            RecordLoanRecoveryPaymentCommand(
-                actor=admin_user,
-                loan_id=str(loan.pk),
-                gross_recovered_minor=1_000_00,
-                externally_deducted_costs_minor=0,
-                third_party_costs_from_received_minor=0,
-                recovery_fee_applied=False,
-                recovery_fee_bps=0,
-                principal_recovered_minor=900_00,
-                contractual_interest_recovered_minor=0,
-                default_interest_recovered_minor=0,
-                penalties_recovered_minor=0,
-                other_costs_recovered_minor=0,
-                booking_date=date(2026, 3, 20),
-                value_date=date(2026, 3, 20),
-                collection_account_identifier="CH00GARANTARECOVERY",
-                payer_name="Recovery counsel",
-                idempotency_key="servicing-recovery-mismatch",
-            )
+    result = record_loan_recovery_payment(
+        RecordLoanRecoveryPaymentCommand(
+            actor=admin_user,
+            loan_id=str(loan.pk),
+            gross_recovered_minor=1_000_00,
+            externally_deducted_costs_minor=0,
+            third_party_costs_from_received_minor=0,
+            recovery_fee_applied=False,
+            recovery_fee_bps=0,
+            contractual_interest_due_minor=500_00,
+            default_interest_due_minor=800_00,
+            penalties_due_minor=400_00,
+            booking_date=date(2026, 3, 20),
+            value_date=date(2026, 3, 20),
+            collection_account_identifier="CH00GARANTARECOVERY",
+            payer_name="Recovery counsel",
+            idempotency_key="servicing-recovery-penalty-first",
         )
+    )
+    assert result.recovery_event.default_interest_recovered_minor == 666_67
+    assert result.recovery_event.penalties_recovered_minor == 333_33
+    assert result.recovery_event.contractual_interest_recovered_minor == 0
+    assert result.recovery_event.principal_recovered_minor == 0
+    assert all(
+        line.current_principal_before_minor == line.current_principal_after_minor
+        for line in result.distribution_lines
+    )
 
 
 @pytest.mark.django_db
@@ -1994,11 +2004,9 @@ def test_recovery_payment_admin_api(
             "third_party_costs_from_received_minor": 0,
             "recovery_fee_applied": False,
             "recovery_fee_bps": 0,
-            "principal_recovered_minor": 3_000_00,
-            "contractual_interest_recovered_minor": 0,
-            "default_interest_recovered_minor": 0,
-            "penalties_recovered_minor": 0,
-            "other_costs_recovered_minor": 0,
+            "contractual_interest_due_minor": 0,
+            "default_interest_due_minor": 0,
+            "penalties_due_minor": 0,
             "booking_date": "2026-03-20",
             "value_date": "2026-03-20",
             "collection_account_identifier": "CH00GARANTARECOVERY",
@@ -2121,11 +2129,9 @@ def test_record_write_off_changes_defaulted_loan_to_written_off_and_is_idempoten
                 third_party_costs_from_received_minor=0,
                 recovery_fee_applied=False,
                 recovery_fee_bps=0,
-                principal_recovered_minor=1_000_00,
-                contractual_interest_recovered_minor=0,
-                default_interest_recovered_minor=0,
-                penalties_recovered_minor=0,
-                other_costs_recovered_minor=0,
+                contractual_interest_due_minor=0,
+                default_interest_due_minor=0,
+                penalties_due_minor=0,
                 booking_date=date(2026, 3, 20),
                 value_date=date(2026, 3, 20),
                 collection_account_identifier="CH00GARANTARECOVERY",
@@ -2365,11 +2371,9 @@ def test_recovery_records_have_app_and_db_guards(
             third_party_costs_from_received_minor=0,
             recovery_fee_applied=False,
             recovery_fee_bps=0,
-            principal_recovered_minor=1_000_00,
-            contractual_interest_recovered_minor=0,
-            default_interest_recovered_minor=0,
-            penalties_recovered_minor=0,
-            other_costs_recovered_minor=0,
+            contractual_interest_due_minor=0,
+            default_interest_due_minor=0,
+            penalties_due_minor=0,
             booking_date=date(2026, 3, 20),
             value_date=date(2026, 3, 20),
             collection_account_identifier="CH00GARANTARECOVERY",

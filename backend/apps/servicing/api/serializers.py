@@ -245,23 +245,17 @@ class LoanRecoveryPaymentRecordRequestSerializer(serializers.Serializer[Any]):
         max_value=10_000,
         default=0,
     )
-    principal_recovered_minor = serializers.IntegerField(min_value=0)
-    contractual_interest_recovered_minor = serializers.IntegerField(
+    contractual_interest_due_minor = serializers.IntegerField(
         required=False,
         min_value=0,
         default=0,
     )
-    default_interest_recovered_minor = serializers.IntegerField(
+    default_interest_due_minor = serializers.IntegerField(
         required=False,
         min_value=0,
         default=0,
     )
-    penalties_recovered_minor = serializers.IntegerField(required=False, min_value=0, default=0)
-    other_costs_recovered_minor = serializers.IntegerField(
-        required=False,
-        min_value=0,
-        default=0,
-    )
+    penalties_due_minor = serializers.IntegerField(required=False, min_value=0, default=0)
     booking_date = serializers.DateField()
     value_date = serializers.DateField()
     collection_account_identifier = serializers.CharField(max_length=128)
@@ -275,7 +269,6 @@ class LoanRecoveryPaymentRecordRequestSerializer(serializers.Serializer[Any]):
     payment_reference = serializers.CharField(required=False, allow_blank=True, max_length=160)
     evidence_reference = serializers.CharField(required=False, allow_blank=True, max_length=255)
     notes = serializers.CharField(required=False, allow_blank=True)
-    recovery_waterfall_config = serializers.JSONField(required=False)
     metadata = serializers.JSONField(required=False)
     idempotency_key = serializers.CharField(max_length=160)
 

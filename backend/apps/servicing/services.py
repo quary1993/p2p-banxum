@@ -26,6 +26,14 @@ from backend.apps.platform_core.domain.money import (
     format_amount_minor,
     normalize_currency,
 )
+from backend.apps.platform_core.domain.payment_waterfall import (
+    PAYMENT_WATERFALL_ORDER,
+    PAYMENT_WATERFALL_VERSION,
+    PaymentWaterfallAllocation,
+    PaymentWaterfallError,
+    PaymentWaterfallObligations,
+    allocate_payment_waterfall,
+)
 from backend.apps.platform_core.domain.time import business_date, business_timezone, now_utc
 from backend.apps.platform_core.models import Currency
 from backend.apps.platform_core.selectors.settings import get_collection_account_identifier
@@ -228,11 +236,9 @@ class RecordLoanRecoveryPaymentCommand:
     third_party_costs_from_received_minor: int
     recovery_fee_applied: bool
     recovery_fee_bps: int
-    principal_recovered_minor: int
-    contractual_interest_recovered_minor: int
-    default_interest_recovered_minor: int
-    penalties_recovered_minor: int
-    other_costs_recovered_minor: int
+    contractual_interest_due_minor: int
+    default_interest_due_minor: int
+    penalties_due_minor: int
     booking_date: date
     value_date: date
     collection_account_identifier: str
@@ -242,7 +248,6 @@ class RecordLoanRecoveryPaymentCommand:
     payment_reference: str = ""
     evidence_reference: str = ""
     notes: str = ""
-    recovery_waterfall_config: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None
     idempotency_key: str = ""
 
@@ -427,6 +432,28 @@ def _validate_nonnegative_minor_amount(amount_minor: int, label: str) -> int:
     return amount_minor
 
 
+def _allocate_universal_waterfall(
+    amount_minor: int,
+    *,
+    costs_minor: int = 0,
+    penalty_minor: int = 0,
+    interest_minor: int = 0,
+    principal_minor: int = 0,
+) -> PaymentWaterfallAllocation:
+    try:
+        return allocate_payment_waterfall(
+            amount_minor,
+            PaymentWaterfallObligations(
+                costs_minor=costs_minor,
+                penalty_minor=penalty_minor,
+                interest_minor=interest_minor,
+                principal_minor=principal_minor,
+            ),
+        )
+    except PaymentWaterfallError as exc:
+        raise ServicingValidationError(str(exc)) from exc
+
+
 def _fee_from_bps(base_minor: int, bps: int) -> int:
     if type(bps) is not int:
         raise ServicingValidationError("Recovery fee bps must be an integer.")
@@ -565,13 +592,9 @@ def _recovery_payment_fingerprint(
             "recovery_fee_base_minor": recovery_fee_base_minor,
             "recovery_fee_minor": recovery_fee_minor,
             "net_available_for_distribution_minor": net_available_for_distribution_minor,
-            "principal_recovered_minor": command.principal_recovered_minor,
-            "contractual_interest_recovered_minor": (
-                command.contractual_interest_recovered_minor
-            ),
-            "default_interest_recovered_minor": command.default_interest_recovered_minor,
-            "penalties_recovered_minor": command.penalties_recovered_minor,
-            "other_costs_recovered_minor": command.other_costs_recovered_minor,
+            "contractual_interest_due_minor": command.contractual_interest_due_minor,
+            "default_interest_due_minor": command.default_interest_due_minor,
+            "penalties_due_minor": command.penalties_due_minor,
             "booking_date": command.booking_date.isoformat(),
             "value_date": command.value_date.isoformat(),
             "collection_account_identifier": command.collection_account_identifier.strip(),
@@ -581,7 +604,6 @@ def _recovery_payment_fingerprint(
             "payment_reference": command.payment_reference.strip(),
             "evidence_reference": command.evidence_reference.strip(),
             "notes": command.notes.strip(),
-            "recovery_waterfall_config": command.recovery_waterfall_config or {},
             "metadata": command.metadata or {},
             "idempotency_key": idempotency_key,
         }
@@ -1805,16 +1827,17 @@ def _advance_repayment_plan(
         ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
     )
     interest_due_total = scheduled_interest_due + accrued_interest
-    if amount_minor < interest_due_total:
+    waterfall = _allocate_universal_waterfall(
+        amount_minor,
+        interest_minor=interest_due_total,
+        principal_minor=outstanding_principal,
+    )
+    if waterfall.interest_minor < interest_due_total:
         raise ServicingValidationError(
             "Repayment in advance must cover all interest due until the bank date "
-            f"({interest_due_total} minor units)."
+            f"({interest_due_total} minor units) before principal can be repaid."
         )
-    principal_total = amount_minor - interest_due_total
-    if principal_total > outstanding_principal:
-        raise ServicingValidationError(
-            "Repayment exceeds the outstanding loan principal plus interest due."
-        )
+    principal_total = waterfall.principal_minor
     new_outstanding = outstanding_principal - principal_total
 
     new_rows: list[AdvanceRepaymentScheduleRow] = []
@@ -2095,8 +2118,13 @@ def record_borrower_repayment(
                 "Confirm that the borrower is paying the full timely installment, including "
                 "its full contractual interest; otherwise use repayment in advance."
             )
-        interest_applied = remaining_interest
-        principal_applied = remaining_principal
+        waterfall = _allocate_universal_waterfall(
+            amount_minor,
+            interest_minor=remaining_interest,
+            principal_minor=remaining_principal,
+        )
+        interest_applied = waterfall.interest_minor
+        principal_applied = waterfall.principal_minor
         future_principal_applied = 0
         event_type = BorrowerRepaymentEventType.REGULAR_INSTALLMENT
 
@@ -2175,6 +2203,8 @@ def record_borrower_repayment(
         "early_regular_payment_acknowledged": (
             command.early_regular_payment_acknowledged
         ),
+        "payment_waterfall_version": PAYMENT_WATERFALL_VERSION,
+        "payment_waterfall_order": list(PAYMENT_WATERFALL_ORDER),
         "scheduled_interest_due_minor": (
             advance_plan.scheduled_interest_due_minor if advance_plan is not None else 0
         ),
@@ -2449,25 +2479,17 @@ def record_loan_recovery_payment(
         command.third_party_costs_from_received_minor,
         "Third-party recovery costs from received funds",
     )
-    principal_recovered_minor = _validate_nonnegative_minor_amount(
-        command.principal_recovered_minor,
-        "Recovered principal",
+    contractual_interest_due_minor = _validate_nonnegative_minor_amount(
+        command.contractual_interest_due_minor,
+        "Outstanding contractual interest",
     )
-    contractual_interest_recovered_minor = _validate_nonnegative_minor_amount(
-        command.contractual_interest_recovered_minor,
-        "Recovered contractual interest",
+    default_interest_due_minor = _validate_nonnegative_minor_amount(
+        command.default_interest_due_minor,
+        "Outstanding default/penalty interest",
     )
-    default_interest_recovered_minor = _validate_nonnegative_minor_amount(
-        command.default_interest_recovered_minor,
-        "Recovered default interest",
-    )
-    penalties_recovered_minor = _validate_nonnegative_minor_amount(
-        command.penalties_recovered_minor,
-        "Recovered penalties",
-    )
-    other_costs_recovered_minor = _validate_nonnegative_minor_amount(
-        command.other_costs_recovered_minor,
-        "Recovered other costs",
+    penalties_due_minor = _validate_nonnegative_minor_amount(
+        command.penalties_due_minor,
+        "Outstanding penalties",
     )
     if externally_deducted_costs_minor >= gross_recovered_minor:
         raise ServicingValidationError(
@@ -2491,17 +2513,6 @@ def record_loan_recovery_payment(
     )
     if net_available_for_distribution_minor <= 0:
         raise ServicingValidationError("Recovery payment leaves no amount to distribute.")
-    declared_distribution_minor = (
-        principal_recovered_minor
-        + contractual_interest_recovered_minor
-        + default_interest_recovered_minor
-        + penalties_recovered_minor
-        + other_costs_recovered_minor
-    )
-    if declared_distribution_minor != net_available_for_distribution_minor:
-        raise ServicingValidationError(
-            "Recovery category split must equal the net amount available for distribution."
-        )
     request_fingerprint = _recovery_payment_fingerprint(
         command,
         gross_recovered_minor=gross_recovered_minor,
@@ -2534,6 +2545,31 @@ def record_loan_recovery_payment(
             "before final loss recognition."
         )
     currency = _enabled_currency(str(loan_ref.currency_id))
+    holdings = _active_holdings_for_loan(loan)
+    outstanding_principal_minor = sum(
+        int(cast(Any, holding).current_principal_minor) for holding in holdings
+    )
+    penalty_due_minor = default_interest_due_minor + penalties_due_minor
+    waterfall = _allocate_universal_waterfall(
+        net_available_for_distribution_minor,
+        penalty_minor=penalty_due_minor,
+        interest_minor=contractual_interest_due_minor,
+        principal_minor=outstanding_principal_minor,
+    )
+    principal_recovered_minor = waterfall.principal_minor
+    contractual_interest_recovered_minor = waterfall.interest_minor
+    if waterfall.penalty_minor and penalty_due_minor:
+        default_interest_recovered_minor, penalties_recovered_minor = (
+            allocation.amount_minor
+            for allocation in allocate_by_weights(
+                Money(waterfall.penalty_minor, currency.code),
+                [default_interest_due_minor, penalties_due_minor],
+            )
+        )
+    else:
+        default_interest_recovered_minor = 0
+        penalties_recovered_minor = 0
+    other_costs_recovered_minor = 0
     for label, amount in [
         ("Gross recovered amount", gross_recovered_minor),
         ("Externally deducted recovery costs", externally_deducted_costs_minor),
@@ -2542,6 +2578,9 @@ def record_loan_recovery_payment(
         ("Recovery fee base", recovery_fee_base_minor),
         ("Recovery fee amount", recovery_fee_minor),
         ("Net amount available for distribution", net_available_for_distribution_minor),
+        ("Outstanding contractual interest", contractual_interest_due_minor),
+        ("Outstanding default/penalty interest", default_interest_due_minor),
+        ("Outstanding penalties", penalties_due_minor),
         ("Recovered principal", principal_recovered_minor),
         ("Recovered contractual interest", contractual_interest_recovered_minor),
         ("Recovered default interest", default_interest_recovered_minor),
@@ -2552,7 +2591,6 @@ def record_loan_recovery_payment(
             _validate_money(amount, currency.code, label)
         else:
             _validate_nonnegative_minor_amount(amount, label)
-    holdings = _active_holdings_for_loan(loan)
     distribution_plan = _recovery_distribution_plan(
         holdings=holdings,
         principal_minor=principal_recovered_minor,
@@ -2612,18 +2650,21 @@ def record_loan_recovery_payment(
 
     received_at = _received_at_from_value_date(command.value_date)
     recovery_waterfall_config = {
-        "version": "v1-default-admin-declared",
-        "waterfall_order": [
-            "external_recovery_legal_costs",
-            "platform_approved_recovery_costs",
-            "principal",
-            "contractual_interest_until_default",
-            "default_penalty_interest_after_default",
-            "other_penalties_costs",
-        ],
+        "version": PAYMENT_WATERFALL_VERSION,
+        "waterfall_order": list(PAYMENT_WATERFALL_ORDER),
         "allocation_method": "pro_rata_by_current_principal",
         "rounding": "currency_minor_unit_half_up_largest_remainder",
-        **(command.recovery_waterfall_config or {}),
+        "costs_applied_before_lender_distribution_minor": (
+            externally_deducted_costs_minor
+            + third_party_costs_from_received_minor
+            + recovery_fee_minor
+        ),
+        "declared_obligations": {
+            "default_interest_due_minor": default_interest_due_minor,
+            "penalties_due_minor": penalties_due_minor,
+            "contractual_interest_due_minor": contractual_interest_due_minor,
+            "principal_outstanding_minor": outstanding_principal_minor,
+        },
     }
     metadata = {
         REQUEST_FINGERPRINT_METADATA_KEY: request_fingerprint,
@@ -2633,6 +2674,10 @@ def record_loan_recovery_payment(
         "bank_operation_id": str(ledger_result.bank_operation.id),
         "distribution_line_count": len(distribution_plan),
         "fee_base_policy": "net_received_after_third_party_costs_from_received",
+        "contractual_interest_due_minor": contractual_interest_due_minor,
+        "default_interest_due_minor": default_interest_due_minor,
+        "penalties_due_minor": penalties_due_minor,
+        "outstanding_principal_before_recovery_minor": outstanding_principal_minor,
         "metadata": command.metadata or {},
     }
     try:
@@ -2732,17 +2777,14 @@ def record_loan_recovery_payment(
                 f"Your {settings.PLATFORM_BRAND_NAME} balance has been credited with "
                 f"{format_amount_minor(line.amount_minor, currency.code)} from a recovery payment "
                 f"for loan {loan_ref.title}.\n\n"
-                f"Principal recovered: "
-                f"{format_amount_minor(line.principal_minor, currency.code)}.\n"
-                f"Contractual interest recovered: "
-                f"{format_amount_minor(line.contractual_interest_minor, currency.code)}.\n"
                 f"Default/penalty interest recovered: "
                 f"{format_amount_minor(line.default_interest_minor, currency.code)}.\n"
-                "Penalties and other costs recovered: "
-                + format_amount_minor(
-                    line.penalties_minor + line.other_costs_minor, currency.code
-                )
-                + ".\n"
+                f"Other penalties recovered: "
+                f"{format_amount_minor(line.penalties_minor, currency.code)}.\n"
+                f"Contractual interest recovered: "
+                f"{format_amount_minor(line.contractual_interest_minor, currency.code)}.\n"
+                f"Principal recovered: "
+                f"{format_amount_minor(line.principal_minor, currency.code)}.\n"
                 f"Value date: {command.value_date.isoformat()}."
             ),
             template_key="servicing.recovery_distribution_credited.v1",
@@ -2793,6 +2835,10 @@ def record_loan_recovery_payment(
         "recovery_fee_base_minor": recovery_fee_base_minor,
         "recovery_fee_minor": recovery_fee_minor,
         "net_available_for_distribution_minor": net_available_for_distribution_minor,
+        "contractual_interest_due_minor": contractual_interest_due_minor,
+        "default_interest_due_minor": default_interest_due_minor,
+        "penalties_due_minor": penalties_due_minor,
+        "outstanding_principal_before_recovery_minor": outstanding_principal_minor,
         "principal_recovered_minor": principal_recovered_minor,
         "contractual_interest_recovered_minor": contractual_interest_recovered_minor,
         "default_interest_recovered_minor": default_interest_recovered_minor,

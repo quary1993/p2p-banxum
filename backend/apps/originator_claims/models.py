@@ -545,6 +545,7 @@ class OriginatorBorrowerRepayment(AppendOnlyModel, TimestampedModel):
     amount_minor = models.BigIntegerField()
     investor_distributed_minor = models.BigIntegerField()
     originator_payable_minor = models.BigIntegerField()
+    platform_costs_minor = models.BigIntegerField(default=0)
     principal_before_minor = models.BigIntegerField()
     principal_after_minor = models.BigIntegerField()
     originator_principal_before_minor = models.BigIntegerField()
@@ -584,6 +585,7 @@ class OriginatorBorrowerRepayment(AppendOnlyModel, TimestampedModel):
                     & Q(amount_minor__gt=0)
                     & Q(investor_distributed_minor__gte=0)
                     & Q(originator_payable_minor__gte=0)
+                    & Q(platform_costs_minor__gte=0)
                     & Q(principal_before_minor__gt=0)
                     & Q(principal_after_minor__gte=0)
                     & Q(originator_principal_before_minor__gte=0)
@@ -602,7 +604,11 @@ class OriginatorBorrowerRepayment(AppendOnlyModel, TimestampedModel):
             ),
             models.CheckConstraint(
                 condition=Q(
-                    amount_minor=F("investor_distributed_minor") + F("originator_payable_minor")
+                    amount_minor=(
+                        F("investor_distributed_minor")
+                        + F("originator_payable_minor")
+                        + F("platform_costs_minor")
+                    )
                 ),
                 name="originator_repayment_distribution_conserved",
             ),

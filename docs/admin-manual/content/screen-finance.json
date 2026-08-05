@@ -56,7 +56,28 @@
       ]
     },
     {
-      "id": "finance-1-lender-deposit",
+      "id": "finance-1-loan-originator-settlement-queue",
+      "caption": "Loan Originator settlement queue: unsettled purchase and servicing payables grouped for bank execution.",
+      "summary": "This queue groups amounts owed to each Loan Originator by currency. It keeps originator purchase consideration and the originator share of borrower repayments separate from investor liabilities and gives operations a single settlement surface.",
+      "annotations": [
+        {
+          "item": 0,
+          "label": "Loan Originator settlement queue",
+          "text": "Review each grouped originator/currency payable before executing its external bank transfer. The operational due date is day 3 and the oldest unsettled item must not pass day 5."
+        },
+        {
+          "item": 1,
+          "label": "Refresh",
+          "text": "Reloads unsettled originator purchase and servicing payables after a settlement or a newly reconciled payment."
+        }
+      ],
+      "notes": [
+        "Settlement clears complete evidence-backed payable items; do not enter an arbitrary partial allocation.",
+        "Borrower repayments feeding this queue use the same universal payment order as every other loan: Garanta legal costs and recovery fee, penalty, interest, then principal."
+      ]
+    },
+    {
+      "id": "finance-2-lender-deposit",
       "caption": "Lender deposit: record an incoming bank transfer and credit the investor.",
       "summary": "This form declares that money from an investor has landed in Garanta's collection account, credits that investor's balance, and establishes the checksum-valid source IBAN from the bank statement as a verified payout account. Use it only when a real incoming transfer has been seen on the bank statement.",
       "annotations": [
@@ -120,7 +141,7 @@
       ]
     },
     {
-      "id": "finance-2-payout-instruction",
+      "id": "finance-3-payout-instruction",
       "caption": "Payout instruction: register the verified IBAN used to pay an investor.",
       "summary": "A payout instruction is a saved bank account (IBAN) that Garanta is allowed to send an investor's money to. Deposit source IBANs are verified automatically. Use this form when an investor requests another account: verifying it adds that exact IBAN and does not disable their existing verified deposit account.",
       "annotations": [
@@ -163,7 +184,7 @@
       ]
     },
     {
-      "id": "finance-3-investor-balance-lookup",
+      "id": "finance-4-investor-balance-lookup",
       "caption": "Investor balance lookup: read an investor's ledger balance buckets.",
       "summary": "A read-only lookup. It shows an investor's available balance split into the buckets the system uses to decide what they can do with their money. Nothing is changed by running it.",
       "annotations": [
@@ -190,7 +211,7 @@
       ]
     },
     {
-      "id": "finance-4-balance-ageing-scan",
+      "id": "finance-5-balance-ageing-scan",
       "caption": "Balance ageing scan: drive the 30/60-day reminders, forced withdrawals and penalties.",
       "summary": "This scan walks every investor's still-available balance lots and applies the ageing rules: it raises reminders as lots approach the 60-day limit, and at/after day 60 it either auto-creates a forced withdrawal (if a verified payout IBAN exists) or moves the lot into penalty mode and charges a daily penalty. It can be run safely as a dry run first.",
       "annotations": [
@@ -218,7 +239,7 @@
       ]
     },
     {
-      "id": "finance-5-reconciliation-snapshot",
+      "id": "finance-6-reconciliation-snapshot",
       "caption": "Reconciliation snapshot: compare the bank's balance to what the ledger expects.",
       "summary": "A 'reconciliation snapshot' is a point-in-time check that the real bank balance matches the sum of everything the ledger says Garanta owes and holds (investor balances, payables, accrued revenue, FX clearing, suspense, plus any pending exceptions you note). It records the difference and raises alerts if anything is off.",
       "annotations": [
@@ -260,7 +281,7 @@
       ]
     },
     {
-      "id": "finance-6-withdrawal-execution",
+      "id": "finance-7-withdrawal-execution",
       "caption": "Withdrawal execution: finalize a paid-out withdrawal or cancel one before it leaves.",
       "summary": "This form handles an investor withdrawal that the investor already requested. You either finalize it (record that the bank actually paid it and clear the ledger) or cancel it (release the reserved funds back to the investor before the bank sends anything). The lookup only shows withdrawals in requested status. The identical form is also available directly in normal and forced-withdrawal dashboard drawers.",
       "annotations": [
@@ -307,7 +328,7 @@
       ]
     },
     {
-      "id": "finance-7-borrower-disbursement",
+      "id": "finance-8-borrower-disbursement",
       "caption": "Borrower disbursement: record paying a funded loan out to the borrower.",
       "summary": "A 'disbursement' is the outgoing payment of a funded loan to the borrower's bank account. At funding close the FULL accepted principal was moved into the borrower-disbursement payable (no fee accrued at close; the planned fee is evidence only). This form records the payout in the ledger: by default it sends the funded principal minus the BANXUM fee (default 2%), books the fee as Garanta revenue at disbursement, and clears the transfer plus fee against the payable. It only works once the loan is in 'funded' status. The same action is also available from the Loans table via Manage > 'Borrower disbursement'.",
       "annotations": [
@@ -328,33 +349,43 @@
         },
         {
           "item": 4,
+          "label": "BANXUM fee minor units",
+          "text": "The platform fee booked as Garanta revenue at disbursement. It defaults from the funded amount and configured success-fee basis points. Amount plus fee must clear the full outstanding borrower-disbursement payable."
+        },
+        {
+          "item": 5,
           "label": "Currency",
           "text": "Currency of the payout. Auto-filled from the selected loan. It must match the loan's currency or the disbursement is rejected."
         },
         {
-          "item": 5,
+          "item": 6,
           "label": "Booking date",
           "text": "The date the bank booked the outgoing payment. Recorded on the ledger entry."
         },
         {
-          "item": 6,
+          "item": 7,
           "label": "Value date",
           "text": "The date the funds left the account. Recorded on the outgoing ledger entry."
         },
         {
-          "item": 7,
+          "item": 8,
           "label": "Payee name",
           "text": "The borrower account holder name the money was sent to. Required."
         },
         {
-          "item": 8,
+          "item": 9,
           "label": "Payee account",
           "text": "The borrower bank account the money was sent to. Required."
         },
         {
-          "item": 9,
+          "item": 10,
+          "label": "Override note",
+          "text": "Required when overriding the default transfer/fee split. The override may change that split but the combined amount must still clear the complete outstanding payable."
+        },
+        {
+          "item": 11,
           "label": "Finalize disbursement",
-          "text": "Records the disbursement. On success it creates a reconciled outgoing bank-operation, posts the ledger entry clearing the transfer plus the BANXUM fee against the borrower's disbursement payable, and books the fee as Garanta/BANXUM revenue at disbursement. Any unpaid remainder stays in the borrower payable. The success banner confirms what was cleared against collection cash."
+          "text": "Records the disbursement. On success it creates a reconciled outgoing bank-operation, posts the ledger entry clearing the full transfer plus BANXUM fee against the borrower-disbursement payable, and books the fee as Garanta/BANXUM revenue. A residual payable is rejected."
         }
       ],
       "notes": [
@@ -365,7 +396,7 @@
       ]
     },
     {
-      "id": "finance-8-fx-settlement",
+      "id": "finance-9-fx-settlement",
       "caption": "FX settlement: review currency-exchange deltas and declare the external bank settlement.",
       "summary": "FX means foreign exchange (swapping one currency for another, e.g. CHF to EUR). When investors convert balances inside the platform, Garanta later settles the net amount with a real bank/broker. This wide panel lets you load two reports for a date range and then declare that external settlement.",
       "annotations": [

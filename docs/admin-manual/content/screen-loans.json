@@ -45,7 +45,33 @@
       ]
     },
     {
-      "id": "loans-5-borrowers",
+      "id": "loans-6-loan-originators",
+      "caption": "Loan Originators: accounting entities that sell existing final-borrower claims through BANXUM.",
+      "summary": "Create the Loan Originator before importing any of its claim loans. Originators are onboarded and KYB/AML-reviewed off-platform; they do not receive investor-portal login accounts.",
+      "annotations": [
+        {
+          "item": 0,
+          "label": "Loan Originators",
+          "text": "This table is the source of the legal counterparty and settlement configuration used by imported originator-claim loans. Search by public name, legal name or registration number when records exist."
+        },
+        {
+          "item": 1,
+          "label": "Refresh",
+          "text": "Reloads Loan Originators from the backend after a create or update operation."
+        },
+        {
+          "item": 2,
+          "label": "Create Loan Originator",
+          "text": "Opens the originator form. Complete the legal identity, settlement and off-platform KYB/AML evidence before importing a claim loan owned by this originator."
+        }
+      ],
+      "notes": [
+        "An originator is not a borrower portal user. It owns an existing final-borrower claim and sells eligible portions of that claim through BANXUM.",
+        "Skin in the game is configured per imported claim loan, not globally on this card. A positive basis-point value reserves the required proportion of outstanding principal for the originator and prevents it from being sold."
+      ]
+    },
+    {
+      "id": "loans-7-borrowers",
       "caption": "The Borrowers table: every borrower company and its compliance gate.",
       "summary": "Borrowers are companies that admins enter by hand. KYB stands for Know Your Business: the company-level identity, ownership and compliance check (the business equivalent of KYC for a person). A loan to a borrower can only go live if that borrower's KYB is Approved and the borrower has no compliance hold.",
       "annotations": [
@@ -127,89 +153,100 @@
       ]
     },
     {
-      "id": "loans-6-loans",
-      "caption": "The Loans table: each loan with its status, amount, rate, LTV and funding deadline.",
-      "summary": "Each row is one loan. A loan is created as a draft, then published so investors can fund it. A loan can only be published when its required fields, repayment schedule, funding window and the borrower's KYB all pass their checks.",
+      "id": "loans-8-loans",
+      "caption": "The unified Loans table: direct loans and Loan Originator claim loans in one operational view.",
+      "summary": "Each row is one investor opportunity. Direct loans use a borrower KYB gate and a funding round. Originator claims use an immutable imported schedule, anonymized borrower disclosure, target-yield pricing, immediate claim assignment and an optional originator-retention floor.",
       "annotations": [
         {
           "item": 1,
-          "label": "Loan column",
-          "text": "The loan title with its unique ID (UUID) underneath. Click a row to select it; the selected loan becomes the default target for the action panels lower on the page (publish, close, servicing, etc.)."
+          "label": "Loan / counterparty column",
+          "text": "Shows the opportunity title, its borrower or Loan Originator counterparty, and its unique reference. Click a row to select it; Manage always stays pinned to that exact opportunity."
         },
         {
           "item": 2,
-          "label": "Status column",
-          "text": "The loan's lifecycle status as a coloured chip. The values are: Draft, Published, Funded, Late, Defaulted, Repaid, Written off, and Cancelled. Status controls what you are allowed to do: for example only Draft loans can be published, only Published loans can be closed or cancelled, only Funded/Late loans accept repayments, and only Defaulted loans accept recoveries."
+          "label": "Product column",
+          "text": "Distinguishes Direct loans from Originator claims. The two products share an investor-opportunity table but have different creation, publication, settlement and servicing actions."
         },
         {
           "item": 3,
-          "label": "Amount column",
-          "text": "The loan principal: the total amount the borrower wants to raise, shown formatted in the loan's currency. (Principal means the borrowed sum itself, before interest.)"
+          "label": "Status column",
+          "text": "The current lifecycle or opportunity status. The server uses this status to decide which Manage actions are available; it is not merely a display label."
         },
         {
           "item": 4,
-          "label": "Rate column",
-          "text": "The annual interest rate the borrower pays, shown as a percentage. Internally it is stored in basis points (bps), where 100 bps = 1%."
+          "label": "Progress column",
+          "text": "For a direct loan, shows committed versus financeable principal and the funding percentage. For an originator claim, it shows how much of the eligible claim has been sold while respecting the originator-retention floor."
         },
         {
           "item": 5,
-          "label": "LTV column",
-          "text": "LTV means Loan-to-Value: the loan amount divided by the value of the collateral backing it, shown as a percentage. A lower LTV is safer because the collateral comfortably covers the loan. A dash means no LTV is recorded."
+          "label": "Yield column",
+          "text": "The target annual yield presented to investors. For direct loans this is the contractual investor rate. For originator claims the executable purchase price changes over time so the investor's target yield remains the configured value. Internally percentages use basis points (100 bps = 1%)."
         },
         {
           "item": 6,
-          "label": "Funding deadline column",
-          "text": "The date by which investors must finish funding the loan. After this date the campaign is expired and can be cancelled by the expiry scan. To publish a loan, the deadline must be no earlier than today and no more than 29 days out (so end-of-window investor funds can still settle inside the platform's 60-day operating limit)."
+          "label": "LTV column",
+          "text": "Loan-to-Value: current loan principal divided by eligible collateral value. A lower LTV means more collateral margin. A dash means the product has no disclosed LTV."
         },
         {
           "item": 7,
-          "label": "Actions column",
-          "text": "Holds the per-row Edit and Manage buttons. Published loans show a note that cancellation is done via the operations panel below, rather than from this row."
+          "label": "Availability date column",
+          "text": "For direct loans this is the funding deadline. For originator claims it is the contractual maturity date; the claim stops being available once it reaches its configured maturity-window cutoff or another terminal condition."
         },
         {
           "item": 8,
-          "label": "Filter loans by status",
-          "text": "A dropdown to show only loans in a chosen status (Draft, Published, Funded, Late, Defaulted, Repaid, Written off, Cancelled), or all of them. Handy for finding, say, every Late loan that needs servicing."
+          "label": "Actions column",
+          "text": "Direct loans offer Edit and status-aware Manage actions. Originator claims use their own Manage workflow for imported evidence, publication, holds and replacement repayment revisions. Delete is intentionally unavailable for financial evidence."
         },
         {
           "item": 9,
-          "label": "Refresh button",
-          "text": "Reloads the loans list from the backend. Use it after creating, editing or running an operation if the table looks stale."
+          "label": "Filter loans by status",
+          "text": "Narrows the unified table by lifecycle status. Use the search field above it to find a title, borrower, originator, product, status or UUID."
         },
         {
           "item": 10,
-          "label": "Create loan button",
-          "text": "Opens the loan draft form. You pick a borrower, set the financeable principal, rate, term, repayment type, collateral, loan start date (defaults to the funding deadline) and funding deadline, and can tick 'Refinancing loan' to declare the original loan data for a loan that refinances an existing one. The system builds the repayment schedule automatically from the financeable principal; the first installment is always due one month after the loan start date (there is no first-installment input). New loans always start as a Draft; they are not live until you publish them."
+          "label": "Refresh button",
+          "text": "Reloads both product types from the backend after a mutation."
         },
         {
           "item": 11,
-          "label": "Edit button (row action)",
-          "text": "Opens the loan edit form. Note the safety rule: once investors have committed money to the loan, you can only lower the total amount (and not below what is already committed), and you must include an investor message. Other fields lock after commitments exist."
+          "label": "Create direct loan",
+          "text": "Creates a draft for a BANXUM-originated direct borrower loan. Select the borrower, principal, yield, term, repayment type, collateral, start date and funding deadline; the server generates and validates the schedule."
         },
         {
           "item": 12,
+          "label": "Import originator claim loan",
+          "text": "Imports a Loan Originator-owned claim from a fully reconciled schedule/payment CSV. The form also captures target investor yield, minimum investment and optional skin-in-the-game basis points. A positive retention value is rounded up to a minor unit and remains unsellable."
+        },
+        {
+          "item": 14,
           "label": "Manage button (row action)",
-          "text": "Opens the Manage dialog for this loan: a menu of the actions valid for its current status (publish for drafts; close funding, cancel funding, expiry scan and order release for published loans; borrower disbursement and record borrower repayment for funded loans; record borrower repayment for late loans; record a recovery payment for defaulted loans). Choosing an action shows only that action's fields. It also selects the loan for the Servicing operations panel below."
+          "text": "Opens the product-specific workflow for the selected row. Direct and originator-claim actions are deliberately separated so imported claim evidence cannot be edited through the direct-loan lifecycle."
         },
         {
-          "item": 15,
+          "item": 22,
           "label": "Published status chip",
-          "text": "Example of a 'Published' chip: this loan is live on the marketplace and investors can fund it now. From here you can close funding, cancel funding, or release individual orders."
+          "text": "Example of a direct loan live in the primary marketplace and accepting investor orders."
         },
         {
-          "item": 16,
+          "item": 24,
           "label": "Late status chip",
           "text": "Example of a 'Late' chip: at least one installment is 5 or more days past due. If it reaches 16 or more days past due, the status scan moves it to Defaulted. Late loans still accept repayments."
+        },
+        {
+          "item": 26,
+          "label": "Defaulted status chip",
+          "text": "A defaulted direct loan is handled through recovery. Every payment still follows the same server-owned order: Garanta legal costs and recovery fee, penalty, interest, then principal."
         }
       ],
       "notes": [
-        "Publishing a loan runs its gates at once: required fields present, the repayment schedule is complete (one installment per month of the term and the principal pieces add up to the financeable principal), the funding deadline is valid for publishing, and the borrower's KYB is Approved with no compliance hold. A refinancing loan additionally requires that the financeable principal does not exceed the remaining outstanding of the informational original schedule (a lower financeable principal only shows an informational notice). If any gate fails, publishing is refused with a message.",
-        "Status is not just a label; it is enforced. The action panels will reject operations that do not match the loan's current status.",
-        "The search box lets you find a loan by title, borrower, status or UUID."
+        "Publishing a direct loan checks required fields, schedule conservation, funding deadline and borrower KYB/no-hold status. Publishing an originator claim checks the immutable import, originator status, sellable principal and maturity window.",
+        "The universal payment waterfall applies to every product and status: Garanta legal costs and recovery fee, penalty, interest, then principal. Principal is never paid ahead of a due earlier tier.",
+        "For an originator claim, imported payment-category columns are reconciliation evidence only. The server recomputes the applied split and rejects a CSV that relabels interest or penalty as principal.",
+        "Status is enforced. Invalid product/status operations are rejected even if a client tries to call the endpoint directly."
       ]
     },
     {
-      "id": "loans-9-manage-loan-actions",
+      "id": "loans-11-manage-loan-actions",
       "caption": "The Manage dialog: pick the action to apply to this loan.",
       "summary": "Clicking Manage on a loan row opens this dialog. The bar at the top restates the loan you are acting on: its status chip, funding deadline, committed versus total amount, and ID. Below it is the action menu - only actions that are valid for the loan's current status are listed, each with a one-line explanation. Draft loans offer 'Publish loan'; published loans offer the four actions shown here; funded loans offer 'Borrower disbursement' and 'Record borrower repayment'; late loans offer 'Record borrower repayment'; defaulted loans offer 'Record a recovery payment'.",
       "annotations": [
@@ -256,7 +293,7 @@
       ]
     },
     {
-      "id": "loans-10-manage-close-funding",
+      "id": "loans-12-manage-close-funding",
       "caption": "After choosing an action, only that action's fields appear.",
       "summary": "The second step of the Manage dialog, shown here for Close funding. The context bar stays visible, a back link returns to the action list, and the form contains only the fields this action needs. Other actions follow the same pattern - Cancel funding asks for a cancellation reason and investor message, the expiry scan asks for an as-of date and scope, and the order release asks for the order and a reason.",
       "annotations": [
@@ -287,7 +324,7 @@
       ]
     },
     {
-      "id": "loans-7-secondary-market-approvals",
+      "id": "loans-9-secondary-market-approvals",
       "caption": "Secondary-market approvals: the table of investor-to-investor resale listings.",
       "summary": "Every secondary-market listing, newest first. The secondary market is where an investor who already owns a slice of a loan sells it to another investor. Standard (performing-loan) listings publish automatically and appear here as 'Active'; non-standard listings (late, defaulted, or otherwise flagged) wait as 'Approval requested' until an admin approves them with a buyer disclosure note. The status filter narrows the table, and the action buttons on each row open a confirmation dialog.",
       "annotations": [
@@ -360,7 +397,7 @@
       ]
     },
     {
-      "id": "loans-8-servicing-operations",
+      "id": "loans-10-servicing-operations",
       "caption": "Servicing operations: scan loan health and post public notes.",
       "summary": "Servicing means running a loan after it is funded. This panel now holds only the status scan and public investor notes for the loan selected in the table above. Borrower repayments (a fixed regular installment amount, or 'Repayment in advance' with a bank date and a preview dialog) and recovery payments on defaulted loans are recorded from the loan row's Manage dialog.",
       "annotations": [
@@ -392,12 +429,12 @@
       ]
     },
     {
-      "id": "loans-11-manage-record-recovery",
+      "id": "loans-13-manage-record-recovery",
       "caption": "Manage > Record a recovery payment (defaulted loans only).",
-      "summary": "The recovery action appears in the Manage dialog only when the loan is Defaulted. It records money recovered on the loan and distributes it to lenders through the recovery waterfall. The key rule: the gross recovered, minus external and third-party costs and the optional Garanta recovery fee, gives the 'net to distribute'; the five category amounts you enter below must add up to exactly that net figure. A running summary shows the arithmetic and a warning appears until the split balances.",
+      "summary": "The recovery action appears in the Manage dialog only when the loan is Defaulted. Record the gross cash, evidenced costs, optional Garanta recovery fee, and amounts currently due for penalties/default interest and contractual interest. The server derives current principal and applies one fixed order: costs/recovery fee, penalty, interest, then principal. The operator cannot choose or reorder the applied split.",
       "annotations": [
         {
-          "item": 16,
+          "item": 14,
           "label": "Defaulted status",
           "text": "The recovery action only exists for a Defaulted loan. On any other status the Manage menu does not offer it (repayments on funded or late loans are recorded through Manage > 'Record borrower repayment' instead)."
         },
@@ -423,38 +460,29 @@
         },
         {
           "item": 5,
-          "label": "Principal recovered",
-          "text": "The part of the net distribution assigned to principal. This and the next four fields are the waterfall split."
+          "label": "Outstanding default/penalty interest",
+          "text": "Enter the evidence-backed default or penalty interest currently due. It belongs to the Penalty tier and is paid before contractual interest or principal."
         },
         {
           "item": 6,
-          "label": "Contractual interest recovered",
-          "text": "The part assigned to contractual interest accrued up to default."
+          "label": "Outstanding other penalties",
+          "text": "Enter any other evidenced penalties currently due. Together with default/penalty interest, this is the second waterfall tier."
         },
         {
           "item": 7,
-          "label": "Default/penalty interest recovered",
-          "text": "The part assigned to default or penalty interest."
+          "label": "Outstanding contractual interest",
+          "text": "Enter contractual interest accrued and still due. The server pays it only after costs/recovery fee and the complete penalty tier."
         },
         {
-          "item": 8,
-          "label": "Penalties recovered",
-          "text": "The part assigned to penalties."
-        },
-        {
-          "item": 9,
-          "label": "Other costs recovered",
-          "text": "The part assigned to any other recoverable costs. The five split fields together must equal the net-to-distribute figure shown in the running summary above them."
-        },
-        {
-          "item": 15,
+          "item": 13,
           "label": "Record recovery",
-          "text": "Opens the confirmation summary, then records the recovery: affected investor balance lots are credited via the waterfall, holding principal is reduced, and any recovery fee is posted as Garanta revenue. Disabled until the category split matches the net amount - the form guards the same conservation rule the backend enforces."
+          "text": "Opens the confirmation summary, then records the recovery. Affected investor balance lots are credited, holding principal is reduced only by the amount that reaches the final tier, and Garanta recovery fee is posted as revenue."
         }
       ],
       "notes": [
         "Recovery is only valid on a Defaulted loan; repayments on funded/late loans go through Manage > 'Record borrower repayment' (fixed installment amount, or 'Repayment in advance' with a bank date for any other amount).",
-        "The running summary (Net received / Fee / Net to distribute) mirrors the backend math; the Record recovery button stays disabled while the category split does not equal the net amount.",
+        "The Net received / Fee / Net to distribute summary mirrors the gross-to-net calculation. A second summary previews the fixed four-tier allocation; there is no editable principal-first split.",
+        "Principal is never paid while evidenced costs/recovery fee, penalties/default interest, or contractual interest remain due.",
         "In preview/demo mode the button records a 'Preview action' note instead of calling the backend."
       ]
     }

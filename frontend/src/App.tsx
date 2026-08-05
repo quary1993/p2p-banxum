@@ -2540,6 +2540,78 @@ function ActionRow({
   );
 }
 
+type MkFilters = {
+  q: string;
+  minRate: number | null;
+  maxTerm: number | null;
+  orig: string;
+  col: string;
+  ccy: string;
+  rating: string;
+  purpose: string;
+  kind: string;
+  avail: "open" | "all";
+};
+
+const mkDefaultFilters: MkFilters = {
+  q: "",
+  minRate: null,
+  maxTerm: null,
+  orig: "all",
+  col: "all",
+  ccy: "all",
+  rating: "all",
+  purpose: "all",
+  kind: "all",
+  avail: "open"
+};
+
+const mkIsUnsecured = (loan: MarketplaceLoanPreview) => /unsecured/i.test(loan.collateral_type);
+const mkYieldPct = (loan: MarketplaceLoanPreview) => marketplaceYieldBps(loan) / 100;
+
+function mkMatches(loan: MarketplaceLoanPreview, filters: MkFilters, skip?: keyof MkFilters) {
+  const haystack = `${loan.loan_id} ${loan.title} ${loan.originator_name ?? ""} ${loan.borrower_display_name ?? ""} ${loan.purpose} ${loan.collateral_type} ${loan.risk_rating}`.toLowerCase();
+  const checks: [keyof MkFilters, boolean][] = [
+    ["q", filters.q.trim() === "" || haystack.includes(filters.q.trim().toLowerCase())],
+    ["minRate", filters.minRate === null || mkYieldPct(loan) >= filters.minRate - 0.001],
+    ["maxTerm", filters.maxTerm === null || loan.term_months <= filters.maxTerm],
+    ["orig", filters.orig === "all" || (filters.orig === "banxum" ? !isOriginatorClaimLoan(loan) : loan.originator_name === filters.orig)],
+    [
+      "col",
+      filters.col === "all"
+        || (filters.col === "secured"
+          ? !mkIsUnsecured(loan)
+          : filters.col === "unsecured"
+            ? mkIsUnsecured(loan)
+            : loan.collateral_type === filters.col)
+    ],
+    ["ccy", filters.ccy === "all" || loan.currency === filters.ccy],
+    ["rating", filters.rating === "all" || loan.risk_rating === filters.rating],
+    ["purpose", filters.purpose === "all" || loan.purpose === filters.purpose],
+    ["kind", filters.kind === "all" || (filters.kind === "refi" ? loan.is_refinancing : !loan.is_refinancing)],
+    ["avail", filters.avail === "all" || isOpenMarketplaceLoan(loan)]
+  ];
+  return checks.every(([key, ok]) => key === skip || ok);
+}
+
+const mkSortOptions: FsSortOption[] = [
+  { key: "name", label: "Company" },
+  { key: "rate", label: "Yield" },
+  { key: "term", label: "Term" },
+  { key: "margin", label: "Collateral margin" },
+  { key: "available", label: "Available to invest" },
+  { key: "closing", label: "Closes" }
+];
+
+function mkSortValue(loan: MarketplaceLoanPreview, key: string): number | string {
+  if (key === "name") return loan.title.toLowerCase();
+  if (key === "rate") return marketplaceYieldBps(loan);
+  if (key === "term") return loan.term_months;
+  if (key === "margin") return loan.ltv_bps ?? 999_999;
+  if (key === "available") return marketplaceAvailableMinor(loan);
+  return `${Number(isOpenMarketplaceLoan(loan)) === 1 ? "0" : "1"}${marketplaceClosingKey(loan)}`;
+}
+
 function MarketplaceScreen({
   setRoute
 }: {
@@ -2550,31 +2622,100 @@ function MarketplaceScreen({
   const loansQuery = useMarketplaceLoansData();
   const balancesQuery = useBalancesData();
   const loans = loansQuery.data ?? [];
-  const [query, setQuery] = useState("");
-  const [currency, setCurrency] = useState("all");
-  const [availability, setAvailability] = useState<"open" | "all">("open");
+  const [filters, setFilters] = useState<MkFilters>(mkDefaultFilters);
+  const [panelOpen, setPanelOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"focused" | "detailed">("focused");
-  const [sort, setSort] = useState<"deadline" | "rate" | "funding" | "capacity">("deadline");
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [capacityCurrency, setCapacityCurrency] = useState("CHF");
   const [showOrderGuide, setShowOrderGuide] = useState(false);
   const [showInvestingRule, setShowInvestingRule] = useState(false);
 
-  const filtered = loans.filter((loan) => {
-    const matchesSearch = `${loan.loan_id} ${loan.title} ${loan.originator_name ?? ""} ${loan.borrower_display_name ?? ""} ${loan.purpose} ${loan.collateral_type} ${loan.risk_rating}`
-      .toLowerCase()
-      .includes(query.trim().toLowerCase());
-    const matchesCurrency = currency === "all" || loan.currency === currency;
-    const matchesAvailability = availability === "all" || isOpenMarketplaceLoan(loan);
-    return matchesSearch && matchesCurrency && matchesAvailability;
-  });
+  const setFlt = <K extends keyof MkFilters>(key: K, value: MkFilters[K]) => {
+    setFilters((current) => ({ ...current, [key]: value }));
+    if (key === "ccy" && typeof value === "string" && value !== "all") setCapacityCurrency(value);
+  };
+  const pickSort = (key: string) => {
+    setSortDir(sortKey === key && sortDir === "asc" ? "desc" : "asc");
+    setSortKey(key);
+  };
+
+  const filtered = loans.filter((loan) => mkMatches(loan, filters));
   const sortedLoans = [...filtered].sort((left, right) => {
-    if (sort === "rate") return marketplaceYieldBps(right) - marketplaceYieldBps(left);
-    if (sort === "funding") return fundingPercent(right) - fundingPercent(left);
-    if (sort === "capacity") return marketplaceAvailableMinor(right) - marketplaceAvailableMinor(left);
-    const openDelta = Number(isOpenMarketplaceLoan(right)) - Number(isOpenMarketplaceLoan(left));
-    return openDelta || marketplaceClosingKey(left).localeCompare(marketplaceClosingKey(right));
+    if (!sortKey) {
+      const openDelta = Number(isOpenMarketplaceLoan(right)) - Number(isOpenMarketplaceLoan(left));
+      return openDelta || marketplaceClosingKey(left).localeCompare(marketplaceClosingKey(right));
+    }
+    const x = mkSortValue(left, sortKey);
+    const y = mkSortValue(right, sortKey);
+    const c = typeof x === "string" ? x.localeCompare(String(y)) : x - Number(y);
+    return sortDir === "asc" ? c : -c;
   });
   const openCount = loans.filter(isOpenMarketplaceLoan).length;
+
+  const yieldPcts = loans.map(mkYieldPct);
+  const rateFloor = loans.length > 0 ? Math.floor(Math.min(...yieldPcts) * 10) / 10 : 0;
+  const rateCeil = loans.length > 0 ? Math.ceil(Math.max(...yieldPcts) * 10) / 10 : 0;
+  const termVals = Array.from(new Set(loans.map((loan) => loan.term_months))).sort((a, b) => a - b);
+  const termCeil = termVals[termVals.length - 1] ?? 0;
+  const rateValue = filters.minRate ?? rateFloor;
+  const termValue = filters.maxTerm ?? termCeil;
+  const rateBinCount = 20;
+  const rateBins = Array.from({ length: rateBinCount }, (_, index) => {
+    const lo = rateFloor + ((rateCeil - rateFloor) * index) / rateBinCount;
+    const hi = rateFloor + ((rateCeil - rateFloor) * (index + 1)) / rateBinCount;
+    const n = loans.filter((loan) => {
+      const pct = mkYieldPct(loan);
+      return mkMatches(loan, filters, "minRate") && pct >= lo - 0.001 && (index === rateBinCount - 1 ? pct <= hi + 0.001 : pct < hi);
+    }).length;
+    return { lo, n };
+  });
+  const rateBinMax = Math.max(1, ...rateBins.map((bin) => bin.n));
+  const termBins = termVals.map((term) => ({
+    term,
+    n: loans.filter((loan) => loan.term_months === term && mkMatches(loan, filters, "maxTerm")).length
+  }));
+  const termBinMax = Math.max(1, ...termBins.map((bin) => bin.n));
+
+  const originatorNames = Array.from(
+    new Set(loans.filter(isOriginatorClaimLoan).map((loan) => loan.originator_name ?? "").filter(Boolean))
+  ).sort();
+  const collateralKinds = Array.from(
+    new Set(loans.filter((loan) => !mkIsUnsecured(loan)).map((loan) => loan.collateral_type))
+  ).sort();
+  const currencies = Array.from(new Set(loans.map((loan) => loan.currency))).sort();
+  const ratings = Array.from(new Set(loans.map((loan) => loan.risk_rating))).sort();
+  const purposes = Array.from(new Set(loans.map((loan) => loan.purpose))).sort();
+
+  const chip = (group: keyof MkFilters, value: string, label: string, predicate: (loan: MarketplaceLoanPreview) => boolean) => {
+    const count = loans.filter((loan) => predicate(loan) && mkMatches(loan, filters, group)).length;
+    const on = filters[group] === value;
+    return { group, value, label, count, on };
+  };
+  const chipButton = (item: ReturnType<typeof chip>) => (
+    <button
+      className={`fs-chip${item.on ? " on" : item.count === 0 ? " dim" : ""}`}
+      key={`${String(item.group)}-${item.value}`}
+      onClick={() => setFlt(item.group, (item.on ? "all" : item.value) as MkFilters[typeof item.group])}
+      type="button"
+    >
+      {item.label}
+      <span className="fs-chip-count">{item.count}</span>
+    </button>
+  );
+
+  const tokens: { label: string; clear: () => void }[] = [];
+  if (filters.q.trim() !== "") tokens.push({ label: `matching "${filters.q.trim()}"`, clear: () => setFlt("q", "") });
+  if (filters.minRate !== null) tokens.push({ label: `${filters.minRate.toFixed(1)}% and up`, clear: () => setFlt("minRate", null) });
+  if (filters.maxTerm !== null) tokens.push({ label: `up to ${filters.maxTerm} months`, clear: () => setFlt("maxTerm", null) });
+  if (filters.orig !== "all") tokens.push({ label: filters.orig === "banxum" ? "from Banxum" : `from ${filters.orig}`, clear: () => setFlt("orig", "all") });
+  if (filters.col !== "all") tokens.push({ label: filters.col === "secured" ? "with collateral" : filters.col === "unsecured" ? "no collateral" : humanizeToken(filters.col).toLowerCase(), clear: () => setFlt("col", "all") });
+  if (filters.ccy !== "all") tokens.push({ label: filters.ccy, clear: () => setFlt("ccy", "all") });
+  if (filters.rating !== "all") tokens.push({ label: `rated ${filters.rating}`, clear: () => setFlt("rating", "all") });
+  if (filters.purpose !== "all") tokens.push({ label: humanizeToken(filters.purpose).toLowerCase(), clear: () => setFlt("purpose", "all") });
+  if (filters.kind !== "all") tokens.push({ label: filters.kind === "refi" ? "refinancings" : "new lending", clear: () => setFlt("kind", "all") });
+  if (filters.avail !== "open") tokens.push({ label: "including closed", clear: () => setFlt("avail", "open") });
+  const clearAllFilters = () => setFilters(mkDefaultFilters);
   const balanceSummaries = balancesQuery.data?.summaries ?? [];
   const activeCapacityCurrency = balanceSummaries.some((summary) => summary.currency === capacityCurrency)
     ? capacityCurrency
@@ -2640,52 +2781,208 @@ function MarketplaceScreen({
         <div className="marketplace-section-head">
           <div>
             <div className="eyebrow">Primary market</div>
-            <h2>{availability === "open" ? "Open investment opportunities" : "All investment opportunities"}</h2>
-          </div>
-          <div className="marketplace-view-toggle">
-            <span>View</span>
-            <Segmented
-              options={[{ value: "focused", label: "Focused" }, { value: "detailed", label: "Detailed" }]}
-              value={viewMode}
-              onChange={setViewMode}
-            />
+            <h2>{filters.avail === "open" ? "Open investment opportunities" : "All investment opportunities"}</h2>
           </div>
         </div>
 
-        <div className="marketplace-toolbar">
-          <div className="search marketplace-search">
-            <Icon name="search" size={15} />
-            <input
-              aria-label="Search investment opportunities"
-              className="input"
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search name, purpose, collateral or reference"
-              value={query}
-            />
+        {tokens.length > 0 ? (
+          <div className="fs-tokens">
+            {tokens.map((token) => (
+              <button className="fs-token" key={token.label} onClick={token.clear} type="button">
+                {token.label}
+                <span aria-hidden="true" className="fs-token-x">×</span>
+              </button>
+            ))}
+            <button className="fs-clear-link" onClick={clearAllFilters} type="button">clear</button>
           </div>
-          <select
-            aria-label="Filter by currency"
-            className="select filter-select"
-            onChange={(event) => {
-              const nextCurrency = event.target.value;
-              setCurrency(nextCurrency);
-              if (nextCurrency !== "all") setCapacityCurrency(nextCurrency);
-            }}
-            value={currency}
-          >
-            <option value="all">All currencies</option>
-            <option value="CHF">CHF</option>
-            <option value="EUR">EUR</option>
-          </select>
-          <select aria-label="Sort opportunities" className="select filter-select" onChange={(event) => setSort(event.target.value as typeof sort)} value={sort}>
-            <option value="deadline">Closing soonest</option>
-            <option value="rate">Highest yield</option>
-            <option value="funding">Most funded</option>
-            <option value="capacity">Largest remaining capacity</option>
-          </select>
-          <Segmented options={[{ value: "open", label: "Open" }, { value: "all", label: "All" }]} value={availability} onChange={setAvailability} />
-          <span className="results-count">{sortedLoans.length} loans</span>
+        ) : null}
+
+        <div className="fs-controls">
+          <button className={`fs-pill${panelOpen || tokens.length > 0 ? " on" : ""}`} onClick={() => setPanelOpen((open) => !open)} type="button">
+            <span>Filter</span>
+            <span aria-hidden="true" className="fs-caret">{panelOpen ? "▲" : "▼"}</span>
+          </button>
+          <SortControl activeKey={sortKey} dir={sortDir} onPick={pickSort} options={mkSortOptions} />
+          {sortKey ? (
+            <button className="fs-clear-link" onClick={() => { setSortKey(null); setSortDir("asc"); }} type="button">back to closing soonest</button>
+          ) : null}
+          <span className="fs-count"><strong>{filtered.length}</strong> of {loans.length} match</span>
+          <span style={{ flex: 1 }} />
+          <Segmented
+            options={[{ value: "focused", label: "Focused" }, { value: "detailed", label: "Detailed" }]}
+            value={viewMode}
+            onChange={setViewMode}
+          />
         </div>
+
+        {panelOpen ? (
+          <div className="fs-panel">
+            <div className="fs-search-row">
+              <div className="fs-group-cap">Find a loan</div>
+              <input
+                aria-label="Search investment opportunities"
+                className="fs-search-input"
+                onChange={(event) => setFlt("q", event.target.value)}
+                placeholder="Name, purpose, collateral or reference"
+                value={filters.q}
+              />
+            </div>
+            <div className="fs-sliders">
+              <div>
+                <div className="fs-slider-head">
+                  <span className="fs-group-cap">
+                    Pays at least
+                    {filters.minRate !== null ? <button aria-label="Clear minimum rate" className="fs-group-x" onClick={() => setFlt("minRate", null)} type="button">×</button> : null}
+                  </span>
+                  <span className="fs-slider-val">{filters.minRate === null ? "any rate" : `${rateValue.toFixed(1)}%`}</span>
+                </div>
+                <div className="fs-hist">
+                  {rateBins.map((bin, index) => (
+                    <span
+                      key={index}
+                      style={{
+                        height: bin.n > 0 ? `${Math.max(7, Math.round((bin.n / rateBinMax) * 100))}%` : "2px",
+                        background: bin.lo >= rateValue - 0.001 && bin.n > 0 ? "#B9C0C4" : "#EDEAE2"
+                      }}
+                    />
+                  ))}
+                </div>
+                <input
+                  aria-label="Minimum yield"
+                  className="fs-range"
+                  max={rateCeil}
+                  min={rateFloor}
+                  onChange={(event) => setFlt("minRate", Number(event.target.value) <= rateFloor ? null : Number(event.target.value))}
+                  step={0.1}
+                  type="range"
+                  value={rateValue}
+                />
+                <div className="fs-range-ends"><span>{rateFloor.toFixed(1)}%</span><span>{rateCeil.toFixed(1)}%</span></div>
+              </div>
+              <div>
+                <div className="fs-slider-head">
+                  <span className="fs-group-cap">
+                    Runs no longer than
+                    {filters.maxTerm !== null ? <button aria-label="Clear maximum term" className="fs-group-x" onClick={() => setFlt("maxTerm", null)} type="button">×</button> : null}
+                  </span>
+                  <span className="fs-slider-val">{filters.maxTerm === null ? "any term" : `${termValue} mo`}</span>
+                </div>
+                <div className="fs-hist wide">
+                  {termBins.map((bin) => (
+                    <span
+                      key={bin.term}
+                      style={{
+                        height: bin.n > 0 ? `${Math.max(7, Math.round((bin.n / termBinMax) * 100))}%` : "2px",
+                        background: bin.term <= termValue && bin.n > 0 ? "#B9C0C4" : "#EDEAE2"
+                      }}
+                    />
+                  ))}
+                </div>
+                <input
+                  aria-label="Maximum term"
+                  className="fs-range"
+                  max={termCeil}
+                  min={termVals[0] ?? 0}
+                  onChange={(event) => setFlt("maxTerm", Number(event.target.value) >= termCeil ? null : Number(event.target.value))}
+                  step={1}
+                  type="range"
+                  value={termValue}
+                />
+                <div className="fs-range-ends"><span>{termVals[0] ?? 0} mo</span><span>{termCeil} mo</span></div>
+              </div>
+            </div>
+            <div className="fs-groups">
+              <div className="fs-group">
+                <div className="fs-group-cap">
+                  Originated by
+                  {filters.orig !== "all" ? <button aria-label="Clear originator filter" className="fs-group-x" onClick={() => setFlt("orig", "all")} type="button">×</button> : null}
+                </div>
+                <div className="fs-chips">
+                  {chipButton(chip("orig", "banxum", "Banxum", (loan) => !isOriginatorClaimLoan(loan)))}
+                  {originatorNames.map((name) => chipButton(chip("orig", name, name, (loan) => loan.originator_name === name)))}
+                </div>
+              </div>
+              <div className="fs-group">
+                <div className="fs-group-cap">
+                  Collateral
+                  {filters.col !== "all" ? <button aria-label="Clear collateral filter" className="fs-group-x" onClick={() => setFlt("col", "all")} type="button">×</button> : null}
+                </div>
+                <div className="fs-chips">
+                  {chipButton(chip("col", "secured", "With collateral", (loan) => !mkIsUnsecured(loan)))}
+                  {chipButton(chip("col", "unsecured", "No collateral", (loan) => mkIsUnsecured(loan)))}
+                </div>
+                {filters.col !== "unsecured" ? (
+                  <div className="fs-subgroup">
+                    <span className="fs-subgroup-label">of which</span>
+                    <span className="fs-subgroup-body">
+                      <span className="fs-chips">
+                        {collateralKinds.map((kind) => chipButton(chip("col", kind, humanizeToken(kind), (loan) => loan.collateral_type === kind)))}
+                      </span>
+                    </span>
+                  </div>
+                ) : null}
+              </div>
+              <div className="fs-group">
+                <div className="fs-group-cap">
+                  Currency
+                  {filters.ccy !== "all" ? <button aria-label="Clear currency filter" className="fs-group-x" onClick={() => setFlt("ccy", "all")} type="button">×</button> : null}
+                </div>
+                <div className="fs-chips">
+                  {currencies.map((code) => chipButton(chip("ccy", code, code, (loan) => loan.currency === code)))}
+                </div>
+              </div>
+              <div className="fs-group">
+                <div className="fs-group-cap">
+                  Risk rating
+                  {filters.rating !== "all" ? <button aria-label="Clear rating filter" className="fs-group-x" onClick={() => setFlt("rating", "all")} type="button">×</button> : null}
+                </div>
+                <div className="fs-chips">
+                  {ratings.map((rating) => chipButton(chip("rating", rating, rating, (loan) => loan.risk_rating === rating)))}
+                </div>
+              </div>
+              <div className="fs-group">
+                <div className="fs-group-cap">
+                  Purpose
+                  {filters.purpose !== "all" ? <button aria-label="Clear purpose filter" className="fs-group-x" onClick={() => setFlt("purpose", "all")} type="button">×</button> : null}
+                </div>
+                <div className="fs-chips">
+                  {purposes.map((purpose) => chipButton(chip("purpose", purpose, humanizeToken(purpose), (loan) => loan.purpose === purpose)))}
+                </div>
+              </div>
+              <div className="fs-group">
+                <div className="fs-group-cap">
+                  Loan type
+                  {filters.kind !== "all" ? <button aria-label="Clear loan type filter" className="fs-group-x" onClick={() => setFlt("kind", "all")} type="button">×</button> : null}
+                </div>
+                <div className="fs-chips">
+                  {chipButton(chip("kind", "new", "New lending", (loan) => !loan.is_refinancing))}
+                  {chipButton(chip("kind", "refi", "Refinancing", (loan) => loan.is_refinancing))}
+                </div>
+              </div>
+              <div className="fs-group">
+                <div className="fs-group-cap">
+                  Availability
+                  {filters.avail !== "open" ? <button aria-label="Clear availability filter" className="fs-group-x" onClick={() => setFlt("avail", "open")} type="button">×</button> : null}
+                </div>
+                <div className="fs-chips">
+                  {chipButton(chip("avail", "open", "Open to invest", (loan) => isOpenMarketplaceLoan(loan)))}
+                  <button
+                    className={`fs-chip${filters.avail === "all" ? " on" : ""}`}
+                    onClick={() => setFlt("avail", filters.avail === "all" ? "open" : "all")}
+                    type="button"
+                  >
+                    Include closed
+                    <span className="fs-chip-count">{loans.filter((loan) => mkMatches(loan, filters, "avail")).length}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="fs-panel-foot">
+              <span className="fs-panel-note">Nothing is sorted or scored — the order stays closing soonest whatever you pick.</span>
+              <button className="fs-done" onClick={() => setPanelOpen(false)} type="button">Done</button>
+            </div>
+          </div>
+        ) : null}
 
       {loansQuery.isError && loans.length === 0 ? (
         <DataErrorCard title="Could not load marketplace" onRetry={() => void loansQuery.refetch()}>
@@ -2694,13 +2991,19 @@ function MarketplaceScreen({
       ) : loansQuery.isLoading && loans.length === 0 ? (
         <LoadingCard title="Loading marketplace">Fetching primary-market loans.</LoadingCard>
       ) : filtered.length === 0 ? (
-        <Card><Empty icon="search" title="No loans match these filters">Try widening the currency or availability filters.</Empty></Card>
+        <div className="fs-empty">
+          <div className="fs-empty-copy">Nothing open today matches all of that at once. Widen one of them, or check back when new loans are published.</div>
+          <button className="fs-empty-clear" onClick={clearAllFilters} type="button">Clear the filter</button>
+        </div>
       ) : (
         <MarketplaceOpportunityList
           loans={sortedLoans}
           onOpen={(loan) => goTo(setRoute, "loan", { loanId: loan.loan_id })}
           asOf={balancesQuery.data?.as_of}
           viewMode={viewMode}
+          sortKey={sortKey}
+          sortDir={sortDir}
+          onPickSort={pickSort}
         />
       )}
       <p className="marketplace-footnote">
@@ -2768,22 +3071,28 @@ function MarketplaceOpportunityList({
   loans,
   onOpen,
   asOf,
-  viewMode
+  viewMode,
+  sortKey,
+  sortDir,
+  onPickSort
 }: {
   loans: MarketplaceLoanPreview[];
   onOpen: (loan: MarketplaceLoanPreview) => void;
   asOf?: string;
   viewMode: "focused" | "detailed";
+  sortKey: string | null;
+  sortDir: "asc" | "desc";
+  onPickSort: (key: string) => void;
 }) {
   return (
     <div className={`marketplace-list ${viewMode}`}>
-      <div aria-hidden="true" className="marketplace-list-head">
-        <span>Company</span>
-        <span>Yield</span>
-        <span>Term</span>
-        <span>Collateral margin</span>
-        <span>Available to invest</span>
-        <span>Availability</span>
+      <div className="marketplace-list-head">
+        <FsTh activeKey={sortKey} dir={sortDir} label="Company" onPick={onPickSort} sortKey="name" />
+        <FsTh activeKey={sortKey} dir={sortDir} label="Yield" onPick={onPickSort} sortKey="rate" />
+        <FsTh activeKey={sortKey} dir={sortDir} label="Term" onPick={onPickSort} sortKey="term" />
+        <FsTh activeKey={sortKey} dir={sortDir} label="Collateral margin" onPick={onPickSort} sortKey="margin" />
+        <FsTh activeKey={sortKey} dir={sortDir} label="Available to invest" onPick={onPickSort} sortKey="available" />
+        <FsTh activeKey={sortKey} dir={sortDir} label="Availability" onPick={onPickSort} sortKey="closing" />
       </div>
       {loans.map((loan) => {
         const fundedPercent = fundingPercent(loan);
@@ -4727,10 +5036,134 @@ function PfCard({ lab, tt, open, onToggle, children, foot }: { lab: string; tt: 
   );
 }
 
+type FsSortOption = { key: string; label: string };
+
+function SortControl({
+  options,
+  activeKey,
+  dir,
+  onPick,
+  small
+}: {
+  options: FsSortOption[];
+  activeKey: string | null;
+  dir: "asc" | "desc";
+  onPick: (key: string) => void;
+  small?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const listener = (event: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", listener);
+    return () => document.removeEventListener("mousedown", listener);
+  }, [open]);
+  return (
+    <div className="fs-sort-wrap" ref={wrapRef}>
+      <button aria-expanded={open} aria-haspopup="menu" className={`fs-pill${small ? " small" : ""}${open ? " on" : ""}`} onClick={() => setOpen((current) => !current)} type="button">
+        <span>Sort</span>
+        <span aria-hidden="true" className="fs-arrows">↑↓</span>
+      </button>
+      {open ? (
+        <div className="fs-menu" role="menu">
+          <div className="fs-menu-cap">Sort by</div>
+          {options.map((option) => {
+            const on = option.key === activeKey;
+            return (
+              <button
+                className={`fs-menu-item${on ? " on" : ""}`}
+                key={option.key}
+                onClick={() => {
+                  onPick(option.key);
+                  setOpen(false);
+                }}
+                role="menuitem"
+                type="button"
+              >
+                {option.label}
+                {on ? <span aria-hidden="true" className="fs-menu-arrow">{dir === "asc" ? "↑" : "↓"}</span> : null}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function FsTh({
+  activeKey,
+  className,
+  dir,
+  label,
+  onPick,
+  sortKey
+}: {
+  activeKey: string | null;
+  className?: string;
+  dir: "asc" | "desc";
+  label: string;
+  onPick: (key: string) => void;
+  sortKey: string;
+}) {
+  const on = activeKey === sortKey;
+  return (
+    <button aria-label={`Sort by ${label}`} className={`fs-th${on ? " on" : ""}${className ? ` ${className}` : ""}`} onClick={() => onPick(sortKey)} type="button">
+      <span className="fs-th-label">{label}</span>
+      {on ? <span aria-hidden="true" className="fs-th-arrow">{dir === "asc" ? "↑" : "↓"}</span> : null}
+    </button>
+  );
+}
+
+const pfPaysOrder = (repaymentType: string) =>
+  repaymentType === "equal_installments" ? 0 : repaymentType.startsWith("interest_only") ? 1 : repaymentType === "bullet_periodic_interest" ? 2 : 3;
+
+const pfSortOptionsFocused: FsSortOption[] = [
+  { key: "name", label: "Company" },
+  { key: "share", label: "Share of portfolio" },
+  { key: "amount", label: "Amount" }
+];
+
+const pfSortOptionsDetailed: FsSortOption[] = [
+  { key: "name", label: "Company" },
+  { key: "rate", label: "Rate" },
+  { key: "term", label: "Term" },
+  { key: "pays", label: "Pays" },
+  { key: "col", label: "Collateral" },
+  { key: "next", label: "Next payment" },
+  { key: "share", label: "Share of portfolio" },
+  { key: "amount", label: "Amount" }
+];
+
+function pfSortValue(holding: Holding, key: string): number | string {
+  if (key === "name") return (holding.loan.borrower_name || holding.loan.loan_title).toLowerCase();
+  if (key === "rate") return holding.loan.interest_rate_bps;
+  if (key === "term") return holding.loan.term_months;
+  if (key === "pays") return pfPaysOrder(holding.loan.repayment_type);
+  if (key === "col") return pfCollateralLabel(holding.loan.collateral_type);
+  if (key === "next") return pfNextPayment(holding)?.due_date ?? "9999-12-31";
+  return holding.current_principal_minor;
+}
+
 function PfMyLoans({ currency, holdings, onOpen, totalMinor }: { currency: string; holdings: Holding[]; onOpen: (holding: Holding) => void; totalMinor: number }) {
   const [view, setView] = useState<"focused" | "detailed">("focused");
-  const sorted = [...holdings].sort((left, right) => right.current_principal_minor - left.current_principal_minor);
-  const largestMinor = sorted[0]?.current_principal_minor ?? 1;
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [dir, setDir] = useState<"asc" | "desc">("asc");
+  const pick = (key: string) => {
+    setDir(sortKey === key && dir === "asc" ? "desc" : "asc");
+    setSortKey(key);
+  };
+  const sorted = [...holdings].sort((left, right) => {
+    if (!sortKey) return right.current_principal_minor - left.current_principal_minor;
+    const x = pfSortValue(left, sortKey);
+    const y = pfSortValue(right, sortKey);
+    const c = typeof x === "string" ? x.localeCompare(String(y)) : x - Number(y);
+    return dir === "asc" ? c : -c;
+  });
+  const largestMinor = holdings.reduce((max, holding) => Math.max(max, holding.current_principal_minor), 1);
   const [totalWhole, totalCents = "00"] = formatMoneyMinor(totalMinor, currency).split(".");
 
   return (
@@ -4738,8 +5171,18 @@ function PfMyLoans({ currency, holdings, onOpen, totalMinor }: { currency: strin
       <div className="pf-sect-row">
         <div style={{ flex: 1 }}>
           <h2 className="sect">My loans</h2>
-          <p className="pf-sect-note">The rule under each amount is that loan's share of everything you have lent. Open the loan for the split, the collateral and the full schedule.</p>
+          <p className="pf-sect-note">The rule under each amount is that loan's share of everything you have lent. Click any column heading to sort, or open the loan for the split, the collateral and the full schedule.</p>
         </div>
+        {sortKey ? (
+          <button className="fs-clear-link" onClick={() => { setSortKey(null); setDir("asc"); }} type="button">back to largest first</button>
+        ) : null}
+        <SortControl
+          activeKey={sortKey}
+          dir={dir}
+          onPick={pick}
+          options={view === "detailed" ? pfSortOptionsDetailed : pfSortOptionsFocused}
+          small
+        />
         <div className="seg" role="tablist">
           <button aria-selected={view === "focused"} className={view === "focused" ? "on" : ""} onClick={() => setView("focused")} role="tab" type="button">Focused</button>
           <button aria-selected={view === "detailed"} className={view === "detailed" ? "on" : ""} onClick={() => setView("detailed")} role="tab" type="button">Detailed</button>
@@ -4748,14 +5191,14 @@ function PfMyLoans({ currency, holdings, onOpen, totalMinor }: { currency: strin
 
       <div className={`pf-table ${view}`}>
         <div className="pf-thead">
-          <span style={{ flex: 1 }}>Company</span>
-          <span className="detail-col pf-col-rate">Rate</span>
-          <span className="detail-col pf-col-term">Term</span>
-          <span className="detail-col pf-col-pays">Pays</span>
-          <span className="detail-col pf-col-collateral">Collateral</span>
-          <span className="detail-col pf-col-next">Next payment</span>
-          <span className="pf-col-share">Share</span>
-          <span className="pf-col-amount">Amount</span>
+          <FsTh activeKey={sortKey} className="pf-th-company" dir={dir} label="Company" onPick={pick} sortKey="name" />
+          <FsTh activeKey={sortKey} className="detail-col pf-col-rate" dir={dir} label="Rate" onPick={pick} sortKey="rate" />
+          <FsTh activeKey={sortKey} className="detail-col pf-col-term" dir={dir} label="Term" onPick={pick} sortKey="term" />
+          <FsTh activeKey={sortKey} className="detail-col pf-col-pays" dir={dir} label="Pays" onPick={pick} sortKey="pays" />
+          <FsTh activeKey={sortKey} className="detail-col pf-col-collateral" dir={dir} label="Collateral" onPick={pick} sortKey="col" />
+          <FsTh activeKey={sortKey} className="detail-col pf-col-next" dir={dir} label="Next payment" onPick={pick} sortKey="next" />
+          <FsTh activeKey={sortKey} className="pf-col-share" dir={dir} label="Share" onPick={pick} sortKey="share" />
+          <FsTh activeKey={sortKey} className="pf-col-amount" dir={dir} label="Amount" onPick={pick} sortKey="amount" />
         </div>
         <div className="pf-tbody">
           {sorted.map((holding) => {
@@ -5245,19 +5688,21 @@ function PfProtectionPanel({ currency, defaultInterestBps, holdingCount, lateCou
           </div>
           <div style={{ borderLeft: "1px solid #e4e1d8", paddingLeft: 6 }}>
             <div className="pf-risk-cap">The second is the recovery contract</div>
-            <div className="pf-risk-copy">If a loan reaches default, recovery follows that project's agreement and recorded waterfall. Contractual interest stops at the official default date. Default interest starts only where the project terms configure it, and recovery timing or proceeds are never guaranteed.</div>
-            <div style={{ alignItems: "baseline", color: "#626b70", display: "flex", fontSize: 11.5, marginBottom: 6 }}><span>Default recovery order, unless project terms override it</span></div>
+            <div className="pf-risk-copy">Every borrower payment follows the same non-overridable order. Garanta legal costs and the approved recovery fee are satisfied first, then penalties, contractual interest and finally principal. Recovery timing or proceeds are never guaranteed.</div>
+            <div style={{ alignItems: "baseline", color: "#626b70", display: "flex", fontSize: 11.5, marginBottom: 6 }}><span>Universal borrower-payment and recovery order</span></div>
             <div style={{ border: "1.5px solid #c2bfb5", borderRadius: 3, display: "flex", height: 34, overflow: "hidden" }}>
               <div style={{ alignItems: "center", background: "#151719", display: "flex", justifyContent: "center", width: "25%" }}><span style={{ color: "#f5f3ed", fontSize: 10.5, fontWeight: 600 }}>1</span></div>
-              <div style={{ alignItems: "center", background: "#4a5257", display: "flex", justifyContent: "center", width: "34%" }}><span style={{ color: "#f5f3ed", fontSize: 10.5, fontWeight: 600 }}>2</span></div>
-              <div style={{ alignItems: "center", background: "#dde3e1", display: "flex", flex: 1, justifyContent: "center" }}><span style={{ color: "#626b70", fontSize: 10.5, fontWeight: 600 }}>3</span></div>
+              <div style={{ alignItems: "center", background: "#4a5257", display: "flex", justifyContent: "center", width: "25%" }}><span style={{ color: "#f5f3ed", fontSize: 10.5, fontWeight: 600 }}>2</span></div>
+              <div style={{ alignItems: "center", background: "#9ca5a8", display: "flex", justifyContent: "center", width: "25%" }}><span style={{ color: "#151719", fontSize: 10.5, fontWeight: 600 }}>3</span></div>
+              <div style={{ alignItems: "center", background: "#dde3e1", display: "flex", justifyContent: "center", width: "25%" }}><span style={{ color: "#626b70", fontSize: 10.5, fontWeight: 600 }}>4</span></div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", fontSize: 11.5, gap: 5, marginTop: 9 }}>
-              <div style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ background: "#151719", borderRadius: 2, flex: "none", height: 9, width: 9 }} /><span style={{ color: "#292d30", flex: 1 }}>External and platform-approved recovery costs</span></div>
-              <div style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ background: "#4a5257", borderRadius: 2, flex: "none", height: 9, width: 9 }} /><span style={{ color: "#292d30", flex: 1 }}>Principal</span></div>
-              <div style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ background: "#dde3e1", border: "1px solid #c2bfb5", borderRadius: 2, flex: "none", height: 9, width: 9 }} /><span style={{ color: "#292d30", flex: 1 }}>Contractual interest, configured default interest, then other amounts</span></div>
+              <div style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ background: "#151719", borderRadius: 2, flex: "none", height: 9, width: 9 }} /><span style={{ color: "#292d30", flex: 1 }}>Garanta legal costs and recovery fee</span></div>
+              <div style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ background: "#4a5257", borderRadius: 2, flex: "none", height: 9, width: 9 }} /><span style={{ color: "#292d30", flex: 1 }}>Penalty and default interest</span></div>
+              <div style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ background: "#9ca5a8", borderRadius: 2, flex: "none", height: 9, width: 9 }} /><span style={{ color: "#292d30", flex: 1 }}>Contractual interest</span></div>
+              <div style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ background: "#dde3e1", border: "1px solid #c2bfb5", borderRadius: 2, flex: "none", height: 9, width: 9 }} /><span style={{ color: "#292d30", flex: 1 }}>Principal</span></div>
             </div>
-            <div style={{ color: "#626b70", fontSize: 12.5, lineHeight: 1.5, marginTop: 14 }}>Widths show sequence groups, not expected amounts. Configured default interest across these loans is {defaultInterestLabel}.</div>
+            <div style={{ color: "#626b70", fontSize: 12.5, lineHeight: 1.5, marginTop: 14 }}>Widths show sequence only, not expected amounts. Principal is never paid while an earlier tier remains due. Configured default interest across these loans is {defaultInterestLabel}.</div>
           </div>
         </div>
         <div className="pf-risk-kvs">
@@ -5572,63 +6017,281 @@ function LoanSchedulePanels({
 }
 
 function HoldingDetail({ holding, onClose, setRoute }: { holding: Holding; onClose: () => void; setRoute: (route: AppRoute) => void }) {
-  const impaired = ["late", "defaulted", "written_off"].includes(holding.loan.loan_status);
-  const listingAction = secondaryListingAction(holding.loan.loan_status);
+  const loan = holding.loan;
+  const currency = holding.currency;
+  const listingAction = secondaryListingAction(loan.loan_status);
   const hasOpenListing = holding.open_secondary_listing !== null;
   const canOpenSecondaryAction = hasOpenListing || listingAction.allowed;
-  return (
-    <Modal xwide footer={<><Button variant="ghost" onClick={onClose}>Close</Button><Button disabled={!canOpenSecondaryAction} icon="secondary" title={!canOpenSecondaryAction ? listingAction.hint : undefined} variant="primary" onClick={() => { onClose(); goTo(setRoute, "secondary", { tab: "sell" }); }}>{hasOpenListing ? "Manage secondary listing" : listingAction.label}</Button></>} onClose={onClose} title={holding.loan.loan_title}>
-      <div className="col gap-16">
-        <div className="row gap-8 wrap"><Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} />{holding.open_secondary_listing ? <Chip status={listingStatusLabel(holding.open_secondary_listing.status)} tone={holding.open_secondary_listing.status === "active" ? "ok" : "warn"} tooltip={listingStatusTooltip(holding.open_secondary_listing.status, holding.loan.loan_status)} /> : null}<Rating value={holding.loan.risk_rating} /><Country code={holding.loan.borrower_country} />{holding.loan.is_refinancing ? <RefinancedTag full /> : null}<CopyIdButton ariaLabel="Copy loan ID" id={holding.loan.loan_id} label="Copy loan ID" /></div>
-        <div className="sub">Borrower: {holding.loan.borrower_name}</div>
-        {holding.loan.product_type === "originator_claim" && holding.loan.originator_name && holding.loan.skin_in_the_game_bps > 0 ? (
-          <Banner tone="neutral" title="Originator-retained claim">
-            {holding.loan.originator_name} retains at least {formatRateBps(holding.loan.skin_in_the_game_bps)} of the loan&apos;s current outstanding principal. That retained claim is not offered for sale to investors.
-          </Banner>
-        ) : null}
-        {!hasOpenListing && !listingAction.allowed ? <Banner tone="neutral" title={listingAction.title}>{listingAction.hint}</Banner> : null}
-        {impaired ? <Banner tone="warn" title={`${holding.loan.loan_status.replaceAll("_", " ")} - ${holding.loan.days_past_due} DPD`}>This position is not a normal live loan. Review public notes and recovery updates before taking action.</Banner> : null}
-        <div className="grid grid-4">
-          <Card padded><Stat amountMinor={holding.original_principal_minor} currency={holding.currency} label="Invested" /></Card>
-          <Card padded><Stat amountMinor={holding.current_principal_minor} currency={holding.currency} label="Outstanding" /></Card>
-          <Card padded><Stat amountMinor={holding.received_interest_minor} currency={holding.currency} label="Interest received" /></Card>
-          <Card padded><Stat label="Rate / term" raw={`${formatRateBps(holding.loan.interest_rate_bps)} / ${holding.loan.term_months}mo`} /></Card>
-        </div>
-        {holding.latest_public_note ? <Card padded><div className="eyebrow" style={{ marginBottom: 6 }}>Public note from Garanta</div><p className="muted-2">{holding.latest_public_note.title}</p><div className="sub">{formatDate(holding.latest_public_note.occurred_at)}</div></Card> : null}
-        <LoanSchedulePanels
-          currency={holding.currency}
-          currentPrincipalMinor={holding.current_principal_minor}
-          investmentSchedule={holding.investment_schedule}
-          loanSchedule={holding.loan.schedule}
-          loanStatus={holding.loan.loan_status}
-          projectionDescription={<>This is your projected share of the loan&apos;s remaining borrower payments. It uses your current outstanding principal and the same deterministic rounding method used for actual lender distributions. Amounts can change after repayments in advance, holding transfers, recoveries, or schedule revisions.</>}
-          scheduleVersion={holding.loan.schedule_version}
-        />
-        {holding.loan.loan_status === "defaulted" ? <RecoverySplitView /> : null}
-      </div>
-    </Modal>
+  const timelineRows = [...loan.schedule].sort((left, right) => {
+    const leftDate = left.payment_date ?? left.due_date;
+    const rightDate = right.payment_date ?? right.due_date;
+    return leftDate.localeCompare(rightDate) || left.installment_number - right.installment_number;
+  });
+  const projectedRows = [...holding.investment_schedule].sort(
+    (left, right) => left.due_date.localeCompare(right.due_date) || left.installment_number - right.installment_number
   );
-}
-
-function RecoverySplitView() {
-  if (!isFixturePreview) {
-    return (
-      <Card padded>
-        <Empty icon="info" title="Recovery split API pending">
-          Recovery distribution detail will come from the servicing report endpoints.
-        </Empty>
-      </Card>
+  const firstProjected = projectedRows[0];
+  const defaultSelectedKey = firstProjected
+    ? `projection:${firstProjected.loan_installment_id}`
+    : timelineRows.length > 0
+      ? `loan:${timelineRows[timelineRows.length - 1].id}`
+      : "";
+  const [timelineOpen, setTimelineOpen] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [selectedPaymentKey, setSelectedPaymentKey] = useState(defaultSelectedKey);
+  const selectedProjection = projectedRows.find(
+    (row) => `projection:${row.loan_installment_id}` === selectedPaymentKey
+  ) ?? null;
+  const selectedLoanRow = selectedProjection
+    ? timelineRows.find(
+        (row) => row.installment_number === selectedProjection.installment_number && row.due_date === selectedProjection.due_date
+      ) ?? null
+    : timelineRows.find((row) => `loan:${row.id}` === selectedPaymentKey) ?? null;
+  const isPaidRow = (row: (typeof timelineRows)[number]) =>
+    row.is_paid || ["paid", "paid_in_advance"].includes(row.status);
+  const paidRows = timelineRows.filter(isPaidRow);
+  const progressPercent = timelineRows.length === 0 ? 0 : (paidRows.length / timelineRows.length) * 100;
+  const years = Array.from(new Set(timelineRows.map((row) => Number((row.payment_date ?? row.due_date).slice(0, 4))))).sort();
+  const selectedProjectionIndex = selectedProjection
+    ? projectedRows.findIndex((row) => row.loan_installment_id === selectedProjection.loan_installment_id)
+    : -1;
+  const projectedBalanceAfter = selectedProjectionIndex >= 0
+    ? Math.max(
+        0,
+        holding.current_principal_minor - projectedRows
+          .slice(0, selectedProjectionIndex + 1)
+          .reduce((sum, row) => sum + row.projected_principal_minor, 0)
+      )
+    : null;
+  const selectedPrincipalMinor = selectedProjection?.projected_principal_minor ?? selectedLoanRow?.principal_minor ?? 0;
+  const selectedInterestMinor = selectedProjection?.projected_interest_minor ?? selectedLoanRow?.interest_minor ?? 0;
+  const selectedTotalMinor = selectedProjection?.projected_total_minor ?? selectedLoanRow?.total_minor ?? 0;
+  const selectedInterestPercent = selectedTotalMinor > 0 ? (selectedInterestMinor / selectedTotalMinor) * 100 : 0;
+  const earnedInterestMinor = holding.received_interest_minor
+    + holding.recovered_contractual_interest_minor
+    + holding.recovered_default_interest_minor;
+  const projectedInterestMinor = projectedRows.reduce((sum, row) => sum + row.projected_interest_minor, 0);
+  const lifetimeInterestMinor = earnedInterestMinor + projectedInterestMinor;
+  const receivedInterestPercent = lifetimeInterestMinor > 0 ? (earnedInterestMinor / lifetimeInterestMinor) * 100 : 0;
+  const capitalReturnedMinor = Math.max(0, holding.original_principal_minor - holding.current_principal_minor);
+  const capitalReturnedPercent = holding.original_principal_minor > 0
+    ? (capitalReturnedMinor / holding.original_principal_minor) * 100
+    : 0;
+  const recoveryTotalMinor = holding.recovered_principal_minor
+    + holding.recovered_contractual_interest_minor
+    + holding.recovered_default_interest_minor
+    + holding.recovered_penalties_minor
+    + holding.recovered_other_costs_minor;
+  const impaired = ["late", "defaulted", "written_off"].includes(loan.loan_status);
+  const collateralValueMinor = loan.collateral_value_minor;
+  const collateralDescription = loan.collateral_description || humanizeToken(loan.collateral_type);
+  const ltvPercent = loan.ltv_bps === null ? null : loan.ltv_bps / 100;
+  const futureTotals = projectedRows.reduce(
+    (totals, row) => ({
+      principal: totals.principal + row.projected_principal_minor,
+      interest: totals.interest + row.projected_interest_minor,
+      total: totals.total + row.projected_total_minor
+    }),
+    { principal: 0, interest: 0, total: 0 }
+  );
+  const selectedDate = selectedProjection?.due_date ?? selectedLoanRow?.payment_date ?? selectedLoanRow?.due_date ?? "";
+  const selectedStatus = selectedProjection?.status ?? selectedLoanRow?.status ?? "unavailable";
+  const paymentCell = (year: number, month: number) => {
+    const row = timelineRows.find((candidate) => {
+      const date = candidate.payment_date ?? candidate.due_date;
+      return Number(date.slice(0, 4)) === year && Number(date.slice(5, 7)) === month;
+    });
+    if (!row) return <span aria-hidden="true" className="holding-v9-payment-cell empty" key={`${year}-${month}`} />;
+    const projection = projectedRows.find(
+      (candidate) => candidate.installment_number === row.installment_number && candidate.due_date === row.due_date
     );
-  }
-
+    const key = projection ? `projection:${projection.loan_installment_id}` : `loan:${row.id}`;
+    const state = isPaidRow(row) ? "paid" : row.status === "overdue" ? "overdue" : projection === firstProjected ? "next" : "future";
+    return (
+      <button
+        aria-label={`${formatDate(row.payment_date ?? row.due_date)}, ${humanizeToken(row.status)}`}
+        className={`holding-v9-payment-cell ${state} ${selectedPaymentKey === key ? "selected" : ""}`}
+        key={`${year}-${month}`}
+        onClick={() => setSelectedPaymentKey(key)}
+        title={`${row.label}: ${humanizeToken(row.status)}`}
+        type="button"
+      >
+        {isPaidRow(row) ? "Paid" : row.installment_number}
+      </button>
+    );
+  };
   return (
-    <div>
-      <div className="eyebrow" style={{ marginBottom: 8 }}>Recovery distribution</div>
-      <Review rows={[
-        ...portalFixture.recoverySplit.parts.map((part) => ({ label: part.label, value: `${portalFixture.recoverySplit.currency} ${formatMoneyMinor(part.amountMinor, portalFixture.recoverySplit.currency)}`, tone: part.amountMinor < 0 ? "bad" as const : undefined })),
-        { label: "Credited to you", value: `${portalFixture.recoverySplit.currency} ${formatMoneyMinor(portalFixture.recoverySplit.totalMinor, portalFixture.recoverySplit.currency)}`, total: true }
-      ]} />
-    </div>
+    <Modal
+      xwide
+      footer={<>
+        <span className="holding-v9-footer-copy">
+          {hasOpenListing
+            ? "This position already has an open secondary-market listing."
+            : listingAction.allowed
+              ? "You can offer the full current claim on the secondary market."
+              : listingAction.hint}
+        </span>
+        <Button variant="ghost" onClick={() => setScheduleOpen((open) => !open)}>
+          {scheduleOpen ? "Hide schedule" : "View schedule"}
+        </Button>
+        <Button disabled={!canOpenSecondaryAction} icon="secondary" title={!canOpenSecondaryAction ? listingAction.hint : undefined} variant="primary" onClick={() => { onClose(); goTo(setRoute, "secondary", { tab: "sell" }); }}>
+          {hasOpenListing ? "Manage secondary listing" : listingAction.label}
+        </Button>
+      </>}
+      onClose={onClose}
+      title={loan.loan_title}
+    >
+      <article className="holding-v9">
+        <header className="holding-v9-intro">
+          <div className="eyebrow">{humanizeToken(loan.purpose)} · yours since {formatDate(holding.assignment_effective_at)}</div>
+          <div className="holding-v9-heading-row">
+            <div>
+              <h2>{loan.borrower_name}</h2>
+              <p>{formatRateBps(loan.yield_bps)} annual yield · {humanizeToken(loan.repayment_type)} · {loan.term_months} months</p>
+            </div>
+            <div className="row gap-8 wrap">
+              <Chip status={loan.loan_status} tone={statusTone(loan.loan_status)} />
+              {holding.open_secondary_listing ? <Chip status={listingStatusLabel(holding.open_secondary_listing.status)} tone={holding.open_secondary_listing.status === "active" ? "ok" : "warn"} tooltip={listingStatusTooltip(holding.open_secondary_listing.status, loan.loan_status)} /> : null}
+              <Rating value={loan.risk_rating} />
+              <Country code={loan.borrower_country} />
+              <CopyIdButton ariaLabel="Copy loan ID" iconOnly id={loan.loan_id} label="Copy loan ID" />
+            </div>
+          </div>
+        </header>
+
+        <section className="holding-v9-progress">
+          <button aria-expanded={timelineOpen} className="holding-v9-progress-toggle" onClick={() => setTimelineOpen((open) => !open)} type="button">
+            <span><strong>{paidRows.length} of {timelineRows.length}</strong> scheduled borrower payments recorded</span>
+            <span>{timelineOpen ? "Hide timeline" : "Open timeline"}</span>
+          </button>
+          <div aria-label={`${progressPercent.toFixed(0)}% of scheduled payments recorded`} className="holding-v9-progress-bar" role="img">
+            <span style={{ width: `${Math.max(0, Math.min(100, progressPercent))}%` }} />
+          </div>
+          {timelineOpen ? (
+            timelineRows.length === 0 ? (
+              <Empty icon="clock" title="Payment timeline unavailable">No borrower schedule rows are available for this position.</Empty>
+            ) : (
+              <div className="holding-v9-timeline-wrap">
+                <div className="holding-v9-timeline" role="group" aria-label="Borrower payment timeline">
+                  <div className="holding-v9-year-label" />
+                  {Array.from({ length: 12 }, (_, index) => <span className="holding-v9-month-label" key={index}>{new Date(2026, index, 1).toLocaleString("en", { month: "short" })}</span>)}
+                  {years.flatMap((year) => [
+                    <strong className="holding-v9-year-label" key={`${year}-label`}>{year}</strong>,
+                    ...Array.from({ length: 12 }, (_, index) => paymentCell(year, index + 1))
+                  ])}
+                </div>
+                <div className="holding-v9-legend">
+                  <span><i className="paid" />Paid</span><span><i className="next" />Next</span><span><i className="future" />Future</span><span><i className="overdue" />Overdue</span>
+                </div>
+              </div>
+            )
+          ) : null}
+        </section>
+
+        <section className="holding-v9-stats" aria-label="Position summary">
+          <div><span>Interest received</span><strong><Money amountMinor={earnedInterestMinor} currency={currency} /></strong><small>contractual and recorded recovery interest</small></div>
+          <div><span>Projected still to earn</span><strong><Money amountMinor={projectedInterestMinor} currency={currency} /></strong><small>across {projectedRows.length} remaining payments</small></div>
+          <div><span>Capital returned</span><strong><Money amountMinor={capitalReturnedMinor} currency={currency} /></strong><small>{capitalReturnedPercent.toFixed(1)}% of your original claim</small></div>
+          <div><span>Still owed to you</span><strong><Money amountMinor={holding.current_principal_minor} currency={currency} /></strong><small>current outstanding principal</small></div>
+        </section>
+        <div className="holding-v9-lifetime">
+          Of the <strong><Money amountMinor={lifetimeInterestMinor} currency={currency} /></strong> of contractual and recorded recovery interest represented here, <strong>{receivedInterestPercent.toFixed(1)}%</strong> has been received. Future interest is projected, not guaranteed.
+        </div>
+
+        {impaired ? (
+          <section className="holding-v9-impaired">
+            <div><strong>{humanizeToken(loan.loan_status)}</strong>{loan.days_past_due > 0 ? ` · ${loan.days_past_due} days past due` : ""}</div>
+            <p>
+              {loan.default_penalty_interest_bps > 0
+                ? `The loan terms specify a ${formatRateBps(loan.default_penalty_interest_bps)} annual default-interest rate. Any amount shown as received is based on recorded servicing or recovery evidence; BANXUM does not estimate accrued default interest from days past due.`
+                : "No non-zero default-interest rate is configured for this loan. Review recorded servicing and recovery evidence for amounts actually credited."}
+            </p>
+          </section>
+        ) : null}
+
+        <section className="holding-v9-detail-grid">
+          <div className="holding-v9-payment-detail">
+            <div className="holding-v9-section-head">
+              <div><span>Selected payment</span><strong>{selectedDate ? formatDate(selectedDate) : "Unavailable"}</strong></div>
+              <Chip dot={false} tone={selectedStatus === "overdue" ? "bad" : selectedStatus === "due" ? "warn" : selectedStatus === "paid" ? "ok" : "neutral"}>{humanizeToken(selectedStatus)}</Chip>
+            </div>
+            {selectedProjection || selectedLoanRow ? (
+              <>
+                <div className="holding-v9-selected-total"><Money amountMinor={selectedTotalMinor} currency={currency} /></div>
+                <div className="holding-v9-split-bar"><span style={{ width: `${selectedInterestPercent}%` }} /></div>
+                <Review rows={[
+                  { label: selectedProjection ? "Your projected interest" : "Full-loan recorded interest", value: <Money amountMinor={selectedInterestMinor} currency={currency} /> },
+                  { label: selectedProjection ? "Your projected capital" : "Full-loan recorded capital", value: <Money amountMinor={selectedPrincipalMinor} currency={currency} /> },
+                  { label: selectedProjection ? "Your principal after payment" : "Investor allocation", value: projectedBalanceAfter === null ? "See credited activity" : <Money amountMinor={projectedBalanceAfter} currency={currency} /> }
+                ]} />
+                <p className="holding-v9-note">
+                  {selectedProjection
+                    ? "This is your deterministic projected share of that borrower installment. It can change after repayments in advance, recoveries, transfers, or schedule revisions."
+                    : "Historical rows show the borrower payment recorded for the full loan. Your credited share remains in Activity and is not reconstructed in the browser."}
+                </p>
+              </>
+            ) : <Empty icon="clock" title="No payment selected">Open the timeline or schedule to inspect a payment.</Empty>}
+          </div>
+          <div className="holding-v9-collateral">
+            <div className="eyebrow">Collateral</div>
+            <p className="holding-v9-collateral-copy">{collateralDescription}</p>
+            {ltvPercent !== null && collateralValueMinor > 0 ? (
+              <>
+                <div aria-label={`${ltvPercent.toFixed(1)}% loan to value`} className="holding-v9-ltv-bar" role="img"><span style={{ width: `${Math.min(100, Math.max(0, ltvPercent))}%` }} /></div>
+                <div className="holding-v9-ltv-label"><span><Money amountMinor={loan.principal_minor} currency={currency} /> current loan principal against <Money amountMinor={collateralValueMinor} currency={currency} /> valuation</span><strong>{ltvPercent.toFixed(1)}% LTV</strong></div>
+              </>
+            ) : <p className="muted-2">No investor-facing collateral valuation or LTV is available.</p>}
+            <p className="holding-v9-note">
+              Default interest, if contractually due, follows the configured annual rate of {formatRateBps(loan.default_penalty_interest_bps)}. Recoveries follow the platform waterfall and remain subject to actual collections and costs.
+            </p>
+            {loan.product_type === "originator_claim" && loan.originator_name && loan.skin_in_the_game_bps > 0 ? (
+              <div className="holding-v9-originator">
+                {loan.originator_name} must retain at least {formatRateBps(loan.skin_in_the_game_bps)} of the loan&apos;s current outstanding principal. That retained claim is not offered to investors and re-scales as principal amortizes.
+              </div>
+            ) : null}
+          </div>
+        </section>
+
+        {recoveryTotalMinor > 0 ? (
+          <section className="holding-v9-recovery">
+            <div className="section-head"><div><h3>Recovery credited to date</h3><div className="ph-sub">Recorded distributions only; no uncollected amounts are estimated.</div></div></div>
+            <Review rows={[
+              { label: "Principal recovered", value: <Money amountMinor={holding.recovered_principal_minor} currency={currency} /> },
+              { label: "Contractual interest recovered", value: <Money amountMinor={holding.recovered_contractual_interest_minor} currency={currency} /> },
+              { label: "Default interest recovered", value: <Money amountMinor={holding.recovered_default_interest_minor} currency={currency} /> },
+              { label: "Penalties recovered", value: <Money amountMinor={holding.recovered_penalties_minor} currency={currency} /> },
+              { label: "Other recoveries", value: <Money amountMinor={holding.recovered_other_costs_minor} currency={currency} /> },
+              { label: "Total credited recovery", value: <Money amountMinor={recoveryTotalMinor} currency={currency} />, total: true }
+            ]} />
+          </section>
+        ) : null}
+        {holding.latest_public_note ? <section className="holding-v9-public-note"><div className="eyebrow">Latest public note from Garanta</div><p>{holding.latest_public_note.title}</p><small>{formatDate(holding.latest_public_note.occurred_at)}</small></section> : null}
+
+        {scheduleOpen ? (
+          <section className="holding-v9-future-schedule">
+            <div className="section-head"><div><h3>Your future schedule</h3><div className="ph-sub">Current projection, schedule version {loan.schedule_version}.</div></div></div>
+            {projectedRows.length === 0 ? (
+              <Empty icon="clock" title="No contractual projection available">
+                {impaired ? "This position is in an impaired state. Review recorded recoveries rather than relying on the former contractual schedule." : "There are no remaining projected payments for this claim."}
+              </Empty>
+            ) : (
+              <div className="tbl-wrap">
+                <table className="tbl holding-v9-schedule-table">
+                  <thead><tr><th>Due</th><th>Status</th><th className="num">Interest</th><th className="num">Capital</th><th className="num">Payment</th><th className="num">Owed after</th></tr></thead>
+                  <tbody>
+                    {projectedRows.map((row, index) => {
+                      const owedAfter = Math.max(0, holding.current_principal_minor - projectedRows.slice(0, index + 1).reduce((sum, item) => sum + item.projected_principal_minor, 0));
+                      return <tr className="clickable" key={row.loan_installment_id} onClick={() => setSelectedPaymentKey(`projection:${row.loan_installment_id}`)}><td>{formatDate(row.due_date)}</td><td><Chip dot={false} tone={row.status === "overdue" ? "bad" : row.status === "due" ? "warn" : "neutral"}>{humanizeToken(row.status)}</Chip></td><td className="num pos"><Money amountMinor={row.projected_interest_minor} currency={currency} /></td><td className="num"><Money amountMinor={row.projected_principal_minor} currency={currency} /></td><td className="num col-strong"><Money amountMinor={row.projected_total_minor} currency={currency} /></td><td className="num"><Money amountMinor={owedAfter} currency={currency} /></td></tr>;
+                    })}
+                  </tbody>
+                  <tfoot className="schedule-totals"><tr><th colSpan={2}>Totals</th><th className="num"><Money amountMinor={futureTotals.interest} currency={currency} /></th><th className="num"><Money amountMinor={futureTotals.principal} currency={currency} /></th><th className="num"><Money amountMinor={futureTotals.total} currency={currency} /></th><th className="num">-</th></tr></tfoot>
+                </table>
+              </div>
+            )}
+          </section>
+        ) : null}
+      </article>
+    </Modal>
   );
 }
 

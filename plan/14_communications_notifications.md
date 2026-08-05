@@ -75,7 +75,7 @@ Define transactional notifications, operational messaging, support communication
 - Partial repayment notification.
 - Late payment notice from day 5 after due date.
 - Default/recovery update from day 16 after due date.
-- Recovery distribution credited notification showing loan/project, recovery event date, currency, credited amount, and available recovery category split, including principal, contractual interest, default/penalty interest, recovery costs/fees where disclosed, other penalties/costs, and rounding difference.
+- Recovery distribution credited notification showing loan/project, recovery event date, currency, credited amount, and the available recovery category split in waterfall order: disclosed recovery costs/fees, default/penalty interest and other penalties, contractual interest, principal, and rounding difference.
 - Admin-published public loan note for affected investors.
 - Bulk investor email for material loan status, arrears, default, recovery, or final-resolution changes.
 - Account/security alert.

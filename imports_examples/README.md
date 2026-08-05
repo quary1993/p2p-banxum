@@ -44,8 +44,11 @@ installments. Required fields are:
 - `due_date`: due date, strictly after the accrual start and strictly increasing
   across installments.
 - `opening_principal_minor`: principal before the installment.
-- `principal_minor`, `interest_minor`, `penalty_minor`, `fee_minor`: non-negative
-  components due in the installment.
+- `fee_minor`: non-negative Garanta legal-cost/recovery-fee amount due in the
+  first universal payment-waterfall tier. It is not the private originator
+  premium fee and is not payable to investors or the originator.
+- `penalty_minor`, `interest_minor`, `principal_minor`: non-negative amounts due
+  in the remaining universal tiers, in that order.
 - `total_minor`: exact sum of the four components.
 - `closing_principal_minor`: opening principal less principal due.
 
@@ -72,8 +75,9 @@ Use `row_type=payment` for every payment received on or before the import
 - `reference`: stable unique bank/servicing reference.
 - `value_date`: bank value date, never after the import `as_of_date`.
 - `payment_type`: `regular` or `repayment_in_advance`.
-- `principal_minor`, `interest_minor`, `penalty_minor`, `fee_minor`: non-negative
-  applied components.
+- `fee_minor`, `penalty_minor`, `interest_minor`, `principal_minor`: non-negative
+  applied components in the universal waterfall order: Garanta legal
+  costs/recovery fee, penalty, contractual interest, then principal.
 - `total_minor`: positive and equal to the exact component sum.
 - `resulting_principal_minor`: outstanding principal after this payment.
 
@@ -83,6 +87,12 @@ Leave `installment_number`, `accrual_start_date`, `due_date`,
 Payments are processed in value-date/reference order. Starting from the declared
 original principal, every payment's principal must fit within the running
 outstanding amount and its `resulting_principal_minor` must match exactly.
+For each newly appended payment, BANXUM recomputes the due amount in every tier
+from the immutable prior import and the current schedule. The imported split is
+evidence, not allocation authority. The replacement import is rejected if it
+pays principal while a higher tier remains due, or otherwise relabels cash to
+bypass the universal order. A zero-due tier is skipped without changing that
+order.
 
 ## Whole-file reconciliation
 

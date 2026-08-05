@@ -42,6 +42,7 @@ from backend.apps.originator_claims.services import (
     PublishOriginatorLoanCommand,
     PurchaseOriginatorClaimCommand,
     RecordOriginatorBorrowerRepaymentCommand,
+    _originator_payment_waterfall,
     _originator_repayment_plan,
     _skin_bps,
     create_loan_originator,
@@ -1421,7 +1422,6 @@ def test_skin_in_the_game_repayment_rounding_preserves_retained_floor() -> None:
         principal_minor=3,
         interest_minor=0,
         penalty_minor=0,
-        fee_minor=0,
         value_date=entitlement_start.date(),
         accrual_start_date=entitlement_start.date(),
         currency="CHF",
@@ -1431,3 +1431,100 @@ def test_skin_in_the_game_repayment_rounding_preserves_retained_floor() -> None:
     assert originator_components["principal_minor"] == 0
     retained_after_minor = -(-(9_997 * 2_000) // 10_000)
     assert 2_000 - originator_components["principal_minor"] == retained_after_minor
+
+
+@pytest.mark.django_db
+def test_originator_repayment_rejects_csv_split_that_pays_principal_before_interest(
+    admin_user: Model,
+) -> None:
+    today = business_date(timezone.now())
+    first_due = today + timedelta(days=15)
+    result = _create_dated_originator_loan(
+        admin_user=admin_user,
+        today=today,
+        suffix="WATERFALL",
+    )
+    conflicting_csv = _dated_two_period_csv(today=today, include_payment=True).replace(
+        "regular,,500000,10000,0,0,510000,,500000",
+        "regular,,500000,0,0,10000,510000,,500000",
+    )
+
+    with pytest.raises(
+        OriginatorClaimsValidationError,
+        match="violates the universal payment waterfall",
+    ):
+        record_originator_borrower_repayment(
+            RecordOriginatorBorrowerRepaymentCommand(
+                actor=admin_user,
+                loan_id=str(result.loan.id),
+                csv_content=conflicting_csv,
+                source_filename="waterfall-conflict.csv",
+                as_of_date=first_due,
+                payment_reference="LO-PAY-1",
+                booking_date=first_due,
+                value_date=first_due,
+                collection_account_identifier="CH11 83019 GARANTAFI001",
+                payer_name="Confidential Borrower WATERFALL AG",
+                idempotency_key="originator-waterfall-conflict",
+            )
+        )
+
+
+def test_originator_waterfall_applies_costs_penalty_and_interest_before_principal() -> None:
+    value_date = date(2026, 8, 5)
+    schedule_rows = [
+        SimpleNamespace(
+            accrual_start_date=date(2026, 7, 5),
+            due_date=value_date,
+            installment_number=1,
+            fee_minor=300,
+            penalty_minor=200,
+            interest_minor=100,
+            principal_minor=1_000,
+        )
+    ]
+    loan_import = cast(
+        OriginatorLoanImport,
+        SimpleNamespace(
+            schedule_rows=SimpleNamespace(order_by=lambda *_args: schedule_rows),
+            payment_rows=SimpleNamespace(order_by=lambda *_args: []),
+        ),
+    )
+    valid_payment = SimpleNamespace(
+        value_date=value_date,
+        payment_type="regular",
+        total_minor=550,
+        fee_minor=300,
+        penalty_minor=200,
+        interest_minor=50,
+        principal_minor=0,
+    )
+
+    allocation = _originator_payment_waterfall(
+        loan_import=loan_import,
+        payment=valid_payment,
+        outstanding_principal_minor=1_000,
+    )
+    assert (
+        allocation.costs_minor,
+        allocation.penalty_minor,
+        allocation.interest_minor,
+        allocation.principal_minor,
+    ) == (300, 200, 50, 0)
+
+    invalid_payment = SimpleNamespace(
+        **{
+            **vars(valid_payment),
+            "interest_minor": 0,
+            "principal_minor": 50,
+        }
+    )
+    with pytest.raises(
+        OriginatorClaimsValidationError,
+        match="violates the universal payment waterfall",
+    ):
+        _originator_payment_waterfall(
+            loan_import=loan_import,
+            payment=invalid_payment,
+            outstanding_principal_minor=1_000,
+        )

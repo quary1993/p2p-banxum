@@ -71,7 +71,7 @@ Stories: ADM-REPAY-1, ADM-REPAY-DIST-1, PROD-SCHEDULE-1, INV-PORT-2
 - Schedule: calendar-day counts, monthly default frequency, each line rounded to currency minor unit, **final installment absorbs rounding residue** — totals reconcile exactly to principal + interest.
 - Advance time to due date: installment becomes due; **day-5 late** and **day-16 default** status transitions (Europe/Zurich days) reflected in loan status, investor portfolio (days past due), and admin due/late/defaulted report.
 - Admin records `borrower_repayment`; system correlates to next due installment, warns on lower/higher amount; classifies regular / partial / multi-installment (late loan) / early repayment (healthy loan).
-- Allocation order: fees → penalties → current installment interest → current installment principal → future outstanding principal; schedule recalculated on timing changes.
+- Universal allocation order for every direct/Loan-Originator and active/late/default payment: Garanta legal costs and recovery fee → penalty/default interest → contractual interest → principal. A zero-due tier is skipped; principal is never paid while a higher tier remains due. Schedule is recalculated on qualifying timing/principal changes.
 
 ### Step 8 — Interest/principal distribution to lenders
 Stories: ADM-REPAY-DIST-1 (cont.), PROD-FEES-2, INV-PORT-3, INV-NOTIFY-1
@@ -178,8 +178,8 @@ Stories: SYS-RECON-1, ADM-RECON-1, SYS-AUDIT-1
 | MKT-EDIT-1/2 | P1/P0 | Pre-commitment: any field editable (audited); post-commitment: ONLY lowering total amount, mandatory custom investor message + reason, investors notified, no re-acceptance |
 | ADM-FUNDING-CLOSE-1 / ADM-RELEASE-1 | P0 | Close/release admin-only, blocked without borrower KYB + no hold; disbursement declared as bank operation |
 | ADM-REPAY-1 / ADM-SCHED-OVERRIDE-1 / ADM-EARLY-REPAY-1 | P0/P1 | Repayment declaration + distribution workspace; received/corrected marks; schedule override with version history; early/partial/operational-change records audited |
-| ADM-RECOVERY-1 (plan/06 + plan/10) | P0/P1 | Recovery event captures ALL: gross recovered, external legal/recovery costs, third-party costs, Garanta recovery fee decision+amount, net received, waterfall split, evidence, rounding difference; waterfall order: (1) external recovery/legal costs (2) platform-approved recovery costs incl. Garanta fee (3) principal (4) contractual interest accrued until default (5) default/penalty interest (6) other penalties/costs; contractual interest cut off at default declaration date; penalty interest replaces (not stacks) from that date; lender lines half-up rounded, residual recorded as rounding difference |
-| PROD-RECOVERY-1/2, PROD-PENALTY-1 | P0/P1 | Per-loan recovery terms inert before default; per-payment Garanta-fee apply/skip toggle; deterministic waterfall |
+| ADM-RECOVERY-1 (plan/06 + plan/10) | P0/P1 | Recovery event captures ALL: gross recovered, external legal/recovery costs, third-party costs, Garanta recovery-fee decision+amount, net received, evidence-backed outstanding penalty/default-interest and contractual-interest obligations, server-derived allocation, evidence, and rounding difference. Universal order: (1) Garanta legal costs/recovery fee (2) penalty/default interest (3) contractual interest (4) principal; contractual interest cuts off at default declaration date; penalty interest replaces (not stacks) from that date; lender lines use deterministic largest-remainder allocation and residual is explicit. |
+| PROD-RECOVERY-1/2, PROD-PENALTY-1 | P0/P1 | Per-loan recovery rates/amounts inert before default; per-payment Garanta-fee apply/skip toggle; universal priority is not configurable or caller-selectable. |
 | ADM-WRITEOFF-1 | P1 | Write-off admin-only, workflow rules, audited |
 | ADM-SECMKT-1 | P1 | Transfer monitor; non-standard listing queue; approve/reject/remove each requires reason AND disclosure note + audit (date, admin) |
 | SEC-LIST-NONSTD-1 / SEC-BUY-NONSTD-1 / INV-SM-SELL-2 | P0/P1 | Non-performing listings invisible until admin approval; buyer sees status, days past due, recovery status, last payment date, public note + extra risk acknowledgement; no second admin approval at purchase |
@@ -252,7 +252,7 @@ Stories: SYS-RECON-1, ADM-RECON-1, SYS-AUDIT-1
 22. Risk acknowledgement required before every investment order; every clickwrap records version, snapshot, timestamp, user, context.
 23. Loan principal 1,000 ≤ P ≤ 1,000,000,000; LTV always system-computed (P / collateral × 100); collateral 0 → warn + hide LTV; collateral > P → warn + show LTV; incomplete loans never persisted.
 24. Each installment line rounded to minor unit; final installment absorbs rounding residue; single-currency loans; borrower success fee 2%–4% withheld, never investor-visible, never alters schedule; lender_payment_fee = 0 at launch.
-25. Penalty/default interest replaces contractual interest from the official default declaration date; recovery waterfall order fixed (6 steps); recovery terms inert before default.
+25. Penalty/default interest replaces contractual interest from the official default declaration date; borrower-payment waterfall is universally fixed to costs/recovery fee, penalty/default interest, contractual interest, principal; recovery rates/amounts are inert before default.
 
 **Secondary market**
 26. Whole holdings only; positive principal required; fees 0.25%/0.75% at settlement on price EXCLUDING accrued interest, half-up rounding; accrued interest daily pro rata to seller up to settlement, future interest to buyer; settlement ≤ 60 days; seller proceeds = new source with fresh clocks; non-standard listings need admin approval + disclosure note + extra buyer acknowledgement; pro-rata economics preserved through all transfers.

@@ -5,6 +5,7 @@ import json
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from decimal import ROUND_HALF_UP, Decimal
 from importlib import import_module
 from typing import Any, cast
 
@@ -52,6 +53,14 @@ from backend.apps.platform_core.domain.money import (
     Money,
     allocate_by_weights,
     format_amount_minor,
+)
+from backend.apps.platform_core.domain.payment_waterfall import (
+    PAYMENT_WATERFALL_ORDER,
+    PAYMENT_WATERFALL_VERSION,
+    PaymentWaterfallAllocation,
+    PaymentWaterfallError,
+    PaymentWaterfallObligations,
+    allocate_payment_waterfall,
 )
 from backend.apps.platform_core.domain.time import business_date, now_utc
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
@@ -1623,6 +1632,8 @@ def originator_portfolio_loan_payload(
         "originator_name": str(profile.originator.public_name),
         "purpose": str(loan.purpose),
         "collateral_type": str(loan.collateral_type),
+        "collateral_value_minor": int(loan.collateral_value_minor),
+        "collateral_description": str(loan.collateral_description),
         "risk_rating": str(loan.risk_rating),
         "skin_in_the_game_bps": int(loan.skin_in_the_game_bps),
         "interest_rate_bps": int(profile.target_yield_bps),
@@ -2360,6 +2371,96 @@ def _repayment_accrual_start(
     return rows[0].accrual_start_date
 
 
+def _originator_payment_waterfall(
+    *,
+    loan_import: OriginatorLoanImport,
+    payment: Any,
+    outstanding_principal_minor: int,
+) -> PaymentWaterfallAllocation:
+    rows = list(loan_import.schedule_rows.order_by("due_date", "installment_number", "id"))
+    prior_payments = list(loan_import.payment_rows.order_by("value_date", "reference", "id"))
+    due_rows = [row for row in rows if row.due_date <= payment.value_date]
+    if payment.payment_type == "regular" and not any(
+        row.due_date == payment.value_date for row in due_rows
+    ):
+        next_rows = [row for row in rows if row.due_date > payment.value_date]
+        if next_rows and (next_rows[0].due_date - payment.value_date).days <= 1:
+            due_rows.append(next_rows[0])
+
+    prior_fee = sum(int(row.fee_minor) for row in prior_payments)
+    prior_penalty = sum(int(row.penalty_minor) for row in prior_payments)
+    prior_interest = sum(int(row.interest_minor) for row in prior_payments)
+    prior_principal = sum(int(row.principal_minor) for row in prior_payments)
+    fee_due = max(0, sum(int(row.fee_minor) for row in due_rows) - prior_fee)
+    penalty_due = max(0, sum(int(row.penalty_minor) for row in due_rows) - prior_penalty)
+    interest_due = max(0, sum(int(row.interest_minor) for row in due_rows) - prior_interest)
+
+    if payment.payment_type == "repayment_in_advance":
+        containing = [
+            row
+            for row in rows
+            if row.accrual_start_date <= payment.value_date < row.due_date
+        ]
+        if containing:
+            row = containing[-1]
+            period_days = max(1, (row.due_date - row.accrual_start_date).days)
+            elapsed_days = max(0, (payment.value_date - row.accrual_start_date).days)
+            prorated_interest = int(
+                (
+                    Decimal(int(row.interest_minor))
+                    * Decimal(elapsed_days)
+                    / Decimal(period_days)
+                ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+            )
+            interest_due = max(
+                interest_due,
+                max(
+                    0,
+                    sum(int(item.interest_minor) for item in due_rows)
+                    + prorated_interest
+                    - prior_interest,
+                ),
+            )
+        principal_due = outstanding_principal_minor
+    else:
+        principal_due = max(
+            0,
+            sum(int(row.principal_minor) for row in due_rows) - prior_principal,
+        )
+
+    try:
+        allocation = allocate_payment_waterfall(
+            int(payment.total_minor),
+            PaymentWaterfallObligations(
+                costs_minor=fee_due,
+                penalty_minor=penalty_due,
+                interest_minor=interest_due,
+                principal_minor=principal_due,
+            ),
+        )
+    except PaymentWaterfallError as exc:
+        raise OriginatorClaimsValidationError(str(exc)) from exc
+    actual = (
+        int(payment.fee_minor),
+        int(payment.penalty_minor),
+        int(payment.interest_minor),
+        int(payment.principal_minor),
+    )
+    expected = (
+        allocation.costs_minor,
+        allocation.penalty_minor,
+        allocation.interest_minor,
+        allocation.principal_minor,
+    )
+    if actual != expected:
+        raise OriginatorClaimsValidationError(
+            "Imported repayment split violates the universal payment waterfall. "
+            "Apply Garanta legal costs/recovery fee first, then penalty, interest, "
+            "and principal."
+        )
+    return allocation
+
+
 def _originator_repayment_plan(
     *,
     holdings: list[Any],
@@ -2368,7 +2469,6 @@ def _originator_repayment_plan(
     principal_minor: int,
     interest_minor: int,
     penalty_minor: int,
-    fee_minor: int,
     value_date: date,
     accrual_start_date: date,
     currency: str,
@@ -2432,7 +2532,7 @@ def _originator_repayment_plan(
         "principal_minor": principal_parts[-1].amount_minor,
         "interest_minor": originator_interest_minor,
         "penalty_minor": penalty_parts[-1].amount_minor,
-        "fee_minor": fee_minor,
+        "fee_minor": 0,
     }
     if (
         originator_principal_minor - originator_components["principal_minor"]
@@ -2442,7 +2542,7 @@ def _originator_repayment_plan(
             "Repayment would breach the declared skin-in-the-game floor."
         )
     if sum(line.amount_minor for line in plan) + sum(originator_components.values()) != (
-        principal_minor + interest_minor + penalty_minor + fee_minor
+        principal_minor + interest_minor + penalty_minor
     ):
         raise OriginatorClaimsValidationError(
             "Originator repayment distribution does not reconcile."
@@ -2582,6 +2682,11 @@ def record_originator_borrower_repayment(
             "CSV payment value date must match the declared bank value date."
         )
     before_principal = int(profile.current_outstanding_principal_minor)
+    waterfall = _originator_payment_waterfall(
+        loan_import=current_import,
+        payment=payment,
+        outstanding_principal_minor=before_principal,
+    )
     expected_after = before_principal - payment.principal_minor
     if expected_after < 0 or parsed.current_outstanding_principal_minor != expected_after:
         raise OriginatorClaimsValidationError(
@@ -2609,7 +2714,6 @@ def record_originator_borrower_repayment(
         principal_minor=payment.principal_minor,
         interest_minor=payment.interest_minor,
         penalty_minor=payment.penalty_minor,
-        fee_minor=payment.fee_minor,
         value_date=command.value_date,
         accrual_start_date=accrual_start,
         currency=str(loan.currency_id),
@@ -2623,6 +2727,7 @@ def record_originator_borrower_repayment(
             "Repayment principal allocation exceeds the originator-owned portion."
         )
     originator_payable = sum(originator_components.values())
+    platform_costs_minor = waterfall.costs_minor
     investor_distributed = sum(line.amount_minor for line in plan)
     repayment_id = _operation_uuid(
         "originator-borrower-repayment",
@@ -2637,6 +2742,7 @@ def record_originator_borrower_repayment(
             originator_id=str(profile.originator_id),
             amount_minor=payment.total_minor,
             originator_payable_minor=originator_payable,
+            platform_costs_minor=platform_costs_minor,
             currency=str(loan.currency_id),
             booking_date=command.booking_date,
             value_date=command.value_date,
@@ -2693,6 +2799,7 @@ def record_originator_borrower_repayment(
         amount_minor=payment.total_minor,
         investor_distributed_minor=investor_distributed,
         originator_payable_minor=originator_payable,
+        platform_costs_minor=platform_costs_minor,
         principal_before_minor=before_principal,
         principal_after_minor=expected_after,
         originator_principal_before_minor=originator_principal_before,
@@ -2710,6 +2817,9 @@ def record_originator_borrower_repayment(
             "accrual_start_date": accrual_start.isoformat(),
             "schedule_revision": revision,
             "originator_components": originator_components,
+            "payment_waterfall_version": PAYMENT_WATERFALL_VERSION,
+            "payment_waterfall_order": list(PAYMENT_WATERFALL_ORDER),
+            "platform_costs_minor": platform_costs_minor,
         },
     )
     credit_by_index = {credit.line_index: credit for credit in ledger_result.balance_credits}

@@ -194,7 +194,7 @@ Formal KYC provider reports, including KYC status, failed/rejected KYC, high-ris
 - Investor exposure by defaulted loan.
 - Recovery/default action log covering platform actions, status changes, notes, document uploads, public notes, bulk investor emails, and recovery events.
 - Default-resolution/loss-recognition report only after Garanta finalizes the recovery-closure policy; operational v1 does not expose write-off as a normal state.
-- Recovery payment/waterfall report showing gross recovered amount, externally deducted legal/recovery costs, third-party recovery costs declared at recovery time, Garanta recovery fee decision/amount, net amount received by Garanta, net amount available for waterfall allocation, contractual-interest cutoff at default, default/penalty interest percent and amount after default if applicable, principal/interest/penalty/cost category split, lender allocations, and recovery rounding differences.
+- Recovery payment/waterfall report showing gross recovered amount, externally deducted legal/recovery costs, third-party recovery costs, Garanta recovery-fee decision/amount, net amount received by Garanta, net amount available for allocation, contractual-interest cutoff at default, default/penalty interest percent and amount after default if applicable, the server-derived costs/penalty/interest/principal split in universal priority order, lender allocations, and recovery rounding differences.
 - Early repayments.
 - Partial repayments.
 - Schedule overrides and operational loan changes.
