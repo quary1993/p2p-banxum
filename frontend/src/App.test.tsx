@@ -217,7 +217,7 @@ test("published primary-market loans appear in dashboard and marketplace open vi
   fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
 
   expect(
-    screen.getByText((_, element) => element?.className === "fs-count" && element.textContent === "5 of 6 match")
+    screen.getByText((_, element) => element?.className === "fs-count" && element.textContent === "5 of 5 match")
   ).toBeInTheDocument();
   expect(screen.getByText("Helvetia Logistik AG")).toBeInTheDocument();
   expect(screen.getAllByText("Open").length).toBeGreaterThan(0);
@@ -236,12 +236,12 @@ test("marketplace redesign preserves live filters, detail mode, and order guidan
 
   expect(screen.getByRole("heading", { name: "These companies want your investment" })).toBeInTheDocument();
   expect(screen.getByText("Two ways to put your money to work")).toBeInTheDocument();
-  expect(screen.getByText(/From € 1.000/i)).toBeInTheDocument();
+  expect(screen.getByText(/From CHF 500/i)).toBeInTheDocument();
   expect(screen.getByText("Available to commit")).toBeInTheDocument();
   expect(screen.getByText("available to invest")).toBeInTheDocument();
   expect(screen.getAllByText("58.0%").length).toBeGreaterThan(0);
   expect(
-    screen.getByText((_, element) => element?.className === "fs-count" && element.textContent === "5 of 6 match")
+    screen.getByText((_, element) => element?.className === "fs-count" && element.textContent === "5 of 5 match")
   ).toBeInTheDocument();
 
   fireEvent.click(screen.getByRole("button", { name: "Set your investing rule" }));
@@ -279,16 +279,18 @@ test("marketplace filters combine chips, sliders and tokens with live counts", (
   fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
 
   fireEvent.click(screen.getByRole("button", { name: /^Filter/ }));
+  expect(screen.getByRole("button", { name: /^Filter/ })).toHaveAttribute("aria-expanded", "true");
   expect(screen.getByText("Pays at least")).toBeInTheDocument();
   expect(screen.getByText("Runs no longer than")).toBeInTheDocument();
   expect(screen.getByText("Originated by")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /^BANXUM \d+$/ })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /Alpine Credit Partners AG/ })).toBeInTheDocument();
   expect(screen.getByText("Risk rating")).toBeInTheDocument();
   expect(screen.getByText("Loan type")).toBeInTheDocument();
 
   fireEvent.click(screen.getByRole("button", { name: /No collateral/ }));
   expect(
-    screen.getByText((_, element) => element?.className === "fs-count" && element.textContent === "1 of 6 match")
+    screen.getByText((_, element) => element?.className === "fs-count" && element.textContent === "1 of 5 match")
   ).toBeInTheDocument();
   expect(screen.getByText("Léman BioTech SA")).toBeInTheDocument();
   expect(screen.queryByText("Helvetia Logistik AG")).not.toBeInTheDocument();
@@ -296,18 +298,18 @@ test("marketplace filters combine chips, sliders and tokens with live counts", (
   // Removable token restores the list.
   fireEvent.click(screen.getByRole("button", { name: "no collateral" }));
   expect(
-    screen.getByText((_, element) => element?.className === "fs-count" && element.textContent === "5 of 6 match")
+    screen.getByText((_, element) => element?.className === "fs-count" && element.textContent === "5 of 5 match")
   ).toBeInTheDocument();
 
   // Refinancing chip narrows to the refinanced Helvetia loan.
   fireEvent.click(screen.getByRole("button", { name: /^Refinancing/ }));
   expect(
-    screen.getByText((_, element) => element?.className === "fs-count" && element.textContent === "1 of 6 match")
+    screen.getByText((_, element) => element?.className === "fs-count" && element.textContent === "1 of 5 match")
   ).toBeInTheDocument();
   expect(screen.getByText("Helvetia Logistik AG")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "clear" }));
   expect(
-    screen.getByText((_, element) => element?.className === "fs-count" && element.textContent === "5 of 6 match")
+    screen.getByText((_, element) => element?.className === "fs-count" && element.textContent === "5 of 5 match")
   ).toBeInTheDocument();
 });
 
@@ -371,6 +373,15 @@ test("portfolio loans sort from the header and the sort menu", () => {
   fireEvent.click(screen.getByRole("button", { name: "Sort" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Rate" }));
   expect(rowNames()[0]).toBe("Engadin Hospitality AG");
+
+  // A Detailed-only sort never remains active without a visible column indicator.
+  fireEvent.click(screen.getByRole("tab", { name: "Focused" }));
+  expect(screen.queryByRole("button", { name: "back to largest first" })).not.toBeInTheDocument();
+  expect(rowNames()[0]).toBe("Engadin Hospitality AG");
+
+  fireEvent.click(screen.getByRole("tab", { name: "Detailed" }));
+  fireEvent.click(screen.getByRole("button", { name: "Sort" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Rate" }));
   fireEvent.click(screen.getByRole("button", { name: "back to largest first" }));
   expect(rowNames()[0]).toBe("Engadin Hospitality AG");
 });

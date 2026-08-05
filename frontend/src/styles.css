@@ -4498,6 +4498,20 @@ table.tbl tfoot.schedule-totals th.num,
 }
 
 @media (max-width: 1180px) {
+  .marketplace-capacity {
+    border-radius: var(--r-lg);
+    flex-wrap: wrap;
+    padding: 14px 16px;
+  }
+
+  .marketplace-capacity-note {
+    flex-basis: 45%;
+  }
+
+  .marketplace-list {
+    overflow-x: auto;
+  }
+
   .marketplace-list-head {
     display: none;
   }
@@ -4518,16 +4532,6 @@ table.tbl tfoot.schedule-totals th.num,
 }
 
 @media (max-width: 980px) {
-  .marketplace-capacity {
-    border-radius: var(--r-lg);
-    flex-wrap: wrap;
-    padding: 14px 16px;
-  }
-
-  .marketplace-capacity-note {
-    flex-basis: 45%;
-  }
-
   .marketplace-process {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -4573,10 +4577,6 @@ table.tbl tfoot.schedule-totals th.num,
   .marketplace-opportunity-main {
     grid-template-columns: minmax(230px, 1fr) 76px 66px 104px minmax(170px, 0.8fr) 100px;
     min-width: 820px;
-  }
-
-  .marketplace-list {
-    overflow-x: auto;
   }
 
   .marketplace-opportunity-details {

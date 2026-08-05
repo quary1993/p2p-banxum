@@ -188,7 +188,7 @@ export function useFxData(limit = 50, enabled = true) {
 }
 
 export function useMarketplaceLoansData() {
-  return useV1MarketplacePrimaryLoansList(undefined, {
+  return useV1MarketplacePrimaryLoansList({ limit: 250 }, {
     query: previewQuery(marketplaceLoansFixture)
   });
 }

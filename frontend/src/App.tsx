@@ -2550,7 +2550,6 @@ type MkFilters = {
   rating: string;
   purpose: string;
   kind: string;
-  avail: "open" | "all";
 };
 
 const mkDefaultFilters: MkFilters = {
@@ -2562,8 +2561,7 @@ const mkDefaultFilters: MkFilters = {
   ccy: "all",
   rating: "all",
   purpose: "all",
-  kind: "all",
-  avail: "open"
+  kind: "all"
 };
 
 const mkIsUnsecured = (loan: MarketplaceLoanPreview) => /unsecured/i.test(loan.collateral_type);
@@ -2588,8 +2586,7 @@ function mkMatches(loan: MarketplaceLoanPreview, filters: MkFilters, skip?: keyo
     ["ccy", filters.ccy === "all" || loan.currency === filters.ccy],
     ["rating", filters.rating === "all" || loan.risk_rating === filters.rating],
     ["purpose", filters.purpose === "all" || loan.purpose === filters.purpose],
-    ["kind", filters.kind === "all" || (filters.kind === "refi" ? loan.is_refinancing : !loan.is_refinancing)],
-    ["avail", filters.avail === "all" || isOpenMarketplaceLoan(loan)]
+    ["kind", filters.kind === "all" || (filters.kind === "refi" ? loan.is_refinancing : !loan.is_refinancing)]
   ];
   return checks.every(([key, ok]) => key === skip || ok);
 }
@@ -2640,7 +2637,8 @@ function MarketplaceScreen({
     setSortKey(key);
   };
 
-  const filtered = loans.filter((loan) => mkMatches(loan, filters));
+  const openLoans = loans.filter(isOpenMarketplaceLoan);
+  const filtered = openLoans.filter((loan) => mkMatches(loan, filters));
   const sortedLoans = [...filtered].sort((left, right) => {
     if (!sortKey) {
       const openDelta = Number(isOpenMarketplaceLoan(right)) - Number(isOpenMarketplaceLoan(left));
@@ -2651,12 +2649,12 @@ function MarketplaceScreen({
     const c = typeof x === "string" ? x.localeCompare(String(y)) : x - Number(y);
     return sortDir === "asc" ? c : -c;
   });
-  const openCount = loans.filter(isOpenMarketplaceLoan).length;
+  const openCount = openLoans.length;
 
-  const yieldPcts = loans.map(mkYieldPct);
-  const rateFloor = loans.length > 0 ? Math.floor(Math.min(...yieldPcts) * 10) / 10 : 0;
-  const rateCeil = loans.length > 0 ? Math.ceil(Math.max(...yieldPcts) * 10) / 10 : 0;
-  const termVals = Array.from(new Set(loans.map((loan) => loan.term_months))).sort((a, b) => a - b);
+  const yieldPcts = openLoans.map(mkYieldPct);
+  const rateFloor = openLoans.length > 0 ? Math.floor(Math.min(...yieldPcts) * 10) / 10 : 0;
+  const rateCeil = openLoans.length > 0 ? Math.ceil(Math.max(...yieldPcts) * 10) / 10 : 0;
+  const termVals = Array.from(new Set(openLoans.map((loan) => loan.term_months))).sort((a, b) => a - b);
   const termCeil = termVals[termVals.length - 1] ?? 0;
   const rateValue = filters.minRate ?? rateFloor;
   const termValue = filters.maxTerm ?? termCeil;
@@ -2664,7 +2662,7 @@ function MarketplaceScreen({
   const rateBins = Array.from({ length: rateBinCount }, (_, index) => {
     const lo = rateFloor + ((rateCeil - rateFloor) * index) / rateBinCount;
     const hi = rateFloor + ((rateCeil - rateFloor) * (index + 1)) / rateBinCount;
-    const n = loans.filter((loan) => {
+    const n = openLoans.filter((loan) => {
       const pct = mkYieldPct(loan);
       return mkMatches(loan, filters, "minRate") && pct >= lo - 0.001 && (index === rateBinCount - 1 ? pct <= hi + 0.001 : pct < hi);
     }).length;
@@ -2673,27 +2671,28 @@ function MarketplaceScreen({
   const rateBinMax = Math.max(1, ...rateBins.map((bin) => bin.n));
   const termBins = termVals.map((term) => ({
     term,
-    n: loans.filter((loan) => loan.term_months === term && mkMatches(loan, filters, "maxTerm")).length
+    n: openLoans.filter((loan) => loan.term_months === term && mkMatches(loan, filters, "maxTerm")).length
   }));
   const termBinMax = Math.max(1, ...termBins.map((bin) => bin.n));
 
   const originatorNames = Array.from(
-    new Set(loans.filter(isOriginatorClaimLoan).map((loan) => loan.originator_name ?? "").filter(Boolean))
+    new Set(openLoans.filter(isOriginatorClaimLoan).map((loan) => loan.originator_name ?? "").filter(Boolean))
   ).sort();
   const collateralKinds = Array.from(
-    new Set(loans.filter((loan) => !mkIsUnsecured(loan)).map((loan) => loan.collateral_type))
+    new Set(openLoans.filter((loan) => !mkIsUnsecured(loan)).map((loan) => loan.collateral_type))
   ).sort();
-  const currencies = Array.from(new Set(loans.map((loan) => loan.currency))).sort();
-  const ratings = Array.from(new Set(loans.map((loan) => loan.risk_rating))).sort();
-  const purposes = Array.from(new Set(loans.map((loan) => loan.purpose))).sort();
+  const currencies = Array.from(new Set(openLoans.map((loan) => loan.currency))).sort();
+  const ratings = Array.from(new Set(openLoans.map((loan) => loan.risk_rating))).sort();
+  const purposes = Array.from(new Set(openLoans.map((loan) => loan.purpose))).sort();
 
   const chip = (group: keyof MkFilters, value: string, label: string, predicate: (loan: MarketplaceLoanPreview) => boolean) => {
-    const count = loans.filter((loan) => predicate(loan) && mkMatches(loan, filters, group)).length;
+    const count = openLoans.filter((loan) => predicate(loan) && mkMatches(loan, filters, group)).length;
     const on = filters[group] === value;
     return { group, value, label, count, on };
   };
   const chipButton = (item: ReturnType<typeof chip>) => (
     <button
+      aria-pressed={item.on}
       className={`fs-chip${item.on ? " on" : item.count === 0 ? " dim" : ""}`}
       key={`${String(item.group)}-${item.value}`}
       onClick={() => setFlt(item.group, (item.on ? "all" : item.value) as MkFilters[typeof item.group])}
@@ -2708,13 +2707,12 @@ function MarketplaceScreen({
   if (filters.q.trim() !== "") tokens.push({ label: `matching "${filters.q.trim()}"`, clear: () => setFlt("q", "") });
   if (filters.minRate !== null) tokens.push({ label: `${filters.minRate.toFixed(1)}% and up`, clear: () => setFlt("minRate", null) });
   if (filters.maxTerm !== null) tokens.push({ label: `up to ${filters.maxTerm} months`, clear: () => setFlt("maxTerm", null) });
-  if (filters.orig !== "all") tokens.push({ label: filters.orig === "banxum" ? "from Banxum" : `from ${filters.orig}`, clear: () => setFlt("orig", "all") });
+  if (filters.orig !== "all") tokens.push({ label: filters.orig === "banxum" ? "from BANXUM" : `from ${filters.orig}`, clear: () => setFlt("orig", "all") });
   if (filters.col !== "all") tokens.push({ label: filters.col === "secured" ? "with collateral" : filters.col === "unsecured" ? "no collateral" : humanizeToken(filters.col).toLowerCase(), clear: () => setFlt("col", "all") });
   if (filters.ccy !== "all") tokens.push({ label: filters.ccy, clear: () => setFlt("ccy", "all") });
   if (filters.rating !== "all") tokens.push({ label: `rated ${filters.rating}`, clear: () => setFlt("rating", "all") });
   if (filters.purpose !== "all") tokens.push({ label: humanizeToken(filters.purpose).toLowerCase(), clear: () => setFlt("purpose", "all") });
   if (filters.kind !== "all") tokens.push({ label: filters.kind === "refi" ? "refinancings" : "new lending", clear: () => setFlt("kind", "all") });
-  if (filters.avail !== "open") tokens.push({ label: "including closed", clear: () => setFlt("avail", "open") });
   const clearAllFilters = () => setFilters(mkDefaultFilters);
   const balanceSummaries = balancesQuery.data?.summaries ?? [];
   const activeCapacityCurrency = balanceSummaries.some((summary) => summary.currency === capacityCurrency)
@@ -2722,7 +2720,13 @@ function MarketplaceScreen({
     : balanceSummaries[0]?.currency ?? capacityCurrency;
   const capacitySummary = balanceSummaries.find((summary) => summary.currency === activeCapacityCurrency);
   const hasAccountMoney = balanceSummaries.some((summary) => summary.total_available_minor > 0);
-  const minimumLoan = loans.find((loan) => loan.currency === "EUR") ?? loans[0];
+  const minimumLoan = (openLoans.length > 0 ? openLoans : loans).reduce<MarketplaceLoanPreview | undefined>(
+    (lowest, loan) =>
+      lowest === undefined || loan.minimum_investment_minor < lowest.minimum_investment_minor
+        ? loan
+        : lowest,
+    undefined
+  );
   const minimumCurrency = minimumLoan?.currency ?? "EUR";
   const minimumInvestmentMinor = minimumLoan?.minimum_investment_minor ?? 100000;
   const investingRuleActive = false;
@@ -2781,7 +2785,7 @@ function MarketplaceScreen({
         <div className="marketplace-section-head">
           <div>
             <div className="eyebrow">Primary market</div>
-            <h2>{filters.avail === "open" ? "Open investment opportunities" : "All investment opportunities"}</h2>
+            <h2>Open investment opportunities</h2>
           </div>
         </div>
 
@@ -2798,7 +2802,13 @@ function MarketplaceScreen({
         ) : null}
 
         <div className="fs-controls">
-          <button className={`fs-pill${panelOpen || tokens.length > 0 ? " on" : ""}`} onClick={() => setPanelOpen((open) => !open)} type="button">
+          <button
+            aria-controls="marketplace-filter-panel"
+            aria-expanded={panelOpen}
+            className={`fs-pill${panelOpen || tokens.length > 0 ? " on" : ""}`}
+            onClick={() => setPanelOpen((open) => !open)}
+            type="button"
+          >
             <span>Filter</span>
             <span aria-hidden="true" className="fs-caret">{panelOpen ? "▲" : "▼"}</span>
           </button>
@@ -2806,7 +2816,7 @@ function MarketplaceScreen({
           {sortKey ? (
             <button className="fs-clear-link" onClick={() => { setSortKey(null); setSortDir("asc"); }} type="button">back to closing soonest</button>
           ) : null}
-          <span className="fs-count"><strong>{filtered.length}</strong> of {loans.length} match</span>
+          <span className="fs-count"><strong>{filtered.length}</strong> of {openLoans.length} match</span>
           <span style={{ flex: 1 }} />
           <Segmented
             options={[{ value: "focused", label: "Focused" }, { value: "detailed", label: "Detailed" }]}
@@ -2816,7 +2826,7 @@ function MarketplaceScreen({
         </div>
 
         {panelOpen ? (
-          <div className="fs-panel">
+          <div className="fs-panel" id="marketplace-filter-panel">
             <div className="fs-search-row">
               <div className="fs-group-cap">Find a loan</div>
               <input
@@ -2898,7 +2908,7 @@ function MarketplaceScreen({
                   {filters.orig !== "all" ? <button aria-label="Clear originator filter" className="fs-group-x" onClick={() => setFlt("orig", "all")} type="button">×</button> : null}
                 </div>
                 <div className="fs-chips">
-                  {chipButton(chip("orig", "banxum", "Banxum", (loan) => !isOriginatorClaimLoan(loan)))}
+                  {chipButton(chip("orig", "banxum", "BANXUM", (loan) => !isOriginatorClaimLoan(loan)))}
                   {originatorNames.map((name) => chipButton(chip("orig", name, name, (loan) => loan.originator_name === name)))}
                 </div>
               </div>
@@ -2959,26 +2969,11 @@ function MarketplaceScreen({
                   {chipButton(chip("kind", "refi", "Refinancing", (loan) => loan.is_refinancing))}
                 </div>
               </div>
-              <div className="fs-group">
-                <div className="fs-group-cap">
-                  Availability
-                  {filters.avail !== "open" ? <button aria-label="Clear availability filter" className="fs-group-x" onClick={() => setFlt("avail", "open")} type="button">×</button> : null}
-                </div>
-                <div className="fs-chips">
-                  {chipButton(chip("avail", "open", "Open to invest", (loan) => isOpenMarketplaceLoan(loan)))}
-                  <button
-                    className={`fs-chip${filters.avail === "all" ? " on" : ""}`}
-                    onClick={() => setFlt("avail", filters.avail === "all" ? "open" : "all")}
-                    type="button"
-                  >
-                    Include closed
-                    <span className="fs-chip-count">{loans.filter((loan) => mkMatches(loan, filters, "avail")).length}</span>
-                  </button>
-                </div>
-              </div>
             </div>
             <div className="fs-panel-foot">
-              <span className="fs-panel-note">Nothing is sorted or scored — the order stays closing soonest whatever you pick.</span>
+              <span className="fs-panel-note">
+                Filters never rank or score opportunities. Without a selected sort, results stay closing soonest.
+              </span>
               <button className="fs-done" onClick={() => setPanelOpen(false)} type="button">Done</button>
             </div>
           </div>
@@ -2992,8 +2987,12 @@ function MarketplaceScreen({
         <LoadingCard title="Loading marketplace">Fetching primary-market loans.</LoadingCard>
       ) : filtered.length === 0 ? (
         <div className="fs-empty">
-          <div className="fs-empty-copy">Nothing open today matches all of that at once. Widen one of them, or check back when new loans are published.</div>
-          <button className="fs-empty-clear" onClick={clearAllFilters} type="button">Clear the filter</button>
+          <div className="fs-empty-copy">
+            {openLoans.length === 0
+              ? "No investment opportunities are open right now. New opportunities will appear here after publication."
+              : "Nothing matches all of those filters at once. Widen one of them, or check back when new loans are published."}
+          </div>
+          {tokens.length > 0 ? <button className="fs-empty-clear" onClick={clearAllFilters} type="button">Clear the filter</button> : null}
         </div>
       ) : (
         <MarketplaceOpportunityList
@@ -5156,6 +5155,17 @@ function PfMyLoans({ currency, holdings, onOpen, totalMinor }: { currency: strin
     setDir(sortKey === key && dir === "asc" ? "desc" : "asc");
     setSortKey(key);
   };
+  const selectView = (nextView: "focused" | "detailed") => {
+    setView(nextView);
+    if (
+      nextView === "focused"
+      && sortKey !== null
+      && !pfSortOptionsFocused.some((option) => option.key === sortKey)
+    ) {
+      setSortKey(null);
+      setDir("asc");
+    }
+  };
   const sorted = [...holdings].sort((left, right) => {
     if (!sortKey) return right.current_principal_minor - left.current_principal_minor;
     const x = pfSortValue(left, sortKey);
@@ -5184,8 +5194,8 @@ function PfMyLoans({ currency, holdings, onOpen, totalMinor }: { currency: strin
           small
         />
         <div className="seg" role="tablist">
-          <button aria-selected={view === "focused"} className={view === "focused" ? "on" : ""} onClick={() => setView("focused")} role="tab" type="button">Focused</button>
-          <button aria-selected={view === "detailed"} className={view === "detailed" ? "on" : ""} onClick={() => setView("detailed")} role="tab" type="button">Detailed</button>
+          <button aria-selected={view === "focused"} className={view === "focused" ? "on" : ""} onClick={() => selectView("focused")} role="tab" type="button">Focused</button>
+          <button aria-selected={view === "detailed"} className={view === "detailed" ? "on" : ""} onClick={() => selectView("detailed")} role="tab" type="button">Detailed</button>
         </div>
       </div>
 
