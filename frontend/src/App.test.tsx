@@ -99,13 +99,18 @@ test("fixture-backed authenticated portal is visibly marked as preview data", ()
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
 
-  expect(screen.getByRole("heading", { name: "Welcome back, Lukas" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Money working for you" })).toBeInTheDocument();
   expect(screen.getByText("Preview data")).toBeInTheDocument();
   expect(screen.getByText(/not real account data/i)).toBeInTheDocument();
 
   const portalNav = screen.getByRole("navigation", { name: "Investor portal navigation" });
-  expect(within(portalNav).getByRole("button", { name: "Investment Opportunities" })).toBeInTheDocument();
-  expect(within(portalNav).getByRole("button", { name: "Smart Invest" })).toBeInTheDocument();
+  const opportunitiesLink = within(portalNav).getByRole("button", { name: "Investment Opportunities" });
+  const smartInvestLink = within(portalNav).getByRole("button", { name: "Smart Invest" });
+  expect(opportunitiesLink).toBeInTheDocument();
+  expect(smartInvestLink).toBeInTheDocument();
+  expect(opportunitiesLink.nextElementSibling).toBe(smartInvestLink);
+  expect(smartInvestLink).toHaveClass("nav-link");
+  expect(smartInvestLink).not.toHaveClass("nav-link-sub");
   expect(within(portalNav).getByRole("button", { name: "My Portfolio" })).toBeInTheDocument();
   expect(within(portalNav).queryByRole("button", { name: "Notifications" })).not.toBeInTheDocument();
 
@@ -114,6 +119,46 @@ test("fixture-backed authenticated portal is visibly marked as preview data", ()
   fireEvent.click(within(topbar).getByRole("button", { name: "Add Funds" }));
   expect(screen.getByRole("heading", { name: "Add Funds · CHF" })).toBeInTheDocument();
   expect(screen.getByLabelText("Currency")).toHaveClass("select");
+});
+
+test("dashboard renders the v9 financial overview and opens matching loans in the opportunity sheet", () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+
+  expect(screen.getByRole("heading", { name: "Money working for you" })).toBeInTheDocument();
+  expect(screen.getByText("Waiting on your decision")).toBeInTheDocument();
+  expect(screen.getByText("Matches ready to review")).toBeInTheDocument();
+  expect(screen.getByText(/Each currency is shown separately/i)).toBeInTheDocument();
+
+  const matches = screen.getByRole("table", { name: "Smart Invest matches" });
+  fireEvent.click(within(matches).getByRole("row", { name: /Adriatic Marine d\.o\.o\./i }));
+
+  expect(screen.getByRole("dialog", { name: "Adriatic Marine d.o.o." })).toBeInTheDocument();
+  expect(window.location.pathname).toBe("/dashboard");
+});
+
+test("Smart Invest matching loans open the same opportunity sheet without leaving the rule page", () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  fireEvent.click(screen.getByRole("button", { name: "Smart Invest" }));
+
+  const matches = screen.getByRole("table", { name: "Smart Invest matches" });
+  fireEvent.click(within(matches).getByRole("row", { name: /Adriatic Marine d\.o\.o\./i }));
+
+  expect(screen.getByRole("dialog", { name: "Adriatic Marine d.o.o." })).toBeInTheDocument();
+  expect(window.location.pathname).toBe("/smart-invest");
 });
 
 test("Smart Invest uses the five approved wizard steps and never implies automatic investing", async () => {
@@ -215,7 +260,7 @@ test("read-only impersonation token survives a new tab and opens the investor po
 
   expect(screen.getAllByText("Superadmin read-only view").length).toBeGreaterThan(0);
   expect(screen.getByText(/Viewing the portal as Viorel Nica/i)).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "Welcome back, Lukas" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Money working for you" })).toBeInTheDocument();
 });
 
 test("login form submits when the form is submitted from the email field", () => {

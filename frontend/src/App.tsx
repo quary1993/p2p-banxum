@@ -2186,11 +2186,11 @@ function InvestorShell({
   const screen = (() => {
     switch (route.name) {
       case "dashboard":
-        return <Dashboard demoState={demoState} setRoute={setRoute} />;
+        return <Dashboard demoState={demoState} setInvestLoan={setInvestLoan} setRoute={setRoute} />;
       case "market":
         return <MarketplaceScreen demoState={demoState} setInvestLoan={setInvestLoan} setRoute={setRoute} />;
       case "smartInvest":
-        return <SmartInvestScreen setRoute={setRoute} />;
+        return <SmartInvestScreen setInvestLoan={setInvestLoan} setRoute={setRoute} />;
       case "loan":
         return (
           <LoanDetailScreen
@@ -2219,7 +2219,7 @@ function InvestorShell({
       case "faq":
         return <FaqScreen />;
       default:
-        return <Dashboard demoState={demoState} setRoute={setRoute} />;
+        return <Dashboard demoState={demoState} setInvestLoan={setInvestLoan} setRoute={setRoute} />;
     }
   })();
 
@@ -2251,7 +2251,7 @@ function InvestorShell({
                 const showBalanceBadge = item.route === "balances" && (demoState === "frozen" || overdueCount > 0);
                 return (
                   <button
-                    className={`nav-link ${item.route === "smartInvest" ? "nav-link-sub" : ""} ${isActive ? "on" : ""}`}
+                    className={`nav-link ${isActive ? "on" : ""}`}
                     key={item.route}
                     onClick={() => {
                       goTo(setRoute, item.route);
@@ -2380,11 +2380,43 @@ function InvestorShell({
   );
 }
 
-function Dashboard({ demoState, setRoute }: { demoState: DemoAccountState; setRoute: (route: AppRoute) => void }) {
+function nextDashboardMonth(asOf: string) {
+  const [year, month] = zurichDateKey(asOf).split("-").map(Number);
+  const date = Number.isFinite(year) && Number.isFinite(month)
+    ? new Date(Date.UTC(year, month, 1))
+    : new Date();
+  return {
+    key: `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`,
+    label: date.toLocaleDateString("en-GB", { month: "long", timeZone: "UTC" })
+  };
+}
+
+function dashboardClosingLabel(loan: MarketplaceLoanPreview, asOf: string) {
+  if (loan.product_type === "originator_claim") {
+    return loan.maturity_date ? `available until ${formatDate(loan.maturity_date)}` : "available while inventory lasts";
+  }
+  if (!loan.funding_deadline) return "funding window open";
+  const start = new Date(`${zurichDateKey(asOf)}T00:00:00Z`).getTime();
+  const end = new Date(`${loan.funding_deadline}T00:00:00Z`).getTime();
+  const days = Math.max(0, Math.ceil((end - start) / 86_400_000));
+  return `${days} ${days === 1 ? "day" : "days"} to close`;
+}
+
+function Dashboard({
+  demoState,
+  setRoute,
+  setInvestLoan
+}: {
+  demoState: DemoAccountState;
+  setRoute: (route: AppRoute) => void;
+  setInvestLoan: (loan: MarketplaceLoanDetail | null, initialAmount?: string) => void;
+}) {
   const dashboardQuery = useDashboardData();
   const balancesQuery = useBalancesData();
   const loansQuery = useMarketplaceLoansData();
   const smartInvestQuery = useSmartInvestData();
+  const portfolioQuery = usePortfolioData(false);
+  const [sheetLoan, setSheetLoan] = useState<MarketplaceLoanPreview | null>(null);
   const dashboard = dashboardQuery.data;
   const balances = balancesQuery.data;
   const loans = loansQuery.data ?? [];
@@ -2405,102 +2437,188 @@ function Dashboard({ demoState, setRoute }: { demoState: DemoAccountState; setRo
   if (!dashboard || !balances) return <ScreenLoading title="Dashboard" />;
 
   const openLoans = loans.filter(isOpenMarketplaceLoan).slice(0, 4);
-  const firstName = displayProfile().name.split(" ")[0] || "Investor";
-  const portfolioCurrencies = Array.from(new Set([
-    ...dashboard.portfolio_summary.outstanding_principal_by_currency.map((amount) => amount.currency),
-    ...dashboard.portfolio_summary.realized_interest_by_currency.map((amount) => amount.currency),
-    ...dashboard.portfolio_summary.late_or_defaulted_exposure_by_currency.map((amount) => amount.currency)
+  const portfolio = portfolioQuery.data;
+  const portfolioCurrencies = Array.from(new Set(
+    dashboard.portfolio_summary.outstanding_principal_by_currency.map((amount) => amount.currency)
+  )).filter((currency) => (
+    dashboard.portfolio_summary.outstanding_principal_by_currency.find((amount) => amount.currency === currency)?.amount_minor ?? 0
+  ) > 0).sort();
+  const accountCurrencies = Array.from(new Set([
+    ...balances.summaries.map((summary) => summary.currency),
+    ...portfolioCurrencies
   ])).sort();
   const smartInvest = smartInvestQuery.data;
   const smartRuleActive = smartInvest?.rule?.is_active === true;
+  const nextMonth = nextDashboardMonth(dashboard.as_of);
+  const projectedArrivals = new Map<string, { amountMinor: number; paymentCount: number }>();
+  for (const holding of portfolio?.holdings ?? []) {
+    for (const installment of holding.investment_schedule) {
+      if (!installment.due_date.startsWith(nextMonth.key) || installment.status === "paid") continue;
+      const current = projectedArrivals.get(holding.currency) ?? { amountMinor: 0, paymentCount: 0 };
+      current.amountMinor += installment.projected_total_minor;
+      current.paymentCount += 1;
+      projectedArrivals.set(holding.currency, current);
+    }
+  }
+  const activeLoanCount = portfolio
+    ? new Set(portfolio.holdings.filter((holding) => holding.current_principal_minor > 0).map((holding) => holding.loan.loan_id)).size
+    : dashboard.portfolio_summary.active_holding_count;
+  const hasInvestments = portfolioCurrencies.length > 0;
 
   return (
     <main className="content dashboard-v9">
-      <div className="page-head dashboard-v9-head">
-        <div>
-          <h1>Welcome back, {firstName}</h1>
-          <div className="ph-sub">Account overview - {formatDate(dashboard.as_of)} - Europe/Zurich</div>
-        </div>
-        <div className="page-actions">
-          <Button className="btn-green-line" icon="wallet" onClick={() => goTo(setRoute, "balances")}>Add Funds</Button>
-          <Button icon="market" variant="primary" onClick={() => goTo(setRoute, "market")}>Browse loans</Button>
-        </div>
-      </div>
-
       <div className="col gap-12" style={{ marginBottom: 20 }}>
         {demoState === "frozen" ? <FrozenBanner setRoute={setRoute} /> : null}
         {demoState === "kyc_pending" ? <KycBanner setRoute={setRoute} /> : null}
         {demoState === "active" ? <AgeingAlerts balances={balances.summaries} setRoute={setRoute} /> : null}
       </div>
 
-      {smartInvestQuery.isError && !smartInvest ? (
-        <DataErrorCard title="Smart Invest is temporarily unavailable" onRetry={() => void smartInvestQuery.refetch()}>
-          Your dashboard is still available. Retry to load your saved rule and matching opportunities.
-        </DataErrorCard>
-      ) : (
-        <section className={`dashboard-smart-widget ${smartRuleActive ? "active" : "inactive"}`}>
-          <div>
-            <div className="dashboard-smart-title">
-              <span>{smartRuleActive ? "Investing rule" : "No investing rule is running"}</span>
-              {smartRuleActive ? <b>Active</b> : null}
+      <section className={`dashboard-v9-hero ${hasInvestments ? "invested" : "empty"}`}>
+        <h1>Money working for you</h1>
+        <time dateTime={dashboard.as_of}>{formatDate(dashboard.as_of)}</time>
+        {hasInvestments ? (
+          <>
+            <div className={`dashboard-v9-amounts ${portfolioCurrencies.length > 1 ? "multiple" : ""}`}>
+              {portfolioCurrencies.map((currency) => (
+                <div key={currency}>
+                  <span>{currency === "EUR" ? "€" : currency}</span>
+                  <strong>{formatMoneyMinor(dashboard.portfolio_summary.outstanding_principal_by_currency.find((amount) => amount.currency === currency)?.amount_minor ?? 0, currency)}</strong>
+                </div>
+              ))}
             </div>
-            <p>
-              {smartRuleActive
-                ? `${smartInvest?.match_count ?? 0} open ${(smartInvest?.match_count ?? 0) === 1 ? "opportunity matches" : "opportunities match"} your conditions. You review every match before anything is committed.`
-                : "Smart Invest watches newly published opportunities against your conditions and alerts you first. It never invests automatically."}
-            </p>
+            <p>invested across <strong>{countLabel(activeLoanCount, "loan")}</strong></p>
+            {portfolioCurrencies.length > 1 ? <small>Each currency is shown separately; no FX conversion is assumed.</small> : null}
+          </>
+        ) : (
+          <div className="dashboard-v9-empty-hero">
+            <strong>Nothing is invested yet.</strong>
+            <p>Your available balance and open opportunities are ready below.</p>
+            <Button icon="market" variant="primary" onClick={() => goTo(setRoute, "market")}>Browse opportunities</Button>
           </div>
-          <button onClick={() => goTo(setRoute, "smartInvest")} type="button">{smartRuleActive ? "Review matches →" : "Set one up →"}</button>
-        </section>
-      )}
+        )}
+      </section>
 
-      <div className="dashboard-currency-stats" style={{ marginBottom: 20 }}>
-        {portfolioCurrencies.length === 0 ? (
-          <div className="dashboard-currency-empty">No active loan exposure yet.</div>
-        ) : portfolioCurrencies.map((currency) => (
-          <section key={currency}>
-            <div className="eyebrow">{currency} loan portfolio</div>
-            <div className="dashboard-currency-stat-grid">
-              <Stat amountMinor={dashboard.portfolio_summary.outstanding_principal_by_currency.find((amount) => amount.currency === currency)?.amount_minor ?? 0} currency={currency} label="Outstanding principal" sub={countLabel(dashboard.portfolio_summary.active_holding_count, "active holding")} />
-              <Stat amountMinor={dashboard.portfolio_summary.realized_interest_by_currency.find((amount) => amount.currency === currency)?.amount_minor ?? 0} currency={currency} label="Interest received" sub="lifetime distributions" />
-              <Stat amountMinor={dashboard.portfolio_summary.late_or_defaulted_exposure_by_currency.find((amount) => amount.currency === currency)?.amount_minor ?? 0} currency={currency} label="Late/default principal" sub="watch status updates" />
-            </div>
-          </section>
-        ))}
+      <div className="dashboard-v9-facts">
+        {accountCurrencies.map((currency) => {
+          const summary = balances.summaries.find((item) => item.currency === currency);
+          const arrival = projectedArrivals.get(currency);
+          const realizedInterest = dashboard.portfolio_summary.realized_interest_by_currency.find((amount) => amount.currency === currency)?.amount_minor ?? 0;
+          const riskExposure = dashboard.portfolio_summary.late_or_defaulted_exposure_by_currency.find((amount) => amount.currency === currency)?.amount_minor ?? 0;
+          return (
+            <section key={currency}>
+              <header><span>{currency} account</span><button onClick={() => goTo(setRoute, "balances")} type="button">Manage balance →</button></header>
+              <div className="dashboard-v9-fact-grid">
+                <article>
+                  <div>Arriving in {nextMonth.label}</div>
+                  <strong>{portfolioQuery.isError ? "—" : pfMoneyLabel(currency, arrival?.amountMinor ?? 0)}</strong>
+                  <p>{portfolioQuery.isError ? "Schedule temporarily unavailable" : countLabel(arrival?.paymentCount ?? 0, "scheduled payment")}</p>
+                </article>
+                <article className="positive">
+                  <div>Interest paid to you so far</div>
+                  <strong>{pfMoneyLabel(currency, realizedInterest)}</strong>
+                  <p>Lifetime distributions</p>
+                </article>
+                <article>
+                  <div><b>Money not invested</b> — available balance</div>
+                  <strong>{pfMoneyLabel(currency, summary?.total_available_minor ?? 0)}</strong>
+                  <p>{pfMoneyLabel(currency, summary?.investable_minor ?? 0)} currently investable</p>
+                </article>
+              </div>
+              {riskExposure > 0 ? <div className="dashboard-v9-risk"><b>{pfMoneyLabel(currency, riskExposure)}</b> is currently late or in default. Review the affected positions and public servicing notes.</div> : null}
+            </section>
+          );
+        })}
       </div>
 
-      <div className="dash-split">
-        <section>
-          <div className="section-head"><h2>Balances</h2><a href="/balances" onClick={(event) => { event.preventDefault(); goTo(setRoute, "balances"); }}>Manage</a></div>
-          <div className="grid grid-2">
-            {balances.summaries.map((summary) => <BalanceCard key={summary.currency} summary={summary} setRoute={setRoute} frozen={demoState === "frozen"} />)}
-          </div>
-        </section>
-        <section>
-          <div className="section-head"><h2>Required actions</h2></div>
-          <Card>
+      <section className="dashboard-v9-decisions">
+        <header><span>Waiting on your decision</span><i>you review every action before it binds</i></header>
+        {dashboard.pending_actions.length > 0 ? (
+          <div className="dashboard-v9-action-list">
             {dashboard.pending_actions.map((action, index) => (
               <ActionRow action={action} key={`${action.type}-${index}`} setRoute={setRoute} last={index === dashboard.pending_actions.length - 1} />
             ))}
-          </Card>
-        </section>
-      </div>
+          </div>
+        ) : null}
+        {smartInvestQuery.isError && !smartInvest ? (
+          <DataErrorCard title="Smart Invest is temporarily unavailable" onRetry={() => void smartInvestQuery.refetch()}>
+            Your dashboard is still available. Retry to load your saved rule and matching opportunities.
+          </DataErrorCard>
+        ) : (
+          <div className={`dashboard-smart-rule ${smartRuleActive ? "active" : "inactive"}`}>
+            <div>
+              <strong>{smartRuleActive ? "Investing rule" : "No investing rule is running"}</strong>
+              {smartRuleActive ? <span>Active</span> : null}
+              <p>{smartRuleActive
+                ? `${smartInvest?.match_count ?? 0} open ${(smartInvest?.match_count ?? 0) === 1 ? "opportunity matches" : "opportunities match"} your conditions. Nothing is committed automatically.`
+                : "Smart Invest watches newly published opportunities against your conditions and alerts you first. It never invests automatically."}</p>
+            </div>
+            <button onClick={() => goTo(setRoute, "smartInvest")} type="button">{smartRuleActive ? "Open the rule →" : "Set one up →"}</button>
+          </div>
+        )}
+        {smartRuleActive && (smartInvest?.matches.length ?? 0) > 0 ? (
+          <div className="dashboard-smart-matches">
+            <div className="dashboard-smart-matches-head"><strong>Matches ready to review</strong><button onClick={() => goTo(setRoute, "smartInvest")} type="button">View all {smartInvest?.match_count} →</button></div>
+            <SmartInvestMatchTable matches={(smartInvest?.matches ?? []).slice(0, 3)} onOpen={(match) => setSheetLoan(match)} />
+          </div>
+        ) : smartRuleActive && smartInvest ? (
+          <div className="dashboard-smart-empty">No open opportunity matches every condition today. Your rule remains active.</div>
+        ) : null}
+      </section>
 
-      <section className="section">
-        <div className="section-head"><h2>Open opportunities</h2><a href="/marketplace" onClick={(event) => { event.preventDefault(); goTo(setRoute, "market"); }}>All loans</a></div>
+      <section className="dashboard-balance-overview">
+        <div className="section-head"><h2>Balances</h2><a href="/balances" onClick={(event) => { event.preventDefault(); goTo(setRoute, "balances"); }}>Manage balances</a></div>
+        <div className="dashboard-balance-table" role="table" aria-label="Balance overview">
+          <div className="dashboard-balance-head" role="row"><span>Currency</span><span>Available</span><span>Investable</span><span>Withdraw-only</span><span>Overdue / penalty</span></div>
+          {balances.summaries.map((summary) => (
+            <button key={summary.currency} onClick={() => goTo(setRoute, "balances")} role="row" type="button">
+              <strong>{summary.currency}</strong>
+              <span>{formatMoneyMinor(summary.total_available_minor, summary.currency)}</span>
+              <span>{formatMoneyMinor(summary.investable_minor, summary.currency)}</span>
+              <span>{formatMoneyMinor(summary.withdraw_only_minor, summary.currency)}</span>
+              <span className={summary.overdue_minor + summary.penalty_mode_minor + summary.frozen_minor > 0 ? "bad" : ""}>{formatMoneyMinor(summary.overdue_minor + summary.penalty_mode_minor + summary.frozen_minor, summary.currency)}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="dashboard-open-opportunities">
+        <div className="section-head"><h2>Open opportunities</h2><a href="/marketplace" onClick={(event) => { event.preventDefault(); goTo(setRoute, "market"); }}>All opportunities</a></div>
         {loansQuery.isError && loans.length === 0 ? (
           <DataErrorCard title="Could not load opportunities" onRetry={() => void loansQuery.refetch()}>
             Your balances and portfolio loaded, but marketplace data is temporarily unavailable.
           </DataErrorCard>
+        ) : openLoans.length === 0 ? (
+          <div className="dashboard-smart-empty">No opportunities are accepting investments right now.</div>
         ) : (
-          <LoansTable loans={openLoans} onOpen={(loan) => goTo(setRoute, "loan", { loanId: loan.loan_id })} />
+          <div className="dashboard-opportunity-list">
+            {openLoans.map((loan) => (
+              <button key={loan.loan_id} onClick={() => setSheetLoan(loan)} type="button">
+                <span><strong>{loan.borrower_display_name || loan.title}</strong><small>{loan.originator_name ? `Originated by ${loan.originator_name}` : humanizeToken(loan.purpose)}</small></span>
+                <span>{formatRateBps(marketplaceYieldBps(loan))} yield</span>
+                <span>{dashboardClosingLabel(loan, dashboard.as_of)}</span>
+                <span>{pfMoneyLabel(loan.currency, marketplaceAvailableMinor(loan))}</span>
+                <span aria-hidden="true">→</span>
+              </button>
+            ))}
+          </div>
         )}
       </section>
 
-      <section className="section">
+      <section className="dashboard-recent-activity">
         <div className="section-head"><h2>Recent activity</h2><a href="/portfolio" onClick={(event) => { event.preventDefault(); goTo(setRoute, "portfolio"); }}>Full history</a></div>
         <ActivityTable entries={dashboard.recent_activity.slice(0, 6)} dense />
       </section>
+      {sheetLoan ? (
+        <MarketplaceLoanSheet
+          onClose={() => setSheetLoan(null)}
+          onInvest={(detail, amount) => {
+            setSheetLoan(null);
+            setInvestLoan(detail, amount);
+          }}
+          preview={sheetLoan}
+          setRoute={setRoute}
+        />
+      ) : null}
     </main>
   );
 }
@@ -2550,37 +2668,6 @@ function KycBanner({ setRoute }: { setRoute: (route: AppRoute) => void }) {
     >
       KYC is being reviewed. Deposits, investing, withdrawals and FX unlock once verification is approved.
     </Banner>
-  );
-}
-
-function BalanceCard({ summary, setRoute, frozen }: { summary: BalanceSummary; setRoute: (route: AppRoute) => void; frozen: boolean }) {
-  return (
-    <Card padded>
-      <div className="row spread" style={{ marginBottom: 12 }}>
-        <div className="row gap-8"><span className="brand-name" style={{ fontSize: 13 }}>{summary.currency}</span><span className="muted">balance</span></div>
-        <span className="stat-value" style={{ fontSize: 18 }}>{formatMoneyMinor(summary.total_available_minor, summary.currency)}</span>
-      </div>
-      <BalanceRow currency={summary.currency} label="Investable" tone="ok" value={summary.investable_minor} />
-      <BalanceRow currency={summary.currency} label="Withdraw-only" tone="warn" value={summary.withdraw_only_minor} />
-      <BalanceRow currency={summary.currency} label="Overdue" tone="warn" value={summary.overdue_minor} />
-      <BalanceRow currency={summary.currency} label="Penalty mode" tone="bad" value={summary.penalty_mode_minor + summary.frozen_minor} />
-      <div className="row gap-8" style={{ marginTop: 14 }}>
-        <Button block className="btn-green-line" disabled={frozen} size="sm" onClick={() => goTo(setRoute, "balances")}>Add Funds</Button>
-        <Button block size="sm" variant="ghost" onClick={() => goTo(setRoute, "balances")}>Withdraw</Button>
-      </div>
-    </Card>
-  );
-}
-
-function BalanceRow({ label, value, tone, currency }: { label: string; value: number; tone: "ok" | "warn" | "bad"; currency: string }) {
-  return (
-    <div className="row spread" style={{ fontSize: 12.5, marginTop: 7 }}>
-      <span className="row gap-6">
-        <span style={{ background: `var(--${tone})`, borderRadius: "50%", height: 7, width: 7 }} />
-        {label}
-      </span>
-      <span className="mono">{formatMoneyMinor(value, currency)}</span>
-    </div>
   );
 }
 
@@ -3331,10 +3418,10 @@ function smartInvestRuleSummary(filters: MkFilters, originators: Array<{ id: str
 
 function SmartInvestMatchTable({
   matches,
-  setRoute
+  onOpen
 }: {
   matches: SmartInvestOpportunity[];
-  setRoute: (route: AppRoute) => void;
+  onOpen: (match: SmartInvestOpportunity) => void;
 }) {
   if (matches.length === 0) {
     return (
@@ -3353,7 +3440,7 @@ function SmartInvestMatchTable({
         <button
           className="smart-invest-match-row"
           key={match.loan_id}
-          onClick={() => goTo(setRoute, "loan", { loanId: match.loan_id })}
+          onClick={() => onOpen(match)}
           role="row"
           type="button"
         >
@@ -3499,7 +3586,13 @@ function SmartInvestWizard({
   );
 }
 
-function SmartInvestScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) {
+function SmartInvestScreen({
+  setRoute,
+  setInvestLoan
+}: {
+  setRoute: (route: AppRoute) => void;
+  setInvestLoan: (loan: MarketplaceLoanDetail | null, initialAmount?: string) => void;
+}) {
   const queryClient = useQueryClient();
   const smartQuery = useSmartInvestData();
   const loansQuery = useMarketplaceLoansData();
@@ -3508,6 +3601,7 @@ function SmartInvestScreen({ setRoute }: { setRoute: (route: AppRoute) => void }
   const [filters, setFilters] = useState<MkFilters>(mkDefaultFilters);
   const [editorOpen, setEditorOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [sheetLoanId, setSheetLoanId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const data = smartQuery.data;
   const rule = data?.rule;
@@ -3519,6 +3613,9 @@ function SmartInvestScreen({ setRoute }: { setRoute: (route: AppRoute) => void }
   const collateralKinds = Array.from(new Set(loans.filter((loan) => !mkIsUnsecured(loan)).map((loan) => loan.collateral_type))).sort();
   const ratings = Array.from(new Set(loans.map((loan) => loan.risk_rating).filter(Boolean))).sort();
   const purposes = Array.from(new Set(loans.map((loan) => loan.purpose).filter(Boolean))).sort();
+  const sheetPreview = sheetLoanId
+    ? loans.find((loan) => loan.loan_id === sheetLoanId) ?? data?.matches.find((match) => match.loan_id === sheetLoanId) ?? null
+    : null;
 
   useEffect(() => {
     if (rule?.is_active) setFilters(smartInvestFiltersFromRule(rule));
@@ -3675,7 +3772,7 @@ function SmartInvestScreen({ setRoute }: { setRoute: (route: AppRoute) => void }
       {active ? (
         <section className="smart-invest-matches">
           <div className="smart-invest-section-title"><div><div className="eyebrow">Matched by your rule</div><h2>{data.match_count} open {data.match_count === 1 ? "opportunity" : "opportunities"}</h2></div><button onClick={() => goTo(setRoute, "market")} type="button">Open full marketplace</button></div>
-          <SmartInvestMatchTable matches={data.matches} setRoute={setRoute} />
+          <SmartInvestMatchTable matches={data.matches} onOpen={(match) => setSheetLoanId(match.loan_id)} />
         </section>
       ) : null}
 
@@ -3689,6 +3786,17 @@ function SmartInvestScreen({ setRoute }: { setRoute: (route: AppRoute) => void }
         </div>
       </section>
       {wizardOpen ? <SmartInvestWizard initialFilters={mkDefaultFilters} onClose={() => setWizardOpen(false)} onSave={save} saving={saving} /> : null}
+      {sheetPreview ? (
+        <MarketplaceLoanSheet
+          onClose={() => setSheetLoanId(null)}
+          onInvest={(detail, amount) => {
+            setSheetLoanId(null);
+            setInvestLoan(detail, amount);
+          }}
+          preview={sheetPreview}
+          setRoute={setRoute}
+        />
+      ) : null}
     </main>
   );
 }

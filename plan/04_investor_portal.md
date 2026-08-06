@@ -55,11 +55,11 @@ Legal-entity lenders do not self-register. Their registration and KYC/KYB/AML ar
 
 ### Use Smart Invest
 
-1. Open Smart Invest below Investment Opportunities, or save the current structured Marketplace filters as the rule.
+1. Open the standalone Smart Invest navigation item immediately after Investment Opportunities, or save the current structured Marketplace filters as the rule.
 2. Configure at least one criterion: minimum yield, maximum remaining term, source (BANXUM/direct or a Loan Originator), collateral requirement/type, currency, risk rating, purpose, or new/refinancing loan type.
 3. Optionally use the five-question setup wizard covering collateral, CHF/EUR scope, minimum yield, maximum term, and review. The wizard has no repayment/reinvestment question and no originator-concentration limit.
 4. Activate one current rule. Saving replaces the prior current criteria; deactivation clears them rather than retaining inactive presets.
-5. Review currently open matching opportunities on the Smart Invest page and dashboard widget.
+5. Review currently open matching opportunities on the Smart Invest page and redesigned dashboard; selecting a match opens the ordinary opportunity sheet without leaving the current route.
 6. Receive one mandatory transactional email/in-app notification when a newly published opportunity first matches the active rule.
 7. Open the ordinary loan detail and complete the normal investment flow manually if interested.
 
