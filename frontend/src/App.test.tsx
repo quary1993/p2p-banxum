@@ -133,14 +133,34 @@ test("dashboard renders the v9 financial overview and opens matching loans in th
 
   expect(screen.getByRole("heading", { name: "Money working for you" })).toBeInTheDocument();
   expect(screen.getByText("Waiting on your decision")).toBeInTheDocument();
-  expect(screen.getByText("Matches ready to review")).toBeInTheDocument();
+  expect(screen.getByText("Matched by your rule · waiting on your decision")).toBeInTheDocument();
   expect(screen.getByText(/Each currency is shown separately/i)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "✓ Active" })).toBeInTheDocument();
 
-  const matches = screen.getByRole("table", { name: "Smart Invest matches" });
-  fireEvent.click(within(matches).getByRole("row", { name: /Adriatic Marine d\.o\.o\./i }));
+  fireEvent.click(screen.getByRole("button", { name: /Adriatic Marine d\.o\.o\./i }));
 
   expect(screen.getByRole("dialog", { name: "Adriatic Marine d.o.o." })).toBeInTheDocument();
   expect(window.location.pathname).toBe("/dashboard");
+});
+
+test("balance ageing reminders appear in notifications instead of a persistent dashboard warning", () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+
+  expect(screen.queryByText("Balance ageing - action needed")).not.toBeInTheDocument();
+
+  const topbar = screen.getByRole("banner", { name: "Investor account header" });
+  fireEvent.click(within(topbar).getByRole("button", { name: "Notifications" }));
+
+  expect(screen.getByRole("heading", { name: "Notifications" })).toBeInTheDocument();
+  expect(screen.getByText("Balance ageing - day 57")).toBeInTheDocument();
+  expect(screen.getByText(/must be withdrawn within 3 days/i)).toBeInTheDocument();
 });
 
 test("Smart Invest matching loans open the same opportunity sheet without leaving the rule page", () => {
@@ -178,27 +198,30 @@ test("Smart Invest uses the five approved wizard steps and never implies automat
   expect(screen.queryByText(/reinvest/i)).not.toBeInTheDocument();
 
   fireEvent.click(screen.getByRole("button", { name: "Deactivate the rule" }));
-  expect(await screen.findByText("Not active", { selector: ".smart-invest-state" })).toBeInTheDocument();
+  expect(await screen.findByText("Not active", { selector: ".si-state" })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: /Walk me through it/ }));
 
-  const wizard = screen.getByRole("dialog", { name: "Set the conditions. Review every match." });
-  expect(within(wizard).getByText("Step 1 of 5")).toBeInTheDocument();
+  const wizard = screen.getByRole("dialog", { name: "Smart Invest setup" });
+  expect(within(wizard).getByText("Step 1 of 5 · what must be behind the loan")).toBeInTheDocument();
+  expect(within(wizard).getByText("Would qualify today")).toBeInTheDocument();
   expect(within(wizard).queryByRole("heading", { name: /originator cap/i })).not.toBeInTheDocument();
   expect(within(wizard).queryByRole("heading", { name: /repayment/i })).not.toBeInTheDocument();
-  fireEvent.click(within(wizard).getByRole("button", { name: /Required/ }));
+  fireEvent.click(within(wizard).getByRole("button", { name: /^Required/ }));
   fireEvent.click(within(wizard).getByRole("button", { name: "Continue" }));
-  expect(within(wizard).getByText("Step 2 of 5")).toBeInTheDocument();
+  expect(within(wizard).getByText("Step 2 of 5 · which currency it uses")).toBeInTheDocument();
   fireEvent.click(within(wizard).getByRole("button", { name: /CHF only/ }));
   fireEvent.click(within(wizard).getByRole("button", { name: "Continue" }));
-  expect(within(wizard).getByText("Optional · step 3 of 5")).toBeInTheDocument();
+  expect(within(wizard).getByText("Your rule already works · everything from here is optional")).toBeInTheDocument();
   fireEvent.click(within(wizard).getByRole("button", { name: "Continue" }));
   expect(within(wizard).getByText("Optional · step 4 of 5")).toBeInTheDocument();
+  expect(within(wizard).getByRole("button", { name: "Finish now, skip the rest" })).toBeInTheDocument();
   fireEvent.click(within(wizard).getByRole("button", { name: "Continue" }));
   expect(within(wizard).getByText("Step 5 of 5 · review")).toBeInTheDocument();
-  expect(within(wizard).getByRole("button", { name: "Collateral Collateral required change" })).toBeInTheDocument();
-  expect(within(wizard).getByRole("button", { name: "Currency CHF change" })).toBeInTheDocument();
-  expect(within(wizard).getByRole("button", { name: "Minimum yield No minimum change" })).toBeInTheDocument();
-  expect(within(wizard).getByRole("button", { name: "Maximum term Any term change" })).toBeInTheDocument();
+  expect(within(wizard).getByText("Collateral required")).toBeInTheDocument();
+  expect(within(wizard).getByText("CHF")).toBeInTheDocument();
+  expect(within(wizard).getByText("No minimum")).toBeInTheDocument();
+  expect(within(wizard).getByText("Any term")).toBeInTheDocument();
+  expect(within(wizard).getAllByRole("button", { name: "change" })).toHaveLength(4);
   expect(within(wizard).queryByText(/originator cap/i)).not.toBeInTheDocument();
   expect(within(wizard).queryByText(/repayment preference/i)).not.toBeInTheDocument();
 });
@@ -221,7 +244,7 @@ test("Marketplace filters can be saved as the active Smart Invest rule", async (
   fireEvent.click(within(panel as HTMLElement).getByRole("button", { name: "Save Smart Filters" }));
 
   expect(await screen.findByRole("heading", { name: "It finds them. You approve them." })).toBeInTheDocument();
-  expect(screen.getByText("CHF", { selector: ".smart-rule-summary strong" })).toBeInTheDocument();
+  expect(screen.getByText(/CHF/, { selector: ".si-cond-summary" })).toBeInTheDocument();
   expect(window.location.pathname).toBe("/smart-invest");
 });
 

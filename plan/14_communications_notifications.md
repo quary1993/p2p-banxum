@@ -96,7 +96,7 @@ Email is the only launch channel for transactional, regulatory, document, market
 
 SMS is used only for phone confirmation at launch. Phone verification uses Twilio. Security messaging, account alerts, and other operational notices can be handled by email only in v1.
 
-In-app notifications are limited to banners and status messages for required actions, warnings, and account states. There is no full in-app notification center in v1.
+The investor portal includes an in-app notification center backed by transactional email outbox and delivery evidence. Balance-ageing reminders belong in that notification center rather than as a persistent dashboard warning. Blocking account states, such as a day-60 freeze caused by a missing usable payout IBAN, remain visible as contextual banners because they directly change which actions are available.
 
 The launch email provider is SendGrid. The sender domain is TBD.
 

@@ -51,7 +51,6 @@ import {
 import type {
   ActivityEntry,
   BalanceLot,
-  BalanceSummary,
   FxQuotePreview,
   FxQuote,
   Holding,
@@ -2470,7 +2469,6 @@ function Dashboard({
       <div className="col gap-12" style={{ marginBottom: 20 }}>
         {demoState === "frozen" ? <FrozenBanner setRoute={setRoute} /> : null}
         {demoState === "kyc_pending" ? <KycBanner setRoute={setRoute} /> : null}
-        {demoState === "active" ? <AgeingAlerts balances={balances.summaries} setRoute={setRoute} /> : null}
       </div>
 
       <section className={`dashboard-v9-hero ${hasInvestments ? "invested" : "empty"}`}>
@@ -2544,21 +2542,41 @@ function Dashboard({
             Your dashboard is still available. Retry to load your saved rule and matching opportunities.
           </DataErrorCard>
         ) : (
-          <div className={`dashboard-smart-rule ${smartRuleActive ? "active" : "inactive"}`}>
-            <div>
-              <strong>{smartRuleActive ? "Investing rule" : "No investing rule is running"}</strong>
-              {smartRuleActive ? <span>Active</span> : null}
-              <p>{smartRuleActive
-                ? `${smartInvest?.match_count ?? 0} open ${(smartInvest?.match_count ?? 0) === 1 ? "opportunity matches" : "opportunities match"} your conditions. Nothing is committed automatically.`
-                : "Smart Invest watches newly published opportunities against your conditions and alerts you first. It never invests automatically."}</p>
+          smartRuleActive ? (
+            <div className="si-dash-rule">
+              <span className="si-dash-rule-name">Investing rule</span>
+              <button className="si-dash-active-chip" onClick={() => goTo(setRoute, "smartInvest")} type="button">✓ Active</button>
+              <span className="si-dash-rule-sub">every new opportunity is checked against your conditions, and you approve every match</span>
+              <span style={{ flex: 1 }} />
             </div>
-            <button onClick={() => goTo(setRoute, "smartInvest")} type="button">{smartRuleActive ? "Open the rule →" : "Set one up →"}</button>
-          </div>
+          ) : (
+            <div className="si-dash-rule">
+              <span className="si-dash-rule-name">No investing rule is running</span>
+              <span className="si-dash-rule-sub">a rule watches new opportunities against your conditions and asks you first — nothing commits without you</span>
+              <span style={{ flex: 1 }} />
+              <button className="si-dash-setup" onClick={() => goTo(setRoute, "smartInvest")} type="button">Set one up →</button>
+            </div>
+          )
         )}
         {smartRuleActive && (smartInvest?.matches.length ?? 0) > 0 ? (
-          <div className="dashboard-smart-matches">
-            <div className="dashboard-smart-matches-head"><strong>Matches ready to review</strong><button onClick={() => goTo(setRoute, "smartInvest")} type="button">View all {smartInvest?.match_count} →</button></div>
-            <SmartInvestMatchTable matches={(smartInvest?.matches ?? []).slice(0, 3)} onOpen={(match) => setSheetLoan(match)} />
+          <div className="si-dash-matched">
+            <div className="si-dash-matched-cap">Matched by your rule · waiting on your decision</div>
+            <div className="si-dash-rows">
+              {(smartInvest?.matches ?? []).slice(0, 3).map((match) => (
+                <button className="si-dash-row" key={match.loan_id} onClick={() => setSheetLoan(match)} type="button">
+                  <span className="si-dash-row-name">{match.borrower_display_name || match.title}</span>
+                  <span className="si-dash-row-meta">{formatRateBps(match.yield_bps)} · {match.term_months} mo{match.originator_name ? ` · ${match.originator_name}` : ""}</span>
+                  <span className="si-dash-row-dots" />
+                  <span className="si-dash-row-amt">{pfMoneyLabel(match.currency, match.fillable_amount_minor)}</span>
+                  <span className="si-dash-row-go" aria-hidden="true">→</span>
+                </button>
+              ))}
+              <div className="si-dash-rows-foot">
+                <span>each row opens the full loan — how much you lend, if anything, is decided there</span>
+                <span style={{ flex: 1 }} />
+                <button className="fs-clear-link" onClick={() => goTo(setRoute, "smartInvest")} type="button">all {smartInvest?.match_count} matches →</button>
+              </div>
+            </div>
           </div>
         ) : smartRuleActive && smartInvest ? (
           <div className="dashboard-smart-empty">No open opportunity matches every condition today. Your rule remains active.</div>
@@ -2620,26 +2638,6 @@ function Dashboard({
         />
       ) : null}
     </main>
-  );
-}
-
-function AgeingAlerts({ balances, setRoute }: { balances: BalanceSummary[]; setRoute: (route: AppRoute) => void }) {
-  const overdue = balances.filter((summary) => summary.overdue_minor > 0 || summary.withdraw_only_minor > 0);
-  if (overdue.length === 0) return null;
-
-  return (
-    <Banner
-      actions={
-        <>
-          <Button size="sm" onClick={() => goTo(setRoute, "balances")}>Review balances</Button>
-          <Button size="sm" variant="ghost" onClick={() => goTo(setRoute, "balances")}>Withdraw funds</Button>
-        </>
-      }
-      tone="warn"
-      title="Balance ageing - action needed"
-    >
-      Some balance lots are withdraw-only or approaching the 60-day regulatory deadline. {operatorName} cannot extend the 60-day limit.
-    </Banner>
   );
 }
 
@@ -3310,9 +3308,12 @@ function MarketplaceScreen({
           <div className="fs-empty-copy">
             {openLoans.length === 0
               ? "No investment opportunities are open right now. New opportunities will appear here after publication."
-              : "Nothing matches all of those filters at once. Widen one of them, or check back when new loans are published."}
+              : "Nothing open today matches all of that at once. Widen one of them, or set a standing rule to catch it when something does."}
           </div>
-          {tokens.length > 0 ? <button className="fs-empty-clear" onClick={clearAllFilters} type="button">Clear the filter</button> : null}
+          <div className="fs-empty-actions">
+            {tokens.length > 0 ? <button className="fs-empty-clear" onClick={clearAllFilters} type="button">Clear the filter</button> : null}
+            <button className="fs-empty-rule" onClick={() => goTo(setRoute, "smartInvest")} type="button">Set a standing rule</button>
+          </div>
         </div>
       ) : (
         <MarketplaceOpportunityList
@@ -3461,11 +3462,13 @@ function SmartInvestMatchTable({
 
 function SmartInvestWizard({
   initialFilters,
+  loans,
   onClose,
   onSave,
   saving
 }: {
   initialFilters: MkFilters;
+  loans: MarketplaceLoanPreview[];
   onClose: () => void;
   onSave: (filters: MkFilters) => Promise<void>;
   saving: boolean;
@@ -3473,7 +3476,16 @@ function SmartInvestWizard({
   const [step, setStep] = useState(0);
   const [filters, setFilters] = useState(initialFilters);
   const [error, setError] = useState("");
-  const steps = ["Collateral", "Currency", "Yield", "Term", "Review"];
+  const labels = [
+    "Step 1 of 5 · what must be behind the loan",
+    "Step 2 of 5 · which currency it uses",
+    "Step 3 of 5 · optional, a floor on the rate",
+    "Step 4 of 5 · optional, a ceiling on the term",
+    "Step 5 of 5 · review your rule"
+  ];
+  const openLoans = loans.filter(isOpenMarketplaceLoan);
+  const matchCount = openLoans.filter((loan) => mkMatches(loan, filters)).length;
+  const securedCount = openLoans.filter((loan) => !mkIsUnsecured(loan)).length;
   const update = <K extends keyof MkFilters>(key: K, value: MkFilters[K]) => {
     setFilters((current) => ({ ...current, [key]: value }));
     setError("");
@@ -3485,102 +3497,114 @@ function SmartInvestWizard({
     }
     await onSave(filters);
   };
+  const optionCard = (on: boolean, title: string, note: string, go: () => void) => (
+    <button className={`si-wiz-option${on ? " on" : ""}`} key={title} onClick={go} type="button">
+      <strong>{title}</strong>
+      <span>{note}</span>
+    </button>
+  );
   return (
-    <div className="smart-wizard-backdrop" role="presentation">
-      <button aria-label="Close Smart Invest setup" className="smart-wizard-scrim" onClick={onClose} type="button" />
-      <section aria-labelledby="smart-wizard-title" aria-modal="true" className="smart-wizard" role="dialog">
-        <header>
-          <div>
-            <div className="eyebrow">Smart Invest setup</div>
-            <h2 id="smart-wizard-title">Set the conditions. Review every match.</h2>
+    <div className="ls-scrim si-wiz-scrim" role="presentation">
+      <button aria-label="Close Smart Invest setup" className="ls-overlay-btn" onClick={onClose} tabIndex={-1} type="button" />
+      <section aria-label="Smart Invest setup" aria-modal="true" className="si-wiz" role="dialog">
+        <div className="si-wiz-head">
+          <div className="si-wiz-head-main">
+            <div className="si-wiz-pips">
+              {labels.map((label, index) => (
+                <span key={label} style={{ background: index < step ? "#151719" : index === step ? "#C4312C" : "#DDE3E1" }} />
+              ))}
+            </div>
+            <div className="si-wiz-label">{labels[step]}</div>
           </div>
-          <button aria-label="Close" className="smart-wizard-close" onClick={onClose} type="button">×</button>
-        </header>
-        <div className="smart-wizard-progress" aria-label={`Step ${step + 1} of ${steps.length}`}>
-          {steps.map((label, index) => (
-            <span className={index <= step ? "on" : ""} key={label}><i />{label}</span>
-          ))}
+          <div className="si-wiz-count">
+            <div className="si-wiz-count-cap">Would qualify today</div>
+            <div className="si-wiz-count-row"><span className="si-wiz-count-n">{matchCount}</span><span className="si-wiz-count-of">of {openLoans.length}</span></div>
+          </div>
+          <button aria-label="Close" className="ls-x" onClick={onClose} type="button">×</button>
         </div>
-        <div className="smart-wizard-body">
+        <div className="si-wiz-body">
           {step === 0 ? (
             <>
-              <div className="eyebrow">Step 1 of 5</div>
+              <div className="si-wiz-cap red">Question 1 of 2 · no default</div>
               <h3>Must an asset be pledged?</h3>
-              <p>Collateral can reduce loss severity, but it does not guarantee repayment or complete recovery.</p>
-              <div className="smart-choice-grid three">
-                {[
-                  ["secured", "Required", "Only opportunities with disclosed collateral."],
-                  ["unsecured", "Not required", "Only opportunities without pledged collateral."],
-                  ["all", "Either", "Do not filter by collateral." ]
-                ].map(([value, label, note]) => (
-                  <button className={filters.col === value ? "selected" : ""} key={value} onClick={() => update("col", value)} type="button">
-                    <strong>{label}</strong><span>{note}</span>
-                  </button>
-                ))}
+              <p>{securedCount} of the {openLoans.length} open today have something pledged — a mortgage, a charge over equipment, or assigned receivables. The rest rely on the borrower&apos;s promise alone, and collateral never guarantees complete recovery.</p>
+              <div className="si-wiz-options">
+                {optionCard(filters.col === "secured", "Required", `Only loans with a pledged asset — ${securedCount} of ${openLoans.length}.`, () => update("col", "secured"))}
+                {optionCard(filters.col === "all", "Not required", `Unsecured lending is acceptable — all ${openLoans.length}.`, () => update("col", "all"))}
               </div>
             </>
           ) : null}
           {step === 1 ? (
             <>
-              <div className="eyebrow">Step 2 of 5</div>
-              <h3>Which currency should the loan use?</h3>
-              <p>The rule never converts funds and never combines CHF and EUR balances.</p>
-              <div className="smart-choice-grid three">
-                {[["CHF", "CHF only"], ["EUR", "EUR only"], ["all", "CHF and EUR"]].map(([value, label]) => (
-                  <button className={filters.ccy === value ? "selected" : ""} key={value} onClick={() => update("ccy", value)} type="button">
-                    <strong>{label}</strong><span>Match opportunities denominated in {value === "all" ? "either supported currency" : value}.</span>
-                  </button>
-                ))}
+              <div className="si-wiz-cap red">Question 2 of 2 · no default</div>
+              <h3>Which currency should it use?</h3>
+              <p>The rule never converts funds and never combines CHF and EUR balances. A match in a currency you hold nothing of still reaches you — adding money afterwards is your call.</p>
+              <div className="si-wiz-options">
+                {optionCard(filters.ccy === "CHF", "CHF only", "Match opportunities denominated in Swiss francs.", () => update("ccy", "CHF"))}
+                {optionCard(filters.ccy === "EUR", "EUR only", "Match opportunities denominated in euros.", () => update("ccy", "EUR"))}
+                {optionCard(filters.ccy === "all", "CHF and EUR", "Match either supported currency.", () => update("ccy", "all"))}
               </div>
             </>
           ) : null}
           {step === 2 ? (
             <>
-              <div className="eyebrow">Optional · step 3 of 5</div>
-              <h3>Only if it yields at least?</h3>
-              <p>A higher yield is not a quality score. It can be compensation for higher credit risk.</p>
-              <div className="smart-range-value">{filters.minRate === null ? "Any yield" : `${filters.minRate.toFixed(1)}% p.a.`}</div>
-              <input aria-label="Minimum Smart Invest yield" max="25" min="0" onChange={(event) => update("minRate", Number(event.target.value) === 0 ? null : Number(event.target.value))} step="0.1" type="range" value={filters.minRate ?? 0} />
-              <div className="smart-range-ends"><span>No floor</span><span>25%</span></div>
+              <div className="si-wiz-cap green">Your rule already works · everything from here is optional</div>
+              <h3>A floor on the rate?</h3>
+              <p>A high floor means the rule will often find nothing — and a high rate is not a sign of a better borrower, frequently the opposite.</p>
+              <div className="si-wiz-value-row">
+                <span className="si-wiz-value">{filters.minRate === null ? "no floor" : `${filters.minRate.toFixed(1)}%`}</span>
+                <span className="si-wiz-value-note">{filters.minRate === null ? "every rate qualifies" : "anything below this is skipped"}</span>
+              </div>
+              <input aria-label="Minimum Smart Invest yield" className="fs-range" max="25" min="0" onChange={(event) => update("minRate", Number(event.target.value) === 0 ? null : Number(event.target.value))} step="0.1" type="range" value={filters.minRate ?? 0} />
+              <div className="si-wiz-ends"><span>no floor</span><span>25%</span></div>
             </>
           ) : null}
           {step === 3 ? (
             <>
-              <div className="eyebrow">Optional · step 4 of 5</div>
+              <div className="si-wiz-cap green">Optional · step 4 of 5</div>
               <h3>A ceiling on how long?</h3>
-              <p>The term controls how long the scheduled claim can remain outstanding, subject to early repayment, delay or default.</p>
-              <div className="smart-range-value">{filters.maxTerm === null ? "Any term" : `${filters.maxTerm} months`}</div>
-              <input aria-label="Maximum Smart Invest term" max="120" min="6" onChange={(event) => update("maxTerm", Number(event.target.value) === 120 ? null : Number(event.target.value))} step="6" type="range" value={filters.maxTerm ?? 120} />
-              <div className="smart-range-ends"><span>6 months</span><span>No ceiling</span></div>
+              <p>The longer the term, the longer your capital is committed at today&apos;s rate rather than tomorrow&apos;s.</p>
+              <div className="si-wiz-value-row">
+                <span className="si-wiz-value">{filters.maxTerm === null ? "no ceiling" : `${filters.maxTerm} months`}</span>
+                <span className="si-wiz-value-note">{filters.maxTerm === null ? "every term qualifies" : "anything longer is skipped"}</span>
+              </div>
+              <input aria-label="Maximum Smart Invest term" className="fs-range" max="120" min="6" onChange={(event) => update("maxTerm", Number(event.target.value) === 120 ? null : Number(event.target.value))} step="6" type="range" value={filters.maxTerm ?? 120} />
+              <div className="si-wiz-ends"><span>6 months</span><span>no ceiling</span></div>
             </>
           ) : null}
           {step === 4 ? (
             <>
-              <div className="eyebrow">Step 5 of 5 · review</div>
+              <div className="si-wiz-cap">Step 5 of 5 · review</div>
               <h3>This is your rule.</h3>
-              <div className="smart-review-list">
+              <div className="si-wiz-summary">
                 {smartInvestRuleSummary(filters, []).slice(0, 4).map((row, index) => (
-                  <button key={row.label} onClick={() => setStep(index)} type="button">
-                    <span>{row.label}</span><i /><strong>{row.value}</strong><small>change</small>
-                  </button>
+                  <div className="si-wiz-summary-row" key={row.label}>
+                    <span className="si-wiz-summary-k">{row.label}</span>
+                    <span className="si-wiz-summary-dots" />
+                    <strong>{row.value}</strong>
+                    <button className="fs-clear-link" onClick={() => setStep(index)} type="button">change</button>
+                  </div>
                 ))}
               </div>
-              <div className="smart-wizard-disclosure">
+              <div className="si-wiz-outcome">
                 Smart Invest sends you a transactional alert when a newly published opportunity matches. It never places an order, reserves balance or judges whether the borrower is suitable for you.
               </div>
             </>
           ) : null}
           {error ? <div className="smart-inline-error" role="alert">{error}</div> : null}
         </div>
-        <footer>
-          <button disabled={step === 0 || saving} onClick={() => setStep((current) => Math.max(0, current - 1))} type="button">Back</button>
-          <span />
-          {step < steps.length - 1 ? (
-            <button className="primary" onClick={() => setStep((current) => Math.min(steps.length - 1, current + 1))} type="button">Continue</button>
+        <div className="si-wiz-foot">
+          <button className="si-pill-outline" disabled={step === 0 || saving} onClick={() => setStep((current) => Math.max(0, current - 1))} type="button">Back</button>
+          <span style={{ flex: 1 }} />
+          {step >= 2 && step < 4 ? (
+            <button className="fs-clear-link" onClick={() => setStep(4)} type="button">Finish now, skip the rest</button>
+          ) : null}
+          {step < 4 ? (
+            <button className="si-pill-dark" onClick={() => setStep((current) => Math.min(4, current + 1))} type="button">Continue</button>
           ) : (
-            <button className="primary" disabled={saving} onClick={() => void finish()} type="button">{saving ? "Activating..." : "Activate the rule"}</button>
+            <button className="si-pill-dark" disabled={saving} onClick={() => void finish()} type="button">{saving ? "Activating..." : "Activate the rule"}</button>
           )}
-        </footer>
+        </div>
       </section>
     </div>
   );
@@ -3610,7 +3634,6 @@ function SmartInvestScreen({
   const originators = Array.from(
     new Map(loans.filter((loan) => loan.originator_id && loan.originator_name).map((loan) => [loan.originator_id as string, loan.originator_name as string])).entries()
   ).map(([id, name]) => ({ id, name })).sort((left, right) => left.name.localeCompare(right.name));
-  const collateralKinds = Array.from(new Set(loans.filter((loan) => !mkIsUnsecured(loan)).map((loan) => loan.collateral_type))).sort();
   const ratings = Array.from(new Set(loans.map((loan) => loan.risk_rating).filter(Boolean))).sort();
   const purposes = Array.from(new Set(loans.map((loan) => loan.purpose).filter(Boolean))).sort();
   const sheetPreview = sheetLoanId
@@ -3691,80 +3714,139 @@ function SmartInvestScreen({
 
   return (
     <main className="content smart-invest-page">
-      <section className="smart-invest-hero">
-        <div className={`smart-invest-state ${active ? "active" : "inactive"}`}>{active ? "Active" : "Not active"}</div>
+      <section className="si-hero">
+        <div className={`si-state ${active ? "active" : "inactive"}`}>{active ? "Active" : "Not active"}</div>
         <h1>It finds them. You approve them.</h1>
-        <p>You decide the conditions. Nothing is ever committed without your explicit approval.</p>
+        <div className="si-hero-sub">
+          <div>You decide the conditions.</div>
+          <div>Nothing is ever committed without your explicit approval.</div>
+        </div>
         {!active ? (
-          <div className="smart-invest-entry-actions">
-            <button className="smart-invest-start" onClick={() => setWizardOpen(true)} type="button">
-              <span><i><b /><b /><b /><b /><b /></i><small>Five questions · about 2 min</small><strong>Walk me through it</strong><em>first: what must be behind the loan</em></span>
-              <span>Start →</span>
+          <div className="si-entry">
+            <button className="si-start" onClick={() => setWizardOpen(true)} type="button">
+              <span className="si-start-main">
+                <span className="si-pips"><i className="on" /><i /><i /><i /><i /></span>
+                <span className="si-start-cap">Five questions · 2 min</span>
+                <span className="si-start-title">Walk me through it</span>
+                <span className="si-start-sub">first: what must be behind the loan</span>
+              </span>
+              <span className="si-start-rail">Start →</span>
             </button>
-            <button className="smart-invest-manual" onClick={() => setEditorOpen(true)} type="button"><strong>Set them myself</strong><span>all conditions, in any order ↓</span></button>
+            <button className="si-manual" onClick={() => setEditorOpen(true)} type="button">
+              <span className="si-manual-title">Set them myself<span style={{ flex: 1 }} /><span>↓</span></span>
+              <span className="si-manual-sub">all conditions below, hand-set in any order</span>
+            </button>
           </div>
         ) : (
-          <div className="smart-invest-active-card">
-            <div><div className="eyebrow">Active</div><p>The rule checks every newly published opportunity against these conditions and sends you a transactional alert for each new match.</p></div>
-            <div><button onClick={() => setEditorOpen(true)} type="button">Adjust the rule</button><button className="dark" disabled={saving} onClick={() => void deactivate()} type="button">Deactivate the rule</button></div>
+          <div className="si-active-panel">
+            <div className="si-active-main">
+              <div className="si-active-cap"><span className="si-dot" />Active</div>
+              <div className="si-active-text">The rule is watching for opportunities that meet these conditions. When a qualifying opportunity is published we notify you with the match ready to review — nothing is committed until you do.</div>
+            </div>
+            <div className="si-active-actions">
+              <button className="si-pill-outline" onClick={() => setEditorOpen(true)} type="button">Adjust the rule</button>
+              <button className="si-pill-dark" disabled={saving} onClick={() => void deactivate()} type="button">Deactivate the rule</button>
+            </div>
           </div>
         )}
       </section>
 
       {active || editorOpen ? (
-        <section className="smart-invest-conditions">
-          <div className="smart-invest-section-title">
-            <div><div className="eyebrow">Your conditions</div><h2>{editorOpen ? "Set the rule" : "See your rule"}</h2></div>
-            {!editorOpen ? <button onClick={() => setEditorOpen(true)} type="button">Adjust</button> : null}
-          </div>
+        <section className="si-conditions" id="rule-conditions">
+          <button className="si-cond-toggle" onClick={() => setEditorOpen((open) => !open || !active)} type="button">
+            <h2>See your rule</h2>
+            <span className="si-cond-summary">{smartInvestRuleSummary(editorOpen ? filters : smartInvestFiltersFromRule(rule), originators).slice(0, 3).map((row) => row.value).join(" · ")}</span>
+            <span style={{ flex: 1 }} />
+            <span className={`si-cond-cta${editorOpen ? " on" : ""}`}>{editorOpen ? "Close" : "Open"} <span aria-hidden="true">{editorOpen ? "▴" : "▾"}</span></span>
+          </button>
           {editorOpen ? (
-            <div className="smart-condition-grid">
-              <div className="smart-condition-card">
-                <label htmlFor="smart-min-yield">Only if it yields at least</label>
-                <strong>{filters.minRate === null ? "Any yield" : `${filters.minRate.toFixed(1)}% p.a.`}</strong>
-                <input id="smart-min-yield" max="25" min="0" onChange={(event) => update("minRate", Number(event.target.value) === 0 ? null : Number(event.target.value))} step="0.1" type="range" value={filters.minRate ?? 0} />
+            <>
+              <p className="si-cond-intro">Change any of them and the count below moves with it, against the {loans.filter(isOpenMarketplaceLoan).length} opportunities actually open right now.</p>
+              <div className="si-cond-grid">
+                <div className="si-cond-card">
+                  <div className="si-cond-cap">Only if it pays at least</div>
+                  <div className="si-cond-val">{filters.minRate === null ? "any rate" : `${filters.minRate.toFixed(1)}%`}</div>
+                  <input aria-label="Minimum Smart Invest yield" className="fs-range" max="25" min="0" onChange={(event) => update("minRate", Number(event.target.value) === 0 ? null : Number(event.target.value))} step="0.1" type="range" value={filters.minRate ?? 0} />
+                  <div className="si-cond-ends"><span>0% — any</span><span>25%</span></div>
+                  <div className="si-cond-note">A high floor means the rule will often find nothing — and a high rate is not a sign of a better borrower, frequently the opposite.</div>
+                </div>
+                <div className="si-cond-card">
+                  <div className="si-cond-cap">And runs no longer than</div>
+                  <div className="si-cond-val">{filters.maxTerm === null ? "any term" : `${filters.maxTerm} mo`}</div>
+                  <input aria-label="Maximum Smart Invest term" className="fs-range" max="120" min="6" onChange={(event) => update("maxTerm", Number(event.target.value) === 120 ? null : Number(event.target.value))} step="6" type="range" value={filters.maxTerm ?? 120} />
+                  <div className="si-cond-ends"><span>6 mo</span><span>120 mo — any</span></div>
+                  <div className="si-cond-note">The longer the term, the longer your capital is committed at today&apos;s rate rather than tomorrow&apos;s.</div>
+                </div>
+                <div className="si-cond-card">
+                  <div className="si-cond-head"><span className="si-cond-cap">An asset must be pledged</span><span className={`si-cond-mark${filters.col !== "all" ? " on" : ""}`}>{filters.col === "all" ? "Either" : "Set"}</span></div>
+                  <div className="si-cond-pills">
+                    <button className={filters.col === "secured" ? "on" : ""} onClick={() => update("col", "secured")} type="button">Required</button>
+                    <button className={filters.col === "unsecured" ? "on" : ""} onClick={() => update("col", "unsecured")} type="button">Unsecured only</button>
+                    <button className={filters.col === "all" ? "on" : ""} onClick={() => update("col", "all")} type="button">Either</button>
+                  </div>
+                  <div className="si-cond-note">Collateral can reduce loss severity, but it does not guarantee repayment or complete recovery.</div>
+                </div>
+                <div className="si-cond-card">
+                  <div className="si-cond-head"><span className="si-cond-cap">Which currency</span><span className={`si-cond-mark${filters.ccy !== "all" ? " on" : ""}`}>{filters.ccy === "all" ? "Both" : filters.ccy}</span></div>
+                  <div className="si-cond-pills">
+                    <button className={filters.ccy === "CHF" ? "on" : ""} onClick={() => update("ccy", "CHF")} type="button">CHF only</button>
+                    <button className={filters.ccy === "EUR" ? "on" : ""} onClick={() => update("ccy", "EUR")} type="button">EUR only</button>
+                    <button className={filters.ccy === "all" ? "on" : ""} onClick={() => update("ccy", "all")} type="button">CHF and EUR</button>
+                  </div>
+                  <div className="si-cond-note">The rule never converts funds and never combines CHF and EUR balances.</div>
+                </div>
+                <div className="si-cond-card">
+                  <div className="si-cond-cap si-cond-cap-gap">Originated by</div>
+                  <div className="fs-chips">
+                    <button className={`fs-chip${filters.orig === "all" ? " on" : ""}`} onClick={() => update("orig", "all")} type="button">Anyone</button>
+                    <button className={`fs-chip${filters.orig === "banxum" ? " on" : ""}`} onClick={() => update("orig", "banxum")} type="button">Banxum</button>
+                    {originators.map((originator) => (
+                      <button className={`fs-chip${filters.orig === originator.id ? " on" : ""}`} key={originator.id} onClick={() => update("orig", originator.id)} type="button">{originator.name}</button>
+                    ))}
+                  </div>
+                  <div className="si-cond-note">Direct loans are written by Banxum. Purchased claims come from a named originator that keeps a slice beside you.</div>
+                </div>
+                <div className="si-cond-card">
+                  <div className="si-cond-cap si-cond-cap-gap">Risk rating</div>
+                  <div className="fs-chips">
+                    <button className={`fs-chip${filters.rating === "all" ? " on" : ""}`} onClick={() => update("rating", "all")} type="button">Any</button>
+                    {ratings.map((rating) => (
+                      <button className={`fs-chip${filters.rating === rating ? " on" : ""}`} key={rating} onClick={() => update("rating", rating)} type="button">{rating}</button>
+                    ))}
+                  </div>
+                  <div className="si-cond-note">The rating is arithmetic, not advice. The same facts sit on every loan&apos;s own page.</div>
+                </div>
+                <div className="si-cond-card">
+                  <div className="si-cond-cap si-cond-cap-gap">Purpose</div>
+                  <div className="fs-chips">
+                    <button className={`fs-chip${filters.purpose === "all" ? " on" : ""}`} onClick={() => update("purpose", "all")} type="button">Any</button>
+                    {purposes.map((purpose) => (
+                      <button className={`fs-chip${filters.purpose === purpose ? " on" : ""}`} key={purpose} onClick={() => update("purpose", purpose)} type="button">{humanizeToken(purpose)}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="si-cond-card">
+                  <div className="si-cond-head"><span className="si-cond-cap">Loan type</span><span className={`si-cond-mark${filters.kind !== "all" ? " on" : ""}`}>{filters.kind === "all" ? "Either" : "Set"}</span></div>
+                  <div className="si-cond-pills">
+                    <button className={filters.kind === "new" ? "on" : ""} onClick={() => update("kind", "new")} type="button">New lending</button>
+                    <button className={filters.kind === "refi" ? "on" : ""} onClick={() => update("kind", "refi")} type="button">Refinancing</button>
+                    <button className={filters.kind === "all" ? "on" : ""} onClick={() => update("kind", "all")} type="button">Either</button>
+                  </div>
+                </div>
               </div>
-              <div className="smart-condition-card">
-                <label htmlFor="smart-max-term">Runs no longer than</label>
-                <strong>{filters.maxTerm === null ? "Any term" : `${filters.maxTerm} months`}</strong>
-                <input id="smart-max-term" max="120" min="6" onChange={(event) => update("maxTerm", Number(event.target.value) === 120 ? null : Number(event.target.value))} step="6" type="range" value={filters.maxTerm ?? 120} />
+              <div className="si-tally">
+                <div className="si-tally-cap">What that rule does with today&apos;s {loans.filter(isOpenMarketplaceLoan).length}</div>
+                <div className="si-tally-row">
+                  <span className="si-tally-n">{loans.filter(isOpenMarketplaceLoan).filter((loan) => mkMatches(loan, filters)).length}</span>
+                  <span className="si-tally-of">of {loans.filter(isOpenMarketplaceLoan).length} qualify</span>
+                  <span style={{ flex: 1 }} />
+                  <button className="fs-clear-link" onClick={() => { setEditorOpen(false); setFilters(smartInvestFiltersFromRule(rule)); }} type="button">Cancel</button>
+                  <button className="si-pill-dark" disabled={saving || !hasSmartInvestCriteria(filters)} onClick={() => void save(filters)} type="button">{saving ? "Saving..." : active ? "Save the rule" : "Activate the rule"}</button>
+                </div>
+                <div className="si-tally-note">Every opportunity meeting all your conditions. We alert you for each new match — nothing is committed until you review it.</div>
               </div>
-              <div className="smart-condition-card">
-                <label htmlFor="smart-source">Originated by</label>
-                <select className="select" id="smart-source" onChange={(event) => update("orig", event.target.value)} value={filters.orig}>
-                  <option value="all">BANXUM and all Loan Originators</option>
-                  <option value="banxum">BANXUM direct loans</option>
-                  {originators.map((originator) => <option key={originator.id} value={originator.id}>{originator.name}</option>)}
-                </select>
-              </div>
-              <div className="smart-condition-card">
-                <label htmlFor="smart-collateral">Collateral</label>
-                <select className="select" id="smart-collateral" onChange={(event) => update("col", event.target.value)} value={filters.col}>
-                  <option value="all">Any collateral</option><option value="secured">With collateral</option><option value="unsecured">Without collateral</option>
-                  {collateralKinds.map((kind) => <option key={kind} value={kind}>{humanizeToken(kind)}</option>)}
-                </select>
-              </div>
-              <div className="smart-condition-card"><label>Currency</label><Segmented options={[{ value: "all", label: "CHF + EUR" }, { value: "CHF", label: "CHF" }, { value: "EUR", label: "EUR" }]} value={filters.ccy} onChange={(value) => update("ccy", value)} /></div>
-              <div className="smart-condition-card">
-                <label htmlFor="smart-rating">Risk rating</label>
-                <select className="select" id="smart-rating" onChange={(event) => update("rating", event.target.value)} value={filters.rating}><option value="all">Any rating</option>{ratings.map((rating) => <option key={rating} value={rating}>{rating}</option>)}</select>
-              </div>
-              <div className="smart-condition-card">
-                <label htmlFor="smart-purpose">Purpose</label>
-                <select className="select" id="smart-purpose" onChange={(event) => update("purpose", event.target.value)} value={filters.purpose}><option value="all">Any purpose</option>{purposes.map((purpose) => <option key={purpose} value={purpose}>{humanizeToken(purpose)}</option>)}</select>
-              </div>
-              <div className="smart-condition-card"><label>Loan type</label><Segmented options={[{ value: "all", label: "All" }, { value: "new", label: "New" }, { value: "refi", label: "Refinancing" }]} value={filters.kind} onChange={(value) => update("kind", value)} /></div>
-              <div className="smart-condition-actions">
-                <p>{loans.filter(isOpenMarketplaceLoan).filter((loan) => mkMatches(loan, filters)).length} of {loans.filter(isOpenMarketplaceLoan).length} open opportunities match these conditions now.</p>
-                <button onClick={() => { setEditorOpen(false); setFilters(smartInvestFiltersFromRule(rule)); }} type="button">Cancel</button>
-                <button className="primary" disabled={saving || !hasSmartInvestCriteria(filters)} onClick={() => void save(filters)} type="button">{saving ? "Saving..." : active ? "Save changes" : "Activate the rule"}</button>
-              </div>
-            </div>
-          ) : (
-            <div className="smart-rule-summary">
-              {smartInvestRuleSummary(smartInvestFiltersFromRule(rule), originators).map((row) => <div key={row.label}><span>{row.label}</span><i /><strong>{row.value}</strong></div>)}
-            </div>
-          )}
+            </>
+          ) : null}
           {error ? <div className="smart-inline-error" role="alert">{error}</div> : null}
         </section>
       ) : null}
@@ -3785,7 +3867,7 @@ function SmartInvestScreen({
           <p><b>04</b><strong>It does not combine currencies.</strong> CHF and EUR opportunities and balances remain separate, even when your rule accepts both.</p>
         </div>
       </section>
-      {wizardOpen ? <SmartInvestWizard initialFilters={mkDefaultFilters} onClose={() => setWizardOpen(false)} onSave={save} saving={saving} /> : null}
+      {wizardOpen ? <SmartInvestWizard initialFilters={mkDefaultFilters} loans={loans} onClose={() => setWizardOpen(false)} onSave={save} saving={saving} /> : null}
       {sheetPreview ? (
         <MarketplaceLoanSheet
           onClose={() => setSheetLoanId(null)}
