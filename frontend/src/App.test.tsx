@@ -8,7 +8,7 @@ import {
   readReadonlyImpersonationToken,
   writeReadonlyImpersonation
 } from "./api/client/impersonation";
-import { activityFixture, portfolioFixture, primaryOrdersFixture } from "./investorPortal/fixtures";
+import { activityFixture, marketplaceLoansFixture, portfolioFixture, primaryOrdersFixture, smartInvestFixture } from "./investorPortal/fixtures";
 import { onboardingStepForUser } from "./onboarding";
 
 function renderApp(path = "/") {
@@ -133,14 +133,55 @@ test("dashboard renders the v9 financial overview and opens matching loans in th
 
   expect(screen.getByRole("heading", { name: "Money working for you" })).toBeInTheDocument();
   expect(screen.getByText("Waiting on your decision")).toBeInTheDocument();
-  expect(screen.getByText("Matched by your rule · waiting on your decision")).toBeInTheDocument();
-  expect(screen.getByText(/Each currency is shown separately/i)).toBeInTheDocument();
+  expect(screen.getByText("the clicks that bind — everything else can wait")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "✓ Active" })).toBeInTheDocument();
+  expect(screen.getByText("Expected income, month by month")).toBeInTheDocument();
+  expect(screen.getByText("What you invested and what you earned")).toBeInTheDocument();
+  // Design-only sections: the old balance table and open-opportunity list are gone.
+  expect(screen.queryByRole("heading", { name: "Balances" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Open opportunities" })).not.toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole("button", { name: /Adriatic Marine d\.o\.o\./i }));
+  // The rule desk lists matches for the selected currency; EUR holds Adriatic.
+  fireEvent.click(screen.getByRole("tab", { name: "EUR" }));
+  expect(screen.getByText(/Your rule found/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Adriatic Marine d.o.o." }));
 
   expect(screen.getByRole("dialog", { name: "Adriatic Marine d.o.o." })).toBeInTheDocument();
   expect(window.location.pathname).toBe("/dashboard");
+});
+
+test("rule desk splits idle balance across ticked matches and confirms one batch", () => {
+  const rhone = marketplaceLoansFixture.find((loan) => loan.loan_id === "GA-2399");
+  expect(rhone).toBeDefined();
+  const syntheticMatch = { ...smartInvestFixture.matches[0], ...rhone } as (typeof smartInvestFixture.matches)[number];
+  smartInvestFixture.matches = [...smartInvestFixture.matches, syntheticMatch];
+  smartInvestFixture.match_count = smartInvestFixture.matches.length;
+  try {
+    renderApp();
+
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+    fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+      target: { value: "lukas.brunner@example.ch" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+
+    // CHF is the larger book, so the desk shows the CHF match by default.
+    expect(screen.getByText(/Your rule found/)).toBeInTheDocument();
+    expect(screen.getByText(/nothing commits until you confirm/)).toBeInTheDocument();
+    expect(screen.getByText(/You commit/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Review & confirm →" }));
+    const dialog = screen.getByRole("dialog", { name: "Review & confirm" });
+    expect(within(dialog).getByText(/one terms acceptance and one email code cover every order/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByLabelText(/primary-market investment terms for every order/));
+    fireEvent.change(within(dialog).getByLabelText("Email confirmation code"), { target: { value: "123456" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Confirm 1 order" }));
+    expect(within(dialog).getByText("Orders placed")).toBeInTheDocument();
+  } finally {
+    smartInvestFixture.matches = smartInvestFixture.matches.filter((match) => match !== syntheticMatch);
+    smartInvestFixture.match_count = smartInvestFixture.matches.length;
+  }
 });
 
 test("balance ageing reminders appear in notifications instead of a persistent dashboard warning", () => {
@@ -344,8 +385,7 @@ test("published primary-market loans appear in dashboard and marketplace open vi
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
 
-  expect(screen.getByRole("heading", { name: "Open opportunities" })).toBeInTheDocument();
-  expect(screen.getByText("Helvetia Logistik AG")).toBeInTheDocument();
+  expect(screen.getByText(/closes within 7 days/)).toBeInTheDocument();
 
   fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
 

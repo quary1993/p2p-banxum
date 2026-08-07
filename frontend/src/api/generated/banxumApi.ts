@@ -3544,6 +3544,30 @@ export interface PrimaryLoanExpiryScanResponse {
   skipped: PrimaryLoanExpiryScanResponseSkippedItem[];
 }
 
+export interface PrimaryOrderBatchItem {
+  loan_id: string;
+  /** @minimum 1 */
+  amount_minor: number;
+}
+
+export interface PrimaryOrderBatchRequest {
+  items: PrimaryOrderBatchItem[];
+  document_acceptance_id: string;
+  /** @maxLength 128 */
+  idempotency_key: string;
+  sensitive_action_code_id: string;
+  /** @maxLength 32 */
+  sensitive_action_code: string;
+}
+
+export interface PrimaryOrderBatchResponse {
+  batch_id: string;
+  currency: string;
+  orders: PrimaryInvestmentOrder[];
+  order_count: number;
+  total_amount_minor: number;
+}
+
 export interface PrimaryOrderPortal {
   id: string;
   loan_id: string;
@@ -12740,6 +12764,65 @@ const {mutation: mutationOptions} = options ?
       return useMutation(mutationOptions, queryClient);
     }
 
+export const marketplacePrimaryOrdersBatchCreate = (
+    primaryOrderBatchRequest: PrimaryOrderBatchRequest,
+ signal?: AbortSignal
+) => {
+
+
+      return httpClient<PrimaryOrderBatchResponse>(
+      {url: `/api/v1/marketplace/primary/orders/batch/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: primaryOrderBatchRequest, signal
+    },
+      );
+    }
+
+
+
+export const getMarketplacePrimaryOrdersBatchCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof marketplacePrimaryOrdersBatchCreate>>, TError,{data: PrimaryOrderBatchRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof marketplacePrimaryOrdersBatchCreate>>, TError,{data: PrimaryOrderBatchRequest}, TContext> => {
+
+const mutationKey = ['marketplacePrimaryOrdersBatchCreate'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof marketplacePrimaryOrdersBatchCreate>>, {data: PrimaryOrderBatchRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  marketplacePrimaryOrdersBatchCreate(data,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type MarketplacePrimaryOrdersBatchCreateMutationResult = NonNullable<Awaited<ReturnType<typeof marketplacePrimaryOrdersBatchCreate>>>
+    export type MarketplacePrimaryOrdersBatchCreateMutationBody = PrimaryOrderBatchRequest
+    export type MarketplacePrimaryOrdersBatchCreateMutationError = unknown
+
+    export const useMarketplacePrimaryOrdersBatchCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof marketplacePrimaryOrdersBatchCreate>>, TError,{data: PrimaryOrderBatchRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof marketplacePrimaryOrdersBatchCreate>>,
+        TError,
+        {data: PrimaryOrderBatchRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getMarketplacePrimaryOrdersBatchCreateMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+
 export const v1MarketplaceSecondaryAdminListingsList = (
     params?: V1MarketplaceSecondaryAdminListingsListParams,
  signal?: AbortSignal
@@ -15424,6 +15507,8 @@ export const getV1MarketplacePrimaryOrdersCreateResponseMock = (overrideResponse
 
 export const getV1MarketplacePrimaryOrdersAllocateBalanceCreateResponseMock = (overrideResponse: Partial< PrimaryInvestmentOrder > = {}): PrimaryInvestmentOrder => ({id: faker.string.uuid(), loan_id: faker.string.uuid(), investor_user_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), requested_amount_minor: faker.number.int({min: undefined, max: undefined}), allocated_amount_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), document_acceptance_id: faker.helpers.arrayElement([faker.string.uuid(), null]), reservation_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), release_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), lot_allocations: {}, created_by_user_id: faker.string.uuid(), allocated_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), released_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), closed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), closed_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), notes: faker.string.alpha({length: {min: 10, max: 20}}), admin_notes: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
 
+export const getMarketplacePrimaryOrdersBatchCreateResponseMock = (overrideResponse: Partial< PrimaryOrderBatchResponse > = {}): PrimaryOrderBatchResponse => ({batch_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), orders: Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), loan_id: faker.string.uuid(), investor_user_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), requested_amount_minor: faker.number.int({min: undefined, max: undefined}), allocated_amount_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), document_acceptance_id: faker.helpers.arrayElement([faker.string.uuid(), null]), reservation_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), release_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), lot_allocations: {}, created_by_user_id: faker.string.uuid(), allocated_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), released_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), closed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), closed_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), notes: faker.string.alpha({length: {min: 10, max: 20}}), admin_notes: faker.string.alpha({length: {min: 10, max: 20}}), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`})), order_count: faker.number.int({min: undefined, max: undefined}), total_amount_minor: faker.number.int({min: undefined, max: undefined}), ...overrideResponse})
+
 export const getV1MarketplaceSecondaryAdminListingsListResponseMock = (): AdminSecondaryMarketListingRow[] => (Array.from({ length: faker.number.int({ min: 1, max: 10 }) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), holding_id: faker.string.uuid(), loan_id: faker.string.uuid(), seller_user_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), publication_type: faker.string.alpha({length: {min: 10, max: 20}}), current_principal_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), price_bps: faker.number.int({min: undefined, max: undefined}), transfer_price_minor: faker.number.int({min: undefined, max: undefined}), discount_premium_bps: faker.number.int({min: undefined, max: undefined}), accrued_interest_minor: faker.number.int({min: undefined, max: undefined}), accrued_interest_from_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), accrued_interest_to_date: faker.date.past().toISOString().split('T')[0], maker_fee_bps: faker.number.int({min: undefined, max: undefined}), taker_fee_bps: faker.number.int({min: undefined, max: undefined}), minimum_maker_fee_minor: faker.number.int({min: undefined, max: undefined}), minimum_taker_fee_minor: faker.number.int({min: undefined, max: undefined}), maker_fee_minor: faker.number.int({min: undefined, max: undefined}), taker_fee_minor: faker.number.int({min: undefined, max: undefined}), seller_net_proceeds_minor: faker.number.int({min: undefined, max: undefined}), buyer_total_cost_minor: faker.number.int({min: undefined, max: undefined}), loan_status_at_listing: faker.string.alpha({length: {min: 10, max: 20}}), days_past_due: faker.number.int({min: undefined, max: undefined}), last_payment_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), risk_acknowledgement_required: faker.datatype.boolean(), document_acceptance_id: faker.string.uuid(), public_disclosure_note: faker.string.alpha({length: {min: 10, max: 20}}), listed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), approved_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), approved_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), approval_reason: faker.string.alpha({length: {min: 10, max: 20}}), rejected_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), rejected_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), rejection_reason: faker.string.alpha({length: {min: 10, max: 20}}), removed_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), removed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), removal_reason: faker.string.alpha({length: {min: 10, max: 20}}), cancelled_by_user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), cancelled_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), cancellation_reason: faker.string.alpha({length: {min: 10, max: 20}}), created_by_user_id: faker.string.uuid(), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, loan_title: faker.string.alpha({length: {min: 10, max: 20}}), loan_status: faker.string.alpha({length: {min: 10, max: 20}}), seller_email: faker.string.alpha({length: {min: 10, max: 20}}), seller_full_name: faker.string.alpha({length: {min: 10, max: 20}})})))
 
 export const getV1MarketplaceSecondaryAdminListingsApproveCreateResponseMock = (overrideResponse: Partial< SecondaryMarketListing > = {}): SecondaryMarketListing => ({id: faker.string.uuid(), holding_id: faker.string.uuid(), loan_id: faker.string.uuid(), seller_user_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), publication_type: faker.string.alpha({length: {min: 10, max: 20}}), current_principal_minor: faker.number.int({min: undefined, max: undefined}), currency: faker.string.alpha({length: {min: 10, max: 20}}), price_bps: faker.number.int({min: undefined, max: undefined}), transfer_price_minor: faker.number.int({min: undefined, max: undefined}), discount_premium_bps: faker.number.int({min: undefined, max: undefined}), accrued_interest_minor: faker.number.int({min: undefined, max: undefined}), accrued_interest_from_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), accrued_interest_to_date: faker.date.past().toISOString().split('T')[0], maker_fee_bps: faker.number.int({min: undefined, max: undefined}), taker_fee_bps: faker.number.int({min: undefined, max: undefined}), minimum_maker_fee_minor: faker.number.int({min: undefined, max: undefined}), minimum_taker_fee_minor: faker.number.int({min: undefined, max: undefined}), maker_fee_minor: faker.number.int({min: undefined, max: undefined}), taker_fee_minor: faker.number.int({min: undefined, max: undefined}), seller_net_proceeds_minor: faker.number.int({min: undefined, max: undefined}), buyer_total_cost_minor: faker.number.int({min: undefined, max: undefined}), loan_status_at_listing: faker.string.alpha({length: {min: 10, max: 20}}), days_past_due: faker.number.int({min: undefined, max: undefined}), last_payment_date: faker.helpers.arrayElement([faker.date.past().toISOString().split('T')[0], null]), risk_acknowledgement_required: faker.datatype.boolean(), document_acceptance_id: faker.string.uuid(), public_disclosure_note: faker.string.alpha({length: {min: 10, max: 20}}), listed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), approved_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), approved_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), approval_reason: faker.string.alpha({length: {min: 10, max: 20}}), rejected_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), rejected_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), rejection_reason: faker.string.alpha({length: {min: 10, max: 20}}), removed_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), removed_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), removal_reason: faker.string.alpha({length: {min: 10, max: 20}}), cancelled_by_user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), cancelled_at: faker.helpers.arrayElement([`${faker.date.past().toISOString().split('.')[0]}Z`, null]), cancellation_reason: faker.string.alpha({length: {min: 10, max: 20}}), created_by_user_id: faker.string.uuid(), created_at: `${faker.date.past().toISOString().split('.')[0]}Z`, updated_at: `${faker.date.past().toISOString().split('.')[0]}Z`, ...overrideResponse})
@@ -16707,6 +16792,18 @@ export const getV1MarketplacePrimaryOrdersAllocateBalanceCreateMockHandler = (ov
   }, options)
 }
 
+export const getMarketplacePrimaryOrdersBatchCreateMockHandler = (overrideResponse?: PrimaryOrderBatchResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<PrimaryOrderBatchResponse> | PrimaryOrderBatchResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/marketplace/primary/orders/batch/', async (info) => {await delay(1000);
+
+    return new HttpResponse(JSON.stringify(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getMarketplacePrimaryOrdersBatchCreateResponseMock()),
+      { status: 201,
+        headers: { 'Content-Type': 'application/json' }
+      })
+  }, options)
+}
+
 export const getV1MarketplaceSecondaryAdminListingsListMockHandler = (overrideResponse?: AdminSecondaryMarketListingRow[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AdminSecondaryMarketListingRow[]> | AdminSecondaryMarketListingRow[]), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/marketplace/secondary/admin/listings/', async (info) => {await delay(1000);
 
@@ -17252,6 +17349,7 @@ export const getBanxumApiMock = () => [
   getV1MarketplacePrimaryLoansRetrieveMockHandler(),
   getV1MarketplacePrimaryOrdersCreateMockHandler(),
   getV1MarketplacePrimaryOrdersAllocateBalanceCreateMockHandler(),
+  getMarketplacePrimaryOrdersBatchCreateMockHandler(),
   getV1MarketplaceSecondaryAdminListingsListMockHandler(),
   getV1MarketplaceSecondaryAdminListingsApproveCreateMockHandler(),
   getV1MarketplaceSecondaryAdminListingsRejectCreateMockHandler(),

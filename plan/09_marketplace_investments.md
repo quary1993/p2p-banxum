@@ -661,3 +661,15 @@ The investor setup wizard contains five steps only: collateral, currency, option
 When an opportunity first becomes public and investable, the platform evaluates active rules for investors who still have financial access. Each investor/loan pair may produce at most one transactional match email and notification. Activating or changing a rule does not backfill already-open opportunities, and ordinary loan updates do not resend the first-publication alert.
 
 Smart Invest is a discovery mechanism only. It does not rank credit quality, assess suitability, reserve balance, create a primary order, execute an originator-claim purchase, or invest automatically. Every investment still requires the ordinary detail review, current terms acceptance, sensitive-action verification, balance/capacity checks, and explicit investor confirmation.
+
+### MKT-DEC-027: Explicit Same-Currency Batch Placement
+
+Status: Accepted.
+Date: 2026-08-08.
+Owner: Garanta product / compliance / technology.
+
+The investor dashboard may present several Smart Invest matches for explicit selection and place up to 20 selected **direct-loan** orders as one batch. This is not auto-invest: the investor reviews the exact loan/amount list, accepts the current primary-market terms for that list, enters one fresh sensitive-action email code, and confirms the batch.
+
+The batch is same-currency and all-or-nothing. The backend locks every selected loan in stable ID order, requires every order to satisfy the launch minimum and allocate its exact reviewed amount, and rolls back all orders, reservations, document evidence, and counters if any loan, capacity, balance, or eligibility check fails. Originator claims remain on their dated quote/purchase path.
+
+An immutable parent batch record binds the investor, currency, item snapshot, order IDs, total, umbrella acceptance, idempotency key, and request fingerprint. Exact replays return that record without consuming a second code; conflicting replays are rejected. The umbrella clickwrap snapshot must exactly match the submitted loans and amounts. The system derives a current, server-owned `primary_order` acceptance for each child order so each investment agreement remains independently reproducible and downloadable; the internal umbrella authorization is not exposed as a duplicate investor document.

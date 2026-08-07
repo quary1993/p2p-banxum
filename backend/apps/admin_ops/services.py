@@ -397,6 +397,7 @@ def list_admin_user_documents(command: ListAdminUserDocumentsCommand) -> dict[st
     documents = _documents_services()
     acceptances = (
         acceptance_model.objects.filter(user_id=subject.pk)
+        .exclude(context_type="primary_order_batch")
         .select_related("template", "template_version")
         .order_by("-accepted_at", "-id")
     )

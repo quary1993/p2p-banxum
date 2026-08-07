@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import uuid
 from dataclasses import dataclass
 from datetime import date
 from importlib import import_module
@@ -14,6 +15,7 @@ from django.db.models import Model, Q, Sum
 
 from backend.apps.marketplace_primary.models import (
     PrimaryInvestmentOrder,
+    PrimaryInvestmentOrderBatch,
     PrimaryInvestmentOrderEvent,
     PrimaryInvestmentOrderEventType,
     PrimaryInvestmentOrderStatus,
@@ -58,6 +60,7 @@ class MarketplacePrimaryValidationError(MarketplacePrimaryError):
 
 
 MAX_IDEMPOTENCY_KEY_LENGTH = 160
+MAX_BATCH_IDEMPOTENCY_KEY_LENGTH = 128
 PENDING_ORDER_CAP_DEFAULT = 50
 ORDER_FINGERPRINT_METADATA_KEY = "request_fingerprint"
 ALLOCATION_FINGERPRINT_METADATA_KEY = "allocation_request_fingerprint"
@@ -88,6 +91,30 @@ class AllocatePrimaryInvestmentOrderCommand:
     sensitive_action_code: str = ""
     ip_address: str | None = None
     user_agent: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class PrimaryOrderBatchItemCommand:
+    loan_id: str
+    amount_minor: int
+
+
+@dataclass(frozen=True, slots=True)
+class PlacePrimaryOrderBatchCommand:
+    actor: Model
+    items: list[PrimaryOrderBatchItemCommand]
+    document_acceptance_id: str
+    sensitive_action_code_id: str
+    sensitive_action_code: str
+    idempotency_key: str
+    ip_address: str | None = None
+    user_agent: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class PlacedPrimaryOrderBatch:
+    batch: PrimaryInvestmentOrderBatch
+    orders: list[PrimaryInvestmentOrder]
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +177,17 @@ def _clean_optional_idempotency_key(value: str) -> str:
     if len(key) > MAX_IDEMPOTENCY_KEY_LENGTH:
         raise MarketplacePrimaryValidationError(
             f"Idempotency key cannot exceed {MAX_IDEMPOTENCY_KEY_LENGTH} characters."
+        )
+    return key
+
+
+def _clean_batch_idempotency_key(value: str) -> str:
+    key = _clean_required(value, "Idempotency key")
+    if len(key) > MAX_BATCH_IDEMPOTENCY_KEY_LENGTH:
+        raise MarketplacePrimaryValidationError(
+            "Batch idempotency key cannot exceed "
+            f"{MAX_BATCH_IDEMPOTENCY_KEY_LENGTH} characters because it also binds the "
+            "immutable document acceptance context."
         )
     return key
 
@@ -358,6 +396,100 @@ def _child_idempotency_key(kind: str, parent_key: str, child_id: str) -> str:
     return f"{kind}:{digest}"[:MAX_IDEMPOTENCY_KEY_LENGTH]
 
 
+def _canonical_batch_items(
+    items: list[PrimaryOrderBatchItemCommand],
+) -> list[dict[str, Any]]:
+    if not items:
+        raise MarketplacePrimaryValidationError("The batch contains no orders.")
+    if len(items) > 20:
+        raise MarketplacePrimaryValidationError("A batch may contain at most 20 orders.")
+    canonical: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in items:
+        try:
+            loan_id = str(uuid.UUID(str(item.loan_id)))
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise MarketplacePrimaryValidationError("Batch loan id is not valid.") from exc
+        if loan_id in seen:
+            raise MarketplacePrimaryValidationError("Each loan may appear only once in a batch.")
+        if type(item.amount_minor) is not int or item.amount_minor <= 0:
+            raise MarketplacePrimaryValidationError(
+                "Batch order amounts must be positive integers."
+            )
+        seen.add(loan_id)
+        canonical.append({"loan_id": loan_id, "amount_minor": item.amount_minor})
+    return sorted(canonical, key=lambda item: str(item["loan_id"]))
+
+
+def _canonical_batch_snapshot_items(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        raise MarketplacePrimaryValidationError(
+            "Batch document acceptance does not contain an itemized order list."
+        )
+    commands: list[PrimaryOrderBatchItemCommand] = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise MarketplacePrimaryValidationError(
+                "Batch document acceptance contains an invalid order item."
+            )
+        amount_minor = item.get("amount_minor")
+        if type(amount_minor) is not int:
+            raise MarketplacePrimaryValidationError(
+                "Batch document acceptance contains an invalid order amount."
+            )
+        commands.append(
+            PrimaryOrderBatchItemCommand(
+                loan_id=str(item.get("loan_id", "")),
+                amount_minor=amount_minor,
+            )
+        )
+    return _canonical_batch_items(commands)
+
+
+def _batch_request_fingerprint(
+    command: PlacePrimaryOrderBatchCommand,
+    *,
+    canonical_items: list[dict[str, Any]],
+    idempotency_key: str,
+) -> str:
+    return _stable_json_fingerprint(
+        {
+            "investor_user_id": str(command.actor.pk),
+            "items": canonical_items,
+            "document_acceptance_id": str(command.document_acceptance_id),
+            "idempotency_key": idempotency_key,
+        }
+    )
+
+
+def _batch_orders(batch: PrimaryInvestmentOrderBatch) -> list[PrimaryInvestmentOrder]:
+    raw_ids = list(cast(list[Any], batch.order_ids))
+    by_id = {
+        str(order.id): order for order in PrimaryInvestmentOrder.objects.filter(id__in=raw_ids)
+    }
+    orders = [by_id[str(order_id)] for order_id in raw_ids if str(order_id) in by_id]
+    if len(orders) != int(batch.order_count):
+        raise MarketplacePrimaryValidationError(
+            "Batch evidence does not match its investment orders; contact support."
+        )
+    return orders
+
+
+def _existing_batch_for_idempotency(
+    idempotency_key: str,
+    *,
+    expected_fingerprint: str,
+) -> PlacedPrimaryOrderBatch | None:
+    existing = PrimaryInvestmentOrderBatch.objects.filter(idempotency_key=idempotency_key).first()
+    if existing is None:
+        return None
+    if existing.request_fingerprint != expected_fingerprint:
+        raise MarketplacePrimaryValidationError(
+            "Idempotency key was already used for a different batch request."
+        )
+    return PlacedPrimaryOrderBatch(batch=existing, orders=_batch_orders(existing))
+
+
 def _minimum_subscription_required_minor(loan: Model) -> int:
     loan_ref = cast(Any, loan)
     principal_minor = int(loan_ref.principal_minor)
@@ -528,6 +660,10 @@ def _admin_ops_services() -> Any:
     return import_module("backend.apps.admin_ops.services")
 
 
+def _documents_services() -> Any:
+    return import_module("backend.apps.documents.services")
+
+
 @transaction.atomic
 def create_primary_investment_order(
     command: CreatePrimaryInvestmentOrderCommand,
@@ -661,6 +797,287 @@ def allocate_primary_order_from_balance(
         raise MarketplacePrimaryValidationError(str(exc)) from exc
 
     return _allocate_primary_order_from_balance_after_sensitive_code(command)
+
+
+def _validate_batch_document_acceptance(
+    *,
+    acceptance_id: str,
+    actor: Model,
+    batch_key: str,
+    canonical_items: list[dict[str, Any]],
+) -> tuple[Model, str]:
+    acceptance_model = _model("documents", "DocumentAcceptanceEvidence")
+    acceptance = cast(
+        Model | None,
+        acceptance_model.objects.select_related("template", "template_version")
+        .filter(id=acceptance_id, user_id=actor.pk)
+        .first(),
+    )
+    if acceptance is None:
+        raise MarketplacePrimaryValidationError("Document acceptance does not exist.")
+    acceptance_ref = cast(Any, acceptance)
+    if str(acceptance_ref.category) != "primary_market_investment":
+        raise MarketplacePrimaryValidationError("Document acceptance category is not valid.")
+    if str(acceptance_ref.context_type) != "primary_order_batch":
+        raise MarketplacePrimaryValidationError("Document acceptance context is not valid.")
+    if str(acceptance_ref.context_id) != batch_key:
+        raise MarketplacePrimaryValidationError("Document acceptance does not match this batch.")
+    if str(acceptance_ref.template.current_published_version_id) != str(
+        acceptance_ref.template_version_id
+    ):
+        raise MarketplacePrimaryValidationError("Document acceptance is no longer current.")
+    snapshot = acceptance_ref.data_snapshot
+    if not isinstance(snapshot, dict):
+        raise MarketplacePrimaryValidationError("Batch document acceptance is not valid.")
+    accepted_items = _canonical_batch_snapshot_items(snapshot.get("items"))
+    if accepted_items != canonical_items:
+        raise MarketplacePrimaryValidationError(
+            "Batch document acceptance does not match the requested loans and amounts."
+        )
+    try:
+        accepted_currency = normalize_currency(str(snapshot.get("currency", "")))
+    except MoneyError as exc:
+        raise MarketplacePrimaryValidationError(
+            "Batch document acceptance does not contain a valid currency."
+        ) from exc
+    return acceptance, accepted_currency
+
+
+def _derive_batch_order_acceptance(
+    *,
+    actor: Model,
+    parent_acceptance: Model,
+    order: PrimaryInvestmentOrder,
+    batch_key: str,
+) -> Model:
+    documents = _documents_services()
+    parent_ref = cast(Any, parent_acceptance)
+    try:
+        return cast(
+            Model,
+            documents.accept_document_terms(
+                documents.AcceptDocumentTermsCommand(
+                    actor=actor,
+                    category=str(parent_ref.category),
+                    template_key=str(parent_ref.template.template_key),
+                    language=str(parent_ref.template.language),
+                    expected_template_version_id=str(parent_ref.template_version_id),
+                    accepted_checkbox_labels=list(parent_ref.accepted_checkbox_labels),
+                    context_type="primary_order",
+                    context_id=str(order.id),
+                    data_snapshot={
+                        "batch": {
+                            "idempotency_key": batch_key,
+                            "source_acceptance_id": str(parent_ref.id),
+                        }
+                    },
+                    ip_address=parent_ref.ip_address,
+                    user_agent=str(parent_ref.user_agent),
+                    idempotency_key=_child_idempotency_key(
+                        "batch-acceptance",
+                        batch_key,
+                        str(order.loan_id),
+                    ),
+                    metadata={
+                        "derived_from_batch_acceptance_id": str(parent_ref.id),
+                        "batch_idempotency_key": batch_key,
+                    },
+                )
+            ),
+        )
+    except documents.DocumentsError as exc:
+        raise MarketplacePrimaryValidationError(str(exc)) from exc
+
+
+def place_primary_order_batch(
+    command: PlacePrimaryOrderBatchCommand,
+) -> PlacedPrimaryOrderBatch:
+    """Place and allocate several primary orders behind one terms acceptance and one code.
+
+    The batch is all-or-nothing: if any order cannot be created or allocated the
+    whole transaction rolls back and nothing is committed.
+    """
+    _require_investor_financial_access(command.actor)
+    idempotency_key = _clean_batch_idempotency_key(command.idempotency_key)
+    canonical_items = _canonical_batch_items(command.items)
+    request_fingerprint = _batch_request_fingerprint(
+        command,
+        canonical_items=canonical_items,
+        idempotency_key=idempotency_key,
+    )
+    existing = _existing_batch_for_idempotency(
+        idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing is not None:
+        return existing
+    acceptance, accepted_currency = _validate_batch_document_acceptance(
+        acceptance_id=command.document_acceptance_id,
+        actor=command.actor,
+        batch_key=idempotency_key,
+        canonical_items=canonical_items,
+    )
+    try:
+        verify_sensitive_action_code(
+            SensitiveActionVerificationCommand(
+                actor=command.actor,
+                action=PRIMARY_INVESTMENT_ACTION,
+                code_id=command.sensitive_action_code_id,
+                raw_code=command.sensitive_action_code,
+                ip_address=command.ip_address,
+                user_agent=command.user_agent,
+            )
+        )
+    except SensitiveActionVerificationError as exc:
+        raise MarketplacePrimaryValidationError(str(exc)) from exc
+
+    with transaction.atomic():
+        loan_model = _model("loans", "Loan")
+        locked_loans = list(
+            loan_model.objects.select_for_update()
+            .filter(id__in=[item["loan_id"] for item in canonical_items])
+            .order_by("id")
+        )
+        if len(locked_loans) != len(canonical_items):
+            raise MarketplacePrimaryValidationError("One or more batch loans do not exist.")
+        existing_after_lock = _existing_batch_for_idempotency(
+            idempotency_key,
+            expected_fingerprint=request_fingerprint,
+        )
+        if existing_after_lock is not None:
+            return existing_after_lock
+        loans_by_id = {str(cast(Any, loan).id): loan for loan in locked_loans}
+        currency_codes: set[str] = set()
+        minimum_by_currency: dict[str, int] = {}
+        for item in canonical_items:
+            loan = loans_by_id[str(item["loan_id"])]
+            loan_ref = cast(Any, loan)
+            _assert_published_loan_open(loan)
+            if str(loan_ref.product_type) != "direct":
+                raise MarketplacePrimaryValidationError(
+                    "Originator claims cannot be placed through a direct-loan batch."
+                )
+            currency_code = str(loan_ref.currency_id)
+            currency_codes.add(currency_code)
+            amount_minor = _validate_money(
+                int(item["amount_minor"]),
+                currency_code,
+                "Investment amount",
+            )
+            minimum = minimum_by_currency.setdefault(
+                currency_code,
+                _minimum_investment_minor(currency_code),
+            )
+            if amount_minor < minimum:
+                raise MarketplacePrimaryValidationError(
+                    "A batch investment amount is below the launch minimum."
+                )
+            if amount_minor > _loan_remaining_capacity_minor(loan):
+                raise MarketplacePrimaryValidationError(
+                    "A batch investment amount exceeds remaining loan capacity; "
+                    "nothing was committed."
+                )
+        if len(currency_codes) != 1:
+            raise MarketplacePrimaryValidationError(
+                "Every order in a batch must use the same currency."
+            )
+        currency_code = next(iter(currency_codes))
+        if currency_code != accepted_currency:
+            raise MarketplacePrimaryValidationError(
+                "Batch document acceptance currency does not match the selected loans."
+            )
+        currency = _enabled_currency(currency_code)
+
+        allocated_orders: list[PrimaryInvestmentOrder] = []
+        for item in canonical_items:
+            order = create_primary_investment_order(
+                CreatePrimaryInvestmentOrderCommand(
+                    actor=command.actor,
+                    loan_id=str(item["loan_id"]),
+                    amount_minor=int(item["amount_minor"]),
+                    idempotency_key=_child_idempotency_key(
+                        "batch-order",
+                        idempotency_key,
+                        str(item["loan_id"]),
+                    ),
+                )
+            )
+            order_acceptance = _derive_batch_order_acceptance(
+                actor=command.actor,
+                parent_acceptance=acceptance,
+                order=order,
+                batch_key=idempotency_key,
+            )
+            allocated = _allocate_primary_order_from_balance_after_sensitive_code(
+                AllocatePrimaryInvestmentOrderCommand(
+                    actor=command.actor,
+                    order_id=str(order.id),
+                    document_acceptance_id=str(cast(Any, order_acceptance).id),
+                    idempotency_key=_child_idempotency_key(
+                        "batch-allocation",
+                        idempotency_key,
+                        str(item["loan_id"]),
+                    ),
+                    ip_address=command.ip_address,
+                    user_agent=command.user_agent,
+                )
+            )
+            if allocated.status != PrimaryInvestmentOrderStatus.BALANCE_ALLOCATED or int(
+                allocated.allocated_amount_minor
+            ) != int(item["amount_minor"]):
+                raise MarketplacePrimaryValidationError(
+                    "Every batch order must allocate its exact reviewed amount; "
+                    "nothing was committed."
+                )
+            allocated_orders.append(allocated)
+        total_amount_minor = sum(int(order.allocated_amount_minor) for order in allocated_orders)
+        try:
+            with transaction.atomic():
+                batch = PrimaryInvestmentOrderBatch.objects.create(
+                    investor_user_id=command.actor.pk,
+                    currency=currency,
+                    document_acceptance_id=cast(Any, acceptance).id,
+                    item_snapshot=canonical_items,
+                    order_ids=[str(order.id) for order in allocated_orders],
+                    order_count=len(allocated_orders),
+                    total_amount_minor=total_amount_minor,
+                    request_fingerprint=request_fingerprint,
+                    idempotency_key=idempotency_key,
+                )
+        except IntegrityError:
+            existing_after_race = _existing_batch_for_idempotency(
+                idempotency_key,
+                expected_fingerprint=request_fingerprint,
+            )
+            if existing_after_race is None:
+                raise
+            return existing_after_race
+        event_metadata = {
+            "investor_user_id": str(command.actor.pk),
+            "currency": currency.code,
+            "order_ids": [str(order.id) for order in allocated_orders],
+            "order_count": len(allocated_orders),
+            "total_amount_minor": total_amount_minor,
+            "document_acceptance_id": str(cast(Any, acceptance).id),
+        }
+        record_audit_event(
+            AuditCommand(
+                actor=actor_ref_for_user(command.actor),
+                action="marketplace_primary.order_batch_placed",
+                target_type="PrimaryInvestmentOrderBatch",
+                target_id=str(batch.id),
+                metadata=event_metadata,
+            )
+        )
+        record_domain_event(
+            DomainEventCommand(
+                event_type="PrimaryInvestmentOrderBatchPlaced",
+                aggregate_type="PrimaryInvestmentOrderBatch",
+                aggregate_id=str(batch.id),
+                payload=event_metadata,
+            )
+        )
+        return PlacedPrimaryOrderBatch(batch=batch, orders=allocated_orders)
 
 
 @transaction.atomic

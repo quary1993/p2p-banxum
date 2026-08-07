@@ -390,9 +390,7 @@ def _clean_checkbox_labels(labels: list[str]) -> list[str]:
 
 
 def _assert_json_payload_size(value: dict[str, Any], label: str) -> None:
-    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode(
-        "utf-8"
-    )
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
     if len(encoded) > MAX_ACCEPTANCE_JSON_BYTES:
         raise DocumentValidationError(
             f"{label} must not exceed {MAX_ACCEPTANCE_JSON_BYTES} bytes when serialized."
@@ -762,17 +760,14 @@ def _originator_claim_context_snapshot(
             "id": str(loan.id),
             "title": str(loan.title),
             "agreement_no": f"LOAN-{str(loan.id)[:8].upper()}",
-            "interest_rate_percent": _format_bps_percent_for_document(
-                int(loan.interest_rate_bps)
-            ),
+            "interest_rate_percent": _format_bps_percent_for_document(int(loan.interest_rate_bps)),
             "target_yield_percent": _format_bps_percent_for_document(
                 int(quote_ref.target_yield_bps)
             ),
             "maturity_date": profile.maturity_date.isoformat(),
             "repayment_type": _display_choice(loan, "repayment_type"),
             "collateral_security": (
-                str(loan.collateral_description).strip()
-                or _display_choice(loan, "collateral_type")
+                str(loan.collateral_description).strip() or _display_choice(loan, "collateral_type")
             ),
             "buyback_obligation": "No",
             "currency": currency,
@@ -1479,9 +1474,7 @@ def _pdf_draw_table_row(
     line_height: float,
 ) -> None:
     fill = (
-        PDF_TABLE_HEADER_FILL
-        if header
-        else (PDF_TABLE_ALT_FILL if alternate else (255, 255, 255))
+        PDF_TABLE_HEADER_FILL if header else (PDF_TABLE_ALT_FILL if alternate else (255, 255, 255))
     )
     canvas.rect(
         x=PDF_MARGIN_X,
@@ -1931,15 +1924,12 @@ def _pdf_canvas_bytes(canvas: _PdfDocumentCanvas) -> bytes:
             f"<< /Length {len(content)} >>\nstream\n".encode("ascii") + content + b"\nendstream"
         )
         objects[page_id] = (
-            (
-                f"<< /Type /Page /Parent 2 0 R "
-                f"/MediaBox [0 0 {int(PDF_PAGE_WIDTH)} {int(PDF_PAGE_HEIGHT)}] "
-            ).encode("ascii")
-            + (
-                f"/Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> "
-                f"/Contents {content_id} 0 R >>"
-            ).encode("ascii")
-        )
+            f"<< /Type /Page /Parent 2 0 R "
+            f"/MediaBox [0 0 {int(PDF_PAGE_WIDTH)} {int(PDF_PAGE_HEIGHT)}] "
+        ).encode("ascii") + (
+            f"/Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> "
+            f"/Contents {content_id} 0 R >>"
+        ).encode("ascii")
 
     kids = " ".join(f"{page_id} 0 R" for page_id in page_object_ids)
     objects[2] = f"<< /Type /Pages /Kids [{kids}] /Count {len(page_object_ids)} >>".encode("ascii")
@@ -2394,8 +2384,7 @@ def publish_document_template_version(
                 source_version_id=source_version.id,
                 published_at=timezone.now(),
                 legal_review_reference=(
-                    command.legal_review_reference.strip()
-                    or source_version.legal_review_reference
+                    command.legal_review_reference.strip() or source_version.legal_review_reference
                 ),
                 metadata={**source_version.metadata, **(command.metadata or {})},
             ),
@@ -2762,8 +2751,7 @@ def _template_preview_pdf_bytes(
             page_number=page_number,
             page_count=page_count,
             label=(
-                f"{settings.PLATFORM_BRAND_NAME} published document preview. "
-                f"Version {version.id}."
+                f"{settings.PLATFORM_BRAND_NAME} published document preview. Version {version.id}."
             ),
         )
     return _pdf_canvas_bytes(canvas)
@@ -2826,6 +2814,11 @@ def render_document_acceptance_artifact(
         raise DocumentValidationError("Document evidence was not found.")
     if not _document_access_allowed(command.actor, acceptance):
         raise DocumentAuthorizationError("Document evidence is not available to this account.")
+    if acceptance.context_type == "primary_order_batch":
+        raise DocumentValidationError(
+            "Batch authorization evidence is represented by the individual investment "
+            "agreements created for each order."
+        )
 
     context = _acceptance_render_context(acceptance)
     rendered_body = _render_template_text(

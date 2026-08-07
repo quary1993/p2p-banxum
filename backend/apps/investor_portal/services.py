@@ -250,9 +250,7 @@ def get_investor_balances(*, actor: Model, as_of: datetime | None = None) -> dic
         .order_by("received_at", "created_at", "id")
     )
     visible_lots = [
-        _lot_payload(lot, as_of=as_of_value)
-        for lot in lots
-        if int(lot.available_amount_minor) > 0
+        _lot_payload(lot, as_of=as_of_value) for lot in lots if int(lot.available_amount_minor) > 0
     ]
     payout_instructions = [
         {
@@ -272,11 +270,14 @@ def get_investor_balances(*, actor: Model, as_of: datetime | None = None) -> dic
         .select_related("currency")
         .order_by("currency", "-created_at")
     ]
-    penalty_mode_minor = sum(item["penalty_mode_minor"] for item in _balance_summaries(
-        investor_user_id=investor_user_id,
-        as_of=as_of_value,
-        lots=lots,
-    ))
+    penalty_mode_minor = sum(
+        item["penalty_mode_minor"]
+        for item in _balance_summaries(
+            investor_user_id=investor_user_id,
+            as_of=as_of_value,
+            lots=lots,
+        )
+    )
     return {
         "as_of": as_of_value,
         "summaries": _balance_summaries(
@@ -346,6 +347,7 @@ def get_investor_documents(*, actor: Model) -> dict[str, Any]:
     documents: list[dict[str, Any]] = []
     for acceptance in (
         acceptance_model.objects.filter(user_id=investor_user_id)
+        .exclude(context_type="primary_order_batch")
         .select_related("template", "template_version")
         .order_by("-accepted_at", "-id")
     ):
@@ -669,11 +671,7 @@ def _loan_projection(
         "days_past_due": _loan_days_past_due(loan, as_of=as_of),
         "schedule_version": int(loan.schedule_version),
         "schedule": [
-            {
-                key: value
-                for key, value in asdict(row).items()
-                if key != "admin_overridden"
-            }
+            {key: value for key, value in asdict(row).items() if key != "admin_overridden"}
             for row in schedule
         ],
     }
@@ -696,8 +694,7 @@ def _aggregate_by_holding(
         .annotate(**annotations)
     )
     return {
-        str(row["holding_id"]): {field: int(row[field] or 0) for field in fields}
-        for row in rows
+        str(row["holding_id"]): {field: int(row[field] or 0) for field in fields} for row in rows
     }
 
 
@@ -706,9 +703,8 @@ def _latest_public_notes_by_loan(loan_ids: list[str]) -> dict[str, dict[str, Any
         return {}
     note_model = _model("servicing", "LoanRiskNote")
     notes: dict[str, dict[str, Any]] = {}
-    for note in (
-        note_model.objects.filter(loan_id__in=loan_ids, visibility="public")
-        .order_by("loan_id", "-occurred_at", "-id")
+    for note in note_model.objects.filter(loan_id__in=loan_ids, visibility="public").order_by(
+        "loan_id", "-occurred_at", "-id"
     ):
         loan_id = str(note.loan_id)
         if loan_id in notes:
@@ -844,9 +840,7 @@ def get_investor_portfolio(
         for holding in holdings
         if str(getattr(holding.loan, "product_type", "direct")) == "originator_claim"
     ]
-    direct_loans_by_id = {
-        str(holding.loan_id): holding.loan for holding in direct_holdings
-    }
+    direct_loans_by_id = {str(holding.loan_id): holding.loan for holding in direct_holdings}
     schedules_by_loan_id = _servicing_services().get_loan_repayment_schedule_snapshots(
         loans=list(direct_loans_by_id.values()),
         as_of_date=business_date(as_of_value),
@@ -905,9 +899,7 @@ def get_investor_portfolio(
                 + int(originator_repayment.get("principal_minor", 0)),
                 "received_interest_minor": int(repayment.get("interest_minor", 0))
                 + int(originator_repayment.get("interest_minor", 0)),
-                "received_penalty_minor": int(
-                    originator_repayment.get("penalty_minor", 0)
-                ),
+                "received_penalty_minor": int(originator_repayment.get("penalty_minor", 0)),
                 "repayment_fee_minor": int(repayment.get("fee_minor", 0)),
                 "investment_schedule": [
                     asdict(row) if not isinstance(row, dict) else row
@@ -924,20 +916,12 @@ def get_investor_portfolio(
                 "acquisition_cash_flow": (
                     [
                         {
-                            "installment_number": int(
-                                entitlement.schedule_row.installment_number
-                            ),
+                            "installment_number": int(entitlement.schedule_row.installment_number),
                             "accrual_start_date": entitlement.accrual_start_date,
                             "due_date": entitlement.due_date,
-                            "principal_minor": int(
-                                entitlement.expected_principal_minor
-                            ),
-                            "interest_minor": int(
-                                entitlement.expected_interest_minor
-                            ),
-                            "penalty_minor": int(
-                                entitlement.expected_penalty_minor
-                            ),
+                            "principal_minor": int(entitlement.expected_principal_minor),
+                            "interest_minor": int(entitlement.expected_interest_minor),
+                            "penalty_minor": int(entitlement.expected_penalty_minor),
                             "total_minor": int(entitlement.expected_total_minor),
                         }
                         for entitlement in originator_purchase.entitlements.all()
@@ -960,9 +944,7 @@ def get_investor_portfolio(
                         "publication_type": str(open_listing.publication_type),
                         "price_bps": int(open_listing.price_bps),
                         "transfer_price_minor": int(open_listing.transfer_price_minor),
-                        "seller_net_proceeds_minor": int(
-                            open_listing.seller_net_proceeds_minor
-                        ),
+                        "seller_net_proceeds_minor": int(open_listing.seller_net_proceeds_minor),
                         "listed_at": open_listing.listed_at,
                         "updated_at": open_listing.updated_at,
                     }
@@ -974,8 +956,7 @@ def get_investor_portfolio(
     active_holdings = [
         holding
         for holding in holdings
-        if str(holding.status) == "active"
-        and int(holding.current_principal_minor) > 0
+        if str(holding.status) == "active" and int(holding.current_principal_minor) > 0
     ]
     summary = {
         "holding_count": len(holding_payloads),
@@ -1001,15 +982,9 @@ def get_investor_portfolio(
             (
                 _currency_code(holding.currency),
                 repayment_totals.get(str(holding.pk), {}).get("interest_minor", 0)
-                + originator_repayment_totals.get(str(holding.pk), {}).get(
-                    "interest_minor", 0
-                )
-                + recovery_totals.get(str(holding.pk), {}).get(
-                    "contractual_interest_minor", 0
-                )
-                + recovery_totals.get(str(holding.pk), {}).get(
-                    "default_interest_minor", 0
-                ),
+                + originator_repayment_totals.get(str(holding.pk), {}).get("interest_minor", 0)
+                + recovery_totals.get(str(holding.pk), {}).get("contractual_interest_minor", 0)
+                + recovery_totals.get(str(holding.pk), {}).get("default_interest_minor", 0),
             )
             for holding in all_holdings
         ),
@@ -1170,9 +1145,7 @@ def get_investor_activity(*, actor: Model, limit: int | None = None) -> dict[str
             )
         )
     for line in (
-        originator_repayment_line_model.objects.filter(
-            investor_user_id=investor_user_id
-        )
+        originator_repayment_line_model.objects.filter(investor_user_id=investor_user_id)
         .select_related(
             "currency",
             "repayment",
@@ -1221,9 +1194,7 @@ def get_investor_activity(*, actor: Model, limit: int | None = None) -> dict[str
                 loan_title=str(loan.title),
                 metadata={
                     "principal_minor": int(line.principal_minor),
-                    "contractual_interest_minor": int(
-                        line.contractual_interest_minor
-                    ),
+                    "contractual_interest_minor": int(line.contractual_interest_minor),
                     "default_interest_minor": int(line.default_interest_minor),
                     "penalties_minor": int(line.penalties_minor),
                     "other_costs_minor": int(line.other_costs_minor),
@@ -1261,8 +1232,7 @@ def get_investor_activity(*, actor: Model, limit: int | None = None) -> dict[str
                 occurred_at=order.created_at,
                 direction="internal",
                 title="Primary-market investment order",
-                amount_minor=int(order.allocated_amount_minor)
-                or int(order.requested_amount_minor),
+                amount_minor=int(order.allocated_amount_minor) or int(order.requested_amount_minor),
                 currency=_currency_code(order.currency),
                 status=str(order.status),
                 loan_id=str(loan.pk),
@@ -1270,9 +1240,7 @@ def get_investor_activity(*, actor: Model, limit: int | None = None) -> dict[str
             )
         )
     for purchase in (
-        originator_purchase_model.objects.filter(
-            investor_user_id=investor_user_id
-        )
+        originator_purchase_model.objects.filter(investor_user_id=investor_user_id)
         .select_related("currency", "loan_profile__loan", "loan_profile__originator")
         .order_by("-purchased_at")[:limit_value]
     ):
@@ -1290,9 +1258,7 @@ def get_investor_activity(*, actor: Model, limit: int | None = None) -> dict[str
                 loan_id=str(profile.loan_id),
                 loan_title=str(profile.loan.title),
                 metadata={
-                    "assigned_principal_minor": int(
-                        purchase.assigned_principal_minor
-                    ),
+                    "assigned_principal_minor": int(purchase.assigned_principal_minor),
                     "originator_name": str(profile.originator.public_name),
                 },
             )
@@ -1437,9 +1403,7 @@ def get_secondary_market_activity(*, actor: Model, limit: int | None = None) -> 
             "seller_net_proceeds_minor": int(listing.seller_net_proceeds_minor),
             "currency": _currency_code(listing.currency),
             "loan_status_at_listing": str(listing.loan_status_at_listing),
-            "risk_acknowledgement_required": bool(
-                listing.risk_acknowledgement_required
-            ),
+            "risk_acknowledgement_required": bool(listing.risk_acknowledgement_required),
             "public_disclosure_note": str(listing.public_disclosure_note),
             "listed_at": listing.listed_at,
             "created_at": listing.created_at,
@@ -1465,9 +1429,7 @@ def get_secondary_market_activity(*, actor: Model, limit: int | None = None) -> 
             "buyer_total_cost_minor": int(purchase.buyer_total_cost_minor),
             "currency": _currency_code(purchase.currency),
             "loan_status_at_purchase": str(purchase.loan_status_at_purchase),
-            "risk_acknowledgement_accepted": bool(
-                purchase.risk_acknowledgement_accepted
-            ),
+            "risk_acknowledgement_accepted": bool(purchase.risk_acknowledgement_accepted),
             "purchased_at": purchase.purchased_at,
         }
         for purchase in (

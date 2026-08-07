@@ -3156,6 +3156,32 @@ paths:
               schema:
                 $ref: '#/components/schemas/PrimaryInvestmentOrder'
           description: ''
+  /api/v1/marketplace/primary/orders/batch/:
+    post:
+      operationId: marketplace_primary_orders_batch_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrimaryOrderBatchRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PrimaryOrderBatchRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PrimaryOrderBatchRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrimaryOrderBatchResponse'
+          description: ''
   /api/v1/marketplace/secondary/admin/listings/:
     get:
       operationId: v1_marketplace_secondary_admin_listings_list
@@ -12084,6 +12110,65 @@ components:
       - scanned_count
       - skipped
       - skipped_count
+    PrimaryOrderBatchItem:
+      type: object
+      properties:
+        loan_id:
+          type: string
+          format: uuid
+        amount_minor:
+          type: integer
+          minimum: 1
+      required:
+      - amount_minor
+      - loan_id
+    PrimaryOrderBatchRequest:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PrimaryOrderBatchItem'
+        document_acceptance_id:
+          type: string
+          format: uuid
+        idempotency_key:
+          type: string
+          maxLength: 128
+        sensitive_action_code_id:
+          type: string
+          format: uuid
+        sensitive_action_code:
+          type: string
+          maxLength: 32
+      required:
+      - document_acceptance_id
+      - idempotency_key
+      - items
+      - sensitive_action_code
+      - sensitive_action_code_id
+    PrimaryOrderBatchResponse:
+      type: object
+      properties:
+        batch_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/PrimaryInvestmentOrder'
+        order_count:
+          type: integer
+        total_amount_minor:
+          type: integer
+      required:
+      - batch_id
+      - currency
+      - order_count
+      - orders
+      - total_amount_minor
     PrimaryOrderPortal:
       type: object
       properties:

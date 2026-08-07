@@ -23,6 +23,8 @@ from backend.apps.marketplace_primary.api.serializers import (
     PrimaryLoanCloseSerializer,
     PrimaryLoanExpiryScanRequestSerializer,
     PrimaryLoanExpiryScanResponseSerializer,
+    PrimaryOrderBatchRequestSerializer,
+    PrimaryOrderBatchResponseSerializer,
     PublicMarketplaceLoanListQuerySerializer,
     serialize_primary_expiry_scan_result,
     serialize_primary_loan_cancellation,
@@ -36,6 +38,8 @@ from backend.apps.marketplace_primary.services import (
     CreatePrimaryInvestmentOrderCommand,
     MarketplacePrimaryAuthorizationError,
     MarketplacePrimaryValidationError,
+    PlacePrimaryOrderBatchCommand,
+    PrimaryOrderBatchItemCommand,
     ReleasePrimaryInvestmentOrderCommand,
     ScanExpiredPrimaryFundingCommand,
     allocate_primary_order_from_balance,
@@ -44,6 +48,7 @@ from backend.apps.marketplace_primary.services import (
     create_primary_investment_order,
     get_full_marketplace_loan,
     list_public_marketplace_loans,
+    place_primary_order_batch,
     release_primary_order_balance,
     scan_expired_primary_loan_funding,
 )
@@ -148,6 +153,51 @@ class PrimaryInvestmentOrderAllocateView(APIView):
         except (MarketplacePrimaryAuthorizationError, MarketplacePrimaryValidationError) as exc:
             return _error_response(exc)
         return Response(serialize_primary_order(order), status=status.HTTP_200_OK)
+
+
+class PrimaryOrderBatchView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="marketplace_primary_orders_batch_create",
+        request=PrimaryOrderBatchRequestSerializer,
+        responses={201: PrimaryOrderBatchResponseSerializer},
+    )
+    def post(self, request: Request) -> Response:
+        serializer = PrimaryOrderBatchRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            result = place_primary_order_batch(
+                PlacePrimaryOrderBatchCommand(
+                    actor=cast(Model, request.user),
+                    items=[
+                        PrimaryOrderBatchItemCommand(
+                            loan_id=str(item["loan_id"]),
+                            amount_minor=int(item["amount_minor"]),
+                        )
+                        for item in data["items"]
+                    ],
+                    document_acceptance_id=str(data["document_acceptance_id"]),
+                    sensitive_action_code_id=str(data["sensitive_action_code_id"]),
+                    sensitive_action_code=data["sensitive_action_code"],
+                    idempotency_key=data["idempotency_key"],
+                    ip_address=client_ip(request),
+                    user_agent=user_agent(request),
+                )
+            )
+        except (MarketplacePrimaryAuthorizationError, MarketplacePrimaryValidationError) as exc:
+            return _error_response(exc)
+        return Response(
+            {
+                "batch_id": str(result.batch.id),
+                "currency": result.batch.currency_id,
+                "orders": [serialize_primary_order(order) for order in result.orders],
+                "order_count": len(result.orders),
+                "total_amount_minor": int(result.batch.total_amount_minor),
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class PrimaryInvestmentOrderReleaseView(APIView):

@@ -38,6 +38,7 @@ import {
   useV1MarketplaceSecondaryListingsPurchaseCreate,
   useV1InvestorSmartInvestDeactivateCreate,
   useV1InvestorSmartInvestUpdate,
+  useMarketplacePrimaryOrdersBatchCreate,
   useOriginatorClaimsLoansQuoteCreate,
   useOriginatorClaimsQuotesPurchaseCreate,
   v1AuthMagicLinkConsumeCreate
@@ -159,10 +160,6 @@ function previewHint(text: string) {
 function humanizeToken(token: string) {
   const label = token.replaceAll("_", " ").trim();
   return label ? label.charAt(0).toUpperCase() + label.slice(1) : "";
-}
-
-function countLabel(count: number, singularNoun: string) {
-  return `${count} ${singularNoun}${count === 1 ? "" : "s"}`;
 }
 
 function RefinancedTag({ full = false }: { full?: boolean }) {
@@ -2390,17 +2387,6 @@ function nextDashboardMonth(asOf: string) {
   };
 }
 
-function dashboardClosingLabel(loan: MarketplaceLoanPreview, asOf: string) {
-  if (loan.product_type === "originator_claim") {
-    return loan.maturity_date ? `available until ${formatDate(loan.maturity_date)}` : "available while inventory lasts";
-  }
-  if (!loan.funding_deadline) return "funding window open";
-  const start = new Date(`${zurichDateKey(asOf)}T00:00:00Z`).getTime();
-  const end = new Date(`${loan.funding_deadline}T00:00:00Z`).getTime();
-  const days = Math.max(0, Math.ceil((end - start) / 86_400_000));
-  return `${days} ${days === 1 ? "day" : "days"} to close`;
-}
-
 function Dashboard({
   demoState,
   setRoute,
@@ -2416,6 +2402,11 @@ function Dashboard({
   const smartInvestQuery = useSmartInvestData();
   const portfolioQuery = usePortfolioData(false);
   const [sheetLoan, setSheetLoan] = useState<MarketplaceLoanPreview | null>(null);
+  const [ccyPick, setCcyPick] = useState<string | null>(null);
+  const [unticked, setUnticked] = useState<Record<string, boolean>>({});
+  const [closeOpen, setCloseOpen] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [batchOpen, setBatchOpen] = useState(false);
   const dashboard = dashboardQuery.data;
   const balances = balancesQuery.data;
   const loans = loansQuery.data ?? [];
@@ -2435,197 +2426,412 @@ function Dashboard({
   }
   if (!dashboard || !balances) return <ScreenLoading title="Dashboard" />;
 
-  const openLoans = loans.filter(isOpenMarketplaceLoan).slice(0, 4);
   const portfolio = portfolioQuery.data;
-  const portfolioCurrencies = Array.from(new Set(
-    dashboard.portfolio_summary.outstanding_principal_by_currency.map((amount) => amount.currency)
-  )).filter((currency) => (
-    dashboard.portfolio_summary.outstanding_principal_by_currency.find((amount) => amount.currency === currency)?.amount_minor ?? 0
-  ) > 0).sort();
-  const accountCurrencies = Array.from(new Set([
-    ...balances.summaries.map((summary) => summary.currency),
-    ...portfolioCurrencies
-  ])).sort();
   const smartInvest = smartInvestQuery.data;
   const smartRuleActive = smartInvest?.rule?.is_active === true;
+  const outstandingByCcy = new Map(
+    dashboard.portfolio_summary.outstanding_principal_by_currency.map((amount) => [amount.currency, amount.amount_minor])
+  );
+  const currencies = Array.from(new Set([
+    ...balances.summaries.map((summary) => summary.currency),
+    ...dashboard.portfolio_summary.outstanding_principal_by_currency.filter((amount) => amount.amount_minor > 0).map((amount) => amount.currency)
+  ])).sort();
+  const defaultCcy = currencies.reduce(
+    (best, code) => ((outstandingByCcy.get(code) ?? 0) > (outstandingByCcy.get(best) ?? 0) ? code : best),
+    currencies[0] ?? "CHF"
+  );
+  const ccy = ccyPick && currencies.includes(ccyPick) ? ccyPick : defaultCcy;
+  const summary = balances.summaries.find((item) => item.currency === ccy);
+  const holdingsCcy = (portfolio?.holdings ?? []).filter(
+    (holding) => holding.currency === ccy && holding.current_principal_minor > 0
+  );
+  const investedMinor = outstandingByCcy.get(ccy) ?? 0;
+  const idleMinor = summary?.investable_minor ?? 0;
+  const companies = new Set(holdingsCcy.map((holding) => holding.loan.borrower_name || holding.loan.loan_id)).size;
+  const avgRateBps = investedMinor > 0
+    ? Math.round(holdingsCcy.reduce((sum, holding) => sum + holding.loan.yield_bps * holding.current_principal_minor, 0) / Math.max(1, holdingsCcy.reduce((sum, holding) => sum + holding.current_principal_minor, 0)))
+    : 0;
+  const [investedWhole, investedCents = "00"] = formatMoneyMinor(investedMinor, ccy).split(".");
   const nextMonth = nextDashboardMonth(dashboard.as_of);
-  const projectedArrivals = new Map<string, { amountMinor: number; paymentCount: number }>();
-  for (const holding of portfolio?.holdings ?? []) {
-    for (const installment of holding.investment_schedule) {
-      if (!installment.due_date.startsWith(nextMonth.key) || installment.status === "paid") continue;
-      const current = projectedArrivals.get(holding.currency) ?? { amountMinor: 0, paymentCount: 0 };
-      current.amountMinor += installment.projected_total_minor;
-      current.paymentCount += 1;
-      projectedArrivals.set(holding.currency, current);
+  const asOfDate = new Date(dashboard.as_of);
+  const monthInfo = (offset: number) => {
+    const date = new Date(asOfDate.getFullYear(), asOfDate.getMonth() + 1 + offset, 1);
+    return {
+      key: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`,
+      label: date.toLocaleDateString("en-GB", { month: "short" }).toUpperCase()
+    };
+  };
+  const lastDueByHolding = new Map<string, string>();
+  for (const holding of holdingsCcy) {
+    const last = holding.investment_schedule[holding.investment_schedule.length - 1];
+    if (last) lastDueByHolding.set(holding.id, last.due_date);
+  }
+  const spine = Array.from({ length: 12 }, (_, offset) => {
+    const info = monthInfo(offset);
+    let amountMinor = 0;
+    let count = 0;
+    let end = false;
+    for (const holding of holdingsCcy) {
+      for (const installment of holding.investment_schedule) {
+        if (!installment.due_date.startsWith(info.key) || installment.status === "paid") continue;
+        amountMinor += installment.projected_total_minor;
+        count += 1;
+        if (lastDueByHolding.get(holding.id) === installment.due_date) end = true;
+      }
+    }
+    return { ...info, amountMinor, count, end };
+  });
+  const spineMax = Math.max(1, ...spine.map((month) => month.amountMinor));
+  const next12Minor = spine.reduce((sum, month) => sum + month.amountMinor, 0);
+  const arriving = spine[0] ?? { amountMinor: 0, count: 0 };
+  const realizedInterest = dashboard.portfolio_summary.realized_interest_by_currency.find((amount) => amount.currency === ccy)?.amount_minor ?? 0;
+  const firstAssignment = holdingsCcy.reduce<string | null>(
+    (earliest, holding) => (earliest === null || holding.assignment_effective_at < earliest ? holding.assignment_effective_at : earliest),
+    null
+  );
+  const sinceLabel = firstAssignment
+    ? new Date(firstAssignment).toLocaleDateString("en-GB", { month: "long", year: "numeric" })
+    : null;
+  const idlePct = investedMinor + idleMinor > 0 ? ((idleMinor / (investedMinor + idleMinor)) * 100).toFixed(1) : "0.0";
+
+  const deskMatches = (smartInvest?.matches ?? []).filter((match) => match.currency === ccy);
+  const deskTickable = deskMatches.filter((match) => match.product_type !== "originator_claim" && isOpenMarketplaceLoan(match));
+  const deskTicked = deskTickable.filter((match) => !unticked[match.loan_id]);
+  const deskSplit = new Map<string, number>();
+  if (deskTicked.length > 0 && idleMinor > 0) {
+    const per = Math.floor(idleMinor / deskTicked.length);
+    for (const match of deskTicked) {
+      deskSplit.set(match.loan_id, Math.max(0, Math.min(per, marketplaceAvailableMinor(match))));
     }
   }
-  const activeLoanCount = portfolio
-    ? new Set(portfolio.holdings.filter((holding) => holding.current_principal_minor > 0).map((holding) => holding.loan.loan_id)).size
-    : dashboard.portfolio_summary.active_holding_count;
-  const hasInvestments = portfolioCurrencies.length > 0;
+  const deskItems = deskTicked
+    .map((match) => ({ match, amountMinor: deskSplit.get(match.loan_id) ?? 0 }));
+  const deskBatchReady = deskItems.length > 0 && deskItems.every(
+    (item) => item.amountMinor >= item.match.minimum_investment_minor
+  );
+  const deskTotal = deskBatchReady
+    ? deskItems.reduce((sum, item) => sum + item.amountMinor, 0)
+    : 0;
+  const openCcyLoans = loans.filter((loan) => isOpenMarketplaceLoan(loan) && loan.currency === ccy);
+  const closingSoon = openCcyLoans
+    .map((loan) => {
+      const days = loan.funding_deadline
+        ? Math.max(0, Math.ceil((new Date(`${loan.funding_deadline}T00:00:00`).getTime() - asOfDate.getTime()) / 86_400_000))
+        : null;
+      return { loan, days };
+    })
+    .filter((entry): entry is { loan: MarketplaceLoanPreview; days: number } => entry.days !== null && entry.days <= 7)
+    .sort((left, right) => left.days - right.days);
+  const bestOpenBps = openCcyLoans.reduce((max, loan) => Math.max(max, marketplaceYieldBps(loan)), 0);
+
+  const totalBase = investedMinor + idleMinor;
+  const futureInterestMinor = holdingsCcy.reduce(
+    (sum, holding) => sum + holding.investment_schedule.filter((row) => row.status !== "paid").reduce((acc, row) => acc + row.projected_interest_minor, 0),
+    0
+  );
+  const scenarioAInterest = realizedInterest + futureInterestMinor;
+  const horizonMonths = Math.max(
+    1,
+    ...holdingsCcy.map((holding) => {
+      const last = holding.investment_schedule[holding.investment_schedule.length - 1];
+      if (!last) return 1;
+      const lastDate = new Date(`${last.due_date}T00:00:00`);
+      return (lastDate.getFullYear() - asOfDate.getFullYear()) * 12 + lastDate.getMonth() - asOfDate.getMonth();
+    })
+  );
+  const reinvestRate = bestOpenBps / 120_000;
+  let scenarioBExtra = 0;
+  if (reinvestRate > 0) {
+    scenarioBExtra += idleMinor * (Math.pow(1 + reinvestRate, horizonMonths) - 1);
+    for (let offset = 0; offset < horizonMonths; offset += 1) {
+      const info = monthInfo(offset);
+      let monthPayments = 0;
+      for (const holding of holdingsCcy) {
+        for (const installment of holding.investment_schedule) {
+          if (installment.due_date.startsWith(info.key) && installment.status !== "paid") monthPayments += installment.projected_total_minor;
+        }
+      }
+      scenarioBExtra += monthPayments * (Math.pow(1 + reinvestRate, Math.max(0, horizonMonths - offset - 1)) - 1);
+    }
+  }
+  const scenarioBInterest = scenarioAInterest + Math.round(scenarioBExtra);
+  const pctA = totalBase > 0 ? (scenarioAInterest / totalBase) * 100 : 0;
+  const pctB = totalBase > 0 ? (scenarioBInterest / totalBase) * 100 : 0;
+  const pctPaid = totalBase > 0 ? (realizedInterest / totalBase) * 100 : 0;
+  const chartMax = Math.max(7, Math.ceil(Math.max(pctB, pctA) / 7) * 7);
+  const chartY = (pct: number) => 286 - (pct / chartMax) * 266;
+  const horizonLabel = (() => {
+    const date = new Date(asOfDate.getFullYear(), asOfDate.getMonth() + horizonMonths, 1);
+    return date.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+  })();
+  const startLabel = firstAssignment
+    ? new Date(firstAssignment).toLocaleDateString("en-GB", { month: "short", year: "numeric" })
+    : formatDate(dashboard.as_of);
+  const hasInvestments = investedMinor > 0;
 
   return (
-    <main className="content dashboard-v9">
+    <main className="content dz-page">
       <div className="col gap-12" style={{ marginBottom: 20 }}>
         {demoState === "frozen" ? <FrozenBanner setRoute={setRoute} /> : null}
         {demoState === "kyc_pending" ? <KycBanner setRoute={setRoute} /> : null}
       </div>
 
-      <section className={`dashboard-v9-hero ${hasInvestments ? "invested" : "empty"}`}>
-        <h1>Money working for you</h1>
-        <time dateTime={dashboard.as_of}>{formatDate(dashboard.as_of)}</time>
-        {hasInvestments ? (
-          <>
-            <div className={`dashboard-v9-amounts ${portfolioCurrencies.length > 1 ? "multiple" : ""}`}>
-              {portfolioCurrencies.map((currency) => (
-                <div key={currency}>
-                  <span>{currency === "EUR" ? "€" : currency}</span>
-                  <strong>{formatMoneyMinor(dashboard.portfolio_summary.outstanding_principal_by_currency.find((amount) => amount.currency === currency)?.amount_minor ?? 0, currency)}</strong>
-                </div>
-              ))}
-            </div>
-            <p>invested across <strong>{countLabel(activeLoanCount, "loan")}</strong></p>
-            {portfolioCurrencies.length > 1 ? <small>Each currency is shown separately; no FX conversion is assumed.</small> : null}
-          </>
-        ) : (
-          <div className="dashboard-v9-empty-hero">
-            <strong>Nothing is invested yet.</strong>
-            <p>Your available balance and open opportunities are ready below.</p>
-            <Button icon="market" variant="primary" onClick={() => goTo(setRoute, "market")}>Browse opportunities</Button>
-          </div>
-        )}
-      </section>
-
-      <div className="dashboard-v9-facts">
-        {accountCurrencies.map((currency) => {
-          const summary = balances.summaries.find((item) => item.currency === currency);
-          const arrival = projectedArrivals.get(currency);
-          const realizedInterest = dashboard.portfolio_summary.realized_interest_by_currency.find((amount) => amount.currency === currency)?.amount_minor ?? 0;
-          const riskExposure = dashboard.portfolio_summary.late_or_defaulted_exposure_by_currency.find((amount) => amount.currency === currency)?.amount_minor ?? 0;
-          return (
-            <section key={currency}>
-              <header><span>{currency} account</span><button onClick={() => goTo(setRoute, "balances")} type="button">Manage balance →</button></header>
-              <div className="dashboard-v9-fact-grid">
-                <article>
-                  <div>Arriving in {nextMonth.label}</div>
-                  <strong>{portfolioQuery.isError ? "—" : pfMoneyLabel(currency, arrival?.amountMinor ?? 0)}</strong>
-                  <p>{portfolioQuery.isError ? "Schedule temporarily unavailable" : countLabel(arrival?.paymentCount ?? 0, "scheduled payment")}</p>
-                </article>
-                <article className="positive">
-                  <div>Interest paid to you so far</div>
-                  <strong>{pfMoneyLabel(currency, realizedInterest)}</strong>
-                  <p>Lifetime distributions</p>
-                </article>
-                <article>
-                  <div><b>Money not invested</b> — available balance</div>
-                  <strong>{pfMoneyLabel(currency, summary?.total_available_minor ?? 0)}</strong>
-                  <p>{pfMoneyLabel(currency, summary?.investable_minor ?? 0)} currently investable</p>
-                </article>
-              </div>
-              {riskExposure > 0 ? <div className="dashboard-v9-risk"><b>{pfMoneyLabel(currency, riskExposure)}</b> is currently late or in default. Review the affected positions and public servicing notes.</div> : null}
-            </section>
-          );
-        })}
-      </div>
-
-      <section className="dashboard-v9-decisions">
-        <header><span>Waiting on your decision</span><i>you review every action before it binds</i></header>
-        {dashboard.pending_actions.length > 0 ? (
-          <div className="dashboard-v9-action-list">
-            {dashboard.pending_actions.map((action, index) => (
-              <ActionRow action={action} key={`${action.type}-${index}`} setRoute={setRoute} last={index === dashboard.pending_actions.length - 1} />
+      {currencies.length > 1 ? (
+        <div className="dz-ccy-row">
+          <div className="seg" role="tablist">
+            {currencies.map((code) => (
+              <button aria-selected={ccy === code} className={ccy === code ? "on" : ""} key={code} onClick={() => setCcyPick(code)} role="tab" type="button">{code}</button>
             ))}
           </div>
-        ) : null}
+        </div>
+      ) : null}
+
+      <div className="dz-hero">
+        <h1>Money working for you</h1>
+        <div className="dz-date">{formatDate(dashboard.as_of)}</div>
+        <div className="dz-fig"><span className="dz-cur">{ccy === "EUR" ? "€" : ccy}</span><span className="dz-whole">{investedWhole}</span><span className="dz-cents">.{investedCents}</span></div>
+        {hasInvestments ? (
+          <>
+            <div className="dz-hero-line">invested in loans to <strong>{companies === 1 ? "1 company" : `${companies} companies`}</strong></div>
+            <div className="dz-hero-line">at <strong className="num">{formatRateBps(avgRateBps)}</strong> per year interest, on average</div>
+          </>
+        ) : (
+          <div className="dz-hero-line">nothing is invested yet — your money and the open opportunities are below</div>
+        )}
+      </div>
+
+      <div className="dz-band">
+        <div className="dz-cell">
+          <div className="dz-microlabel">Arriving in {nextMonth.label}</div>
+          <div className="dz-fig-md">{pfMoneyLabel(ccy, arriving.amountMinor)}</div>
+          <div className="dz-cell-sub">{portfolioQuery.isError ? "schedule temporarily unavailable" : `across ${arriving.count === 1 ? "1 payment" : `${arriving.count} payments`}`}</div>
+        </div>
+        <div className="dz-cell">
+          <div className="dz-microlabel green">Interest paid to you so far</div>
+          <div className="dz-fig-md green">{pfMoneyLabel(ccy, realizedInterest)}</div>
+          <div className="dz-cell-sub">{sinceLabel ? `since ${sinceLabel}` : "no distributions yet"}</div>
+        </div>
+        <div className="dz-cell">
+          <div className="dz-microlabel"><span className="red">Money not working</span> — just sitting</div>
+          <div className="dz-fig-md">{pfMoneyLabel(ccy, idleMinor)}</div>
+          <div className="dz-cell-sub">{idlePct}% of your money, earning nothing</div>
+        </div>
+      </div>
+
+      <div className="dz-decisions" id="rule">
+        <div className="dz-decisions-head">
+          <span className="dz-decisions-cap">Waiting on your decision</span>
+          <span style={{ flex: 1 }} />
+          <span className="dz-serif">the clicks that bind — everything else can wait</span>
+        </div>
+
         {smartInvestQuery.isError && !smartInvest ? (
           <DataErrorCard title="Smart Invest is temporarily unavailable" onRetry={() => void smartInvestQuery.refetch()}>
             Your dashboard is still available. Retry to load your saved rule and matching opportunities.
           </DataErrorCard>
-        ) : (
-          smartRuleActive ? (
-            <div className="si-dash-rule">
-              <span className="si-dash-rule-name">Investing rule</span>
-              <button className="si-dash-active-chip" onClick={() => goTo(setRoute, "smartInvest")} type="button">✓ Active</button>
-              <span className="si-dash-rule-sub">every new opportunity is checked against your conditions, and you approve every match</span>
-              <span style={{ flex: 1 }} />
+        ) : null}
+
+        {smartRuleActive && deskMatches.length > 0 ? (
+          <div className="dz-desk">
+            <div className="dz-desk-head">
+              <span className="dz-desk-title">Your rule found {deskMatches.length === 1 ? "1 opportunity" : `${deskMatches.length} opportunities`}</span>
+              <span className="dz-desk-sub">{pfMoneyLabel(ccy, idleMinor)} free to place · {deskTicked.length} of {deskTickable.length} ticked · nothing commits until you confirm</span>
             </div>
-          ) : (
-            <div className="si-dash-rule">
-              <span className="si-dash-rule-name">No investing rule is running</span>
-              <span className="si-dash-rule-sub">a rule watches new opportunities against your conditions and asks you first — nothing commits without you</span>
-              <span style={{ flex: 1 }} />
-              <button className="si-dash-setup" onClick={() => goTo(setRoute, "smartInvest")} type="button">Set one up →</button>
-            </div>
-          )
-        )}
-        {smartRuleActive && (smartInvest?.matches.length ?? 0) > 0 ? (
-          <div className="si-dash-matched">
-            <div className="si-dash-matched-cap">Matched by your rule · waiting on your decision</div>
-            <div className="si-dash-rows">
-              {(smartInvest?.matches ?? []).slice(0, 3).map((match) => (
-                <button className="si-dash-row" key={match.loan_id} onClick={() => setSheetLoan(match)} type="button">
-                  <span className="si-dash-row-name">{match.borrower_display_name || match.title}</span>
-                  <span className="si-dash-row-meta">{formatRateBps(match.yield_bps)} · {match.term_months} mo{match.originator_name ? ` · ${match.originator_name}` : ""}</span>
-                  <span className="si-dash-row-dots" />
-                  <span className="si-dash-row-amt">{pfMoneyLabel(match.currency, match.fillable_amount_minor)}</span>
-                  <span className="si-dash-row-go" aria-hidden="true">→</span>
-                </button>
-              ))}
-              <div className="si-dash-rows-foot">
-                <span>each row opens the full loan — how much you lend, if anything, is decided there</span>
+            <div className="dz-desk-rows">
+              {deskMatches.map((match) => {
+                const tickable = match.product_type !== "originator_claim" && isOpenMarketplaceLoan(match);
+                const ticked = tickable && !unticked[match.loan_id];
+                const amount = deskSplit.get(match.loan_id) ?? 0;
+                return (
+                  <div className="dz-desk-row" key={match.loan_id}>
+                    {tickable ? (
+                      <button aria-label={`${ticked ? "Untick" : "Tick"} ${match.title}`} className={`dz-tick${ticked ? " on" : ""}`} onClick={() => setUnticked((current) => ({ ...current, [match.loan_id]: !current[match.loan_id] }))} type="button">{ticked ? "✓" : ""}</button>
+                    ) : (
+                      <span className="dz-tick claim" title="Originator claims are priced per loan — open the loan to buy." />
+                    )}
+                    <button className="dz-desk-name" onClick={() => setSheetLoan(match)} type="button">{match.borrower_display_name || match.title}</button>
+                    <span className="dz-desk-meta num">{formatRateBps(match.yield_bps)} · {match.term_months} mo · {match.originator_name || "Banxum"}{!tickable ? " · quote per loan" : ""}</span>
+                    <span className="dz-leader" />
+                    <span className="dz-desk-amt num">{ticked && amount > 0 ? pfMoneyLabel(ccy, amount) : "—"}</span>
+                  </div>
+                );
+              })}
+              <div className="dz-desk-foot">
+                <span className="dz-desk-commit num">You commit {pfMoneyLabel(ccy, deskTotal)}</span>
+                <span className="dz-desk-note">{deskBatchReady ? "nothing moves without this click" : "untick opportunities until each order reaches its minimum"}</span>
                 <span style={{ flex: 1 }} />
-                <button className="fs-clear-link" onClick={() => goTo(setRoute, "smartInvest")} type="button">all {smartInvest?.match_count} matches →</button>
+                <button className="si-dash-setup" disabled={!deskBatchReady} onClick={() => setBatchOpen(true)} type="button">Review &amp; confirm →</button>
               </div>
             </div>
           </div>
-        ) : smartRuleActive && smartInvest ? (
-          <div className="dashboard-smart-empty">No open opportunity matches every condition today. Your rule remains active.</div>
         ) : null}
-      </section>
 
-      <section className="dashboard-balance-overview">
-        <div className="section-head"><h2>Balances</h2><a href="/balances" onClick={(event) => { event.preventDefault(); goTo(setRoute, "balances"); }}>Manage balances</a></div>
-        <div className="dashboard-balance-table" role="table" aria-label="Balance overview">
-          <div className="dashboard-balance-head" role="row"><span>Currency</span><span>Available</span><span>Investable</span><span>Withdraw-only</span><span>Overdue / penalty</span></div>
-          {balances.summaries.map((summary) => (
-            <button key={summary.currency} onClick={() => goTo(setRoute, "balances")} role="row" type="button">
-              <strong>{summary.currency}</strong>
-              <span>{formatMoneyMinor(summary.total_available_minor, summary.currency)}</span>
-              <span>{formatMoneyMinor(summary.investable_minor, summary.currency)}</span>
-              <span>{formatMoneyMinor(summary.withdraw_only_minor, summary.currency)}</span>
-              <span className={summary.overdue_minor + summary.penalty_mode_minor + summary.frozen_minor > 0 ? "bad" : ""}>{formatMoneyMinor(summary.overdue_minor + summary.penalty_mode_minor + summary.frozen_minor, summary.currency)}</span>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="dashboard-open-opportunities">
-        <div className="section-head"><h2>Open opportunities</h2><a href="/marketplace" onClick={(event) => { event.preventDefault(); goTo(setRoute, "market"); }}>All opportunities</a></div>
-        {loansQuery.isError && loans.length === 0 ? (
-          <DataErrorCard title="Could not load opportunities" onRetry={() => void loansQuery.refetch()}>
-            Your balances and portfolio loaded, but marketplace data is temporarily unavailable.
-          </DataErrorCard>
-        ) : openLoans.length === 0 ? (
-          <div className="dashboard-smart-empty">No opportunities are accepting investments right now.</div>
+        {smartRuleActive ? (
+          <div className="si-dash-rule">
+            <span className="si-dash-rule-name">Investing rule</span>
+            <button className="si-dash-active-chip" onClick={() => goTo(setRoute, "smartInvest")} type="button">✓ Active</button>
+            <span className="si-dash-rule-sub">every new opportunity is checked against your conditions, and you approve every match</span>
+            <span style={{ flex: 1 }} />
+          </div>
         ) : (
-          <div className="dashboard-opportunity-list">
-            {openLoans.map((loan) => (
-              <button key={loan.loan_id} onClick={() => setSheetLoan(loan)} type="button">
-                <span><strong>{loan.borrower_display_name || loan.title}</strong><small>{loan.originator_name ? `Originated by ${loan.originator_name}` : humanizeToken(loan.purpose)}</small></span>
-                <span>{formatRateBps(marketplaceYieldBps(loan))} yield</span>
-                <span>{dashboardClosingLabel(loan, dashboard.as_of)}</span>
-                <span>{pfMoneyLabel(loan.currency, marketplaceAvailableMinor(loan))}</span>
-                <span aria-hidden="true">→</span>
-              </button>
-            ))}
+          <div className="si-dash-rule">
+            <span className="si-dash-rule-name">No investing rule is running</span>
+            <span className="si-dash-rule-sub">a rule watches new opportunities against your conditions and asks you first — nothing commits without you</span>
+            <span style={{ flex: 1 }} />
+            <button className="si-dash-setup" onClick={() => goTo(setRoute, "smartInvest")} type="button">Set one up →</button>
           </div>
         )}
-      </section>
 
-      <section className="dashboard-recent-activity">
-        <div className="section-head"><h2>Recent activity</h2><a href="/portfolio" onClick={(event) => { event.preventDefault(); goTo(setRoute, "portfolio"); }}>Full history</a></div>
-        <ActivityTable entries={dashboard.recent_activity.slice(0, 6)} dense />
-      </section>
+        {closingSoon.length > 0 ? (
+          <div className="dz-close-card">
+            <div className="dz-close-head">
+              <span className="dz-close-title num">{closingSoon.length === 1 ? "1 opportunity closes" : `${closingSoon.length} opportunities close`} within 7 days</span>
+              <span className="dz-close-near">the nearest in {closingSoon[0].days === 1 ? "1 day" : `${closingSoon[0].days} days`}</span>
+              <span className="dz-close-rest">· a closed campaign does not reopen — click any for the full loan</span>
+              <span style={{ flex: 1 }} />
+              <span className="dz-dots">
+                <span className="dz-dots-cap">today</span>
+                <span className="dz-dots-row">
+                  {Array.from({ length: 7 }, (_, index) => {
+                    const day = index + 1;
+                    const has = closingSoon.some((entry) => entry.days === day);
+                    return <span className={`dz-dot${has ? (day <= 3 ? " red" : " dark") : ""}`} key={day} />;
+                  })}
+                </span>
+                <span className="dz-dots-cap">7 d</span>
+              </span>
+              <button className="si-dash-setup" onClick={() => setCloseOpen((open) => !open)} type="button">{closeOpen ? "Hide ▴" : "Check ▾"}</button>
+            </div>
+            {closeOpen ? (
+              <div className="si-dash-rows">
+                {closingSoon.map((entry) => (
+                  <button className="si-dash-row" key={entry.loan.loan_id} onClick={() => setSheetLoan(entry.loan)} type="button">
+                    <span className="si-dash-row-name">{entry.loan.borrower_display_name || entry.loan.title}</span>
+                    <span className="si-dash-row-meta">{formatRateBps(marketplaceYieldBps(entry.loan))} · {entry.loan.term_months} mo · {entry.loan.originator_name || "Banxum"}</span>
+                    <span className="dz-leader" />
+                    <span className={`si-dash-row-amt${entry.days <= 3 ? " red" : ""}`}>closes in {entry.days === 1 ? "1 day" : `${entry.days} days`}</span>
+                    <span className="si-dash-row-go" aria-hidden="true">→</span>
+                  </button>
+                ))}
+                <div className="si-dash-rows-foot">
+                  <span>each row opens the full loan — how much you lend, if anything, is decided there</span>
+                  <span style={{ flex: 1 }} />
+                  <button className="fs-clear-link" onClick={() => goTo(setRoute, "market")} type="button">all opportunities →</button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="dz-income">
+        <div className="dz-sect-head">
+          <span className="dz-sect-sign">–</span>
+          <span className="dz-sect-title">Expected income, month by month</span>
+          <span style={{ flex: 1 }} />
+        </div>
+        <div className="dz-income-intro">
+          <div>Every figure below is contracted, not forecast.</div>
+          <div>Amounts in {ccy === "EUR" ? "euro" : ccy}.</div>
+        </div>
+        <div className="dz-spine">
+          {spine.map((month, index) => (
+            <div className={`dz-col${index === 0 ? " hot" : ""}`} key={month.key}>
+              <span className="dz-col-amt num">{formatMoneyMinor(month.amountMinor, ccy)}</span>
+              <span className={`dz-bar${month.end ? " end" : ""}`} style={{ height: `${24 + Math.round((month.amountMinor / spineMax) * 72)}px` }} />
+              <span className="dz-col-m">{month.label}</span>
+            </div>
+          ))}
+        </div>
+        <div className="dz-next12">
+          <span className="dz-next12-cap">Next 12 months</span>
+          <span className="dz-leader" />
+          <span className="dz-next12-cur">{ccy === "EUR" ? "€" : ccy}</span>
+          <span className="dz-next12-val num">{formatMoneyMinor(next12Minor, ccy).split(".")[0]}</span>
+          <span className="dz-next12-cents num">.{formatMoneyMinor(next12Minor, ccy).split(".")[1] ?? "00"}</span>
+        </div>
+        <div className="dz-income-link"><button className="fs-clear-link" onClick={() => goTo(setRoute, "portfolio")} type="button">Beyond 12 months, and the loan behind every payment, in My investments →</button></div>
+        <div className="dz-income-legend"><span className="dz-legend-swatch" />Months marked with a dark line at the bottom are where one or more loans make their final repayment, so your income may decrease from then on unless you reinvest.</div>
+      </div>
+
+      <div className="dz-compare">
+        <button className="dz-sect-head as-btn" onClick={() => setCompareOpen((open) => !open)} type="button">
+          <span className="dz-sect-sign">{compareOpen ? "–" : "+"}</span>
+          <span className="dz-sect-title">What you invested and what you earned</span>
+          <span style={{ flex: 1 }} />
+          <span className="dz-compare-gain num">+ {pfMoneyLabel(ccy, Math.max(0, scenarioBInterest - scenarioAInterest))} if everything were reinvested</span>
+        </button>
+        {compareOpen ? (
+          <div className="dz-compare-body">
+            <p className="dz-compare-intro">Two scenarios on the same {pfMoneyLabel(ccy, totalBase)}, from {startLabel} to the last scheduled repayment in {horizonLabel}. Totals, not a rate per year.</p>
+            <div className="dz-chart-card">
+              <svg viewBox="0 0 880 326" style={{ display: "block", maxWidth: "100%" }}>
+                {[0, 1, 2, 3, 4].map((step) => (
+                  <line key={step} x1="46" y1={20 + step * 53.2} x2="790" y2={20 + step * 53.2} stroke="#DDE3E1" strokeWidth="1" />
+                ))}
+                {[0, 1, 2, 3, 4].map((step) => (
+                  <text key={step} x="38" y={24 + step * 53.2} textAnchor="end" fontSize="11" fill="#626B70">{Math.round(chartMax - (step * chartMax) / 5)}%</text>
+                ))}
+                <line x1="46" y1="286" x2="790" y2="286" stroke="#151719" strokeWidth="1" />
+                <text x="38" y="290" textAnchor="end" fontSize="11" fill="#626B70">0</text>
+                <polyline points={`46,286 283,${chartY(pctPaid)} 790,${chartY(pctA)}`} fill="none" stroke="#151719" strokeWidth="2.5" />
+                <polyline points={`283,${chartY(pctPaid)} 790,${chartY(pctB)}`} fill="none" stroke="#1E6A4B" strokeWidth="2.5" />
+                <line x1="283" y1="20" x2="283" y2="286" stroke="#C4312C" strokeWidth="1" strokeDasharray="3 3" />
+                <circle cx="46" cy="286" r="4" fill="#151719" />
+                <circle cx="283" cy={chartY(pctPaid)} r="4.5" fill="#C4312C" />
+                <circle cx="790" cy={chartY(pctA)} r="4.5" fill="#151719" />
+                <circle cx="790" cy={chartY(pctB)} r="4.5" fill="#1E6A4B" />
+                <text x="46" y="303" textAnchor="start" fontSize="11" fill="#626B70">{startLabel}</text>
+                <text x="283" y="303" textAnchor="middle" fontSize="11" fontWeight="600" fill="#C4312C">today</text>
+                <text x="790" y="303" textAnchor="end" fontSize="11" fill="#626B70">{horizonLabel}</text>
+                <text x="800" y={chartY(pctA) + 4} textAnchor="start" fontSize="13" fontWeight="700" fill="#151719">+{pctA.toFixed(1)}%</text>
+                <text x="800" y={chartY(pctB) + 4} textAnchor="start" fontSize="13" fontWeight="700" fill="#1E6A4B">+{pctB.toFixed(1)}%</text>
+              </svg>
+              <div className="dz-chart-note">Marked points are calculated. The path between them is the shape of accrual, not a month-by-month forecast.</div>
+            </div>
+            <div className="dz-scenarios">
+              <div className="dz-scn-head"><span style={{ flex: 1 }}>Scenario</span><span className="dz-scn-col">Capital</span><span className="dz-scn-col">Interest earned</span><span className="dz-scn-col wide">Total returned</span><span className="dz-scn-col sm">On capital</span></div>
+              <div className="dz-scn-row first">
+                <span className="dz-scn-name"><span className="dz-scn-line"><span className="dz-scn-swatch dark" /><strong>Nothing reinvested</strong></span><span className="dz-scn-desc">Every borrower pays on schedule and each repayment stays in your account. The {pfMoneyLabel(ccy, idleMinor)} keeps sitting there.</span></span>
+                <span className="dz-scn-col num">{pfMoneyLabel(ccy, totalBase)}</span>
+                <span className="dz-scn-col num green">{pfMoneyLabel(ccy, scenarioAInterest)}</span>
+                <span className="dz-scn-col wide num">{pfMoneyLabel(ccy, totalBase + scenarioAInterest)}</span>
+                <span className="dz-scn-col sm"><span className="dz-scn-mult num">{totalBase > 0 ? (1 + scenarioAInterest / totalBase).toFixed(2) : "1.00"}×</span><span className="dz-scn-pct num">+{pctA.toFixed(1)}%</span></span>
+              </div>
+              <div className="dz-scn-row">
+                <span className="dz-scn-name"><span className="dz-scn-line"><span className="dz-scn-swatch green" /><strong>Everything reinvested</strong></span><span className="dz-scn-desc">{bestOpenBps > 0 ? `Every repayment is lent onward at today’s best open rate of ${formatRateBps(bestOpenBps)} the month it arrives, and the ${pfMoneyLabel(ccy, idleMinor)} is lent too.` : "No open opportunity currently supplies a reinvestment rate, so this scenario adds no assumed reinvestment return."}</span></span>
+                <span className="dz-scn-col num">{pfMoneyLabel(ccy, totalBase)}</span>
+                <span className="dz-scn-col num green">{pfMoneyLabel(ccy, scenarioBInterest)}</span>
+                <span className="dz-scn-col wide num">{pfMoneyLabel(ccy, totalBase + scenarioBInterest)}</span>
+                <span className="dz-scn-col sm"><span className="dz-scn-mult num green">{totalBase > 0 ? (1 + scenarioBInterest / totalBase).toFixed(2) : "1.00"}×</span><span className="dz-scn-pct num">+{pctB.toFixed(1)}%</span></span>
+              </div>
+              <div className="dz-scn-row total">
+                <span style={{ flex: 1, fontWeight: 600 }}>The difference reinvesting makes</span>
+                <span className="dz-scn-col dim">no extra capital</span>
+                <span className="dz-scn-col num green big">{pfMoneyLabel(ccy, Math.max(0, scenarioBInterest - scenarioAInterest))}</span>
+                <span className="dz-scn-col wide num dim">{pfMoneyLabel(ccy, Math.max(0, scenarioBInterest - scenarioAInterest))}</span>
+                <span className="dz-scn-col sm num green">+{Math.max(0, pctB - pctA).toFixed(1)} pts</span>
+              </div>
+              <div className="dz-scn-note">Both scenarios hold the same {pfMoneyLabel(ccy, totalBase)} — {pfMoneyLabel(ccy, investedMinor)} lent and {pfMoneyLabel(ccy, idleMinor)} in your wallet — to the last scheduled repayment in {horizonLabel}. {pfMoneyLabel(ccy, realizedInterest)} of the interest is already paid and counted in both. The rest depends on the borrowers paying as agreed{bestOpenBps > 0 ? `, and the green scenario also assumes a loan at today’s best open rate of ${formatRateBps(bestOpenBps)} is available every time you have money to place.` : ". The green scenario currently assumes no additional return because no open reinvestment rate is available."}</div>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {batchOpen && deskBatchReady ? (
+        <BatchReviewModal
+          currency={ccy}
+          items={deskItems.map((item) => ({ loan: item.match, amountMinor: item.amountMinor }))}
+          onClose={() => setBatchOpen(false)}
+          onDone={() => {
+            setBatchOpen(false);
+            void dashboardQuery.refetch();
+            void balancesQuery.refetch();
+            void smartInvestQuery.refetch();
+            void portfolioQuery.refetch();
+          }}
+        />
+      ) : null}
       {sheetLoan ? (
         <MarketplaceLoanSheet
           onClose={() => setSheetLoan(null)}
@@ -2638,6 +2844,126 @@ function Dashboard({
         />
       ) : null}
     </main>
+  );
+}
+
+function BatchReviewModal({
+  currency,
+  items,
+  onClose,
+  onDone
+}: {
+  currency: string;
+  items: { loan: MarketplaceLoanPreview; amountMinor: number }[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [ack, setAck] = useState(false);
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+  const [batchKey] = useState(() => idempotencyKey("primary-batch"));
+  const acceptanceMutation = useV1DocumentsAcceptancesCreate();
+  const batchMutation = useMarketplacePrimaryOrdersBatchCreate();
+  const codeRequest = useSensitiveActionCode(ActionEnum.primary_investment);
+  useAutoRequestEmailCode(codeRequest, !done);
+  const termsQuery = useV1DocumentsTemplatesCurrentRetrieve(
+    { category: CategoryEnum.primary_market_investment },
+    { query: { enabled: !isFixturePreview, retry: false } }
+  );
+  const totalMinor = items.reduce((sum, item) => sum + item.amountMinor, 0);
+  const submit = async () => {
+    setError("");
+    if (isFixturePreview) {
+      setDone(true);
+      return;
+    }
+    const labels = templateLabels(termsQuery.data);
+    if (!termsQuery.data || labels.length === 0) {
+      setError("Current investment terms are not available. Retry after the document template is published.");
+      return;
+    }
+    if (!codeRequest.codeId) {
+      setError("Request an email code before confirming the batch.");
+      return;
+    }
+    try {
+      const acceptance = await acceptanceMutation.mutateAsync({
+        data: {
+          category: CategoryEnum.primary_market_investment,
+          expected_template_version_id: termsQuery.data.id,
+          accepted_checkbox_labels: labels,
+          context_type: "primary_order_batch",
+          context_id: batchKey,
+          data_snapshot: {
+            currency,
+            items: items.map((item) => ({ loan_id: item.loan.loan_id, amount_minor: item.amountMinor }))
+          },
+          idempotency_key: `${batchKey}-accept`
+        }
+      });
+      await batchMutation.mutateAsync({
+        data: {
+          items: items.map((item) => ({ loan_id: item.loan.loan_id, amount_minor: item.amountMinor })),
+          document_acceptance_id: acceptance.id,
+          idempotency_key: batchKey,
+          sensitive_action_code_id: codeRequest.codeId,
+          sensitive_action_code: code
+        }
+      });
+      setDone(true);
+    } catch (submitError) {
+      setError(apiErrorMessage(submitError));
+    }
+  };
+  const busy = acceptanceMutation.isPending || batchMutation.isPending;
+  return (
+    <Modal
+      footer={done
+        ? <Button variant="primary" onClick={onDone}>Done</Button>
+        : <><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!ack || code.length < 6 || busy || (!isFixturePreview && !codeRequest.codeId)} variant="primary" onClick={() => void submit()}>{busy ? "Placing orders..." : `Confirm ${items.length === 1 ? "1 order" : `${items.length} orders`}`}</Button></>}
+      onClose={done ? onDone : onClose}
+      title={done ? "Orders placed" : "Review & confirm"}
+      wide
+    >
+      {done ? (
+        <SuccessState title={`${pfMoneyLabel(currency, totalMinor)} committed across ${items.length === 1 ? "1 loan" : `${items.length} loans`}`}>
+          Each order is created and its balance reserved. If a funding round is cancelled, the reservation returns to your account automatically.
+        </SuccessState>
+      ) : (
+        <div className="col gap-16">
+          <div className="si-dash-rows">
+            {items.map((item) => (
+              <div className="si-dash-row" key={item.loan.loan_id} style={{ cursor: "default" }}>
+                <span className="si-dash-row-name">{item.loan.borrower_display_name || item.loan.title}</span>
+                <span className="si-dash-row-meta">{formatRateBps(marketplaceYieldBps(item.loan))} · {item.loan.term_months} mo · {item.loan.originator_name || "Banxum"}</span>
+                <span className="dz-leader" />
+                <span className="si-dash-row-amt">{pfMoneyLabel(currency, item.amountMinor)}</span>
+              </div>
+            ))}
+            <div className="si-dash-rows-foot">
+              <span className="num" style={{ fontWeight: 600, color: "#151719" }}>You commit {pfMoneyLabel(currency, totalMinor)}</span>
+              <span style={{ flex: 1 }} />
+              <span>one terms acceptance and one email code cover every order in this batch</span>
+            </div>
+          </div>
+          <Check checked={ack} id="batch-ack" onChange={setAck}>
+            I accept the current primary-market investment terms for every order listed above.
+          </Check>
+          <Banner icon="lock" tone="info" title="Confirm a sensitive action">Enter the 6-digit email confirmation code. One code covers the whole batch.</Banner>
+          <CodeRequestField
+            hint={previewHint("Demo: any 6 digits")}
+            label="Email confirmation code"
+            requestDisabled={emailCodeRequestDisabled(codeRequest)}
+            requestLabel={emailCodeRequestLabel(codeRequest)}
+            value={code}
+            onChange={setCode}
+            onRequest={codeRequest.requestCode}
+          />
+          {error ? <Banner tone="bad" title="Batch not placed">{error}</Banner> : null}
+        </div>
+      )}
+    </Modal>
   );
 }
 
@@ -2666,28 +2992,6 @@ function KycBanner({ setRoute }: { setRoute: (route: AppRoute) => void }) {
     >
       KYC is being reviewed. Deposits, investing, withdrawals and FX unlock once verification is approved.
     </Banner>
-  );
-}
-
-function ActionRow({
-  action,
-  setRoute,
-  last
-}: {
-  action: { type: string; severity: string; message: string };
-  setRoute: (route: AppRoute) => void;
-  last: boolean;
-}) {
-  const route = action.type.includes("balance") ? "balances" : "portfolio";
-  return (
-    <div className="row gap-12" style={{ alignItems: "flex-start", borderBottom: last ? 0 : "1px solid var(--line)", padding: "13px 16px" }}>
-      <Icon name={action.severity === "bad" ? "alert" : "clock"} size={17} />
-      <div className="grow">
-        <div className="col-strong">{action.type.replaceAll("_", " ")}</div>
-        <div className="muted" style={{ fontSize: 12 }}>{action.message}</div>
-      </div>
-      <Button size="sm" variant="ghost" onClick={() => goTo(setRoute, route)}>View</Button>
-    </div>
   );
 }
 

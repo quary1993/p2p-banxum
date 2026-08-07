@@ -102,9 +102,7 @@ class MarketplaceLoanDetailSerializer(MarketplaceLoanPreviewSerializer):
     loan_start_date = serializers.DateField()
     first_payment_date = serializers.DateField(allow_null=True)
     schedule_version = serializers.IntegerField()
-    originator_schedule = MarketplaceOriginatorScheduleRowSerializer(
-        many=True, required=False
-    )
+    originator_schedule = MarketplaceOriginatorScheduleRowSerializer(many=True, required=False)
     originator_payment_history = MarketplaceOriginatorPaymentRowSerializer(
         many=True, required=False
     )
@@ -147,6 +145,27 @@ class PrimaryInvestmentOrderAllocateRequestSerializer(serializers.Serializer[Any
     idempotency_key = serializers.CharField(max_length=160)
     sensitive_action_code_id = serializers.UUIDField()
     sensitive_action_code = serializers.CharField(max_length=32, trim_whitespace=True)
+
+
+class PrimaryOrderBatchItemSerializer(serializers.Serializer[Any]):
+    loan_id = serializers.UUIDField()
+    amount_minor = serializers.IntegerField(min_value=1)
+
+
+class PrimaryOrderBatchRequestSerializer(serializers.Serializer[Any]):
+    items = PrimaryOrderBatchItemSerializer(many=True, allow_empty=False)
+    document_acceptance_id = serializers.UUIDField()
+    idempotency_key = serializers.CharField(max_length=128)
+    sensitive_action_code_id = serializers.UUIDField()
+    sensitive_action_code = serializers.CharField(max_length=32, trim_whitespace=True)
+
+
+class PrimaryOrderBatchResponseSerializer(serializers.Serializer[Any]):
+    batch_id = serializers.UUIDField()
+    currency = serializers.CharField()
+    orders = PrimaryInvestmentOrderSerializer(many=True)
+    order_count = serializers.IntegerField()
+    total_amount_minor = serializers.IntegerField()
 
 
 class PrimaryInvestmentOrderReleaseRequestSerializer(serializers.Serializer[Any]):

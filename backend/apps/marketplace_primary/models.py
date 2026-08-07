@@ -101,6 +101,44 @@ class PrimaryInvestmentOrder(TimestampedModel):
         ]
 
 
+class PrimaryInvestmentOrderBatch(AppendOnlyModel):
+    investor_user_id = models.UUIDField()
+    currency = models.ForeignKey(
+        "platform_core.Currency",
+        on_delete=models.PROTECT,
+        related_name="primary_investment_order_batches",
+    )
+    document_acceptance = models.ForeignKey(
+        "documents.DocumentAcceptanceEvidence",
+        on_delete=models.PROTECT,
+        related_name="primary_investment_order_batches",
+    )
+    item_snapshot = models.JSONField(default=list)
+    order_ids = models.JSONField(default=list)
+    order_count = models.PositiveIntegerField()
+    total_amount_minor = models.BigIntegerField()
+    request_fingerprint = models.CharField(max_length=64)
+    idempotency_key = models.CharField(max_length=160, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(order_count__gt=0),
+                name="primary_order_batch_count_positive",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(total_amount_minor__gt=0),
+                name="primary_order_batch_total_positive",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["investor_user_id", "created_at"]),
+            models.Index(fields=["currency", "created_at"]),
+        ]
+
+
 class PrimaryInvestmentOrderEvent(AppendOnlyModel):
     order = models.ForeignKey(
         PrimaryInvestmentOrder,
