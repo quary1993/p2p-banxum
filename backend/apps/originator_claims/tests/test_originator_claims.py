@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import uuid
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from importlib import import_module
 from pathlib import Path
 from types import SimpleNamespace
@@ -1431,6 +1431,31 @@ def test_skin_in_the_game_repayment_rounding_preserves_retained_floor() -> None:
     assert originator_components["principal_minor"] == 0
     retained_after_minor = -(-(9_997 * 2_000) // 10_000)
     assert 2_000 - originator_components["principal_minor"] == retained_after_minor
+
+
+def test_originator_interest_entitlement_uses_zurich_business_date() -> None:
+    entitlement_start = datetime(2026, 8, 7, 22, 1, tzinfo=UTC)
+    holding = SimpleNamespace(
+        investor_user_id="midnight-investor",
+        current_principal_minor=250_000,
+        economic_entitlement_start_at=entitlement_start,
+        assignment_effective_at=entitlement_start,
+    )
+
+    plan, originator_components = _originator_repayment_plan(
+        holdings=[holding],
+        originator_principal_minor=750_000,
+        skin_in_the_game_bps=0,
+        principal_minor=0,
+        interest_minor=10_000,
+        penalty_minor=0,
+        value_date=date(2026, 8, 23),
+        accrual_start_date=date(2026, 8, 8),
+        currency="CHF",
+    )
+
+    assert plan[0].interest_minor == 2_500
+    assert originator_components["interest_minor"] == 7_500
 
 
 @pytest.mark.django_db

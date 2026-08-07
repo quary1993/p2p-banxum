@@ -1526,7 +1526,7 @@ def get_originator_holding_schedule_payloads(
                     cast(Any, holding).economic_entitlement_start_at
                     or cast(Any, holding).assignment_effective_at
                 )
-                entitlement_date = cast(datetime, entitlement_at).date()
+                entitlement_date = business_date(cast(datetime, entitlement_at))
                 eligible_days = max(
                     0,
                     (row.due_date - max(row.accrual_start_date, entitlement_date)).days,
@@ -2476,7 +2476,7 @@ def _originator_repayment_plan(
     investor_interest_numerators: list[int] = []
     for holding, holding_principal in zip(holdings, holding_principals, strict=True):
         entitlement_start = holding.economic_entitlement_start_at or holding.assignment_effective_at
-        assignment_date = cast(datetime, entitlement_start).date()
+        assignment_date = business_date(cast(datetime, entitlement_start))
         eligible_days = max(0, (value_date - max(accrual_start_date, assignment_date)).days)
         investor_interest_numerators.append(holding_principal * eligible_days)
     total_principal = sum(principal_weights)
