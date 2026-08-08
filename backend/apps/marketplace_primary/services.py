@@ -446,6 +446,47 @@ def _canonical_batch_snapshot_items(value: Any) -> list[dict[str, Any]]:
     return _canonical_batch_items(commands)
 
 
+def _batch_snapshot_currency_by_loan(
+    value: Any,
+    *,
+    legacy_currency: Any,
+) -> dict[str, str]:
+    if not isinstance(value, list):
+        raise MarketplacePrimaryValidationError(
+            "Batch document acceptance does not contain an itemized order list."
+        )
+    currency_by_loan: dict[str, str] = {}
+    for item in value:
+        if not isinstance(item, dict):
+            raise MarketplacePrimaryValidationError(
+                "Batch document acceptance contains an invalid order item."
+            )
+        try:
+            loan_id = str(uuid.UUID(str(item.get("loan_id", ""))))
+            currency_code = normalize_currency(str(item.get("currency") or legacy_currency or ""))
+        except (TypeError, ValueError, AttributeError, MoneyError) as exc:
+            raise MarketplacePrimaryValidationError(
+                "Batch document acceptance does not contain a valid currency for every order."
+            ) from exc
+        currency_by_loan[loan_id] = currency_code
+    return currency_by_loan
+
+
+def _canonical_batch_currency_totals(
+    items: list[dict[str, Any]],
+    *,
+    currency_by_loan: dict[str, str],
+) -> list[dict[str, Any]]:
+    totals: dict[str, int] = {}
+    for item in items:
+        currency_code = currency_by_loan[str(item["loan_id"])]
+        totals[currency_code] = totals.get(currency_code, 0) + int(item["amount_minor"])
+    return [
+        {"currency": currency_code, "amount_minor": totals[currency_code]}
+        for currency_code in sorted(totals)
+    ]
+
+
 def _batch_request_fingerprint(
     command: PlacePrimaryOrderBatchCommand,
     *,
@@ -805,7 +846,7 @@ def _validate_batch_document_acceptance(
     actor: Model,
     batch_key: str,
     canonical_items: list[dict[str, Any]],
-) -> tuple[Model, str]:
+) -> tuple[Model, dict[str, str]]:
     acceptance_model = _model("documents", "DocumentAcceptanceEvidence")
     acceptance = cast(
         Model | None,
@@ -829,18 +870,16 @@ def _validate_batch_document_acceptance(
     snapshot = acceptance_ref.data_snapshot
     if not isinstance(snapshot, dict):
         raise MarketplacePrimaryValidationError("Batch document acceptance is not valid.")
-    accepted_items = _canonical_batch_snapshot_items(snapshot.get("items"))
+    snapshot_items = snapshot.get("items")
+    accepted_items = _canonical_batch_snapshot_items(snapshot_items)
     if accepted_items != canonical_items:
         raise MarketplacePrimaryValidationError(
             "Batch document acceptance does not match the requested loans and amounts."
         )
-    try:
-        accepted_currency = normalize_currency(str(snapshot.get("currency", "")))
-    except MoneyError as exc:
-        raise MarketplacePrimaryValidationError(
-            "Batch document acceptance does not contain a valid currency."
-        ) from exc
-    return acceptance, accepted_currency
+    return acceptance, _batch_snapshot_currency_by_loan(
+        snapshot_items,
+        legacy_currency=snapshot.get("currency"),
+    )
 
 
 def _derive_batch_order_acceptance(
@@ -911,12 +950,25 @@ def place_primary_order_batch(
     )
     if existing is not None:
         return existing
-    acceptance, accepted_currency = _validate_batch_document_acceptance(
+    acceptance, accepted_currency_by_loan = _validate_batch_document_acceptance(
         acceptance_id=command.document_acceptance_id,
         actor=command.actor,
         batch_key=idempotency_key,
         canonical_items=canonical_items,
     )
+    loan_model = _model("loans", "Loan")
+    preflight_currencies = {
+        str(loan_id): str(currency_code)
+        for loan_id, currency_code in loan_model.objects.filter(
+            id__in=[item["loan_id"] for item in canonical_items]
+        ).values_list("id", "currency_id")
+    }
+    if len(preflight_currencies) != len(canonical_items):
+        raise MarketplacePrimaryValidationError("One or more batch loans do not exist.")
+    if preflight_currencies != accepted_currency_by_loan:
+        raise MarketplacePrimaryValidationError(
+            "Batch document acceptance currencies do not match the selected loans."
+        )
     try:
         verify_sensitive_action_code(
             SensitiveActionVerificationCommand(
@@ -932,7 +984,6 @@ def place_primary_order_batch(
         raise MarketplacePrimaryValidationError(str(exc)) from exc
 
     with transaction.atomic():
-        loan_model = _model("loans", "Loan")
         locked_loans = list(
             loan_model.objects.select_for_update()
             .filter(id__in=[item["loan_id"] for item in canonical_items])
@@ -947,7 +998,7 @@ def place_primary_order_batch(
         if existing_after_lock is not None:
             return existing_after_lock
         loans_by_id = {str(cast(Any, loan).id): loan for loan in locked_loans}
-        currency_codes: set[str] = set()
+        currency_by_loan: dict[str, str] = {}
         minimum_by_currency: dict[str, int] = {}
         for item in canonical_items:
             loan = loans_by_id[str(item["loan_id"])]
@@ -958,7 +1009,7 @@ def place_primary_order_batch(
                     "Originator claims cannot be placed through a direct-loan batch."
                 )
             currency_code = str(loan_ref.currency_id)
-            currency_codes.add(currency_code)
+            currency_by_loan[str(item["loan_id"])] = currency_code
             amount_minor = _validate_money(
                 int(item["amount_minor"]),
                 currency_code,
@@ -977,16 +1028,12 @@ def place_primary_order_batch(
                     "A batch investment amount exceeds remaining loan capacity; "
                     "nothing was committed."
                 )
-        if len(currency_codes) != 1:
+        if currency_by_loan != accepted_currency_by_loan:
             raise MarketplacePrimaryValidationError(
-                "Every order in a batch must use the same currency."
+                "Batch document acceptance currencies do not match the selected loans."
             )
-        currency_code = next(iter(currency_codes))
-        if currency_code != accepted_currency:
-            raise MarketplacePrimaryValidationError(
-                "Batch document acceptance currency does not match the selected loans."
-            )
-        currency = _enabled_currency(currency_code)
+        for currency_code in set(currency_by_loan.values()):
+            _enabled_currency(currency_code)
 
         allocated_orders: list[PrimaryInvestmentOrder] = []
         for item in canonical_items:
@@ -1030,17 +1077,26 @@ def place_primary_order_batch(
                     "nothing was committed."
                 )
             allocated_orders.append(allocated)
-        total_amount_minor = sum(int(order.allocated_amount_minor) for order in allocated_orders)
+        currency_totals = _canonical_batch_currency_totals(
+            canonical_items,
+            currency_by_loan=currency_by_loan,
+        )
+        legacy_currency = None
+        legacy_total_amount_minor = None
+        if len(currency_totals) == 1:
+            legacy_currency = _enabled_currency(str(currency_totals[0]["currency"]))
+            legacy_total_amount_minor = int(currency_totals[0]["amount_minor"])
         try:
             with transaction.atomic():
                 batch = PrimaryInvestmentOrderBatch.objects.create(
                     investor_user_id=command.actor.pk,
-                    currency=currency,
+                    currency=legacy_currency,
                     document_acceptance_id=cast(Any, acceptance).id,
                     item_snapshot=canonical_items,
                     order_ids=[str(order.id) for order in allocated_orders],
                     order_count=len(allocated_orders),
-                    total_amount_minor=total_amount_minor,
+                    currency_totals=currency_totals,
+                    total_amount_minor=legacy_total_amount_minor,
                     request_fingerprint=request_fingerprint,
                     idempotency_key=idempotency_key,
                 )
@@ -1054,10 +1110,10 @@ def place_primary_order_batch(
             return existing_after_race
         event_metadata = {
             "investor_user_id": str(command.actor.pk),
-            "currency": currency.code,
+            "currencies": [item["currency"] for item in currency_totals],
+            "currency_totals": currency_totals,
             "order_ids": [str(order.id) for order in allocated_orders],
             "order_count": len(allocated_orders),
-            "total_amount_minor": total_amount_minor,
             "document_acceptance_id": str(cast(Any, acceptance).id),
         }
         record_audit_event(

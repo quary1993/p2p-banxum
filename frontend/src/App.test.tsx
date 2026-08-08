@@ -172,14 +172,130 @@ test("rule desk splits idle balance across ticked matches and confirms one batch
     expect(screen.getByText(/You commit/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Review & confirm →" }));
-    const dialog = screen.getByRole("dialog", { name: "Review & confirm" });
+    const dialog = screen.getByRole("dialog", { name: "Approve this allocation." });
+    expect(within(dialog).getByText("Today's allocation")).toBeInTheDocument();
+    expect(within(dialog).getByText(/Allocating/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "all" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "none" })).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Confirm 1" }));
     expect(within(dialog).getByText(/one terms acceptance and one email code cover every order/)).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByLabelText(/primary-market investment terms for every order/));
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: /primary-market investment terms/i }));
     fireEvent.change(within(dialog).getByLabelText("Email confirmation code"), { target: { value: "123456" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Confirm 1 order" }));
-    expect(within(dialog).getByText("Orders placed")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Place 1 order" }));
+    expect(within(dialog).getByText("Every order is in.")).toBeInTheDocument();
   } finally {
     smartInvestFixture.matches = smartInvestFixture.matches.filter((match) => match !== syntheticMatch);
+    smartInvestFixture.match_count = smartInvestFixture.matches.length;
+  }
+});
+
+test("smart invest table bulk-selects across currencies and approves one allocation", () => {
+  const rhone = marketplaceLoansFixture.find((loan) => loan.loan_id === "GA-2399");
+  const nordwind = marketplaceLoansFixture.find((loan) => loan.loan_id === "GA-2402");
+  expect(rhone).toBeDefined();
+  expect(nordwind).toBeDefined();
+  const chfMatch = {
+    ...smartInvestFixture.matches[0],
+    ...rhone,
+    loan_id: "GA-BULK-CHF",
+    title: "Bulk CHF loan",
+    borrower_display_name: "Bulk CHF loan"
+  } as (typeof smartInvestFixture.matches)[number];
+  const eurMatch = {
+    ...smartInvestFixture.matches[0],
+    ...nordwind,
+    loan_id: "GA-BULK-EUR",
+    title: "Bulk EUR loan",
+    borrower_display_name: "Bulk EUR loan"
+  } as (typeof smartInvestFixture.matches)[number];
+  smartInvestFixture.matches = [...smartInvestFixture.matches, chfMatch, eurMatch];
+  smartInvestFixture.match_count = smartInvestFixture.matches.length;
+  try {
+    renderApp();
+
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+    fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+      target: { value: "lukas.brunner@example.ch" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Smart Invest" }));
+
+    // Both currencies come ticked by default and the committing total shows both books.
+    expect(screen.getByRole("button", { name: "Untick Bulk CHF loan" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Untick Bulk EUR loan" })).toBeInTheDocument();
+    expect(screen.getByText(/committing/)).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("button", { name: "Untick Bulk CHF loan" }), { key: "Enter" });
+    expect(screen.queryByRole("dialog", { name: "Bulk CHF loan" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Review & confirm →" }));
+    const dialog = screen.getByRole("dialog", { name: "Approve this allocation." });
+    // One allocating row per currency, each with its balance chip.
+    const chfAmount = within(dialog).getByLabelText("Amount to allocate in CHF");
+    expect(chfAmount).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Amount to allocate in EUR")).toBeInTheDocument();
+    fireEvent.change(chfAmount, { target: { value: "99999999" } });
+    expect(within(dialog).getByText(/exceeds your investable balance/i)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: /Confirm \d+/ })).toBeDisabled();
+    fireEvent.change(chfAmount, { target: { value: "20090" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: /Confirm \d+/ }));
+    expect(within(dialog).getByRole("link", { name: /primary-market investment terms/i })).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: /primary-market investment terms/i }));
+    fireEvent.change(within(dialog).getByLabelText("Email confirmation code"), { target: { value: "123456" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: /Place \d+ orders?/ }));
+    expect(within(dialog).getByText("Every order is in.")).toBeInTheDocument();
+  } finally {
+    smartInvestFixture.matches = smartInvestFixture.matches.filter(
+      (match) => match !== chfMatch && match !== eurMatch
+    );
+    smartInvestFixture.match_count = smartInvestFixture.matches.length;
+  }
+});
+
+test("rule desk blocks loans whose minimum the split cannot reach and explains why", () => {
+  const rhone = marketplaceLoansFixture.find((loan) => loan.loan_id === "GA-2399");
+  expect(rhone).toBeDefined();
+  // CHF investable is 20'090.00; a 25'000.00 minimum can never be reached.
+  const expensive = {
+    ...smartInvestFixture.matches[0],
+    ...rhone,
+    loan_id: "GA-EXPENSIVE",
+    title: "Expensive minimum loan",
+    borrower_display_name: "Expensive minimum loan",
+    minimum_investment_minor: 2_500_000
+  } as (typeof smartInvestFixture.matches)[number];
+  const affordable = {
+    ...smartInvestFixture.matches[0],
+    ...rhone,
+    loan_id: "GA-AFFORDABLE",
+    title: "Affordable loan",
+    borrower_display_name: "Affordable loan"
+  } as (typeof smartInvestFixture.matches)[number];
+  smartInvestFixture.matches = [...smartInvestFixture.matches, expensive, affordable];
+  smartInvestFixture.match_count = smartInvestFixture.matches.length;
+  try {
+    renderApp();
+
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+    fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+      target: { value: "lukas.brunner@example.ch" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+
+    // The unaffordable loan is not ticked, cannot be ticked, and carries an explanation.
+    const blocked = screen.getByLabelText("Expensive minimum loan cannot be selected");
+    expect(blocked).toHaveAttribute("title", expect.stringContaining("minimum investment"));
+    expect(screen.queryByRole("button", { name: "Untick Expensive minimum loan" })).not.toBeInTheDocument();
+    expect(screen.getByText("below minimum")).toBeInTheDocument();
+
+    // The affordable loan stays ticked and the batch remains confirmable without the blocked one.
+    expect(screen.getByRole("button", { name: "Untick Affordable loan" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review & confirm →" })).toBeEnabled();
+  } finally {
+    smartInvestFixture.matches = smartInvestFixture.matches.filter(
+      (match) => match !== expensive && match !== affordable
+    );
     smartInvestFixture.match_count = smartInvestFixture.matches.length;
   }
 });
@@ -393,7 +509,9 @@ test("published primary-market loans appear in dashboard and marketplace open vi
     screen.getByText((_, element) => element?.className === "fs-count" && element.textContent === "5 of 5 match")
   ).toBeInTheDocument();
   expect(screen.getByText("Helvetia Logistik AG")).toBeInTheDocument();
-  expect(screen.getAllByText("Open").length).toBeGreaterThan(0);
+  // Chips were replaced by a dedicated rating column and an icon-only copy button.
+  expect(screen.getByRole("button", { name: "Sort by Rating" })).toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: "Copy loan ID" }).length).toBeGreaterThan(0);
 });
 
 test("marketplace redesign preserves live filters, detail mode, and order guidance", () => {

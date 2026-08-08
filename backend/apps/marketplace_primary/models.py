@@ -107,6 +107,8 @@ class PrimaryInvestmentOrderBatch(AppendOnlyModel):
         "platform_core.Currency",
         on_delete=models.PROTECT,
         related_name="primary_investment_order_batches",
+        blank=True,
+        null=True,
     )
     document_acceptance = models.ForeignKey(
         "documents.DocumentAcceptanceEvidence",
@@ -116,7 +118,8 @@ class PrimaryInvestmentOrderBatch(AppendOnlyModel):
     item_snapshot = models.JSONField(default=list)
     order_ids = models.JSONField(default=list)
     order_count = models.PositiveIntegerField()
-    total_amount_minor = models.BigIntegerField()
+    currency_totals = models.JSONField(default=list)
+    total_amount_minor = models.BigIntegerField(blank=True, null=True)
     request_fingerprint = models.CharField(max_length=64)
     idempotency_key = models.CharField(max_length=160, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -129,8 +132,11 @@ class PrimaryInvestmentOrderBatch(AppendOnlyModel):
                 name="primary_order_batch_count_positive",
             ),
             models.CheckConstraint(
-                condition=models.Q(total_amount_minor__gt=0),
-                name="primary_order_batch_total_positive",
+                condition=(
+                    models.Q(currency__isnull=True, total_amount_minor__isnull=True)
+                    | models.Q(currency__isnull=False, total_amount_minor__gt=0)
+                ),
+                name="primary_order_batch_legacy_total_consistent",
             ),
         ]
         indexes = [

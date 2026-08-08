@@ -132,10 +132,11 @@ def _create_published_loan(
     principal_minor: int = 100_000_00,
     funding_deadline: date = date(2030, 1, 10),
     minimum_subscription_bps: int = 5_000,
+    currency_code: str = "CHF",
 ) -> Model:
     borrower = _create_borrower(admin_user)
     loan_model = apps.get_model("loans", "Loan")
-    currency = Currency.objects.get(code="CHF")
+    currency = Currency.objects.get(code=currency_code)
     return cast(
         Model,
         loan_model.objects.create(
@@ -173,6 +174,7 @@ def _declare_deposit(
     amount_minor: int = 50_000_00,
     value_date: date | None = None,
     idempotency_key: str = "market-deposit-1",
+    currency: str = "CHF",
 ) -> Any:
     if value_date is None:
         # Relative to the real clock: allocation checks the lot's 30-day
@@ -184,7 +186,7 @@ def _declare_deposit(
             actor=admin_user,
             investor_user_id=str(investor.pk),
             amount_minor=amount_minor,
-            currency="CHF",
+            currency=currency,
             booking_date=value_date,
             value_date=value_date,
             collection_account_identifier="CH00GARANTAMARKET",
@@ -2203,6 +2205,7 @@ def test_primary_order_batch_places_all_orders_behind_one_code(
     assert cast(Any, loan_b).committed_principal_minor == 3_000_00
     assert result.batch.total_amount_minor == 5_000_00
     assert result.batch.currency_id == "CHF"
+    assert result.batch.currency_totals == [{"currency": "CHF", "amount_minor": 5_000_00}]
     assert PrimaryInvestmentOrderBatch.objects.count() == 1
     assert all(
         cast(Any, order.document_acceptance).context_type == "primary_order" for order in orders
@@ -2356,20 +2359,35 @@ def test_primary_order_batch_rejects_acceptance_payload_mismatch(
 
 
 @pytest.mark.django_db
-def test_primary_order_batch_rejects_mixed_currencies_atomically(
+def test_primary_order_batch_places_mixed_currencies_atomically(
     admin_user: Model,
     investor: Model,
 ) -> None:
     _approve_financial_access(investor)
     loan_chf = _create_published_loan(admin_user, principal_minor=10_000_00)
-    loan_eur = _create_published_loan(admin_user, principal_minor=10_000_00)
-    loan_eur_ref = cast(Any, loan_eur)
-    loan_eur_ref.currency = Currency.objects.get(code="EUR")
-    loan_eur_ref.save(update_fields=["currency", "updated_at"])
+    loan_eur = _create_published_loan(
+        admin_user,
+        principal_minor=10_000_00,
+        currency_code="EUR",
+    )
+    _declare_deposit(
+        admin_user,
+        investor,
+        amount_minor=3_000_00,
+        currency="CHF",
+        idempotency_key="batch-mixed-chf-deposit",
+    )
+    _declare_deposit(
+        admin_user,
+        investor,
+        amount_minor=4_000_00,
+        currency="EUR",
+        idempotency_key="batch-mixed-eur-deposit",
+    )
     batch_key = "primary-batch-mixed-currency"
     items = [
-        PrimaryOrderBatchItemCommand(loan_id=str(loan_chf.pk), amount_minor=1_000_00),
-        PrimaryOrderBatchItemCommand(loan_id=str(loan_eur.pk), amount_minor=1_000_00),
+        PrimaryOrderBatchItemCommand(loan_id=str(loan_chf.pk), amount_minor=2_000_00),
+        PrimaryOrderBatchItemCommand(loan_id=str(loan_eur.pk), amount_minor=3_000_00),
     ]
     acceptance = _create_primary_acceptance(
         investor,
@@ -2378,14 +2396,89 @@ def test_primary_order_batch_rejects_mixed_currencies_atomically(
         context_type="primary_order_batch",
         context_id=batch_key,
         data_snapshot={
-            "currency": "CHF",
             "items": [
-                {"loan_id": item.loan_id, "amount_minor": item.amount_minor} for item in items
+                {
+                    "loan_id": item.loan_id,
+                    "amount_minor": item.amount_minor,
+                    "currency": "CHF" if item.loan_id == str(loan_chf.pk) else "EUR",
+                }
+                for item in items
             ],
         },
     )
 
-    with pytest.raises(MarketplacePrimaryValidationError, match="same currency"):
+    result = place_primary_order_batch(
+        PlacePrimaryOrderBatchCommand(
+            actor=investor,
+            items=items,
+            document_acceptance_id=str(acceptance.pk),
+            idempotency_key=batch_key,
+            **_sensitive_code_payload(investor, "primary_investment"),
+        )
+    )
+
+    loan_chf.refresh_from_db()
+    loan_eur.refresh_from_db()
+    assert len(result.orders) == 2
+    assert result.batch.currency_id is None
+    assert result.batch.total_amount_minor is None
+    assert result.batch.currency_totals == [
+        {"currency": "CHF", "amount_minor": 2_000_00},
+        {"currency": "EUR", "amount_minor": 3_000_00},
+    ]
+    assert cast(Any, loan_chf).committed_principal_minor == 2_000_00
+    assert cast(Any, loan_eur).committed_principal_minor == 3_000_00
+    assert PrimaryInvestmentOrder.objects.count() == 2
+    assert PrimaryInvestmentOrderBatch.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_primary_order_batch_rolls_back_both_currencies_when_one_balance_is_short(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    loan_chf = _create_published_loan(admin_user, principal_minor=10_000_00)
+    loan_eur = _create_published_loan(
+        admin_user,
+        principal_minor=10_000_00,
+        currency_code="EUR",
+    )
+    _declare_deposit(
+        admin_user,
+        investor,
+        amount_minor=3_000_00,
+        currency="CHF",
+        idempotency_key="batch-mixed-rollback-chf-deposit",
+    )
+    batch_key = "primary-batch-mixed-rollback"
+    items = [
+        PrimaryOrderBatchItemCommand(loan_id=str(loan_chf.pk), amount_minor=2_000_00),
+        PrimaryOrderBatchItemCommand(loan_id=str(loan_eur.pk), amount_minor=2_000_00),
+    ]
+    acceptance = _create_primary_acceptance(
+        investor,
+        order_id="",
+        idempotency_key="batch-mixed-rollback-accept",
+        context_type="primary_order_batch",
+        context_id=batch_key,
+        data_snapshot={
+            "items": [
+                {
+                    "loan_id": str(loan_chf.pk),
+                    "amount_minor": 2_000_00,
+                    "currency": "CHF",
+                },
+                {
+                    "loan_id": str(loan_eur.pk),
+                    "amount_minor": 2_000_00,
+                    "currency": "EUR",
+                },
+            ],
+        },
+    )
+
+    with pytest.raises(MarketplacePrimaryValidationError, match="Insufficient eligible balance"):
         place_primary_order_batch(
             PlacePrimaryOrderBatchCommand(
                 actor=investor,
@@ -2396,6 +2489,10 @@ def test_primary_order_batch_rejects_mixed_currencies_atomically(
             )
         )
 
+    loan_chf.refresh_from_db()
+    loan_eur.refresh_from_db()
+    assert cast(Any, loan_chf).committed_principal_minor == 0
+    assert cast(Any, loan_eur).committed_principal_minor == 0
     assert PrimaryInvestmentOrder.objects.count() == 0
     assert PrimaryInvestmentOrderBatch.objects.count() == 0
 
@@ -2444,6 +2541,7 @@ def test_primary_order_batch_api_returns_committed_amount_and_currency(
     assert response.status_code == 201
     payload = response.json()
     assert payload["currency"] == "CHF"
+    assert payload["currency_totals"] == [{"currency": "CHF", "amount_minor": amount_minor}]
     assert payload["order_count"] == 1
     assert payload["total_amount_minor"] == amount_minor
     assert payload["orders"][0]["allocated_amount_minor"] == amount_minor

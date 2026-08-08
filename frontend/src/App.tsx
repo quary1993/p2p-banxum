@@ -2496,9 +2496,23 @@ function Dashboard({
 
   const deskMatches = (smartInvest?.matches ?? []).filter((match) => match.currency === ccy);
   const deskTickable = deskMatches.filter((match) => match.product_type !== "originator_claim" && isOpenMarketplaceLoan(match));
-  const deskTicked = deskTickable.filter((match) => !unticked[match.loan_id]);
+  // Equal split, but a loan whose minimum the split cannot reach is dropped and
+  // the remaining balance is re-split until every ticked loan is affordable.
+  let deskTicked = idleMinor > 0 ? deskTickable.filter((match) => !unticked[match.loan_id]) : [];
+  for (;;) {
+    if (deskTicked.length === 0) break;
+    const per = Math.floor(idleMinor / deskTicked.length);
+    const affordable = deskTicked.filter(
+      (match) => Math.min(per, marketplaceAvailableMinor(match)) >= match.minimum_investment_minor
+    );
+    if (affordable.length === deskTicked.length) break;
+    deskTicked = affordable;
+  }
+  const deskAffordableIds = new Set(deskTicked.map((match) => match.loan_id));
+  const deskUnaffordable = (match: MarketplaceLoanPreview) =>
+    !deskAffordableIds.has(match.loan_id) && !unticked[match.loan_id];
   const deskSplit = new Map<string, number>();
-  if (deskTicked.length > 0 && idleMinor > 0) {
+  if (deskTicked.length > 0) {
     const per = Math.floor(idleMinor / deskTicked.length);
     for (const match of deskTicked) {
       deskSplit.set(match.loan_id, Math.max(0, Math.min(per, marketplaceAvailableMinor(match))));
@@ -2506,12 +2520,8 @@ function Dashboard({
   }
   const deskItems = deskTicked
     .map((match) => ({ match, amountMinor: deskSplit.get(match.loan_id) ?? 0 }));
-  const deskBatchReady = deskItems.length > 0 && deskItems.every(
-    (item) => item.amountMinor >= item.match.minimum_investment_minor
-  );
-  const deskTotal = deskBatchReady
-    ? deskItems.reduce((sum, item) => sum + item.amountMinor, 0)
-    : 0;
+  const deskBatchReady = deskItems.length > 0;
+  const deskTotal = deskItems.reduce((sum, item) => sum + item.amountMinor, 0);
   const openCcyLoans = loans.filter((loan) => isOpenMarketplaceLoan(loan) && loan.currency === ccy);
   const closingSoon = openCcyLoans
     .map((loan) => {
@@ -2640,19 +2650,25 @@ function Dashboard({
             <div className="dz-desk-rows">
               {deskMatches.map((match) => {
                 const tickable = match.product_type !== "originator_claim" && isOpenMarketplaceLoan(match);
-                const ticked = tickable && !unticked[match.loan_id];
+                const unaffordable = tickable && deskUnaffordable(match);
+                const ticked = tickable && deskAffordableIds.has(match.loan_id);
                 const amount = deskSplit.get(match.loan_id) ?? 0;
+                const affordNote = idleMinor <= 0
+                  ? `You have no investable ${ccy} balance, so nothing can be committed to this loan yet.`
+                  : `Splitting your ${pfMoneyLabel(ccy, idleMinor)} across the ticked loans leaves less than this loan's minimum investment of ${pfMoneyLabel(ccy, match.minimum_investment_minor)}.`;
                 return (
                   <div className="dz-desk-row" key={match.loan_id}>
-                    {tickable ? (
-                      <button aria-label={`${ticked ? "Untick" : "Tick"} ${match.title}`} className={`dz-tick${ticked ? " on" : ""}`} onClick={() => setUnticked((current) => ({ ...current, [match.loan_id]: !current[match.loan_id] }))} type="button">{ticked ? "✓" : ""}</button>
-                    ) : (
+                    {!tickable ? (
                       <span className="dz-tick claim" title="Originator claims are priced per loan — open the loan to buy." />
+                    ) : unaffordable ? (
+                      <span aria-label={`${match.title} cannot be selected`} className="dz-tick blocked" role="img" title={affordNote} />
+                    ) : (
+                      <button aria-label={`${ticked ? "Untick" : "Tick"} ${match.title}`} className={`dz-tick${ticked ? " on" : ""}`} onClick={() => setUnticked((current) => ({ ...current, [match.loan_id]: !current[match.loan_id] }))} type="button">{ticked ? "✓" : ""}</button>
                     )}
                     <button className="dz-desk-name" onClick={() => setSheetLoan(match)} type="button">{match.borrower_display_name || match.title}</button>
                     <span className="dz-desk-meta num">{formatRateBps(match.yield_bps)} · {match.term_months} mo · {match.originator_name || "Banxum"}{!tickable ? " · quote per loan" : ""}</span>
                     <span className="dz-leader" />
-                    <span className="dz-desk-amt num">{ticked && amount > 0 ? pfMoneyLabel(ccy, amount) : "—"}</span>
+                    <span className="dz-desk-amt num" title={unaffordable ? affordNote : undefined}>{ticked && amount > 0 ? pfMoneyLabel(ccy, amount) : unaffordable ? "below minimum" : "—"}</span>
                   </div>
                 );
               })}
@@ -2818,10 +2834,10 @@ function Dashboard({
         ) : null}
       </div>
 
-      {batchOpen && deskBatchReady ? (
-        <BatchReviewModal
-          currency={ccy}
-          items={deskItems.map((item) => ({ loan: item.match, amountMinor: item.amountMinor }))}
+      {batchOpen ? (
+        <ApproveAllocationModal
+          initialUnticked={unticked}
+          matches={deskMatches as unknown as MarketplaceLoanPreview[]}
           onClose={() => setBatchOpen(false)}
           onDone={() => {
             setBatchOpen(false);
@@ -2830,6 +2846,8 @@ function Dashboard({
             void smartInvestQuery.refetch();
             void portfolioQuery.refetch();
           }}
+          setInvestLoan={setInvestLoan}
+          setRoute={setRoute}
         />
       ) : null}
       {sheetLoan ? (
@@ -2847,39 +2865,181 @@ function Dashboard({
   );
 }
 
-function BatchReviewModal({
-  currency,
-  items,
+type AllocMatch = MarketplaceLoanPreview;
+
+type AllocPlan = {
+  ticked: Set<string>;
+  split: Map<string, number>;
+  blocked: Map<string, string>;
+  totals: Map<string, number>;
+};
+
+function allocationPlan(
+  matches: AllocMatch[],
+  untickedIds: Record<string, boolean>,
+  allocByCcy: Map<string, number>
+): AllocPlan {
+  const ticked = new Set<string>();
+  const split = new Map<string, number>();
+  const blocked = new Map<string, string>();
+  const totals = new Map<string, number>();
+  const currencies = Array.from(new Set(matches.map((match) => match.currency)));
+  for (const currency of currencies) {
+    const alloc = allocByCcy.get(currency) ?? 0;
+    const pool = matches.filter((match) => match.currency === currency);
+    let selected = alloc > 0 ? pool.filter((match) => !untickedIds[match.loan_id]) : [];
+    for (;;) {
+      if (selected.length === 0) break;
+      const per = Math.floor(alloc / selected.length);
+      const affordable = selected.filter(
+        (match) => Math.min(per, marketplaceAvailableMinor(match)) >= match.minimum_investment_minor
+      );
+      if (affordable.length === selected.length) break;
+      selected = affordable;
+    }
+    let total = 0;
+    const per = selected.length > 0 ? Math.floor(alloc / selected.length) : 0;
+    for (const match of selected) {
+      const amount = Math.max(0, Math.min(per, marketplaceAvailableMinor(match)));
+      ticked.add(match.loan_id);
+      split.set(match.loan_id, amount);
+      total += amount;
+    }
+    totals.set(currency, total);
+    for (const match of pool) {
+      if (ticked.has(match.loan_id)) continue;
+      if (untickedIds[match.loan_id]) {
+        // Manually unticked: disabled only if re-ticking could never reach its minimum.
+        const withIt = [...selected, match];
+        let test = withIt;
+        for (;;) {
+          if (test.length === 0) break;
+          const perTest = Math.floor(alloc / test.length);
+          const ok = test.filter(
+            (candidate) => Math.min(perTest, marketplaceAvailableMinor(candidate)) >= candidate.minimum_investment_minor
+          );
+          if (ok.length === test.length) break;
+          test = ok;
+        }
+        if (!test.some((candidate) => candidate.loan_id === match.loan_id)) {
+          blocked.set(
+            match.loan_id,
+            alloc <= 0
+              ? `You are allocating no ${currency}, so nothing can be committed to this loan.`
+              : `Splitting ${pfMoneyLabel(currency, alloc)} across the ticked loans would leave less than this loan's minimum investment of ${pfMoneyLabel(currency, match.minimum_investment_minor)}.`
+          );
+        }
+      } else {
+        blocked.set(
+          match.loan_id,
+          alloc <= 0
+            ? `You are allocating no ${currency}, so nothing can be committed to this loan.`
+            : `Splitting ${pfMoneyLabel(currency, alloc)} across the ticked loans leaves less than this loan's minimum investment of ${pfMoneyLabel(currency, match.minimum_investment_minor)}.`
+        );
+      }
+    }
+  }
+  return { ticked, split, blocked, totals };
+}
+
+function allocCommitLabel(totals: Map<string, number>) {
+  const parts = Array.from(totals.entries())
+    .filter(([, amount]) => amount > 0)
+    .map(([currency, amount]) => pfMoneyLabel(currency, amount));
+  return parts.length > 0 ? parts.join(" + ") : "—";
+}
+
+function ApproveAllocationModal({
+  matches,
+  initialUnticked,
   onClose,
-  onDone
+  onDone,
+  setRoute,
+  setInvestLoan
 }: {
-  currency: string;
-  items: { loan: MarketplaceLoanPreview; amountMinor: number }[];
+  matches: AllocMatch[];
+  initialUnticked: Record<string, boolean>;
   onClose: () => void;
   onDone: () => void;
+  setRoute: (route: AppRoute) => void;
+  setInvestLoan: (loan: MarketplaceLoanDetail | null, initialAmount?: string) => void;
 }) {
+  const balances = useBalancesData().data;
+  const tickable = matches.filter(
+    (match) => match.product_type !== "originator_claim" && isOpenMarketplaceLoan(match)
+  );
+  const currencies = Array.from(new Set(tickable.map((match) => match.currency))).sort();
+  const investableByCcy = new Map(
+    currencies.map((currency) => [
+      currency,
+      balances?.summaries.find((summary) => summary.currency === currency)?.investable_minor ?? 0
+    ])
+  );
+  const [unticked, setUnticked] = useState<Record<string, boolean>>(initialUnticked);
+  const [allocText, setAllocText] = useState<Record<string, string>>({});
+  const [step, setStep] = useState<"allocate" | "confirm" | "done">("allocate");
   const [ack, setAck] = useState(false);
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
-  const [done, setDone] = useState(false);
+  const [sheetLoan, setSheetLoan] = useState<AllocMatch | null>(null);
   const [batchKey] = useState(() => idempotencyKey("primary-batch"));
   const acceptanceMutation = useV1DocumentsAcceptancesCreate();
   const batchMutation = useMarketplacePrimaryOrdersBatchCreate();
   const codeRequest = useSensitiveActionCode(ActionEnum.primary_investment);
-  useAutoRequestEmailCode(codeRequest, !done);
+  useAutoRequestEmailCode(codeRequest, step === "confirm");
   const termsQuery = useV1DocumentsTemplatesCurrentRetrieve(
     { category: CategoryEnum.primary_market_investment },
-    { query: { enabled: !isFixturePreview, retry: false } }
+    { query: { enabled: !isFixturePreview && step === "confirm", retry: false } }
   );
-  const totalMinor = items.reduce((sum, item) => sum + item.amountMinor, 0);
+  const busy = acceptanceMutation.isPending || batchMutation.isPending;
+  const termsLabels = templateLabels(termsQuery.data);
+  const termsReady = isFixturePreview || Boolean(termsQuery.data && termsLabels.length > 0);
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || busy || sheetLoan) return;
+      if (step === "done") onDone();
+      else onClose();
+    };
+    window.addEventListener("keydown", listener);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", listener);
+      document.body.style.overflow = "";
+    };
+  }, [busy, onClose, onDone, sheetLoan, step]);
+
+  const allocByCcy = new Map<string, number>();
+  const allocationIssues = new Map<string, string>();
+  for (const currency of currencies) {
+    const investable = investableByCcy.get(currency) ?? 0;
+    const raw = allocText[currency];
+    if (raw === undefined) {
+      allocByCcy.set(currency, investable);
+    } else {
+      const parsed = parseMoneyInputToMinorUnits(raw, currency);
+      if (parsed.error) allocationIssues.set(currency, parsed.error);
+      else if (parsed.amountMinor <= 0) allocationIssues.set(currency, "Enter an amount greater than zero.");
+      else if (parsed.amountMinor > investable) {
+        allocationIssues.set(
+          currency,
+          `The allocation exceeds your investable balance of ${pfMoneyLabel(currency, investable)}.`
+        );
+      }
+      allocByCcy.set(currency, Math.min(investable, Math.max(0, parsed.amountMinor)));
+    }
+  }
+  const plan = allocationPlan(tickable, unticked, allocByCcy);
+  const items = tickable
+    .filter((match) => plan.ticked.has(match.loan_id))
+    .map((match) => ({ match, amountMinor: plan.split.get(match.loan_id) ?? 0 }));
+  const selectedCount = items.length;
   const submit = async () => {
     setError("");
     if (isFixturePreview) {
-      setDone(true);
+      setStep("done");
       return;
     }
-    const labels = templateLabels(termsQuery.data);
-    if (!termsQuery.data || labels.length === 0) {
+    if (!termsQuery.data || termsLabels.length === 0) {
       setError("Current investment terms are not available. Retry after the document template is published.");
       return;
     }
@@ -2892,78 +3052,189 @@ function BatchReviewModal({
         data: {
           category: CategoryEnum.primary_market_investment,
           expected_template_version_id: termsQuery.data.id,
-          accepted_checkbox_labels: labels,
+          accepted_checkbox_labels: termsLabels,
           context_type: "primary_order_batch",
           context_id: batchKey,
           data_snapshot: {
-            currency,
-            items: items.map((item) => ({ loan_id: item.loan.loan_id, amount_minor: item.amountMinor }))
+            items: items.map((item) => ({ loan_id: item.match.loan_id, amount_minor: item.amountMinor, currency: item.match.currency }))
           },
           idempotency_key: `${batchKey}-accept`
         }
       });
       await batchMutation.mutateAsync({
         data: {
-          items: items.map((item) => ({ loan_id: item.loan.loan_id, amount_minor: item.amountMinor })),
+          items: items.map((item) => ({ loan_id: item.match.loan_id, amount_minor: item.amountMinor })),
           document_acceptance_id: acceptance.id,
           idempotency_key: batchKey,
           sensitive_action_code_id: codeRequest.codeId,
           sensitive_action_code: code
         }
       });
-      setDone(true);
+      setStep("done");
     } catch (submitError) {
       setError(apiErrorMessage(submitError));
     }
   };
-  const busy = acceptanceMutation.isPending || batchMutation.isPending;
+  const dismiss = () => {
+    if (busy) return;
+    if (step === "done") onDone();
+    else onClose();
+  };
+
   return (
-    <Modal
-      footer={done
-        ? <Button variant="primary" onClick={onDone}>Done</Button>
-        : <><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!ack || code.length < 6 || busy || (!isFixturePreview && !codeRequest.codeId)} variant="primary" onClick={() => void submit()}>{busy ? "Placing orders..." : `Confirm ${items.length === 1 ? "1 order" : `${items.length} orders`}`}</Button></>}
-      onClose={done ? onDone : onClose}
-      title={done ? "Orders placed" : "Review & confirm"}
-      wide
-    >
-      {done ? (
-        <SuccessState title={`${pfMoneyLabel(currency, totalMinor)} committed across ${items.length === 1 ? "1 loan" : `${items.length} loans`}`}>
-          Each order is created and its balance reserved. If a funding round is cancelled, the reservation returns to your account automatically.
-        </SuccessState>
-      ) : (
-        <div className="col gap-16">
-          <div className="si-dash-rows">
-            {items.map((item) => (
-              <div className="si-dash-row" key={item.loan.loan_id} style={{ cursor: "default" }}>
-                <span className="si-dash-row-name">{item.loan.borrower_display_name || item.loan.title}</span>
-                <span className="si-dash-row-meta">{formatRateBps(marketplaceYieldBps(item.loan))} · {item.loan.term_months} mo · {item.loan.originator_name || "Banxum"}</span>
-                <span className="dz-leader" />
-                <span className="si-dash-row-amt">{pfMoneyLabel(currency, item.amountMinor)}</span>
-              </div>
-            ))}
-            <div className="si-dash-rows-foot">
-              <span className="num" style={{ fontWeight: 600, color: "#151719" }}>You commit {pfMoneyLabel(currency, totalMinor)}</span>
-              <span style={{ flex: 1 }} />
-              <span>one terms acceptance and one email code cover every order in this batch</span>
+    <div className="ls-scrim">
+      <button aria-label="Dismiss" className="ls-overlay-btn" disabled={busy} onClick={dismiss} tabIndex={-1} type="button" />
+      <div aria-label="Approve this allocation." aria-modal="true" className="ls-modal aa-modal" role="dialog">
+        <div className="ls-scroll aa-scroll">
+          {step === "done" ? (
+            <div className="aa-done">
+              <div className="aa-eyebrow">Allocation placed</div>
+              <h2 className="aa-title">Every order is in.</h2>
+              <p className="aa-done-text">{allocCommitLabel(plan.totals)} committed across {selectedCount === 1 ? "1 loan" : `${selectedCount} loans`}. Each order reserves its balance now; if a funding round is cancelled, the reservation returns to your account automatically.</p>
             </div>
-          </div>
-          <Check checked={ack} id="batch-ack" onChange={setAck}>
-            I accept the current primary-market investment terms for every order listed above.
-          </Check>
-          <Banner icon="lock" tone="info" title="Confirm a sensitive action">Enter the 6-digit email confirmation code. One code covers the whole batch.</Banner>
-          <CodeRequestField
-            hint={previewHint("Demo: any 6 digits")}
-            label="Email confirmation code"
-            requestDisabled={emailCodeRequestDisabled(codeRequest)}
-            requestLabel={emailCodeRequestLabel(codeRequest)}
-            value={code}
-            onChange={setCode}
-            onRequest={codeRequest.requestCode}
-          />
-          {error ? <Banner tone="bad" title="Batch not placed">{error}</Banner> : null}
+          ) : step === "confirm" ? (
+            <div className="aa-body">
+              <div className="aa-eyebrow">Approve the allocation</div>
+              <h2 className="aa-title">One code covers every order.</h2>
+              <div className="si-dash-rows aa-review-rows">
+                {items.map((item) => (
+                  <div className="si-dash-row" key={item.match.loan_id} style={{ cursor: "default" }}>
+                    <span className="si-dash-row-name">{item.match.borrower_display_name || item.match.title}</span>
+                    <span className="si-dash-row-meta">{formatRateBps(marketplaceYieldBps(item.match))} · {item.match.term_months} mo · {item.match.originator_name || "Banxum"}</span>
+                    <span className="dz-leader" />
+                    <span className="si-dash-row-amt">{pfMoneyLabel(item.match.currency, item.amountMinor)}</span>
+                  </div>
+                ))}
+                <div className="si-dash-rows-foot">
+                  <span className="num" style={{ fontWeight: 600, color: "#151719" }}>You commit {allocCommitLabel(plan.totals)}</span>
+                  <span style={{ flex: 1 }} />
+                  <span>one terms acceptance and one email code cover every order in this batch</span>
+                </div>
+              </div>
+              <Check checked={ack} id="aa-ack" onChange={setAck}>
+                I accept the current <LegalDocLink category="primary_market_investment">primary-market investment terms</LegalDocLink> for every order listed above.
+              </Check>
+              {!isFixturePreview && termsQuery.isLoading ? <p className="muted">Loading the current published terms...</p> : null}
+              {!isFixturePreview && !termsQuery.isLoading && !termsReady ? (
+                <Banner tone="bad" title="Investment terms unavailable">The current server-published investment terms could not be loaded. No order can be placed until a current version is available.</Banner>
+              ) : null}
+              {!isFixturePreview && termsQuery.data ? <p className="muted" style={{ fontSize: 11.5 }}>Accepting {termsQuery.data.title} v{termsQuery.data.version_number}.</p> : null}
+              <Banner icon="lock" tone="info" title="Confirm a sensitive action">Enter the 6-digit email confirmation code. One code covers the whole batch.</Banner>
+              <CodeRequestField
+                hint={previewHint("Demo: any 6 digits")}
+                label="Email confirmation code"
+                requestDisabled={emailCodeRequestDisabled(codeRequest)}
+                requestLabel={emailCodeRequestLabel(codeRequest)}
+                value={code}
+                onChange={setCode}
+                onRequest={codeRequest.requestCode}
+              />
+              {error ? <Banner tone="bad" title="Batch not placed">{error}</Banner> : null}
+            </div>
+          ) : (
+            <div className="aa-body">
+              <div className="aa-eyebrow">Approve the allocation</div>
+              <h2 className="aa-title">Approve this allocation.</h2>
+              <div className="aa-intro">
+                {tickable.length === 1 ? "1 opportunity meets" : `${tickable.length} opportunities meet`} your conditions today{selectedCount === tickable.length ? ", and every one is ticked" : ""}. Untick anything you would rather skip — your capital is split equally between whatever stays ticked, so unticking one gives the others more. The small i opens any loan in full — your ticks keep waiting underneath.
+              </div>
+              <div className="aa-list-head">
+                <span className="aa-list-cap">Today&apos;s allocation</span>
+                <span style={{ flex: 1 }} />
+                <button className="aa-link" onClick={() => setUnticked({})} type="button">all</button>
+                <button className="aa-link" onClick={() => setUnticked(Object.fromEntries(tickable.map((match) => [match.loan_id, true])))} type="button">none</button>
+              </div>
+              {currencies.map((currency) => (
+                <div className="aa-alloc-row" key={currency}>
+                  <span className="aa-alloc-cap">Allocating{currencies.length > 1 ? ` · ${currency}` : ""}</span>
+                  <div className="aa-alloc-box">
+                    <span className="aa-alloc-cur">{currency === "EUR" ? "€" : currency}</span>
+                    <input
+                      aria-label={`Amount to allocate in ${currency}`}
+                      className="aa-alloc-input"
+                      inputMode="decimal"
+                      onChange={(event) => setAllocText((current) => ({ ...current, [currency]: event.target.value }))}
+                      type="text"
+                      value={allocText[currency] ?? formatMoneyMinor(allocByCcy.get(currency) ?? 0, currency).replace(/[^\d.]/g, "")}
+                    />
+                  </div>
+                  <button className="aa-chip" onClick={() => setAllocText((current) => ({ ...current, [currency]: formatMoneyMinor(investableByCcy.get(currency) ?? 0, currency).replace(/[^\d.]/g, "") }))} type="button">
+                    My balance · {pfMoneyLabel(currency, investableByCcy.get(currency) ?? 0)}
+                  </button>
+                  {allocationIssues.has(currency) || (investableByCcy.get(currency) ?? 0) <= 0 ? (
+                    <button className="aa-chip add" onClick={() => { onClose(); goTo(setRoute, "balances"); }} type="button">Add money →</button>
+                  ) : null}
+                  {allocationIssues.has(currency) ? <span className="aa-alloc-error" role="alert">{allocationIssues.get(currency)}</span> : null}
+                </div>
+              ))}
+              <div className="aa-rows">
+                {tickable.map((match) => {
+                  const ticked = plan.ticked.has(match.loan_id);
+                  const reason = plan.blocked.get(match.loan_id);
+                  const blockedNow = reason !== undefined;
+                  const amount = plan.split.get(match.loan_id) ?? 0;
+                  const days = match.funding_deadline
+                    ? Math.max(0, Math.ceil((new Date(`${match.funding_deadline}T00:00:00`).getTime() - Date.now()) / 86_400_000))
+                    : null;
+                  return (
+                    <div className="aa-row" key={match.loan_id}>
+                      {ticked ? (
+                        <button aria-label={`Untick ${match.title}`} className="dz-tick on" onClick={() => setUnticked((current) => ({ ...current, [match.loan_id]: true }))} type="button">✓</button>
+                      ) : blockedNow ? (
+                        <span aria-label={`${match.title} cannot be selected`} className="dz-tick blocked" role="img" title={reason} />
+                      ) : (
+                        <button aria-label={`Tick ${match.title}`} className="dz-tick" onClick={() => setUnticked((current) => ({ ...current, [match.loan_id]: false }))} type="button" />
+                      )}
+                      <span className="aa-row-main">
+                        <span className="aa-row-name">
+                          {match.borrower_display_name || match.title}
+                          <button aria-label={`Open ${match.title} in full`} className="aa-info" onClick={() => setSheetLoan(match)} type="button">i</button>
+                        </span>
+                        <span className="aa-row-meta num">{formatRateBps(marketplaceYieldBps(match))} · {match.term_months} mo · {match.originator_name || "Banxum"}{days !== null ? ` · closes in ${days === 1 ? "1 day" : `${days} days`}` : ""}</span>
+                      </span>
+                      <span className="aa-row-amt num" title={blockedNow && !ticked ? reason : undefined}>{ticked && amount > 0 ? pfMoneyLabel(match.currency, amount) : blockedNow ? "below minimum" : "—"}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="aa-foot-row">
+                <span className="aa-selected">{selectedCount} selected</span>
+                <span className="aa-foot-dots" />
+                <span className="aa-committing">committing</span>
+                <span className="aa-commit-total num">{allocCommitLabel(plan.totals)}</span>
+              </div>
+              {error ? <div className="smart-inline-error" role="alert">{error}</div> : null}
+            </div>
+          )}
         </div>
-      )}
-    </Modal>
+        <div className="aa-actions">
+          {step === "done" ? (
+            <button className="aa-confirm" onClick={onDone} type="button">Done</button>
+          ) : step === "confirm" ? (
+            <>
+              <button className="aa-confirm" disabled={!ack || code.length < 6 || busy || !termsReady || (!isFixturePreview && !codeRequest.codeId)} onClick={() => void submit()} type="button">{busy ? "Placing orders..." : `Place ${selectedCount === 1 ? "1 order" : `${selectedCount} orders`}`}</button>
+              <button className="aa-cancel" disabled={busy} onClick={() => setStep("allocate")} type="button">Back</button>
+            </>
+          ) : (
+            <>
+              <button className="aa-confirm" disabled={selectedCount === 0 || allocationIssues.size > 0} onClick={() => setStep("confirm")} type="button">Confirm {selectedCount}</button>
+              <button className="aa-cancel" onClick={onClose} type="button">Cancel</button>
+            </>
+          )}
+        </div>
+      </div>
+      {sheetLoan ? (
+        <MarketplaceLoanSheet
+          onClose={() => setSheetLoan(null)}
+          onInvest={(detail, amount) => {
+            setSheetLoan(null);
+            setInvestLoan(detail, amount);
+          }}
+          preview={sheetLoan}
+          setRoute={setRoute}
+        />
+      ) : null}
+    </div>
   );
 }
 
@@ -3174,6 +3445,7 @@ function previewSmartInvestResponse(
 
 const mkSortOptions: FsSortOption[] = [
   { key: "name", label: "Company" },
+  { key: "rating", label: "Rating" },
   { key: "rate", label: "Yield" },
   { key: "term", label: "Term" },
   { key: "margin", label: "Collateral margin" },
@@ -3183,6 +3455,7 @@ const mkSortOptions: FsSortOption[] = [
 
 function mkSortValue(loan: MarketplaceLoanPreview, key: string): number | string {
   if (key === "name") return loan.title.toLowerCase();
+  if (key === "rating") return loan.risk_rating;
   if (key === "rate") return marketplaceYieldBps(loan);
   if (key === "term") return loan.term_months;
   if (key === "margin") return loan.ltv_bps ?? 999_999;
@@ -3723,10 +3996,14 @@ function smartInvestRuleSummary(filters: MkFilters, originators: Array<{ id: str
 
 function SmartInvestMatchTable({
   matches,
-  onOpen
+  onOpen,
+  plan,
+  onToggle
 }: {
   matches: SmartInvestOpportunity[];
   onOpen: (match: SmartInvestOpportunity) => void;
+  plan: AllocPlan;
+  onToggle: (loanId: string, nextUnticked: boolean) => void;
 }) {
   if (matches.length === 0) {
     return (
@@ -3737,29 +4014,48 @@ function SmartInvestMatchTable({
     );
   }
   return (
-    <div className="smart-invest-match-table" role="table" aria-label="Smart Invest matches">
+    <div className="smart-invest-match-table with-ticks" role="table" aria-label="Smart Invest matches">
       <div className="smart-invest-match-head" role="row">
-        <span>Company</span><span>Yield</span><span>Term</span><span>Collateral</span><span>Available</span><span />
+        <span /><span>Company</span><span>Yield</span><span>Term</span><span>Collateral</span><span>Available</span><span />
       </div>
-      {matches.map((match) => (
-        <button
-          className="smart-invest-match-row"
-          key={match.loan_id}
-          onClick={() => onOpen(match)}
-          role="row"
-          type="button"
-        >
-          <span>
-            <strong>{match.borrower_display_name || match.title}</strong>
-            <small>{match.originator_name ? `Originated by ${match.originator_name}` : match.purpose}</small>
-          </span>
-          <span>{formatRateBps(match.yield_bps)}</span>
-          <span>{match.term_months} mo</span>
-          <span>{match.ltv_bps === null ? "Unsecured" : `${((10_000 - match.ltv_bps) / 100).toFixed(1)}% margin`}</span>
-          <span>{formatMoneyMinor(match.fillable_amount_minor, match.currency)}</span>
-          <span aria-hidden="true">→</span>
-        </button>
-      ))}
+      {matches.map((match) => {
+        const tickable = match.product_type !== "originator_claim" && isOpenMarketplaceLoan(match as unknown as MarketplaceLoanPreview);
+        const ticked = plan.ticked.has(match.loan_id);
+        const reason = plan.blocked.get(match.loan_id);
+        return (
+          <div
+            className="smart-invest-match-row"
+            key={match.loan_id}
+            onClick={() => onOpen(match)}
+            role="row"
+            tabIndex={0}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && event.target === event.currentTarget) onOpen(match);
+            }}
+          >
+            <span onClick={(event) => event.stopPropagation()}>
+              {!tickable ? (
+                <span className="dz-tick claim" title="Originator claims are priced per loan — open the loan to buy." />
+              ) : ticked ? (
+                <button aria-label={`Untick ${match.title}`} className="dz-tick on" onClick={() => onToggle(match.loan_id, true)} type="button">✓</button>
+              ) : reason !== undefined ? (
+                <span aria-label={`${match.title} cannot be selected`} className="dz-tick blocked" role="img" title={reason} />
+              ) : (
+                <button aria-label={`Tick ${match.title}`} className="dz-tick" onClick={() => onToggle(match.loan_id, false)} type="button" />
+              )}
+            </span>
+            <span>
+              <strong>{match.borrower_display_name || match.title}</strong>
+              <small>{match.originator_name ? `Originated by ${match.originator_name}` : match.purpose}</small>
+            </span>
+            <span>{formatRateBps(match.yield_bps)}</span>
+            <span>{match.term_months} mo</span>
+            <span>{match.ltv_bps === null ? "Unsecured" : `${((10_000 - match.ltv_bps) / 100).toFixed(1)}% margin`}</span>
+            <span>{pfMoneyLabel(match.currency, match.fillable_amount_minor)}</span>
+            <span aria-hidden="true">→</span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -3931,6 +4227,9 @@ function SmartInvestScreen({
   const [wizardOpen, setWizardOpen] = useState(false);
   const [sheetLoanId, setSheetLoanId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [matchUnticked, setMatchUnticked] = useState<Record<string, boolean>>({});
+  const [approveOpen, setApproveOpen] = useState(false);
+  const balances = useBalancesData().data;
   const data = smartQuery.data;
   const rule = data?.rule;
   const active = rule?.is_active === true;
@@ -4015,6 +4314,19 @@ function SmartInvestScreen({
   if (!data) return <ScreenLoading title="Smart Invest" />;
   const saving = updateMutation.isPending || deactivateMutation.isPending;
   const update = <K extends keyof MkFilters>(key: K, value: MkFilters[K]) => setFilters((current) => ({ ...current, [key]: value }));
+  const matchAllocByCcy = new Map<string, number>();
+  for (const match of data.matches) {
+    if (!matchAllocByCcy.has(match.currency)) {
+      matchAllocByCcy.set(
+        match.currency,
+        balances?.summaries.find((summary) => summary.currency === match.currency)?.investable_minor ?? 0
+      );
+    }
+  }
+  const matchTickable = data.matches.filter(
+    (match) => match.product_type !== "originator_claim" && isOpenMarketplaceLoan(match as unknown as MarketplaceLoanPreview)
+  ) as unknown as MarketplaceLoanPreview[];
+  const matchPlan = allocationPlan(matchTickable, matchUnticked, matchAllocByCcy);
 
   return (
     <main className="content smart-invest-page">
@@ -4158,7 +4470,21 @@ function SmartInvestScreen({
       {active ? (
         <section className="smart-invest-matches">
           <div className="smart-invest-section-title"><div><div className="eyebrow">Matched by your rule</div><h2>{data.match_count} open {data.match_count === 1 ? "opportunity" : "opportunities"}</h2></div><button onClick={() => goTo(setRoute, "market")} type="button">Open full marketplace</button></div>
-          <SmartInvestMatchTable matches={data.matches} onOpen={(match) => setSheetLoanId(match.loan_id)} />
+          <SmartInvestMatchTable
+            matches={data.matches}
+            onOpen={(match) => setSheetLoanId(match.loan_id)}
+            onToggle={(loanId, nextUnticked) => setMatchUnticked((current) => ({ ...current, [loanId]: nextUnticked }))}
+            plan={matchPlan}
+          />
+          {matchPlan.ticked.size > 0 || data.matches.length > 0 ? (
+            <div className="aa-foot-row page">
+              <span className="aa-selected">{matchPlan.ticked.size} selected</span>
+              <span className="aa-foot-dots" />
+              <span className="aa-committing">committing</span>
+              <span className="aa-commit-total num">{allocCommitLabel(matchPlan.totals)}</span>
+              <button className="si-dash-setup" disabled={matchPlan.ticked.size === 0} onClick={() => setApproveOpen(true)} type="button">Review &amp; confirm →</button>
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -4171,6 +4497,20 @@ function SmartInvestScreen({
           <p><b>04</b><strong>It does not combine currencies.</strong> CHF and EUR opportunities and balances remain separate, even when your rule accepts both.</p>
         </div>
       </section>
+      {approveOpen ? (
+        <ApproveAllocationModal
+          initialUnticked={matchUnticked}
+          matches={data.matches as unknown as MarketplaceLoanPreview[]}
+          onClose={() => setApproveOpen(false)}
+          onDone={() => {
+            setApproveOpen(false);
+            void smartQuery.refetch();
+            void loansQuery.refetch();
+          }}
+          setInvestLoan={setInvestLoan}
+          setRoute={setRoute}
+        />
+      ) : null}
       {wizardOpen ? <SmartInvestWizard initialFilters={mkDefaultFilters} loans={loans} onClose={() => setWizardOpen(false)} onSave={save} saving={saving} /> : null}
       {sheetPreview ? (
         <MarketplaceLoanSheet
@@ -4468,6 +4808,7 @@ function MarketplaceOpportunityList({
     <div className={`marketplace-list ${viewMode}`}>
       <div className="marketplace-list-head">
         <FsTh activeKey={sortKey} dir={sortDir} label="Company" onPick={onPickSort} sortKey="name" />
+        <FsTh activeKey={sortKey} dir={sortDir} label="Rating" onPick={onPickSort} sortKey="rating" />
         <FsTh activeKey={sortKey} dir={sortDir} label="Yield" onPick={onPickSort} sortKey="rate" />
         <FsTh activeKey={sortKey} dir={sortDir} label="Term" onPick={onPickSort} sortKey="term" />
         <FsTh activeKey={sortKey} dir={sortDir} label="Collateral margin" onPick={onPickSort} sortKey="margin" />
@@ -4491,20 +4832,20 @@ function MarketplaceOpportunityList({
             />
             <div className="marketplace-opportunity-main">
               <div className="marketplace-opportunity-name">
-                <strong>{loan.title}</strong>
+                <strong>
+                  {loan.title}
+                  <span className="marketplace-copy-id" onClick={(event) => event.stopPropagation()}><CopyIdButton ariaLabel="Copy loan ID" iconOnly id={loan.loan_id} label="Copy loan ID" /></span>
+                </strong>
                 <span>
                   {originatorClaim && loan.originator_name
                     ? `${loan.originator_name} · ${loan.purpose}`
                     : loan.purpose}
+                  {loan.is_refinancing ? <> <RefinancedTag /></> : null}
                 </span>
-                <div className="marketplace-opportunity-tags">
-                  <Rating value={loan.risk_rating} />
-                  <span className="tag">{loan.currency}</span>
-                  {loan.is_refinancing ? <RefinancedTag /> : null}
-                  {originatorClaim ? <span className="tag">Originator claim</span> : null}
-                  <Chip status={loan.status} />
-                  <span className="marketplace-copy-id" onClick={(event) => event.stopPropagation()}><CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" /></span>
-                </div>
+              </div>
+              <div className="marketplace-opportunity-rating">
+                <span className="marketplace-mobile-label">Rating</span>
+                <strong>{loan.risk_rating}</strong>
               </div>
               <div className="marketplace-opportunity-rate">
                 <span className="marketplace-mobile-label">Yield</span>

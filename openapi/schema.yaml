@@ -12155,6 +12155,12 @@ components:
           format: uuid
         currency:
           type: string
+          nullable: true
+        currency_totals:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
         orders:
           type: array
           items:
@@ -12163,9 +12169,11 @@ components:
           type: integer
         total_amount_minor:
           type: integer
+          nullable: true
       required:
       - batch_id
       - currency
+      - currency_totals
       - order_count
       - orders
       - total_amount_minor

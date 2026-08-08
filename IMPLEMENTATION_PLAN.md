@@ -2682,3 +2682,7 @@ These are intentionally not part of launch implementation:
 - Formal public SLA tooling.
 - In-platform legal collections workflow tracking beyond notes, documents, public notes, recovery events, and future advisor-approved final-resolution events.
 - In-platform ongoing AML monitoring beyond Didit status/result integration.
+
+## Accepted Decision Updates
+
+- **2026-08-08, MKT-DEC-027:** one reviewed Smart Invest allocation may contain direct-loan orders in both CHF and EUR behind one umbrella clickwrap and one sensitive-action code. Each child order remains same-currency, immutable parent evidence stores per-currency totals without aggregating unlike currencies, and the transaction rolls back every currency if any selected order fails. This supersedes the earlier same-currency-only batch wording in the Phase 7 foundation summary.

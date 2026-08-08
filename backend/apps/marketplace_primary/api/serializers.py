@@ -162,10 +162,11 @@ class PrimaryOrderBatchRequestSerializer(serializers.Serializer[Any]):
 
 class PrimaryOrderBatchResponseSerializer(serializers.Serializer[Any]):
     batch_id = serializers.UUIDField()
-    currency = serializers.CharField()
+    currency = serializers.CharField(allow_null=True)
+    currency_totals = serializers.ListField(child=serializers.DictField())
     orders = PrimaryInvestmentOrderSerializer(many=True)
     order_count = serializers.IntegerField()
-    total_amount_minor = serializers.IntegerField()
+    total_amount_minor = serializers.IntegerField(allow_null=True)
 
 
 class PrimaryInvestmentOrderReleaseRequestSerializer(serializers.Serializer[Any]):

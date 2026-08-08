@@ -662,7 +662,7 @@ When an opportunity first becomes public and investable, the platform evaluates 
 
 Smart Invest is a discovery mechanism only. It does not rank credit quality, assess suitability, reserve balance, create a primary order, execute an originator-claim purchase, or invest automatically. Every investment still requires the ordinary detail review, current terms acceptance, sensitive-action verification, balance/capacity checks, and explicit investor confirmation.
 
-### MKT-DEC-027: Explicit Same-Currency Batch Placement
+### MKT-DEC-027: Explicit Multi-Currency Batch Placement
 
 Status: Accepted.
 Date: 2026-08-08.
@@ -670,6 +670,6 @@ Owner: Garanta product / compliance / technology.
 
 The investor dashboard may present several Smart Invest matches for explicit selection and place up to 20 selected **direct-loan** orders as one batch. This is not auto-invest: the investor reviews the exact loan/amount list, accepts the current primary-market terms for that list, enters one fresh sensitive-action email code, and confirms the batch.
 
-The batch is same-currency and all-or-nothing. The backend locks every selected loan in stable ID order, requires every order to satisfy the launch minimum and allocate its exact reviewed amount, and rolls back all orders, reservations, document evidence, and counters if any loan, capacity, balance, or eligibility check fails. Originator claims remain on their dated quote/purchase path.
+The reviewed allocation may contain direct loans in both CHF and EUR, while each order and balance reservation remains strictly isolated in its loan currency. The backend locks every selected loan in stable ID order, requires every order to satisfy the launch minimum and allocate its exact reviewed amount from same-currency balance, and rolls back all child orders, reservations, derived per-order evidence, and counters across every currency if any loan, capacity, balance, or eligibility check fails. The append-only umbrella acceptance remains as internal evidence of the investor's failed placement attempt. Originator claims remain on their dated quote/purchase path.
 
-An immutable parent batch record binds the investor, currency, item snapshot, order IDs, total, umbrella acceptance, idempotency key, and request fingerprint. Exact replays return that record without consuming a second code; conflicting replays are rejected. The umbrella clickwrap snapshot must exactly match the submitted loans and amounts. The system derives a current, server-owned `primary_order` acceptance for each child order so each investment agreement remains independently reproducible and downloadable; the internal umbrella authorization is not exposed as a duplicate investor document.
+An immutable parent batch record binds the investor, per-currency totals, item snapshot, order IDs, umbrella acceptance, idempotency key, and request fingerprint. Legacy single-currency batches also retain their scalar currency/total fields; mixed-currency batches never store or display a meaningless cross-currency scalar total. Exact replays return the parent record without consuming a second code; conflicting replays are rejected. The umbrella clickwrap snapshot must exactly match the submitted loans, amounts, and server-owned loan currencies. The system derives a current, server-owned `primary_order` acceptance for each child order so each investment agreement remains independently reproducible and downloadable; the internal umbrella authorization is not exposed as a duplicate investor document.

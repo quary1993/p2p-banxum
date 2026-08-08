@@ -192,9 +192,14 @@ class PrimaryOrderBatchView(APIView):
             {
                 "batch_id": str(result.batch.id),
                 "currency": result.batch.currency_id,
+                "currency_totals": result.batch.currency_totals,
                 "orders": [serialize_primary_order(order) for order in result.orders],
                 "order_count": len(result.orders),
-                "total_amount_minor": int(result.batch.total_amount_minor),
+                "total_amount_minor": (
+                    int(result.batch.total_amount_minor)
+                    if result.batch.total_amount_minor is not None
+                    else None
+                ),
             },
             status=status.HTTP_201_CREATED,
         )
