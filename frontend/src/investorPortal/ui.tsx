@@ -1,4 +1,14 @@
-import { useEffect, type ButtonHTMLAttributes, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ButtonHTMLAttributes,
+  type ReactNode
+} from "react";
+import { createPortal } from "react-dom";
 
 import { formatMoneyMinor } from "./format";
 
@@ -102,6 +112,97 @@ export function Icon({
     >
       <path d={icons[name]} />
     </svg>
+  );
+}
+
+export function Tooltip({
+  children,
+  content,
+  focusable = true,
+  label,
+  className = ""
+}: {
+  children: ReactNode;
+  content: ReactNode;
+  focusable?: boolean;
+  label?: string;
+  className?: string;
+}) {
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const tooltipId = useId();
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState({ left: 0, placement: "top" as "top" | "bottom", top: 0 });
+  const hasContent = content !== null && content !== undefined && content !== "";
+
+  const updatePosition = useCallback(() => {
+    const anchor = anchorRef.current;
+    if (!anchor) return;
+    const rect = anchor.getBoundingClientRect();
+    const viewportWidth = document.documentElement.clientWidth;
+    const estimatedHalfWidth = Math.min(160, Math.max(90, (viewportWidth - 24) / 2));
+    const left = Math.max(
+      12 + estimatedHalfWidth,
+      Math.min(viewportWidth - 12 - estimatedHalfWidth, rect.left + rect.width / 2)
+    );
+    const placement = rect.top >= 88 ? "top" : "bottom";
+    setPosition({
+      left,
+      placement,
+      top: placement === "top" ? rect.top : rect.bottom
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!open || !hasContent) return undefined;
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [hasContent, open, updatePosition]);
+
+  if (!hasContent) return <>{children}</>;
+
+  return (
+    <span
+      aria-describedby={open ? tooltipId : undefined}
+      aria-label={label}
+      className={`ui-tooltip-anchor ${focusable ? "is-focusable" : ""} ${className}`}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+      }}
+      onFocus={() => setOpen(true)}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          setOpen(false);
+          anchorRef.current?.blur();
+        }
+      }}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+      onPointerDown={(event) => {
+        if (event.pointerType === "touch" && focusable) event.currentTarget.focus();
+      }}
+      ref={anchorRef}
+      tabIndex={focusable ? 0 : undefined}
+    >
+      {children}
+      {open
+        ? createPortal(
+            <span
+              className={`ui-tooltip-popup ${position.placement}`}
+              id={tooltipId}
+              role="tooltip"
+              style={{ left: position.left, top: position.top }}
+            >
+              {content}
+            </span>,
+            document.body
+          )
+        : null}
+    </span>
   );
 }
 
@@ -217,17 +318,15 @@ export function Chip({
   const finalTone = tone ?? mapped?.tone ?? "neutral";
   const label = children ?? mapped?.label ?? status;
   const accessibleLabel = tooltip && typeof label === "string" ? `${label}. ${tooltip}` : undefined;
-  return (
+  const chip = (
     <span
-      aria-label={accessibleLabel}
-      className={`chip chip-${finalTone} ${square ? "chip-square" : ""} ${tooltip ? "chip-tooltip" : ""}`}
-      tabIndex={tooltip ? 0 : undefined}
-      title={tooltip}
+      className={`chip chip-${finalTone} ${square ? "chip-square" : ""}`}
     >
       {dot ? <span className="dot" /> : null}
       {label}
     </span>
   );
+  return tooltip ? <Tooltip content={tooltip} label={accessibleLabel}>{chip}</Tooltip> : chip;
 }
 
 export function Rating({ value }: { value: string }) {

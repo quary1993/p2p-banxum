@@ -200,6 +200,81 @@ def _declare_deposit(
     )
 
 
+def _create_originator_batch_loan(admin_user: Model, *, suffix: str) -> Model:
+    services = import_module("backend.apps.originator_claims.services")
+    today = business_date(timezone.now())
+    first_due = today + timedelta(days=45)
+    second_due = today + timedelta(days=90)
+    csv_content = "\n".join(
+        [
+            (
+                "row_type,reference,installment_number,accrual_start_date,due_date,"
+                "value_date,payment_type,opening_principal_minor,principal_minor,"
+                "interest_minor,penalty_minor,fee_minor,total_minor,"
+                "closing_principal_minor,resulting_principal_minor"
+            ),
+            (
+                f"schedule,,1,{today.isoformat()},{first_due.isoformat()},,,1000000,"
+                "500000,10000,0,0,510000,500000,"
+            ),
+            (
+                f"schedule,,2,{first_due.isoformat()},{second_due.isoformat()},,,500000,"
+                "500000,5000,0,0,505000,0,"
+            ),
+        ]
+    )
+    originator = services.create_loan_originator(
+        services.CreateLoanOriginatorCommand(
+            actor=admin_user,
+            legal_name=f"Batch Originator {suffix} AG",
+            public_name=f"Batch Originator {suffix}",
+            registration_number=f"CHE-BATCH-{suffix}",
+            jurisdiction="CH",
+            registered_address="Zurich, Switzerland",
+            settlement_account_name=f"Batch Originator {suffix} AG",
+            settlement_iban="CH9300762011623852957",
+            kyb_evidence_reference=f"KYB-BATCH-{suffix}",
+            status="active",
+        )
+    )
+    result = services.create_originator_loan(
+        services.CreateOriginatorLoanCommand(
+            actor=admin_user,
+            originator_id=str(originator.id),
+            title=f"Batch claim {suffix}",
+            investor_summary="Performing claim used to verify mixed batch settlement.",
+            purpose="working_capital",
+            purpose_description="Working capital",
+            currency="CHF",
+            original_principal_minor=1_000_000,
+            interest_rate_bps=1_200,
+            target_yield_bps=800,
+            minimum_investment_minor=100_000,
+            repayment_type="equal_installments",
+            interest_only_months=0,
+            collateral_type="receivables",
+            collateral_value_minor=1_500_000,
+            collateral_description="Assigned receivables",
+            risk_rating="BBB",
+            csv_content=f"{csv_content}\n",
+            source_filename=f"batch-{suffix}.csv",
+            as_of_date=today,
+            borrower_snapshot={
+                "borrower_legal_name": f"Confidential Batch Borrower {suffix} AG",
+                "borrower_display_name": f"Batch borrower {suffix}",
+            },
+        )
+    )
+    services.publish_originator_loan(
+        services.PublishOriginatorLoanCommand(
+            actor=admin_user,
+            loan_id=str(result.loan.id),
+            as_of_date=today,
+        )
+    )
+    return cast(Model, result.loan)
+
+
 def _create_primary_acceptance(
     investor: Model,
     *,
@@ -2214,6 +2289,247 @@ def test_primary_order_batch_places_all_orders_behind_one_code(
         cast(Any, order.document_acceptance).data_snapshot["loan"]["id"] == str(order.loan_id)
         for order in orders
     )
+
+
+@pytest.mark.django_db
+def test_primary_order_batch_places_direct_and_originator_claim_atomically(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    direct_loan = _create_published_loan(admin_user, principal_minor=10_000_00)
+    originator_loan = _create_originator_batch_loan(admin_user, suffix="MIXED")
+    _declare_deposit(
+        admin_user,
+        investor,
+        amount_minor=10_000_00,
+        idempotency_key="mixed-batch-deposit",
+    )
+    originator_services = import_module("backend.apps.originator_claims.services")
+    quote = originator_services.create_originator_claim_quote(
+        originator_services.CreateOriginatorClaimQuoteCommand(
+            actor=investor,
+            loan_id=str(originator_loan.pk),
+            requested_cash_minor=2_500_00,
+        )
+    )
+    batch_key = "primary-mixed-batch"
+    items = [
+        PrimaryOrderBatchItemCommand(
+            loan_id=str(direct_loan.pk),
+            amount_minor=2_000_00,
+        ),
+        PrimaryOrderBatchItemCommand(
+            loan_id=str(originator_loan.pk),
+            amount_minor=int(quote.executable_cash_minor),
+            quote_id=str(quote.id),
+        ),
+    ]
+    acceptance = _create_primary_acceptance(
+        investor,
+        order_id="",
+        idempotency_key="mixed-batch-acceptance",
+        context_type="primary_order_batch",
+        context_id=batch_key,
+        data_snapshot={
+            "items": [
+                {
+                    "loan_id": item.loan_id,
+                    "amount_minor": item.amount_minor,
+                    "currency": "CHF",
+                    **({"quote_id": item.quote_id} if item.quote_id else {}),
+                }
+                for item in items
+            ]
+        },
+    )
+
+    result = place_primary_order_batch(
+        PlacePrimaryOrderBatchCommand(
+            actor=investor,
+            items=items,
+            document_acceptance_id=str(acceptance.pk),
+            idempotency_key=batch_key,
+            **_sensitive_code_payload(investor, "primary_investment"),
+        )
+    )
+
+    assert len(result.orders) == 1
+    assert len(result.originator_purchases) == 1
+    assert result.batch.order_count == 1
+    assert result.batch.originator_purchase_count == 1
+    assert result.batch.originator_purchase_ids == [str(result.originator_purchases[0].id)]
+    assert result.batch.currency_totals == [
+        {
+            "currency": "CHF",
+            "amount_minor": 2_000_00 + int(quote.executable_cash_minor),
+        }
+    ]
+    assert result.orders[0].status == PrimaryInvestmentOrderStatus.BALANCE_ALLOCATED
+    assert cast(Any, result.originator_purchases[0].document_acceptance).context_type == (
+        "originator_claim_quote"
+    )
+    assert str(result.originator_purchases[0].quote_id) == str(quote.id)
+
+
+@pytest.mark.django_db
+def test_primary_order_batch_purchases_multiple_originator_claims(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    first_loan = _create_originator_batch_loan(admin_user, suffix="MULTI-A")
+    second_loan = _create_originator_batch_loan(admin_user, suffix="MULTI-B")
+    originator_services = import_module("backend.apps.originator_claims.services")
+    first_quote = originator_services.create_originator_claim_quote(
+        originator_services.CreateOriginatorClaimQuoteCommand(
+            actor=investor,
+            loan_id=str(first_loan.pk),
+            requested_cash_minor=2_000_00,
+        )
+    )
+    second_quote = originator_services.create_originator_claim_quote(
+        originator_services.CreateOriginatorClaimQuoteCommand(
+            actor=investor,
+            loan_id=str(second_loan.pk),
+            requested_cash_minor=2_500_00,
+        )
+    )
+    total_cash_minor = int(first_quote.executable_cash_minor) + int(
+        second_quote.executable_cash_minor
+    )
+    _declare_deposit(
+        admin_user,
+        investor,
+        amount_minor=total_cash_minor,
+        idempotency_key="multi-claim-batch-deposit",
+    )
+    batch_key = "primary-multi-claim-batch"
+    items = [
+        PrimaryOrderBatchItemCommand(
+            loan_id=str(first_loan.pk),
+            amount_minor=int(first_quote.executable_cash_minor),
+            quote_id=str(first_quote.id),
+        ),
+        PrimaryOrderBatchItemCommand(
+            loan_id=str(second_loan.pk),
+            amount_minor=int(second_quote.executable_cash_minor),
+            quote_id=str(second_quote.id),
+        ),
+    ]
+    acceptance = _create_primary_acceptance(
+        investor,
+        order_id="",
+        idempotency_key="multi-claim-batch-acceptance",
+        context_type="primary_order_batch",
+        context_id=batch_key,
+        data_snapshot={
+            "items": [
+                {
+                    "loan_id": item.loan_id,
+                    "amount_minor": item.amount_minor,
+                    "currency": "CHF",
+                    "quote_id": item.quote_id,
+                }
+                for item in items
+            ]
+        },
+    )
+
+    result = place_primary_order_batch(
+        PlacePrimaryOrderBatchCommand(
+            actor=investor,
+            items=items,
+            document_acceptance_id=str(acceptance.pk),
+            idempotency_key=batch_key,
+            **_sensitive_code_payload(investor, "primary_investment"),
+        )
+    )
+
+    assert result.orders == []
+    assert len(result.originator_purchases) == 2
+    assert result.batch.order_count == 0
+    assert result.batch.originator_purchase_count == 2
+    assert result.batch.originator_purchase_ids == [
+        str(purchase.id) for purchase in result.originator_purchases
+    ]
+    assert result.batch.currency_totals == [
+        {"currency": "CHF", "amount_minor": total_cash_minor}
+    ]
+    assert not PrimaryInvestmentOrder.objects.filter(
+        loan_id__in=[first_loan.pk, second_loan.pk]
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_mixed_primary_batch_rolls_back_direct_order_when_claim_balance_is_short(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    direct_loan = _create_published_loan(admin_user, principal_minor=10_000_00)
+    originator_loan = _create_originator_batch_loan(admin_user, suffix="ROLLBACK")
+    originator_services = import_module("backend.apps.originator_claims.services")
+    quote = originator_services.create_originator_claim_quote(
+        originator_services.CreateOriginatorClaimQuoteCommand(
+            actor=investor,
+            loan_id=str(originator_loan.pk),
+            requested_cash_minor=2_500_00,
+        )
+    )
+    direct_amount_minor = 2_000_00
+    _declare_deposit(
+        admin_user,
+        investor,
+        amount_minor=direct_amount_minor + int(quote.executable_cash_minor) - 1,
+        idempotency_key="mixed-batch-short-deposit",
+    )
+    batch_key = "primary-mixed-batch-short"
+    items = [
+        PrimaryOrderBatchItemCommand(
+            loan_id=str(direct_loan.pk),
+            amount_minor=direct_amount_minor,
+        ),
+        PrimaryOrderBatchItemCommand(
+            loan_id=str(originator_loan.pk),
+            amount_minor=int(quote.executable_cash_minor),
+            quote_id=str(quote.id),
+        ),
+    ]
+    acceptance = _create_primary_acceptance(
+        investor,
+        order_id="",
+        idempotency_key="mixed-batch-short-acceptance",
+        context_type="primary_order_batch",
+        context_id=batch_key,
+        data_snapshot={
+            "items": [
+                {
+                    "loan_id": item.loan_id,
+                    "amount_minor": item.amount_minor,
+                    "currency": "CHF",
+                    **({"quote_id": item.quote_id} if item.quote_id else {}),
+                }
+                for item in items
+            ]
+        },
+    )
+
+    with pytest.raises(MarketplacePrimaryValidationError, match="Insufficient eligible balance"):
+        place_primary_order_batch(
+            PlacePrimaryOrderBatchCommand(
+                actor=investor,
+                items=items,
+                document_acceptance_id=str(acceptance.pk),
+                idempotency_key=batch_key,
+                **_sensitive_code_payload(investor, "primary_investment"),
+            )
+        )
+
+    assert not PrimaryInvestmentOrder.objects.filter(loan_id=direct_loan.pk).exists()
+    assert not PrimaryInvestmentOrderBatch.objects.filter(idempotency_key=batch_key).exists()
+    purchase_model = apps.get_model("originator_claims", "OriginatorClaimPurchase")
+    assert not purchase_model.objects.filter(quote_id=quote.id).exists()
 
 
 @pytest.mark.django_db

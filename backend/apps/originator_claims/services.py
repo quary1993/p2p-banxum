@@ -177,6 +177,18 @@ class PurchaseOriginatorClaimCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class PurchaseOriginatorClaimInVerifiedBatchCommand:
+    """Internal service-boundary command for a batch that already consumed MFA."""
+
+    actor: Model
+    quote_id: str
+    document_acceptance_id: str
+    idempotency_key: str
+    ip_address: str | None = None
+    user_agent: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class FinalizeOriginatorSettlementCommand:
     actor: Model
     originator_id: str
@@ -2042,6 +2054,47 @@ def purchase_originator_claim(
     )
 
 
+def purchase_originator_claim_in_verified_batch(
+    command: PurchaseOriginatorClaimInVerifiedBatchCommand,
+) -> OriginatorClaimPurchase:
+    """Purchase one quoted claim after the parent batch verified its single code.
+
+    This is intentionally not exposed through an API view. The marketplace batch
+    orchestrator owns the preceding sensitive-action verification and wraps all
+    child purchases and direct allocations in one outer transaction.
+    """
+
+    if not user_can_access_financial_features(command.actor):
+        raise OriginatorClaimsAuthorizationError(
+            "Financial access, phone verification, and approved KYC are required."
+        )
+    purchase_command = PurchaseOriginatorClaimCommand(
+        actor=command.actor,
+        quote_id=command.quote_id,
+        document_acceptance_id=command.document_acceptance_id,
+        sensitive_action_code_id="",
+        sensitive_action_code="",
+        idempotency_key=command.idempotency_key,
+        ip_address=command.ip_address,
+        user_agent=command.user_agent,
+    )
+    idempotency_key = _required(command.idempotency_key, "Idempotency key")
+    if len(idempotency_key) > 160:
+        raise OriginatorClaimsValidationError("Idempotency key cannot exceed 160 characters.")
+    request_fingerprint = _purchase_request_fingerprint(purchase_command)
+    existing = _existing_purchase(
+        idempotency_key=idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing is not None:
+        return existing
+    return _purchase_originator_claim_after_sensitive_code(
+        purchase_command,
+        idempotency_key=idempotency_key,
+        request_fingerprint=request_fingerprint,
+    )
+
+
 @transaction.atomic
 def _purchase_originator_claim_after_sensitive_code(
     command: PurchaseOriginatorClaimCommand,
@@ -2111,47 +2164,53 @@ def _purchase_originator_claim_after_sensitive_code(
     )
     ledger = import_module("backend.apps.ledger.services")
     holdings = import_module("backend.apps.holdings.services")
-    ledger_result = ledger.settle_originator_claim_purchase_ledger(
-        ledger.SettleOriginatorClaimPurchaseLedgerCommand(
-            actor=command.actor,
-            purchase_id=str(purchase_id),
-            loan_id=str(profile.loan_id),
-            originator_id=str(profile.originator_id),
-            investor_user_id=str(command.actor.pk),
-            currency=profile.loan.currency.code,
-            cash_consideration_minor=quote.executable_cash_minor,
-            assigned_principal_minor=quote.assigned_principal_minor,
-            platform_fee_minor=quote.platform_fee_minor,
-            originator_payable_minor=quote.originator_payable_minor,
-            source_type="originator_claim_purchase",
-            source_id=str(purchase_id),
-            idempotency_key=f"originator-purchase-ledger:{idempotency_key}",
-            as_of=now,
-            metadata={"quote_id": str(quote.id)},
+    try:
+        ledger_result = ledger.settle_originator_claim_purchase_ledger(
+            ledger.SettleOriginatorClaimPurchaseLedgerCommand(
+                actor=command.actor,
+                purchase_id=str(purchase_id),
+                loan_id=str(profile.loan_id),
+                originator_id=str(profile.originator_id),
+                investor_user_id=str(command.actor.pk),
+                currency=profile.loan.currency.code,
+                cash_consideration_minor=quote.executable_cash_minor,
+                assigned_principal_minor=quote.assigned_principal_minor,
+                platform_fee_minor=quote.platform_fee_minor,
+                originator_payable_minor=quote.originator_payable_minor,
+                source_type="originator_claim_purchase",
+                source_id=str(purchase_id),
+                idempotency_key=f"originator-purchase-ledger:{idempotency_key}",
+                as_of=now,
+                metadata={"quote_id": str(quote.id)},
+            )
         )
-    )
-    holding = holdings.create_originator_claim_holding(
-        holdings.CreateOriginatorClaimHoldingCommand(
-            actor=command.actor,
-            investor_user_id=str(command.actor.pk),
-            loan_id=str(profile.loan_id),
-            purchase_id=str(purchase_id),
-            principal_minor=quote.assigned_principal_minor,
-            current_loan_principal_minor=profile.current_outstanding_principal_minor,
-            currency=profile.loan.currency.code,
-            assignment_effective_at=now,
-            idempotency_key=f"originator-purchase-holding:{idempotency_key}",
-            loan_share_ppm=quote.share_ppm,
-            metadata={
-                "quote_id": str(quote.id),
-                "target_yield_bps": quote.target_yield_bps,
-                "cash_consideration_minor": quote.executable_cash_minor,
-                "outstanding_principal_at_pricing_minor": (
-                    quote.outstanding_principal_at_pricing_minor
-                ),
-            },
+    except ledger.LedgerError as exc:
+        raise OriginatorClaimsValidationError(str(exc)) from exc
+    try:
+        holding = holdings.create_originator_claim_holding(
+            holdings.CreateOriginatorClaimHoldingCommand(
+                actor=command.actor,
+                investor_user_id=str(command.actor.pk),
+                loan_id=str(profile.loan_id),
+                purchase_id=str(purchase_id),
+                principal_minor=quote.assigned_principal_minor,
+                current_loan_principal_minor=profile.current_outstanding_principal_minor,
+                currency=profile.loan.currency.code,
+                assignment_effective_at=now,
+                idempotency_key=f"originator-purchase-holding:{idempotency_key}",
+                loan_share_ppm=quote.share_ppm,
+                metadata={
+                    "quote_id": str(quote.id),
+                    "target_yield_bps": quote.target_yield_bps,
+                    "cash_consideration_minor": quote.executable_cash_minor,
+                    "outstanding_principal_at_pricing_minor": (
+                        quote.outstanding_principal_at_pricing_minor
+                    ),
+                },
+            )
         )
-    )
+    except holdings.HoldingsError as exc:
+        raise OriginatorClaimsValidationError(str(exc)) from exc
     try:
         with transaction.atomic():
             purchase = cast(

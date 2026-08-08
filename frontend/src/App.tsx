@@ -39,6 +39,7 @@ import {
   useV1InvestorSmartInvestDeactivateCreate,
   useV1InvestorSmartInvestUpdate,
   useMarketplacePrimaryOrdersBatchCreate,
+  originatorClaimsLoansQuoteCreate,
   useOriginatorClaimsLoansQuoteCreate,
   useOriginatorClaimsQuotesPurchaseCreate,
   v1AuthMagicLinkConsumeCreate
@@ -121,7 +122,8 @@ import {
   Review,
   Segmented,
   Stat,
-  Tabs
+  Tabs,
+  Tooltip
 } from "./investorPortal/ui";
 
 const platformName = import.meta.env.VITE_PLATFORM_BRAND_NAME ?? "BANXUM";
@@ -614,33 +616,42 @@ function CopyIdButton({
   const [copied, setCopied] = useState(false);
   const accessibleLabel = copied ? "Copied" : (ariaLabel ?? label);
   return (
-    <Button
-      aria-label={accessibleLabel}
-      className={`copy-id-btn${iconOnly ? " icon-only" : ""}`}
-      icon="copy"
-      size="sm"
-      title={accessibleLabel}
-      variant="ghost"
-      onClick={(event) => {
-        event.stopPropagation();
-        const done = () => {
-          setCopied(true);
-          window.setTimeout(() => setCopied(false), 1400);
-        };
-        const writeClipboard = navigator.clipboard?.writeText?.bind(navigator.clipboard);
-        if (writeClipboard) {
-          void writeClipboard(id).then(done).catch(() => {
-            copyTextFallback(id);
-            done();
-          });
-          return;
-        }
-        copyTextFallback(id);
-        done();
-      }}
-    >
-      {iconOnly ? null : (copied ? "Copied" : label)}
-    </Button>
+    <Tooltip content={accessibleLabel} focusable={false}>
+      <Button
+        aria-label={accessibleLabel}
+        className={`copy-id-btn${iconOnly ? " icon-only" : ""}`}
+        icon="copy"
+        size="sm"
+        variant="ghost"
+        onClick={(event) => {
+          event.stopPropagation();
+          const done = () => {
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1400);
+          };
+          const writeClipboard = navigator.clipboard?.writeText?.bind(navigator.clipboard);
+          if (writeClipboard) {
+            void writeClipboard(id).then(done).catch(() => {
+              copyTextFallback(id);
+              done();
+            });
+            return;
+          }
+          copyTextFallback(id);
+          done();
+        }}
+      >
+        {iconOnly ? null : (copied ? "Copied" : label)}
+      </Button>
+    </Tooltip>
+  );
+}
+
+function BlockedSelectionMarker({ label, reason }: { label: string; reason: string }) {
+  return (
+    <Tooltip content={reason} label={`${label} cannot be selected. ${reason}`}>
+      <span aria-hidden="true" className="dz-tick blocked" />
+    </Tooltip>
   );
 }
 
@@ -2495,7 +2506,7 @@ function Dashboard({
   const idlePct = investedMinor + idleMinor > 0 ? ((idleMinor / (investedMinor + idleMinor)) * 100).toFixed(1) : "0.0";
 
   const deskMatches = (smartInvest?.matches ?? []).filter((match) => match.currency === ccy);
-  const deskTickable = deskMatches.filter((match) => match.product_type !== "originator_claim" && isOpenMarketplaceLoan(match));
+  const deskTickable = deskMatches.filter(isOpenMarketplaceLoan);
   // Equal split, but a loan whose minimum the split cannot reach is dropped and
   // the remaining balance is re-split until every ticked loan is affordable.
   let deskTicked = idleMinor > 0 ? deskTickable.filter((match) => !unticked[match.loan_id]) : [];
@@ -2649,7 +2660,7 @@ function Dashboard({
             </div>
             <div className="dz-desk-rows">
               {deskMatches.map((match) => {
-                const tickable = match.product_type !== "originator_claim" && isOpenMarketplaceLoan(match);
+                const tickable = isOpenMarketplaceLoan(match);
                 const unaffordable = tickable && deskUnaffordable(match);
                 const ticked = tickable && deskAffordableIds.has(match.loan_id);
                 const amount = deskSplit.get(match.loan_id) ?? 0;
@@ -2659,16 +2670,20 @@ function Dashboard({
                 return (
                   <div className="dz-desk-row" key={match.loan_id}>
                     {!tickable ? (
-                      <span className="dz-tick claim" title="Originator claims are priced per loan — open the loan to buy." />
+                      <BlockedSelectionMarker label={match.title} reason="This opportunity is not currently open for investment." />
                     ) : unaffordable ? (
-                      <span aria-label={`${match.title} cannot be selected`} className="dz-tick blocked" role="img" title={affordNote} />
+                      <BlockedSelectionMarker label={match.title} reason={affordNote} />
                     ) : (
                       <button aria-label={`${ticked ? "Untick" : "Tick"} ${match.title}`} className={`dz-tick${ticked ? " on" : ""}`} onClick={() => setUnticked((current) => ({ ...current, [match.loan_id]: !current[match.loan_id] }))} type="button">{ticked ? "✓" : ""}</button>
                     )}
                     <button className="dz-desk-name" onClick={() => setSheetLoan(match)} type="button">{match.borrower_display_name || match.title}</button>
-                    <span className="dz-desk-meta num">{formatRateBps(match.yield_bps)} · {match.term_months} mo · {match.originator_name || "Banxum"}{!tickable ? " · quote per loan" : ""}</span>
+                    <span className="dz-desk-meta num">{formatRateBps(match.yield_bps)} · {match.term_months} mo · {match.originator_name || "Banxum"}</span>
                     <span className="dz-leader" />
-                    <span className="dz-desk-amt num" title={unaffordable ? affordNote : undefined}>{ticked && amount > 0 ? pfMoneyLabel(ccy, amount) : unaffordable ? "below minimum" : "—"}</span>
+                    {unaffordable ? (
+                      <Tooltip content={affordNote} label={`Below minimum. ${affordNote}`}>
+                        <span className="dz-desk-amt num">below minimum</span>
+                      </Tooltip>
+                    ) : <span className="dz-desk-amt num">{ticked && amount > 0 ? pfMoneyLabel(ccy, amount) : "—"}</span>}
                   </div>
                 );
               })}
@@ -2874,6 +2889,19 @@ type AllocPlan = {
   totals: Map<string, number>;
 };
 
+type BatchPreparedQuote = Pick<
+  OriginatorClaimQuoteResponse,
+  | "quote_id"
+  | "loan_id"
+  | "currency"
+  | "requested_cash_minor"
+  | "executable_cash_minor"
+  | "assigned_principal_minor"
+  | "target_yield_bps"
+  | "rounding_remainder_minor"
+  | "expires_at"
+>;
+
 function allocationPlan(
   matches: AllocMatch[],
   untickedIds: Record<string, boolean>,
@@ -2965,9 +2993,7 @@ function ApproveAllocationModal({
   setInvestLoan: (loan: MarketplaceLoanDetail | null, initialAmount?: string) => void;
 }) {
   const balances = useBalancesData().data;
-  const tickable = matches.filter(
-    (match) => match.product_type !== "originator_claim" && isOpenMarketplaceLoan(match)
-  );
+  const tickable = matches.filter(isOpenMarketplaceLoan);
   const currencies = Array.from(new Set(tickable.map((match) => match.currency))).sort();
   const investableByCcy = new Map(
     currencies.map((currency) => [
@@ -2982,7 +3008,11 @@ function ApproveAllocationModal({
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [sheetLoan, setSheetLoan] = useState<AllocMatch | null>(null);
+  const [preparedQuotes, setPreparedQuotes] = useState<Record<string, BatchPreparedQuote>>({});
+  const [preparingQuotes, setPreparingQuotes] = useState(false);
+  const [quoteClock, setQuoteClock] = useState(() => Date.now());
   const [batchKey] = useState(() => idempotencyKey("primary-batch"));
+  const [acceptanceKey, setAcceptanceKey] = useState(() => idempotencyKey("primary-batch-accept"));
   const acceptanceMutation = useV1DocumentsAcceptancesCreate();
   const batchMutation = useMarketplacePrimaryOrdersBatchCreate();
   const codeRequest = useSensitiveActionCode(ActionEnum.primary_investment);
@@ -2991,7 +3021,7 @@ function ApproveAllocationModal({
     { category: CategoryEnum.primary_market_investment },
     { query: { enabled: !isFixturePreview && step === "confirm", retry: false } }
   );
-  const busy = acceptanceMutation.isPending || batchMutation.isPending;
+  const busy = preparingQuotes || acceptanceMutation.isPending || batchMutation.isPending;
   const termsLabels = templateLabels(termsQuery.data);
   const termsReady = isFixturePreview || Boolean(termsQuery.data && termsLabels.length > 0);
   useEffect(() => {
@@ -3007,6 +3037,12 @@ function ApproveAllocationModal({
       document.body.style.overflow = "";
     };
   }, [busy, onClose, onDone, sheetLoan, step]);
+  useEffect(() => {
+    if (step !== "confirm" || Object.keys(preparedQuotes).length === 0) return undefined;
+    setQuoteClock(Date.now());
+    const timer = window.setInterval(() => setQuoteClock(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [preparedQuotes, step]);
 
   const allocByCcy = new Map<string, number>();
   const allocationIssues = new Map<string, string>();
@@ -3032,7 +3068,74 @@ function ApproveAllocationModal({
   const items = tickable
     .filter((match) => plan.ticked.has(match.loan_id))
     .map((match) => ({ match, amountMinor: plan.split.get(match.loan_id) ?? 0 }));
+  const reviewItems = items.map((item) => ({
+    ...item,
+    amountMinor:
+      item.match.product_type === "originator_claim"
+        ? preparedQuotes[item.match.loan_id]?.executable_cash_minor ?? item.amountMinor
+        : item.amountMinor,
+    quote: preparedQuotes[item.match.loan_id]
+  }));
+  const reviewTotals = new Map<string, number>();
+  for (const item of reviewItems) {
+    reviewTotals.set(
+      item.match.currency,
+      (reviewTotals.get(item.match.currency) ?? 0) + item.amountMinor
+    );
+  }
   const selectedCount = items.length;
+  const originatorCount = items.filter((item) => item.match.product_type === "originator_claim").length;
+  const directCount = selectedCount - originatorCount;
+  const quoteExpiryMs = Math.min(
+    ...Object.values(preparedQuotes).map((quote) => new Date(quote.expires_at).getTime())
+  );
+  const hasPreparedQuotes = originatorCount === Object.keys(preparedQuotes).length;
+  const quotesExpired = originatorCount > 0 && (!Number.isFinite(quoteExpiryMs) || quoteExpiryMs <= quoteClock);
+  const quoteSecondsRemaining = Number.isFinite(quoteExpiryMs)
+    ? Math.max(0, Math.ceil((quoteExpiryMs - quoteClock) / 1_000))
+    : 0;
+
+  const prepareReview = async () => {
+    setError("");
+    setPreparingQuotes(true);
+    try {
+      const claimItems = items.filter((item) => item.match.product_type === "originator_claim");
+      const quotes = await Promise.all(
+        claimItems.map(async (item) => {
+          if (isFixturePreview) {
+            return {
+              quote_id: `preview-${item.match.loan_id}`,
+              loan_id: item.match.loan_id,
+              currency: item.match.currency,
+              requested_cash_minor: item.amountMinor,
+              executable_cash_minor: item.amountMinor,
+              assigned_principal_minor: item.amountMinor,
+              target_yield_bps: marketplaceYieldBps(item.match),
+              rounding_remainder_minor: 0,
+              expires_at: new Date(Date.now() + 5 * 60_000).toISOString()
+            } satisfies BatchPreparedQuote;
+          }
+          return originatorClaimsLoansQuoteCreate(item.match.loan_id, {
+            requested_cash_minor: item.amountMinor
+          });
+        })
+      );
+      const nextQuotes = Object.fromEntries(quotes.map((quote) => [quote.loan_id, quote]));
+      setPreparedQuotes(nextQuotes);
+      setAcceptanceKey(idempotencyKey("primary-batch-accept"));
+      setAck(false);
+      setCode("");
+      setQuoteClock(Date.now());
+      setStep("confirm");
+    } catch (quoteError) {
+      setError(
+        `Prices could not be prepared. No money moved. ${apiErrorMessage(quoteError)}`
+      );
+    } finally {
+      setPreparingQuotes(false);
+    }
+  };
+
   const submit = async () => {
     setError("");
     if (isFixturePreview) {
@@ -3047,6 +3150,14 @@ function ApproveAllocationModal({
       setError("Request an email code before confirming the batch.");
       return;
     }
+    if (!hasPreparedQuotes) {
+      setError("One or more originator-claim prices are missing. Refresh prices and review again.");
+      return;
+    }
+    if (quotesExpired) {
+      setError("One or more originator-claim prices expired. Refresh prices before confirming.");
+      return;
+    }
     try {
       const acceptance = await acceptanceMutation.mutateAsync({
         data: {
@@ -3056,14 +3167,23 @@ function ApproveAllocationModal({
           context_type: "primary_order_batch",
           context_id: batchKey,
           data_snapshot: {
-            items: items.map((item) => ({ loan_id: item.match.loan_id, amount_minor: item.amountMinor, currency: item.match.currency }))
+            items: reviewItems.map((item) => ({
+              loan_id: item.match.loan_id,
+              amount_minor: item.amountMinor,
+              currency: item.match.currency,
+              ...(item.quote ? { quote_id: item.quote.quote_id } : {})
+            }))
           },
-          idempotency_key: `${batchKey}-accept`
+          idempotency_key: acceptanceKey
         }
       });
       await batchMutation.mutateAsync({
         data: {
-          items: items.map((item) => ({ loan_id: item.match.loan_id, amount_minor: item.amountMinor })),
+          items: reviewItems.map((item) => ({
+            loan_id: item.match.loan_id,
+            amount_minor: item.amountMinor,
+            ...(item.quote ? { quote_id: item.quote.quote_id } : {})
+          })),
           document_acceptance_id: acceptance.id,
           idempotency_key: batchKey,
           sensitive_action_code_id: codeRequest.codeId,
@@ -3088,31 +3208,50 @@ function ApproveAllocationModal({
         <div className="ls-scroll aa-scroll">
           {step === "done" ? (
             <div className="aa-done">
-              <div className="aa-eyebrow">Allocation placed</div>
-              <h2 className="aa-title">Every order is in.</h2>
-              <p className="aa-done-text">{allocCommitLabel(plan.totals)} committed across {selectedCount === 1 ? "1 loan" : `${selectedCount} loans`}. Each order reserves its balance now; if a funding round is cancelled, the reservation returns to your account automatically.</p>
+              <div className="aa-eyebrow">Investments confirmed</div>
+              <h2 className="aa-title">Every selected investment is in.</h2>
+              <p className="aa-done-text">
+                {allocCommitLabel(reviewTotals)} committed across {selectedCount === 1 ? "1 loan" : `${selectedCount} loans`}.
+                {directCount > 0 ? ` ${directCount === 1 ? "One direct-loan order reserves" : `${directCount} direct-loan orders reserve`} balance until funding closes.` : ""}
+                {originatorCount > 0 ? ` ${originatorCount === 1 ? "One Loan Originator claim was" : `${originatorCount} Loan Originator claims were`} purchased immediately at the reviewed prices.` : ""}
+              </p>
             </div>
           ) : step === "confirm" ? (
             <div className="aa-body">
               <div className="aa-eyebrow">Approve the allocation</div>
-              <h2 className="aa-title">One code covers every order.</h2>
+              <h2 className="aa-title">One code covers every investment.</h2>
               <div className="si-dash-rows aa-review-rows">
-                {items.map((item) => (
+                {reviewItems.map((item) => (
                   <div className="si-dash-row" key={item.match.loan_id} style={{ cursor: "default" }}>
                     <span className="si-dash-row-name">{item.match.borrower_display_name || item.match.title}</span>
-                    <span className="si-dash-row-meta">{formatRateBps(marketplaceYieldBps(item.match))} · {item.match.term_months} mo · {item.match.originator_name || "Banxum"}</span>
+                    <span className="si-dash-row-meta">
+                      {formatRateBps(marketplaceYieldBps(item.match))} · {item.match.term_months} mo · {item.match.originator_name || "Banxum"}
+                      {item.quote ? ` · assigned principal ${pfMoneyLabel(item.match.currency, item.quote.assigned_principal_minor)}` : " · reserved until funding close"}
+                    </span>
                     <span className="dz-leader" />
                     <span className="si-dash-row-amt">{pfMoneyLabel(item.match.currency, item.amountMinor)}</span>
                   </div>
                 ))}
                 <div className="si-dash-rows-foot">
-                  <span className="num" style={{ fontWeight: 600, color: "#151719" }}>You commit {allocCommitLabel(plan.totals)}</span>
+                  <span className="num" style={{ fontWeight: 600, color: "#151719" }}>You commit {allocCommitLabel(reviewTotals)}</span>
                   <span style={{ flex: 1 }} />
-                  <span>one terms acceptance and one email code cover every order in this batch</span>
+                  <span>one terms acceptance and one email code cover every investment in this batch</span>
                 </div>
               </div>
+              {originatorCount > 0 ? (
+                <Banner tone={quotesExpired ? "bad" : "info"} title={quotesExpired ? "Quoted prices expired" : "Loan Originator prices locked"}>
+                  {quotesExpired
+                    ? "Refresh prices and review the updated cash and assigned-principal amounts before confirming."
+                    : `The ${originatorCount === 1 ? "claim price is" : "claim prices are"} executable for ${Math.floor(quoteSecondsRemaining / 60)}:${String(quoteSecondsRemaining % 60).padStart(2, "0")}. Minor-unit rounding not used by a quote remains in your balance.`}
+                  <div style={{ marginTop: 10 }}>
+                    <button className="aa-link" disabled={busy} onClick={() => void prepareReview()} type="button">
+                      {preparingQuotes ? "Refreshing prices..." : "Refresh prices"}
+                    </button>
+                  </div>
+                </Banner>
+              ) : null}
               <Check checked={ack} id="aa-ack" onChange={setAck}>
-                I accept the current <LegalDocLink category="primary_market_investment">primary-market investment terms</LegalDocLink> for every order listed above.
+                I accept the current <LegalDocLink category="primary_market_investment">primary-market investment terms</LegalDocLink> for every investment listed above.
               </Check>
               {!isFixturePreview && termsQuery.isLoading ? <p className="muted">Loading the current published terms...</p> : null}
               {!isFixturePreview && !termsQuery.isLoading && !termsReady ? (
@@ -3136,7 +3275,7 @@ function ApproveAllocationModal({
               <div className="aa-eyebrow">Approve the allocation</div>
               <h2 className="aa-title">Approve this allocation.</h2>
               <div className="aa-intro">
-                {tickable.length === 1 ? "1 opportunity meets" : `${tickable.length} opportunities meet`} your conditions today{selectedCount === tickable.length ? ", and every one is ticked" : ""}. Untick anything you would rather skip — your capital is split equally between whatever stays ticked, so unticking one gives the others more. The small i opens any loan in full — your ticks keep waiting underneath.
+                {tickable.length === 1 ? "1 opportunity meets" : `${tickable.length} opportunities meet`} your conditions today{selectedCount === tickable.length ? ", and every one is ticked" : ""}. Untick anything you would rather skip — your capital is split equally between whatever stays ticked, so unticking one gives the others more. Loan Originator prices are locked together on the next step. The small i opens any loan in full — your ticks keep waiting underneath.
               </div>
               <div className="aa-list-head">
                 <span className="aa-list-cap">Today&apos;s allocation</span>
@@ -3181,7 +3320,7 @@ function ApproveAllocationModal({
                       {ticked ? (
                         <button aria-label={`Untick ${match.title}`} className="dz-tick on" onClick={() => setUnticked((current) => ({ ...current, [match.loan_id]: true }))} type="button">✓</button>
                       ) : blockedNow ? (
-                        <span aria-label={`${match.title} cannot be selected`} className="dz-tick blocked" role="img" title={reason} />
+                        <BlockedSelectionMarker label={match.title} reason={reason} />
                       ) : (
                         <button aria-label={`Tick ${match.title}`} className="dz-tick" onClick={() => setUnticked((current) => ({ ...current, [match.loan_id]: false }))} type="button" />
                       )}
@@ -3192,7 +3331,11 @@ function ApproveAllocationModal({
                         </span>
                         <span className="aa-row-meta num">{formatRateBps(marketplaceYieldBps(match))} · {match.term_months} mo · {match.originator_name || "Banxum"}{days !== null ? ` · closes in ${days === 1 ? "1 day" : `${days} days`}` : ""}</span>
                       </span>
-                      <span className="aa-row-amt num" title={blockedNow && !ticked ? reason : undefined}>{ticked && amount > 0 ? pfMoneyLabel(match.currency, amount) : blockedNow ? "below minimum" : "—"}</span>
+                      {blockedNow && !ticked ? (
+                        <Tooltip content={reason} label={`Below minimum. ${reason}`}>
+                          <span className="aa-row-amt num">below minimum</span>
+                        </Tooltip>
+                      ) : <span className="aa-row-amt num">{ticked && amount > 0 ? pfMoneyLabel(match.currency, amount) : "—"}</span>}
                     </div>
                   );
                 })}
@@ -3212,12 +3355,12 @@ function ApproveAllocationModal({
             <button className="aa-confirm" onClick={onDone} type="button">Done</button>
           ) : step === "confirm" ? (
             <>
-              <button className="aa-confirm" disabled={!ack || code.length < 6 || busy || !termsReady || (!isFixturePreview && !codeRequest.codeId)} onClick={() => void submit()} type="button">{busy ? "Placing orders..." : `Place ${selectedCount === 1 ? "1 order" : `${selectedCount} orders`}`}</button>
-              <button className="aa-cancel" disabled={busy} onClick={() => setStep("allocate")} type="button">Back</button>
+              <button className="aa-confirm" disabled={!ack || code.length < 6 || busy || quotesExpired || !hasPreparedQuotes || !termsReady || (!isFixturePreview && !codeRequest.codeId)} onClick={() => void submit()} type="button">{busy ? "Placing investments..." : `Place ${selectedCount === 1 ? "1 investment" : `${selectedCount} investments`}`}</button>
+              <button className="aa-cancel" disabled={busy} onClick={() => { setStep("allocate"); setPreparedQuotes({}); setError(""); }} type="button">Back</button>
             </>
           ) : (
             <>
-              <button className="aa-confirm" disabled={selectedCount === 0 || allocationIssues.size > 0} onClick={() => setStep("confirm")} type="button">Confirm {selectedCount}</button>
+              <button className="aa-confirm" disabled={selectedCount === 0 || allocationIssues.size > 0 || preparingQuotes} onClick={() => void prepareReview()} type="button">{preparingQuotes ? "Preparing prices..." : `Confirm ${selectedCount}`}</button>
               <button className="aa-cancel" onClick={onClose} type="button">Cancel</button>
             </>
           )}
@@ -4019,7 +4162,7 @@ function SmartInvestMatchTable({
         <span /><span>Company</span><span>Yield</span><span>Term</span><span>Collateral</span><span>Available</span><span />
       </div>
       {matches.map((match) => {
-        const tickable = match.product_type !== "originator_claim" && isOpenMarketplaceLoan(match as unknown as MarketplaceLoanPreview);
+        const tickable = isOpenMarketplaceLoan(match as unknown as MarketplaceLoanPreview);
         const ticked = plan.ticked.has(match.loan_id);
         const reason = plan.blocked.get(match.loan_id);
         return (
@@ -4035,11 +4178,11 @@ function SmartInvestMatchTable({
           >
             <span onClick={(event) => event.stopPropagation()}>
               {!tickable ? (
-                <span className="dz-tick claim" title="Originator claims are priced per loan — open the loan to buy." />
+                <BlockedSelectionMarker label={match.title} reason="This opportunity is not currently open for investment." />
               ) : ticked ? (
                 <button aria-label={`Untick ${match.title}`} className="dz-tick on" onClick={() => onToggle(match.loan_id, true)} type="button">✓</button>
               ) : reason !== undefined ? (
-                <span aria-label={`${match.title} cannot be selected`} className="dz-tick blocked" role="img" title={reason} />
+                <BlockedSelectionMarker label={match.title} reason={reason} />
               ) : (
                 <button aria-label={`Tick ${match.title}`} className="dz-tick" onClick={() => onToggle(match.loan_id, false)} type="button" />
               )}
@@ -4323,8 +4466,8 @@ function SmartInvestScreen({
       );
     }
   }
-  const matchTickable = data.matches.filter(
-    (match) => match.product_type !== "originator_claim" && isOpenMarketplaceLoan(match as unknown as MarketplaceLoanPreview)
+  const matchTickable = data.matches.filter((match) =>
+    isOpenMarketplaceLoan(match as unknown as MarketplaceLoanPreview)
   ) as unknown as MarketplaceLoanPreview[];
   const matchPlan = allocationPlan(matchTickable, matchUnticked, matchAllocByCcy);
 
@@ -7866,9 +8009,14 @@ function HoldingDetail({ holding, onClose, setRoute }: { holding: Holding; onClo
         <Button variant="ghost" onClick={() => setScheduleOpen((open) => !open)}>
           {scheduleOpen ? "Hide schedule" : "View schedule"}
         </Button>
-        <Button disabled={!canOpenSecondaryAction} icon="secondary" title={!canOpenSecondaryAction ? listingAction.hint : undefined} variant="primary" onClick={() => { onClose(); goTo(setRoute, "secondary", { tab: "sell" }); }}>
-          {hasOpenListing ? "Manage secondary listing" : listingAction.label}
-        </Button>
+        <Tooltip
+          content={!canOpenSecondaryAction ? listingAction.hint : ""}
+          label={!canOpenSecondaryAction ? `${listingAction.label}. ${listingAction.hint}` : undefined}
+        >
+          <Button disabled={!canOpenSecondaryAction} icon="secondary" variant="primary" onClick={() => { onClose(); goTo(setRoute, "secondary", { tab: "sell" }); }}>
+            {hasOpenListing ? "Manage secondary listing" : listingAction.label}
+          </Button>
+        </Tooltip>
       </>}
       onClose={onClose}
       title={loan.loan_title}
@@ -8339,7 +8487,12 @@ function SellableHoldingsTable({
                       </>
                     ) : (
                       <div className="col gap-4" style={{ alignItems: "flex-end" }}>
-                        <Button disabled={actionsDisabled || !listingAction.allowed} size="sm" title={!listingAction.allowed ? listingAction.hint : undefined} onClick={() => onSell(holding)}>{listingAction.label === "List on secondary market" ? "List" : listingAction.label}</Button>
+                        <Tooltip
+                          content={!listingAction.allowed ? listingAction.hint : ""}
+                          label={!listingAction.allowed ? `${listingAction.label}. ${listingAction.hint}` : undefined}
+                        >
+                          <Button disabled={actionsDisabled || !listingAction.allowed} size="sm" onClick={() => onSell(holding)}>{listingAction.label === "List on secondary market" ? "List" : listingAction.label}</Button>
+                        </Tooltip>
                         {!listingAction.allowed ? <span className="sub">{holding.loan.loan_status === "funded" ? "Available after disbursement" : "Unavailable for this status"}</span> : null}
                       </div>
                     )}

@@ -138,7 +138,7 @@ import {
 import { writeReadonlyImpersonation } from "../api/client/impersonation";
 import { isFixturePreview } from "../investorPortal/data";
 import { formatDate, formatDateTime, formatMoneyMinor, formatRateBps } from "../investorPortal/format";
-import { Banner, Button, Card, Chip, Empty, Field, Modal, Money, type Tone } from "../investorPortal/ui";
+import { Banner, Button, Card, Chip, Empty, Field, Modal, Money, Tooltip, type Tone } from "../investorPortal/ui";
 import { adminFormDefaults } from "./adminFixtures";
 import {
   isWithdrawalQueueItem,
@@ -190,20 +190,21 @@ function AdminCopyIdButton({ id, label }: { id: string; label: string }) {
   const [copied, setCopied] = useState(false);
   const accessibleLabel = copied ? "Copied" : label;
   return (
-    <Button
-      aria-label={accessibleLabel}
-      className="copy-id-btn icon-only"
-      icon="copy"
-      onClick={(event) => {
-        event.stopPropagation();
-        copyAdminText(id);
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1400);
-      }}
-      size="sm"
-      title={accessibleLabel}
-      variant="ghost"
-    />
+    <Tooltip content={accessibleLabel} focusable={false}>
+      <Button
+        aria-label={accessibleLabel}
+        className="copy-id-btn icon-only"
+        icon="copy"
+        onClick={(event) => {
+          event.stopPropagation();
+          copyAdminText(id);
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1400);
+        }}
+        size="sm"
+        variant="ghost"
+      />
+    </Tooltip>
   );
 }
 
@@ -1280,10 +1281,11 @@ function EntityTableHeader({
 }
 
 function UnsupportedRemoveNote({ label }: { label: string }) {
+  const explanation = `${label} records are retained for audit evidence.`;
   return (
-    <span className="admin-action-note" title={`${label} records are retained for audit evidence.`}>
-      No delete
-    </span>
+    <Tooltip content={explanation} label={`No delete. ${explanation}`}>
+      <span className="admin-action-note">No delete</span>
+    </Tooltip>
   );
 }
 

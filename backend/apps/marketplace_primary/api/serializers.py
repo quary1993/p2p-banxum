@@ -150,6 +150,7 @@ class PrimaryInvestmentOrderAllocateRequestSerializer(serializers.Serializer[Any
 class PrimaryOrderBatchItemSerializer(serializers.Serializer[Any]):
     loan_id = serializers.UUIDField()
     amount_minor = serializers.IntegerField(min_value=1)
+    quote_id = serializers.UUIDField(required=False, allow_null=True)
 
 
 class PrimaryOrderBatchRequestSerializer(serializers.Serializer[Any]):
@@ -160,12 +161,28 @@ class PrimaryOrderBatchRequestSerializer(serializers.Serializer[Any]):
     sensitive_action_code = serializers.CharField(max_length=32, trim_whitespace=True)
 
 
+class PrimaryOrderBatchOriginatorPurchaseResponseSerializer(serializers.Serializer[Any]):
+    purchase_id = serializers.UUIDField()
+    quote_id = serializers.UUIDField()
+    loan_id = serializers.UUIDField()
+    holding_id = serializers.UUIDField()
+    currency = serializers.CharField()
+    cash_consideration_minor = serializers.IntegerField()
+    assigned_principal_minor = serializers.IntegerField()
+    outstanding_principal_at_pricing_minor = serializers.IntegerField()
+    share_ppm = serializers.IntegerField()
+    target_yield_bps = serializers.IntegerField()
+    purchased_at = serializers.DateTimeField()
+
+
 class PrimaryOrderBatchResponseSerializer(serializers.Serializer[Any]):
     batch_id = serializers.UUIDField()
     currency = serializers.CharField(allow_null=True)
     currency_totals = serializers.ListField(child=serializers.DictField())
     orders = PrimaryInvestmentOrderSerializer(many=True)
     order_count = serializers.IntegerField()
+    originator_purchases = PrimaryOrderBatchOriginatorPurchaseResponseSerializer(many=True)
+    originator_purchase_count = serializers.IntegerField()
     total_amount_minor = serializers.IntegerField(allow_null=True)
 
 

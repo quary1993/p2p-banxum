@@ -12119,9 +12119,55 @@ components:
         amount_minor:
           type: integer
           minimum: 1
+        quote_id:
+          type: string
+          format: uuid
+          nullable: true
       required:
       - amount_minor
       - loan_id
+    PrimaryOrderBatchOriginatorPurchaseResponse:
+      type: object
+      properties:
+        purchase_id:
+          type: string
+          format: uuid
+        quote_id:
+          type: string
+          format: uuid
+        loan_id:
+          type: string
+          format: uuid
+        holding_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+        cash_consideration_minor:
+          type: integer
+        assigned_principal_minor:
+          type: integer
+        outstanding_principal_at_pricing_minor:
+          type: integer
+        share_ppm:
+          type: integer
+        target_yield_bps:
+          type: integer
+        purchased_at:
+          type: string
+          format: date-time
+      required:
+      - assigned_principal_minor
+      - cash_consideration_minor
+      - currency
+      - holding_id
+      - loan_id
+      - outstanding_principal_at_pricing_minor
+      - purchase_id
+      - purchased_at
+      - quote_id
+      - share_ppm
+      - target_yield_bps
     PrimaryOrderBatchRequest:
       type: object
       properties:
@@ -12167,6 +12213,12 @@ components:
             $ref: '#/components/schemas/PrimaryInvestmentOrder'
         order_count:
           type: integer
+        originator_purchases:
+          type: array
+          items:
+            $ref: '#/components/schemas/PrimaryOrderBatchOriginatorPurchaseResponse'
+        originator_purchase_count:
+          type: integer
         total_amount_minor:
           type: integer
           nullable: true
@@ -12176,6 +12228,8 @@ components:
       - currency_totals
       - order_count
       - orders
+      - originator_purchase_count
+      - originator_purchases
       - total_amount_minor
     PrimaryOrderPortal:
       type: object

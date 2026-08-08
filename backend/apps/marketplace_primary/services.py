@@ -97,6 +97,7 @@ class AllocatePrimaryInvestmentOrderCommand:
 class PrimaryOrderBatchItemCommand:
     loan_id: str
     amount_minor: int
+    quote_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +116,7 @@ class PlacePrimaryOrderBatchCommand:
 class PlacedPrimaryOrderBatch:
     batch: PrimaryInvestmentOrderBatch
     orders: list[PrimaryInvestmentOrder]
+    originator_purchases: list[Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -400,9 +402,9 @@ def _canonical_batch_items(
     items: list[PrimaryOrderBatchItemCommand],
 ) -> list[dict[str, Any]]:
     if not items:
-        raise MarketplacePrimaryValidationError("The batch contains no orders.")
+        raise MarketplacePrimaryValidationError("The batch contains no investments.")
     if len(items) > 20:
-        raise MarketplacePrimaryValidationError("A batch may contain at most 20 orders.")
+        raise MarketplacePrimaryValidationError("A batch may contain at most 20 investments.")
     canonical: list[dict[str, Any]] = []
     seen: set[str] = set()
     for item in items:
@@ -414,33 +416,47 @@ def _canonical_batch_items(
             raise MarketplacePrimaryValidationError("Each loan may appear only once in a batch.")
         if type(item.amount_minor) is not int or item.amount_minor <= 0:
             raise MarketplacePrimaryValidationError(
-                "Batch order amounts must be positive integers."
+                "Batch investment amounts must be positive integers."
             )
+        canonical_item: dict[str, Any] = {
+            "loan_id": loan_id,
+            "amount_minor": item.amount_minor,
+        }
+        if item.quote_id:
+            try:
+                canonical_item["quote_id"] = str(uuid.UUID(str(item.quote_id)))
+            except (TypeError, ValueError, AttributeError) as exc:
+                raise MarketplacePrimaryValidationError(
+                    "Batch originator-claim quote id is not valid."
+                ) from exc
         seen.add(loan_id)
-        canonical.append({"loan_id": loan_id, "amount_minor": item.amount_minor})
+        canonical.append(canonical_item)
     return sorted(canonical, key=lambda item: str(item["loan_id"]))
 
 
 def _canonical_batch_snapshot_items(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         raise MarketplacePrimaryValidationError(
-            "Batch document acceptance does not contain an itemized order list."
+            "Batch document acceptance does not contain an itemized investment list."
         )
     commands: list[PrimaryOrderBatchItemCommand] = []
     for item in value:
         if not isinstance(item, dict):
             raise MarketplacePrimaryValidationError(
-                "Batch document acceptance contains an invalid order item."
+                "Batch document acceptance contains an invalid investment item."
             )
         amount_minor = item.get("amount_minor")
         if type(amount_minor) is not int:
             raise MarketplacePrimaryValidationError(
-                "Batch document acceptance contains an invalid order amount."
+                "Batch document acceptance contains an invalid investment amount."
             )
         commands.append(
             PrimaryOrderBatchItemCommand(
                 loan_id=str(item.get("loan_id", "")),
                 amount_minor=amount_minor,
+                quote_id=(
+                    str(item["quote_id"]) if item.get("quote_id") not in {None, ""} else None
+                ),
             )
         )
     return _canonical_batch_items(commands)
@@ -453,20 +469,20 @@ def _batch_snapshot_currency_by_loan(
 ) -> dict[str, str]:
     if not isinstance(value, list):
         raise MarketplacePrimaryValidationError(
-            "Batch document acceptance does not contain an itemized order list."
+            "Batch document acceptance does not contain an itemized investment list."
         )
     currency_by_loan: dict[str, str] = {}
     for item in value:
         if not isinstance(item, dict):
             raise MarketplacePrimaryValidationError(
-                "Batch document acceptance contains an invalid order item."
+                "Batch document acceptance contains an invalid investment item."
             )
         try:
             loan_id = str(uuid.UUID(str(item.get("loan_id", ""))))
             currency_code = normalize_currency(str(item.get("currency") or legacy_currency or ""))
         except (TypeError, ValueError, AttributeError, MoneyError) as exc:
             raise MarketplacePrimaryValidationError(
-                "Batch document acceptance does not contain a valid currency for every order."
+                "Batch document acceptance does not contain a valid currency for every investment."
             ) from exc
         currency_by_loan[loan_id] = currency_code
     return currency_by_loan
@@ -516,6 +532,26 @@ def _batch_orders(batch: PrimaryInvestmentOrderBatch) -> list[PrimaryInvestmentO
     return orders
 
 
+def _batch_originator_purchases(batch: PrimaryInvestmentOrderBatch) -> list[Any]:
+    purchase_model = _model("originator_claims", "OriginatorClaimPurchase")
+    raw_ids = list(cast(list[Any], batch.originator_purchase_ids))
+    by_id = {
+        str(purchase.id): purchase
+        for purchase in purchase_model.objects.select_related(
+            "quote",
+            "loan_profile",
+            "holding",
+            "currency",
+        ).filter(id__in=raw_ids)
+    }
+    purchases = [by_id[str(purchase_id)] for purchase_id in raw_ids if str(purchase_id) in by_id]
+    if len(purchases) != int(batch.originator_purchase_count):
+        raise MarketplacePrimaryValidationError(
+            "Batch evidence does not match its originator-claim purchases; contact support."
+        )
+    return purchases
+
+
 def _existing_batch_for_idempotency(
     idempotency_key: str,
     *,
@@ -528,7 +564,11 @@ def _existing_batch_for_idempotency(
         raise MarketplacePrimaryValidationError(
             "Idempotency key was already used for a different batch request."
         )
-    return PlacedPrimaryOrderBatch(batch=existing, orders=_batch_orders(existing))
+    return PlacedPrimaryOrderBatch(
+        batch=existing,
+        orders=_batch_orders(existing),
+        originator_purchases=_batch_originator_purchases(existing),
+    )
 
 
 def _minimum_subscription_required_minor(loan: Model) -> int:
@@ -882,6 +922,86 @@ def _validate_batch_document_acceptance(
     )
 
 
+def _preflight_batch_investments(
+    *,
+    actor: Model,
+    canonical_items: list[dict[str, Any]],
+) -> dict[str, dict[str, str]]:
+    loan_model = _model("loans", "Loan")
+    loan_rows = {
+        str(row["id"]): {
+            "currency": str(row["currency_id"]),
+            "product_type": str(row["product_type"]),
+        }
+        for row in loan_model.objects.filter(
+            id__in=[item["loan_id"] for item in canonical_items]
+        ).values("id", "currency_id", "product_type")
+    }
+    if len(loan_rows) != len(canonical_items):
+        raise MarketplacePrimaryValidationError("One or more batch loans do not exist.")
+
+    quote_ids = [str(item["quote_id"]) for item in canonical_items if item.get("quote_id")]
+    quote_model = _model("originator_claims", "OriginatorClaimQuote")
+    quotes_by_id = {
+        str(quote.id): quote
+        for quote in quote_model.objects.select_related(
+            "loan_profile__loan",
+            "currency",
+        ).filter(id__in=quote_ids, investor_user_id=actor.pk)
+    }
+    if len(quotes_by_id) != len(quote_ids):
+        raise MarketplacePrimaryValidationError(
+            "One or more originator-claim quotes do not exist for this investor."
+        )
+    purchased_quote_ids = set(
+        str(quote_id)
+        for quote_id in _model("originator_claims", "OriginatorClaimPurchase")
+        .objects.filter(quote_id__in=quote_ids)
+        .values_list("quote_id", flat=True)
+    )
+    now = now_utc()
+    for item in canonical_items:
+        loan_id = str(item["loan_id"])
+        product_type = loan_rows[loan_id]["product_type"]
+        quote_id = str(item.get("quote_id") or "")
+        if product_type == "direct":
+            if quote_id:
+                raise MarketplacePrimaryValidationError(
+                    "Direct-loan batch items cannot include an originator-claim quote."
+                )
+            continue
+        if product_type != "originator_claim":
+            raise MarketplacePrimaryValidationError(
+                "This loan type cannot be placed through a primary investment batch."
+            )
+        if not quote_id:
+            raise MarketplacePrimaryValidationError(
+                "Every originator-claim batch item requires an executable quote."
+            )
+        quote = quotes_by_id[quote_id]
+        if str(cast(Any, quote).loan_profile.loan_id) != loan_id:
+            raise MarketplacePrimaryValidationError(
+                "An originator-claim quote does not match its selected loan."
+            )
+        if str(cast(Any, quote).currency_id) != loan_rows[loan_id]["currency"]:
+            raise MarketplacePrimaryValidationError(
+                "An originator-claim quote currency does not match its selected loan."
+            )
+        if int(cast(Any, quote).executable_cash_minor) != int(item["amount_minor"]):
+            raise MarketplacePrimaryValidationError(
+                "An originator-claim quote amount changed. Review refreshed prices."
+            )
+        if cast(Any, quote).expires_at <= now:
+            raise MarketplacePrimaryValidationError(
+                "An originator-claim quote expired. Refresh prices before confirming."
+            )
+        if quote_id in purchased_quote_ids:
+            raise MarketplacePrimaryValidationError(
+                "An originator-claim quote has already been purchased."
+            )
+    return loan_rows
+
+
 def _derive_batch_order_acceptance(
     *,
     actor: Model,
@@ -928,13 +1048,59 @@ def _derive_batch_order_acceptance(
         raise MarketplacePrimaryValidationError(str(exc)) from exc
 
 
+def _derive_batch_originator_acceptance(
+    *,
+    actor: Model,
+    parent_acceptance: Model,
+    quote_id: str,
+    batch_key: str,
+) -> Model:
+    documents = _documents_services()
+    parent_ref = cast(Any, parent_acceptance)
+    try:
+        return cast(
+            Model,
+            documents.accept_document_terms(
+                documents.AcceptDocumentTermsCommand(
+                    actor=actor,
+                    category=str(parent_ref.category),
+                    template_key=str(parent_ref.template.template_key),
+                    language=str(parent_ref.template.language),
+                    expected_template_version_id=str(parent_ref.template_version_id),
+                    accepted_checkbox_labels=list(parent_ref.accepted_checkbox_labels),
+                    context_type="originator_claim_quote",
+                    context_id=quote_id,
+                    data_snapshot={
+                        "batch": {
+                            "idempotency_key": batch_key,
+                            "source_acceptance_id": str(parent_ref.id),
+                        }
+                    },
+                    ip_address=parent_ref.ip_address,
+                    user_agent=str(parent_ref.user_agent),
+                    idempotency_key=_child_idempotency_key(
+                        "batch-claim-acceptance",
+                        batch_key,
+                        quote_id,
+                    ),
+                    metadata={
+                        "derived_from_batch_acceptance_id": str(parent_ref.id),
+                        "batch_idempotency_key": batch_key,
+                    },
+                )
+            ),
+        )
+    except documents.DocumentsError as exc:
+        raise MarketplacePrimaryValidationError(str(exc)) from exc
+
+
 def place_primary_order_batch(
     command: PlacePrimaryOrderBatchCommand,
 ) -> PlacedPrimaryOrderBatch:
-    """Place and allocate several primary orders behind one terms acceptance and one code.
+    """Place several primary investments behind one terms acceptance and one code.
 
-    The batch is all-or-nothing: if any order cannot be created or allocated the
-    whole transaction rolls back and nothing is committed.
+    Direct-loan items become allocated orders while quoted originator claims settle
+    immediately. If any selected investment fails, the entire batch rolls back.
     """
     _require_investor_financial_access(command.actor)
     idempotency_key = _clean_batch_idempotency_key(command.idempotency_key)
@@ -956,15 +1122,11 @@ def place_primary_order_batch(
         batch_key=idempotency_key,
         canonical_items=canonical_items,
     )
-    loan_model = _model("loans", "Loan")
-    preflight_currencies = {
-        str(loan_id): str(currency_code)
-        for loan_id, currency_code in loan_model.objects.filter(
-            id__in=[item["loan_id"] for item in canonical_items]
-        ).values_list("id", "currency_id")
-    }
-    if len(preflight_currencies) != len(canonical_items):
-        raise MarketplacePrimaryValidationError("One or more batch loans do not exist.")
+    preflight_loans = _preflight_batch_investments(
+        actor=command.actor,
+        canonical_items=canonical_items,
+    )
+    preflight_currencies = {loan_id: row["currency"] for loan_id, row in preflight_loans.items()}
     if preflight_currencies != accepted_currency_by_loan:
         raise MarketplacePrimaryValidationError(
             "Batch document acceptance currencies do not match the selected loans."
@@ -984,13 +1146,19 @@ def place_primary_order_batch(
         raise MarketplacePrimaryValidationError(str(exc)) from exc
 
     with transaction.atomic():
+        loan_model = _model("loans", "Loan")
+        direct_items = [
+            item
+            for item in canonical_items
+            if preflight_loans[str(item["loan_id"])]["product_type"] == "direct"
+        ]
         locked_loans = list(
             loan_model.objects.select_for_update()
-            .filter(id__in=[item["loan_id"] for item in canonical_items])
+            .filter(id__in=[item["loan_id"] for item in direct_items])
             .order_by("id")
         )
-        if len(locked_loans) != len(canonical_items):
-            raise MarketplacePrimaryValidationError("One or more batch loans do not exist.")
+        if len(locked_loans) != len(direct_items):
+            raise MarketplacePrimaryValidationError("One or more direct batch loans do not exist.")
         existing_after_lock = _existing_batch_for_idempotency(
             idempotency_key,
             expected_fingerprint=request_fingerprint,
@@ -998,18 +1166,21 @@ def place_primary_order_batch(
         if existing_after_lock is not None:
             return existing_after_lock
         loans_by_id = {str(cast(Any, loan).id): loan for loan in locked_loans}
-        currency_by_loan: dict[str, str] = {}
+        currency_by_loan = dict(preflight_currencies)
         minimum_by_currency: dict[str, int] = {}
-        for item in canonical_items:
+        for item in direct_items:
             loan = loans_by_id[str(item["loan_id"])]
             loan_ref = cast(Any, loan)
             _assert_published_loan_open(loan)
             if str(loan_ref.product_type) != "direct":
                 raise MarketplacePrimaryValidationError(
-                    "Originator claims cannot be placed through a direct-loan batch."
+                    "A selected direct-loan batch item changed product type."
                 )
             currency_code = str(loan_ref.currency_id)
-            currency_by_loan[str(item["loan_id"])] = currency_code
+            if currency_code != currency_by_loan[str(item["loan_id"])]:
+                raise MarketplacePrimaryValidationError(
+                    "A selected loan currency changed before the batch could be placed."
+                )
             amount_minor = _validate_money(
                 int(item["amount_minor"]),
                 currency_code,
@@ -1036,7 +1207,7 @@ def place_primary_order_batch(
             _enabled_currency(currency_code)
 
         allocated_orders: list[PrimaryInvestmentOrder] = []
-        for item in canonical_items:
+        for item in direct_items:
             order = create_primary_investment_order(
                 CreatePrimaryInvestmentOrderCommand(
                     actor=command.actor,
@@ -1077,6 +1248,48 @@ def place_primary_order_batch(
                     "nothing was committed."
                 )
             allocated_orders.append(allocated)
+
+        originator_purchases: list[Any] = []
+        originator_services = import_module("backend.apps.originator_claims.services")
+        originator_items = [
+            item
+            for item in canonical_items
+            if preflight_loans[str(item["loan_id"])]["product_type"] == "originator_claim"
+        ]
+        for item in originator_items:
+            quote_id = str(item["quote_id"])
+            quote_acceptance = _derive_batch_originator_acceptance(
+                actor=command.actor,
+                parent_acceptance=acceptance,
+                quote_id=quote_id,
+                batch_key=idempotency_key,
+            )
+            try:
+                purchase = originator_services.purchase_originator_claim_in_verified_batch(
+                    originator_services.PurchaseOriginatorClaimInVerifiedBatchCommand(
+                        actor=command.actor,
+                        quote_id=quote_id,
+                        document_acceptance_id=str(cast(Any, quote_acceptance).id),
+                        idempotency_key=_child_idempotency_key(
+                            "batch-claim-purchase",
+                            idempotency_key,
+                            quote_id,
+                        ),
+                        ip_address=command.ip_address,
+                        user_agent=command.user_agent,
+                    )
+                )
+            except (
+                originator_services.OriginatorClaimsAuthorizationError,
+                originator_services.OriginatorClaimsValidationError,
+            ) as exc:
+                raise MarketplacePrimaryValidationError(str(exc)) from exc
+            if int(purchase.cash_consideration_minor) != int(item["amount_minor"]):
+                raise MarketplacePrimaryValidationError(
+                    "Every originator claim must settle its exact reviewed quote; "
+                    "nothing was committed."
+                )
+            originator_purchases.append(purchase)
         currency_totals = _canonical_batch_currency_totals(
             canonical_items,
             currency_by_loan=currency_by_loan,
@@ -1095,6 +1308,8 @@ def place_primary_order_batch(
                     item_snapshot=canonical_items,
                     order_ids=[str(order.id) for order in allocated_orders],
                     order_count=len(allocated_orders),
+                    originator_purchase_ids=[str(purchase.id) for purchase in originator_purchases],
+                    originator_purchase_count=len(originator_purchases),
                     currency_totals=currency_totals,
                     total_amount_minor=legacy_total_amount_minor,
                     request_fingerprint=request_fingerprint,
@@ -1114,6 +1329,8 @@ def place_primary_order_batch(
             "currency_totals": currency_totals,
             "order_ids": [str(order.id) for order in allocated_orders],
             "order_count": len(allocated_orders),
+            "originator_purchase_ids": [str(purchase.id) for purchase in originator_purchases],
+            "originator_purchase_count": len(originator_purchases),
             "document_acceptance_id": str(cast(Any, acceptance).id),
         }
         record_audit_event(
@@ -1133,7 +1350,11 @@ def place_primary_order_batch(
                 payload=event_metadata,
             )
         )
-        return PlacedPrimaryOrderBatch(batch=batch, orders=allocated_orders)
+        return PlacedPrimaryOrderBatch(
+            batch=batch,
+            orders=allocated_orders,
+            originator_purchases=originator_purchases,
+        )
 
 
 @transaction.atomic

@@ -903,13 +903,67 @@ td.num {
   white-space: nowrap;
 }
 
-.chip-tooltip {
+.ui-tooltip-anchor {
+  align-items: inherit;
+  display: inline-flex;
+  min-width: 0;
+  vertical-align: middle;
+}
+
+.ui-tooltip-anchor.is-focusable {
   cursor: help;
 }
 
-.chip-tooltip:focus-visible {
+.ui-tooltip-anchor.is-focusable:focus-visible {
+  border-radius: 4px;
   outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline-offset: 3px;
+}
+
+.ui-tooltip-popup {
+  background: #151719;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgb(21 23 25 / 22%);
+  color: #fffefb;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.45;
+  max-width: min(320px, calc(100vw - 24px));
+  padding: 8px 10px;
+  pointer-events: none;
+  position: fixed;
+  text-align: left;
+  white-space: normal;
+  width: max-content;
+  z-index: 10000;
+}
+
+.ui-tooltip-popup.top {
+  transform: translate(-50%, calc(-100% - 9px));
+}
+
+.ui-tooltip-popup.bottom {
+  transform: translate(-50%, 9px);
+}
+
+.ui-tooltip-popup::after {
+  background: #151719;
+  content: "";
+  height: 7px;
+  left: 50%;
+  position: absolute;
+  transform: translateX(-50%) rotate(45deg);
+  width: 7px;
+}
+
+.ui-tooltip-popup.top::after {
+  bottom: -4px;
+}
+
+.ui-tooltip-popup.bottom::after {
+  top: -4px;
 }
 
 .chip .dot {
@@ -9508,7 +9562,6 @@ table.tbl tfoot.schedule-totals th.num,
   }
 }
 .dz-tick.blocked { border-style: dotted; background: #edeae2; cursor: help; }
-.dz-desk-amt[title] { cursor: help; }
 
 /* ---- Approve-allocation modal (v9) ---- */
 .aa-modal { width: 760px; }

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { expect, test } from "vitest";
 
@@ -150,7 +150,7 @@ test("dashboard renders the v9 financial overview and opens matching loans in th
   expect(window.location.pathname).toBe("/dashboard");
 });
 
-test("rule desk splits idle balance across ticked matches and confirms one batch", () => {
+test("rule desk splits idle balance across ticked matches and confirms one batch", async () => {
   const rhone = marketplaceLoansFixture.find((loan) => loan.loan_id === "GA-2399");
   expect(rhone).toBeDefined();
   const syntheticMatch = { ...smartInvestFixture.matches[0], ...rhone } as (typeof smartInvestFixture.matches)[number];
@@ -178,18 +178,65 @@ test("rule desk splits idle balance across ticked matches and confirms one batch
     expect(within(dialog).getByRole("button", { name: "all" })).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "none" })).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Confirm 1" }));
-    expect(within(dialog).getByText(/one terms acceptance and one email code cover every order/)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(within(dialog).getByText(/one terms acceptance and one email code cover every investment/)).toBeInTheDocument();
+    });
     fireEvent.click(within(dialog).getByRole("checkbox", { name: /primary-market investment terms/i }));
     fireEvent.change(within(dialog).getByLabelText("Email confirmation code"), { target: { value: "123456" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Place 1 order" }));
-    expect(within(dialog).getByText("Every order is in.")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Place 1 investment" }));
+    expect(within(dialog).getByText("Every selected investment is in.")).toBeInTheDocument();
   } finally {
     smartInvestFixture.matches = smartInvestFixture.matches.filter((match) => match !== syntheticMatch);
     smartInvestFixture.match_count = smartInvestFixture.matches.length;
   }
 });
 
-test("smart invest table bulk-selects across currencies and approves one allocation", () => {
+test("rule desk batch-selects and prices a Loan Originator claim before approval", async () => {
+  const originalMatches = smartInvestFixture.matches;
+  const originatorMatch = marketplaceLoansFixture.find(
+    (loan) => loan.product_type === "originator_claim"
+  ) as (typeof smartInvestFixture.matches)[number] | undefined;
+  expect(originatorMatch).toBeDefined();
+  smartInvestFixture.matches = [originatorMatch!];
+  smartInvestFixture.match_count = 1;
+  try {
+    renderApp();
+
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+    fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+      target: { value: "lukas.brunner@example.ch" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+
+    expect(
+      screen.getByRole("button", {
+        name: `Untick ${originatorMatch!.title}`
+      })
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Review & confirm →" }));
+    const dialog = screen.getByRole("dialog", { name: "Approve this allocation." });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Confirm 1" }));
+
+    await waitFor(() => {
+      expect(within(dialog).getByText("Loan Originator prices locked")).toBeInTheDocument();
+    });
+    expect(within(dialog).getByText(/assigned principal/i)).toBeInTheDocument();
+    fireEvent.click(
+      within(dialog).getByRole("checkbox", { name: /primary-market investment terms/i })
+    );
+    fireEvent.change(within(dialog).getByLabelText("Email confirmation code"), {
+      target: { value: "123456" }
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Place 1 investment" }));
+    expect(within(dialog).getByText(/One Loan Originator claim was purchased immediately/)).toBeInTheDocument();
+  } finally {
+    smartInvestFixture.matches = originalMatches;
+    smartInvestFixture.match_count = originalMatches.length;
+  }
+});
+
+test("smart invest table bulk-selects across currencies and approves one allocation", async () => {
   const rhone = marketplaceLoansFixture.find((loan) => loan.loan_id === "GA-2399");
   const nordwind = marketplaceLoansFixture.find((loan) => loan.loan_id === "GA-2402");
   expect(rhone).toBeDefined();
@@ -239,11 +286,13 @@ test("smart invest table bulk-selects across currencies and approves one allocat
     expect(within(dialog).getByRole("button", { name: /Confirm \d+/ })).toBeDisabled();
     fireEvent.change(chfAmount, { target: { value: "20090" } });
     fireEvent.click(within(dialog).getByRole("button", { name: /Confirm \d+/ }));
-    expect(within(dialog).getByRole("link", { name: /primary-market investment terms/i })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(within(dialog).getByRole("link", { name: /primary-market investment terms/i })).toBeInTheDocument();
+    });
     fireEvent.click(within(dialog).getByRole("checkbox", { name: /primary-market investment terms/i }));
     fireEvent.change(within(dialog).getByLabelText("Email confirmation code"), { target: { value: "123456" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: /Place \d+ orders?/ }));
-    expect(within(dialog).getByText("Every order is in.")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: /Place \d+ investments?/ }));
+    expect(within(dialog).getByText("Every selected investment is in.")).toBeInTheDocument();
   } finally {
     smartInvestFixture.matches = smartInvestFixture.matches.filter(
       (match) => match !== chfMatch && match !== eurMatch
@@ -284,14 +333,22 @@ test("rule desk blocks loans whose minimum the split cannot reach and explains w
     fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
 
     // The unaffordable loan is not ticked, cannot be ticked, and carries an explanation.
-    const blocked = screen.getByLabelText("Expensive minimum loan cannot be selected");
-    expect(blocked).toHaveAttribute("title", expect.stringContaining("minimum investment"));
+    const blocked = screen.getByLabelText(/Expensive minimum loan cannot be selected/);
+    fireEvent.mouseEnter(blocked);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("minimum investment");
+    fireEvent.mouseLeave(blocked);
     expect(screen.queryByRole("button", { name: "Untick Expensive minimum loan" })).not.toBeInTheDocument();
     expect(screen.getByText("below minimum")).toBeInTheDocument();
 
     // The affordable loan stays ticked and the batch remains confirmable without the blocked one.
     expect(screen.getByRole("button", { name: "Untick Affordable loan" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Review & confirm →" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Smart Invest" }));
+    const matches = screen.getByRole("table", { name: "Smart Invest matches" });
+    const tableBlocked = within(matches).getByLabelText(/Expensive minimum loan cannot be selected/);
+    fireEvent.mouseEnter(tableBlocked);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("minimum investment");
   } finally {
     smartInvestFixture.matches = smartInvestFixture.matches.filter(
       (match) => match !== expensive && match !== affordable
@@ -925,12 +982,16 @@ test("primary-order status chips explain released and never-invested outcomes", 
     fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
     fireEvent.click(screen.getByRole("tab", { name: "Orders" }));
 
-    expect(screen.getByTitle(/previously reserved.*released before funding closed/i)).toHaveTextContent(
-      "Balance released"
-    );
-    expect(screen.getByTitle(/closed without any balance being allocated/i)).toHaveTextContent(
-      "Not invested"
-    );
+    const released = screen.getByLabelText(/Balance released.*previously reserved/i);
+    expect(released).toHaveTextContent("Balance released");
+    fireEvent.mouseEnter(released);
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/released before funding closed/i);
+    fireEvent.mouseLeave(released);
+
+    const notInvested = screen.getByLabelText(/Not invested.*without any balance being allocated/i);
+    expect(notInvested).toHaveTextContent("Not invested");
+    fireEvent.mouseEnter(notInvested);
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/without any balance being allocated/i);
   } finally {
     primaryOrdersFixture.orders = originalOrders;
   }
@@ -1018,8 +1079,14 @@ test("portfolio redesign shows hero, tabs, loans table views and widgets", () =>
   expect(screen.getByText("Earnings calendar")).toBeInTheDocument();
   expect(screen.queryByText("Orders are intents")).not.toBeInTheDocument();
   expect(screen.getByText("#1")).toBeInTheDocument();
-  expect(screen.getAllByRole("button", { name: "Copy order ID" })[0]).toHaveAttribute("title", "Copy order ID");
-  expect(screen.getAllByRole("button", { name: "Copy loan ID" })[0]).toHaveAttribute("title", "Copy loan ID");
+  const copyOrder = screen.getAllByRole("button", { name: "Copy order ID" })[0];
+  fireEvent.mouseEnter(copyOrder);
+  expect(screen.getByRole("tooltip")).toHaveTextContent("Copy order ID");
+  fireEvent.mouseLeave(copyOrder);
+  const copyLoan = screen.getAllByRole("button", { name: "Copy loan ID" })[0];
+  fireEvent.mouseEnter(copyLoan);
+  expect(screen.getByRole("tooltip")).toHaveTextContent("Copy loan ID");
+  fireEvent.mouseLeave(copyLoan);
   expect(screen.queryByText("Copy order ID")).not.toBeInTheDocument();
   expect(screen.queryByText("Copy loan ID")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("tab", { name: "My loans" }));

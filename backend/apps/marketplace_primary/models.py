@@ -117,7 +117,9 @@ class PrimaryInvestmentOrderBatch(AppendOnlyModel):
     )
     item_snapshot = models.JSONField(default=list)
     order_ids = models.JSONField(default=list)
-    order_count = models.PositiveIntegerField()
+    order_count = models.PositiveIntegerField(default=0)
+    originator_purchase_ids = models.JSONField(default=list)
+    originator_purchase_count = models.PositiveIntegerField(default=0)
     currency_totals = models.JSONField(default=list)
     total_amount_minor = models.BigIntegerField(blank=True, null=True)
     request_fingerprint = models.CharField(max_length=64)
@@ -128,8 +130,8 @@ class PrimaryInvestmentOrderBatch(AppendOnlyModel):
         ordering = ["-created_at", "-id"]
         constraints = [
             models.CheckConstraint(
-                condition=models.Q(order_count__gt=0),
-                name="primary_order_batch_count_positive",
+                condition=(models.Q(order_count__gt=0) | models.Q(originator_purchase_count__gt=0)),
+                name="primary_order_batch_has_investments",
             ),
             models.CheckConstraint(
                 condition=(

@@ -175,6 +175,9 @@ class PrimaryOrderBatchView(APIView):
                         PrimaryOrderBatchItemCommand(
                             loan_id=str(item["loan_id"]),
                             amount_minor=int(item["amount_minor"]),
+                            quote_id=(
+                                str(item["quote_id"]) if item.get("quote_id") is not None else None
+                            ),
                         )
                         for item in data["items"]
                     ],
@@ -195,6 +198,25 @@ class PrimaryOrderBatchView(APIView):
                 "currency_totals": result.batch.currency_totals,
                 "orders": [serialize_primary_order(order) for order in result.orders],
                 "order_count": len(result.orders),
+                "originator_purchases": [
+                    {
+                        "purchase_id": str(purchase.id),
+                        "quote_id": str(purchase.quote_id),
+                        "loan_id": str(purchase.loan_profile.loan_id),
+                        "holding_id": str(purchase.holding_id),
+                        "currency": purchase.currency_id,
+                        "cash_consideration_minor": purchase.cash_consideration_minor,
+                        "assigned_principal_minor": purchase.assigned_principal_minor,
+                        "outstanding_principal_at_pricing_minor": (
+                            purchase.outstanding_principal_at_pricing_minor
+                        ),
+                        "share_ppm": purchase.share_ppm,
+                        "target_yield_bps": purchase.target_yield_bps,
+                        "purchased_at": purchase.purchased_at,
+                    }
+                    for purchase in result.originator_purchases
+                ],
+                "originator_purchase_count": len(result.originator_purchases),
                 "total_amount_minor": (
                     int(result.batch.total_amount_minor)
                     if result.batch.total_amount_minor is not None
