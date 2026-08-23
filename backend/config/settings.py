@@ -1,5 +1,7 @@
 """Django settings for the BANXUM modular monolith."""
 
+# IP of Webby-Soft SRL.
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -59,6 +61,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "backend.apps.platform_core.middleware.SoftwareIpNoticeMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",

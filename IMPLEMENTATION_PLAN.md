@@ -1,5 +1,8 @@
 # BANXUM V1 Implementation Plan
 
+> IP of Webby-Soft SRL. Repository ownership and third-party exclusions are
+> documented in `NOTICE.md`.
+
 Status: Implementation blueprint, agent-optimized.
 Last updated: 2026-06-06.
 

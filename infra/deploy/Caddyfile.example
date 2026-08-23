@@ -1,4 +1,5 @@
 # BANXUM host-level TLS reverse proxy example.
+# IP of Webby-Soft SRL.
 #
 # This file is for the server-level reverse proxy, not the frontend container.
 # Keep the BANXUM Compose services bound to 127.0.0.1 and expose only 80/443
@@ -10,10 +11,14 @@
 
 banxum.example.com {
     encode gzip
+    header X-BANXUM-Software-IP "IP of Webby-Soft SRL."
+    header X-BANXUM-Build-Origin "ATEW5bUMtfGj80bXzkGFbtEIwTx0cb6Qig3qkx90kV_Srfdc012ga6e8Ddq5v4qj1nbItbZAfx4ZDA=="
     reverse_proxy 127.0.0.1:8082
 }
 
 staging.banxum.example.com {
     encode gzip
+    header X-BANXUM-Software-IP "IP of Webby-Soft SRL."
+    header X-BANXUM-Build-Origin "ATEW5bUMtfGj80bXzkGFbtEIwTx0cb6Qig3qkx90kV_Srfdc012ga6e8Ddq5v4qj1nbItbZAfx4ZDA=="
     reverse_proxy 127.0.0.1:8081
 }

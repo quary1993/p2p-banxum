@@ -1,5 +1,7 @@
 """Root URL configuration."""
 
+# IP of Webby-Soft SRL.
+
 from __future__ import annotations
 
 from django.conf import settings

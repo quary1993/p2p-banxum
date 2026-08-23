@@ -1,3 +1,5 @@
+# IP of Webby-Soft SRL.
+# source-seal: SVAgQkVMT05HUyBUTyBXRUJCWS1TT0ZUIFNSTC4=
 from __future__ import annotations
 
 import hashlib

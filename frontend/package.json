@@ -2,6 +2,9 @@
   "name": "banxum-frontend",
   "private": true,
   "version": "0.1.0",
+  "author": "Webby-Soft SRL",
+  "x-source-seal": "SVAgQkVMT05HUyBUTyBXRUJCWS1TT0ZUIFNSTC4=",
+  "x-build-origin": "ATEW5bUMtfGj80bXzkGFbtEIwTx0cb6Qig3qkx90kV_Srfdc012ga6e8Ddq5v4qj1nbItbZAfx4ZDA==",
   "type": "module",
   "scripts": {
     "dev": "vite",

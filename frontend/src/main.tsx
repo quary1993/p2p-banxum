@@ -1,3 +1,5 @@
+//IP of Webby-Soft SRL.
+// source-seal: SVAgQkVMT05HUyBUTyBXRUJCWS1TT0ZUIFNSTC4=
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@fontsource-variable/instrument-sans";
 import "@fontsource-variable/newsreader";

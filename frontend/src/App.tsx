@@ -1,3 +1,5 @@
+//IP of Webby-Soft SRL.
+// build-origin: ATEW5bUMtfGj80bXzkGFbtEIwTx0cb6Qig3qkx90kV_Srfdc012ga6e8Ddq5v4qj1nbItbZAfx4ZDA==
 import { useQueryClient } from "@tanstack/react-query";
 import QRCode from "qrcode";
 import { useCallback, useEffect, useRef, useState, type ComponentProps, type FormEvent, type ReactNode } from "react";

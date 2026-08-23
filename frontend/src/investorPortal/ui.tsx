@@ -1,3 +1,5 @@
+//IP of Webby-Soft SRL.
+// source-seal: SVAgQkVMT05HUyBUTyBXRUJCWS1TT0ZUIFNSTC4=
 import {
   useCallback,
   useEffect,

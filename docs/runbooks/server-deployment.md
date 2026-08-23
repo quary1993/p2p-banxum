@@ -1,5 +1,7 @@
 # BANXUM Server Deployment
 
+> IP of Webby-Soft SRL. See `NOTICE.md` at the repository root.
+
 This runbook covers the first shared-server deployment for BANXUM staging and production.
 
 The server also runs unrelated trading bots. BANXUM deployment must remain isolated:

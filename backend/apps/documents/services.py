@@ -1,3 +1,5 @@
+# IP of Webby-Soft SRL.
+# build-origin: ATEW5bUMtfGj80bXzkGFbtEIwTx0cb6Qig3qkx90kV_Srfdc012ga6e8Ddq5v4qj1nbItbZAfx4ZDA==
 from __future__ import annotations
 
 import base64
