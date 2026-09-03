@@ -8,8 +8,10 @@ export default defineConfig({
       client: "react-query",
       mode: "single",
       mock: true,
-      prettier: false,
       override: {
+        fetch: {
+          includeHttpResponseReturnType: false
+        },
         mutator: {
           path: "src/api/client/httpClient.ts",
           name: "httpClient"

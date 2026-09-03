@@ -67,21 +67,27 @@ async function readErrorPayload(response: Response): Promise<{ payload: unknown;
   return { payload: undefined, text };
 }
 
-export const httpClient = async <T>({
-  url,
-  method,
-  data,
-  params,
-  headers,
-  signal
-}: {
+type LegacyHttpClientRequest = {
   url: string;
   method: string;
   data?: unknown;
   params?: Record<string, unknown>;
   headers?: HeadersInit;
   signal?: AbortSignal;
-}): Promise<T> => {
+};
+
+export function httpClient<T>(request: LegacyHttpClientRequest): Promise<T>;
+export function httpClient<T>(url: string, options?: RequestInit): Promise<T>;
+export async function httpClient<T>(requestOrUrl: LegacyHttpClientRequest | string, options?: RequestInit): Promise<T> {
+  const legacyRequest = typeof requestOrUrl === "string" ? undefined : requestOrUrl;
+  const url = typeof requestOrUrl === "string" ? requestOrUrl : requestOrUrl.url;
+  const method = legacyRequest?.method ?? options?.method ?? "GET";
+  const data = legacyRequest?.data;
+  const params = legacyRequest?.params;
+  const headers = legacyRequest?.headers ?? options?.headers;
+  const signal = legacyRequest?.signal ?? options?.signal ?? undefined;
+  const body = legacyRequest ? (data === undefined ? undefined : JSON.stringify(data)) : options?.body;
+
   const apiBaseUrl = typeof window === "undefined" ? "http://localhost:8000" : window.location.origin;
   const requestUrl = new URL(url, apiBaseUrl);
 
@@ -112,9 +118,10 @@ export const httpClient = async <T>({
   }
 
   const response = await fetch(requestUrl, {
+    ...options,
     method,
     headers: requestHeaders,
-    body: data === undefined ? undefined : JSON.stringify(data),
+    body,
     credentials: "same-origin",
     signal
   });
@@ -137,4 +144,4 @@ export const httpClient = async <T>({
     return JSON.parse(responseText) as T;
   }
   return responseText as T;
-};
+}

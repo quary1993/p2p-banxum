@@ -35,6 +35,25 @@ describe("httpClient", () => {
     expect(headers.get("Content-Type")).toBe("application/json");
   });
 
+  test("supports the generated fetch mutator signature", async () => {
+    document.cookie = "csrftoken=generated-token";
+    const fetchMock = mockJsonResponse();
+
+    await httpClient("/api/v1/example/?currency=CHF", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ amount_minor: 100 })
+    });
+
+    const [url] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit];
+    const init = lastFetchInit(fetchMock);
+    const headers = init.headers as Headers;
+    expect(url.pathname).toBe("/api/v1/example/");
+    expect(url.searchParams.get("currency")).toBe("CHF");
+    expect(init.body).toBe('{"amount_minor":100}');
+    expect(headers.get("X-CSRFToken")).toBe("generated-token");
+  });
+
   test("does not add CSRF header to safe read requests", async () => {
     document.cookie = "csrftoken=token%20123";
     const fetchMock = mockJsonResponse();
