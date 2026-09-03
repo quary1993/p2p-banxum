@@ -107,6 +107,14 @@ environment's existing `infra/deploy/.env`, rebuilds only the BANXUM Compose pro
 server-local health check. It must use only the configured BANXUM SSH secrets and the directories /
 Compose project names listed below.
 
+Twilio Email credentials are environment-owned secrets. When both
+`BANXUM_TWILIO_EMAIL_API_KEY_SID` and `BANXUM_TWILIO_EMAIL_API_KEY_SECRET` exist as GitHub Actions
+secrets, the workflow treats them as an explicit credential-rotation override and writes them to
+the preserved target environment. When both are absent, it preserves the target's existing Twilio
+Email settings and fails closed unless the provider, SID, secret, and sender are all non-empty. A
+single configured Actions credential is always rejected; deployment must never overwrite a working
+pair with a partial or empty value.
+
 `seed_marketplace_demo_loans` is an explicit workflow option for private QA only. When selected, the
 workflow runs `seed_marketplace_demo_loans` after the environment is healthy. The command uses the
 configured environment-managed superadmin for audit attribution, cycles through existing approved
@@ -116,11 +124,13 @@ production acknowledgement, and is never part of container startup. Leave the op
 ordinary deployments.
 
 `seed_originator_demo_loans` is a separate private-QA workflow option. It creates three clearly
-labelled demo Loan Originators and publishes ten `Demo LO - ...` claims through the same strict CSV
-import, reconciliation, target-yield pricing, and publication services used by the admin workflow.
-The catalogue spans CHF/EUR, all supported repayment structures, varied minimum investments and
-more than 30 days to maturity. It is idempotent, requires explicit production acknowledgement, and
-is never part of container startup. Leave it disabled for ordinary deployments.
+labelled demo Loan Originators and publishes ten `Demo LO - ...` par-component subscriptions
+through the same strict CSV import, reconciliation, funding-round, and publication services used by
+the admin workflow. The catalogue spans CHF/EUR, all supported repayment structures, varied
+investor minimums, interest/penalty participation rates, originator retention, and 30-calendar-day
+funding windows. The command places any still-open v1 seed opportunity on hold instead of deleting
+immutable history. It is idempotent, requires explicit production acknowledgement, and is never
+part of container startup. Leave it disabled for ordinary deployments.
 
 Container startup applies migrations, collects static files, runs `seed_reference_data`, and
 synchronizes the environment-managed superadmin. `seed_reference_data` creates only currencies and
@@ -129,7 +139,7 @@ QA command and may create temporary, non-approved legal templates.
 
 Neither marketplace demo catalogue is production reference data. Before accepting real lender
 money, cancel direct-loan demo campaigns through the normal funding-cancellation flow, place demo
-originator opportunities on hold, and verify that no open opportunity title starts with `Demo - ` or
+originator subscriptions on hold, and verify that no open opportunity title starts with `Demo - ` or
 `Demo LO - `. Do not delete loan, originator, import, or append-only evidence rows directly from the
 database. Rebuild a private-QA environment when a completely clean data set is required.
 

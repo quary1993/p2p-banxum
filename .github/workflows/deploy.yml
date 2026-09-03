@@ -45,8 +45,11 @@ jobs:
           test -n "$SSH_HOST"
           test -n "$SSH_USER"
           test -n "$SSH_PRIVATE_KEY"
-          test -n "$TWILIO_EMAIL_API_KEY_SID"
-          test -n "$TWILIO_EMAIL_API_KEY_SECRET"
+          if { [ -n "$TWILIO_EMAIL_API_KEY_SID" ] && [ -z "$TWILIO_EMAIL_API_KEY_SECRET" ]; } || \
+             { [ -z "$TWILIO_EMAIL_API_KEY_SID" ] && [ -n "$TWILIO_EMAIL_API_KEY_SECRET" ]; }; then
+            echo "Twilio Email Actions secrets must either both be configured or both be absent." >&2
+            exit 1
+          fi
 
       - name: Prepare SSH key
         env:
@@ -105,15 +108,19 @@ jobs:
           for target in $targets; do
             release_name="banxum-${GITHUB_SHA}-${target}.tgz"
             remote_archive="/tmp/${release_name}"
-            provider_env="$RUNNER_TEMP/${release_name}.email-provider"
-            remote_provider_env="${remote_archive}.email-provider"
+            provider_env=""
+            remote_provider_env=""
 
-            umask 077
-            {
-              printf 'TWILIO_EMAIL_API_KEY_SID=%s\n' "$TWILIO_EMAIL_API_KEY_SID"
-              printf 'TWILIO_EMAIL_API_KEY_SECRET=%s\n' "$TWILIO_EMAIL_API_KEY_SECRET"
-              printf 'TWILIO_EMAIL_FROM_EMAIL=%s\n' "$TWILIO_EMAIL_FROM_EMAIL"
-            } > "$provider_env"
+            if [ -n "$TWILIO_EMAIL_API_KEY_SID" ]; then
+              provider_env="$RUNNER_TEMP/${release_name}.email-provider"
+              remote_provider_env="${remote_archive}.email-provider"
+              umask 077
+              {
+                printf 'TWILIO_EMAIL_API_KEY_SID=%s\n' "$TWILIO_EMAIL_API_KEY_SID"
+                printf 'TWILIO_EMAIL_API_KEY_SECRET=%s\n' "$TWILIO_EMAIL_API_KEY_SECRET"
+                printf 'TWILIO_EMAIL_FROM_EMAIL=%s\n' "$TWILIO_EMAIL_FROM_EMAIL"
+              } > "$provider_env"
+            fi
 
             scp \
               -i "$HOME/.ssh/banxum_deploy_key" \
@@ -122,12 +129,14 @@ jobs:
               "$RUNNER_TEMP/banxum-release.tgz" \
               "$SSH_USER@$SSH_HOST:$remote_archive"
 
-            scp \
-              -i "$HOME/.ssh/banxum_deploy_key" \
-              -P "$SSH_PORT" \
-              -o BatchMode=yes \
-              "$provider_env" \
-              "$SSH_USER@$SSH_HOST:$remote_provider_env"
+            if [ -n "$provider_env" ]; then
+              scp \
+                -i "$HOME/.ssh/banxum_deploy_key" \
+                -P "$SSH_PORT" \
+                -o BatchMode=yes \
+                "$provider_env" \
+                "$SSH_USER@$SSH_HOST:$remote_provider_env"
+            fi
 
             ssh \
               -i "$HOME/.ssh/banxum_deploy_key" \
@@ -195,24 +204,42 @@ jobs:
             rm -f "$temp_file"
           }
 
-          if [ ! -f "$REMOTE_PROVIDER_ENV" ]; then
-            echo "Missing transferred Twilio Email provider configuration." >&2
-            exit 5
-          fi
-          chmod 600 "$REMOTE_PROVIDER_ENV"
-          set -a
-          # shellcheck disable=SC1090
-          . "$REMOTE_PROVIDER_ENV"
-          set +a
-          rm -f "$REMOTE_PROVIDER_ENV"
-
           backend_env="$app_dir/infra/deploy/.env"
-          set_env_value "$backend_env" COMMUNICATIONS_EMAIL_PROVIDER twilio_email
-          set_env_value "$backend_env" TWILIO_EMAIL_API_KEY_SID "$TWILIO_EMAIL_API_KEY_SID"
-          set_env_value "$backend_env" TWILIO_EMAIL_API_KEY_SECRET "$TWILIO_EMAIL_API_KEY_SECRET"
-          set_env_value "$backend_env" TWILIO_EMAIL_FROM_EMAIL "$TWILIO_EMAIL_FROM_EMAIL"
-          set_env_value "$backend_env" TWILIO_EMAIL_FROM_NAME BANXUM
-          set_env_value "$backend_env" TWILIO_EMAIL_TIMEOUT_SECONDS 10
+          if [ -n "$REMOTE_PROVIDER_ENV" ]; then
+            if [ ! -f "$REMOTE_PROVIDER_ENV" ]; then
+              echo "Missing transferred Twilio Email provider configuration." >&2
+              exit 5
+            fi
+            chmod 600 "$REMOTE_PROVIDER_ENV"
+            set -a
+            # shellcheck disable=SC1090
+            . "$REMOTE_PROVIDER_ENV"
+            set +a
+            rm -f "$REMOTE_PROVIDER_ENV"
+
+            set_env_value "$backend_env" COMMUNICATIONS_EMAIL_PROVIDER twilio_email
+            set_env_value "$backend_env" TWILIO_EMAIL_API_KEY_SID "$TWILIO_EMAIL_API_KEY_SID"
+            set_env_value "$backend_env" TWILIO_EMAIL_API_KEY_SECRET "$TWILIO_EMAIL_API_KEY_SECRET"
+            set_env_value "$backend_env" TWILIO_EMAIL_FROM_EMAIL "$TWILIO_EMAIL_FROM_EMAIL"
+            set_env_value "$backend_env" TWILIO_EMAIL_FROM_NAME BANXUM
+            set_env_value "$backend_env" TWILIO_EMAIL_TIMEOUT_SECONDS 10
+          else
+            echo "Preserving existing $TARGET Twilio Email configuration."
+            for required_key in \
+              COMMUNICATIONS_EMAIL_PROVIDER \
+              TWILIO_EMAIL_API_KEY_SID \
+              TWILIO_EMAIL_API_KEY_SECRET \
+              TWILIO_EMAIL_FROM_EMAIL; do
+              if ! grep -q "^${required_key}=." "$backend_env"; then
+                echo "Missing required preserved email setting: ${required_key}" >&2
+                exit 5
+              fi
+            done
+            if ! grep -q '^COMMUNICATIONS_EMAIL_PROVIDER=twilio_email$' "$backend_env"; then
+              echo "Preserved email provider is not twilio_email." >&2
+              exit 5
+            fi
+          fi
           chmod 600 "$backend_env"
 
           cd "$app_dir"
