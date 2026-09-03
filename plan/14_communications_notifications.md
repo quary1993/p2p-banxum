@@ -98,10 +98,10 @@ SMS is used only for phone confirmation at launch. Phone verification uses Twili
 
 The investor portal includes an in-app notification center backed by transactional email outbox and delivery evidence. Balance-ageing reminders belong in that notification center rather than as a persistent dashboard warning. Blocking account states, such as a day-60 freeze caused by a missing usable payout IBAN, remain visible as contextual banners because they directly change which actions are available.
 
-The launch email provider is SendGrid. The sender domain is TBD.
+The launch email provider is Twilio Email API. The sender domain for the current private-test deployment is `nxnarena.com`; the final production domain remains a go-live configuration decision.
 
 Rationale:
-Email covers the launch communication surface, while Twilio is limited to phone verification to keep the first version simple.
+Email covers the launch communication surface through Twilio Email API, while Twilio Verify remains the separate phone-verification channel.
 
 Impacted modules:
 - Integrations, APIs, and Event Architecture.
@@ -109,10 +109,10 @@ Impacted modules:
 - Admin and Operations Portal.
 
 Follow-ups:
-Provide SendGrid account/API credentials, verified sender/domain, DNS records, and Twilio account/API credentials/Verify configuration. Decide sender domain.
+Provide separate Twilio Email API-key credentials, verified sender/domain and DNS records, plus Twilio Verify credentials/service configuration. Decide the final production sender domain.
 
 Implementation status:
-SendGrid dispatch and Twilio Verify are implemented behind provider settings, bounded provider calls, and non-local deploy checks. The current provider-integration audit is closed for code-level security posture: mock/local modes cannot satisfy non-local deploy checks, SendGrid and Twilio fail closed when credentials are missing or provider calls fail, and Twilio phone verification preserves BANXUM's local user ownership, expiry, attempts, audit, and verified-state controls. Business-event email outbox mapping is implemented for balance-ageing reminders, repayment credits, recovery distributions, and secondary-market listing/purchase events. Live SendGrid sender-domain/DNS validation, bounce/suppression webhooks, Twilio live delivery testing, and final advisor-approved wording/templates remain launch setup tasks.
+Twilio Email API, legacy SendGrid and Twilio Verify are implemented behind provider settings and bounded provider calls. Non-local deploy checks reject mock/local email delivery and validate the credentials required by the selected provider. Twilio Email uses Basic authentication with a dedicated API-key SID/secret, while Twilio Verify retains separate credentials and preserves BANXUM's local user ownership, expiry, attempts, audit, and verified-state controls. Business-event email outbox mapping is implemented for balance-ageing reminders, repayment credits, recovery distributions, and secondary-market listing/purchase events. Final sender-domain validation, bounce/suppression integration and advisor-approved wording/templates remain launch setup tasks.
 
 ### COMMS-DEC-002: Marketing Consent and Future Newsletter Lists
 
@@ -376,7 +376,7 @@ The current backend queues idempotent transactional email outbox messages for:
 - Secondary-market buyer and seller purchase/sale confirmations, without exposing counterparty identity.
 - Smart Invest first-publication matches for active, financially eligible investors, deduplicated per investor and loan.
 
-Local development uses the mock email provider. Staging and production must set `COMMUNICATIONS_EMAIL_PROVIDER=sendgrid`, `SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`, and sender-domain DNS before sending real notices. Final advisor-approved template wording, template versioning UI, attachments/secure document links, bounce/suppression webhook handling, and admin dead-letter task creation remain provider/content follow-ups before launch.
+Local development uses the mock email provider. Staging and production use `COMMUNICATIONS_EMAIL_PROVIDER=twilio_email`, `TWILIO_EMAIL_API_KEY_SID`, `TWILIO_EMAIL_API_KEY_SECRET`, `TWILIO_EMAIL_FROM_EMAIL`, and authenticated sender-domain DNS before sending real notices. The legacy `sendgrid` provider remains available for rollback. Final advisor-approved template wording, template versioning UI, attachments/secure document links, bounce/suppression handling, and admin dead-letter task creation remain provider/content follow-ups before launch.
 
 ## Controls
 
@@ -417,7 +417,7 @@ Local development uses the mock email provider. Staging and production must set 
 4. Answered by COMMS-DEC-003: all transactional emails are mandatory where legally permitted, including account/KYC, investment, document, balance, repayment, withdrawal/FX, late/default/recovery, terms, and user-involved secondary-market transaction emails.
 5. Partly answered by RISK-DEC-004: arrears/default investor updates may be sent by bulk email and/or public loan note when something material changes; borrower outreach remains offline and is not structured in v1.
 6. Answered for planning: sender domain is TBD and tracked in `admin_todo_accounts.md`.
-7. Answered by COMMS-DEC-001: SendGrid is the launch email provider; Twilio is used for phone verification.
+7. Answered by COMMS-DEC-001: Twilio Email API is the launch email provider; Twilio Verify is used separately for phone verification.
 8. Answered by COMMS-DEC-006: no support tickets at launch; normal email support is enough and support email should be exposed on the site/FAQ.
 9. Answered by COMMS-DEC-004: failed emails retry a few times, then create an admin notification/task; full sent email content is stored.
 10. Answered by COMMS-DEC-005: admin can choose public loan note only, bulk email only, or both.

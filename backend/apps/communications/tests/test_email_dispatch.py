@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 from datetime import timedelta
 from importlib import import_module
@@ -13,6 +14,7 @@ from django.db.models import Model
 from django.test import override_settings
 from django.utils import timezone
 
+from backend.apps.communications.checks import check_email_provider_config
 from backend.apps.communications.models import (
     CommunicationEvent,
     EmailDeliveryRecord,
@@ -79,6 +81,51 @@ class _FakeSendGridResponse:
 
     def read(self) -> bytes:
         return b""
+
+
+class _FakeTwilioEmailResponse:
+    status = 202
+    headers: dict[str, str] = {}
+
+    def __enter__(self) -> _FakeTwilioEmailResponse:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return json.dumps(
+            {
+                "operationId": "comms_operation_test_1",
+                "operationLocation": "/Emails/Operations/comms_operation_test_1",
+            }
+        ).encode("utf-8")
+
+
+@override_settings(
+    ENVIRONMENT="production",
+    COMMUNICATIONS_EMAIL_PROVIDER="twilio_email",
+    TWILIO_EMAIL_API_KEY_SID="SK-test",
+    TWILIO_EMAIL_API_KEY_SECRET="secret-test",
+    TWILIO_EMAIL_FROM_EMAIL="notifications@nxnarena.com",
+    TWILIO_EMAIL_TIMEOUT_SECONDS=8,
+)
+def test_twilio_email_provider_passes_non_local_deploy_check() -> None:
+    assert check_email_provider_config(None) == []
+
+
+@override_settings(
+    ENVIRONMENT="production",
+    COMMUNICATIONS_EMAIL_PROVIDER="twilio_email",
+    TWILIO_EMAIL_API_KEY_SID="SK-test",
+    TWILIO_EMAIL_API_KEY_SECRET="",
+    TWILIO_EMAIL_FROM_EMAIL="notifications@nxnarena.com",
+    TWILIO_EMAIL_TIMEOUT_SECONDS=8,
+)
+def test_twilio_email_provider_requires_api_key_secret() -> None:
+    errors = check_email_provider_config(None)
+
+    assert [error.id for error in errors] == ["communications.E006"]
 
 
 @pytest.mark.django_db
@@ -218,6 +265,59 @@ def test_sensitive_action_email_dispatch_uses_sendgrid_payload_without_tracking(
 
 @pytest.mark.django_db
 @override_settings(
+    COMMUNICATIONS_EMAIL_PROVIDER="twilio_email",
+    TWILIO_EMAIL_API_KEY_SID="SK-test",
+    TWILIO_EMAIL_API_KEY_SECRET="secret-test",
+    TWILIO_EMAIL_FROM_EMAIL="notifications@nxnarena.com",
+    TWILIO_EMAIL_FROM_NAME="BANXUM",
+    TWILIO_EMAIL_TIMEOUT_SECONDS=8,
+    PUBLIC_APP_BASE_URL="https://app.banxum.test",
+)
+def test_sensitive_action_email_dispatch_uses_twilio_email_payload(
+    investor: Model,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth_services = _auth_services()
+    result = auth_services.issue_sensitive_action_code(
+        auth_services.SensitiveActionCodeCommand(user=investor, action="withdrawal")
+    )
+    captured: dict[str, Any] = {}
+
+    def fake_urlopen(request: Any, timeout: int) -> _FakeTwilioEmailResponse:
+        captured["url"] = request.full_url
+        captured["timeout"] = timeout
+        captured["headers"] = dict(request.header_items())
+        captured["payload"] = json.loads(cast(bytes, request.data).decode("utf-8"))
+        return _FakeTwilioEmailResponse()
+
+    monkeypatch.setattr(
+        "backend.apps.communications.services.urllib.request.urlopen",
+        fake_urlopen,
+    )
+
+    dispatch_result = dispatch_due_email_outbox_messages()
+
+    assert dispatch_result.sent_count == 1, EmailDeliveryRecord.objects.get().error
+    assert captured["url"] == "https://comms.twilio.com/v1/Emails"
+    assert captured["timeout"] == 8
+    expected_basic = base64.b64encode(b"SK-test:secret-test").decode("ascii")
+    assert captured["headers"]["Authorization"] == f"Basic {expected_basic}"
+    payload = captured["payload"]
+    assert payload["from"] == {
+        "address": "notifications@nxnarena.com",
+        "name": "BANXUM",
+    }
+    assert payload["to"] == [{"address": cast(Any, investor).email}]
+    assert result.raw_code in payload["content"]["text"]
+    assert result.raw_code in payload["content"]["html"]
+    assert "<a " in payload["content"]["html"]
+    delivery = EmailDeliveryRecord.objects.get(template_key="auth.withdrawal.code.v1")
+    assert delivery.provider == "twilio_email"
+    assert delivery.provider_message_id == "comms_operation_test_1"
+
+
+@pytest.mark.django_db
+@override_settings(
     COMMUNICATIONS_EMAIL_PROVIDER="mock",
     PUBLIC_APP_BASE_URL="https://app.banxum.test",
 )
@@ -268,10 +368,14 @@ def test_dispatch_legacy_document_acceptance_email_points_to_portal_without_atta
     assert delivery.template_key == "documents.acceptance_portal_notice.v1"
     assert delivery.metadata["attachment_count"] == 0
     assert delivery.metadata["attachments"] == []
-    assert not apps.get_model("documents", "DocumentRenderedArtifact").objects.filter(
-        acceptance=acceptance,
-        purpose="email_delivery",
-    ).exists()
+    assert (
+        not apps.get_model("documents", "DocumentRenderedArtifact")
+        .objects.filter(
+            acceptance=acceptance,
+            purpose="email_delivery",
+        )
+        .exists()
+    )
     assert "Your accepted document is available" in delivery.body_html
     assert "https://app.banxum.test/documents" in delivery.body_html
 
@@ -369,10 +473,7 @@ def test_payload_email_uses_banxum_template_and_linkifies_urls() -> None:
         payload={
             "email": "investor@example.test",
             "subject": "Manual notice",
-            "body_text": (
-                "Review your account notice here:\n\n"
-                "https://app.banxum.test/documents"
-            ),
+            "body_text": ("Review your account notice here:\n\nhttps://app.banxum.test/documents"),
             "template_key": "manual.notice.v1",
         },
     )
@@ -383,8 +484,5 @@ def test_payload_email_uses_banxum_template_and_linkifies_urls() -> None:
     assert "<!DOCTYPE html>" in delivery.body_html
     assert "BANXUM" in delivery.body_html
     assert "Garanta Finanzgruppe AG" in delivery.body_html
-    assert (
-        '<a href="https://app.banxum.test/documents" target="_blank"'
-        in delivery.body_html
-    )
+    assert '<a href="https://app.banxum.test/documents" target="_blank"' in delivery.body_html
     assert "support@banxum.test" in delivery.body_html

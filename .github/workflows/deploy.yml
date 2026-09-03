@@ -38,11 +38,15 @@ jobs:
           SSH_HOST: ${{ secrets.BANXUM_SSH_HOST }}
           SSH_USER: ${{ secrets.BANXUM_SSH_USER }}
           SSH_PRIVATE_KEY: ${{ secrets.BANXUM_SSH_PRIVATE_KEY }}
+          TWILIO_EMAIL_API_KEY_SID: ${{ secrets.BANXUM_TWILIO_EMAIL_API_KEY_SID }}
+          TWILIO_EMAIL_API_KEY_SECRET: ${{ secrets.BANXUM_TWILIO_EMAIL_API_KEY_SECRET }}
         run: |
           set -euo pipefail
           test -n "$SSH_HOST"
           test -n "$SSH_USER"
           test -n "$SSH_PRIVATE_KEY"
+          test -n "$TWILIO_EMAIL_API_KEY_SID"
+          test -n "$TWILIO_EMAIL_API_KEY_SECRET"
 
       - name: Prepare SSH key
         env:
@@ -87,6 +91,9 @@ jobs:
           SSH_HOST: ${{ secrets.BANXUM_SSH_HOST }}
           SSH_USER: ${{ secrets.BANXUM_SSH_USER }}
           SSH_PORT: ${{ secrets.BANXUM_SSH_PORT || '22' }}
+          TWILIO_EMAIL_API_KEY_SID: ${{ secrets.BANXUM_TWILIO_EMAIL_API_KEY_SID }}
+          TWILIO_EMAIL_API_KEY_SECRET: ${{ secrets.BANXUM_TWILIO_EMAIL_API_KEY_SECRET }}
+          TWILIO_EMAIL_FROM_EMAIL: ${{ vars.BANXUM_TWILIO_EMAIL_FROM_EMAIL || 'notifications@nxnarena.com' }}
         run: |
           set -euo pipefail
 
@@ -98,6 +105,15 @@ jobs:
           for target in $targets; do
             release_name="banxum-${GITHUB_SHA}-${target}.tgz"
             remote_archive="/tmp/${release_name}"
+            provider_env="$RUNNER_TEMP/${release_name}.email-provider"
+            remote_provider_env="${remote_archive}.email-provider"
+
+            umask 077
+            {
+              printf 'TWILIO_EMAIL_API_KEY_SID=%s\n' "$TWILIO_EMAIL_API_KEY_SID"
+              printf 'TWILIO_EMAIL_API_KEY_SECRET=%s\n' "$TWILIO_EMAIL_API_KEY_SECRET"
+              printf 'TWILIO_EMAIL_FROM_EMAIL=%s\n' "$TWILIO_EMAIL_FROM_EMAIL"
+            } > "$provider_env"
 
             scp \
               -i "$HOME/.ssh/banxum_deploy_key" \
@@ -105,6 +121,13 @@ jobs:
               -o BatchMode=yes \
               "$RUNNER_TEMP/banxum-release.tgz" \
               "$SSH_USER@$SSH_HOST:$remote_archive"
+
+            scp \
+              -i "$HOME/.ssh/banxum_deploy_key" \
+              -P "$SSH_PORT" \
+              -o BatchMode=yes \
+              "$provider_env" \
+              "$SSH_USER@$SSH_HOST:$remote_provider_env"
 
             ssh \
               -i "$HOME/.ssh/banxum_deploy_key" \
@@ -114,10 +137,12 @@ jobs:
               "$SSH_USER@$SSH_HOST" \
               TARGET="$target" \
               REMOTE_ARCHIVE="$remote_archive" \
+              REMOTE_PROVIDER_ENV="$remote_provider_env" \
               SEED_MARKETPLACE_DEMO_LOANS="$SEED_MARKETPLACE_DEMO_LOANS" \
               SEED_ORIGINATOR_DEMO_LOANS="$SEED_ORIGINATOR_DEMO_LOANS" \
               'bash -s' <<'REMOTE'
           set -euo pipefail
+          trap 'rm -f "${REMOTE_ARCHIVE:-}" "${REMOTE_PROVIDER_ENV:-}"' EXIT
 
           case "$TARGET" in
             staging)
@@ -158,6 +183,37 @@ jobs:
             echo "Missing $app_dir/infra/deploy/.env; refusing to deploy without environment config." >&2
             exit 3
           fi
+
+          set_env_value() {
+            env_file="$1"
+            key="$2"
+            value="$3"
+            temp_file="$(mktemp)"
+            awk -F= -v key="$key" '$1 != key { print }' "$env_file" > "$temp_file"
+            printf '%s=%s\n' "$key" "$value" >> "$temp_file"
+            cat "$temp_file" > "$env_file"
+            rm -f "$temp_file"
+          }
+
+          if [ ! -f "$REMOTE_PROVIDER_ENV" ]; then
+            echo "Missing transferred Twilio Email provider configuration." >&2
+            exit 5
+          fi
+          chmod 600 "$REMOTE_PROVIDER_ENV"
+          set -a
+          # shellcheck disable=SC1090
+          . "$REMOTE_PROVIDER_ENV"
+          set +a
+          rm -f "$REMOTE_PROVIDER_ENV"
+
+          backend_env="$app_dir/infra/deploy/.env"
+          set_env_value "$backend_env" COMMUNICATIONS_EMAIL_PROVIDER twilio_email
+          set_env_value "$backend_env" TWILIO_EMAIL_API_KEY_SID "$TWILIO_EMAIL_API_KEY_SID"
+          set_env_value "$backend_env" TWILIO_EMAIL_API_KEY_SECRET "$TWILIO_EMAIL_API_KEY_SECRET"
+          set_env_value "$backend_env" TWILIO_EMAIL_FROM_EMAIL "$TWILIO_EMAIL_FROM_EMAIL"
+          set_env_value "$backend_env" TWILIO_EMAIL_FROM_NAME BANXUM
+          set_env_value "$backend_env" TWILIO_EMAIL_TIMEOUT_SECONDS 10
+          chmod 600 "$backend_env"
 
           cd "$app_dir"
           docker compose \

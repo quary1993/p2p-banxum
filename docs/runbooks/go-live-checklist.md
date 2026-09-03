@@ -32,7 +32,7 @@ Complete these before calling any environment production-like.
   - `infra/deploy/check_backup_freshness.sh` is monitored and a restore drill into a disposable database has been performed.
 - Provider settings:
   - Didit is in API mode with real workflow ID, webhook signing secret, signed webhooks required, and public callback URL.
-  - SendGrid is authenticated for the sender domain and can deliver transactional mail from the approved sender.
+  - Twilio Email API is authenticated with a dedicated API-key SID/secret; the sender domain is approved and transactional mail reaches a real mailbox.
   - Twilio Verify has a live service SID, credentials, spending/fraud controls, and country policy.
   - Yahoo Finance adapter is the active FX provider outside local/test; mock FX is disabled.
 - Platform settings:
@@ -142,14 +142,16 @@ Use this as the daily operating checklist once the environment is live.
 
 Run these checks in staging before production, and again in production before real users.
 
-- SendGrid:
-  - Sender domain DNS authentication is green in SendGrid.
+- Twilio Email API:
+  - Sender domain DNS authentication is green in the Twilio Console.
+  - `COMMUNICATIONS_EMAIL_PROVIDER=twilio_email`; email API-key credentials are separate from Twilio Verify credentials.
   - DMARC has exactly the intended policy record; remove duplicate/conflicting DMARC records before production.
   - Magic-link email is delivered to a real mailbox and the link is clickable.
   - Admin email-code login is delivered within the expected latency.
   - Sensitive-action email code is delivered and not exposed in portal notifications.
   - Legal-document acceptance does not enqueue/send PDF attachments; any legacy document-acceptance email outbox row renders as a portal notice with no attachment.
-  - Bounce/suppression handling is visible in SendGrid activity logs.
+  - The asynchronous operation reaches `COMPLETED`, and the recipient email reaches `DELIVERED` rather than only receiving HTTP 202.
+  - Bounce/suppression handling is visible in Twilio Email activity/operation records.
 - Twilio Verify:
   - Start verification succeeds for a Swiss number and for at least one allowed EEA test number.
   - Re-send cooldown appears in the UI and Twilio does not send duplicate messages during cooldown.

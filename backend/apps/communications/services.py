@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import html
 import json
 import re
@@ -94,8 +95,7 @@ class EmailTemplateContent:
 class EmailProvider(Protocol):
     provider_name: str
 
-    def send(self, email: RenderedEmail) -> EmailProviderResult:
-        ...
+    def send(self, email: RenderedEmail) -> EmailProviderResult: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,10 +184,74 @@ class SendGridEmailProvider:
         return EmailProviderResult(provider_message_id=provider_message_id)
 
 
+class TwilioEmailProvider:
+    provider_name = "twilio_email"
+
+    def send(self, email: RenderedEmail) -> EmailProviderResult:
+        api_key_sid = settings.TWILIO_EMAIL_API_KEY_SID
+        api_key_secret = settings.TWILIO_EMAIL_API_KEY_SECRET
+        from_email = settings.TWILIO_EMAIL_FROM_EMAIL
+        from_name = settings.TWILIO_EMAIL_FROM_NAME
+        if not api_key_sid or not api_key_secret or not from_email:
+            raise EmailProviderError("Twilio Email provider is not configured.")
+
+        payload: dict[str, Any] = {
+            "from": {"address": from_email, "name": from_name},
+            "to": [{"address": email.recipient_email}],
+            "content": {
+                "subject": email.subject,
+                "text": email.body_text,
+                "html": email.body_html or _html_from_text(email.body_text),
+            },
+        }
+        if email.attachments:
+            payload["attachments"] = [
+                {
+                    "filename": attachment.filename,
+                    "contentType": attachment.content_type,
+                    "content": attachment.content_base64,
+                }
+                for attachment in email.attachments
+            ]
+
+        basic_token = base64.b64encode(f"{api_key_sid}:{api_key_secret}".encode()).decode("ascii")
+        request = urllib.request.Request(
+            "https://comms.twilio.com/v1/Emails",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Basic {basic_token}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(
+                request,
+                timeout=settings.TWILIO_EMAIL_TIMEOUT_SECONDS,
+            ) as response:
+                if response.status < 200 or response.status >= 300:
+                    raise EmailProviderError(f"Twilio Email returned HTTP {response.status}.")
+                response_body = response.read()
+        except urllib.error.HTTPError as exc:
+            raise EmailProviderError(f"Twilio Email returned HTTP {exc.code}.") from exc
+        except urllib.error.URLError as exc:
+            raise EmailProviderError("Twilio Email request failed.") from exc
+
+        try:
+            operation_id = str(json.loads(response_body).get("operationId", "")).strip()
+        except (json.JSONDecodeError, AttributeError, TypeError) as exc:
+            raise EmailProviderError("Twilio Email returned an invalid response.") from exc
+        if not operation_id:
+            raise EmailProviderError("Twilio Email response did not include an operation id.")
+        return EmailProviderResult(provider_message_id=operation_id)
+
+
 def _email_provider() -> EmailProvider:
     provider = settings.COMMUNICATIONS_EMAIL_PROVIDER.lower()
     if provider == "sendgrid":
         return SendGridEmailProvider()
+    if provider == "twilio_email":
+        return TwilioEmailProvider()
     if provider in {"mock", "local"}:
         return MockEmailProvider()
     raise EmailProviderError(f"Unsupported email provider '{provider}'.")
@@ -305,7 +369,9 @@ def _button_html(button: EmailButton, *, first: bool) -> str:
 def _buttons_html(buttons: tuple[EmailButton, ...]) -> str:
     if not buttons:
         return ""
-    button_cells = "\n".join(_button_html(button, first=index == 0) for index, button in enumerate(buttons))
+    button_cells = "\n".join(
+        _button_html(button, first=index == 0) for index, button in enumerate(buttons)
+    )
     return f"""
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                 <tr>
@@ -511,11 +577,15 @@ def _html_from_text(body_text: str) -> str:
     return _render_banxum_email_html(
         EmailTemplateContent(
             notice_label="Account notice",
-            preheader=body_text.splitlines()[0] if body_text.splitlines() else "BANXUM account notice",
+            preheader=body_text.splitlines()[0]
+            if body_text.splitlines()
+            else "BANXUM account notice",
             status_label="Information",
             status_tone="info",
             headline="Account notice",
-            paragraphs=tuple(paragraph for paragraph in body_text.split("\n\n") if paragraph.strip()),
+            paragraphs=tuple(
+                paragraph for paragraph in body_text.split("\n\n") if paragraph.strip()
+            ),
             fine_print=(
                 "This is an automated transactional account notice. "
                 f"If you need help, contact {getattr(settings, 'SUPPORT_EMAIL', '') or 'support@banxum.com'}."
@@ -773,9 +843,11 @@ def _payload_buttons(payload: dict[str, Any]) -> tuple[EmailButton, ...]:
 
 def _render_payload_email(message: OutboxMessage) -> RenderedEmail:
     payload = message.payload
-    recipient = str(
-        payload.get("email") or payload.get("recipient_email") or payload.get("to_email") or ""
-    ).strip().lower()
+    recipient = (
+        str(payload.get("email") or payload.get("recipient_email") or payload.get("to_email") or "")
+        .strip()
+        .lower()
+    )
     subject = str(payload.get("subject", "")).strip()
     body_text = str(payload.get("body_text", "")).strip()
     body_html = str(payload.get("body_html", "")).strip()
