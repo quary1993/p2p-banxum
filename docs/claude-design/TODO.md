@@ -447,34 +447,35 @@ Before launch, Claude Design should produce or implement:
 - Suggested improvement: validate unusually long translated navigation labels before localization and confirm native option-menu rendering on the supported iOS, Android, Windows, and macOS browser matrix.
 - Priority: important.
 
-## 2026-08-04: Loan Originator Primary Opportunities And Holdings
+## 2026-09-03: Loan Originator Subscription Opportunities And Holdings
 
-- Screen or component: Investment Opportunities common table/detail, immediate
-  claim-purchase confirmation, My Portfolio holding detail, activity, documents,
+- Screen or component: Investment Opportunities common table/detail, finite
+  subscription review, activation waiting states, My Portfolio holding detail, activity, documents,
   and secondary-market buyer detail.
 - Current behavior: direct BANXUM loans and Loan Originator claims share the primary
   opportunity table. The common rate column is `Yield`; an originator row carries a
   Loan Originator badge/name and opens a product-aware detail with anonymized
-  borrower disclosure, underlying coupon, effective annual target yield, minimum
-  investment, maturity, current outstanding/unsold principal, daily priced fillable
-  amount, and dated cash flows. Purchase is immediate after a server quote,
-  clickwrap, and email code rather than a pending funding order. Portfolio and
-  activity identify originator claims and show investor cash-flow projections.
-  Performing originator holdings may be resold; buyer detail shows current projected
-  yield and never seller acquisition yield.
-- Design decision: never present coupon as investor yield, never imply the daily
-  price or realized return is guaranteed, and never expose the private final-borrower
-  legal name, originator fee, originator settlement status, seller acquisition
-  yield, or internal import references. Explain that price changes by day to hold
-  target yield constant, purchase transfers the claim immediately, accrual begins at
-  purchase, early repayment changes realized return, and no originator
-  recourse/buyback exists.
+  borrower disclosure, underlying coupon, nominal participating yield, separate
+  interest/penalty participation, minimum investment, funding deadline, maturity,
+  current outstanding/sellable principal, and post-boundary cash flows. Current
+  subscriptions reserve balance at par after clickwrap/email-code confirmation.
+  Close preserves the reservation; holdings and entitlements appear only after the
+  exact boundary installment is verified and activation completes. Portfolio and
+  activity identify activated originator claims and show investor cash-flow projections.
+  Performing originator holdings may be resold at par or a discount, not a premium.
+- Design decision: never present the underlying coupon as a promised investor IRR,
+  never imply returns are guaranteed, and never expose private final-borrower legal
+  name, originator settlement status, or internal import references. Explain that no
+  investor interest accrues during funding or on the boundary installment; one unit
+  of cash buys one unit of principal at activation; later interest and penalty rights
+  use separate declared participation; and failed activation refunds the original
+  balance-lot reservation. No originator recourse/buyback exists.
 - Remaining backend/API dependency: non-performing originator-claim resale is
   intentionally blocked until an approved impaired-accrual/default-entitlement
   pricing projection exists. Do not design around or bypass that v1 boundary.
 - Suggested improvement: run final mobile/tablet usability and accessibility review
-  with long originator names, non-round prices, residual quotes, mixed currencies,
-  near-maturity closure, empty cash-flow projections, and stale-quote refresh. The
+  with long originator names, mixed currencies, near-deadline rounds, close-failure
+  and awaiting-activation states, empty projections, and cancellation/refund copy. The
   review should preserve the existing marketplace table hierarchy rather than
   introducing a separate marketplace.
 - Priority: important.

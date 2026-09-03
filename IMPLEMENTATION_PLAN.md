@@ -95,7 +95,7 @@ Recent audit dispositions:
 - Phase 6 transactional email dispatch foundation is implemented as backend/management-command only. The communications module can dispatch due `email.*` outbox messages, render the current magic-link and sensitive-action-code auth topics without storing plaintext secrets in the outbox payload, render generic payload-backed transactional notices, render legacy document-acceptance portal notices without legal PDF attachments, archive the full rendered email content plus metadata in immutable `EmailDeliveryRecord` attempts, write append-only `CommunicationEvent` evidence, and mark outbox rows processed or retriable/dead-letter through the platform-core retry schedule. Local defaults to a mock email provider; staging and production use Twilio Email API when `COMMUNICATIONS_EMAIL_PROVIDER=twilio_email` and its dedicated API-key SID/secret plus authenticated sender are configured. The prior SendGrid Web API path remains available as an explicit rollback option. Non-local deploy checks reject mock delivery and validate the settings required by whichever real provider is selected. The dispatcher is exposed through `dispatch_email_outbox` for direct manual execution and through the platform-core scheduled-job runner for cron/systemd/Celery Beat invocation, and is covered by focused tests for success, retry failure, due filtering, import-boundary safety, provider payload/authentication, and DB-level append-only guards. Business-event email outbox mapping is implemented for balance-ageing reminders, borrower repayment balance credits, recovery distributions, secondary-market listing lifecycle notices, and secondary-market buyer/seller purchase confirmations. Final advisor-approved wording/templates, Twilio Email delivery-status webhook/poll synchronization, bounce/suppression handling, Celery Beat/worker infrastructure, explicit admin-task creation for dead-letter email failures, superadmin-editable/versioned email templates with variable scopes, marketing-contact/list sync, and polished admin email-log UI remain deferred to later communications/admin-console/provider slices.
 
 - Scheduled-job foundation is implemented in `platform_core`. The `ScheduledJobRun` table stores durable run evidence, period idempotency keys, status, attempts, actor, summary, and errors. The `run_scheduled_jobs` management command can run all default jobs or selected jobs, using `SCHEDULED_JOBS_ACTOR_EMAIL` for admin-scoped jobs in deployed environments. That email should point to a dedicated active scheduler service admin account, not a human admin, so automated ageing, expiry, servicing, and reconciliation actions have clear audit attribution. Default jobs are email outbox dispatch, balance ageing scan, servicing status scan, primary funding expiry scan, and reconciliation-break task sync. Daily jobs use Europe/Zurich business-date keys; email dispatch uses minute-bucket keys so the same command can be called frequently. Succeeded/fresh-running periods are skipped on duplicate invocation, failed periods are retryable with the same run key, and stale `running` periods older than `SCHEDULED_JOBS_RUNNING_TIMEOUT_MINUTES` are reclaimable so a killed process cannot block a daily job for the rest of the day. `--force` creates an explicit one-off run key. The command's `--dry-run` option is intentionally accepted only when the selected job is `balance_ageing_scan`, because the other scheduled jobs do not have safe no-side-effect primitives yet. Production monitoring must alert on failed runs and on any `ScheduledJobRun` that remains `running` longer than the configured timeout. This slice does not choose the final production scheduler mechanism; on the current shared low-cost server it can be called by cron or systemd timers, and later it can be moved behind Celery Beat without changing business services.
-- Phase 7 primary-market foundation is implemented as backend/API plus first-version admin UI. Published loans now have public preview and KYC/phone/financial-access-gated full detail endpoints. Loans are either standard loans with a single financeable principal (`principal_minor`) or refinancing loans: the admin checks "Refinancing loan" at creation (the refinanced loan may be ongoing or new) and declares the original loan data — original contractual principal, original interest rate (bps), original term (months), original repayment type, original interest-only period where applicable, original loan start date — from which the platform computes a purely informational original loan schedule that is never persisted and never serviced. The refinancing loan's own repayment schedule is always generated from the financeable principal and may use a different repayment type from the original loan; the first installment is due one month after the loan start date (the first-installment input was removed; the loan start date defaults to the funding deadline). Publish shows a readonly schedule review for standard loans (no paid/future column) and a two-step review for refinancing loans: first the original loan schedule where the admin ticks installments already paid before publication (default all rows due before today, contiguous prefix required, only past-due rows tickable), then the readonly new-loan schedule. Publish validates that schedule principal equals the financeable principal and, for refinancing loans, that the financeable principal does not exceed the remaining outstanding of the original schedule (blocking); a lower financeable principal is allowed and only produces an informational notice. Paid-before-publication ticks are investor information only and never affect servicing. Investors can create pending primary-market orders, with pending intents not reserving loan capacity. Investors can allocate an order from eligible same-currency balance only after primary-market clickwrap evidence exists for that order, that acceptance still references the current published primary-market template version, and a fresh `primary_investment` sensitive-action email code is consumed through the shared platform-core facade; allocation uses the ledger-owned FIFO reservation primitive, blocks only balance lots that are already past their 30-day investment/reinvestment window at allocation/pledge time, posts a balanced investor-liability-to-loan-funding-escrow journal, records exact lot allocations, and increments loan committed principal. The investor dashboard can also place up to 20 selected direct-loan orders and Loan Originator claim purchases as one reviewed batch behind one umbrella clickwrap and one sensitive-action email code. Each selected Loan Originator claim receives its own executable five-minute quote before review, and the accepted snapshot binds its quote ID and exact cash amount. Batch placement locks direct loans in stable ID order and executes every claim through the normal quote/purchase primitive; direct items reserve their exact reviewed balance until funding close, while originator claims settle and create holdings immediately. One outer transaction rolls back all child orders, reservations, claim purchases, holdings, ledger postings, and derived evidence if any item fails. Immutable parent evidence records per-currency totals plus both child-order and claim-purchase IDs, derives server-owned `primary_order` or `originator_claim_quote` evidence for each child, and returns an existing batch on an exact idempotent replay without consuming another code. If loan capacity changes between pending order creation and allocation, only the remaining capacity is allocated and excess balance remains available for single-order flows; the batch flow instead rejects any partial allocation and rolls back. The launch minimum applies to the investor-requested order amount at creation, while a final-capacity-fill partial allocation may be below the configured minimum only for the single-order flow. Loan committed principal now has a DB constraint requiring `0 <= committed_principal_minor <= principal_minor`, and release fails loudly on committed-principal underflow instead of flooring. Admins can release allocated order balances before loan close; release restores the original balance lots, posts a reversing escrow-to-investor-liability journal, decrements loan committed principal, and records append-only order evidence. after the funding deadline, the deterministic resolver closes full or partially funded loans when the configured minimum subscription is met and allocated orders match committed principal; routine KYB expiry is allowed, but explicit holds and adverse/review statuses are blocked. Closing creates immutable primary-close evidence, moves the loan from `published` to `funded` (funding closed, awaiting borrower payout), converts every allocated order into an active investor holding with current principal and pro-rata share metadata, closes remaining pending orders as not invested, blocks post-close releases, and for partial closes lowers the financeable principal through the existing loan-update/schedule-regeneration path with a required investor message, keeping the same term, interest percentage, and percentage BANXUM fee, and preserving any refinancing original loan data. Borrower disbursement must then fully clear borrower payable before moving the loan from `funded` to servicing-ready `active`. Admins can cancel a published, not-yet-funded campaign manually. The expiry resolver automatically closes at or above the configured threshold or cancels below it; failed resolutions become non-public operations cases with reservations preserved. The platform-core scheduled-job runner can execute the expiry scan daily. The admin console Loans panel exposes publish with schedule review (two-step original-schedule/new-schedule review for refinancing loans), deterministic deadline resolution, cancellation, order release, borrower disbursement, and borrower repayment actions through the Manage dialog with operation summaries and confirmation dialogs. Primary order API responses redact internal metadata and idempotency keys. Primary order events, immutable primary order-batch evidence, primary loan close evidence, primary cancellation evidence, and holding events have application-level and DB-level append-only guards. Assignment document generation/PDFs, manual/admin-entered investments, investor portfolio UI, and close/cancellation notification delivery remain for later primary-market/document/communications/admin-console slices; borrower disbursement is now available from the Loans table Manage dialog for funded loans in addition to the Finance ops card.
+- Phase 7 primary-market foundation is implemented as backend/API plus admin and investor UI. Direct loans retain schedule review, finite funding, threshold-based resolution, holding creation at close, borrower payable, disbursement, and servicing activation. Current Loan Originator opportunities use the separate `par_component_v2` lifecycle described in PROD-DEC-010 through PROD-DEC-014: orders reserve at par during a finite funding round, close preserves escrow, and holdings/entitlements originate only after exact boundary-payment activation. Current Loan Originator rounds have no round-level minimum percentage; any positive subscription closes at deadline and an empty round cancels. Full subscription auto-closes. No investor interest accrues during funding or on the boundary installment. Post-boundary principal follows ownership while interest and penalty use independently declared participation bps. Failed close processing hides the opportunity, preserves reservations, and alerts operations. A mismatch before activation cancels/refunds exact source lots. Historical `legacy_yield_v1` records retain their old quote/purchase path only for immutable compatibility. Across both current products, allocation requires self-scoped financial access, current clickwrap, a fresh durable sensitive-action code, FIFO eligible balance lots, balanced escrow journals, fingerprinted idempotency, capacity constraints, append-only events/evidence, and stable row locking. The multi-currency batch supports up to 20 reviewed opportunities: direct and current Loan Originator items become orders/reservations; only legacy claim items use quote-bound immediate purchase. Generic direct close, cancellation, disbursement, and servicing reject current Loan Originator subscriptions so the two lifecycles cannot be mixed.
 - Phase 7 funding-deadline policy was superseded on 2026-08-05: every direct loan now has `minimum_subscription_bps`, default 5,000 (50%), configurable per loan while it is a draft and immutable from publication onward. After the Europe/Zurich deadline, the scheduler/admin resolver locks the loan and automatically closes at the subscribed amount when `committed_principal_minor >= ceil(principal_minor * minimum_subscription_bps / 10,000)`, otherwise it cancels and restores reservations. Published loans cannot be put into effect through a discretionary manual-close API or UI. Routine post-publication KYB expiry does not block close; an explicit compliance hold or adverse/review status does. Any close/cancellation processing failure moves the loan to non-public `funding_close_failed`, preserves reservations, creates/reopens an urgent admin task, and emails `OPERATIONS_ALERT_EMAIL` (launch default `hq@banxum.com`). Admin fixes the cause and retries the same deterministic resolver or cancels/refunds. The expiry API serializes close evidence explicitly, and the threshold decision plus financial resolution execute under the same loan-row lock to prevent deadline/allocation races.
 - Primary-close holding `loan_share_ppm` is now reconciled with a largest-remainder allocation so each closed loan's holding ppm metadata sums to 1,000,000. Servicing and repayment distribution must still use exact `current_principal_minor` weights with deterministic residue handling, not summed ppm metadata, because principal balances are the authoritative economic record.
 - Phase 8 servicing repayment foundation is implemented as backend/API plus the Loans-table Manage dialog UI for regular installments and repayments in advance. Funding close leaves a loan `funded` and unable to accept repayment until borrower disbursement fully clears the payable and moves it to `active`; servicing and normal repayments operate only on `active` or `late` loans. Every borrower payment, for every direct or Loan-Originator loan and every servicing state, uses one non-overridable order: (1) Garanta legal costs and recovery fee, (2) penalty, including separately reported default/penalty interest where applicable, (3) contractual interest, and (4) principal. A tier may be zero when no amount is due, but principal never receives cash while an earlier due tier remains unpaid. A regular installment declaration uses the fixed outstanding amount of the next due installment. If its value date is more than one day early, admin must explicitly acknowledge that the full contractual installment (including full contractual interest) is intended; otherwise the repayment-in-advance flow must be used. Any other amount (except defaulted loans, which go through recovery) is declared as a "Repayment in advance" with a borrower bank date. For ordinary active/late servicing, legal/recovery-cost and penalty tiers are zero unless such obligations have been recorded; the advance calculation determines unpaid scheduled interest due by that date plus exact ACT/365 interest on outstanding principal from the latest interest-paid-through date up to but excluding the bank date, then applies only the remaining cash to principal. Future interest is never collected and a same-day second advance has zero newly elapsed interest. The future schedule is regenerated as a new immutable version with original due dates and ACT/365 first-row interest from bank date to due date. Before writing, admin confirms the allocation, accrual dates/day count, and old/new schedules through `/api/v1/servicing/admin/borrower-repayments/advance-preview/`. The canonical full-loan schedule merges immutable regular/advance payment rows with outstanding rows from the latest schedule version, while investor projections remain future/outstanding only. Distribution uses exact current-holding-principal weights and deterministic residue handling. Every repayment/recovery/status change atomically refreshes unsold secondary listings from current loan/holding data while preserving only seller `price_bps`; repayment-credit email mentions this only when the seller's listing remains active. Borrower repayment events and distribution lines remain append-only. Lender payment fee is zero at launch; evidence-file uploads and automatic calculation/evidence of legal-cost and penalty obligations outside the existing recovery flow remain follow-ups.
@@ -605,31 +605,38 @@ Primary marketplace and investments:
 
 ### `originator_claims`
 
-Loan Originator claim inventory, pricing, assignment, and settlement:
+Loan Originator claim import, subscription, activation, servicing, and settlement:
 
 - Admin-managed Loan Originators with off-platform KYB/AML evidence, settlement
   instructions, active/blocked state, and negotiated premium-fee percentage.
 - Existing final-borrower loans imported from strict, versioned schedule/payment
   CSV evidence. Originator loans use anonymized per-loan borrower disclosure and
   do not link a BANXUM `BorrowerEntity`.
-- Effective annual ACT/365 target-yield pricing from dated contractual cash flows.
-  The underlying borrower coupon remains separate. The price changes daily while
-  target yield remains fixed.
-- Immediate primary-market purchase of a dated legal assignment. The investor
-  owns accrual only from purchase time forward; the originator retains unsold
-  principal and pre-assignment accrual.
+- New `par_component_v2` opportunities run a finite funding round. Investor cash
+  reserves at par in funding escrow; it does not create a holding or accrue during
+  funding. Historical `legacy_yield_v1` rows retain their original quote behavior
+  only for immutable compatibility and cannot be newly created.
+- Funding close preserves reservations and creates an activation task. Activation
+  requires the exact declared boundary installment and resulting post-payment
+  outstanding principal; that installment belongs entirely to the originator.
+  Activation then creates holdings/post-boundary rights and moves escrow to
+  originator payable. Any mismatch requires cancellation and exact-lot refund.
+- Admin-declared interest and penalty participation bps apply independently after
+  principal ownership allocation. Principal is sold at par; there is no current
+  primary Loan Originator fee or reinvestment assumption.
 - Optional per-loan originator retention (`skin_in_the_game_bps`). A positive
   declaration reserves a ceiling-rounded percentage of current outstanding
   principal for the originator; only principal above that floor is sellable, and
   repayment rounding must preserve the floor. Zero disables the rule.
-- Originator payable and hidden BANXUM fee accounting, grouped batch settlement,
+- Originator payable accounting after activation, grouped batch settlement,
   day-3 operations tasks, and a hard day-5 settlement expectation.
-- Borrower-repayment allocation between dated investor entitlements and the
-  originator's unsold/pre-assignment entitlement.
-- Automatic opportunity closure when repaid, held, late/defaulted, or at 30
-  calendar days or fewer before contractual maturity.
-- Secondary-market continuity for performing investor holdings. Seller acquisition
-  yield remains private; the buyer sees only current projected yield.
+- Borrower-repayment allocation between investor-owned and originator-owned
+  principal plus separately contracted post-boundary interest/penalty participation.
+- Automatic full-subscription close, scheduled deadline close for any positive
+  subscription, and empty-round cancellation. Close failures hide the opportunity,
+  preserve reservations, and alert operations for retry or refund.
+- Secondary-market continuity for performing investor holdings at par or a
+  discount; current originator holdings cannot be listed at a premium.
 
 Direct borrower funding remains the existing `marketplace_primary` flow. Legacy
 refinancing records remain readable and serviceable, but creation of new
@@ -2177,38 +2184,40 @@ These scenarios should become automated end-to-end tests or scripted UAT checks.
 8. Investor balances are credited.
 9. Default/recovery report reflects gross-to-net, recovery costs, recovery fee, waterfall category split, lender allocation, and rounding difference.
 
-### Scenario G: Loan Originator Claim Purchase and Settlement
+### Scenario G: Loan Originator Subscription, Activation, and Settlement
 
 1. Admin completes off-platform KYB/AML for a Loan Originator and records verified
-   settlement instructions plus the negotiated premium-fee percentage.
-2. Admin creates an originator-claim loan, enters anonymized borrower disclosure,
-   coupon, target effective yield, minimum investment, optional originator-retention
-   basis points, and imports the full contractual schedule plus historical payments.
+   settlement instructions.
+2. Admin creates a current originator-claim loan, enters anonymized borrower
+   disclosure, funding deadline, activation-boundary installment and resulting
+   principal, interest/penalty participation bps, minimum investment, optional
+   originator-retention bps, and imports the full contractual schedule/payments.
 3. The importer rejects any non-conserving schedule, unsupported repayment pattern,
    inconsistent payment history, or future principal that does not amortize the
    current outstanding principal to zero.
-4. Admin publishes only if the originator is active, the loan is performing and
-   off hold, principal remains unsold, and maturity is more than 30 calendar days
-   away.
-5. Investor sees the Loan Originator, underlying coupon, target yield, daily priced
-   fillable amount, minimum investment, any declared originator-retention percentage,
-   anonymized borrower disclosure, and dated projected cash flows.
-6. Investor requests a five-minute server quote, accepts current primary terms,
-   confirms the sensitive-action email code, and buys the claim immediately.
-7. The same transaction consumes eligible balance lots, creates the assignment
-   purchase/holding/dated entitlement, reduces unsold principal, posts investor
-   liability to originator payable and BANXUM fee revenue, and invalidates stale
-   quotes.
-8. Finance Ops groups unsettled originator amounts by originator/currency. A task is
+4. Admin publishes only if the originator is active, the loan is performing/off
+   hold, sellable principal remains, the boundary terms reconcile, and the finite
+   funding deadline is valid. Routine later KYB expiry does not block deterministic
+   close or activation, but an explicit hold/adverse status does.
+5. Investor sees the Loan Originator, underlying coupon, nominal participating
+   yield, separate interest/penalty participation, minimum investment, retention,
+   funding deadline, borrower disclosure, and post-boundary projected cash flows.
+6. Investor accepts current primary terms, confirms the sensitive-action email
+   code, and allocates an at-par order. Eligible balance lots move to funding escrow.
+7. Full subscription auto-closes; at deadline, any positive round closes and an
+   empty round cancels. Closing preserves reservations and awaits the boundary
+   installment. After exact verification, activation creates holdings/entitlements
+   and moves escrow to originator payable. A changed/missing payment cancels/refunds.
+8. Finance Ops groups activated originator amounts by originator/currency. A task is
    created when the oldest amount reaches day 3; admin settles the complete selected
    batch no later than day 5 and attaches bank evidence.
-9. On a borrower repayment, admin uploads a replacement CSV revision preserving all
-   historical payments and adding exactly the new payment. BANXUM allocates dated
-   interest/penalties and principal exactly between investors and the originator,
+9. On a post-activation borrower repayment, admin uploads a replacement CSV revision preserving all
+   historical payments and adding exactly the new payment. BANXUM allocates
+   investor principal ownership and declared interest/penalty participation exactly,
    preserves any declared originator-retention floor after minor-unit rounding,
    creates investor balance lots, and accrues originator servicing payable.
-10. A performing investor holding can be sold on the secondary market without
-    disclosing seller acquisition yield. Non-performing originator claims remain
+10. A performing investor holding can be sold on the secondary market at par or a
+    discount without disclosing private acquisition economics. Non-performing claims remain
     non-listable until an impaired-claim entitlement/pricing policy is implemented.
 
 ## 10. Ledger Design Requirements
@@ -2652,9 +2661,10 @@ V1 is complete when:
 - Balance-funded primary-market orders are blocked when selected source lots are already older than the 30-day investment window at allocation/pledge time.
 - FX is quote-based, fee-bearing, sanity-checked, and reportable.
 - Primary and secondary market flows generate documents, emails, ledger entries, holdings, and audit events.
-- Performing Loan Originator claims can be imported, yield-priced, bought
-  immediately, serviced by dated entitlement, settled to the originator in batches,
-  and resold without exposing seller acquisition yield.
+- Performing Loan Originator claims can be imported, subscribed at par through a
+  finite funding round, activated only after exact boundary-payment verification,
+  serviced through principal and component-participation rights, settled to the
+  originator in batches, and resold at par/discount without exposing private economics.
 - Repayment events can handle regular, partial, multiple-installment, and early-repayment cases.
 - Late/default/recovery flows are operational. Final default resolution/loss recognition is advisor-approved before launch if Garanta requires it as an operational workflow.
 - Accounting, tax, regulatory, and operational exports are available in PDF/CSV/ZIP where applicable.
@@ -2688,4 +2698,5 @@ These are intentionally not part of launch implementation:
 
 ## Accepted Decision Updates
 
-- **2026-08-08, MKT-DEC-027:** one reviewed Smart Invest allocation may contain direct-loan orders and independently quoted Loan Originator claim purchases in CHF and EUR behind one umbrella clickwrap and one sensitive-action code. Every Loan Originator item receives its own executable five-minute quote before review, and the immutable parent snapshot binds the quote ID and exact cash amount. Direct items reserve balance until funding close; originator claims settle immediately. Child evidence remains investment-specific, parent evidence stores per-currency cash totals without aggregating unlike currencies, and one outer transaction rolls back every selected investment if any item fails. This supersedes the earlier same-currency-only and direct-only batch wording in the Phase 7 foundation summary.
+- **2026-08-08, MKT-DEC-027; superseded for current Loan Originator products on 2026-09-03:** one reviewed Smart Invest allocation may contain direct-loan orders and current Loan Originator subscription orders in CHF and EUR behind one umbrella clickwrap and one sensitive-action code. Both reserve exact at-par balance until their product-specific resolution. Only historical `legacy_yield_v1` rows use a five-minute quote and immediate purchase. Child evidence remains investment-specific, parent evidence stores per-currency totals without aggregating unlike currencies, and one outer transaction rolls back every selected investment if any item fails.
+- **2026-09-03, PROD-DEC-010 through PROD-DEC-014 / MKT-DEC-022 through MKT-DEC-025:** new Loan Originator opportunities use `par_component_v2`: finite funding, no funding-period accrual, full-subscription auto-close, positive-partial deadline close, empty-round cancellation, exact boundary-payment activation, par principal, and separate interest/penalty participation. Close failures preserve reservations and alert operations. Routine KYB expiry does not block close/activation; explicit adverse/hold state does. This decision supersedes all immediate target-yield purchase wording for newly created opportunities while retaining legacy behavior for immutable historical records.

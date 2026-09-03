@@ -730,6 +730,10 @@ def _existing_write_off_for_idempotency(
 def _locked_repayable_loan(loan_id: str) -> Model:
     loan = _locked_loan(loan_id)
     loan_ref = cast(Any, loan)
+    if str(getattr(loan_ref, "product_type", "direct")) != "direct":
+        raise ServicingValidationError(
+            "Loan Originator repayments must use the Loan Originator servicing workflow."
+        )
     status = str(loan_ref.status)
     if status == LOAN_STATUS_DEFAULTED:
         raise ServicingValidationError(

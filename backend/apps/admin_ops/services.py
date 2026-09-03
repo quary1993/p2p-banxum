@@ -383,6 +383,18 @@ class EnsureLoanFundingCloseFailureTaskCommand:
     failure_event_id: str
 
 
+@dataclass(frozen=True, slots=True)
+class EnsureOriginatorActivationTaskCommand:
+    requested_by: Model
+    loan_id: str
+    loan_title: str
+    originator_name: str
+    currency: str
+    subscribed_principal_minor: int
+    funding_round_close_id: str
+    entitlement_start_date: date
+
+
 def _document_subject_user(user_id: str) -> Model:
     user = get_user_model().objects.filter(id=user_id).first()
     if user is None:
@@ -531,16 +543,24 @@ def ensure_loan_funding_close_failure_task(
 
     _require_admin_actor(command.actor)
     title = f"Funding close failed: {_clean_required(command.loan_title, 'Loan title')}"
+    evidence_lines = [
+        f"Failure: {command.failure_reason.strip() or 'Unknown close failure.'}",
+        f"Reserved: {command.currency} {command.committed_principal_minor} minor units",
+        f"Target: {command.currency} {command.target_principal_minor} minor units",
+    ]
+    if command.minimum_subscription_bps > 0:
+        evidence_lines.append(
+            f"Minimum subscription: {command.minimum_subscription_bps} bps"
+        )
+    else:
+        evidence_lines.append("Round minimum: none; resolve at subscribed principal")
+    evidence_lines.append(f"Failure event: {command.failure_event_id}")
     notes = (
         "The automatic funding-deadline resolution failed. Investor reservations remain "
         "locked and the loan has been removed from the marketplace. Resolve the reported "
         "cause, then retry the deterministic funding resolution or cancel and refund the "
         "campaign.\n\n"
-        f"Failure: {command.failure_reason.strip() or 'Unknown close failure.'}\n"
-        f"Reserved: {command.currency} {command.committed_principal_minor} minor units\n"
-        f"Target: {command.currency} {command.target_principal_minor} minor units\n"
-        f"Minimum subscription: {command.minimum_subscription_bps} bps\n"
-        f"Failure event: {command.failure_event_id}"
+        + "\n".join(evidence_lines)
     )
     existing = (
         AdminTask.objects.select_for_update()
@@ -599,6 +619,123 @@ def resolve_loan_funding_close_failure_task(
         .filter(
             task_type=AdminTaskType.LOAN_SETUP,
             related_object_type="LoanFundingCloseFailure",
+            related_object_id=loan_id,
+        )
+        .first()
+    )
+    if task is None or task.status == AdminTaskStatus.RESOLVED:
+        return task
+    return update_admin_task(
+        UpdateAdminTaskCommand(
+            actor=actor,
+            task_id=str(task.id),
+            status=AdminTaskStatus.RESOLVED,
+            completion_note=completion_note,
+        )
+    )
+
+
+@transaction.atomic
+def ensure_originator_subscription_activation_task(
+    command: EnsureOriginatorActivationTaskCommand,
+) -> AdminTask:
+    """Create the single activation task for a closed originator subscription round."""
+
+    _require_admin_actor(command.requested_by)
+    related_type = "OriginatorSubscriptionActivationPending"
+    loan_title = _clean_required(command.loan_title, "Loan title")
+    title = f"Activate Loan Originator subscription: {loan_title}"
+    notes = "\n".join(
+        [
+            "Investor subscriptions are reserved and the funding round is closed.",
+            f"Loan Originator: {_clean_required(command.originator_name, 'Loan Originator name')}",
+            f"Subscribed: {command.currency} {command.subscribed_principal_minor} minor units",
+            f"Boundary installment due: {command.entitlement_start_date.isoformat()}",
+            "Verify the boundary installment, import the resulting schedule, then activate "
+            "the investor claims. Cancel and refund the subscriptions if the boundary "
+            "installment is delayed, unpaid, or the imported principal does not reconcile.",
+        ]
+    )
+    task = (
+        AdminTask.objects.select_for_update()
+        .filter(
+            task_type=AdminTaskType.LOAN_SETUP,
+            related_object_type=related_type,
+            related_object_id=command.loan_id,
+        )
+        .first()
+    )
+    if task is not None:
+        return task
+    try:
+        with transaction.atomic():
+            task = AdminTask.objects.create(
+                task_type=AdminTaskType.LOAN_SETUP,
+                title=title,
+                priority=AdminTaskPriority.URGENT,
+                status=AdminTaskStatus.OPEN,
+                created_by=cast(Any, command.requested_by),
+                due_at=timezone.now(),
+                notes=notes,
+                related_object_type=related_type,
+                related_object_id=command.loan_id,
+            )
+    except IntegrityError:
+        return AdminTask.objects.get(
+            task_type=AdminTaskType.LOAN_SETUP,
+            related_object_type=related_type,
+            related_object_id=command.loan_id,
+        )
+
+    metadata = {
+        "loan_id": command.loan_id,
+        "funding_round_close_id": command.funding_round_close_id,
+        "currency": command.currency,
+        "subscribed_principal_minor": command.subscribed_principal_minor,
+        "entitlement_start_date": command.entitlement_start_date.isoformat(),
+    }
+    _record_task_event(
+        task=task,
+        actor=command.requested_by,
+        event_type=AdminTaskEventType.CREATED,
+        new_status=task.status,
+        note=notes,
+        metadata=metadata,
+    )
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(command.requested_by),
+            action="admin_task.originator_subscription_activation_requested",
+            target_type="AdminTask",
+            target_id=str(task.id),
+            metadata=metadata,
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="OriginatorSubscriptionActivationTaskCreated",
+            aggregate_type="AdminTask",
+            aggregate_id=str(task.id),
+            payload=metadata,
+            idempotency_key=f"admin-task:{task.id}:created",
+        )
+    )
+    return task
+
+
+@transaction.atomic
+def resolve_originator_subscription_activation_task(
+    *,
+    actor: Model,
+    loan_id: str,
+    completion_note: str,
+) -> AdminTask | None:
+    _require_admin_actor(actor)
+    task = (
+        AdminTask.objects.select_for_update()
+        .filter(
+            task_type=AdminTaskType.LOAN_SETUP,
+            related_object_type="OriginatorSubscriptionActivationPending",
             related_object_id=loan_id,
         )
         .first()

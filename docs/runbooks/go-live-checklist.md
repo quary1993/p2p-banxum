@@ -55,16 +55,17 @@ Complete these before calling any environment production-like.
   - Secondary-market buyer/listing terms and the generic risk disclosure are counsel-approved and published before enabling those actions. `seed_demo` may publish temporary placeholders only when an operator runs it deliberately for private testing; deployed startup runs `seed_reference_data` and never creates legal templates.
   - Existing private-test placeholder template versions are replaced by counsel-approved current versions before real-money use; stopping automatic seed does not make already-published placeholders legally valid.
   - Generated agreement PDFs/CSVs are rendered on demand from immutable acceptance evidence and are downloadable from investor Documents plus the admin Users document-history modal. Legal terms and transaction-agreement PDFs are not emailed by default.
-  - Loan Originator legal-assignment wording has counsel approval for: immediate
-    assignment, purchase-time entitlement start, no recourse/buyback, Garanta
-    servicing, daily target-yield pricing, early-repayment risk, and secondary
-    transfer of a performing claim.
+  - Loan Originator subscription wording has counsel approval for: reservation
+    during finite funding, no investor accrual during funding or on the boundary
+    installment, activation only after exact boundary-payment verification, par
+    principal, separate interest/penalty participation, refund on failed activation,
+    no recourse/buyback, Garanta servicing, and secondary transfer at par/discount.
 - Loan Originators:
   - Each enabled originator has current off-platform KYB/AML evidence, an internal
     risk decision, active status, verified settlement account name/IBAN/BIC, an
-    operations owner, and a negotiated premium-fee percentage.
-  - Finance/accounting approves the originator-purchase, servicing-payable,
-    platform-fee, and external-settlement account mappings in each launch currency.
+    operations owner, and approved subscription/component-participation terms.
+  - Finance/accounting approves funding-escrow, activation originator-payable,
+    servicing-payable, and external-settlement account mappings in each currency.
   - Day-3 settlement tasks and day-5 escalation are monitored. Operations has a
     named backup approver/operator for every settlement day.
   - The strict import examples in `imports_examples/` have been reconciled against
@@ -104,8 +105,8 @@ Use this as the daily operating checklist once the environment is live.
   - Finalize withdrawals and borrower disbursements only after the external bank transfer is actually executed.
   - Declare external FX settlement after comparing internal delta and realized bank execution.
   - Review the originator settlement queue by currency every business day. Reconcile
-    purchase count, gross consideration, BANXUM fee, net payable, oldest age, and
-    selected item references before executing the external transfer.
+    activated subscription and servicing items, payable, oldest age, and selected
+    references before executing the external transfer.
   - Settle the complete selected originator batch; v1 does not support arbitrary
     partial settlement. Record bank/payment/evidence references only after the
     external transfer has executed.
@@ -120,10 +121,10 @@ Use this as the daily operating checklist once the environment is live.
   - Resolve the root cause, then retry the deterministic resolver or cancel/refund. Do not manually choose a partial-close amount.
   - Record borrower repayments with exact value date and warning acknowledgement for irregular payments.
   - Record recoveries only for defaulted loans and use final loss recognition only after Garanta/legal/accounting approval.
-  - For an originator claim, verify originator status and settlement instructions,
-    anonymized borrower disclosure, coupon versus target yield, minimum investment,
-    current outstanding/unsold principal, import as-of date, and maturity before
-    publication.
+  - For a current originator claim, verify originator status/settlement instructions,
+    anonymized borrower disclosure, funding deadline, boundary installment and
+    resulting principal, coupon, interest/penalty participation, minimum investment,
+    retention, current outstanding principal, import as-of date, and maturity.
   - Put an originator opportunity on hold for any contract/import/bank discrepancy.
     Do not edit amounts merely to make an import validate.
   - Record an originator repayment only with a replacement CSV that preserves every
@@ -175,13 +176,18 @@ Run these checks in staging before production, and again in production before re
   - EUR instructions show IBAN, BIC, and payment reference but no QR until an EUR QR payload is supplied.
   - Incoming test transfers can be matched by `BX-{currency}-{investor_reference}`.
 - Loan Originator operations:
-  - A test originator purchase creates exactly one purchase, holding, dated
-    entitlement, ledger journal, and originator payable item on idempotent replay.
-  - The investor quote uses effective annual ACT/365 target yield and changes with
-    the pricing date while the configured target yield remains fixed.
+  - An allocated order creates one reservation and no holding, entitlement, or
+    originator payable. Exact replay creates no duplicate reservation.
+  - Full subscription closes automatically; the deadline scan closes any positive
+    partial round and cancels an empty round. Closing leaves reservations in escrow.
+  - Exact boundary-payment activation creates one holding/purchase/entitlement set
+    per allocated order and one escrow-to-originator-payable journal. The boundary
+    installment is excluded from every investor projection and distribution.
+  - Boundary mismatch, pre-activation repayment/schedule change, or explicit hold
+    prevents activation and follows the cancellation/refund path.
   - Opportunity access fails closed for inactive/blocked originators, holds,
-    late/default/repaid loans, no unsold principal, stale revisions, and 30 days or
-    fewer to maturity.
+    late/default/repaid loans, no sellable principal, stale revisions, invalid
+    funding dates, and invalid activation terms.
   - Day-3 task generation and day-5 overdue severity work under the scheduler/QA
     clock, and a completed batch cannot settle the same items twice.
 
@@ -211,25 +217,28 @@ Run this as an end-to-end staging rehearsal with test users and small provider-s
 - Loan Originator claim:
   - Import and publish one controlled loan for every enabled repayment type, plus a
     loan with a historical advance payment.
-  - Confirm the public opportunity shows Loan Originator, underlying coupon,
-    effective annual target yield, minimum investment, maturity, daily priced
-    fillable amount, and only the approved anonymized borrower fields.
-  - Buy a claim with a non-round price and confirm quote cash flows, assigned
-    principal/share, rounding remainder, hidden originator fee, balance-lot
-    conservation, holding, and on-demand assignment evidence.
-  - Repeat the purchase request with the same idempotency key and confirm no duplicate
-    financial/evidence records; try a stale quote and confirm it is rejected.
-  - Advance pricing one business day and confirm target yield is unchanged while the
-    consideration/fillable amount reflects the new date.
-  - Record a regular payment and an advance repayment through replacement imports.
-    Reconcile investor principal/interest/penalty credits and originator unsold and
-    pre-assignment servicing payable to the imported payment exactly.
-  - Verify the opportunity closes when repaid, held, late/defaulted, or at 30 days or
-    fewer before maturity and cannot be reopened by a stale quote.
+  - Confirm the public opportunity shows Loan Originator, underlying coupon, nominal
+    participating yield, separate interest/penalty participation, minimum investment,
+    funding deadline, maturity, retention, and approved anonymized borrower fields.
+  - Allocate a non-round at-par subscription and confirm balance-lot conservation,
+    one escrow reservation, no holding, no investor accrual, and no originator payable.
+  - Repeat with the same idempotency key and confirm no duplicate financial/evidence
+    records. Confirm full subscription auto-closes and positive partial funding closes
+    only through deterministic deadline resolution.
+  - Verify close leaves funds reserved and creates an activation task. Record the exact
+    boundary payment/resulting principal and confirm activation creates the holdings,
+    post-boundary entitlements, originator payable, and downloadable evidence.
+  - Test a missing/partial/changed boundary payment and a pre-activation schedule
+    change. Confirm activation is blocked and cancellation restores exact original
+    lots and ageing dates. Simulate close failure and verify urgent task/email/retry.
+  - Record regular and advance post-activation payments through replacement imports.
+    Reconcile principal ownership and separate investor interest/penalty participation
+    plus originator servicing payable to every imported component exactly.
   - Transfer a performing originator holding on the secondary market. Confirm the
-    buyer sees current projected yield but never seller acquisition yield; confirm a
+    buyer sees current projected returns but never seller acquisition economics;
+    confirm premium listing is rejected for a current originator holding and a
     late/defaulted originator holding cannot be listed in v1.
-  - Run Finance Ops settlement for the accumulated purchase/servicing payable and
+  - Run Finance Ops settlement for the accumulated activation/servicing payable and
     verify reconciliation remains balanced before and after external settlement.
 - Loan servicing:
   - Finalize borrower disbursement after bank-side payout.

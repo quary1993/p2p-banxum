@@ -22,6 +22,7 @@ from backend.apps.originator_claims.api.serializers import (
     OriginatorClaimPurchaseResponseSerializer,
     OriginatorClaimQuoteRequestSerializer,
     OriginatorClaimQuoteResponseSerializer,
+    OriginatorFundingRoundCloseRequestSerializer,
     OriginatorLoanCreateSerializer,
     OriginatorLoanHoldSerializer,
     OriginatorLoanProfileResponseSerializer,
@@ -29,8 +30,13 @@ from backend.apps.originator_claims.api.serializers import (
     OriginatorSettlementQueueRowSerializer,
     OriginatorSettlementRequestSerializer,
     OriginatorSettlementResponseSerializer,
+    OriginatorSubscriptionActivationRequestSerializer,
+    OriginatorSubscriptionCancellationRequestSerializer,
 )
 from backend.apps.originator_claims.services import (
+    ActivateOriginatorSubscriptionCommand,
+    CancelOriginatorSubscriptionCommand,
+    CloseOriginatorSubscriptionRoundCommand,
     CreateLoanOriginatorCommand,
     CreateOriginatorClaimQuoteCommand,
     CreateOriginatorLoanCommand,
@@ -42,6 +48,9 @@ from backend.apps.originator_claims.services import (
     PurchaseOriginatorClaimCommand,
     RecordOriginatorBorrowerRepaymentCommand,
     UpdateLoanOriginatorCommand,
+    activate_originator_subscription,
+    cancel_originator_subscription,
+    close_originator_subscription_round,
     create_loan_originator,
     create_originator_claim_quote,
     create_originator_loan,
@@ -163,9 +172,16 @@ def _profile_payload(profile: Any) -> dict[str, Any]:
         "originator_id": str(profile.originator_id),
         "originator_name": profile.originator.public_name,
         "opportunity_status": profile.opportunity_status,
+        "loan_status": profile.loan.status,
+        "distribution_model": profile.distribution_model,
         "target_yield_bps": profile.target_yield_bps,
         "minimum_investment_minor": profile.minimum_investment_minor,
         "premium_fee_bps": profile.premium_fee_bps,
+        "funding_deadline": profile.funding_deadline,
+        "entitlement_start_date": profile.entitlement_start_date,
+        "activation_outstanding_principal_minor": (profile.activation_outstanding_principal_minor),
+        "investor_interest_participation_bps": (profile.investor_interest_participation_bps),
+        "investor_penalty_participation_bps": profile.investor_penalty_participation_bps,
         "current_outstanding_principal_minor": profile.current_outstanding_principal_minor,
         "unsold_principal_minor": profile.unsold_principal_minor,
         "skin_in_the_game_bps": profile.loan.skin_in_the_game_bps,
@@ -267,6 +283,94 @@ class OriginatorLoanPublishView(APIView):
                     as_of_date=serializer.validated_data["as_of_date"],
                 )
             )
+        except (OriginatorClaimsAuthorizationError, OriginatorClaimsValidationError) as exc:
+            return _error_response(exc)
+        return Response(_profile_payload(profile))
+
+
+class OriginatorFundingRoundCloseView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="originator_claims_admin_loans_funding_close",
+        request=OriginatorFundingRoundCloseRequestSerializer,
+        responses={200: OriginatorLoanProfileResponseSerializer},
+    )
+    def post(self, request: Request, loan_id: Any) -> Response:
+        serializer = OriginatorFundingRoundCloseRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            evidence = close_originator_subscription_round(
+                CloseOriginatorSubscriptionRoundCommand(
+                    actor=_actor(request),
+                    loan_id=str(loan_id),
+                    as_of_date=data["as_of_date"],
+                    close_reason=str(data["close_reason"]),
+                    idempotency_key=str(data["idempotency_key"]),
+                )
+            )
+            profile = evidence.loan_profile
+        except (OriginatorClaimsAuthorizationError, OriginatorClaimsValidationError) as exc:
+            return _error_response(exc)
+        return Response(_profile_payload(profile))
+
+
+class OriginatorSubscriptionActivationView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="originator_claims_admin_loans_subscription_activate",
+        request=OriginatorSubscriptionActivationRequestSerializer,
+        responses={200: OriginatorLoanProfileResponseSerializer},
+    )
+    def post(self, request: Request, loan_id: Any) -> Response:
+        serializer = OriginatorSubscriptionActivationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            evidence = activate_originator_subscription(
+                ActivateOriginatorSubscriptionCommand(
+                    actor=_actor(request),
+                    loan_id=str(loan_id),
+                    csv_content=str(data["csv_content"]),
+                    source_filename=str(data["source_filename"]),
+                    as_of_date=data["as_of_date"],
+                    boundary_payment_reference=str(data["boundary_payment_reference"]),
+                    boundary_payment_date=data["boundary_payment_date"],
+                    notes=str(data["notes"]),
+                    idempotency_key=str(data["idempotency_key"]),
+                )
+            )
+            profile = evidence.loan_profile
+        except (OriginatorClaimsAuthorizationError, OriginatorClaimsValidationError) as exc:
+            return _error_response(exc)
+        return Response(_profile_payload(profile))
+
+
+class OriginatorSubscriptionCancellationView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="originator_claims_admin_loans_subscription_cancel",
+        request=OriginatorSubscriptionCancellationRequestSerializer,
+        responses={200: OriginatorLoanProfileResponseSerializer},
+    )
+    def post(self, request: Request, loan_id: Any) -> Response:
+        serializer = OriginatorSubscriptionCancellationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        try:
+            evidence = cancel_originator_subscription(
+                CancelOriginatorSubscriptionCommand(
+                    actor=_actor(request),
+                    loan_id=str(loan_id),
+                    reason=str(data["reason"]),
+                    investor_message=str(data["investor_message"]),
+                    idempotency_key=str(data["idempotency_key"]),
+                )
+            )
+            profile = evidence.loan_profile
         except (OriginatorClaimsAuthorizationError, OriginatorClaimsValidationError) as exc:
             return _error_response(exc)
         return Response(_profile_payload(profile))

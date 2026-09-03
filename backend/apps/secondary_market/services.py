@@ -253,6 +253,25 @@ def _is_originator_claim_loan(loan: Model) -> bool:
     return str(getattr(cast(Any, loan), "product_type", "direct")) == "originator_claim"
 
 
+def _is_par_component_originator_loan(loan: Model) -> bool:
+    if not _is_originator_claim_loan(loan):
+        return False
+    profile_model = _model("originator_claims", "OriginatorLoanProfile")
+    distribution_model = (
+        profile_model.objects.filter(loan_id=cast(Any, loan).pk)
+        .values_list("distribution_model", flat=True)
+        .first()
+    )
+    return str(distribution_model) == "par_component_v2"
+
+
+def _validate_loan_listing_price(loan: Model, price_bps: int) -> None:
+    if _is_par_component_originator_loan(loan) and price_bps > 10_000:
+        raise SecondaryMarketValidationError(
+            "Loan Originator positions can be listed at par or at a discount, not at a premium."
+        )
+
+
 def _require_listable_loan_status(loan: Model) -> str:
     loan_status = str(cast(Any, loan).status)
     if _is_originator_claim_loan(loan) and loan_status != PERFORMING_LOAN_STATUS:
@@ -1338,6 +1357,7 @@ def create_secondary_market_listing(
     if str(holding_ref.currency_id) != str(loan_ref.currency_id):
         raise SecondaryMarketValidationError("Holding currency does not match loan currency.")
     _require_listable_loan_status(loan)
+    _validate_loan_listing_price(loan, price_bps)
     currency = _enabled_currency(str(holding_ref.currency_id))
     _validate_listing_acceptance(
         acceptance_id=command.document_acceptance_id,
@@ -1415,6 +1435,7 @@ def _create_secondary_market_listing_after_sensitive_code(
     if str(holding_ref.currency_id) != str(loan_ref.currency_id):
         raise SecondaryMarketValidationError("Holding currency does not match loan currency.")
     loan_status = _require_listable_loan_status(loan)
+    _validate_loan_listing_price(loan, price_bps)
     currency = _enabled_currency(str(holding_ref.currency_id))
     acceptance = _validate_listing_acceptance(
         acceptance_id=command.document_acceptance_id,
@@ -1605,6 +1626,7 @@ def edit_secondary_market_listing(
         SecondaryMarketListingStatus.APPROVAL_REQUESTED,
     }:
         raise SecondaryMarketValidationError("Only open listings can be edited.")
+    _validate_loan_listing_price(cast(Model, listing.loan), command.price_bps)
     acceptance = _validate_listing_acceptance(
         acceptance_id=command.document_acceptance_id,
         actor=command.actor,
@@ -1708,6 +1730,7 @@ def _edit_secondary_market_listing_after_sensitive_code(
     if str(holding_ref.currency_id) != str(loan_ref.currency_id):
         raise SecondaryMarketValidationError("Holding currency does not match loan currency.")
     loan_status = _require_listable_loan_status(loan)
+    _validate_loan_listing_price(loan, price_bps)
     acceptance = _validate_listing_acceptance(
         acceptance_id=command.document_acceptance_id,
         actor=command.actor,
@@ -2346,6 +2369,7 @@ def purchase_secondary_market_listing(
     holding_ref = cast(Any, holding)
     loan_ref = cast(Any, loan)
     _require_listable_loan_status(loan)
+    _validate_loan_listing_price(loan, int(listing.price_bps))
     if str(holding_ref.status) != "active":
         raise SecondaryMarketValidationError("Seller holding is no longer active.")
     if str(holding_ref.investor_user_id) != seller_user_id:
@@ -2487,6 +2511,7 @@ def _purchase_secondary_market_listing_after_sensitive_code(
     holding_ref = cast(Any, holding)
     loan_ref = cast(Any, loan)
     _require_listable_loan_status(loan)
+    _validate_loan_listing_price(loan, int(listing.price_bps))
     if str(holding_ref.status) != "active":
         raise SecondaryMarketValidationError("Seller holding is no longer active.")
     if str(holding_ref.investor_user_id) != seller_user_id:

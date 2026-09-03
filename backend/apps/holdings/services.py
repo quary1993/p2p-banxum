@@ -459,11 +459,12 @@ def create_originator_claim_holding(
     command: CreateOriginatorClaimHoldingCommand,
 ) -> InvestorLoanHolding:
     investor = _lender_account_for_id(command.investor_user_id)
-    if str(investor.pk) != str(command.actor.pk) or not user_can_access_financial_features(
-        command.actor
+    actor_is_investor = str(investor.pk) == str(command.actor.pk)
+    if not is_admin_actor(command.actor) and (
+        not actor_is_investor or not user_can_access_financial_features(command.actor)
     ):
         raise HoldingsAuthorizationError(
-            "Only the financially eligible investor can acquire this holding."
+            "Only an admin or the financially eligible investor can acquire this holding."
         )
     currency = _enabled_currency(command.currency)
     idempotency_key = _clean_idempotency_key(command.idempotency_key)

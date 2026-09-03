@@ -625,8 +625,18 @@ def _primary_order_context_snapshot(*, context_type: str, context_id: str) -> di
     order_ref = cast(Any, order)
     loan = cast(Model, order_ref.loan)
     loan_ref = cast(Any, loan)
-    borrower = cast(Model, loan_ref.borrower)
-    borrower_ref = cast(Any, borrower)
+    borrower_ref = cast(Any, loan_ref.borrower)
+    originator_profile = None
+    originator_ref = None
+    if str(loan_ref.product_type) == "originator_claim":
+        profile_model = apps.get_model("originator_claims", "OriginatorLoanProfile")
+        originator_profile = (
+            profile_model.objects.select_related("originator")
+            .filter(loan_id=loan_ref.id)
+            .first()
+        )
+        if originator_profile is not None:
+            originator_ref = cast(Any, cast(Any, originator_profile).originator)
     currency = str(order_ref.currency_id)
     effective_amount_minor = int(
         order_ref.allocated_amount_minor or order_ref.requested_amount_minor
@@ -650,6 +660,43 @@ def _primary_order_context_snapshot(*, context_type: str, context_id: str) -> di
     if not collateral_security:
         collateral_security = "As described in the Project Summary"
     confirmation_datetime = order_ref.allocated_at or order_ref.created_at
+    if originator_profile is not None and originator_ref is not None:
+        profile_ref = cast(Any, originator_profile)
+        borrower_snapshot = {
+            "id": f"ANON-{str(loan_ref.id)[:8].upper()}",
+            "legal_name": str(profile_ref.borrower_legal_name),
+            "display_name": str(profile_ref.borrower_display_name),
+        }
+        originator_snapshot = {
+            "id": str(originator_ref.id),
+            "legal_name": str(originator_ref.legal_name),
+            "public_name": str(originator_ref.public_name),
+            "registration_number": str(originator_ref.registration_number),
+            "jurisdiction": str(originator_ref.jurisdiction),
+        }
+        assignment_snapshot = {
+            "assignor_name": str(originator_ref.legal_name),
+            "servicer_name": str(settings.LEGAL_OPERATOR_NAME),
+            "recourse_or_buyback": "None",
+            "accrual_starts_at": (
+                profile_ref.entitlement_start_date.isoformat()
+                if profile_ref.entitlement_start_date is not None
+                else ""
+            ),
+        }
+    else:
+        if borrower_ref is None:
+            raise DocumentValidationError(
+                "Primary-order document evidence cannot resolve its borrower."
+            )
+        borrower_snapshot = {
+            "id": str(borrower_ref.id),
+            "legal_name": str(borrower_ref.legal_name),
+        }
+        originator_snapshot = {}
+        assignment_snapshot = {
+            "assignor_name": str(settings.LEGAL_OPERATOR_NAME),
+        }
     return {
         "lender": {
             "id": str(order_ref.investor_user_id),
@@ -686,16 +733,12 @@ def _primary_order_context_snapshot(*, context_type: str, context_id: str) -> di
             "buyback_obligation": "No",
             "currency": currency,
         },
-        "borrower": {
-            "id": str(borrower_ref.id),
-            "legal_name": str(borrower_ref.legal_name),
-        },
+        "borrower": borrower_snapshot,
+        "originator": originator_snapshot,
         "holding": {
             "id": holding_id,
         },
-        "assignment": {
-            "assignor_name": str(settings.LEGAL_OPERATOR_NAME),
-        },
+        "assignment": assignment_snapshot,
     }
 
 

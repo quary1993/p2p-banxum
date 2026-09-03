@@ -254,19 +254,19 @@
     },
     {
       "term": "Originator claim",
-      "definition": "A dated legal assignment of part of an existing final-borrower loan. The investor buys it immediately at a price calculated from the target yield and receives interest/penalty entitlement only from purchase time forward. The originator retains the unsold share and earlier accrual."
+      "definition": "Participation in an existing final-borrower loan offered through a finite funding round. Cash reserves at par during funding. A holding and post-boundary component rights arise only after BANXUM verifies the declared boundary installment and activates the subscription."
     },
     {
-      "term": "Coupon versus target yield",
-      "definition": "Coupon is the contractual annual rate paid by the final borrower. Target yield is the effective annual ACT/365 return used to price the investor's remaining dated cash flows before losses and taxes. The target yield stays fixed while the claim price changes by day; coupon and yield are not interchangeable."
+      "term": "Coupon versus participating yield",
+      "definition": "Coupon is the contractual annual rate paid by the final borrower. A current originator subscription separately declares the investor's interest and penalty participation. The displayed Yield is a nominal coupon-participation indicator, not a guaranteed effective return; one unit of cash buys one unit of principal at activation."
     },
     {
       "term": "Dated entitlement",
-      "definition": "The immutable start time and claim share that determine which principal, interest and penalty amounts belong to an investor. Accrual before assignment remains with the originator; accrual after assignment belongs to the current investor holder."
+      "definition": "The immutable post-boundary start and principal/component rights that determine which principal, interest and penalty amounts belong to an investor. Funding and the boundary installment belong economically to the originator; investor rights begin only after activation."
     },
     {
       "term": "Originator payable",
-      "definition": "An accounting liability owed by Garanta to a Loan Originator. Claim purchase proceeds (after the private BANXUM fee) and the originator share of borrower repayments accumulate here until Finance Operations executes and records a complete external settlement batch."
+      "definition": "An accounting liability owed by Garanta to a Loan Originator. Activated subscription principal and the originator share of later borrower repayments accumulate here until Finance Operations executes and records a complete external settlement batch."
     }
   ],
   "statuses": [
@@ -384,7 +384,15 @@
     },
     {
       "name": "Loan: Funded",
-      "meaning": "Funding closed, fully or at an admin-accepted partial amount that becomes the final financeable principal. The full accepted principal sits in the borrower disbursement payable until the disbursement is finalized (funded principal minus the BANXUM fee by default), and repayments run per the schedule."
+      "meaning": "Funding has closed. For a direct loan, accepted principal sits in borrower-disbursement payable until payout. For a current Loan Originator subscription, allocated balance stays in funding escrow and the originator profile is Awaiting activation until the exact boundary payment is verified."
+    },
+    {
+      "name": "Originator subscription: Awaiting activation",
+      "meaning": "The finite funding round closed with positive subscriptions, but investor holdings do not exist yet. Funds remain reserved. Verify the declared boundary installment and resulting principal exactly, then activate; otherwise cancel and refund."
+    },
+    {
+      "name": "Loan: Funding close failed",
+      "meaning": "The deterministic close could not finish. The opportunity is hidden and investor funds remain reserved. Work the urgent task and operations alert, then retry close or use the product-specific cancellation/refund path."
     },
     {
       "name": "Loan: Late",

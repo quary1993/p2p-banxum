@@ -15,6 +15,7 @@ from backend.apps.originator_claims.management.commands.seed_originator_demo_loa
 )
 from backend.apps.originator_claims.models import (
     LoanOriginator,
+    OriginatorDistributionModel,
     OriginatorLoanImport,
     OriginatorLoanProfile,
     OriginatorOpportunityStatus,
@@ -58,21 +59,32 @@ def test_seed_originator_demo_loans_publishes_varied_open_catalogue(settings: An
     )
     profiles = [loan_import.loan.originator_profile for loan_import in imports]
     assert len(imports) == len(DEMO_ORIGINATOR_LOAN_SPECS) == 10
-    assert (
-        LoanOriginator.objects.filter(
-            registration_number__startswith="BANXUM-QA-LO-"
-        ).count()
-        == len(DEMO_ORIGINATOR_SPECS)
-    )
+    assert LoanOriginator.objects.filter(
+        registration_number__startswith="BANXUM-QA-LO-"
+    ).count() == len(DEMO_ORIGINATOR_SPECS)
     assert {loan_import.currency_code for loan_import in imports} == {"CHF", "EUR"}
     assert len({profile.loan.repayment_type for profile in profiles}) == 5
-    assert len({profile.target_yield_bps for profile in profiles}) == 10
+    assert all(
+        profile.distribution_model == OriginatorDistributionModel.PAR_COMPONENT_V2
+        for profile in profiles
+    )
     assert all(
         profile.opportunity_status == OriginatorOpportunityStatus.OPEN for profile in profiles
     )
-    assert all(profile.loan.status == "active" for profile in profiles)
+    assert all(profile.loan.status == "published" for profile in profiles)
     assert all(profile.loan.borrower_id is None for profile in profiles)
     assert all(profile.target_yield_bps < profile.loan.interest_rate_bps for profile in profiles)
+    assert all(profile.premium_fee_bps == 0 for profile in profiles)
+    assert all(profile.funding_deadline is not None for profile in profiles)
+    assert all(
+        profile.funding_deadline == business_date(now_utc()) + timedelta(days=29)
+        for profile in profiles
+    )
+    assert all(
+        profile.entitlement_start_date == profile.funding_deadline + timedelta(days=1)
+        for profile in profiles
+        if profile.funding_deadline is not None
+    )
     assert all(
         profile.unsold_principal_minor == profile.current_outstanding_principal_minor
         for profile in profiles

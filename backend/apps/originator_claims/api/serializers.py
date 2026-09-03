@@ -112,8 +112,12 @@ class OriginatorLoanCreateSerializer(serializers.Serializer[dict[str, object]]):
     currency = serializers.CharField(min_length=3, max_length=3)
     original_principal_minor = serializers.IntegerField(min_value=1)
     interest_rate_bps = serializers.IntegerField(min_value=1)
-    target_yield_bps = serializers.IntegerField(min_value=1)
     minimum_investment_minor = serializers.IntegerField(min_value=1)
+    funding_deadline = serializers.DateField()
+    entitlement_start_date = serializers.DateField()
+    activation_outstanding_principal_minor = serializers.IntegerField(min_value=1)
+    investor_interest_participation_bps = serializers.IntegerField(min_value=0, max_value=10_000)
+    investor_penalty_participation_bps = serializers.IntegerField(min_value=0, max_value=10_000)
     repayment_type = serializers.ChoiceField(choices=REPAYMENT_TYPE_CHOICES)
     interest_only_months = serializers.IntegerField(min_value=0, default=0)
     collateral_type = serializers.ChoiceField(choices=COLLATERAL_TYPE_CHOICES)
@@ -130,6 +134,14 @@ class OriginatorLoanCreateSerializer(serializers.Serializer[dict[str, object]]):
     skin_in_the_game_bps = serializers.IntegerField(
         min_value=0, max_value=9_999, required=False, default=0
     )
+
+    def validate(self, attrs: dict[str, object]) -> dict[str, object]:
+        premium_fee_bps = attrs.get("premium_fee_bps")
+        if premium_fee_bps not in {None, 0}:
+            raise serializers.ValidationError(
+                {"premium_fee_bps": "Primary Loan Originator subscriptions have no purchase fee."}
+            )
+        return attrs
 
 
 class OriginatorLoanScheduleRowResponseSerializer(serializers.Serializer[dict[str, object]]):
@@ -175,8 +187,14 @@ class OriginatorAdminLoanDetailResponseSerializer(serializers.Serializer[dict[st
     sellable_principal_minor = serializers.IntegerField()
     interest_rate_bps = serializers.IntegerField()
     target_yield_bps = serializers.IntegerField()
+    distribution_model = serializers.CharField()
     minimum_investment_minor = serializers.IntegerField()
     premium_fee_bps = serializers.IntegerField()
+    funding_deadline = serializers.DateField(allow_null=True)
+    entitlement_start_date = serializers.DateField(allow_null=True)
+    activation_outstanding_principal_minor = serializers.IntegerField(allow_null=True)
+    investor_interest_participation_bps = serializers.IntegerField()
+    investor_penalty_participation_bps = serializers.IntegerField()
     skin_in_the_game_bps = serializers.IntegerField()
     repayment_type = serializers.CharField()
     interest_only_months = serializers.IntegerField()
@@ -199,6 +217,30 @@ class OriginatorAdminLoanDetailResponseSerializer(serializers.Serializer[dict[st
 
 class OriginatorLoanPublishSerializer(serializers.Serializer[dict[str, object]]):
     as_of_date = serializers.DateField()
+
+
+class OriginatorFundingRoundCloseRequestSerializer(serializers.Serializer[dict[str, object]]):
+    as_of_date = serializers.DateField()
+    close_reason = serializers.CharField(max_length=64)
+    idempotency_key = serializers.CharField(max_length=160)
+
+
+class OriginatorSubscriptionActivationRequestSerializer(serializers.Serializer[dict[str, object]]):
+    csv_content = serializers.CharField()
+    source_filename = serializers.CharField(max_length=255)
+    as_of_date = serializers.DateField()
+    boundary_payment_reference = serializers.CharField(max_length=128)
+    boundary_payment_date = serializers.DateField()
+    notes = serializers.CharField()
+    idempotency_key = serializers.CharField(max_length=160)
+
+
+class OriginatorSubscriptionCancellationRequestSerializer(
+    serializers.Serializer[dict[str, object]]
+):
+    reason = serializers.CharField()
+    investor_message = serializers.CharField()
+    idempotency_key = serializers.CharField(max_length=160)
 
 
 class OriginatorLoanHoldSerializer(serializers.Serializer[dict[str, object]]):
@@ -279,9 +321,16 @@ class OriginatorLoanProfileResponseSerializer(serializers.Serializer[dict[str, o
     originator_id = serializers.UUIDField()
     originator_name = serializers.CharField()
     opportunity_status = serializers.CharField()
+    loan_status = serializers.CharField()
+    distribution_model = serializers.CharField()
     target_yield_bps = serializers.IntegerField()
     minimum_investment_minor = serializers.IntegerField()
     premium_fee_bps = serializers.IntegerField()
+    funding_deadline = serializers.DateField(allow_null=True)
+    entitlement_start_date = serializers.DateField(allow_null=True)
+    activation_outstanding_principal_minor = serializers.IntegerField(allow_null=True)
+    investor_interest_participation_bps = serializers.IntegerField()
+    investor_penalty_participation_bps = serializers.IntegerField()
     current_outstanding_principal_minor = serializers.IntegerField()
     unsold_principal_minor = serializers.IntegerField()
     skin_in_the_game_bps = serializers.IntegerField()

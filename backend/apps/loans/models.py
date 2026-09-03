@@ -105,6 +105,10 @@ class LoanEventType(models.TextChoices):
     FUNDING_CLOSE_FAILED = "funding_close_failed", "Funding close failed"
     DISBURSED = "disbursed", "Disbursed"
     FUNDING_CANCELLED = "funding_cancelled", "Funding cancelled"
+    ORIGINATOR_SUBSCRIPTION_ACTIVATED = (
+        "originator_subscription_activated",
+        "Originator subscription activated",
+    )
     SCHEDULE_GENERATED = "schedule_generated", "Schedule generated"
     SERVICING_STATUS_CHANGED = "servicing_status_changed", "Servicing status changed"
     RECOVERY_RECORDED = "recovery_recorded", "Recovery recorded"
@@ -206,8 +210,7 @@ class Loan(TimestampedModel):
             ),
             models.CheckConstraint(
                 condition=(
-                    models.Q(skin_in_the_game_bps=0)
-                    | models.Q(product_type="originator_claim")
+                    models.Q(skin_in_the_game_bps=0) | models.Q(product_type="originator_claim")
                 ),
                 name="loan_skin_in_the_game_originator_only",
             ),
@@ -234,7 +237,6 @@ class Loan(TimestampedModel):
                     | (
                         models.Q(product_type=LoanProductType.ORIGINATOR_CLAIM)
                         & models.Q(borrower__isnull=True)
-                        & models.Q(funding_deadline__isnull=True)
                         & models.Q(is_refinancing=False)
                     )
                 ),
@@ -298,7 +300,7 @@ class LoanInstallment(AppendOnlyModel, TimestampedModel):
 
 class LoanEvent(AppendOnlyModel):
     loan = models.ForeignKey(Loan, on_delete=models.PROTECT, related_name="events")
-    event_type = models.CharField(max_length=32, choices=LoanEventType.choices)
+    event_type = models.CharField(max_length=48, choices=LoanEventType.choices)
     actor_user_id = models.UUIDField()
     actor_account_type = models.CharField(max_length=64)
     previous_status = models.CharField(max_length=32, blank=True)

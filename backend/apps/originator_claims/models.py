@@ -17,7 +17,15 @@ class LoanOriginatorStatus(models.TextChoices):
 class OriginatorOpportunityStatus(models.TextChoices):
     DRAFT = "draft", "Draft"
     OPEN = "open", "Open"
+    AWAITING_ACTIVATION = "awaiting_activation", "Awaiting activation"
+    ACTIVE = "active", "Active"
     CLOSED = "closed", "Closed"
+    CANCELLED = "cancelled", "Cancelled"
+
+
+class OriginatorDistributionModel(models.TextChoices):
+    LEGACY_YIELD_V1 = "legacy_yield_v1", "Legacy yield-priced claim"
+    PAR_COMPONENT_V2 = "par_component_v2", "Par subscription with component participation"
 
 
 class OriginatorImportPaymentType(models.TextChoices):
@@ -32,6 +40,11 @@ class OriginatorClaimEventType(models.TextChoices):
     LOAN_CREATED = "loan_created", "Loan created"
     OPPORTUNITY_PUBLISHED = "opportunity_published", "Opportunity published"
     OPPORTUNITY_CLOSED = "opportunity_closed", "Opportunity closed"
+    OPPORTUNITY_HELD = "opportunity_held", "Opportunity held"
+    FUNDING_ROUND_CLOSED = "funding_round_closed", "Funding round closed"
+    FUNDING_ROUND_CLOSE_FAILED = "funding_round_close_failed", "Funding round close failed"
+    SUBSCRIPTION_ACTIVATED = "subscription_activated", "Subscription activated"
+    SUBSCRIPTION_CANCELLED = "subscription_cancelled", "Subscription cancelled"
     QUOTE_CREATED = "quote_created", "Quote created"
     CLAIM_PURCHASED = "claim_purchased", "Claim purchased"
     REPAYMENT_RECORDED = "repayment_recorded", "Repayment recorded"
@@ -100,9 +113,19 @@ class OriginatorLoanProfile(TimestampedModel):
         choices=OriginatorOpportunityStatus.choices,
         default=OriginatorOpportunityStatus.DRAFT,
     )
+    distribution_model = models.CharField(
+        max_length=32,
+        choices=OriginatorDistributionModel.choices,
+        default=OriginatorDistributionModel.PAR_COMPONENT_V2,
+    )
     target_yield_bps = models.PositiveIntegerField()
     minimum_investment_minor = models.BigIntegerField()
     premium_fee_bps = models.PositiveSmallIntegerField(default=5000)
+    funding_deadline = models.DateField(null=True, blank=True)
+    entitlement_start_date = models.DateField(null=True, blank=True)
+    activation_outstanding_principal_minor = models.BigIntegerField(null=True, blank=True)
+    investor_interest_participation_bps = models.PositiveSmallIntegerField(default=10_000)
+    investor_penalty_participation_bps = models.PositiveSmallIntegerField(default=10_000)
     current_outstanding_principal_minor = models.BigIntegerField()
     unsold_principal_minor = models.BigIntegerField()
     maturity_date = models.DateField()
@@ -152,8 +175,8 @@ class OriginatorLoanProfile(TimestampedModel):
         ordering = ["-created_at", "-id"]
         constraints = [
             models.CheckConstraint(
-                condition=Q(target_yield_bps__gt=0),
-                name="originator_target_yield_positive",
+                condition=Q(target_yield_bps__gte=0),
+                name="originator_target_yield_nonnegative",
             ),
             models.CheckConstraint(
                 condition=Q(minimum_investment_minor__gt=0),
@@ -162,6 +185,33 @@ class OriginatorLoanProfile(TimestampedModel):
             models.CheckConstraint(
                 condition=Q(premium_fee_bps__lte=10_000),
                 name="originator_profile_fee_bps_valid",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(investor_interest_participation_bps__lte=10_000)
+                    & Q(investor_penalty_participation_bps__lte=10_000)
+                ),
+                name="originator_component_participation_valid",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(activation_outstanding_principal_minor__isnull=True)
+                    | Q(activation_outstanding_principal_minor__gt=0)
+                ),
+                name="originator_activation_principal_positive",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(distribution_model=OriginatorDistributionModel.LEGACY_YIELD_V1)
+                    | (
+                        Q(funding_deadline__isnull=False)
+                        & Q(entitlement_start_date__isnull=False)
+                        & Q(activation_outstanding_principal_minor__isnull=False)
+                        & Q(funding_deadline__lt=F("entitlement_start_date"))
+                        & Q(premium_fee_bps=0)
+                    )
+                ),
+                name="originator_par_subscription_terms_complete",
             ),
             models.CheckConstraint(
                 condition=(
@@ -174,7 +224,113 @@ class OriginatorLoanProfile(TimestampedModel):
         ]
         indexes = [
             models.Index(fields=["opportunity_status", "maturity_date"]),
+            models.Index(fields=["distribution_model", "funding_deadline"]),
             models.Index(fields=["originator", "opportunity_status"]),
+        ]
+
+
+class OriginatorFundingRoundClose(AppendOnlyModel, TimestampedModel):
+    loan_profile = models.OneToOneField(
+        OriginatorLoanProfile,
+        on_delete=models.PROTECT,
+        related_name="funding_round_close",
+    )
+    subscribed_principal_minor = models.BigIntegerField()
+    allocated_order_count = models.PositiveIntegerField()
+    funding_deadline = models.DateField()
+    close_reason = models.CharField(max_length=64)
+    triggered_by_user_id = models.UUIDField()
+    closed_at = models.DateTimeField()
+    idempotency_key = models.CharField(max_length=160, unique=True)
+    request_fingerprint = models.CharField(max_length=64)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-closed_at", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(subscribed_principal_minor__gt=0),
+                name="originator_round_close_subscription_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(allocated_order_count__gt=0),
+                name="originator_round_close_has_orders",
+            ),
+        ]
+
+
+class OriginatorSubscriptionActivation(AppendOnlyModel, TimestampedModel):
+    loan_profile = models.OneToOneField(
+        OriginatorLoanProfile,
+        on_delete=models.PROTECT,
+        related_name="subscription_activation",
+    )
+    funding_round_close = models.OneToOneField(
+        OriginatorFundingRoundClose,
+        on_delete=models.PROTECT,
+        related_name="activation",
+    )
+    boundary_payment_reference = models.CharField(max_length=128)
+    boundary_payment_date = models.DateField()
+    starting_outstanding_principal_minor = models.BigIntegerField()
+    assigned_principal_minor = models.BigIntegerField()
+    originator_retained_principal_minor = models.BigIntegerField()
+    activation_journal_entry = models.OneToOneField(
+        "ledger.LedgerJournalEntry",
+        on_delete=models.PROTECT,
+        related_name="originator_subscription_activation",
+    )
+    activated_by_admin_id = models.UUIDField()
+    activated_at = models.DateTimeField()
+    idempotency_key = models.CharField(max_length=160, unique=True)
+    request_fingerprint = models.CharField(max_length=64)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-activated_at", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(starting_outstanding_principal_minor__gt=0)
+                    & Q(assigned_principal_minor__gt=0)
+                    & Q(originator_retained_principal_minor__gte=0)
+                ),
+                name="originator_activation_amounts_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    starting_outstanding_principal_minor=(
+                        F("assigned_principal_minor") + F("originator_retained_principal_minor")
+                    )
+                ),
+                name="originator_activation_principal_conserved",
+            ),
+        ]
+
+
+class OriginatorSubscriptionCancellation(AppendOnlyModel, TimestampedModel):
+    loan_profile = models.OneToOneField(
+        OriginatorLoanProfile,
+        on_delete=models.PROTECT,
+        related_name="subscription_cancellation",
+    )
+    released_principal_minor = models.BigIntegerField(default=0)
+    released_order_count = models.PositiveIntegerField(default=0)
+    closed_not_invested_order_count = models.PositiveIntegerField(default=0)
+    reason = models.TextField()
+    cancelled_by_admin_id = models.UUIDField()
+    cancelled_at = models.DateTimeField()
+    idempotency_key = models.CharField(max_length=160, unique=True)
+    request_fingerprint = models.CharField(max_length=64)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-cancelled_at", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(released_principal_minor__gte=0),
+                name="originator_subscription_cancel_release_nonnegative",
+            ),
         ]
 
 

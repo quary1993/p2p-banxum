@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 import io
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from importlib import import_module
 from typing import Any
 
@@ -22,10 +22,12 @@ from backend.apps.originator_claims.models import (
 from backend.apps.originator_claims.services import (
     CreateLoanOriginatorCommand,
     CreateOriginatorLoanCommand,
+    HoldOriginatorLoanCommand,
     OriginatorClaimsError,
     PublishOriginatorLoanCommand,
     create_loan_originator,
     create_originator_loan,
+    place_originator_loan_on_hold,
     publish_originator_loan,
 )
 from backend.apps.platform_core.domain.access import is_admin_actor
@@ -34,7 +36,8 @@ from backend.apps.platform_core.domain.time import business_date, now_utc
 from backend.apps.platform_core.models import Currency
 
 SEED_NAME = "seed_originator_demo_loans"
-SEED_VERSION = "v1"
+SEED_VERSION = "v2"
+LEGACY_SEED_VERSION = "v1"
 DEMO_SETTLEMENT_IBAN = "CH9300762011623852957"
 
 
@@ -60,7 +63,9 @@ class DemoOriginatorLoanSpec:
     currency: str
     principal_minor: int
     coupon_bps: int
-    target_yield_bps: int
+    investor_interest_participation_bps: int
+    investor_penalty_participation_bps: int
+    skin_in_the_game_bps: int
     minimum_investment_minor: int
     term_months: int
     repayment_type: str
@@ -110,7 +115,9 @@ DEMO_ORIGINATOR_LOAN_SPECS = (
         currency="CHF",
         principal_minor=18_000_000,
         coupon_bps=1180,
-        target_yield_bps=820,
+        investor_interest_participation_bps=7000,
+        investor_penalty_participation_bps=5000,
+        skin_in_the_game_bps=1500,
         minimum_investment_minor=50_000,
         term_months=12,
         repayment_type="equal_installments",
@@ -136,7 +143,9 @@ DEMO_ORIGINATOR_LOAN_SPECS = (
         currency="CHF",
         principal_minor=32_000_000,
         coupon_bps=1040,
-        target_yield_bps=740,
+        investor_interest_participation_bps=7100,
+        investor_penalty_participation_bps=6000,
+        skin_in_the_game_bps=1200,
         minimum_investment_minor=100_000,
         term_months=24,
         repayment_type="amortizing_principal_interest",
@@ -162,7 +171,9 @@ DEMO_ORIGINATOR_LOAN_SPECS = (
         currency="CHF",
         principal_minor=24_000_000,
         coupon_bps=1320,
-        target_yield_bps=910,
+        investor_interest_participation_bps=6900,
+        investor_penalty_participation_bps=5500,
+        skin_in_the_game_bps=1800,
         minimum_investment_minor=50_000,
         term_months=9,
         repayment_type="bullet_periodic_interest",
@@ -188,7 +199,9 @@ DEMO_ORIGINATOR_LOAN_SPECS = (
         currency="CHF",
         principal_minor=45_000_000,
         coupon_bps=1240,
-        target_yield_bps=870,
+        investor_interest_participation_bps=7000,
+        investor_penalty_participation_bps=5000,
+        skin_in_the_game_bps=1500,
         minimum_investment_minor=100_000,
         term_months=18,
         repayment_type="interest_only_then_amortizing",
@@ -214,7 +227,9 @@ DEMO_ORIGINATOR_LOAN_SPECS = (
         currency="CHF",
         principal_minor=12_500_000,
         coupon_bps=1410,
-        target_yield_bps=1020,
+        investor_interest_participation_bps=7200,
+        investor_penalty_participation_bps=6500,
+        skin_in_the_game_bps=2000,
         minimum_investment_minor=25_000,
         term_months=8,
         repayment_type="interest_only_then_bullet",
@@ -240,7 +255,9 @@ DEMO_ORIGINATOR_LOAN_SPECS = (
         currency="EUR",
         principal_minor=38_000_000,
         coupon_bps=1080,
-        target_yield_bps=780,
+        investor_interest_participation_bps=7200,
+        investor_penalty_participation_bps=6000,
+        skin_in_the_game_bps=1000,
         minimum_investment_minor=50_000,
         term_months=30,
         repayment_type="amortizing_principal_interest",
@@ -266,7 +283,9 @@ DEMO_ORIGINATOR_LOAN_SPECS = (
         currency="EUR",
         principal_minor=21_000_000,
         coupon_bps=1210,
-        target_yield_bps=860,
+        investor_interest_participation_bps=7100,
+        investor_penalty_participation_bps=5500,
+        skin_in_the_game_bps=1400,
         minimum_investment_minor=50_000,
         term_months=10,
         repayment_type="equal_installments",
@@ -292,7 +311,9 @@ DEMO_ORIGINATOR_LOAN_SPECS = (
         currency="EUR",
         principal_minor=52_500_000,
         coupon_bps=1130,
-        target_yield_bps=800,
+        investor_interest_participation_bps=7100,
+        investor_penalty_participation_bps=6000,
+        skin_in_the_game_bps=1200,
         minimum_investment_minor=100_000,
         term_months=36,
         repayment_type="interest_only_then_amortizing",
@@ -318,7 +339,9 @@ DEMO_ORIGINATOR_LOAN_SPECS = (
         currency="EUR",
         principal_minor=29_000_000,
         coupon_bps=1350,
-        target_yield_bps=940,
+        investor_interest_participation_bps=7000,
+        investor_penalty_participation_bps=6500,
+        skin_in_the_game_bps=1800,
         minimum_investment_minor=100_000,
         term_months=18,
         repayment_type="bullet_periodic_interest",
@@ -344,7 +367,9 @@ DEMO_ORIGINATOR_LOAN_SPECS = (
         currency="EUR",
         principal_minor=16_500_000,
         coupon_bps=990,
-        target_yield_bps=700,
+        investor_interest_participation_bps=7100,
+        investor_penalty_participation_bps=5500,
+        skin_in_the_game_bps=1500,
         minimum_investment_minor=25_000,
         term_months=15,
         repayment_type="equal_installments",
@@ -361,9 +386,18 @@ def _marker(spec: DemoOriginatorLoanSpec) -> str:
     return f"{SEED_NAME}:{SEED_VERSION}:{spec.key}"
 
 
+def _funding_deadline(today: date) -> date:
+    # Publication day plus 29 days is a 30-calendar-day subscription window.
+    return today + timedelta(days=29)
+
+
+def _boundary_due_date(today: date) -> date:
+    return _funding_deadline(today) + timedelta(days=1)
+
+
 def _schedule_drafts(spec: DemoOriginatorLoanSpec, *, today: date) -> list[Any]:
     schedules = import_module("backend.apps.loans.domain.schedules")
-    first_due_date = schedules.add_months(today, 1)
+    first_due_date = _boundary_due_date(today)
     common = {
         "principal_minor": spec.principal_minor,
         "currency": spec.currency,
@@ -415,6 +449,17 @@ def _csv_content(spec: DemoOriginatorLoanSpec, *, today: date) -> str:
     return output.getvalue()
 
 
+def _activation_outstanding_principal_minor(
+    spec: DemoOriginatorLoanSpec,
+    *,
+    today: date,
+) -> int:
+    schedule = _schedule_drafts(spec, today=today)
+    if len(schedule) < 2:
+        raise CommandError("Demo subscription loans require a boundary and a later installment.")
+    return spec.principal_minor - int(schedule[0].principal_minor)
+
+
 def _borrower_snapshot(spec: DemoOriginatorLoanSpec) -> dict[str, Any]:
     return {
         "borrower_legal_name": f"BANXUM Demo Confidential Borrower - {spec.key}",
@@ -446,8 +491,8 @@ def _borrower_snapshot(spec: DemoOriginatorLoanSpec) -> dict[str, Any]:
 
 class Command(BaseCommand):
     help = (
-        "Publish ten clearly labelled, idempotent Loan Originator demo claims through the "
-        "validated CSV import and production pricing paths."
+        "Publish ten clearly labelled, idempotent Loan Originator subscription demos through "
+        "the validated CSV import and funding-round paths."
     )
 
     def add_arguments(self, parser) -> None:  # type: ignore[no-untyped-def]
@@ -496,6 +541,7 @@ class Command(BaseCommand):
         created_originators = 0
         created_loans = 0
         skipped_loans = 0
+        retired_legacy_loans = 0
         try:
             with transaction.atomic():
                 originators: dict[str, LoanOriginator] = {}
@@ -541,6 +587,33 @@ class Command(BaseCommand):
                     )
                     created_originators += 1
 
+                legacy_profiles = list(
+                    OriginatorLoanImport.objects.select_related("loan__originator_profile")
+                    .filter(
+                        source_filename__startswith=(f"{SEED_NAME}:{LEGACY_SEED_VERSION}:"),
+                        revision=1,
+                        loan__originator_profile__opportunity_status=(
+                            OriginatorOpportunityStatus.OPEN
+                        ),
+                    )
+                    .order_by("loan_id")
+                )
+                for legacy_import in legacy_profiles:
+                    self.stdout.write(f"RETIRE legacy demo {legacy_import.loan.title}")
+                    if options["dry_run"]:
+                        continue
+                    place_originator_loan_on_hold(
+                        HoldOriginatorLoanCommand(
+                            actor=actor,
+                            loan_id=str(legacy_import.loan_id),
+                            reason=(
+                                "Superseded private-test Loan Originator catalogue; retained "
+                                "for immutable historical evidence."
+                            ),
+                        )
+                    )
+                    retired_legacy_loans += 1
+
                 for loan_spec in DEMO_ORIGINATOR_LOAN_SPECS:
                     marker = _marker(loan_spec)
                     existing_import = (
@@ -559,8 +632,10 @@ class Command(BaseCommand):
                         f"{format_amount_minor(loan_spec.principal_minor, loan_spec.currency)} "
                         f"| coupon={loan_spec.coupon_bps // 100}."
                         f"{loan_spec.coupon_bps % 100:02d}% "
-                        f"| yield={loan_spec.target_yield_bps // 100}."
-                        f"{loan_spec.target_yield_bps % 100:02d}% "
+                        "| investor interest share="
+                        f"{loan_spec.investor_interest_participation_bps / 100:.2f}% "
+                        "| investor penalty share="
+                        f"{loan_spec.investor_penalty_participation_bps / 100:.2f}% "
                         f"| {loan_spec.term_months} months"
                     )
                     if options["dry_run"]:
@@ -577,8 +652,21 @@ class Command(BaseCommand):
                             currency=loan_spec.currency,
                             original_principal_minor=loan_spec.principal_minor,
                             interest_rate_bps=loan_spec.coupon_bps,
-                            target_yield_bps=loan_spec.target_yield_bps,
                             minimum_investment_minor=loan_spec.minimum_investment_minor,
+                            funding_deadline=_funding_deadline(today),
+                            entitlement_start_date=_boundary_due_date(today),
+                            activation_outstanding_principal_minor=(
+                                _activation_outstanding_principal_minor(
+                                    loan_spec,
+                                    today=today,
+                                )
+                            ),
+                            investor_interest_participation_bps=(
+                                loan_spec.investor_interest_participation_bps
+                            ),
+                            investor_penalty_participation_bps=(
+                                loan_spec.investor_penalty_participation_bps
+                            ),
                             repayment_type=loan_spec.repayment_type,
                             interest_only_months=loan_spec.interest_only_months,
                             collateral_type=loan_spec.collateral_type,
@@ -589,6 +677,8 @@ class Command(BaseCommand):
                             source_filename=f"{marker}.csv",
                             as_of_date=today,
                             borrower_snapshot=_borrower_snapshot(loan_spec),
+                            premium_fee_bps=0,
+                            skin_in_the_game_bps=loan_spec.skin_in_the_game_bps,
                         )
                     )
                     profile = publish_originator_loan(
@@ -600,7 +690,8 @@ class Command(BaseCommand):
                     )
                     if (
                         profile.opportunity_status != OriginatorOpportunityStatus.OPEN
-                        or profile.unsold_principal_minor != loan_spec.principal_minor
+                        or profile.unsold_principal_minor
+                        != _activation_outstanding_principal_minor(loan_spec, today=today)
                     ):
                         raise CommandError(
                             f"Demo originator claim did not reach the expected open state: "
@@ -622,6 +713,7 @@ class Command(BaseCommand):
             self.style.SUCCESS(
                 "Demo Loan Originator catalogue ready: "
                 f"{created_originators} originators created, {created_loans} loans created, "
-                f"{skipped_loans} loans skipped."
+                f"{skipped_loans} loans skipped, {retired_legacy_loans} legacy open "
+                "opportunities retired."
             )
         )

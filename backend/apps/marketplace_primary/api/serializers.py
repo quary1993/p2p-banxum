@@ -40,6 +40,22 @@ class MarketplaceLoanPreviewSerializer(serializers.Serializer[Any]):
     originator_id = serializers.UUIDField(allow_null=True)
     originator_name = serializers.CharField(allow_null=True)
     borrower_display_name = serializers.CharField(allow_null=True)
+    distribution_model = serializers.CharField(
+        required=False,
+        allow_null=True,
+    )
+    entitlement_start_date = serializers.DateField(
+        required=False,
+        allow_null=True,
+    )
+    investor_interest_participation_bps = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+    )
+    investor_penalty_participation_bps = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+    )
     skin_in_the_game_bps = serializers.IntegerField(required=False, default=0)
     minimum_subscription_bps = serializers.IntegerField(required=False, default=5_000)
 

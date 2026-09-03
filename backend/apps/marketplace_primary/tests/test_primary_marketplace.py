@@ -249,6 +249,7 @@ def _create_originator_batch_loan(admin_user: Model, *, suffix: str) -> Model:
             original_principal_minor=1_000_000,
             interest_rate_bps=1_200,
             target_yield_bps=800,
+            distribution_model="legacy_yield_v1",
             minimum_investment_minor=100_000,
             repayment_type="equal_installments",
             interest_only_months=0,
@@ -2453,9 +2454,7 @@ def test_primary_order_batch_purchases_multiple_originator_claims(
     assert result.batch.originator_purchase_ids == [
         str(purchase.id) for purchase in result.originator_purchases
     ]
-    assert result.batch.currency_totals == [
-        {"currency": "CHF", "amount_minor": total_cash_minor}
-    ]
+    assert result.batch.currency_totals == [{"currency": "CHF", "amount_minor": total_cash_minor}]
     assert not PrimaryInvestmentOrder.objects.filter(
         loan_id__in=[first_loan.pk, second_loan.pk]
     ).exists()

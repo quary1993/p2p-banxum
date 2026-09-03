@@ -98,8 +98,9 @@ PRIMARY_LOAN_CLOSE_FINGERPRINT_METADATA_KEY = "primary_loan_close_fingerprint"
 FX_EXCHANGE_FINGERPRINT_METADATA_KEY = "fx_exchange_fingerprint"
 FX_EXTERNAL_SETTLEMENT_FINGERPRINT_METADATA_KEY = "fx_external_settlement_fingerprint"
 SECONDARY_MARKET_PURCHASE_FINGERPRINT_METADATA_KEY = "secondary_market_purchase_fingerprint"
-ORIGINATOR_CLAIM_PURCHASE_FINGERPRINT_METADATA_KEY = (
-    "originator_claim_purchase_fingerprint"
+ORIGINATOR_CLAIM_PURCHASE_FINGERPRINT_METADATA_KEY = "originator_claim_purchase_fingerprint"
+ORIGINATOR_SUBSCRIPTION_ACTIVATION_FINGERPRINT_METADATA_KEY = (
+    "originator_subscription_activation_fingerprint"
 )
 
 
@@ -636,6 +637,21 @@ class SettleOriginatorClaimPurchaseLedgerCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class ActivateOriginatorSubscriptionLedgerCommand:
+    actor: Model
+    activation_id: str
+    loan_id: str
+    originator_id: str
+    currency: str
+    assigned_principal_minor: int
+    source_type: str
+    source_id: str
+    idempotency_key: str
+    as_of: datetime | None = None
+    metadata: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class FinalizeOriginatorSettlementLedgerCommand:
     actor: Model
     settlement_id: str
@@ -716,6 +732,11 @@ class OriginatorClaimPurchaseLedgerResult:
 
 
 @dataclass(frozen=True, slots=True)
+class OriginatorSubscriptionActivationLedgerResult:
+    journal_entry: LedgerJournalEntry
+
+
+@dataclass(frozen=True, slots=True)
 class OriginatorSettlementLedgerResult:
     bank_operation: BankOperation
     journal_entry: LedgerJournalEntry
@@ -762,6 +783,10 @@ def _locked_funded_loan_for_disbursement(
     )
     if loan is None:
         raise LedgerValidationError("Loan does not exist.")
+    if str(getattr(loan, "product_type", "direct")) != "direct":
+        raise LedgerValidationError(
+            "Loan Originator subscriptions do not use the direct-borrower disbursement workflow."
+        )
     loan_status = str(getattr(loan, "status", ""))
     if loan_status in {"active", "late", "defaulted", "repaid", "written_off"}:
         raise LedgerValidationError("Loan has already been disbursed to the borrower.")
@@ -775,9 +800,7 @@ def _locked_funded_loan_for_disbursement(
     loan_ref = cast(Any, loan)
     borrower = cast(Model, loan_ref.borrower)
     if not bool(getattr(borrower, "can_transact", False)):
-        raise LedgerValidationError(
-            "Borrower KYB must be approved and free of compliance hold."
-        )
+        raise LedgerValidationError("Borrower KYB must be approved and free of compliance hold.")
     return loan
 
 
@@ -1383,6 +1406,28 @@ def _originator_claim_purchase_ledger_fingerprint(
     )
 
 
+def _originator_subscription_activation_ledger_fingerprint(
+    command: ActivateOriginatorSubscriptionLedgerCommand,
+    *,
+    currency_code: str,
+    assigned_principal_minor: int,
+    idempotency_key: str,
+) -> str:
+    return _stable_json_fingerprint(
+        {
+            "activation_id": str(command.activation_id),
+            "loan_id": str(command.loan_id),
+            "originator_id": str(command.originator_id),
+            "currency": currency_code,
+            "assigned_principal_minor": assigned_principal_minor,
+            "source_type": command.source_type.strip(),
+            "source_id": command.source_id.strip(),
+            "idempotency_key": idempotency_key,
+            "metadata": command.metadata or {},
+        }
+    )
+
+
 def _originator_settlement_ledger_fingerprint(
     command: FinalizeOriginatorSettlementLedgerCommand,
     *,
@@ -1434,9 +1479,7 @@ def _originator_borrower_repayment_ledger_fingerprint(
             "currency": currency_code,
             "booking_date": command.booking_date.isoformat(),
             "value_date": command.value_date.isoformat(),
-            "collection_account_identifier": (
-                command.collection_account_identifier.strip()
-            ),
+            "collection_account_identifier": (command.collection_account_identifier.strip()),
             "payer_name": command.payer_name.strip(),
             "payer_account_identifier": command.payer_account_identifier.strip(),
             "bank_reference": command.bank_reference.strip(),
@@ -1745,9 +1788,7 @@ def _create_investor_payout_instruction(
         else "ledger.investor_payout_instruction_updated"
     )
     event_type = (
-        "InvestorPayoutInstructionRegistered"
-        if created
-        else "InvestorPayoutInstructionUpdated"
+        "InvestorPayoutInstructionRegistered" if created else "InvestorPayoutInstructionUpdated"
     )
     record_audit_event(
         AuditCommand(
@@ -2203,9 +2244,7 @@ def _existing_originator_borrower_repayment_for_idempotency(
     )
     journal_entry = bank_operation.journal_entries.first()
     if journal_entry is None:
-        raise LedgerValidationError(
-            "Existing originator borrower repayment has no journal entry."
-        )
+        raise LedgerValidationError("Existing originator borrower repayment has no journal entry.")
     credits = [
         InvestorBalanceCreditResult(
             line_index=index,
@@ -2213,9 +2252,7 @@ def _existing_originator_borrower_repayment_for_idempotency(
             amount_minor=lot.original_amount_minor,
             balance_lot=cast(InvestorBalanceLot, lot),
         )
-        for index, lot in enumerate(
-            journal_entry.balance_lots.order_by("created_at", "id")
-        )
+        for index, lot in enumerate(journal_entry.balance_lots.order_by("created_at", "id"))
     ]
     return OriginatorBorrowerRepaymentLedgerResult(
         bank_operation=cast(BankOperation, bank_operation),
@@ -2823,8 +2860,7 @@ def finalize_borrower_disbursement(
         currency_code=currency.code,
         amount_minor=amount_minor,
         collection_account_identifier=(
-            supplied_collection_account_identifier
-            or "platform-configured-collection-account"
+            supplied_collection_account_identifier or "platform-configured-collection-account"
         ),
         idempotency_key=idempotency_key,
     )
@@ -2835,9 +2871,10 @@ def finalize_borrower_disbursement(
     if existing is not None:
         existing_loan = cast(
             Model | None,
-            apps.get_model("loans", "Loan").objects.select_for_update().filter(
-                id=command.loan_id
-            ).first(),
+            apps.get_model("loans", "Loan")
+            .objects.select_for_update()
+            .filter(id=command.loan_id)
+            .first(),
         )
         if existing_loan is None:
             raise LedgerValidationError("Loan does not exist.")
@@ -2917,9 +2954,7 @@ def finalize_borrower_disbursement(
     try:
         with transaction.atomic():
             bank_operation = BankOperation.objects.create(
-                operation_type=_bank_operation_type(
-                    BankOperationType.BORROWER_LOAN_DISBURSEMENT
-                ),
+                operation_type=_bank_operation_type(BankOperationType.BORROWER_LOAN_DISBURSEMENT),
                 status=BankOperationStatus.RECONCILED,
                 amount_minor=amount_minor,
                 currency=currency,
@@ -3634,9 +3669,7 @@ def declare_recovery_distribution(
             tax_metadata={
                 "client_money_flow_minor": net_available_minor,
                 "recovery_fee_revenue_minor": recovery_fee_minor,
-                "third_party_costs_from_received_minor": (
-                    third_party_costs_from_received_minor
-                ),
+                "third_party_costs_from_received_minor": (third_party_costs_from_received_minor),
                 "principal_minor": sum(line.principal_minor for line in distribution_lines),
                 "contractual_interest_minor": sum(
                     line.contractual_interest_minor for line in distribution_lines
@@ -3655,9 +3688,7 @@ def declare_recovery_distribution(
                 "borrower_id": str(command.borrower_id),
                 "distribution_line_count": len(distribution_lines),
                 "recovery_fee_minor": recovery_fee_minor,
-                "third_party_costs_from_received_minor": (
-                    third_party_costs_from_received_minor
-                ),
+                "third_party_costs_from_received_minor": (third_party_costs_from_received_minor),
             },
         )
     )
@@ -4032,8 +4063,7 @@ def _balance_penalty_charge_recorded_in_lineage(
     expected = charge_date.isoformat()
     lineage = cast(list[dict[str, Any]], lot.lineage)
     return any(
-        item.get("event") == "balance_penalty_charged"
-        and item.get("charge_date") == expected
+        item.get("event") == "balance_penalty_charged" and item.get("charge_date") == expected
         for item in lineage
     )
 
@@ -4068,11 +4098,7 @@ def _charge_balance_penalty_for_lot(
     as_of: datetime,
 ) -> BalancePenaltyCharge | None:
     charge_date = business_date(as_of)
-    lot = (
-        InvestorBalanceLot.objects.select_for_update()
-        .select_related("currency")
-        .get(id=lot.id)
-    )
+    lot = InvestorBalanceLot.objects.select_for_update().select_related("currency").get(id=lot.id)
     if lot.status != BalanceLotStatus.PENALTY_MODE:
         return None
     _validate_lot_conservation(lot)
@@ -4935,16 +4961,32 @@ def _existing_originator_claim_purchase_ledger_result(
     if journal is None:
         return None
     metadata = cast(dict[str, Any], journal.metadata)
-    if (
-        metadata.get(ORIGINATOR_CLAIM_PURCHASE_FINGERPRINT_METADATA_KEY)
-        != expected_fingerprint
-    ):
+    if metadata.get(ORIGINATOR_CLAIM_PURCHASE_FINGERPRINT_METADATA_KEY) != expected_fingerprint:
         raise LedgerValidationError("Idempotency key was already used for a different request.")
     return OriginatorClaimPurchaseLedgerResult(
         journal_entry=cast(LedgerJournalEntry, journal),
         investor_lot_allocations=list(
             cast(list[dict[str, Any]], metadata.get("investor_lot_allocations", []))
         ),
+    )
+
+
+def _existing_originator_subscription_activation_ledger_result(
+    journal_idempotency_key: str,
+    *,
+    expected_fingerprint: str,
+) -> OriginatorSubscriptionActivationLedgerResult | None:
+    journal = LedgerJournalEntry.objects.filter(idempotency_key=journal_idempotency_key).first()
+    if journal is None:
+        return None
+    metadata = cast(dict[str, Any], journal.metadata)
+    if (
+        metadata.get(ORIGINATOR_SUBSCRIPTION_ACTIVATION_FINGERPRINT_METADATA_KEY)
+        != expected_fingerprint
+    ):
+        raise LedgerValidationError("Idempotency key was already used for a different request.")
+    return OriginatorSubscriptionActivationLedgerResult(
+        journal_entry=cast(LedgerJournalEntry, journal)
     )
 
 
@@ -5611,10 +5653,7 @@ def declare_originator_borrower_repayment_ledger(
             currency=currency,
             owner_type="investor",
             owner_id=str(line.investor_user_id),
-            name=(
-                f"{currency.code} investor balance liability "
-                f"{line.investor_user_id}"
-            ),
+            name=(f"{currency.code} investor balance liability {line.investor_user_id}"),
         )
         postings.append(
             PostingCommand(
@@ -5758,6 +5797,133 @@ def declare_originator_borrower_repayment_ledger(
         journal_entry=journal,
         balance_credits=credits,
     )
+
+
+@transaction.atomic
+def activate_originator_subscription_ledger(
+    command: ActivateOriginatorSubscriptionLedgerCommand,
+) -> OriginatorSubscriptionActivationLedgerResult:
+    _require_admin_actor(command.actor)
+    currency = _enabled_currency(command.currency)
+    assigned_principal_minor = _validate_money(
+        command.assigned_principal_minor,
+        currency.code,
+        "Originator subscription assigned principal",
+    )
+    idempotency_key = _clean_idempotency_key(command.idempotency_key)
+    source_type = _clean_required(command.source_type, "Source type")
+    source_id = _clean_required(command.source_id, "Source id")
+    originator_id = _clean_required(str(command.originator_id), "Loan Originator id")
+    as_of = command.as_of or now_utc()
+    value_date = business_date(as_of)
+    journal_idempotency_key = _derived_idempotency_key(
+        "ledger-originator-subscription-activation",
+        idempotency_key,
+    )
+    request_fingerprint = _originator_subscription_activation_ledger_fingerprint(
+        command,
+        currency_code=currency.code,
+        assigned_principal_minor=assigned_principal_minor,
+        idempotency_key=idempotency_key,
+    )
+    existing = _existing_originator_subscription_activation_ledger_result(
+        journal_idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing is not None:
+        return existing
+
+    escrow_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.LOAN_FUNDING_ESCROW,
+        currency=currency,
+        owner_type="loan",
+        owner_id=str(command.loan_id),
+        name=f"{currency.code} loan funding escrow {command.loan_id}",
+    )
+    escrow_balance = _credit_balance_for_account(escrow_account)
+    if escrow_balance != assigned_principal_minor:
+        raise LedgerValidationError(
+            "Loan funding escrow must equal the assigned originator subscription principal."
+        )
+    originator_payable_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.ORIGINATOR_SETTLEMENT_PAYABLE,
+        currency=currency,
+        owner_type="loan_originator",
+        owner_id=originator_id,
+        name=f"{currency.code} Loan Originator settlement payable {originator_id}",
+    )
+    journal_entry = post_journal_entry(
+        PostJournalEntryCommand(
+            actor=command.actor,
+            event_type="originator_subscription_activated",
+            direction=LedgerDirection.INTERNAL,
+            currency=currency.code,
+            gross_amount_minor=assigned_principal_minor,
+            net_amount_minor=assigned_principal_minor,
+            booking_date=value_date,
+            value_date=value_date,
+            effective_at=as_of,
+            received_at=as_of,
+            source_type=source_type,
+            source_id=source_id,
+            loan_id=str(command.loan_id),
+            idempotency_key=journal_idempotency_key,
+            postings=[
+                PostingCommand(
+                    account=escrow_account,
+                    side=LedgerPostingSide.DEBIT,
+                    amount_minor=assigned_principal_minor,
+                    memo="Originator subscription escrow released at activation",
+                ),
+                PostingCommand(
+                    account=originator_payable_account,
+                    side=LedgerPostingSide.CREDIT,
+                    amount_minor=assigned_principal_minor,
+                    memo="Par consideration payable to Loan Originator",
+                ),
+            ],
+            tax_metadata={
+                "client_money_flow_minor": 0,
+                "originator_subscription_assigned_principal_minor": assigned_principal_minor,
+            },
+            metadata={
+                ORIGINATOR_SUBSCRIPTION_ACTIVATION_FINGERPRINT_METADATA_KEY: (request_fingerprint),
+                "activation_id": str(command.activation_id),
+                "loan_id": str(command.loan_id),
+                "originator_id": originator_id,
+                "assigned_principal_minor": assigned_principal_minor,
+                "escrow_balance_before_activation_minor": escrow_balance,
+                "metadata": command.metadata or {},
+            },
+        )
+    )
+    event_metadata = {
+        "activation_id": str(command.activation_id),
+        "loan_id": str(command.loan_id),
+        "originator_id": originator_id,
+        "currency": currency.code,
+        "assigned_principal_minor": assigned_principal_minor,
+        "journal_entry_id": str(journal_entry.id),
+    }
+    record_audit_event(
+        AuditCommand(
+            actor=actor_ref_for_user(command.actor),
+            action="ledger.originator_subscription_activated",
+            target_type="LedgerJournalEntry",
+            target_id=str(journal_entry.id),
+            metadata=event_metadata,
+        )
+    )
+    record_domain_event(
+        DomainEventCommand(
+            event_type="OriginatorSubscriptionActivated",
+            aggregate_type="LedgerJournalEntry",
+            aggregate_id=str(journal_entry.id),
+            payload=event_metadata,
+            idempotency_key=f"ledger:{journal_entry.id}:originator-subscription-activated",
+        )
+    )
+    return OriginatorSubscriptionActivationLedgerResult(journal_entry=journal_entry)
 
 
 @transaction.atomic
@@ -5995,9 +6161,7 @@ def finalize_originator_settlement_ledger(
         command.payee_account_identifier,
         "Payee account identifier",
     )
-    purchase_ids = sorted(
-        {str(item).strip() for item in command.purchase_ids if str(item).strip()}
-    )
+    purchase_ids = sorted({str(item).strip() for item in command.purchase_ids if str(item).strip()})
     repayment_ids = sorted(
         {str(item).strip() for item in command.repayment_ids if str(item).strip()}
     )
@@ -6037,12 +6201,8 @@ def finalize_originator_settlement_ledger(
         .filter(id__in=[purchase_payable_account.id, servicing_payable_account.id])
         .order_by("id")
     }
-    purchase_payable_account = locked_accounts[
-        LedgerAccountType.ORIGINATOR_SETTLEMENT_PAYABLE
-    ]
-    servicing_payable_account = locked_accounts[
-        LedgerAccountType.ORIGINATOR_SERVICING_PAYABLE
-    ]
+    purchase_payable_account = locked_accounts[LedgerAccountType.ORIGINATOR_SETTLEMENT_PAYABLE]
+    servicing_payable_account = locked_accounts[LedgerAccountType.ORIGINATOR_SERVICING_PAYABLE]
     purchase_payable_balance = _credit_balance_for_account(purchase_payable_account)
     servicing_payable_balance = _credit_balance_for_account(servicing_payable_account)
     if purchase_payable_balance < purchase_amount_minor:

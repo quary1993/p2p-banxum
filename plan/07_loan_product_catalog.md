@@ -345,7 +345,9 @@ Confirm final legal wording for project recovery fee and default/penalty interes
 
 ### PROD-DEC-010: Separate Direct and Originator-Claim Product Types
 
-BANXUM supports two new-loan product types: `direct`, which retains the existing funding-close and borrower-disbursement lifecycle, and `originator_claim`, where a Loan Originator sells an existing final-borrower claim and each investor purchase immediately creates a dated assignment and holding. Originator claims have no campaign close or borrower-disbursement step. Product type is immutable after publication and every service branches explicitly by type.
+BANXUM supports two new-loan product types: `direct`, which retains the existing funding-close and borrower-disbursement lifecycle, and `originator_claim`, where a Loan Originator offers participation in an existing final-borrower claim through a finite subscription round. New originator claims use the `par_component_v2` distribution model. Investor orders reserve cash during funding; they do not create holdings or start investor economic entitlement. Product type and distribution model are immutable after publication, and every service branches explicitly by both values.
+
+Historical `legacy_yield_v1` records retain their original quote-and-immediate-purchase behavior so immutable evidence remains reproducible. The legacy model is read/service compatible but cannot be selected for newly created originator opportunities.
 
 Existing `is_refinancing` records remain legacy direct loans. New refinancing creation is disabled. Existing records are never reinterpreted automatically; conversion requires a future explicit audited workflow.
 
@@ -361,14 +363,18 @@ Admin imports the full schedule and all pre-publication payments as versioned ev
 
 ### PROD-DEC-013: Originator Claim Economics
 
-The contractual borrower coupon remains `interest_rate_bps`; investor `target_yield_bps` is a separate effective annual ACT/365 yield fixed while an opportunity is open. Pricing discounts exact dated post-assignment cash flows:
+For `par_component_v2`, one unit of investor cash buys one unit of outstanding principal when the subscription activates. The administrator declares separate investor participation rates for contractual interest and penalty components. For each eligible post-boundary payment component, the investor pool receives:
 
-`purchase_price = sum(cash_flow / (1 + target_yield) ** (days_from_purchase / 365))`
+`component * investor_owned_principal / payment_opening_principal * component_participation_bps / 10000`
 
-Calculations use `Decimal`, integer minor units, and half-up rounding. The investor owns only principal and interest/penalties accruing from purchase onward; earlier accrual belongs to the originator. First-payment distribution therefore uses dated entitlements, not principal-only weights.
+Principal is allocated by current principal ownership. Interest and penalty participation are therefore independent contractual rights and must not be inferred from the underlying borrower coupon. Calculations use integer minor units, `Decimal`, half-up rounding, and largest-remainder allocation so each payable component conserves exactly. There is no primary-market Loan Originator purchase fee in this model.
 
-Investor enters cash consideration; the platform assigns the largest exact supportable principal share. The loan minimum applies to cash. Confirmation shows cash, face principal, share, premium/discount, yield, cash flows, and rounding. BANXUM fee is `max(price - assigned_principal, 0) * fee_bps / 10000`, half-up and capped at price. Discounts produce no fee. The investor does not see the negotiated fee split.
+The installment designated as the activation boundary remains entirely the Loan Originator's economic entitlement. Investors accrue nothing during funding and receive rights only for schedule rows strictly after the boundary date. The common investor-facing **Yield** value for `par_component_v2` is a nominal participating coupon indicator derived from the underlying coupon and declared interest participation; it is not a promised effective IRR. The opportunity detail must also disclose the underlying coupon and the separate interest/penalty participation rates.
 
 ### PROD-DEC-014: Availability
 
-Originator opportunities have no admin funding end date. They remain open only while more than 30 calendar days remain to maturity, unsold principal and priced consideration remain positive, the loan is performing and not held/repaid/cancelled/recovered/written off, the originator is active, and schedule evidence is valid. Payments, prepayments, import corrections, status changes, and maturity progression reprice the unsold part and invalidate quotes. Existing holdings continue after the opportunity closes.
+Every `par_component_v2` opportunity has an admin-defined funding deadline no more than 29 days after publication, representing 30 calendar subscription dates inclusive. The round has no platform-wide minimum-subscription percentage: a positive subscribed amount closes at deadline, while an empty round is cancelled. Reaching the sellable capacity closes the round automatically. The per-investor/order minimum remains loan-specific.
+
+Closing a round preserves all allocated reservations, closes unallocated intents, hides the opportunity, and moves it to `awaiting_activation`; it does not create holdings or settle money to the Loan Originator. Activation requires immutable evidence that the declared boundary installment was received exactly as expected and left the declared post-payment outstanding principal. Activation creates par holdings and post-boundary entitlements, and transfers the reserved funding escrow to the Loan Originator payable. A missing, late, partial, changed, or otherwise mismatched boundary payment causes the administrator to cancel and refund the round. Refund restores each source balance lot and its original ageing deadlines.
+
+If close processing fails for an operational reason, allocated funds remain reserved, the opportunity becomes non-public, and an urgent admin task plus an email to the configured operations address are created. Admins can retry close or cancel/refund. Routine Loan Originator KYB expiry does not block close or activation; an explicit adverse status or compliance hold does. Any repayment, prepayment, schedule change, or explicit hold during funding prevents activation and requires cancellation/refund.

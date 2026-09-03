@@ -11,6 +11,7 @@ from typing import Any, cast
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import DatabaseError, connection, transaction
 from django.db.models import Model
 from django.utils import timezone
 
@@ -27,17 +28,25 @@ from backend.apps.originator_claims.models import (
     LoanOriginatorStatus,
     OriginatorClaimEntitlement,
     OriginatorClaimPurchase,
+    OriginatorDistributionModel,
+    OriginatorFundingRoundClose,
     OriginatorLoanImport,
     OriginatorLoanProfile,
     OriginatorOpportunityStatus,
     OriginatorSettlementPurchase,
     OriginatorSettlementRepayment,
+    OriginatorSubscriptionActivation,
+    OriginatorSubscriptionCancellation,
 )
 from backend.apps.originator_claims.services import (
+    ActivateOriginatorSubscriptionCommand,
+    CancelOriginatorSubscriptionCommand,
+    CloseOriginatorSubscriptionRoundCommand,
     CreateLoanOriginatorCommand,
     CreateOriginatorClaimQuoteCommand,
     CreateOriginatorLoanCommand,
     FinalizeOriginatorSettlementCommand,
+    HoldOriginatorLoanCommand,
     OriginatorClaimsValidationError,
     PublishOriginatorLoanCommand,
     PurchaseOriginatorClaimCommand,
@@ -45,12 +54,17 @@ from backend.apps.originator_claims.services import (
     _originator_payment_waterfall,
     _originator_repayment_plan,
     _skin_bps,
+    _validate_par_subscription_terms,
+    activate_originator_subscription,
+    cancel_originator_subscription,
+    close_originator_subscription_round,
     create_loan_originator,
     create_originator_claim_quote,
     create_originator_loan,
     finalize_originator_settlement,
     get_originator_admin_loan_payload,
     list_outstanding_originator_settlements,
+    place_originator_loan_on_hold,
     publish_originator_loan,
     purchase_originator_claim,
     record_originator_borrower_repayment,
@@ -60,6 +74,7 @@ from backend.apps.originator_claims.services import (
 )
 from backend.apps.platform_core.domain.time import business_date
 from backend.apps.platform_core.models import Currency, OutboxMessage
+from backend.apps.platform_core.models.base import AppendOnlyViolation
 from backend.apps.platform_core.tests.factories import issue_sensitive_action_test_code
 
 EXAMPLES_DIR = Path(__file__).resolve().parents[4] / "imports_examples"
@@ -168,6 +183,94 @@ def _primary_acceptance(investor: Model, *, quote_id: str) -> Model:
                 },
                 idempotency_key=f"originator-accept-{quote_id}",
             )
+        ),
+    )
+
+
+def _primary_order_acceptance(investor: Model, *, order_id: str, suffix: str) -> Model:
+    documents = import_module("backend.apps.documents.models")
+    template = documents.DocumentTemplate.objects.create(
+        category="primary_market_investment",
+        template_key=f"originator-subscription-{suffix}"[:128],
+        language="en",
+        name="Originator subscription terms",
+        created_by_superadmin_id=investor.pk,
+    )
+    version = documents.DocumentTemplateVersion.objects.create(
+        template=template,
+        version_number=1,
+        status="published",
+        title="Originator subscription terms",
+        body="Originator subscription terms",
+        checkbox_labels=["I accept the originator subscription terms."],
+        variable_schema={},
+        content_hash="e" * 64,
+        created_by_superadmin_id=investor.pk,
+        published_at=timezone.now(),
+    )
+    template.current_published_version = version
+    template.save(update_fields=["current_published_version"])
+    return cast(
+        Model,
+        documents.DocumentAcceptanceEvidence.objects.create(
+            user_id=investor.pk,
+            category="primary_market_investment",
+            template=template,
+            template_version=version,
+            template_version_number=1,
+            template_hash=version.content_hash,
+            context_type="primary_order",
+            context_id=order_id,
+            accepted_checkbox_labels=["I accept the originator subscription terms."],
+            data_snapshot={},
+            idempotency_key=f"originator-subscription-accept-{suffix}",
+        ),
+    )
+
+
+def _primary_batch_acceptance(
+    investor: Model,
+    *,
+    batch_key: str,
+    items: list[dict[str, Any]],
+    suffix: str,
+) -> Model:
+    documents = import_module("backend.apps.documents.models")
+    template = documents.DocumentTemplate.objects.create(
+        category="primary_market_investment",
+        template_key=f"originator-subscription-batch-{suffix}"[:128].lower(),
+        language="en",
+        name="Originator subscription batch terms",
+        created_by_superadmin_id=investor.pk,
+    )
+    version = documents.DocumentTemplateVersion.objects.create(
+        template=template,
+        version_number=1,
+        status="published",
+        title="Originator subscription batch terms",
+        body="Originator subscription batch terms",
+        checkbox_labels=["I accept the originator subscription batch terms."],
+        variable_schema={},
+        content_hash="f" * 64,
+        created_by_superadmin_id=investor.pk,
+        published_at=timezone.now(),
+    )
+    template.current_published_version = version
+    template.save(update_fields=["current_published_version"])
+    return cast(
+        Model,
+        documents.DocumentAcceptanceEvidence.objects.create(
+            user_id=investor.pk,
+            category="primary_market_investment",
+            template=template,
+            template_version=version,
+            template_version_number=1,
+            template_hash=version.content_hash,
+            context_type="primary_order_batch",
+            context_id=batch_key,
+            accepted_checkbox_labels=["I accept the originator subscription batch terms."],
+            data_snapshot={"items": items},
+            idempotency_key=f"originator-subscription-batch-accept-{suffix}",
         ),
     )
 
@@ -288,6 +391,233 @@ def _dated_two_period_csv(
     return "\n".join(rows) + "\n"
 
 
+def _par_subscription_csv(
+    *,
+    today: date,
+    include_boundary_payment: bool,
+    include_second_payment: bool = False,
+) -> str:
+    boundary_due = today + timedelta(days=10)
+    second_due = boundary_due + timedelta(days=30)
+    final_due = second_due + timedelta(days=30)
+    rows = [
+        (
+            "row_type,reference,installment_number,accrual_start_date,due_date,value_date,"
+            "payment_type,opening_principal_minor,principal_minor,interest_minor,penalty_minor,"
+            "fee_minor,total_minor,closing_principal_minor,resulting_principal_minor"
+        ),
+        (
+            f"schedule,,1,{(today - timedelta(days=20)).isoformat()},"
+            f"{boundary_due.isoformat()},,,1000000,200000,10000,2000,0,212000,800000,"
+        ),
+    ]
+    if include_boundary_payment:
+        rows.append(
+            f"payment,BOUNDARY-1,,,,{boundary_due.isoformat()},regular,,200000,10000,"
+            "2000,0,212000,,800000"
+        )
+    rows.extend(
+        [
+            (
+                f"schedule,,2,{boundary_due.isoformat()},{second_due.isoformat()},,,800000,"
+                "400000,100000,40000,0,540000,400000,"
+            ),
+            (
+                f"schedule,,3,{second_due.isoformat()},{final_due.isoformat()},,,400000,"
+                "400000,50000,20000,0,470000,0,"
+            ),
+        ]
+    )
+    if include_second_payment:
+        rows.append(
+            f"payment,SUBSCRIPTION-PAY-2,,,,{second_due.isoformat()},regular,,400000,"
+            "100000,40000,0,540000,,400000"
+        )
+    return "\n".join(rows) + "\n"
+
+
+def test_par_subscription_boundary_is_first_installment_after_funding() -> None:
+    today = date(2026, 9, 3)
+    command = SimpleNamespace(
+        as_of_date=today,
+        funding_deadline=today + timedelta(days=5),
+        entitlement_start_date=today + timedelta(days=10),
+        activation_outstanding_principal_minor=800_000,
+        investor_interest_participation_bps=7_000,
+        investor_penalty_participation_bps=5_000,
+    )
+    parsed = SimpleNamespace(
+        schedule_rows=[
+            SimpleNamespace(
+                installment_number=1,
+                due_date=today + timedelta(days=7),
+                closing_principal_minor=900_000,
+                principal_minor=100_000,
+            ),
+            SimpleNamespace(
+                installment_number=2,
+                due_date=today + timedelta(days=10),
+                closing_principal_minor=800_000,
+                principal_minor=100_000,
+            ),
+        ],
+        maturity_date=today + timedelta(days=90),
+    )
+
+    with pytest.raises(
+        OriginatorClaimsValidationError,
+        match="first installment due after the funding deadline",
+    ):
+        _validate_par_subscription_terms(
+            cast(CreateOriginatorLoanCommand, command),
+            parsed=cast(Any, parsed),
+        )
+
+
+def _create_par_subscription_loan(
+    *,
+    admin_user: Model,
+    today: date,
+    suffix: str,
+    skin_in_the_game_bps: int = 0,
+) -> Any:
+    originator = create_loan_originator(
+        CreateLoanOriginatorCommand(
+            actor=admin_user,
+            legal_name=f"Subscription Originator {suffix} AG",
+            public_name=f"Subscription Originator {suffix}",
+            registration_number=f"CHE-SUBSCRIPTION-{suffix}",
+            jurisdiction="CH",
+            registered_address="Zurich, Switzerland",
+            settlement_account_name=f"Subscription Originator {suffix} AG",
+            settlement_iban="CH9300762011623852957",
+            kyb_evidence_reference=f"KYB-SUBSCRIPTION-{suffix}",
+            status=LoanOriginatorStatus.ACTIVE,
+        )
+    )
+    result = create_originator_loan(
+        CreateOriginatorLoanCommand(
+            actor=admin_user,
+            originator_id=str(originator.id),
+            title=f"Par subscription {suffix}",
+            investor_summary="Par subscription with component participation.",
+            purpose="working_capital",
+            purpose_description="Working capital",
+            currency="CHF",
+            original_principal_minor=1_000_000,
+            interest_rate_bps=1_200,
+            distribution_model=OriginatorDistributionModel.PAR_COMPONENT_V2,
+            minimum_investment_minor=100_000,
+            repayment_type="equal_installments",
+            interest_only_months=0,
+            collateral_type="receivables",
+            collateral_value_minor=1_500_000,
+            collateral_description="Assigned receivables",
+            risk_rating="BBB",
+            csv_content=_par_subscription_csv(today=today, include_boundary_payment=False),
+            source_filename=f"subscription-{suffix}.csv",
+            as_of_date=today,
+            borrower_snapshot={
+                "borrower_legal_name": f"Subscription Borrower {suffix} AG",
+                "borrower_display_name": f"Subscription borrower {suffix}",
+            },
+            skin_in_the_game_bps=skin_in_the_game_bps,
+            funding_deadline=today + timedelta(days=5),
+            entitlement_start_date=today + timedelta(days=10),
+            activation_outstanding_principal_minor=800_000,
+            investor_interest_participation_bps=7_000,
+            investor_penalty_participation_bps=5_000,
+        )
+    )
+    publish_originator_loan(
+        PublishOriginatorLoanCommand(
+            actor=admin_user,
+            loan_id=str(result.loan.id),
+            as_of_date=today,
+        )
+    )
+    return result
+
+
+def _allocate_par_subscription(
+    *,
+    admin_user: Model,
+    investor: Model,
+    loan: Model,
+    today: date,
+    amount_minor: int,
+    suffix: str,
+) -> Any:
+    _approve_financial_access(investor)
+    _declare_originator_test_deposit(
+        admin_user=admin_user,
+        investor=investor,
+        amount_minor=amount_minor,
+        today=today,
+        suffix=suffix,
+    )
+    marketplace = import_module("backend.apps.marketplace_primary.services")
+    order = marketplace.create_primary_investment_order(
+        marketplace.CreatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            loan_id=str(loan.pk),
+            amount_minor=amount_minor,
+            idempotency_key=f"subscription-{suffix}-order",
+        )
+    )
+    acceptance = _primary_order_acceptance(
+        investor,
+        order_id=str(order.id),
+        suffix=suffix,
+    )
+    code = issue_sensitive_action_test_code(investor, "primary_investment")
+    return marketplace.allocate_primary_order_from_balance(
+        marketplace.AllocatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            order_id=str(order.id),
+            document_acceptance_id=str(acceptance.pk),
+            idempotency_key=f"subscription-{suffix}-allocate",
+            sensitive_action_code_id=code.code_id,
+            sensitive_action_code=code.raw_code,
+        )
+    )
+
+
+def _activate_par_subscription_for_test(
+    *,
+    admin_user: Model,
+    result: Any,
+    today: date,
+    suffix: str,
+) -> OriginatorSubscriptionActivation:
+    close_originator_subscription_round(
+        CloseOriginatorSubscriptionRoundCommand(
+            actor=admin_user,
+            loan_id=str(result.loan.id),
+            as_of_date=today + timedelta(days=6),
+            close_reason="Funding deadline reached.",
+            idempotency_key=f"subscription-{suffix}-close",
+        )
+    )
+    boundary_date = today + timedelta(days=10)
+    return activate_originator_subscription(
+        ActivateOriginatorSubscriptionCommand(
+            actor=admin_user,
+            loan_id=str(result.loan.id),
+            csv_content=_par_subscription_csv(
+                today=today,
+                include_boundary_payment=True,
+            ),
+            source_filename=f"subscription-{suffix}-activation.csv",
+            as_of_date=boundary_date,
+            boundary_payment_reference="BOUNDARY-1",
+            boundary_payment_date=boundary_date,
+            notes="Verified boundary installment received by the originator.",
+            idempotency_key=f"subscription-{suffix}-activate",
+        )
+    )
+
+
 def _create_dated_originator_loan(
     *,
     admin_user: Model,
@@ -322,6 +652,7 @@ def _create_dated_originator_loan(
             original_principal_minor=1_000_000,
             interest_rate_bps=1200,
             target_yield_bps=800,
+            distribution_model=OriginatorDistributionModel.LEGACY_YIELD_V1,
             minimum_investment_minor=100_000,
             repayment_type="equal_installments",
             interest_only_months=0,
@@ -477,6 +808,7 @@ def test_admin_creates_and_publishes_originator_loan(admin_user: Model) -> None:
             original_principal_minor=1_000_000,
             interest_rate_bps=1200,
             target_yield_bps=800,
+            distribution_model=OriginatorDistributionModel.LEGACY_YIELD_V1,
             minimum_investment_minor=100_000,
             repayment_type="equal_installments",
             interest_only_months=0,
@@ -536,6 +868,7 @@ def test_admin_creates_and_publishes_originator_loan(admin_user: Model) -> None:
             original_principal_minor=1_000_000,
             interest_rate_bps=1200,
             target_yield_bps=825,
+            distribution_model=OriginatorDistributionModel.LEGACY_YIELD_V1,
             minimum_investment_minor=100_000,
             repayment_type="equal_installments",
             interest_only_months=0,
@@ -580,6 +913,7 @@ def test_admin_creates_and_publishes_originator_loan(admin_user: Model) -> None:
                 original_principal_minor=1_000_000,
                 interest_rate_bps=1200,
                 target_yield_bps=800,
+                distribution_model=OriginatorDistributionModel.LEGACY_YIELD_V1,
                 minimum_investment_minor=100_000,
                 repayment_type="equal_installments",
                 interest_only_months=0,
@@ -630,6 +964,7 @@ def test_investor_purchase_is_immediate_balanced_and_creates_entitlements(
             original_principal_minor=1_000_000,
             interest_rate_bps=1200,
             target_yield_bps=800,
+            distribution_model=OriginatorDistributionModel.LEGACY_YIELD_V1,
             minimum_investment_minor=100_000,
             repayment_type="equal_installments",
             interest_only_months=0,
@@ -790,6 +1125,7 @@ def test_originator_repayment_preserves_dated_interest_and_batch_settles(
             original_principal_minor=1_000_000,
             interest_rate_bps=1200,
             target_yield_bps=800,
+            distribution_model=OriginatorDistributionModel.LEGACY_YIELD_V1,
             minimum_investment_minor=100_000,
             repayment_type="equal_installments",
             interest_only_months=0,
@@ -1367,9 +1703,7 @@ def test_skin_in_the_game_caps_sellable_claim_and_survives_repricing(
     )
     assert quote.assigned_principal_minor <= 800_000
 
-    admin_payload = get_originator_admin_loan_payload(
-        actor=admin_user, loan_id=str(result.loan.id)
-    )
+    admin_payload = get_originator_admin_loan_payload(actor=admin_user, loan_id=str(result.loan.id))
     assert admin_payload["skin_in_the_game_bps"] == 2_000
     assert admin_payload["retained_principal_minor"] == 200_000
     assert admin_payload["sellable_principal_minor"] == 800_000
@@ -1553,3 +1887,934 @@ def test_originator_waterfall_applies_costs_penalty_and_interest_before_principa
             payment=invalid_payment,
             outstanding_principal_minor=1_000,
         )
+
+
+@pytest.mark.django_db
+def test_par_subscription_reserves_then_activates_at_par_with_component_rights(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    today = business_date(timezone.now())
+    result = _create_par_subscription_loan(
+        admin_user=admin_user,
+        today=today,
+        suffix="ACTIVATE",
+    )
+    order = _allocate_par_subscription(
+        admin_user=admin_user,
+        investor=investor,
+        loan=result.loan,
+        today=today,
+        amount_minor=160_000,
+        suffix="ACTIVATE",
+    )
+    holding_model = import_module("backend.apps.holdings.models").InvestorLoanHolding
+    ledger_models = import_module("backend.apps.ledger.models")
+
+    result.loan.refresh_from_db()
+    result.profile.refresh_from_db()
+    assert result.loan.status == "published"
+    assert result.profile.opportunity_status == OriginatorOpportunityStatus.OPEN
+    assert order.status == "balance_allocated"
+    assert OriginatorClaimPurchase.objects.filter(loan_profile=result.profile).count() == 0
+    assert holding_model.objects.filter(loan=result.loan).count() == 0
+    assert not ledger_models.LedgerAccount.objects.filter(
+        account_type="originator_settlement_payable",
+        owner_id=str(result.profile.originator_id),
+    ).exists()
+
+    close = close_originator_subscription_round(
+        CloseOriginatorSubscriptionRoundCommand(
+            actor=admin_user,
+            loan_id=str(result.loan.id),
+            as_of_date=today + timedelta(days=6),
+            close_reason="Funding deadline reached.",
+            idempotency_key="subscription-activate-close",
+        )
+    )
+    result.loan.refresh_from_db()
+    result.profile.refresh_from_db()
+    assert close.subscribed_principal_minor == 160_000
+    assert result.loan.status == "funded"
+    assert result.profile.opportunity_status == OriginatorOpportunityStatus.AWAITING_ACTIVATION
+    assert (
+        import_module("backend.apps.admin_ops.models")
+        .AdminTask.objects.filter(
+            task_type="loan_setup",
+            related_object_type="OriginatorSubscriptionActivationPending",
+            related_object_id=str(result.loan.id),
+            status="open",
+        )
+        .exists()
+    )
+    assert OutboxMessage.objects.filter(
+        topic="email.originator_subscription_awaiting_activation"
+    ).exists()
+
+    boundary_date = today + timedelta(days=10)
+    activation = activate_originator_subscription(
+        ActivateOriginatorSubscriptionCommand(
+            actor=admin_user,
+            loan_id=str(result.loan.id),
+            csv_content=_par_subscription_csv(today=today, include_boundary_payment=True),
+            source_filename="subscription-activation.csv",
+            as_of_date=boundary_date,
+            boundary_payment_reference="BOUNDARY-1",
+            boundary_payment_date=boundary_date,
+            notes="Verified boundary installment received by the originator.",
+            idempotency_key="subscription-activate",
+        )
+    )
+    result.loan.refresh_from_db()
+    result.profile.refresh_from_db()
+    order.refresh_from_db()
+    purchase = OriginatorClaimPurchase.objects.get(loan_profile=result.profile)
+    holding = holding_model.objects.get(loan=result.loan, investor_user_id=investor.pk)
+    entitlements = list(
+        OriginatorClaimEntitlement.objects.filter(purchase=purchase).order_by("due_date")
+    )
+
+    assert isinstance(activation, OriginatorSubscriptionActivation)
+    assert activation.assigned_principal_minor == 160_000
+    assert activation.originator_retained_principal_minor == 640_000
+    assert result.loan.status == "active"
+    assert result.profile.opportunity_status == OriginatorOpportunityStatus.ACTIVE
+    assert result.profile.unsold_principal_minor == 640_000
+    assert order.status == "closed_invested"
+    assert purchase.cash_consideration_minor == purchase.assigned_principal_minor == 160_000
+    assert holding.current_principal_minor == 160_000
+    assert business_date(holding.economic_entitlement_start_at) == boundary_date
+    assert len(entitlements) == 2
+    assert (
+        entitlements[0].expected_principal_minor,
+        entitlements[0].expected_interest_minor,
+        entitlements[0].expected_penalty_minor,
+    ) == (80_000, 14_000, 4_000)
+    postings = list(
+        activation.activation_journal_entry.postings.select_related("account").order_by("side")
+    )
+    assert {
+        (posting.account.account_type, posting.side, posting.amount_minor) for posting in postings
+    } == {
+        ("loan_funding_escrow", "debit", 160_000),
+        ("originator_settlement_payable", "credit", 160_000),
+    }
+
+
+@pytest.mark.django_db
+def test_par_subscription_actual_repayment_uses_component_participation(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    today = business_date(timezone.now())
+    result = _create_par_subscription_loan(
+        admin_user=admin_user,
+        today=today,
+        suffix="REPAYMENT",
+    )
+    _allocate_par_subscription(
+        admin_user=admin_user,
+        investor=investor,
+        loan=result.loan,
+        today=today,
+        amount_minor=160_000,
+        suffix="REPAYMENT",
+    )
+    _activate_par_subscription_for_test(
+        admin_user=admin_user,
+        result=result,
+        today=today,
+        suffix="repayment",
+    )
+
+    second_due = today + timedelta(days=40)
+    repayment = record_originator_borrower_repayment(
+        RecordOriginatorBorrowerRepaymentCommand(
+            actor=admin_user,
+            loan_id=str(result.loan.id),
+            csv_content=_par_subscription_csv(
+                today=today,
+                include_boundary_payment=True,
+                include_second_payment=True,
+            ),
+            source_filename="subscription-repayment.csv",
+            as_of_date=second_due,
+            payment_reference="SUBSCRIPTION-PAY-2",
+            booking_date=second_due,
+            value_date=second_due,
+            collection_account_identifier="CH11 83019 GARANTAFI001",
+            payer_name="Subscription Borrower REPAYMENT AG",
+            bank_reference="SUBSCRIPTION-PAY-2-BANK",
+            bank_payment_reference="SUBSCRIPTION-PAY-2",
+            evidence_reference="BANK-STMT-SUBSCRIPTION-PAY-2",
+            notes="First investor-entitled installment.",
+            idempotency_key="subscription-repayment-record",
+        )
+    )
+
+    distribution = InvestorOriginatorRepaymentDistributionLine.objects.get(
+        repayment=repayment,
+        investor_user_id=investor.pk,
+    )
+    assert (
+        distribution.principal_minor,
+        distribution.interest_minor,
+        distribution.penalty_minor,
+        distribution.amount_minor,
+    ) == (80_000, 14_000, 4_000, 98_000)
+    assert repayment.originator_payable_minor == 442_000
+    assert repayment.investor_distributed_minor == 98_000
+    assert repayment.platform_costs_minor == 0
+    assert (
+        repayment.investor_distributed_minor
+        + repayment.originator_payable_minor
+        + repayment.platform_costs_minor
+        == repayment.amount_minor
+        == 540_000
+    )
+
+    distribution.holding.refresh_from_db()
+    result.profile.refresh_from_db()
+    result.loan.refresh_from_db()
+    assert distribution.holding.current_principal_minor == 80_000
+    assert result.profile.current_outstanding_principal_minor == 400_000
+    assert result.profile.unsold_principal_minor == 320_000
+    assert result.loan.committed_principal_minor == 80_000
+
+    postings = list(repayment.journal_entry.postings.select_related("account"))
+    debit_total = sum(posting.amount_minor for posting in postings if posting.side == "debit")
+    credit_total = sum(posting.amount_minor for posting in postings if posting.side == "credit")
+    assert debit_total == credit_total == 540_000
+    assert {
+        (posting.account.account_type, posting.side, posting.amount_minor) for posting in postings
+    } == {
+        ("collection_cash", "debit", 540_000),
+        ("investor_balance_liability", "credit", 98_000),
+        ("originator_servicing_payable", "credit", 442_000),
+    }
+
+
+@pytest.mark.django_db
+def test_full_par_subscription_closes_automatically_without_creating_a_holding(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    today = business_date(timezone.now())
+    result = _create_par_subscription_loan(
+        admin_user=admin_user,
+        today=today,
+        suffix="FULL",
+    )
+    _allocate_par_subscription(
+        admin_user=admin_user,
+        investor=investor,
+        loan=result.loan,
+        today=today,
+        amount_minor=800_000,
+        suffix="FULL",
+    )
+    result.loan.refresh_from_db()
+    result.profile.refresh_from_db()
+    assert result.loan.status == "funded"
+    assert result.profile.opportunity_status == OriginatorOpportunityStatus.AWAITING_ACTIVATION
+    assert OriginatorFundingRoundClose.objects.filter(loan_profile=result.profile).exists()
+    assert not OriginatorClaimPurchase.objects.filter(loan_profile=result.profile).exists()
+    assert (
+        not import_module("backend.apps.holdings.models")
+        .InvestorLoanHolding.objects.filter(loan=result.loan)
+        .exists()
+    )
+
+
+@pytest.mark.django_db
+def test_full_par_subscription_idempotent_replay_recovers_missed_auto_close(
+    admin_user: Model,
+    investor: Model,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    today = business_date(timezone.now())
+    result = _create_par_subscription_loan(
+        admin_user=admin_user,
+        today=today,
+        suffix="REPLAY-CLOSE",
+    )
+    marketplace = import_module("backend.apps.marketplace_primary.services")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            marketplace,
+            "_resolve_fully_subscribed_originator_round",
+            lambda **_kwargs: None,
+        )
+        order = _allocate_par_subscription(
+            admin_user=admin_user,
+            investor=investor,
+            loan=result.loan,
+            today=today,
+            amount_minor=800_000,
+            suffix="REPLAY-CLOSE",
+        )
+
+    result.loan.refresh_from_db()
+    result.profile.refresh_from_db()
+    order.refresh_from_db()
+    assert result.loan.status == "published"
+    assert result.profile.opportunity_status == OriginatorOpportunityStatus.OPEN
+    assert order.status == "balance_allocated"
+    assert not OriginatorFundingRoundClose.objects.filter(loan_profile=result.profile).exists()
+
+    replayed = marketplace.allocate_primary_order_from_balance(
+        marketplace.AllocatePrimaryInvestmentOrderCommand(
+            actor=investor,
+            order_id=str(order.id),
+            document_acceptance_id=str(order.document_acceptance_id),
+            idempotency_key="subscription-REPLAY-CLOSE-allocate",
+            sensitive_action_code_id="already-consumed-on-first-request",
+            sensitive_action_code="already-consumed-on-first-request",
+        )
+    )
+
+    result.loan.refresh_from_db()
+    result.profile.refresh_from_db()
+    assert replayed.id == order.id
+    assert result.loan.status == "funded"
+    assert result.profile.opportunity_status == OriginatorOpportunityStatus.AWAITING_ACTIVATION
+    assert OriginatorFundingRoundClose.objects.filter(loan_profile=result.profile).count() == 1
+
+
+@pytest.mark.django_db
+def test_batch_places_multiple_par_subscriptions_as_reserved_orders(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    today = business_date(timezone.now())
+    first = _create_par_subscription_loan(
+        admin_user=admin_user,
+        today=today,
+        suffix="BATCH-A",
+    )
+    second = _create_par_subscription_loan(
+        admin_user=admin_user,
+        today=today,
+        suffix="BATCH-B",
+    )
+    _approve_financial_access(investor)
+    _declare_originator_test_deposit(
+        admin_user=admin_user,
+        investor=investor,
+        amount_minor=500_000,
+        today=today,
+        suffix="BATCH",
+    )
+    marketplace = import_module("backend.apps.marketplace_primary.services")
+    items = [
+        marketplace.PrimaryOrderBatchItemCommand(
+            loan_id=str(first.loan.id),
+            amount_minor=200_000,
+        ),
+        marketplace.PrimaryOrderBatchItemCommand(
+            loan_id=str(second.loan.id),
+            amount_minor=300_000,
+        ),
+    ]
+    batch_key = "originator-v2-batch"
+    acceptance = _primary_batch_acceptance(
+        investor,
+        batch_key=batch_key,
+        items=[
+            {
+                "loan_id": item.loan_id,
+                "amount_minor": item.amount_minor,
+                "currency": "CHF",
+            }
+            for item in items
+        ],
+        suffix="BATCH",
+    )
+    code = issue_sensitive_action_test_code(investor, "primary_investment")
+
+    placed = marketplace.place_primary_order_batch(
+        marketplace.PlacePrimaryOrderBatchCommand(
+            actor=investor,
+            items=items,
+            document_acceptance_id=str(acceptance.pk),
+            sensitive_action_code_id=code.code_id,
+            sensitive_action_code=code.raw_code,
+            idempotency_key=batch_key,
+        )
+    )
+
+    first.loan.refresh_from_db()
+    second.loan.refresh_from_db()
+    balance_lot = import_module("backend.apps.ledger.models").InvestorBalanceLot.objects.get(
+        investor_user_id=investor.pk
+    )
+    assert len(placed.orders) == 2
+    assert placed.originator_purchases == []
+    assert all(order.status == "balance_allocated" for order in placed.orders)
+    assert int(first.loan.committed_principal_minor) == 200_000
+    assert int(second.loan.committed_principal_minor) == 300_000
+    assert first.loan.status == "published"
+    assert second.loan.status == "published"
+    assert balance_lot.available_amount_minor == 0
+    assert balance_lot.invested_amount_minor == 500_000
+    assert not OriginatorFundingRoundClose.objects.exists()
+
+
+@pytest.mark.django_db
+def test_subscription_deadline_scan_closes_positive_round_without_releasing_reservations(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    today = business_date(timezone.now())
+    result = _create_par_subscription_loan(
+        admin_user=admin_user,
+        today=today,
+        suffix="DEADLINE-PARTIAL",
+    )
+    order = _allocate_par_subscription(
+        admin_user=admin_user,
+        investor=investor,
+        loan=result.loan,
+        today=today,
+        amount_minor=200_000,
+        suffix="DEADLINE-PARTIAL",
+    )
+
+    resolutions = scan_originator_opportunity_lifecycle(
+        actor=admin_user,
+        as_of_date=today + timedelta(days=6),
+    )
+
+    result.loan.refresh_from_db()
+    result.profile.refresh_from_db()
+    order.refresh_from_db()
+    balance_lot = import_module("backend.apps.ledger.models").InvestorBalanceLot.objects.get(
+        investor_user_id=investor.pk
+    )
+    close = OriginatorFundingRoundClose.objects.get(loan_profile=result.profile)
+    assert resolutions == [
+        {"loan_id": str(result.loan.id), "reason": "funding_deadline_reached"}
+    ]
+    assert close.subscribed_principal_minor == 200_000
+    assert result.loan.status == "funded"
+    assert result.profile.opportunity_status == OriginatorOpportunityStatus.AWAITING_ACTIVATION
+    assert order.status == "balance_allocated"
+    assert balance_lot.available_amount_minor == 0
+    assert balance_lot.invested_amount_minor == 200_000
+    assert not import_module("backend.apps.holdings.models").InvestorLoanHolding.objects.exists()
+
+
+@pytest.mark.django_db
+def test_subscription_deadline_scan_cancels_empty_round(
+    admin_user: Model,
+) -> None:
+    today = business_date(timezone.now())
+    result = _create_par_subscription_loan(
+        admin_user=admin_user,
+        today=today,
+        suffix="DEADLINE-EMPTY",
+    )
+
+    resolutions = scan_originator_opportunity_lifecycle(
+        actor=admin_user,
+        as_of_date=today + timedelta(days=6),
+    )
+
+    result.loan.refresh_from_db()
+    result.profile.refresh_from_db()
+    assert resolutions == [{"loan_id": str(result.loan.id), "reason": "no_subscriptions"}]
+    assert result.loan.status == "cancelled"
+    assert result.profile.opportunity_status == OriginatorOpportunityStatus.CANCELLED
+    assert OriginatorSubscriptionCancellation.objects.filter(loan_profile=result.profile).exists()
+    assert not OriginatorFundingRoundClose.objects.filter(loan_profile=result.profile).exists()
+
+
+@pytest.mark.django_db
+def test_full_par_subscription_close_failure_preserves_reservation_and_can_retry(
+    admin_user: Model,
+    investor: Model,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    today = business_date(timezone.now())
+    result = _create_par_subscription_loan(
+        admin_user=admin_user,
+        today=today,
+        suffix="CLOSE-FAILURE",
+    )
+    originator_services = import_module("backend.apps.originator_claims.services")
+
+    def fail_close(_command: object) -> object:
+        raise RuntimeError("simulated originator activation-close failure")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(originator_services, "close_originator_subscription_round", fail_close)
+        order = _allocate_par_subscription(
+            admin_user=admin_user,
+            investor=investor,
+            loan=result.loan,
+            today=today,
+            amount_minor=800_000,
+            suffix="CLOSE-FAILURE",
+        )
+
+    result.loan.refresh_from_db()
+    result.profile.refresh_from_db()
+    order.refresh_from_db()
+    lot_model = import_module("backend.apps.ledger.models").InvestorBalanceLot
+    lot = lot_model.objects.get(investor_user_id=investor.pk)
+    task_model = import_module("backend.apps.admin_ops.models").AdminTask
+    failure_task = task_model.objects.get(
+        task_type="loan_setup",
+        related_object_type="LoanFundingCloseFailure",
+        related_object_id=str(result.loan.id),
+    )
+    alert = OutboxMessage.objects.get(topic="email.originator_funding_close_failed")
+
+    assert result.loan.status == "funding_close_failed"
+    assert result.loan.committed_principal_minor == 800_000
+    assert result.profile.opportunity_status == OriginatorOpportunityStatus.OPEN
+    assert result.profile.is_on_hold is True
+    assert order.status == "balance_allocated"
+    assert lot.available_amount_minor == 0
+    assert lot.invested_amount_minor == 800_000
+    assert not OriginatorFundingRoundClose.objects.filter(loan_profile=result.profile).exists()
+    assert failure_task.status == "open"
+    assert alert.payload["email"] == "hq@banxum.com"
+
+    close = close_originator_subscription_round(
+        CloseOriginatorSubscriptionRoundCommand(
+            actor=admin_user,
+            loan_id=str(result.loan.id),
+            as_of_date=today,
+            close_reason="Resolved the automatic-close failure.",
+            idempotency_key="subscription-close-failure-admin-retry",
+        )
+    )
+    result.loan.refresh_from_db()
+    result.profile.refresh_from_db()
+    order.refresh_from_db()
+    failure_task.refresh_from_db()
+    lot.refresh_from_db()
+
+    assert close.subscribed_principal_minor == 800_000
+    assert result.loan.status == "funded"
+    assert result.profile.opportunity_status == OriginatorOpportunityStatus.AWAITING_ACTIVATION
+    assert result.profile.is_on_hold is False
+    assert order.status == "balance_allocated"
+    assert lot.available_amount_minor == 0
+    assert lot.invested_amount_minor == 800_000
+    assert failure_task.status == "resolved"
+
+
+@pytest.mark.django_db
+def test_failed_par_subscription_can_cancel_refund_and_resolve_failure_task(
+    admin_user: Model,
+    investor: Model,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    today = business_date(timezone.now())
+    result = _create_par_subscription_loan(
+        admin_user=admin_user,
+        today=today,
+        suffix="CLOSE-FAILURE-CANCEL",
+    )
+    originator_services = import_module("backend.apps.originator_claims.services")
+
+    def fail_close(_command: object) -> object:
+        raise RuntimeError("simulated originator close failure before cancellation")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(originator_services, "close_originator_subscription_round", fail_close)
+        order = _allocate_par_subscription(
+            admin_user=admin_user,
+            investor=investor,
+            loan=result.loan,
+            today=today,
+            amount_minor=800_000,
+            suffix="CLOSE-FAILURE-CANCEL",
+        )
+
+    task_model = import_module("backend.apps.admin_ops.models").AdminTask
+    failure_task = task_model.objects.get(
+        task_type="loan_setup",
+        related_object_type="LoanFundingCloseFailure",
+        related_object_id=str(result.loan.id),
+    )
+    cancellation = cancel_originator_subscription(
+        CancelOriginatorSubscriptionCommand(
+            actor=admin_user,
+            loan_id=str(result.loan.id),
+            reason="Automatic close could not be completed safely.",
+            investor_message="Your reserved subscription balance was returned.",
+            idempotency_key="subscription-close-failure-cancel",
+        )
+    )
+
+    result.loan.refresh_from_db()
+    result.profile.refresh_from_db()
+    order.refresh_from_db()
+    failure_task.refresh_from_db()
+    lot = import_module("backend.apps.ledger.models").InvestorBalanceLot.objects.get(
+        investor_user_id=investor.pk
+    )
+
+    assert cancellation.released_principal_minor == 800_000
+    assert result.loan.status == "cancelled"
+    assert result.profile.opportunity_status == OriginatorOpportunityStatus.CANCELLED
+    assert result.profile.is_on_hold is False
+    assert order.status == "balance_released"
+    assert lot.available_amount_minor == 800_000
+    assert lot.invested_amount_minor == 0
+    assert failure_task.status == "resolved"
+
+
+@pytest.mark.django_db
+def test_par_subscription_cancellation_releases_reserved_balance(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    today = business_date(timezone.now())
+    result = _create_par_subscription_loan(
+        admin_user=admin_user,
+        today=today,
+        suffix="CANCEL",
+    )
+    order = _allocate_par_subscription(
+        admin_user=admin_user,
+        investor=investor,
+        loan=result.loan,
+        today=today,
+        amount_minor=160_000,
+        suffix="CANCEL",
+    )
+    close_originator_subscription_round(
+        CloseOriginatorSubscriptionRoundCommand(
+            actor=admin_user,
+            loan_id=str(result.loan.id),
+            as_of_date=today + timedelta(days=6),
+            close_reason="Funding deadline reached.",
+            idempotency_key="subscription-cancel-close",
+        )
+    )
+    cancellation = cancel_originator_subscription(
+        CancelOriginatorSubscriptionCommand(
+            actor=admin_user,
+            loan_id=str(result.loan.id),
+            reason="Boundary installment was not received.",
+            investor_message="The subscription was cancelled and your reserved balance returned.",
+            idempotency_key="subscription-cancel",
+        )
+    )
+    result.loan.refresh_from_db()
+    result.profile.refresh_from_db()
+    order.refresh_from_db()
+    lot = import_module("backend.apps.ledger.models").InvestorBalanceLot.objects.get(
+        investor_user_id=investor.pk
+    )
+    assert isinstance(cancellation, OriginatorSubscriptionCancellation)
+    assert cancellation.released_principal_minor == 160_000
+    assert result.loan.status == "cancelled"
+    assert result.profile.opportunity_status == OriginatorOpportunityStatus.CANCELLED
+    assert order.status == "balance_released"
+    assert lot.available_amount_minor == 160_000
+    assert lot.invested_amount_minor == 0
+
+
+@pytest.mark.django_db
+def test_par_subscription_rejects_a_delayed_boundary_payment(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    today = business_date(timezone.now())
+    result = _create_par_subscription_loan(
+        admin_user=admin_user,
+        today=today,
+        suffix="LATEBOUNDARY",
+    )
+    _allocate_par_subscription(
+        admin_user=admin_user,
+        investor=investor,
+        loan=result.loan,
+        today=today,
+        amount_minor=160_000,
+        suffix="LATEBOUNDARY",
+    )
+    close_originator_subscription_round(
+        CloseOriginatorSubscriptionRoundCommand(
+            actor=admin_user,
+            loan_id=str(result.loan.id),
+            as_of_date=today + timedelta(days=6),
+            close_reason="Funding deadline reached.",
+            idempotency_key="subscription-late-boundary-close",
+        )
+    )
+    delayed_date = today + timedelta(days=11)
+
+    with pytest.raises(
+        OriginatorClaimsValidationError,
+        match="delayed or changed payment requires subscription cancellation",
+    ):
+        activate_originator_subscription(
+            ActivateOriginatorSubscriptionCommand(
+                actor=admin_user,
+                loan_id=str(result.loan.id),
+                csv_content=_par_subscription_csv(today=today, include_boundary_payment=True),
+                source_filename="subscription-late-boundary.csv",
+                as_of_date=delayed_date,
+                boundary_payment_reference="BOUNDARY-1",
+                boundary_payment_date=delayed_date,
+                notes="Boundary installment arrived one day late.",
+                idempotency_key="subscription-late-boundary-activate",
+            )
+        )
+
+
+@pytest.mark.django_db
+def test_par_subscription_hold_blocks_investment_and_remains_cancellable(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    today = business_date(timezone.now())
+    result = _create_par_subscription_loan(
+        admin_user=admin_user,
+        today=today,
+        suffix="OPENHOLD",
+    )
+    _approve_financial_access(investor)
+    held = place_originator_loan_on_hold(
+        HoldOriginatorLoanCommand(
+            actor=admin_user,
+            loan_id=str(result.loan.id),
+            reason="Schedule evidence needs review.",
+        )
+    )
+    assert held.is_on_hold is True
+    assert held.opportunity_status == OriginatorOpportunityStatus.OPEN
+
+    marketplace = import_module("backend.apps.marketplace_primary.services")
+    with pytest.raises(
+        marketplace.MarketplacePrimaryValidationError,
+        match="administrative hold",
+    ):
+        marketplace.create_primary_investment_order(
+            marketplace.CreatePrimaryInvestmentOrderCommand(
+                actor=investor,
+                loan_id=str(result.loan.id),
+                amount_minor=100_000,
+                idempotency_key="subscription-open-hold-order",
+            )
+        )
+    with pytest.raises(OriginatorClaimsValidationError, match="held originator funding round"):
+        close_originator_subscription_round(
+            CloseOriginatorSubscriptionRoundCommand(
+                actor=admin_user,
+                loan_id=str(result.loan.id),
+                as_of_date=today + timedelta(days=6),
+                close_reason="Cannot close while held.",
+                idempotency_key="subscription-open-hold-close",
+            )
+        )
+
+    cancellation = cancel_originator_subscription(
+        CancelOriginatorSubscriptionCommand(
+            actor=admin_user,
+            loan_id=str(result.loan.id),
+            reason="Schedule evidence was not resolved.",
+            investor_message="The subscription was cancelled.",
+            idempotency_key="subscription-open-hold-cancel",
+        )
+    )
+    result.loan.refresh_from_db()
+    assert cancellation.released_principal_minor == 0
+    assert result.loan.status == "cancelled"
+
+
+@pytest.mark.django_db
+def test_par_subscription_hold_blocks_activation_and_allows_refund(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    today = business_date(timezone.now())
+    result = _create_par_subscription_loan(
+        admin_user=admin_user,
+        today=today,
+        suffix="ACTIVATIONHOLD",
+    )
+    order = _allocate_par_subscription(
+        admin_user=admin_user,
+        investor=investor,
+        loan=result.loan,
+        today=today,
+        amount_minor=160_000,
+        suffix="ACTIVATIONHOLD",
+    )
+    close_originator_subscription_round(
+        CloseOriginatorSubscriptionRoundCommand(
+            actor=admin_user,
+            loan_id=str(result.loan.id),
+            as_of_date=today + timedelta(days=6),
+            close_reason="Funding deadline reached.",
+            idempotency_key="subscription-activation-hold-close",
+        )
+    )
+    place_originator_loan_on_hold(
+        HoldOriginatorLoanCommand(
+            actor=admin_user,
+            loan_id=str(result.loan.id),
+            reason="Boundary payment evidence needs review.",
+        )
+    )
+    boundary_date = today + timedelta(days=10)
+    with pytest.raises(OriginatorClaimsValidationError, match="cannot be activated"):
+        activate_originator_subscription(
+            ActivateOriginatorSubscriptionCommand(
+                actor=admin_user,
+                loan_id=str(result.loan.id),
+                csv_content=_par_subscription_csv(today=today, include_boundary_payment=True),
+                source_filename="subscription-activation-hold.csv",
+                as_of_date=boundary_date,
+                boundary_payment_reference="BOUNDARY-1",
+                boundary_payment_date=boundary_date,
+                notes="Should remain blocked.",
+                idempotency_key="subscription-activation-hold-activate",
+            )
+        )
+
+    cancellation = cancel_originator_subscription(
+        CancelOriginatorSubscriptionCommand(
+            actor=admin_user,
+            loan_id=str(result.loan.id),
+            reason="Boundary evidence could not be resolved.",
+            investor_message="Your reserved balance was returned.",
+            idempotency_key="subscription-activation-hold-cancel",
+        )
+    )
+    order.refresh_from_db()
+    lot = import_module("backend.apps.ledger.models").InvestorBalanceLot.objects.get(
+        investor_user_id=investor.pk
+    )
+    assert cancellation.released_principal_minor == 160_000
+    assert order.status == "balance_released"
+    assert lot.available_amount_minor == 160_000
+
+
+@pytest.mark.django_db
+def test_par_subscription_lifecycle_evidence_is_append_only(
+    admin_user: Model,
+    investor: Model,
+    other_investor: Model,
+) -> None:
+    today = business_date(timezone.now())
+    activated_result = _create_par_subscription_loan(
+        admin_user=admin_user,
+        today=today,
+        suffix="APPEND-ACTIVE",
+    )
+    _allocate_par_subscription(
+        admin_user=admin_user,
+        investor=investor,
+        loan=activated_result.loan,
+        today=today,
+        amount_minor=160_000,
+        suffix="APPEND-ACTIVE",
+    )
+    activation = _activate_par_subscription_for_test(
+        admin_user=admin_user,
+        result=activated_result,
+        today=today,
+        suffix="append-active",
+    )
+    close = OriginatorFundingRoundClose.objects.get(loan_profile=activated_result.profile)
+
+    cancelled_result = _create_par_subscription_loan(
+        admin_user=admin_user,
+        today=today,
+        suffix="APPEND-CANCEL",
+    )
+    _allocate_par_subscription(
+        admin_user=admin_user,
+        investor=other_investor,
+        loan=cancelled_result.loan,
+        today=today,
+        amount_minor=160_000,
+        suffix="APPEND-CANCEL",
+    )
+    close_originator_subscription_round(
+        CloseOriginatorSubscriptionRoundCommand(
+            actor=admin_user,
+            loan_id=str(cancelled_result.loan.id),
+            as_of_date=today + timedelta(days=6),
+            close_reason="Funding deadline reached.",
+            idempotency_key="subscription-append-cancel-close",
+        )
+    )
+    cancellation = cancel_originator_subscription(
+        CancelOriginatorSubscriptionCommand(
+            actor=admin_user,
+            loan_id=str(cancelled_result.loan.id),
+            reason="Boundary installment was not received.",
+            investor_message="Reserved balance was returned.",
+            idempotency_key="subscription-append-cancel",
+        )
+    )
+
+    guarded_records = [
+        (close, OriginatorFundingRoundClose, "originator_claims_originatorfundingroundclose"),
+        (
+            activation,
+            OriginatorSubscriptionActivation,
+            "originator_claims_originatorsubscriptionactivation",
+        ),
+        (
+            cancellation,
+            OriginatorSubscriptionCancellation,
+            "originator_claims_originatorsubscriptioncancellation",
+        ),
+    ]
+    for record, model, table in guarded_records:
+        record_id = record.pk
+        db_record_id = record_id.hex
+        with pytest.raises(AppendOnlyViolation):
+            record.save()
+        with pytest.raises(AppendOnlyViolation):
+            model.objects.filter(pk=record_id).update(id=record_id)
+        with pytest.raises(AppendOnlyViolation):
+            model.objects.filter(pk=record_id).delete()
+        with pytest.raises(DatabaseError) as update_error, transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"UPDATE {table} SET id = %s WHERE id = %s",
+                    [db_record_id, db_record_id],
+                )
+        assert "append-only" in str(update_error.value)
+        with pytest.raises(DatabaseError) as delete_error, transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute(f"DELETE FROM {table} WHERE id = %s", [db_record_id])
+        assert "append-only" in str(delete_error.value)
+
+
+@pytest.mark.django_db
+def test_par_subscription_rejects_quotes_and_secondary_market_premiums(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    today = business_date(timezone.now())
+    _approve_financial_access(investor)
+    result = _create_par_subscription_loan(
+        admin_user=admin_user,
+        today=today,
+        suffix="POLICY",
+    )
+    with pytest.raises(OriginatorClaimsValidationError, match="funding subscription"):
+        create_originator_claim_quote(
+            CreateOriginatorClaimQuoteCommand(
+                actor=investor,
+                loan_id=str(result.loan.id),
+                requested_cash_minor=100_000,
+            )
+        )
+    secondary = import_module("backend.apps.secondary_market.services")
+    with pytest.raises(secondary.SecondaryMarketValidationError, match="not at a premium"):
+        secondary._validate_loan_listing_price(result.loan, 10_001)
+    secondary._validate_loan_listing_price(result.loan, 10_000)

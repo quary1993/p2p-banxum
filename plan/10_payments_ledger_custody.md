@@ -950,14 +950,16 @@ Examples:
 
 ## Loan Originator Settlement Accounting
 
-### PAY-DEC-028: Purchase Ledger
+### PAY-DEC-028: Subscription Reservation and Activation Ledger
 
-An originator purchase posts no external cash: debit investor-balance liability for consideration, credit originator-settlement payable for consideration less BANXUM fee, and credit platform-fee revenue for the fee. Evidence includes purchase, loan, originator, investor, principal, revision, and quote fingerprint. FIFO lot conservation remains enforced. Originator payable is included in reconciliation and sign-anomaly checks.
+Allocating a current Loan Originator subscription order debits investor-balance liability and credits loan-funding escrow at par. It consumes eligible balance lots FIFO and preserves their exact lineage while the subscription remains unresolved. Funding close leaves that escrow and the order allocations unchanged.
+
+Only verified activation debits funding escrow and credits originator-settlement payable for the subscribed principal. The same transaction creates holdings, purchases, and post-boundary entitlements. There is no primary-market Loan Originator fee under `par_component_v2`. Cancellation instead reverses each reservation, restores the exact source lots and their original ageing deadlines, and creates no originator payable. Originator payable and funding escrow remain part of reconciliation and sign-anomaly controls.
 
 ### PAY-DEC-029: Batch Settlement
 
-Garanta settles accumulated originator payable no later than five calendar days after purchase. One batch includes unsettled purchases for one originator/currency and must clear the selected payable; arbitrary partial settlement is out of v1. Settlement debits originator payable and credits collection cash, records bank/evidence fields, and uniquely links purchases. A task is due at day 3 and overdue/high-priority after day 5. Finance Ops groups payable, purchase count, fee, age, and settlement action.
+Garanta settles accumulated originator payable no later than five calendar days after subscription activation. One batch includes unsettled activated subscriptions and servicing amounts for one originator/currency and must clear the selected payable; arbitrary partial settlement is out of v1. Settlement debits originator payable and credits collection cash, records bank/evidence fields, and uniquely links source items. A task is due at day 3 and overdue/high-priority after day 5. Finance Ops groups payable, item count, age, and settlement action.
 
 ### PAY-DEC-030: Originator Servicing Payable
 
-Borrower repayments after assignments split into investor liabilities and originator servicing payable. Investors receive dated assigned entitlements; originator receives unsold-principal amounts and pre-assignment accrual. The same batch mechanism settles originator amounts. No recourse/buyback payable exists.
+Borrower repayments after activation split into investor liabilities and originator servicing payable only after the universal waterfall has derived legal costs/recovery fee, penalty, interest, and principal. Investors receive their current principal share and the separately declared post-boundary interest/penalty participation; the originator receives unsold principal, excluded component participation, and all boundary-installment economics. The same batch mechanism settles originator amounts. No recourse/buyback payable exists.

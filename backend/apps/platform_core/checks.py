@@ -21,3 +21,24 @@ def check_qa_dev_mode_not_enabled_in_production(
             )
         ]
     return []
+
+
+@register(Tags.security, deploy=True)
+def check_scheduled_jobs_actor_configured(
+    app_configs: object | None,
+    **kwargs: Any,
+) -> list[Error]:
+    if str(getattr(settings, "ENVIRONMENT", "local")) in {"local", "test"}:
+        return []
+    if str(getattr(settings, "SCHEDULED_JOBS_ACTOR_EMAIL", "")).strip():
+        return []
+    return [
+        Error(
+            "SCHEDULED_JOBS_ACTOR_EMAIL is required outside local/test environments.",
+            hint=(
+                "Set it to a dedicated active admin account before running automated "
+                "funding, ageing, servicing, or reconciliation jobs."
+            ),
+            id="platform_core.E002",
+        )
+    ]

@@ -6,12 +6,12 @@
     "A quick mental model of the product. Individual investors (called lenders) put money into their BANXUM account. The platform then funds loans to vetted business borrowers. Borrowers repay over time with interest. Lenders earn that interest and can later withdraw.",
     "Borrowers are companies, not people with logins. There is no borrower portal. An admin types in every borrower's details by hand. The borrower never sees this screen.",
     "Two jargon terms you will see everywhere. The primary market is where a brand-new loan is first funded by investors. The secondary market is where an investor who already owns a slice of a loan sells that slice to another investor. This screen handles admin tasks for both.",
-    "This page is laid out top to bottom as: key metrics, Loan Originators, Borrowers, Loans, Secondary-market approvals, and Servicing operations. Direct-loan actions - publish, deterministic deadline resolution, cancellation, order release, borrower disbursement, repayments and recovery - live in Manage. Originator-claim Manage actions are deliberately different: review/publish the imported claim, place/release a hold, or record a repayment through a replacement CSV revision."
+    "This page is laid out top to bottom as: key metrics, Loan Originators, Borrowers, Loans, Secondary-market approvals, and Servicing operations. Direct-loan actions live in Manage. Current originator-claim Manage actions are deliberately different: publish, resolve/close the subscription, verify activation, cancel/refund, place/release a hold, or record a post-activation repayment through a replacement CSV revision."
   ],
   "whatYouDoHere": [
     "Add and edit borrower companies, and watch their KYB status (the company-level identity and compliance check).",
     "Create direct BANXUM loan drafts and review status, amount, yield, LTV and funding deadline. New refinancing-loan creation is disabled; legacy refinancing records remain serviceable.",
-    "Create and maintain Loan Originators after off-platform KYB/AML, then import existing performing claims with anonymized borrower disclosure, coupon, target effective yield, minimum investment and a fully reconciled schedule/payment CSV. Optionally declare the originator's skin in the game: 0 bps disables the rule; a positive value is the minimum share of current outstanding principal the originator must retain, rounded up to a minor currency unit. The retained slice is never sold and caps every quote and purchase.",
+    "Create and maintain Loan Originators after off-platform KYB/AML, then import existing performing claims with anonymized borrower disclosure, a finite funding deadline, activation-boundary payment terms, separate interest/penalty participation, minimum investment and a fully reconciled schedule/payment CSV. Optionally declare skin in the game: 0 bps disables the rule; a positive value is the minimum current principal the originator must retain. The retained slice caps subscription capacity.",
     "Set each direct loan's minimum subscription (default 50% of the financeable principal) while it is a draft. Publication discloses and permanently freezes the threshold. When the funding deadline passes with the minimum met, the loan is closed and made at the amount subscribed; below the minimum the campaign is cancelled and every reservation is refunded.",
     "Open Manage on a loan row to publish it to the marketplace, resolve its passed funding deadline from the stored minimum, cancel it when required, release a stuck investor order, disburse a funded loan to the borrower, or record borrower repayments. Published loans cannot be put into effect through a discretionary manual close.",
     "Approve, reject or remove non-standard secondary-market listings (investor-to-investor resales).",
@@ -156,7 +156,7 @@
     {
       "id": "loans-8-loans",
       "caption": "The unified Loans table: direct loans and Loan Originator claim loans in one operational view.",
-      "summary": "Each row is one investor opportunity. Direct loans use a borrower KYB gate and a funding round. Originator claims use an immutable imported schedule, anonymized borrower disclosure, target-yield pricing, immediate claim assignment and an optional originator-retention floor.",
+      "summary": "Each row is one investor opportunity. Direct loans use their borrower funding/disbursement lifecycle. Current originator claims use an immutable imported schedule, anonymized borrower disclosure, a finite at-par subscription round, exact boundary-payment activation, separate component participation and an optional retention floor.",
       "annotations": [
         {
           "item": 1,
@@ -176,12 +176,12 @@
         {
           "item": 4,
           "label": "Progress column",
-          "text": "For a direct loan, shows committed versus financeable principal and the funding percentage. For an originator claim, it shows how much of the eligible claim has been sold while respecting the originator-retention floor."
+          "text": "For a direct loan, shows committed versus financeable principal and the funding percentage. For a current originator claim, it shows reserved subscription principal versus sellable capacity while respecting the retention floor."
         },
         {
           "item": 5,
           "label": "Yield column",
-          "text": "The target annual yield presented to investors. For direct loans this is the contractual investor rate. For originator claims the executable purchase price changes over time so the investor's target yield remains the configured value. Internally percentages use basis points (100 bps = 1%)."
+          "text": "For direct loans this is the contractual investor rate. For current originator claims this is a nominal participating-coupon indicator; review the separate underlying coupon plus interest and penalty participation in Manage. It is not a guaranteed effective IRR. Internally percentages use basis points (100 bps = 1%)."
         },
         {
           "item": 6,
@@ -191,7 +191,7 @@
         {
           "item": 7,
           "label": "Availability date column",
-          "text": "For direct loans this is the funding deadline. For originator claims it is the contractual maturity date; the claim stops being available once it reaches its configured maturity-window cutoff or another terminal condition."
+          "text": "For both direct and current originator opportunities this is the funding deadline. Originator Manage also shows contractual maturity and the activation-boundary installment date."
         },
         {
           "item": 8,
@@ -216,7 +216,7 @@
         {
           "item": 12,
           "label": "Import originator claim loan",
-          "text": "Imports a Loan Originator-owned claim from a fully reconciled schedule/payment CSV. The form also captures target investor yield, minimum investment and optional skin-in-the-game basis points. A positive retention value is rounded up to a minor unit and remains unsellable."
+          "text": "Imports a Loan Originator-owned claim from a fully reconciled schedule/payment CSV. The form captures funding deadline, activation-boundary date and expected post-payment principal, separate investor interest/penalty participation, minimum investment and optional skin-in-the-game basis points. A positive retention value is rounded up to a minor unit and remains unavailable to investors."
         },
         {
           "item": 14,
@@ -240,7 +240,9 @@
         }
       ],
       "notes": [
-        "Publishing a direct loan checks required fields, schedule conservation, funding deadline and borrower KYB/no-hold status. Publishing an originator claim checks the immutable import, originator status, sellable principal and maturity window.",
+        "Publishing a direct loan checks required fields, schedule conservation, funding deadline and borrower KYB/no-hold status. Publishing a current originator claim checks the immutable import, originator status/hold, sellable principal, funding deadline, boundary row and expected activation principal.",
+        "Current originator orders reserve investor money in escrow. Full subscription closes automatically; deadline resolution closes any positive round or cancels an empty one. Close does not create holdings. Exact boundary-payment activation creates holdings and originator payable; any mismatch requires cancellation and exact-lot refund.",
+        "If originator close processing fails, funds remain reserved, the opportunity is hidden, and an urgent task plus operations email require retry or cancellation. Routine KYB expiry does not block close/activation, but an explicit adverse status or hold does.",
         "The universal payment waterfall applies to every product and status: Garanta legal costs and recovery fee, penalty, interest, then principal. Principal is never paid ahead of a due earlier tier.",
         "For an originator claim, imported payment-category columns are reconciliation evidence only. The server recomputes the applied split and rejects a CSV that relabels interest or penalty as principal.",
         "Status is enforced. Invalid product/status operations are rejected even if a client tries to call the endpoint directly."

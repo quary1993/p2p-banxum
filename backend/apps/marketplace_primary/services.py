@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import date
@@ -72,6 +73,8 @@ RELEASE_IDEMPOTENCY_METADATA_KEY = "release_idempotency_key"
 CLOSE_FINGERPRINT_METADATA_KEY = "close_request_fingerprint"
 CANCEL_FINGERPRINT_METADATA_KEY = "cancel_request_fingerprint"
 ONE_HUNDRED_PERCENT_PPM = 1_000_000
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,6 +255,62 @@ def _originator_services() -> Any:
     return import_module("backend.apps.originator_claims.services")
 
 
+def _resolve_fully_subscribed_originator_round(*, actor: Model, loan_id: str) -> None:
+    """Close a full v2 LO round only after its reservation transaction commits."""
+
+    loan_model = _model("loans", "Loan")
+    loan = loan_model.objects.filter(
+        id=loan_id,
+        product_type="originator_claim",
+        status="published",
+    ).first()
+    if loan is None:
+        return
+    profile = _originator_subscription_profile(cast(Model, loan))
+    if profile is None:
+        return
+    profile_ref = cast(Any, profile)
+    if bool(profile_ref.is_on_hold) or str(profile_ref.opportunity_status) != "open":
+        return
+    if _loan_remaining_capacity_minor(cast(Model, loan)) != 0:
+        return
+
+    originator = _originator_services()
+    try:
+        originator.close_originator_subscription_round(
+            originator.CloseOriginatorSubscriptionRoundCommand(
+                actor=actor,
+                loan_id=loan_id,
+                as_of_date=business_date(now_utc()),
+                close_reason="Loan Originator subscription fully allocated.",
+                idempotency_key=f"originator-round-auto-close:{loan_id}",
+            )
+        )
+    except Exception as exc:  # The reservation is already committed by design.
+        try:
+            originator.mark_originator_funding_close_failed(
+                triggering_actor=actor,
+                loan_id=loan_id,
+                as_of_date=business_date(now_utc()),
+                resolution_action="full-subscription auto-close",
+                error=exc,
+            )
+        except Exception:
+            logger.exception(
+                "Could not record Loan Originator funding-close failure for loan %s",
+                loan_id,
+            )
+
+
+def _resolve_fully_subscribed_originator_orders(
+    *,
+    actor: Model,
+    orders: list[PrimaryInvestmentOrder],
+) -> None:
+    for loan_id in {str(order.loan_id) for order in orders}:
+        _resolve_fully_subscribed_originator_round(actor=actor, loan_id=loan_id)
+
+
 def _loan_for_update(loan_id: str) -> Model:
     loan_model = _model("loans", "Loan")
     loan = cast(Model | None, loan_model.objects.select_for_update().filter(id=loan_id).first())
@@ -274,11 +333,50 @@ def _assert_published_loan_open(loan: Model) -> None:
         raise MarketplacePrimaryValidationError("Loan is not published for investment.")
     if business_date(now_utc()) > loan_ref.funding_deadline:
         raise MarketplacePrimaryValidationError("Loan funding deadline has passed.")
+    profile = _originator_subscription_profile(loan)
+    if profile is not None:
+        profile_ref = cast(Any, profile)
+        if bool(profile_ref.is_on_hold):
+            raise MarketplacePrimaryValidationError(
+                "This Loan Originator subscription is on administrative hold."
+            )
+        if str(profile_ref.opportunity_status) != "open":
+            raise MarketplacePrimaryValidationError(
+                "This Loan Originator subscription is not open for investment."
+            )
+
+
+def _originator_subscription_profile(loan: Model) -> Model | None:
+    loan_ref = cast(Any, loan)
+    if str(loan_ref.product_type) != "originator_claim":
+        return None
+    profile_model = _model("originator_claims", "OriginatorLoanProfile")
+    profile = cast(
+        Model | None,
+        profile_model.objects.select_related("originator")
+        .filter(loan_id=loan_ref.id, distribution_model="par_component_v2")
+        .first(),
+    )
+    return profile
 
 
 def _loan_remaining_capacity_minor(loan: Model) -> int:
     loan_ref = cast(Any, loan)
+    profile = _originator_subscription_profile(loan)
+    if profile is not None:
+        originator = _originator_services()
+        try:
+            return int(originator.originator_subscription_available_minor(profile))
+        except originator.OriginatorClaimsError as exc:
+            raise MarketplacePrimaryValidationError(str(exc)) from exc
     return int(loan_ref.principal_minor) - int(loan_ref.committed_principal_minor)
+
+
+def _loan_minimum_investment_minor(loan: Model) -> int:
+    profile = _originator_subscription_profile(loan)
+    if profile is not None:
+        return int(cast(Any, profile).minimum_investment_minor)
+    return _minimum_investment_minor(str(cast(Any, loan).currency_id))
 
 
 def _minimum_investment_minor(currency_code: str) -> int:
@@ -759,9 +857,14 @@ def create_primary_investment_order(
     loan_ref = cast(Any, loan)
     currency = _enabled_currency(str(loan_ref.currency_id))
     amount_minor = _validate_money(command.amount_minor, currency.code, "Investment amount")
-    minimum = _minimum_investment_minor(currency.code)
+    minimum = _loan_minimum_investment_minor(loan)
     if amount_minor < minimum:
-        raise MarketplacePrimaryValidationError("Investment amount is below the launch minimum.")
+        message = (
+            "Investment amount is below this loan's minimum."
+            if _originator_subscription_profile(loan) is not None
+            else "Investment amount is below the launch minimum."
+        )
+        raise MarketplacePrimaryValidationError(message)
     remaining_capacity = _loan_remaining_capacity_minor(loan)
     if remaining_capacity <= 0:
         raise MarketplacePrimaryValidationError("Loan has no remaining investment capacity.")
@@ -855,6 +958,10 @@ def allocate_primary_order_from_balance(
             metadata.get(ALLOCATION_IDEMPOTENCY_METADATA_KEY) == idempotency_key
             and metadata.get(ALLOCATION_FINGERPRINT_METADATA_KEY) == allocation_fingerprint
         ):
+            _resolve_fully_subscribed_originator_round(
+                actor=command.actor,
+                loan_id=str(order.loan_id),
+            )
             return order
         raise MarketplacePrimaryValidationError("Primary investment order is already allocated.")
     if order.status != PrimaryInvestmentOrderStatus.PENDING:
@@ -879,7 +986,12 @@ def allocate_primary_order_from_balance(
     except SensitiveActionVerificationError as exc:
         raise MarketplacePrimaryValidationError(str(exc)) from exc
 
-    return _allocate_primary_order_from_balance_after_sensitive_code(command)
+    allocated = _allocate_primary_order_from_balance_after_sensitive_code(command)
+    _resolve_fully_subscribed_originator_round(
+        actor=command.actor,
+        loan_id=str(allocated.loan_id),
+    )
+    return allocated
 
 
 def _validate_batch_document_acceptance(
@@ -934,10 +1046,16 @@ def _preflight_batch_investments(
         str(row["id"]): {
             "currency": str(row["currency_id"]),
             "product_type": str(row["product_type"]),
+            "distribution_model": str(row["originator_profile__distribution_model"] or ""),
         }
         for row in loan_model.objects.filter(
             id__in=[item["loan_id"] for item in canonical_items]
-        ).values("id", "currency_id", "product_type")
+        ).values(
+            "id",
+            "currency_id",
+            "product_type",
+            "originator_profile__distribution_model",
+        )
     }
     if len(loan_rows) != len(canonical_items):
         raise MarketplacePrimaryValidationError("One or more batch loans do not exist.")
@@ -976,6 +1094,12 @@ def _preflight_batch_investments(
             raise MarketplacePrimaryValidationError(
                 "This loan type cannot be placed through a primary investment batch."
             )
+        if loan_rows[loan_id]["distribution_model"] == "par_component_v2":
+            if quote_id:
+                raise MarketplacePrimaryValidationError(
+                    "Originator subscription items cannot include an executable quote."
+                )
+            continue
         if not quote_id:
             raise MarketplacePrimaryValidationError(
                 "Every originator-claim batch item requires an executable quote."
@@ -1101,8 +1225,9 @@ def place_primary_order_batch(
 ) -> PlacedPrimaryOrderBatch:
     """Place several primary investments behind one terms acceptance and one code.
 
-    Direct-loan items become allocated orders while quoted originator claims settle
-    immediately. If any selected investment fails, the entire batch rolls back.
+    Direct loans and v2 originator subscriptions become allocated orders. Historical
+    v1 originator claims retain their quoted immediate-purchase path. If any selected
+    investment fails, the entire batch rolls back.
     """
     _require_investor_financial_access(command.actor)
     idempotency_key = _clean_batch_idempotency_key(command.idempotency_key)
@@ -1117,6 +1242,10 @@ def place_primary_order_batch(
         expected_fingerprint=request_fingerprint,
     )
     if existing is not None:
+        _resolve_fully_subscribed_originator_orders(
+            actor=command.actor,
+            orders=existing.orders,
+        )
         return existing
     acceptance, accepted_currency_by_loan = _validate_batch_document_acceptance(
         acceptance_id=command.document_acceptance_id,
@@ -1149,34 +1278,44 @@ def place_primary_order_batch(
 
     with transaction.atomic():
         loan_model = _model("loans", "Loan")
-        direct_items = [
+        order_items = [
             item
             for item in canonical_items
             if preflight_loans[str(item["loan_id"])]["product_type"] == "direct"
+            or preflight_loans[str(item["loan_id"])]["distribution_model"] == "par_component_v2"
         ]
         locked_loans = list(
             loan_model.objects.select_for_update()
-            .filter(id__in=[item["loan_id"] for item in direct_items])
+            .filter(id__in=[item["loan_id"] for item in order_items])
             .order_by("id")
         )
-        if len(locked_loans) != len(direct_items):
-            raise MarketplacePrimaryValidationError("One or more direct batch loans do not exist.")
+        if len(locked_loans) != len(order_items):
+            raise MarketplacePrimaryValidationError("One or more batch loans do not exist.")
         existing_after_lock = _existing_batch_for_idempotency(
             idempotency_key,
             expected_fingerprint=request_fingerprint,
         )
         if existing_after_lock is not None:
+            _resolve_fully_subscribed_originator_orders(
+                actor=command.actor,
+                orders=existing_after_lock.orders,
+            )
             return existing_after_lock
         loans_by_id = {str(cast(Any, loan).id): loan for loan in locked_loans}
         currency_by_loan = dict(preflight_currencies)
-        minimum_by_currency: dict[str, int] = {}
-        for item in direct_items:
+        for item in order_items:
             loan = loans_by_id[str(item["loan_id"])]
             loan_ref = cast(Any, loan)
             _assert_published_loan_open(loan)
-            if str(loan_ref.product_type) != "direct":
+            expected = preflight_loans[str(item["loan_id"])]
+            if str(loan_ref.product_type) != expected["product_type"]:
                 raise MarketplacePrimaryValidationError(
-                    "A selected direct-loan batch item changed product type."
+                    "A selected batch loan changed product type."
+                )
+            profile = _originator_subscription_profile(loan)
+            if expected["distribution_model"] == "par_component_v2" and profile is None:
+                raise MarketplacePrimaryValidationError(
+                    "A selected Loan Originator subscription changed distribution model."
                 )
             currency_code = str(loan_ref.currency_id)
             if currency_code != currency_by_loan[str(item["loan_id"])]:
@@ -1188,13 +1327,10 @@ def place_primary_order_batch(
                 currency_code,
                 "Investment amount",
             )
-            minimum = minimum_by_currency.setdefault(
-                currency_code,
-                _minimum_investment_minor(currency_code),
-            )
+            minimum = _loan_minimum_investment_minor(loan)
             if amount_minor < minimum:
                 raise MarketplacePrimaryValidationError(
-                    "A batch investment amount is below the launch minimum."
+                    "A batch investment amount is below the selected loan's minimum."
                 )
             if amount_minor > _loan_remaining_capacity_minor(loan):
                 raise MarketplacePrimaryValidationError(
@@ -1209,7 +1345,7 @@ def place_primary_order_batch(
             _enabled_currency(currency_code)
 
         allocated_orders: list[PrimaryInvestmentOrder] = []
-        for item in direct_items:
+        for item in order_items:
             order = create_primary_investment_order(
                 CreatePrimaryInvestmentOrderCommand(
                     actor=command.actor,
@@ -1257,6 +1393,7 @@ def place_primary_order_batch(
             item
             for item in canonical_items
             if preflight_loans[str(item["loan_id"])]["product_type"] == "originator_claim"
+            and preflight_loans[str(item["loan_id"])]["distribution_model"] != "par_component_v2"
         ]
         for item in originator_items:
             quote_id = str(item["quote_id"])
@@ -1352,11 +1489,16 @@ def place_primary_order_batch(
                 payload=event_metadata,
             )
         )
-        return PlacedPrimaryOrderBatch(
+        result = PlacedPrimaryOrderBatch(
             batch=batch,
             orders=allocated_orders,
             originator_purchases=originator_purchases,
         )
+    _resolve_fully_subscribed_originator_orders(
+        actor=command.actor,
+        orders=result.orders,
+    )
+    return result
 
 
 @transaction.atomic
@@ -1436,6 +1578,31 @@ def _allocate_primary_order_from_balance_after_sensitive_code(
             previous_status=previous_status,
             new_status=order.status,
             metadata={"reason": "no_capacity_at_allocation"},
+        )
+        return order
+    subscription_profile = _originator_subscription_profile(loan)
+    if subscription_profile is not None and remaining_capacity < _loan_minimum_investment_minor(
+        loan
+    ):
+        previous_status = str(order.status)
+        order.status = PrimaryInvestmentOrderStatus.CLOSED_NOT_INVESTED
+        order.closed_at = now_utc()
+        order.metadata = {
+            **metadata,
+            ALLOCATION_IDEMPOTENCY_METADATA_KEY: idempotency_key,
+            ALLOCATION_FINGERPRINT_METADATA_KEY: allocation_fingerprint,
+            "closed_reason": (
+                "Remaining Loan Originator subscription capacity was below the loan minimum."
+            ),
+        }
+        order.save(update_fields=["status", "closed_at", "metadata", "updated_at"])
+        _record_order_event(
+            order=order,
+            actor=command.actor,
+            event_type=PrimaryInvestmentOrderEventType.CLOSED_NOT_INVESTED,
+            previous_status=previous_status,
+            new_status=order.status,
+            metadata={"reason": "remaining_capacity_below_loan_minimum"},
         )
         return order
     amount_to_allocate = min(order.requested_amount_minor, remaining_capacity)
@@ -1596,7 +1763,21 @@ def release_primary_order_balance(
     if order.reservation_journal_entry is None:
         raise MarketplacePrimaryValidationError("Order has no reservation journal to release.")
     loan_ref = cast(Any, loan)
-    if str(loan_ref.status) not in {"published", "funding_close_failed"}:
+    releaseable_statuses = {"published", "funding_close_failed"}
+    if str(loan_ref.product_type) == "originator_claim":
+        profile_model = _model("originator_claims", "OriginatorLoanProfile")
+        profile = (
+            profile_model.objects.filter(loan_id=loan_ref.id)
+            .only("distribution_model", "opportunity_status")
+            .first()
+        )
+        if (
+            profile is not None
+            and str(cast(Any, profile).distribution_model) == "par_component_v2"
+            and str(cast(Any, profile).opportunity_status) == "awaiting_activation"
+        ):
+            releaseable_statuses.add("funded")
+    if str(loan_ref.status) not in releaseable_statuses:
         raise MarketplacePrimaryValidationError("Closed loan orders cannot be released.")
     if int(loan_ref.committed_principal_minor) < order.allocated_amount_minor:
         raise MarketplacePrimaryValidationError("Loan committed principal would underflow.")
@@ -1958,6 +2139,10 @@ def close_primary_loan_funding(
 
     loan = _loan_for_update(command.loan_id)
     loan_ref = cast(Any, loan)
+    if str(loan_ref.product_type) == "originator_claim":
+        raise MarketplacePrimaryValidationError(
+            "Loan Originator subscriptions must use the Loan Originator funding lifecycle."
+        )
     loan_status = str(loan_ref.status)
     if loan_status == "published":
         if command.as_of_date is None:
@@ -2248,6 +2433,10 @@ def cancel_primary_loan_funding(
 
     loan = _loan_for_update(command.loan_id)
     loan_ref = cast(Any, loan)
+    if str(loan_ref.product_type) == "originator_claim":
+        raise MarketplacePrimaryValidationError(
+            "Loan Originator subscriptions must use the Loan Originator funding lifecycle."
+        )
     existing = _existing_cancellation_for_idempotency(
         idempotency_key,
         expected_fingerprint=cancel_fingerprint,
@@ -2535,13 +2724,17 @@ def scan_expired_primary_loan_funding(
 
     loan_model = _model("loans", "Loan")
     if command.loan_ids:
-        query = loan_model.objects.filter(id__in=command.loan_ids).filter(
+        query = loan_model.objects.filter(
+            id__in=command.loan_ids,
+            product_type="direct",
+        ).filter(
             Q(status="funding_close_failed")
             | Q(status="published", funding_deadline__lt=as_of_date)
         )
     else:
         query = loan_model.objects.filter(
             status="published",
+            product_type="direct",
             funding_deadline__lt=as_of_date,
         )
     loan_ids = [

@@ -191,7 +191,7 @@ test("rule desk splits idle balance across ticked matches and confirms one batch
   }
 });
 
-test("rule desk batch-selects and prices a Loan Originator claim before approval", async () => {
+test("rule desk batch-reserves a v2 Loan Originator subscription at par", async () => {
   const originalMatches = smartInvestFixture.matches;
   const originatorMatch = marketplaceLoansFixture.find(
     (loan) => loan.product_type === "originator_claim"
@@ -219,9 +219,9 @@ test("rule desk batch-selects and prices a Loan Originator claim before approval
     fireEvent.click(within(dialog).getByRole("button", { name: "Confirm 1" }));
 
     await waitFor(() => {
-      expect(within(dialog).getByText("Loan Originator prices locked")).toBeInTheDocument();
+      expect(within(dialog).getByText(/reserved until funding close/i)).toBeInTheDocument();
     });
-    expect(within(dialog).getByText(/assigned principal/i)).toBeInTheDocument();
+    expect(within(dialog).queryByText("Loan Originator prices locked")).not.toBeInTheDocument();
     fireEvent.click(
       within(dialog).getByRole("checkbox", { name: /primary-market investment terms/i })
     );
@@ -229,7 +229,8 @@ test("rule desk batch-selects and prices a Loan Originator claim before approval
       target: { value: "123456" }
     });
     fireEvent.click(within(dialog).getByRole("button", { name: "Place 1 investment" }));
-    expect(within(dialog).getByText(/One Loan Originator claim was purchased immediately/)).toBeInTheDocument();
+    expect(within(dialog).getByText("Every selected investment is in.")).toBeInTheDocument();
+    expect(within(dialog).queryByText(/purchased immediately/)).not.toBeInTheDocument();
   } finally {
     smartInvestFixture.matches = originalMatches;
     smartInvestFixture.match_count = originalMatches.length;
@@ -771,7 +772,7 @@ test("portfolio loans sort from the header and the sort menu", () => {
   expect(rowNames()[0]).toBe("Engadin Hospitality AG");
 });
 
-test("originator claim purchase validates the minimum and stages an executable quote", () => {
+test("originator subscription validates the minimum and stages a par reservation", () => {
   renderApp();
 
   fireEvent.click(screen.getByRole("button", { name: "Log in" }));
@@ -784,38 +785,23 @@ test("originator claim purchase validates the minimum and stages an executable q
   fireEvent.click(screen.getByText("Swiss SME equipment claim"));
 
   const claimSheet = screen.getByRole("dialog", { name: "Swiss SME equipment claim" });
-  expect(within(claimSheet).getByText(/taken by other investors/)).toBeInTheDocument();
-  fireEvent.click(within(claimSheet).getByRole("button", { name: "The full credit file →" }));
+  expect(within(claimSheet).getByText(/reserved.*available at par/i)).toBeInTheDocument();
+  expect(within(claimSheet).getByText(/No investor interest accrues during funding/i)).toBeInTheDocument();
+  expect(within(claimSheet).getByText(/Your share of attributable interest/i)).toBeInTheDocument();
+  fireEvent.click(within(claimSheet).getByRole("button", { name: "Invest now" }));
 
-  expect(screen.getByText("Originator claim")).toBeInTheDocument();
-  expect(screen.getAllByText("Alpine Credit Partners AG").length).toBeGreaterThan(0);
-  expect(screen.getAllByText(/7\.1%/).length).toBeGreaterThan(0);
-  fireEvent.click(screen.getByRole("button", { name: "Review claim purchase" }));
-
-  const purchaseDialog = screen.getByRole("dialog", { name: "Buy claim - Swiss SME equipment claim" });
-  const amountInput = within(purchaseDialog).getByPlaceholderText("0.00");
-  const quoteButton = within(purchaseDialog).getByRole("button", { name: "Get executable quote" });
-
+  const amountInput = within(claimSheet).getByRole("textbox", { name: "Amount to invest" });
+  const reviewButton = within(claimSheet).getByRole("button", { name: "Review Order" });
   fireEvent.change(amountInput, { target: { value: "100" } });
-  expect(within(purchaseDialog).getByText("Minimum investment is CHF 500.00.")).toBeInTheDocument();
-  expect(quoteButton).toBeDisabled();
+  expect(within(claimSheet).getByText("The minimum in any one loan is CHF 500.00.")).toBeInTheDocument();
+  expect(reviewButton).toBeDisabled();
 
   fireEvent.change(amountInput, { target: { value: "1000" } });
-  fireEvent.click(quoteButton);
-  expect(within(purchaseDialog).getByText("Executable for five minutes")).toBeInTheDocument();
-  expect(within(purchaseDialog).getByRole("row", { name: /Totals/ })).toBeInTheDocument();
-
-  fireEvent.click(
-    within(purchaseDialog).getByLabelText((label) => label.includes("primary-market investment terms"))
-  );
-  fireEvent.click(
-    within(purchaseDialog).getByLabelText((label) => label.includes("originator servicing structure"))
-  );
-  fireEvent.click(within(purchaseDialog).getByRole("button", { name: "Continue" }));
-
-  expect(within(purchaseDialog).getByText("Confirm this claim purchase")).toBeInTheDocument();
-  expect(within(purchaseDialog).getByRole("button", { name: "Send email code" })).toBeEnabled();
-  expect(within(purchaseDialog).getByRole("button", { name: "Purchase claim" })).toBeDisabled();
+  fireEvent.click(reviewButton);
+  const orderDialog = screen.getByRole("dialog", { name: "Invest - Swiss SME equipment claim" });
+  expect(within(orderDialog).getByText(/Principal acquired at activation/)).toBeInTheDocument();
+  expect(within(orderDialog).getByText(/Boundary installment/)).toBeInTheDocument();
+  expect(within(orderDialog).queryByText(/Executable for five minutes/)).not.toBeInTheDocument();
 });
 
 test("FX redesign uses CHF/EUR preview data and net-rate conversion history", () => {

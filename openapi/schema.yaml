@@ -3557,6 +3557,39 @@ paths:
               schema:
                 $ref: '#/components/schemas/OriginatorLoanProfileResponse'
           description: ''
+  /api/v1/originator-claims/admin/loans/{loan_id}/funding-close/:
+    post:
+      operationId: originator_claims_admin_loans_funding_close
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OriginatorFundingRoundCloseRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OriginatorFundingRoundCloseRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OriginatorFundingRoundCloseRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OriginatorLoanProfileResponse'
+          description: ''
   /api/v1/originator-claims/admin/loans/{loan_id}/hold/:
     post:
       operationId: originator_claims_admin_loans_hold
@@ -3655,6 +3688,72 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OriginatorBorrowerRepaymentResponse'
+          description: ''
+  /api/v1/originator-claims/admin/loans/{loan_id}/subscription-activate/:
+    post:
+      operationId: originator_claims_admin_loans_subscription_activate
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OriginatorSubscriptionActivationRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OriginatorSubscriptionActivationRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OriginatorSubscriptionActivationRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OriginatorLoanProfileResponse'
+          description: ''
+  /api/v1/originator-claims/admin/loans/{loan_id}/subscription-cancel/:
+    post:
+      operationId: originator_claims_admin_loans_subscription_cancel
+      parameters:
+      - in: path
+        name: loan_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OriginatorSubscriptionCancellationRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OriginatorSubscriptionCancellationRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OriginatorSubscriptionCancellationRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OriginatorLoanProfileResponse'
           description: ''
   /api/v1/originator-claims/admin/originators/:
     get:
@@ -9865,6 +9964,19 @@ components:
         borrower_display_name:
           type: string
           nullable: true
+        distribution_model:
+          type: string
+          nullable: true
+        entitlement_start_date:
+          type: string
+          format: date
+          nullable: true
+        investor_interest_participation_bps:
+          type: integer
+          nullable: true
+        investor_penalty_participation_bps:
+          type: integer
+          nullable: true
         skin_in_the_game_bps:
           type: integer
           default: 0
@@ -10056,6 +10168,19 @@ components:
           nullable: true
         borrower_display_name:
           type: string
+          nullable: true
+        distribution_model:
+          type: string
+          nullable: true
+        entitlement_start_date:
+          type: string
+          format: date
+          nullable: true
+        investor_interest_participation_bps:
+          type: integer
+          nullable: true
+        investor_penalty_participation_bps:
+          type: integer
           nullable: true
         skin_in_the_game_bps:
           type: integer
@@ -10334,9 +10459,26 @@ components:
           type: integer
         target_yield_bps:
           type: integer
+        distribution_model:
+          type: string
         minimum_investment_minor:
           type: integer
         premium_fee_bps:
+          type: integer
+        funding_deadline:
+          type: string
+          format: date
+          nullable: true
+        entitlement_start_date:
+          type: string
+          format: date
+          nullable: true
+        activation_outstanding_principal_minor:
+          type: integer
+          nullable: true
+        investor_interest_participation_bps:
+          type: integer
+        investor_penalty_participation_bps:
           type: integer
         skin_in_the_game_bps:
           type: integer
@@ -10381,6 +10523,7 @@ components:
         hold_reason:
           type: string
       required:
+      - activation_outstanding_principal_minor
       - borrower_snapshot
       - collateral_description
       - collateral_type
@@ -10388,10 +10531,15 @@ components:
       - currency
       - current_import_id
       - current_outstanding_principal_minor
+      - distribution_model
+      - entitlement_start_date
+      - funding_deadline
       - hold_reason
       - import_as_of_date
       - interest_only_months
       - interest_rate_bps
+      - investor_interest_participation_bps
+      - investor_penalty_participation_bps
       - investor_summary
       - is_on_hold
       - loan_id
@@ -10674,6 +10822,22 @@ components:
       - rounding_remainder_minor
       - share_ppm
       - target_yield_bps
+    OriginatorFundingRoundCloseRequest:
+      type: object
+      properties:
+        as_of_date:
+          type: string
+          format: date
+        close_reason:
+          type: string
+          maxLength: 64
+        idempotency_key:
+          type: string
+          maxLength: 160
+      required:
+      - as_of_date
+      - close_reason
+      - idempotency_key
     OriginatorLoanCreate:
       type: object
       properties:
@@ -10700,12 +10864,26 @@ components:
         interest_rate_bps:
           type: integer
           minimum: 1
-        target_yield_bps:
-          type: integer
-          minimum: 1
         minimum_investment_minor:
           type: integer
           minimum: 1
+        funding_deadline:
+          type: string
+          format: date
+        entitlement_start_date:
+          type: string
+          format: date
+        activation_outstanding_principal_minor:
+          type: integer
+          minimum: 1
+        investor_interest_participation_bps:
+          type: integer
+          maximum: 10000
+          minimum: 0
+        investor_penalty_participation_bps:
+          type: integer
+          maximum: 10000
+          minimum: 0
         repayment_type:
           $ref: '#/components/schemas/RepaymentTypeEnum'
         interest_only_months:
@@ -10742,13 +10920,18 @@ components:
           minimum: 0
           default: 0
       required:
+      - activation_outstanding_principal_minor
       - as_of_date
       - borrower_snapshot
       - collateral_type
       - collateral_value_minor
       - csv_content
       - currency
+      - entitlement_start_date
+      - funding_deadline
       - interest_rate_bps
+      - investor_interest_participation_bps
+      - investor_penalty_participation_bps
       - investor_summary
       - minimum_investment_minor
       - original_principal_minor
@@ -10757,7 +10940,6 @@ components:
       - repayment_type
       - risk_rating
       - source_filename
-      - target_yield_bps
       - title
     OriginatorLoanHold:
       type: object
@@ -10812,11 +10994,30 @@ components:
           type: string
         opportunity_status:
           type: string
+        loan_status:
+          type: string
+        distribution_model:
+          type: string
         target_yield_bps:
           type: integer
         minimum_investment_minor:
           type: integer
         premium_fee_bps:
+          type: integer
+        funding_deadline:
+          type: string
+          format: date
+          nullable: true
+        entitlement_start_date:
+          type: string
+          format: date
+          nullable: true
+        activation_outstanding_principal_minor:
+          type: integer
+          nullable: true
+        investor_interest_participation_bps:
+          type: integer
+        investor_penalty_participation_bps:
           type: integer
         current_outstanding_principal_minor:
           type: integer
@@ -10843,11 +11044,18 @@ components:
           type: string
           format: uuid
       required:
+      - activation_outstanding_principal_minor
       - borrower_display_name
       - current_outstanding_principal_minor
+      - distribution_model
+      - entitlement_start_date
+      - funding_deadline
       - hold_reason
+      - investor_interest_participation_bps
+      - investor_penalty_participation_bps
       - is_on_hold
       - loan_id
+      - loan_status
       - maturity_date
       - minimum_investment_minor
       - opportunity_status
@@ -11059,6 +11267,50 @@ components:
       - servicing_amount_minor
       - settled_at
       - settlement_id
+    OriginatorSubscriptionActivationRequest:
+      type: object
+      properties:
+        csv_content:
+          type: string
+        source_filename:
+          type: string
+          maxLength: 255
+        as_of_date:
+          type: string
+          format: date
+        boundary_payment_reference:
+          type: string
+          maxLength: 128
+        boundary_payment_date:
+          type: string
+          format: date
+        notes:
+          type: string
+        idempotency_key:
+          type: string
+          maxLength: 160
+      required:
+      - as_of_date
+      - boundary_payment_date
+      - boundary_payment_reference
+      - csv_content
+      - idempotency_key
+      - notes
+      - source_filename
+    OriginatorSubscriptionCancellationRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+        investor_message:
+          type: string
+        idempotency_key:
+          type: string
+          maxLength: 160
+      required:
+      - idempotency_key
+      - investor_message
+      - reason
     PatchedAdminTaskUpdateRequest:
       type: object
       properties:
@@ -11323,12 +11575,26 @@ components:
         interest_rate_bps:
           type: integer
           minimum: 1
-        target_yield_bps:
-          type: integer
-          minimum: 1
         minimum_investment_minor:
           type: integer
           minimum: 1
+        funding_deadline:
+          type: string
+          format: date
+        entitlement_start_date:
+          type: string
+          format: date
+        activation_outstanding_principal_minor:
+          type: integer
+          minimum: 1
+        investor_interest_participation_bps:
+          type: integer
+          maximum: 10000
+          minimum: 0
+        investor_penalty_participation_bps:
+          type: integer
+          maximum: 10000
+          minimum: 0
         repayment_type:
           $ref: '#/components/schemas/RepaymentTypeEnum'
         interest_only_months:

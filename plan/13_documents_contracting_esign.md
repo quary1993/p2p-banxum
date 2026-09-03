@@ -416,8 +416,10 @@ Future e-signature requirements, if introduced later:
 
 ## Loan Originator Claim Documents
 
-### DOC-DEC-012: Dated Assignment Evidence
+### DOC-DEC-012: Loan-Originator Subscription and Activation Evidence
 
-Each originator purchase requires current primary terms and creates immutable evidence naming the originator as assignor, Garanta/BANXUM as servicer/operator, anonymized loan reference, assigned principal/share, investor consideration, target effective yield, premium/discount, entitlement start, schedule revision, dated projected cash flows, and post-assignment accrual rule.
+Each current Loan Originator order requires current primary terms and immutable order evidence naming the originator, Garanta/BANXUM as servicer/operator, anonymized loan reference, reserved principal at par, funding deadline, boundary installment, expected post-boundary outstanding principal, separate interest/penalty participation rates, schedule revision, and the no-accrual-during-funding rule.
 
-Evidence states yield is projected before losses/taxes and not guaranteed, coupon may differ, early repayment changes realized return, availability closes automatically, and no originator recourse/buyback exists. The negotiated originator fee is internal. Secondary evidence shows current buyer projected yield and never seller acquisition yield.
+Round-close evidence records subscribed principal and the allocated orders whose funds remain in escrow. Activation evidence records the verified boundary payment/reference/date/resulting principal, the final holdings and entitlements, and the escrow-to-originator-payable journal. Cancellation evidence records the released orders/lots and original-ageing restoration. Evidence states that the boundary installment belongs entirely to the originator, future returns are not guaranteed, participation rates differ from the borrower coupon, prepayment changes realized return, and no originator recourse/buyback exists.
+
+Historical `legacy_yield_v1` purchases keep their original quote, dated-assignment, target-yield, and premium/discount evidence for reproducibility. Secondary-market evidence for current holdings records a par/discount transfer only and never exposes private seller acquisition economics.

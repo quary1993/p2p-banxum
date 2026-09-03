@@ -819,6 +819,18 @@ function isOriginatorClaimLoan(
   return loan.product_type === "originator_claim";
 }
 
+function usesImmediateClaimAssignment(
+  loan: Pick<MarketplaceLoanPreview, "investment_flow">
+) {
+  return loan.investment_flow === "immediate_claim_assignment";
+}
+
+function usesOriginatorSubscription(
+  loan: Pick<MarketplaceLoanPreview, "product_type" | "investment_flow">
+) {
+  return isOriginatorClaimLoan(loan) && loan.investment_flow === "primary_order";
+}
+
 function marketplaceYieldBps(
   loan: Pick<MarketplaceLoanPreview, "yield_bps" | "interest_rate_bps">
 ) {
@@ -2379,7 +2391,7 @@ function InvestorShell({
         />
       ) : null}
       {investLoan ? (
-        isOriginatorClaimLoan(investLoan) ? (
+        usesImmediateClaimAssignment(investLoan) ? (
           <OriginatorClaimInvestModal initialAmount={investState?.initialAmount} loan={investLoan} onClose={() => setInvestLoan(null)} />
         ) : (
           <InvestModal initialAmount={investState?.initialAmount} loan={investLoan} onClose={() => setInvestLoan(null)} />
@@ -3073,7 +3085,7 @@ function ApproveAllocationModal({
   const reviewItems = items.map((item) => ({
     ...item,
     amountMinor:
-      item.match.product_type === "originator_claim"
+      usesImmediateClaimAssignment(item.match)
         ? preparedQuotes[item.match.loan_id]?.executable_cash_minor ?? item.amountMinor
         : item.amountMinor,
     quote: preparedQuotes[item.match.loan_id]
@@ -3086,13 +3098,13 @@ function ApproveAllocationModal({
     );
   }
   const selectedCount = items.length;
-  const originatorCount = items.filter((item) => item.match.product_type === "originator_claim").length;
-  const directCount = selectedCount - originatorCount;
+  const immediateClaimCount = items.filter((item) => usesImmediateClaimAssignment(item.match)).length;
+  const reservedOrderCount = selectedCount - immediateClaimCount;
   const quoteExpiryMs = Math.min(
     ...Object.values(preparedQuotes).map((quote) => new Date(quote.expires_at).getTime())
   );
-  const hasPreparedQuotes = originatorCount === Object.keys(preparedQuotes).length;
-  const quotesExpired = originatorCount > 0 && (!Number.isFinite(quoteExpiryMs) || quoteExpiryMs <= quoteClock);
+  const hasPreparedQuotes = immediateClaimCount === Object.keys(preparedQuotes).length;
+  const quotesExpired = immediateClaimCount > 0 && (!Number.isFinite(quoteExpiryMs) || quoteExpiryMs <= quoteClock);
   const quoteSecondsRemaining = Number.isFinite(quoteExpiryMs)
     ? Math.max(0, Math.ceil((quoteExpiryMs - quoteClock) / 1_000))
     : 0;
@@ -3101,7 +3113,7 @@ function ApproveAllocationModal({
     setError("");
     setPreparingQuotes(true);
     try {
-      const claimItems = items.filter((item) => item.match.product_type === "originator_claim");
+      const claimItems = items.filter((item) => usesImmediateClaimAssignment(item.match));
       const quotes = await Promise.all(
         claimItems.map(async (item) => {
           if (isFixturePreview) {
@@ -3214,8 +3226,8 @@ function ApproveAllocationModal({
               <h2 className="aa-title">Every selected investment is in.</h2>
               <p className="aa-done-text">
                 {allocCommitLabel(reviewTotals)} committed across {selectedCount === 1 ? "1 loan" : `${selectedCount} loans`}.
-                {directCount > 0 ? ` ${directCount === 1 ? "One direct-loan order reserves" : `${directCount} direct-loan orders reserve`} balance until funding closes.` : ""}
-                {originatorCount > 0 ? ` ${originatorCount === 1 ? "One Loan Originator claim was" : `${originatorCount} Loan Originator claims were`} purchased immediately at the reviewed prices.` : ""}
+                {reservedOrderCount > 0 ? ` ${reservedOrderCount === 1 ? "One order reserves" : `${reservedOrderCount} orders reserve`} balance until the applicable funding round closes and completes its activation controls.` : ""}
+                {immediateClaimCount > 0 ? ` ${immediateClaimCount === 1 ? "One legacy Loan Originator claim was" : `${immediateClaimCount} legacy Loan Originator claims were`} purchased immediately at the reviewed prices.` : ""}
               </p>
             </div>
           ) : step === "confirm" ? (
@@ -3240,11 +3252,11 @@ function ApproveAllocationModal({
                   <span>one terms acceptance and one email code cover every investment in this batch</span>
                 </div>
               </div>
-              {originatorCount > 0 ? (
+              {immediateClaimCount > 0 ? (
                 <Banner tone={quotesExpired ? "bad" : "info"} title={quotesExpired ? "Quoted prices expired" : "Loan Originator prices locked"}>
                   {quotesExpired
                     ? "Refresh prices and review the updated cash and assigned-principal amounts before confirming."
-                    : `The ${originatorCount === 1 ? "claim price is" : "claim prices are"} executable for ${Math.floor(quoteSecondsRemaining / 60)}:${String(quoteSecondsRemaining % 60).padStart(2, "0")}. Minor-unit rounding not used by a quote remains in your balance.`}
+                    : `The ${immediateClaimCount === 1 ? "legacy claim price is" : "legacy claim prices are"} executable for ${Math.floor(quoteSecondsRemaining / 60)}:${String(quoteSecondsRemaining % 60).padStart(2, "0")}. Minor-unit rounding not used by a quote remains in your balance.`}
                   <div style={{ marginTop: 10 }}>
                     <button className="aa-link" disabled={busy} onClick={() => void prepareReview()} type="button">
                       {preparingQuotes ? "Refreshing prices..." : "Refresh prices"}
@@ -3277,7 +3289,7 @@ function ApproveAllocationModal({
               <div className="aa-eyebrow">Approve the allocation</div>
               <h2 className="aa-title">Approve this allocation.</h2>
               <div className="aa-intro">
-                {tickable.length === 1 ? "1 opportunity meets" : `${tickable.length} opportunities meet`} your conditions today{selectedCount === tickable.length ? ", and every one is ticked" : ""}. Untick anything you would rather skip — your capital is split equally between whatever stays ticked, so unticking one gives the others more. Loan Originator prices are locked together on the next step. The small i opens any loan in full — your ticks keep waiting underneath.
+                {tickable.length === 1 ? "1 opportunity meets" : `${tickable.length} opportunities meet`} your conditions today{selectedCount === tickable.length ? ", and every one is ticked" : ""}. Untick anything you would rather skip — your capital is split equally between whatever stays ticked, so unticking one gives the others more. Legacy immediate-assignment prices are locked on the next step; funding-round opportunities reserve at par. The small i opens any loan in full — your ticks keep waiting underneath.
               </div>
               <div className="aa-list-head">
                 <span className="aa-list-cap">Today&apos;s allocation</span>
@@ -4064,8 +4076,8 @@ function MarketplaceScreen({
         );
       })() : null}
       <p className="marketplace-footnote">
-        Direct-loan progress reflects validated allocations. Originator-claim progress reflects the
-        legal claim principal already sold; quoted prices can change as interest accrues or repayments arrive.
+        Funding-round progress reflects validated balance reservations. Legacy immediate-assignment
+        claim progress reflects principal already sold; only those legacy prices can change before purchase.
       </p>
       </section>
 
@@ -4078,12 +4090,12 @@ function MarketplaceScreen({
         <div>
           <span className="marketplace-process-number">02</span>
           <strong>Confirm the applicable investment flow</strong>
-          <p>Direct-loan orders reserve eligible balance after allocation. Originator claims are priced and assigned immediately when purchased.</p>
+          <p>Current opportunities reserve eligible balance during funding. A Loan Originator subscription buys principal at par and activates only after its boundary payment is verified.</p>
         </div>
         <div>
           <span className="marketplace-process-number">03</span>
           <strong>Your portfolio records the legal claim</strong>
-          <p>Direct-loan holdings start at funding close. An originator claim enters your portfolio as soon as the purchase settles on BANXUM.</p>
+          <p>Direct-loan holdings start at funding close. Loan Originator subscription holdings start after the first post-funding installment is paid to the originator and activation controls pass.</p>
         </div>
         <button className="marketplace-process-help" onClick={() => setShowOrderGuide(true)} type="button">
           Full order explanation <Icon name="chevR" size={14} />
@@ -4100,8 +4112,8 @@ function MarketplaceScreen({
           <div className="marketplace-order-guide">
             <div><span>1</span><p><strong>You submit an order.</strong> It records the amount you want to invest, but a pending order does not reserve loan capacity.</p></div>
             <div><span>2</span><p><strong>BANXUM validates eligible balance.</strong> Allocation is first come, first served and remains subject to your balance-lot investment window and the loan's remaining capacity.</p></div>
-            <div><span>3</span><p><strong>Allocated money is reserved.</strong> If the funding round proceeds, Garanta closes it and the allocated amount becomes a loan holding in your portfolio.</p></div>
-            <div><span>4</span><p><strong>If the loan does not proceed, the reservation is released.</strong> The amount returns to your platform balance and keeps its original regulatory ageing deadlines.</p></div>
+            <div><span>3</span><p><strong>Allocated money is reserved.</strong> A direct loan becomes a holding at funding close. A Loan Originator subscription remains reserved until the first post-funding installment is verified and the subscription activates.</p></div>
+            <div><span>4</span><p><strong>If activation does not proceed, the reservation is released.</strong> The amount returns to your platform balance and keeps its original regulatory ageing deadlines.</p></div>
           </div>
           <Banner tone="neutral" title="Minimum order">
             The launch minimum is CHF/EUR 1,000 per order. The backend confirms eligibility, capacity, terms acceptance and the fresh email code before allocation.
@@ -4683,6 +4695,49 @@ function osProjection(amountMinor: number, yieldBps: number, termMonths: number,
   return { totalMinor: Math.round(amountMinor + interest), interestMinor: Math.round(interest), monthlyMinor: null };
 }
 
+function originatorSubscriptionProjection(
+  loan: MarketplaceLoanDetail,
+  amountMinor: number
+) {
+  const boundaryDate = loan.entitlement_start_date;
+  const rows = (loan.originator_schedule ?? []).filter(
+    (row) => !boundaryDate || row.due_date > boundaryDate
+  );
+  if (amountMinor <= 0 || loan.principal_minor <= 0 || rows.length === 0) {
+    return { totalMinor: amountMinor, interestMinor: 0, monthlyMinor: null };
+  }
+  const participation = (loan.investor_interest_participation_bps ?? 0) / 10_000;
+  let currentPrincipal = amountMinor;
+  let projectedPrincipal = 0;
+  let projectedInterest = 0;
+  rows.forEach((row, index) => {
+    const opening = Math.max(1, row.opening_principal_minor);
+    const principalPart = index === rows.length - 1
+      ? currentPrincipal
+      : Math.min(currentPrincipal, Math.round((row.principal_minor * currentPrincipal) / opening));
+    projectedPrincipal += principalPart;
+    projectedInterest += Math.round((row.interest_minor * currentPrincipal * participation) / opening);
+    currentPrincipal -= principalPart;
+  });
+  return {
+    totalMinor: projectedPrincipal + projectedInterest,
+    interestMinor: projectedInterest,
+    monthlyMinor: null
+  };
+}
+
+function marketplaceProjection(
+  detail: MarketplaceLoanDetail | null,
+  amountMinor: number,
+  yieldBps: number,
+  termMonths: number,
+  repaymentType: string
+) {
+  return detail && usesOriginatorSubscription(detail)
+    ? originatorSubscriptionProjection(detail, amountMinor)
+    : osProjection(amountMinor, yieldBps, termMonths, repaymentType);
+}
+
 function MarketplaceLoanSheet({
   preview,
   onClose,
@@ -4715,6 +4770,8 @@ function MarketplaceLoanSheet({
   const loan = detail ?? preview;
   const ccy = loan.currency;
   const claim = isOriginatorClaimLoan(loan);
+  const subscriptionClaim = usesOriginatorSubscription(loan);
+  const immediateClaim = usesImmediateClaimAssignment(loan);
   const yieldBps = marketplaceYieldBps(loan);
   const openLoan = isOpenMarketplaceLoan(loan);
   const ltvBps = loan.ltv_bps;
@@ -4726,9 +4783,9 @@ function MarketplaceLoanSheet({
   const pct = loan.principal_minor > 0 ? Math.round((loan.committed_principal_minor / loan.principal_minor) * 100) : 0;
   const availableMinor = marketplaceAvailableMinor(loan);
   const todayMs = Date.now();
-  const daysToClose = !claim && loan.funding_deadline
+  const daysToClose = loan.funding_deadline
     ? Math.max(0, Math.ceil((new Date(`${loan.funding_deadline}T00:00:00`).getTime() - todayMs) / 86_400_000))
-    : claim && typeof loan.remaining_term_days === "number"
+    : immediateClaim && typeof loan.remaining_term_days === "number"
       ? Math.max(0, loan.remaining_term_days - 30)
       : null;
   const investableMinor = sumLotAvailableMinor(currentInvestableLotsForLoanCurrency(balances?.lots, loan));
@@ -4739,20 +4796,20 @@ function MarketplaceLoanSheet({
   const amountValue = amountText ?? formatMoneyMinor(amountMinor, ccy);
   const overCash = amountMinor > commitableMinor;
   const underMin = amountMinor < minInvestMinor;
-  const projection = osProjection(investableMinor > 0 ? investableMinor : minInvestMinor, yieldBps, loan.term_months, repaymentType);
+  const projection = marketplaceProjection(detail, investableMinor > 0 ? investableMinor : minInvestMinor, yieldBps, loan.term_months, repaymentType);
   const walletBase = investableMinor > 0 ? investableMinor : minInvestMinor;
-  const commitProjection = osProjection(amountMinor, yieldBps, loan.term_months, repaymentType);
+  const commitProjection = marketplaceProjection(detail, amountMinor, yieldBps, loan.term_months, repaymentType);
   const bookMinor = (portfolio?.holdings ?? [])
     .filter((holding) => holding.currency === ccy)
     .reduce((sum, holding) => sum + holding.current_principal_minor, 0);
   const originLine = claim
-    ? `originated by ${loan.originator_name ?? "a loan originator"}${detail?.loan_start_date ? ` · ${new Date(`${detail.loan_start_date}T00:00:00`).toLocaleDateString("en-GB", { month: "long", year: "numeric" })}` : ""}${(loan.skin_in_the_game_bps ?? 0) > 0 ? ` · kept ${formatRateBps(loan.skin_in_the_game_bps ?? 0)}` : ""}`
+    ? `originated by ${loan.originator_name ?? "a loan originator"}${subscriptionClaim && loan.funding_deadline ? ` · funding closes ${formatDate(loan.funding_deadline)}` : detail?.loan_start_date ? ` · ${new Date(`${detail.loan_start_date}T00:00:00`).toLocaleDateString("en-GB", { month: "long", year: "numeric" })}` : ""}${(loan.skin_in_the_game_bps ?? 0) > 0 ? ` · kept ${formatRateBps(loan.skin_in_the_game_bps ?? 0)}` : ""}`
     : "originated by Banxum · written when this opportunity funds";
   const borrowerLabel = loan.borrower_display_name || loan.title;
   const chain = claim
-    ? `Your claim is against ${borrowerLabel}. Banxum collects it and holds the charge — ${loan.originator_name ?? "the originator"} is not in that chain${(loan.skin_in_the_game_bps ?? 0) > 0 ? `, and it kept ${formatRateBps(loan.skin_in_the_game_bps ?? 0)} of this loan, so it loses alongside you` : ""}.`
+    ? `${subscriptionClaim ? "After activation, your" : "Your"} claim is against ${borrowerLabel}. Banxum collects it and holds the charge — ${loan.originator_name ?? "the originator"} is not in that chain${(loan.skin_in_the_game_bps ?? 0) > 0 ? `, and it keeps ${formatRateBps(loan.skin_in_the_game_bps ?? 0)} of the outstanding principal, so it loses alongside you` : ""}.`
     : `We underwrote this loan ourselves and we collect it. Your claim is against ${borrowerLabel}, and Banxum holds the charge over the collateral on your behalf.`;
-  const metMinimum = loan.principal_minor > 0
+  const metMinimum = !subscriptionClaim && loan.principal_minor > 0
     && loan.committed_principal_minor * 10_000 >= loan.principal_minor * minimumBps;
   const minPct = Math.round(minimumBps / 100);
   const goDetail = () => {
@@ -4780,8 +4837,8 @@ function MarketplaceLoanSheet({
               <div className="os-origin">{originLine}</div>
             </div>
             <div className="os-stats">
-              <div className="os-stat"><div className="os-stat-val">{formatRateBps(yieldBps)}</div><div className="os-stat-cap">a year</div></div>
-              <div className="os-stat"><div className="os-stat-val">{loan.term_months} mo</div><div className="os-stat-cap">{pfPaysLabel(repaymentType)}</div></div>
+              <div className="os-stat"><div className="os-stat-val">{formatRateBps(yieldBps)}</div><div className="os-stat-cap">{subscriptionClaim ? "nominal investor rate" : "a year"}</div></div>
+              <div className="os-stat"><div className="os-stat-val">{loan.term_months} mo</div><div className="os-stat-cap">{subscriptionClaim ? "remaining schedule" : pfPaysLabel(repaymentType)}</div></div>
               <div className="os-stat"><div className="os-stat-val" style={hasAsset ? undefined : { color: "#C4312C" }}>{hasAsset ? formatRateBps(ltvBps ?? 0) : "none"}</div><div className="os-stat-cap">{hasAsset ? "of valuation" : "no asset"}</div></div>
               {daysToClose !== null ? (
                 <div className="os-stat"><div className="os-stat-val" style={daysToClose <= 7 ? { color: "#C4312C" } : undefined}>{daysToClose} {daysToClose === 1 ? "day" : "days"}</div><div className="os-stat-cap">to close</div></div>
@@ -4826,7 +4883,7 @@ function MarketplaceLoanSheet({
                 <div className="os-wallet-col">
                   <div className="os-wallet-cap">Illustrative — if paid as scheduled</div>
                   <div className="os-wallet-val">{pfMoneyLabel(ccy, projection.totalMinor)}</div>
-                  <div className="os-wallet-sub">{pfMoneyLabel(ccy, walletBase)} your capital returning + {pfMoneyLabel(ccy, projection.interestMinor)} interest{projection.monthlyMinor ? `, arriving as ${pfMoneyLabel(ccy, projection.monthlyMinor)} a month — not in one payment` : repaymentType === "bullet_periodic_interest" ? ", interest monthly and capital at maturity" : ", paid at maturity"}</div>
+                  <div className="os-wallet-sub">{pfMoneyLabel(ccy, walletBase)} your capital returning + {pfMoneyLabel(ccy, projection.interestMinor)} interest{subscriptionClaim ? ", based on the imported remaining loan schedule and your declared component participation" : projection.monthlyMinor ? `, arriving as ${pfMoneyLabel(ccy, projection.monthlyMinor)} a month — not in one payment` : repaymentType === "bullet_periodic_interest" ? ", interest monthly and capital at maturity" : ", paid at maturity"}</div>
                 </div>
                 <div className="os-wallet-col last">
                   <div className="os-wallet-cap red">If it stops paying</div>
@@ -4835,6 +4892,22 @@ function MarketplaceLoanSheet({
                 </div>
               </div>
             </div>
+
+            {subscriptionClaim ? (
+              <div className="os-card">
+                <div className="os-cap">Loan Originator subscription terms</div>
+                <div className="os-text">
+                  Every {ccy} 1.00 reserved buys {ccy} 1.00 of outstanding principal at activation.
+                  No investor interest accrues during funding. The first installment after the funding
+                  deadline belongs entirely to the Loan Originator; investor entitlement starts only
+                  after that payment is verified and the subscription is activated.
+                </div>
+                <div className="os-kv"><span className="os-kv-lbl">Underlying borrower coupon</span><span className="os-kv-dots" /><span className="os-kv-val">{formatRateBps(loan.underlying_interest_rate_bps)}</span></div>
+                <div className="os-kv"><span className="os-kv-lbl">Your share of attributable interest</span><span className="os-kv-dots" /><span className="os-kv-val">{formatRateBps(loan.investor_interest_participation_bps ?? 0)}</span></div>
+                <div className="os-kv"><span className="os-kv-lbl">Your share of attributable penalties</span><span className="os-kv-dots" /><span className="os-kv-val">{formatRateBps(loan.investor_penalty_participation_bps ?? 0)}</span></div>
+                {loan.entitlement_start_date ? <div className="os-kv"><span className="os-kv-lbl">Boundary installment due</span><span className="os-kv-dots" /><span className="os-kv-val">{formatDate(loan.entitlement_start_date)}</span></div> : null}
+              </div>
+            ) : null}
 
             {!claim ? (
               <div className="os-card">
@@ -4859,6 +4932,16 @@ function MarketplaceLoanSheet({
                   )
                 ) : null}
               </div>
+            ) : subscriptionClaim ? (
+              <div className="os-card">
+                <div className="os-card-head"><span className="os-cap">Funding round</span><span className="os-over">{loan.funding_deadline ? `closes ${formatDate(loan.funding_deadline)}` : ""}</span></div>
+                <div className="os-window plain"><div className="os-window-fill" style={{ width: `${Math.min(100, pct)}%`, background: "#1E6A4B" }} /></div>
+                <div className="os-window-line"><span className="os-window-sub"><strong>{pct}%</strong> reserved · {pfMoneyLabel(ccy, availableMinor)} available at par</span></div>
+                <div className="os-strip met">
+                  <span className="os-strip-lead">Reserved, then activated</span>
+                  <span className="os-strip-text">Your money remains reserved after this round closes. It becomes an investor holding only after BANXUM verifies the boundary installment and activates the subscription. If activation cannot proceed, an admin cancels the round and returns the reserved balance with its original ageing dates.</span>
+                </div>
+              </div>
             ) : (
               <div className="os-card">
                 <div className="os-cap os-cap-gap">Availability</div>
@@ -4882,7 +4965,7 @@ function MarketplaceLoanSheet({
             </div>
             <div className="os-bar-col split">
               <div className="os-wallet-cap green">You would earn</div>
-              <div className="os-bar-row"><span className="os-bar-val green">≈ {pfMoneyLabel(ccy, osProjection(commitableMinor, yieldBps, loan.term_months, repaymentType).interestMinor)}</span><span className="os-bar-sub">interest, over {loan.term_months} months</span></div>
+              <div className="os-bar-row"><span className="os-bar-val green">≈ {pfMoneyLabel(ccy, marketplaceProjection(detail, commitableMinor, yieldBps, loan.term_months, repaymentType).interestMinor)}</span><span className="os-bar-sub">interest, over the remaining schedule</span></div>
             </div>
             <span className="ls-spacer" />
             {!claim && detail ? (
@@ -4963,6 +5046,7 @@ function MarketplaceOpportunityList({
       {loans.map((loan) => {
         const fundedPercent = fundingPercent(loan);
         const originatorClaim = isOriginatorClaimLoan(loan);
+        const subscriptionClaim = usesOriginatorSubscription(loan);
         const availableMinor = marketplaceAvailableMinor(loan);
         return (
           <article className="marketplace-opportunity" key={loan.loan_id} onClick={() => onOpen(loan)}>
@@ -5011,15 +5095,19 @@ function MarketplaceOpportunityList({
                 <span className="marketplace-mobile-label">Available to invest</span>
                 <div className="marketplace-funding-value">
                   <strong>{loan.currency} {formatMoneyMinor(availableMinor, loan.currency)}</strong>
-                  <span>{fundedPercent}% {originatorClaim ? "claim sold" : "funded"}</span>
+                  <span>{fundedPercent}% {subscriptionClaim ? "reserved" : originatorClaim ? "claim sold" : "funded"}</span>
                 </div>
                 <Progress percent={fundedPercent} />
-                <small>{loan.currency} {formatMoneyMinor(loan.committed_principal_minor, loan.currency)} of {formatMoneyMinor(loan.principal_minor, loan.currency)} principal</small>
+                <small>{loan.currency} {formatMoneyMinor(loan.committed_principal_minor, loan.currency)} of {formatMoneyMinor(loan.principal_minor, loan.currency)} {subscriptionClaim ? "reserved" : "principal"}</small>
               </div>
               <div className="marketplace-opportunity-deadline">
-                <span className="marketplace-mobile-label">{originatorClaim ? "Maturity" : "Closes in"}</span>
+                <span className="marketplace-mobile-label">{subscriptionClaim || !originatorClaim ? "Closes in" : "Maturity"}</span>
                 <strong>
-                  {originatorClaim
+                  {subscriptionClaim
+                    ? loan.funding_deadline
+                      ? fundingDeadlineLabel(loan.funding_deadline, asOf)
+                      : "See details"
+                    : originatorClaim
                     ? loan.remaining_term_days === null
                       ? "See details"
                       : `${loan.remaining_term_days} days`
@@ -5028,7 +5116,11 @@ function MarketplaceOpportunityList({
                       : "-"}
                 </strong>
                 <small>
-                  {originatorClaim
+                  {subscriptionClaim
+                    ? loan.funding_deadline
+                      ? formatDate(loan.funding_deadline)
+                      : "Funding deadline unavailable"
+                    : originatorClaim
                     ? loan.maturity_date
                       ? `Matures ${formatDate(loan.maturity_date)}`
                       : "Open while performing"
@@ -5041,8 +5133,8 @@ function MarketplaceOpportunityList({
             </div>
             {viewMode === "detailed" ? (
               <div className="marketplace-opportunity-details">
-                <div><span>{originatorClaim ? "Current claim principal" : "Loan amount"}</span><strong>{loan.currency} {formatMoneyMinor(loan.principal_minor, loan.currency)}</strong></div>
-                <div><span>{originatorClaim ? "Claim principal sold" : "Allocated"}</span><strong>{loan.currency} {formatMoneyMinor(loan.committed_principal_minor, loan.currency)}</strong></div>
+                <div><span>{originatorClaim ? "Post-boundary principal" : "Loan amount"}</span><strong>{loan.currency} {formatMoneyMinor(loan.principal_minor, loan.currency)}</strong></div>
+                <div><span>{subscriptionClaim ? "Principal reserved" : originatorClaim ? "Claim principal sold" : "Allocated"}</span><strong>{loan.currency} {formatMoneyMinor(loan.committed_principal_minor, loan.currency)}</strong></div>
                 <div><span>Collateral / backing</span><strong>{formatEnumLabel(loan.collateral_type)}</strong></div>
                 <div><span>Risk rating</span><strong>{loan.risk_rating}</strong></div>
                 <div>
@@ -5082,6 +5174,7 @@ function LoanDetailScreen({
   if (!loan) return <ScreenLoading title="Loan detail" />;
   const blocked = demoState !== "active";
   const originatorClaim = isOriginatorClaimLoan(loan);
+  const subscriptionClaim = usesOriginatorSubscription(loan);
   const openForInvestment = isOpenMarketplaceLoan(loan);
   const availableMinor = marketplaceAvailableMinor(loan);
 
@@ -5106,16 +5199,18 @@ function LoanDetailScreen({
           <Card padded>
             <div className="grid grid-4" style={{ gap: 0 }}>
               <Stat amountMinor={loan.principal_minor} currency={loan.currency} label={originatorClaim ? "Current principal" : "Amount"} />
-              <Stat label="Yield" raw={formatRateBps(marketplaceYieldBps(loan))} sub="effective annual · ACT/365" />
+              <Stat label="Yield" raw={formatRateBps(marketplaceYieldBps(loan))} sub={subscriptionClaim ? "nominal rate after activation" : "effective annual · ACT/365"} />
               <Stat label="Term" raw={loan.remaining_term_days === null ? `${loan.term_months} mo` : `${loan.remaining_term_days} days`} sub={loan.repayment_type} />
-              <Stat label={originatorClaim ? "Claim sold" : "Funded"} raw={`${fundingPercent(loan)}%`} sub={`${loan.currency} ${formatMoneyMinor(loan.committed_principal_minor, loan.currency)}`} />
+              <Stat label={subscriptionClaim ? "Reserved" : originatorClaim ? "Claim sold" : "Funded"} raw={`${fundingPercent(loan)}%`} sub={`${loan.currency} ${formatMoneyMinor(loan.committed_principal_minor, loan.currency)}`} />
             </div>
             <div style={{ marginTop: 14 }}>
               <Progress percent={fundingPercent(loan)} />
               <div className="row spread muted" style={{ fontSize: 12, marginTop: 6 }}>
-                <span>{loan.currency} {formatMoneyMinor(loan.committed_principal_minor, loan.currency)} {originatorClaim ? "claim principal sold" : "allocated"}</span>
+                <span>{loan.currency} {formatMoneyMinor(loan.committed_principal_minor, loan.currency)} {subscriptionClaim ? "reserved" : originatorClaim ? "claim principal sold" : "allocated"}</span>
                 <span>
-                  {originatorClaim
+                  {subscriptionClaim
+                    ? loan.funding_deadline ? `Funding closes ${formatDate(loan.funding_deadline)}` : "Funding deadline unavailable"
+                    : originatorClaim
                     ? loan.maturity_date
                       ? `Matures ${formatDate(loan.maturity_date)}`
                       : "Maturity unavailable"
@@ -5155,7 +5250,7 @@ function LoanDetailScreen({
               </Empty>
             ) : (
               <>
-                <div className="eyebrow" style={{ marginBottom: 8 }}>{originatorClaim ? "Buy this loan claim" : "Invest in this loan"}</div>
+                <div className="eyebrow" style={{ marginBottom: 8 }}>{subscriptionClaim ? "Subscribe at par" : originatorClaim ? "Buy this loan claim" : "Invest in this loan"}</div>
                 {originatorClaim && loan.originator_name ? <KeyValue label="Loan originator" value={loan.originator_name} /> : null}
                 {originatorClaim && (loan.skin_in_the_game_bps ?? 0) > 0 ? <KeyValue label="Skin in the game" value={`${formatRateBps(loan.skin_in_the_game_bps ?? 0)} kept by the originator`} /> : null}
                 <KeyValue label="Yield" value={`${formatRateBps(marketplaceYieldBps(loan))} p.a.`} />
@@ -5163,8 +5258,10 @@ function LoanDetailScreen({
                 <KeyValue label="Minimum investment" value={`${loan.currency} ${formatMoneyMinor(loan.minimum_investment_minor, loan.currency)}`} />
                 <KeyValue label="Available now" value={`${loan.currency} ${formatMoneyMinor(availableMinor, loan.currency)}`} />
                 <KeyValue
-                  label={originatorClaim ? "Maturity" : "Closes"}
-                  value={originatorClaim
+                  label={subscriptionClaim || !originatorClaim ? "Closes" : "Maturity"}
+                  value={subscriptionClaim
+                    ? loan.funding_deadline ? formatDate(loan.funding_deadline) : "Not available"
+                    : originatorClaim
                     ? loan.maturity_date ? formatDate(loan.maturity_date) : "Not available"
                     : loan.funding_deadline ? formatDate(loan.funding_deadline) : "Not available"}
                 />
@@ -5178,11 +5275,13 @@ function LoanDetailScreen({
                   </Banner>
                 ) : (
                   <Button block icon="trend" variant="primary" onClick={() => setInvestLoan(loan)}>
-                    {originatorClaim ? "Review claim purchase" : "Place investment order"}
+                    {usesImmediateClaimAssignment(loan) ? "Review claim purchase" : "Place investment order"}
                   </Button>
                 )}
                 <p className="muted" style={{ fontSize: 11, lineHeight: 1.5, marginTop: 10 }}>
-                  {originatorClaim
+                  {subscriptionClaim
+                    ? "The order reserves balance at par. No interest accrues during funding; the holding starts only after the boundary installment is verified and BANXUM activates the subscription."
+                    : originatorClaim
                     ? "BANXUM generates an executable quote from the remaining borrower cash flows. A confirmed purchase assigns the legal claim immediately."
                     : "Orders are intents and do not reserve capacity until funds are allocated and validated."}
                 </p>
@@ -5281,6 +5380,7 @@ function LoanOverview({ loan }: { loan: MarketplaceLoanDetail }) {
 }
 
 function OriginatorClaimLoanSection({ loan }: { loan: MarketplaceLoanDetail }) {
+  const subscriptionClaim = usesOriginatorSubscription(loan);
   const schedule = loan.originator_schedule ?? [];
   const payments = loan.originator_payment_history ?? [];
   const scheduleTotals = schedule.reduce(
@@ -5311,18 +5411,29 @@ function OriginatorClaimLoanSection({ loan }: { loan: MarketplaceLoanDetail }) {
         <span className="tag">Revision {loan.schedule_revision ?? loan.schedule_version}</span>
       </div>
       <p className="muted" style={{ fontSize: 12, lineHeight: 1.5, maxWidth: 760 }}>
-        The loan originator owns the unsold claim. Your purchase assigns part of the final-borrower
-        claim immediately. The yield shown by BANXUM is the effective annual ACT/365 yield priced from
-        the remaining cash flows; it is distinct from the borrower coupon.
+        {subscriptionClaim
+          ? "The Loan Originator retains the unsold principal. Your order reserves cash at par during the funding round. Investor entitlement starts only after the first post-funding installment is paid entirely to the originator and BANXUM verifies the activation evidence."
+          : "The Loan Originator owns the unsold claim. A legacy purchase assigns part of the final-borrower claim immediately. The yield shown by BANXUM is the effective annual ACT/365 yield priced from the remaining cash flows; it is distinct from the borrower coupon."}
       </p>
       <dl className="kv" style={{ marginTop: 10 }}>
-        <KeyValueRow label="Target investor yield" mono value={`${formatRateBps(loan.yield_bps)} p.a.`} />
+        <KeyValueRow label={subscriptionClaim ? "Nominal investor interest rate" : "Target investor yield"} mono value={`${formatRateBps(loan.yield_bps)} p.a.`} />
         <KeyValueRow label="Underlying borrower coupon" mono value={`${formatRateBps(loan.underlying_interest_rate_bps)} p.a.`} />
-        <KeyValueRow label="Current outstanding principal" mono value={`${loan.currency} ${formatMoneyMinor(loan.principal_minor, loan.currency)}`} />
-        <KeyValueRow label="Available claim principal" mono value={`${loan.currency} ${formatMoneyMinor(loan.remaining_capacity_minor, loan.currency)}`} />
+        {subscriptionClaim ? <KeyValueRow label="Investor interest participation" mono value={formatRateBps(loan.investor_interest_participation_bps ?? 0)} /> : null}
+        {subscriptionClaim ? <KeyValueRow label="Investor penalty participation" mono value={formatRateBps(loan.investor_penalty_participation_bps ?? 0)} /> : null}
+        {subscriptionClaim && loan.funding_deadline ? <KeyValueRow label="Funding deadline" value={formatDate(loan.funding_deadline)} /> : null}
+        {subscriptionClaim && loan.entitlement_start_date ? <KeyValueRow label="Boundary installment due" value={formatDate(loan.entitlement_start_date)} /> : null}
+        <KeyValueRow label={subscriptionClaim ? "Post-boundary principal" : "Current outstanding principal"} mono value={`${loan.currency} ${formatMoneyMinor(loan.principal_minor, loan.currency)}`} />
+        <KeyValueRow label={subscriptionClaim ? "Available at par" : "Available claim principal"} mono value={`${loan.currency} ${formatMoneyMinor(loan.remaining_capacity_minor, loan.currency)}`} />
         {loan.maturity_date ? <KeyValueRow label="Maturity" value={formatDate(loan.maturity_date)} /> : null}
-        {loan.pricing_as_of_date ? <KeyValueRow label="Pricing data as of" value={formatDate(loan.pricing_as_of_date)} /> : null}
+        {!subscriptionClaim && loan.pricing_as_of_date ? <KeyValueRow label="Pricing data as of" value={formatDate(loan.pricing_as_of_date)} /> : null}
       </dl>
+      {subscriptionClaim ? (
+        <Banner tone="info" title="No funding-period interest">
+          The boundary installment is excluded from investor entitlement. After activation, principal
+          follows the imported loan schedule; interest and penalties are distributed using the declared
+          participation percentages. Unsold rights remain with the Loan Originator.
+        </Banner>
+      ) : null}
       {schedule.length > 0 ? (
         <>
           <div className="eyebrow" style={{ margin: "16px 0 8px" }}>Current full loan schedule</div>
@@ -5455,13 +5566,18 @@ function OriginalLoanSection({ loan }: { loan: MarketplaceLoanDetail }) {
 
 function LoanTerms({ loan }: { loan: MarketplaceLoanDetail }) {
   const originatorClaim = isOriginatorClaimLoan(loan);
+  const subscriptionClaim = usesOriginatorSubscription(loan);
   return (
     <Card padded>
       <dl className="kv">
         {originatorClaim && loan.originator_name ? <KeyValueRow label="Loan originator" value={loan.originator_name} /> : null}
         {originatorClaim && (loan.skin_in_the_game_bps ?? 0) > 0 ? <KeyValueRow label="Skin in the game" mono value={`${formatRateBps(loan.skin_in_the_game_bps ?? 0)} kept by the originator`} /> : null}
-        <KeyValueRow label="Investor yield" mono value={`${formatRateBps(marketplaceYieldBps(loan))} p.a.`} />
+        <KeyValueRow label={subscriptionClaim ? "Nominal investor interest rate" : "Investor yield"} mono value={`${formatRateBps(marketplaceYieldBps(loan))} p.a.`} />
         {originatorClaim ? <KeyValueRow label="Underlying borrower coupon" mono value={`${formatRateBps(loan.underlying_interest_rate_bps)} p.a.`} /> : null}
+        {subscriptionClaim ? <KeyValueRow label="Investor interest participation" mono value={formatRateBps(loan.investor_interest_participation_bps ?? 0)} /> : null}
+        {subscriptionClaim ? <KeyValueRow label="Investor penalty participation" mono value={formatRateBps(loan.investor_penalty_participation_bps ?? 0)} /> : null}
+        {subscriptionClaim && loan.funding_deadline ? <KeyValueRow label="Funding deadline" value={formatDate(loan.funding_deadline)} /> : null}
+        {subscriptionClaim && loan.entitlement_start_date ? <KeyValueRow label="Boundary installment due" value={formatDate(loan.entitlement_start_date)} /> : null}
         <KeyValueRow label="Repayment type" value={loan.repayment_type} />
         <KeyValueRow label="Collateral / backing" value={loan.collateral_description} />
         {loan.collateral_value_minor > 0 ? <KeyValueRow label="Collateral value" mono value={`${loan.currency} ${formatMoneyMinor(loan.collateral_value_minor, loan.currency)}`} /> : null}
@@ -10129,6 +10245,7 @@ function OriginatorClaimInvestModal({ loan, onClose, initialAmount }: { loan: Ma
 
 function InvestModal({ loan, onClose, initialAmount }: { loan: MarketplaceLoanDetail; onClose: () => void; initialAmount?: string }) {
   const queryClient = useQueryClient();
+  const subscriptionClaim = usesOriginatorSubscription(loan);
   const balances = useBalancesData().data;
   const investableLots = currentInvestableLotsForLoanCurrency(balances?.lots, loan);
   const investableBalanceMinor = sumLotAvailableMinor(investableLots);
@@ -10242,11 +10359,29 @@ function InvestModal({ loan, onClose, initialAmount }: { loan: MarketplaceLoanDe
           <Field error={amountError} hint={`Between ${loan.currency} ${formatMoneyMinor(loan.minimum_investment_minor, loan.currency)} and ${formatMoneyMinor(maxInvest, loan.currency)}`} label="Investment amount">
             <div className="input-affix"><span className="prefix">{loan.currency}</span><input className="input mono" inputMode="decimal" onChange={(event) => setAmount(event.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" style={{ paddingLeft: 44 }} value={amount} /></div>
           </Field>
-          <Banner tone="neutral" title="Allocation">Orders are intents only. They become effective after funds are allocated and validated, first-come first-served.</Banner>
+          <Banner tone="neutral" title={subscriptionClaim ? "Subscription at par" : "Allocation"}>
+            {subscriptionClaim
+              ? `Every ${loan.currency} 1.00 reserves the right to receive ${loan.currency} 1.00 of outstanding principal after activation. No interest accrues during funding, and the boundary installment belongs to the Loan Originator.`
+              : "Orders are intents only. They become effective after funds are allocated and validated, first-come first-served."}
+          </Banner>
         </div>
       ) : step === "review" ? (
         <div className="col gap-16">
-          <Review rows={[{ label: "Loan", value: <span className="entity-inline"><span>{loan.title}</span><CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" /></span> }, { label: "Order amount", value: `${loan.currency} ${formatMoneyMinor(amountMinor, loan.currency)}` }, { label: "Yield", value: `${formatRateBps(marketplaceYieldBps(loan))} p.a.` }, { label: "Platform fee", value: "None" }]} />
+          <Review rows={[
+            { label: "Loan", value: <span className="entity-inline"><span>{loan.title}</span><CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" /></span> },
+            ...(subscriptionClaim && loan.originator_name ? [{ label: "Loan Originator", value: loan.originator_name }] : []),
+            { label: "Order amount", value: `${loan.currency} ${formatMoneyMinor(amountMinor, loan.currency)}` },
+            { label: subscriptionClaim ? "Principal acquired at activation" : "Investment amount", value: `${loan.currency} ${formatMoneyMinor(amountMinor, loan.currency)}` },
+            { label: subscriptionClaim ? "Nominal investor interest rate" : "Yield", value: `${formatRateBps(marketplaceYieldBps(loan))} p.a.` },
+            ...(subscriptionClaim ? [
+              { label: "Underlying borrower coupon", value: `${formatRateBps(loan.underlying_interest_rate_bps)} p.a.` },
+              { label: "Interest participation", value: formatRateBps(loan.investor_interest_participation_bps ?? 0) },
+              { label: "Penalty participation", value: formatRateBps(loan.investor_penalty_participation_bps ?? 0) },
+              { label: "Funding closes", value: loan.funding_deadline ? formatDate(loan.funding_deadline) : "Not available" },
+              { label: "Boundary installment", value: loan.entitlement_start_date ? formatDate(loan.entitlement_start_date) : "Not available" }
+            ] : []),
+            { label: "Platform fee", value: "None" }
+          ]} />
           <Check checked={ack1} id="invest-ack-1" onChange={setAck1}>
             I accept the{" "}
             <LegalDocLink category="primary_market_investment">
@@ -10288,7 +10423,11 @@ function InvestModal({ loan, onClose, initialAmount }: { loan: MarketplaceLoanDe
           {codeRequest.error || error ? <Banner tone="bad" title="Could not place order">{codeRequest.error || error}</Banner> : null}
         </div>
       ) : (
-        <SuccessState title="Order placed">Your order is pending allocation. Investment evidence will be added to Documents when generated.</SuccessState>
+        <SuccessState title="Order placed">
+          {subscriptionClaim
+            ? "Your balance is reserved for the Loan Originator funding round. It becomes a holding only after the boundary installment is verified and BANXUM activates the subscription; otherwise the reservation is returned."
+            : "Your order is pending allocation. Investment evidence will be added to Documents when generated."}
+        </SuccessState>
       )}
     </Modal>
   );

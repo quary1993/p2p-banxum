@@ -33,6 +33,12 @@ const fixtureIsoDate = (monthsAhead: number, day: number) => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 };
 
+const fixtureIsoDateFromToday = (daysAhead: number) => {
+  const date = new Date();
+  date.setDate(date.getDate() + daysAhead);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+};
+
 export const portalFixture: InvestorPortalFixture = {
   today: "2026-06-05",
   profile: {
@@ -498,33 +504,40 @@ const directMarketplaceLoanPreviews: MarketplaceLoanPreview[] = directMarketplac
 const originatorMarketplaceLoanFixture: MarketplaceLoanPreview = {
   loan_id: "LO-2601",
   product_type: "originator_claim",
-  investment_flow: "immediate_claim_assignment",
+  investment_flow: "primary_order",
   title: "Swiss SME equipment claim",
   purpose: "Equipment financing",
   collateral_type: "Machinery and equipment",
-  // Compatibility field: investor screens display yield_bps, never this as borrower coupon.
-  interest_rate_bps: 710,
-  yield_bps: 710,
+  // Investor display yield is the underlying coupon multiplied by the declared
+  // investor interest participation (10.80% x 70% = 7.56%).
+  interest_rate_bps: 756,
+  yield_bps: 756,
   underlying_interest_rate_bps: 1080,
   term_months: 9,
   remaining_term_days: 271,
   risk_rating: "B",
-  funding_deadline: null,
+  funding_deadline: fixtureIsoDateFromToday(30),
   maturity_date: fixtureIsoDate(9, 28),
   status: "published",
-  loan_status: "active",
+  loan_status: "published",
   opportunity_status: "open",
   currency: "CHF",
-  principal_minor: amount(180_000),
+  principal_minor: amount(160_000),
   committed_principal_minor: amount(45_000),
-  remaining_capacity_minor: amount(135_000),
-  fillable_amount_minor: amount(138_420),
+  remaining_capacity_minor: amount(91_000),
+  fillable_amount_minor: amount(91_000),
   minimum_investment_minor: amount(500),
   ltv_bps: 5450,
   is_refinancing: false,
   originator_id: "originator-alpine-credit",
   originator_name: "Alpine Credit Partners AG",
-  borrower_display_name: "Established Swiss precision manufacturer"
+  borrower_display_name: "Established Swiss precision manufacturer",
+  distribution_model: "par_component_v2",
+  entitlement_start_date: fixtureIsoDate(1, 28),
+  investor_interest_participation_bps: 7000,
+  investor_penalty_participation_bps: 5000,
+  skin_in_the_game_bps: 1500,
+  minimum_subscription_bps: 0
 };
 
 export const marketplaceLoansFixture: MarketplaceLoanPreview[] = [
@@ -694,7 +707,7 @@ const originatorScheduleFixture = [
   {
     installment_number: 1,
     accrual_start_date: fixtureIsoDate(-1, 28),
-    due_date: fixtureIsoDate(0, 28),
+    due_date: fixtureIsoDate(1, 28),
     opening_principal_minor: amount(180_000),
     principal_minor: amount(20_000),
     interest_minor: amount(1_620),
@@ -705,8 +718,8 @@ const originatorScheduleFixture = [
   },
   {
     installment_number: 2,
-    accrual_start_date: fixtureIsoDate(0, 28),
-    due_date: fixtureIsoDate(1, 28),
+    accrual_start_date: fixtureIsoDate(1, 28),
+    due_date: fixtureIsoDate(2, 28),
     opening_principal_minor: amount(160_000),
     principal_minor: amount(20_000),
     interest_minor: amount(1_440),
@@ -717,8 +730,8 @@ const originatorScheduleFixture = [
   },
   {
     installment_number: 3,
-    accrual_start_date: fixtureIsoDate(1, 28),
-    due_date: fixtureIsoDate(2, 28),
+    accrual_start_date: fixtureIsoDate(2, 28),
+    due_date: fixtureIsoDate(3, 28),
     opening_principal_minor: amount(140_000),
     principal_minor: amount(20_000),
     interest_minor: amount(1_260),
@@ -729,7 +742,7 @@ const originatorScheduleFixture = [
   },
   {
     installment_number: 4,
-    accrual_start_date: fixtureIsoDate(2, 28),
+    accrual_start_date: fixtureIsoDate(3, 28),
     due_date: fixtureIsoDate(9, 28),
     opening_principal_minor: amount(120_000),
     principal_minor: amount(120_000),
@@ -757,7 +770,7 @@ const originatorLoanDetailFixture: MarketplaceLoanDetail = {
     profit_last_year_minor: amount(315_000)
   },
   investor_summary:
-    "Existing final-borrower loan offered by a Loan Originator. Purchasing immediately assigns the selected legal claim to the investor.",
+    "Existing final-borrower loan offered by a Loan Originator during a finite funding round. Investor money is reserved at par and claim rights begin only after the declared boundary installment is verified.",
   purpose_description:
     "Financing of production machinery. Garanta services the claim while investor ownership remains outstanding.",
   collateral_value_minor: amount(3_300_000),
@@ -772,7 +785,7 @@ const originatorLoanDetailFixture: MarketplaceLoanDetail = {
   original_loan_schedule: [],
   repayment_type: "amortizing_principal_interest",
   loan_start_date: fixtureIsoDate(-3, 28),
-  first_payment_date: fixtureIsoDate(0, 28),
+  first_payment_date: fixtureIsoDate(2, 28),
   schedule_version: 1,
   originator_schedule: originatorScheduleFixture,
   originator_payment_history: [

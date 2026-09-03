@@ -305,8 +305,10 @@ No high-risk action requires dual approval at launch. Each high-risk action shou
 
 ## Loan Originator Operations
 
-Admins maintain originators, off-platform KYB evidence, active/blocked state, settlement details, and default fee. They create originator-claim loans separately, upload/validate schedule/payment CSV evidence, review anonymized disclosure and ACT/365 pricing, and publish after all gates.
+Admins maintain originators, off-platform KYB evidence, active/blocked state, and settlement details. They create originator-claim loans separately, upload/validate schedule/payment CSV evidence, define finite funding and exact activation-boundary terms, declare interest/penalty participation, review anonymized disclosure, and publish after all gates.
 
-The Loans table combines products and shows type, borrower/originator, outstanding/unsold principal, investor yield, maturity, priced fillable amount, and status. Originator rows never expose direct funding-close/disbursement actions.
+The Loans table combines products and shows type, borrower/originator, reserved/sellable principal, nominal investor yield, funding deadline, maturity, and lifecycle status. Current originator rows never expose direct close/cancel/disbursement/servicing actions. Their Manage flow provides publish, deterministic subscription close, exact boundary-payment activation, cancellation/refund, hold/release, and post-activation replacement-import repayment actions.
 
-Finance Ops groups originator payable by originator/currency with purchases, gross, fee, net, oldest age, due/overdue state, and settlement action. Tasks start at day 3 and escalate after day 5. Reports/reconciliation show originator payable separately.
+Full subscription triggers close automatically. The deadline resolver closes any positive round and cancels an empty round. Failed close processing preserves reservations, hides the opportunity, creates an urgent task, and emails operations. Close creates a normal activation task; activation is allowed only when boundary payment/reference/date/resulting principal match. Any mismatch is resolved through audited cancellation/refund, never discretionary repricing.
+
+Finance Ops groups originator payable by originator/currency with activation and servicing items, total payable, oldest age, due/overdue state, and settlement action. Tasks start at day 3 and escalate after day 5. Reports/reconciliation show funding escrow and originator payable separately.
