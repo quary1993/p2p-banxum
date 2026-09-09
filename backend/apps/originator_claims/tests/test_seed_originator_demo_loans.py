@@ -7,6 +7,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.test import Client
 
 from backend.apps.originator_claims.management.commands.seed_originator_demo_loans import (
     DEMO_ORIGINATOR_LOAN_SPECS,
@@ -45,7 +46,9 @@ def _currencies() -> None:
 
 
 @pytest.mark.django_db
-def test_seed_originator_demo_loans_publishes_varied_open_catalogue(settings: Any) -> None:
+def test_seed_originator_demo_loans_publishes_varied_open_catalogue(
+    settings: Any, client: Client
+) -> None:
     actor = _superadmin()
     settings.GARANTA_SUPERADMIN_EMAIL = actor.email
     _currencies()
@@ -94,6 +97,15 @@ def test_seed_originator_demo_loans_publishes_varied_open_catalogue(settings: An
         for profile in profiles
     )
     assert len(list_open_originator_marketplace_payloads(limit=100)) == 10
+    client.force_login(actor)
+    response = client.get("/api/v1/loans/admin/loans/")
+    assert response.status_code == 200
+    rows = {row["id"]: row for row in response.json()}
+    for profile in profiles:
+        row = rows[str(profile.loan_id)]
+        assert row["interest_rate_bps"] == profile.loan.interest_rate_bps
+        assert row["yield_bps"] == profile.target_yield_bps
+        assert row["yield_bps"] < row["interest_rate_bps"]
 
 
 @pytest.mark.django_db

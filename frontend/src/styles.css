@@ -3256,6 +3256,11 @@ table.tbl tfoot.schedule-totals th.num,
   min-width: 220px;
 }
 
+.admin-loan-rate {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .admin-schedule-review {
   background: #fffefb;
   border: 1px solid var(--line);

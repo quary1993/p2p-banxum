@@ -328,6 +328,13 @@ Each entry should include:
 - Required admin-console improvement: replace the raw basis-point input with a percent/basis-point control that previews the retained and sellable amounts against the imported current outstanding principal before publication. Preserve the exact server values and do not duplicate the financial calculation as an authoritative client rule.
 - Priority: important.
 
+## 2026-09-09: Admin Loan Rate Comparison
+
+- Screen or component: Loans table.
+- Current first-version behavior: separate Loan interest rate and Investor yield columns show exact basis-point precision as annual percentages; values stay together within the existing horizontally scrollable table on narrow screens.
+- Suggested improvement: consider sticky loan identity columns if more comparison fields are added, keeping both rates readable without losing row context.
+- Priority: nice-to-have.
+
 ## 2026-08-05: Universal Borrower-Payment Waterfall
 
 - Screen or component: Loans > Manage > Record borrower repayment / Record recovery payment, plus Loan Originator replacement-import repayment review.

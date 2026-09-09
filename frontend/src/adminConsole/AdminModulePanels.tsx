@@ -2653,14 +2653,15 @@ export function LoansPanel() {
           {loansQuery.error ? <Banner tone="bad" title="Could not load loans">{errorMessage(loansQuery.error)}</Banner> : null}
           {loans.length ? (
             <div className="table-wrap admin-table-wrap">
-              <table className="admin-table">
+              <table aria-label="Admin loans" className="admin-table">
                 <thead>
                   <tr>
                     <th>Loan / counterparty</th>
                     <th>Product</th>
                     <th>Status</th>
                     <th>Progress</th>
-                    <th>Yield</th>
+                    <th>Loan interest rate</th>
+                    <th>Investor yield</th>
                     <th>LTV</th>
                     <th>Funding / maturity</th>
                     <th>Actions</th>
@@ -2690,7 +2691,8 @@ export function LoansPanel() {
                       <td><Chip tone={loan.product_type === "originator_claim" ? "info" : "neutral"}>{loan.product_type === "originator_claim" ? "Originator claim" : "Direct"}</Chip></td>
                       <td><Chip tone={statusTone(loan.opportunity_status ?? loan.status)}>{labelize(loan.opportunity_status ?? loan.status)}</Chip></td>
                       <td><LoanFundingProgress loan={loan} /></td>
-                      <td>{formatRateBps(loan.yield_bps)}</td>
+                      <td className="admin-loan-rate">{(loan.interest_rate_bps / 100).toFixed(2)}% p.a.</td>
+                      <td className="admin-loan-rate">{(loan.yield_bps / 100).toFixed(2)}% p.a.</td>
                       <td>{loan.ltv_bps === null ? "-" : formatRateBps(loan.ltv_bps)}</td>
                       <td>{formatDate(loan.funding_deadline ?? loan.maturity_date)}</td>
                       <td>

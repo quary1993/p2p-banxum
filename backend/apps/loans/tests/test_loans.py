@@ -610,6 +610,8 @@ def test_loan_admin_api_create_publish_schedule_and_events(
     assert list_response.status_code == 200
     assert len(list_response.json()) == 1
     assert list_response.json()[0]["borrower_name"] == "Loan Borrower AG"
+    assert list_response.json()[0]["interest_rate_bps"] == 1000
+    assert list_response.json()[0]["yield_bps"] == 1000
     assert schedule_response.status_code == 200
     assert len(schedule_response.json()) == 6
     assert publish_response.status_code == 200

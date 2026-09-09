@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { expect, test } from "vitest";
 
 import { App } from "./App";
+import { loansFixture } from "./adminConsole/adminFixtures";
 import {
   readReadonlyImpersonationLabel,
   readReadonlyImpersonationToken,
@@ -1538,6 +1539,41 @@ test("admin module navigation renders operational panels", () => {
 
   fireEvent.click(screen.getByRole("button", { name: "Superadmin settings" }));
   expect(screen.getByRole("heading", { name: "Document templates" })).toBeInTheDocument();
+});
+
+test("admin loans distinguish annual borrower interest from investor yield", () => {
+  const originatorLoan = {
+    ...loansFixture[0],
+    id: "loan-originator-rate-test",
+    title: "Originator rate comparison",
+    product_type: "originator_claim",
+    borrower_id: null,
+    originator_id: "originator-rate-test",
+    originator_name: "Rate test originator",
+    opportunity_status: "open",
+    interest_rate_bps: 990,
+    yield_bps: 703
+  };
+  loansFixture.push(originatorLoan);
+  try {
+    renderApp("/admin");
+    fireEvent.click(screen.getByRole("button", { name: "Loans" }));
+    const table = screen.getByRole("table", { name: "Admin loans" });
+    const headers = within(table).getAllByRole("columnheader").map((header) => header.textContent);
+    const interestIndex = headers.indexOf("Loan interest rate");
+    const yieldIndex = headers.indexOf("Investor yield");
+    expect(interestIndex).toBeGreaterThan(-1);
+    expect(yieldIndex).toBe(interestIndex + 1);
+    expect(headers).not.toContain("Yield");
+    for (const loan of [loansFixture[0], loansFixture[1], originatorLoan]) {
+      const row = within(table).getByText(loan.title).closest("tr")!;
+      const cells = within(row).getAllByRole("cell");
+      expect(cells[interestIndex]).toHaveTextContent(`${(loan.interest_rate_bps / 100).toFixed(2)}% p.a.`);
+      expect(cells[yieldIndex]).toHaveTextContent(`${(loan.yield_bps / 100).toFixed(2)}% p.a.`);
+    }
+  } finally {
+    loansFixture.splice(loansFixture.indexOf(originatorLoan), 1);
+  }
 });
 
 test("deposit instructions explain how to use the required payment reference", () => {
