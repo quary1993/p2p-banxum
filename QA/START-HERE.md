@@ -12,11 +12,11 @@ Read **Regression-Guide.docx** or **Regression-Guide.md** first. The guide has 7
 
 User 1 and User 2 each start with **CHF 5,000,000 plus EUR 5,000,000**. User 3 is verified but has **zero in both currencies**. Each funded user can close seeded loans alone. No investor password, fabricated legal acceptance or verified payout IBAN is created.
 
-The reset captures a repeatable QA snapshot automatically. **Revert database** returns to that exact seed, including its clock and twenty unfunded loans, and keeps QA enabled. The environment owner performs this outside the tester's cases. Export results first. Request a reset before incompatible branches, then recreate the guide's small main loans and prerequisites; they are not part of the twenty demo loans.
+The reset captures a repeatable seed automatically. In staging, Admin opens **QA mode** and uses **Restore seed** to return to that exact seed, including its clock and twenty unfunded loans. QA stays enabled. **Create snapshot** saves an optional later checkpoint; **Restore snapshot** returns to that checkpoint without replacing the seed. Without a manual checkpoint, seed is the default and the snapshot restore button is disabled. Export results first. Restore the seed before incompatible branches, then recreate the guide's small main loans and prerequisites; they are not part of the twenty demo loans.
 
 Actual emails and environment details belong in **local/** (ignored by Git). The owner uses the private mapping with the guarded reset in **docs/runbooks/server-deployment.md**. The generic reset without a mapping retains its separate CHF/EUR 500,000 default.
 
-When a story needs a later date, the environment owner prepares the QA clock and scheduled jobs. The tester waits for confirmation, then checks the regular admin and investor flows. Do not change the device clock or log in as superadmin.
+When a story needs a later date, Admin uses **QA mode** to advance the clock and waits for the scheduled jobs to finish before checking the flows. These controls are available to regular admins in staging and are absent from production. Do not change the device clock or log in as superadmin.
 
 ## Resource refresh
 

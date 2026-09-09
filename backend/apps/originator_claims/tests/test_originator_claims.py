@@ -3403,3 +3403,60 @@ def test_par_subscription_rejects_quotes_and_secondary_market_premiums(
     with pytest.raises(secondary.SecondaryMarketValidationError, match="not at a premium"):
         secondary._validate_loan_listing_price(result.loan, 10_001)
     secondary._validate_loan_listing_price(result.loan, 10_000)
+
+
+@pytest.mark.django_db
+def test_originator_story_is_validated_and_exposed_on_marketplace_detail(
+    admin_user: Model,
+) -> None:
+    from backend.apps.originator_claims.services import (
+        UpdateLoanOriginatorCommand,
+        originator_marketplace_payload,
+        update_loan_originator,
+    )
+
+    today = business_date(timezone.now())
+    result = _create_dated_originator_loan(admin_user=admin_user, today=today, suffix="STORY")
+    profile = OriginatorLoanProfile.objects.get(id=result.profile.id)
+
+    # Story is about the originator (the counterparty investors deal with).
+    empty_story = {"version": 1, "blocks": []}
+    assert originator_marketplace_payload(profile, include_detail=True)["story"] == empty_story
+
+    with pytest.raises(OriginatorClaimsValidationError):
+        update_loan_originator(
+            UpdateLoanOriginatorCommand(
+                actor=admin_user,
+                originator_id=str(profile.originator_id),
+                changes={
+                    "investor_story": {
+                        "version": 1,
+                        "blocks": [{"type": "paragraph", "html": "<b>x</b>"}],
+                    }
+                },
+            )
+        )
+    update_loan_originator(
+        UpdateLoanOriginatorCommand(
+            actor=admin_user,
+            originator_id=str(profile.originator_id),
+            changes={
+                "investor_story": {
+                    "version": 1,
+                    "blocks": [
+                        {
+                            "type": "paragraph",
+                            "runs": [
+                                {"text": "Regulated lender since "},
+                                {"text": "2009", "bold": True},
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+    )
+    profile = OriginatorLoanProfile.objects.select_related("originator").get(id=result.profile.id)
+    payload = originator_marketplace_payload(profile, include_detail=True)
+    assert payload["story"]["blocks"][0]["runs"][1] == {"text": "2009", "bold": True}
+    assert "story" not in originator_marketplace_payload(profile, include_detail=False)

@@ -958,6 +958,31 @@ paths:
               schema:
                 $ref: '#/components/schemas/ReadOnlyImpersonationStartResponse'
           description: ''
+  /api/v1/admin/story-images/:
+    post:
+      operationId: v1_admin_story_images_create
+      description: Admin-only intake for story images (verified, re-encoded, <= 1
+        MB).
+      tags:
+      - v1
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/StoryImageUpload'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/StoryImageUpload'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoryImage'
+          description: ''
   /api/v1/auth/admin/login/confirm/:
     post:
       operationId: v1_auth_admin_login_confirm_create
@@ -1131,7 +1156,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AuthenticatedUserResponse'
+                $ref: '#/components/schemas/CurrentUserResponse'
           description: ''
   /api/v1/auth/phone/confirm/:
     post:
@@ -4052,6 +4077,20 @@ paths:
           content:
             application/json:
               schema:
+                $ref: '#/components/schemas/QaDevModeRestoreResponse'
+          description: ''
+  /api/v1/qa/dev-mode/snapshot/:
+    post:
+      operationId: v1_qa_dev_mode_snapshot_create
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
                 $ref: '#/components/schemas/QaDevModeState'
           description: ''
   /api/v1/reporting/admin/reports/:
@@ -4299,6 +4338,30 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/PublicLoanRiskNote'
+          description: ''
+  /api/v1/story-images/{image_id}/:
+    get:
+      operationId: v1_story_images_retrieve
+      description: Serve a story image to any signed-in user; never public, never
+        cached shared.
+      parameters:
+      - in: path
+        name: image_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
           description: ''
 components:
   schemas:
@@ -5887,6 +5950,7 @@ components:
         profit_last_year_minor:
           type: integer
           nullable: true
+        investor_story: {}
         created_by_admin_id:
           type: string
           format: uuid
@@ -5920,6 +5984,7 @@ components:
       - financials_currency
       - id
       - industry_activity
+      - investor_story
       - kyb_aml_observations
       - kyb_status
       - legal_name
@@ -6017,6 +6082,7 @@ components:
         profit_last_year_minor:
           type: integer
           nullable: true
+        investor_story: {}
         note:
           type: string
         evidence_summary:
@@ -6432,6 +6498,16 @@ components:
         * `all` - CHF and EUR
         * `CHF` - CHF
         * `EUR` - EUR
+    CurrentUserResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/UserSummary'
+        qa_controls_available:
+          type: boolean
+      required:
+      - qa_controls_available
+      - user
     DecisionEnum:
       enum:
       - approve
@@ -6444,6 +6520,14 @@ components:
         * `decline` - Decline
         * `request_reverification` - Request re-verification
         * `reopen` - Reopen manual review
+    DefaultRestoreTargetEnum:
+      enum:
+      - seed
+      - snapshot
+      type: string
+      description: |-
+        * `seed` - seed
+        * `snapshot` - snapshot
     DepositInstruction:
       type: object
       properties:
@@ -9335,6 +9419,7 @@ components:
           type: integer
           maximum: 10000
           minimum: 0
+        investor_story: {}
         created_by_admin_id:
           type: string
           format: uuid
@@ -9413,6 +9498,7 @@ components:
           maximum: 10000
           minimum: 0
           default: 5000
+        investor_story: {}
       required:
       - jurisdiction
       - legal_name
@@ -10007,6 +10093,8 @@ components:
         borrower_disclosure:
           type: object
           additionalProperties: {}
+        story:
+          $ref: '#/components/schemas/StoryDocument'
         investor_summary:
           type: string
         purpose_description:
@@ -10052,6 +10140,10 @@ components:
           nullable: true
         schedule_version:
           type: integer
+        loan_schedule:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketplaceLoanScheduleRow'
         originator_schedule:
           type: array
           items:
@@ -10231,6 +10323,50 @@ components:
       - title
       - underlying_interest_rate_bps
       - yield_bps
+    MarketplaceLoanScheduleRow:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        installment_number:
+          type: integer
+        due_date:
+          type: string
+          format: date
+        principal_minor:
+          type: integer
+        interest_minor:
+          type: integer
+        total_minor:
+          type: integer
+        outstanding_after_minor:
+          type: integer
+        status:
+          type: string
+        row_type:
+          type: string
+        label:
+          type: string
+        payment_date:
+          type: string
+          format: date
+          nullable: true
+        paid_principal_minor:
+          type: integer
+        paid_interest_minor:
+          type: integer
+        outstanding_principal_minor:
+          type: integer
+        outstanding_interest_minor:
+          type: integer
+      required:
+      - due_date
+      - installment_number
+      - interest_minor
+      - outstanding_after_minor
+      - principal_minor
+      - total_minor
     MarketplaceOriginalLoanScheduleRow:
       type: object
       properties:
@@ -11465,6 +11601,7 @@ components:
         clear_profit_last_year:
           type: boolean
           default: false
+        investor_story: {}
         note:
           type: string
         evidence_summary:
@@ -11510,6 +11647,7 @@ components:
           type: integer
           maximum: 10000
           minimum: 0
+        investor_story: {}
     PatchedLoanUpdateRequest:
       type: object
       properties:
@@ -12709,12 +12847,82 @@ components:
         note:
           type: string
           maxLength: 2000
+    QaDevModeRestoreResponse:
+      type: object
+      properties:
+        allowed:
+          type: boolean
+        is_enabled:
+          type: boolean
+        current_time:
+          type: string
+          format: date-time
+          nullable: true
+        entered_at:
+          type: string
+          format: date-time
+          nullable: true
+        entered_by_user_id:
+          type: string
+          format: uuid
+          nullable: true
+        snapshot_created_at:
+          type: string
+          format: date-time
+          nullable: true
+        has_snapshot:
+          type: boolean
+        has_seed:
+          type: boolean
+        seed_created_at:
+          type: string
+          format: date-time
+          nullable: true
+        default_restore_target:
+          $ref: '#/components/schemas/DefaultRestoreTargetEnum'
+        note:
+          type: string
+        last_advanced_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_advance_summary: {}
+        max_advance_days:
+          type: integer
+        environment:
+          type: string
+        requires_login:
+          type: boolean
+        restored_target:
+          $ref: '#/components/schemas/RestoredTargetEnum'
+      required:
+      - allowed
+      - current_time
+      - default_restore_target
+      - entered_at
+      - entered_by_user_id
+      - environment
+      - has_seed
+      - has_snapshot
+      - is_enabled
+      - last_advance_summary
+      - last_advanced_at
+      - max_advance_days
+      - note
+      - requires_login
+      - restored_target
+      - seed_created_at
+      - snapshot_created_at
     QaDevModeRevertRequest:
       type: object
       properties:
         confirmation:
           type: string
           maxLength: 64
+        target:
+          allOf:
+          - $ref: '#/components/schemas/TargetEnum'
+          default: auto
       required:
       - confirmation
     QaDevModeState:
@@ -12742,6 +12950,14 @@ components:
           nullable: true
         has_snapshot:
           type: boolean
+        has_seed:
+          type: boolean
+        seed_created_at:
+          type: string
+          format: date-time
+          nullable: true
+        default_restore_target:
+          $ref: '#/components/schemas/DefaultRestoreTargetEnum'
         note:
           type: string
         last_advanced_at:
@@ -12756,15 +12972,18 @@ components:
       required:
       - allowed
       - current_time
+      - default_restore_target
       - entered_at
       - entered_by_user_id
       - environment
+      - has_seed
       - has_snapshot
       - is_enabled
       - last_advance_summary
       - last_advanced_at
       - max_advance_days
       - note
+      - seed_created_at
       - snapshot_created_at
     ReadOnlyImpersonationStartResponse:
       type: object
@@ -13071,6 +13290,14 @@ components:
         * `failed_outbox` - Failed outbox
         * `participant_account_statement` - Participant account statement
         * `annual_tax_information` - Annual tax information
+    RestoredTargetEnum:
+      enum:
+      - seed
+      - snapshot
+      type: string
+      description: |-
+        * `seed` - seed
+        * `snapshot` - snapshot
     RiskRatingEnum:
       enum:
       - AAA
@@ -14410,6 +14637,64 @@ components:
         * `active` - Active
         * `blocked` - Blocked
         * `inactive` - Inactive
+    StoryDocument:
+      type: object
+      properties:
+        version:
+          type: integer
+        blocks:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+      required:
+      - blocks
+      - version
+    StoryImage:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+        width:
+          type: integer
+        height:
+          type: integer
+        byte_size:
+          type: integer
+        content_type:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - byte_size
+      - content_type
+      - created_at
+      - height
+      - id
+      - url
+      - width
+    StoryImageUpload:
+      type: object
+      properties:
+        file:
+          type: string
+          format: uri
+      required:
+      - file
+    TargetEnum:
+      enum:
+      - auto
+      - seed
+      - snapshot
+      type: string
+      description: |-
+        * `auto` - auto
+        * `seed` - seed
+        * `snapshot` - snapshot
     UserSummary:
       type: object
       properties:

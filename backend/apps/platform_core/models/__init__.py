@@ -9,6 +9,7 @@ from backend.apps.platform_core.models.qa import (
 )
 from backend.apps.platform_core.models.scheduled_jobs import ScheduledJobRun
 from backend.apps.platform_core.models.settings import PlatformSetting, PlatformSettingVersion
+from backend.apps.platform_core.models.story_images import StoryImage
 
 __all__ = [
     "ArchivedInvestorActivity",
@@ -22,4 +23,5 @@ __all__ = [
     "QaDatasetReset",
     "ScheduledJobRun",
     "StoredFile",
+    "StoryImage",
 ]

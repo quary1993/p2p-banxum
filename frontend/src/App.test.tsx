@@ -719,6 +719,49 @@ test("marketplace sheet shows the v9 opportunity layout and hands off to the ord
   expect(within(orderDialog).getAllByText(/2.000\.00/).length).toBeGreaterThan(0);
 });
 
+test("opportunity sheet calculator validates the amount and projects the investor schedule", () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
+
+  // Direct loan: proportional share of the contracted schedule.
+  fireEvent.click(screen.getByText("Helvetia Logistik AG"));
+  const sheet = screen.getByRole("dialog", { name: "Helvetia Logistik AG" });
+  expect(within(sheet).queryByLabelText("Amount to calculate")).not.toBeInTheDocument();
+  fireEvent.click(within(sheet).getByRole("button", { name: /Investment schedule calculator/ }));
+  fireEvent.change(within(sheet).getByLabelText("Amount to calculate"), { target: { value: "500" } });
+  fireEvent.click(within(sheet).getByRole("button", { name: "Calculate" }));
+  expect(within(sheet).getByRole("alert")).toHaveTextContent(/minimum in any one loan is CHF 1.000\.00/);
+  fireEvent.change(within(sheet).getByLabelText("Amount to calculate"), { target: { value: "50000" } });
+  fireEvent.click(within(sheet).getByRole("button", { name: "Calculate" }));
+  expect(within(sheet).getByRole("alert")).toHaveTextContent(/is not lent/);
+  fireEvent.change(within(sheet).getByLabelText("Amount to calculate"), { target: { value: "2000" } });
+  fireEvent.click(within(sheet).getByRole("button", { name: "Calculate" }));
+  expect(within(sheet).getByText("24 payments")).toBeInTheDocument();
+  expect(within(sheet).getByText(/assuming the campaign funds in full/)).toBeInTheDocument();
+  fireEvent.click(within(sheet).getByRole("button", { name: "Close" }));
+
+  // Originator subscription: only post-boundary rows, with participation applied.
+  fireEvent.click(screen.getByText("Swiss SME equipment claim"));
+  const claimSheet = screen.getByRole("dialog", { name: "Swiss SME equipment claim" });
+  fireEvent.click(within(claimSheet).getByRole("button", { name: /Investment schedule calculator/ }));
+  fireEvent.change(within(claimSheet).getByLabelText("Amount to calculate"), { target: { value: "16000" } });
+  fireEvent.click(within(claimSheet).getByRole("button", { name: "Calculate" }));
+  // 10% of the CHF 160'000 post-boundary principal: installment 2 pays 2'000 capital
+  // and 1'440 x 10% x 70% = 100.80 interest; the boundary installment is excluded,
+  // so only the three post-boundary fixture rows remain.
+  expect(within(claimSheet).getByText("3 payments")).toBeInTheDocument();
+  expect(within(claimSheet).getAllByText("2'000.00").length).toBeGreaterThan(0);
+  expect(within(claimSheet).getByText("100.80")).toBeInTheDocument();
+  expect(within(claimSheet).getByText(/boundary installment belongs to the Loan Originator/)).toBeInTheDocument();
+});
+
 test("marketplace sorts from the header and the sort menu", () => {
   renderApp();
 
@@ -899,18 +942,106 @@ test("refinanced marketplace loan shows badge and informational original loan sc
 
   fireEvent.click(screen.getByText("Helvetia Logistik AG"));
 
-  // The v9 sheet opens first; the credit file lives behind "Meet the borrower".
+  // The v9 sheet opens first; the schedule lives on its own page behind "Loan schedule".
   const refiSheet = screen.getByRole("dialog", { name: "Helvetia Logistik AG" });
-  fireEvent.click(within(refiSheet).getByRole("button", { name: "Meet the borrower →" }));
+  fireEvent.click(within(refiSheet).getByRole("button", { name: "Loan schedule →" }));
 
-  // Detail header badge plus the informational original-loan section.
+  // Detail header badge, the contracted schedule and the informational original-loan section.
+  expect(window.location.pathname).toBe("/marketplace/GA-2401/schedule");
   expect(screen.getAllByText("Refinanced loan").length).toBeGreaterThan(0);
+  expect(screen.getByText("Contracted repayment schedule")).toBeInTheDocument();
+  expect(screen.getByText("No borrower payments yet")).toBeInTheDocument();
   expect(screen.getByText("Original loan")).toBeInTheDocument();
   expect(screen.getByText("Original loan repayment schedule")).toBeInTheDocument();
   expect(screen.getByText(/informational only and show the loan being refinanced/i)).toBeInTheDocument();
-  expect(screen.getByRole("row", { name: /Totals/ })).toBeInTheDocument();
+  expect(screen.getAllByRole("row", { name: /Totals/ }).length).toBe(2);
   // Column header plus nine installments settled before publication.
   expect(screen.getAllByText("Paid").length).toBe(10);
+  // The schedule page keeps the key facts and lets you invest from here.
+  expect(screen.getByText("Key facts")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Invest now/ })).toBeInTheDocument();
+  // No story content on the schedule page; the switcher leads back to it.
+  expect(screen.queryByText("Moving Swiss goods since 1994")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("navigation", { name: "Loan pages" }).querySelector("button")!);
+  expect(window.location.pathname).toBe("/marketplace/GA-2401");
+  expect(screen.getByText("Moving Swiss goods since 1994")).toBeInTheDocument();
+});
+
+test("meet the borrower page shows key facts plus the admin story, safely rendered", () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
+  fireEvent.click(screen.getByText("Helvetia Logistik AG"));
+  const sheet = screen.getByRole("dialog", { name: "Helvetia Logistik AG" });
+  fireEvent.click(within(sheet).getByRole("button", { name: "Meet the borrower →" }));
+
+  expect(window.location.pathname).toBe("/marketplace/GA-2401");
+  // Key facts strip: borrower, rate, LTV, amount and the like — no tabs, no documents/risk pages.
+  expect(screen.getByText("Key facts")).toBeInTheDocument();
+  expect(screen.getByText("Loan-to-value")).toBeInTheDocument();
+  expect(screen.getByText("58.0%")).toBeInTheDocument();
+  expect(screen.getByText("Investor yield")).toBeInTheDocument();
+  expect(screen.queryByRole("tab", { name: "Terms & collateral" })).not.toBeInTheDocument();
+  expect(screen.queryByText("Loan-originator evidence")).not.toBeInTheDocument();
+  expect(screen.queryByText("Contracted repayment schedule")).not.toBeInTheDocument();
+  // Story blocks render as real elements built from the JSON document.
+  expect(screen.getByText("About the borrower")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 2, name: "Moving Swiss goods since 1994" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 3, name: "Why they borrow" })).toBeInTheDocument();
+  expect(screen.getByText("42 trucks and two cross-dock warehouses").tagName).toBe("STRONG");
+  const link = screen.getByRole("link", { name: "company site" });
+  expect(link).toHaveAttribute("href", "https://example.test/helvetia");
+  expect(link).toHaveAttribute("rel", "noopener noreferrer nofollow");
+  const image = screen.getByRole("img", { name: "Helvetia Logistik cross-dock warehouse in Duebendorf" });
+  expect(image).toHaveAttribute("src", "/api/v1/story-images/6f1d2c3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f/");
+  expect(screen.getByText("The Duebendorf cross-dock, refinanced with this loan.")).toBeInTheDocument();
+  expect(screen.getByText("Audited accounts since 2012").closest("ul")).not.toBeNull();
+  expect(screen.getByText("We only borrow to buy assets that pay for themselves.").tagName).toBe("BLOCKQUOTE");
+  // Investing works from this page too.
+  expect(screen.getByRole("button", { name: /Invest now/ })).toBeInTheDocument();
+
+  // A borrower without a story shows an honest empty state instead of filler.
+  fireEvent.click(within(screen.getByRole("navigation", { name: "Investor portal navigation" })).getByRole("button", { name: "Investment Opportunities" }));
+  fireEvent.click(screen.getByText("Rhône Vignobles SA"));
+  fireEvent.click(within(screen.getByRole("dialog", { name: "Rhône Vignobles SA" })).getByRole("button", { name: "Meet the borrower →" }));
+  expect(screen.getByText("No story published yet for Rhône Vignobles SA")).toBeInTheDocument();
+});
+
+test("originator loans lead to the originator story and a schedule page with payment history", () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
+  fireEvent.click(screen.getByText("Swiss SME equipment claim"));
+  const sheet = screen.getByRole("dialog", { name: "Swiss SME equipment claim" });
+  expect(within(sheet).queryByRole("button", { name: /credit file/ })).not.toBeInTheDocument();
+  fireEvent.click(within(sheet).getByRole("button", { name: "Meet the originator →" }));
+
+  // The story is about the loan originator, not the end borrower.
+  expect(screen.getByText("About the loan originator")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 2, name: "Alpine Credit Partners AG" })).toBeInTheDocument();
+  expect(screen.getByText("Historic loss rate below 1%").closest("ol")).not.toBeNull();
+  expect(screen.getAllByText("Loan originator").length).toBeGreaterThan(0);
+  expect(screen.getAllByText("Skin in the game").length).toBeGreaterThan(0);
+
+  fireEvent.click(screen.getByRole("button", { name: "Loan schedule & payments" }));
+  expect(window.location.pathname).toBe("/marketplace/LO-2601/schedule");
+  expect(screen.getByText("Loan-originator evidence")).toBeInTheDocument();
+  expect(screen.getByText("Current full loan schedule")).toBeInTheDocument();
+  expect(screen.getByText("Historical borrower payments")).toBeInTheDocument();
+  expect(screen.getByText("LO-2601-PAY-001")).toBeInTheDocument();
+  expect(screen.queryByText("Alpine Credit Partners AG", { selector: "h2" })).not.toBeInTheDocument();
 });
 
 test("portfolio explains allocated orders that are not holdings yet", () => {
@@ -1504,6 +1635,18 @@ test("admin task queue renders and updates a preview task", () => {
 
   fireEvent.click(screen.getByRole("button", { name: "Mark in progress" }));
   expect(screen.getAllByText("In Progress").length).toBeGreaterThan(0);
+});
+
+test("QA controls distinguish the original seed from an optional manual snapshot", () => {
+  renderApp("/admin");
+  fireEvent.click(screen.getByRole("button", { name: "QA mode" }));
+  expect(screen.getByRole("heading", { name: "QA development mode" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Create snapshot" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Restore snapshot" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Restore seed" })).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("Confirmation"), { target: { value: "REVERT QA DB" } });
+  expect(screen.getByRole("button", { name: "Restore seed" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Restore snapshot" })).toBeDisabled();
 });
 
 test("admin module navigation renders operational panels", () => {

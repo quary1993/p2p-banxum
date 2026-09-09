@@ -398,3 +398,79 @@ def test_investor_cannot_use_borrower_admin_api(client: Client, investor: Model)
 
     assert response.status_code == 403
     assert BorrowerEntity.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_borrower_investor_story_is_validated_and_exposed(
+    client: Client,
+    admin_user: Model,
+) -> None:
+    client.force_login(cast(Any, admin_user))
+    story = {
+        "version": 1,
+        "blocks": [
+            {"type": "heading", "level": 2, "runs": [{"text": "Who we are"}]},
+            {
+                "type": "paragraph",
+                "runs": [{"text": "A family bakery since "}, {"text": "1987", "bold": True}],
+            },
+        ],
+    }
+    create_response = client.post(
+        "/api/v1/entities/admin/borrowers/",
+        data={"legal_name": "Story Borrower AG", "year_founded": 2017, "investor_story": story},
+        content_type="application/json",
+    )
+    assert create_response.status_code == 201, create_response.content
+    assert create_response.json()["investor_story"] == story
+    borrower_id = create_response.json()["id"]
+
+    rejected = client.patch(
+        f"/api/v1/entities/admin/borrowers/{borrower_id}/",
+        data={
+            "investor_story": {
+                "version": 1,
+                "blocks": [{"type": "paragraph", "html": "<b>x</b>"}],
+            }
+        },
+        content_type="application/json",
+    )
+    assert rejected.status_code == 400
+    assert "unsupported" in rejected.json()["detail"].lower()
+
+    unknown_image = client.patch(
+        f"/api/v1/entities/admin/borrowers/{borrower_id}/",
+        data={
+            "investor_story": {
+                "version": 1,
+                "blocks": [
+                    {
+                        "type": "image",
+                        "image_id": "3f8b0a2c-6c1e-4f3b-9d0e-000000000000",
+                        "alt": "",
+                        "caption": "",
+                    }
+                ],
+            }
+        },
+        content_type="application/json",
+    )
+    assert unknown_image.status_code == 400
+
+    updated = client.patch(
+        f"/api/v1/entities/admin/borrowers/{borrower_id}/",
+        data={
+            "investor_story": {
+                "version": 1,
+                "blocks": [{"type": "paragraph", "runs": [{"text": "Rewritten."}]}],
+            }
+        },
+        content_type="application/json",
+    )
+    assert updated.status_code == 200, updated.content
+    assert updated.json()["investor_story"]["blocks"][0]["runs"] == [{"text": "Rewritten."}]
+    events = client.get(f"/api/v1/entities/admin/borrowers/{borrower_id}/events/").json()
+    assert events[-1]["metadata"]["changes"]["investor_story"] == {
+        "previous": "2 blocks",
+        "new": "1 blocks",
+    }

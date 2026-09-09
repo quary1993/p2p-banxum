@@ -377,9 +377,7 @@ def test_record_borrower_repayment_distributes_to_lender_balances(
     )
     holdings = {
         str(holding.investor_user_id): holding
-        for holding in apps.get_model("holdings", "InvestorLoanHolding").objects.filter(
-            loan=loan
-        )
+        for holding in apps.get_model("holdings", "InvestorLoanHolding").objects.filter(loan=loan)
     }
     postings = list(
         event.journal_entry.postings.select_related("account").order_by("side", "amount_minor")
@@ -451,9 +449,7 @@ def test_repayment_email_aggregates_multiple_holdings_for_one_investor(
 
     result = record_borrower_repayment(_repayment_command(admin_user, loan))
 
-    repayment_emails = OutboxMessage.objects.filter(
-        topic="email.repayment_distribution_credited"
-    )
+    repayment_emails = OutboxMessage.objects.filter(topic="email.repayment_distribution_credited")
     assert repayment_emails.count() == 1
     repayment_email = repayment_emails.get()
     assert repayment_email.payload["user_id"] == str(investor_one.pk)
@@ -613,16 +609,16 @@ def test_repayment_in_advance_recalculates_future_schedule(
     )
     loan.refresh_from_db()
     version_two_rows = list(
-        apps.get_model("loans", "LoanInstallment").objects.filter(
+        apps.get_model("loans", "LoanInstallment")
+        .objects.filter(
             loan=loan,
             schedule_version=2,
-        ).order_by("installment_number")
+        )
+        .order_by("installment_number")
     )
     holdings = {
         str(holding.investor_user_id): holding
-        for holding in apps.get_model("holdings", "InvestorLoanHolding").objects.filter(
-            loan=loan
-        )
+        for holding in apps.get_model("holdings", "InvestorLoanHolding").objects.filter(loan=loan)
     }
 
     assert event.event_type == BorrowerRepaymentEventType.EARLY_REPAYMENT
@@ -682,6 +678,15 @@ def test_repayment_in_advance_recalculates_future_schedule(
     assert full_schedule[1].schedule_version == 2
     assert full_schedule[1].outstanding_principal_minor == 20_000_00
     assert sum(row.principal_minor for row in full_schedule) == 30_000_00
+    marketplace = import_module("backend.apps.marketplace_primary.services")
+    detail = marketplace.full_marketplace_listing_payload(loan)
+    assert [row["row_type"] for row in detail["loan_schedule"]] == [
+        "repayment_event",
+        "scheduled_installment",
+    ]
+    assert detail["loan_schedule"][0]["payment_date"] == date(2026, 3, 15)
+    assert detail["loan_schedule"][0]["outstanding_after_minor"] == 20_000_00
+    assert detail["loan_schedule"][-1]["outstanding_after_minor"] == 0
 
 
 @pytest.mark.django_db
@@ -726,12 +731,15 @@ def test_second_same_day_advance_repayment_charges_no_future_interest(
     assert second.repayment_event.interest_applied_minor == 0
     assert second.repayment_event.principal_applied_minor == 100_00
     assert cast(Any, loan).schedule_version == 3
-    assert sum(
-        holding.current_principal_minor
-        for holding in apps.get_model("holdings", "InvestorLoanHolding").objects.filter(
-            loan=loan
+    assert (
+        sum(
+            holding.current_principal_minor
+            for holding in apps.get_model("holdings", "InvestorLoanHolding").objects.filter(
+                loan=loan
+            )
         )
-    ) == 28_900_00
+        == 28_900_00
+    )
 
 
 @pytest.mark.django_db
@@ -764,9 +772,7 @@ def test_full_repayment_in_advance_marks_loan_repaid(
             schedule_version=2,
         )
     )
-    holdings = list(
-        apps.get_model("holdings", "InvestorLoanHolding").objects.filter(loan=loan)
-    )
+    holdings = list(apps.get_model("holdings", "InvestorLoanHolding").objects.filter(loan=loan))
 
     assert event.event_type == BorrowerRepaymentEventType.EARLY_REPAYMENT
     assert event.metadata["scheduled_interest_due_minor"] == 300_00
@@ -814,10 +820,12 @@ def test_sequential_repayments_in_advance_create_consistent_schedule_versions(
     )
     cast(Any, loan).refresh_from_db()
     version_two_rows = list(
-        apps.get_model("loans", "LoanInstallment").objects.filter(
+        apps.get_model("loans", "LoanInstallment")
+        .objects.filter(
             loan=loan,
             schedule_version=2,
-        ).order_by("installment_number")
+        )
+        .order_by("installment_number")
     )
     # Second declaration lands on the due date of regenerated installment 2:
     # interest due is its scheduled 186_85, and 9_333_34 reduces principal from
@@ -836,14 +844,14 @@ def test_sequential_repayments_in_advance_create_consistent_schedule_versions(
     )
     cast(Any, loan).refresh_from_db()
     version_three_rows = list(
-        apps.get_model("loans", "LoanInstallment").objects.filter(
+        apps.get_model("loans", "LoanInstallment")
+        .objects.filter(
             loan=loan,
             schedule_version=3,
-        ).order_by("installment_number")
+        )
+        .order_by("installment_number")
     )
-    holdings = list(
-        apps.get_model("holdings", "InvestorLoanHolding").objects.filter(loan=loan)
-    )
+    holdings = list(apps.get_model("holdings", "InvestorLoanHolding").objects.filter(loan=loan))
 
     assert first.repayment_event.metadata["scheduled_interest_due_minor"] == 300_00
     assert first.repayment_event.metadata["accrued_interest_minor"] == 0
@@ -894,10 +902,13 @@ def test_sequential_repayments_in_advance_create_consistent_schedule_versions(
     ]
     assert sum(holding.current_principal_minor for holding in holdings) == 12_666_66
     assert cast(Any, loan).status == "active"
-    assert DomainEvent.objects.filter(
-        event_type="LoanScheduleRecalculated",
-        aggregate_id=str(loan.pk),
-    ).count() == 2
+    assert (
+        DomainEvent.objects.filter(
+            event_type="LoanScheduleRecalculated",
+            aggregate_id=str(loan.pk),
+        ).count()
+        == 2
+    )
 
 
 @pytest.mark.django_db
@@ -955,10 +966,14 @@ def test_preview_borrower_repayment_in_advance_returns_plan_without_writing(
     loan.refresh_from_db()
     assert cast(Any, loan).schedule_version == 1
     assert not BorrowerRepaymentEvent.objects.exists()
-    assert not apps.get_model("loans", "LoanInstallment").objects.filter(
-        loan=loan,
-        schedule_version=2,
-    ).exists()
+    assert (
+        not apps.get_model("loans", "LoanInstallment")
+        .objects.filter(
+            loan=loan,
+            schedule_version=2,
+        )
+        .exists()
+    )
     holdings = apps.get_model("holdings", "InvestorLoanHolding").objects.filter(loan=loan)
     assert {holding.current_principal_minor for holding in holdings} == {
         10_000_00,
@@ -1014,10 +1029,12 @@ def test_late_loan_can_declare_repayment_in_advance(
     event = result.repayment_event
     loan.refresh_from_db()
     version_two_rows = list(
-        apps.get_model("loans", "LoanInstallment").objects.filter(
+        apps.get_model("loans", "LoanInstallment")
+        .objects.filter(
             loan=loan,
             schedule_version=2,
-        ).order_by("installment_number")
+        )
+        .order_by("installment_number")
     )
 
     assert event.event_type == BorrowerRepaymentEventType.EARLY_REPAYMENT
@@ -1098,9 +1115,7 @@ def test_second_repayment_advances_to_next_unpaid_installment(
             repayment_event=second.repayment_event
         ).order_by("amount_minor")
     )
-    holdings = list(
-        apps.get_model("holdings", "InvestorLoanHolding").objects.filter(loan=loan)
-    )
+    holdings = list(apps.get_model("holdings", "InvestorLoanHolding").objects.filter(loan=loan))
 
     assert first.repayment_event.installment.installment_number == 1
     assert second.repayment_event.installment.installment_number == 2
@@ -1262,10 +1277,12 @@ def test_refinancing_loan_servicing_schedule_starts_at_installment_one(
         )
     )
     installments = list(
-        apps.get_model("loans", "LoanInstallment").objects.filter(
+        apps.get_model("loans", "LoanInstallment")
+        .objects.filter(
             loan=loan,
             schedule_version=1,
-        ).order_by("installment_number")
+        )
+        .order_by("installment_number")
     )
 
     # The servicing schedule covers only the financeable principal and contains
@@ -1461,16 +1478,14 @@ def test_repayment_admin_api(
     assert payload["repayment_event"]["amount_minor"] == 3_300_00
     assert payload["repayment_event"]["warning_acknowledged"] is False
     assert len(payload["distribution_lines"]) == 2
-    repayment_event = BorrowerRepaymentEvent.objects.get(
-        id=payload["repayment_event"]["id"]
-    )
+    repayment_event = BorrowerRepaymentEvent.objects.get(id=payload["repayment_event"]["id"])
     assert repayment_event.bank_operation.collection_account_identifier == "Garanta_CHF"
 
     # Server-derived configuration is not part of caller intent. A retry remains
     # idempotent even if the configured collector changes after the first post.
-    PlatformSetting.objects.filter(
-        key="payments.deposit_instructions_by_currency"
-    ).update(value={"CHF": {"collection_account_identifier": "Garanta_CHF_NEW"}})
+    PlatformSetting.objects.filter(key="payments.deposit_instructions_by_currency").update(
+        value={"CHF": {"collection_account_identifier": "Garanta_CHF_NEW"}}
+    )
     replay_response = client.post(
         "/api/v1/servicing/admin/borrower-repayments/",
         data=repayment_request,
@@ -1478,10 +1493,7 @@ def test_repayment_admin_api(
     )
     assert replay_response.status_code == 201
     assert replay_response.json()["repayment_event"]["id"] == payload["repayment_event"]["id"]
-    assert (
-        BorrowerRepaymentEvent.objects.filter(idempotency_key="servicing-api").count()
-        == 1
-    )
+    assert BorrowerRepaymentEvent.objects.filter(idempotency_key="servicing-api").count() == 1
 
     schedule_response = client.get(f"/api/v1/loans/admin/loans/{loan.pk}/schedule/")
     assert schedule_response.status_code == 200
@@ -1813,9 +1825,7 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
         "interest",
         "principal",
     ]
-    assert event.recovery_waterfall_config["allocation_method"] == (
-        "pro_rata_by_current_principal"
-    )
+    assert event.recovery_waterfall_config["allocation_method"] == ("pro_rata_by_current_principal")
 
     lines = {str(line.investor_user_id): line for line in result.distribution_lines}
     investor_one_line = lines[str(investor_one.pk)]
@@ -1832,9 +1842,7 @@ def test_record_recovery_payment_distributes_net_recovery_and_updates_holdings(
     assert investor_two_line.penalties_minor == 66_67
     assert investor_one_line.other_costs_minor == 0
     assert investor_two_line.other_costs_minor == 0
-    assert {line.balance_lot.source_type for line in lines.values()} == {
-        "recovery_distribution"
-    }
+    assert {line.balance_lot.source_type for line in lines.values()} == {"recovery_distribution"}
     assert {line.balance_lot.available_amount_minor for line in lines.values()} == {
         2_550_00,
         5_100_00,
@@ -2068,10 +2076,7 @@ def test_record_write_off_changes_defaulted_loan_to_written_off_and_is_idempoten
     assert sum(line.fees_loss_minor for line in loss_lines) == 25_00
     assert sum(line.penalties_loss_minor for line in loss_lines) == 50_00
     assert sum(line.total_loss_minor for line in loss_lines) == 30_700_00
-    assert {
-        line.current_principal_before_minor
-        for line in loss_lines
-    } == {10_000_00, 20_000_00}
+    assert {line.current_principal_before_minor for line in loss_lines} == {10_000_00, 20_000_00}
     assert {line.current_principal_after_minor for line in loss_lines} == {0}
 
     holding_model = apps.get_model("holdings", "InvestorLoanHolding")
@@ -2082,12 +2087,16 @@ def test_record_write_off_changes_defaulted_loan_to_written_off_and_is_idempoten
     assert holdings[str(investor_one.pk)].current_principal_minor == 0
     assert holdings[str(investor_two.pk)].current_principal_minor == 0
     assert {holding.status for holding in holdings.values()} == {"closed"}
-    assert apps.get_model("loans", "LoanEvent").objects.filter(
-        loan=loan,
-        event_type="write_off_recorded",
-        previous_status="defaulted",
-        new_status="written_off",
-    ).exists()
+    assert (
+        apps.get_model("loans", "LoanEvent")
+        .objects.filter(
+            loan=loan,
+            event_type="write_off_recorded",
+            previous_status="defaulted",
+            new_status="written_off",
+        )
+        .exists()
+    )
     assert AuditEvent.objects.filter(action="servicing.loan_write_off_recorded").exists()
     assert DomainEvent.objects.filter(event_type="LoanWriteOffRecorded").exists()
     assert DomainEvent.objects.filter(event_type="LoanLossRecognized").exists()
@@ -2227,9 +2236,9 @@ def test_write_off_admin_api_records_loss_recognition(
     assert payload["write_off_event"]["currency"] == "CHF"
     assert payload["write_off_event"]["total_written_off_minor"] == 30_500_00
     assert len(payload["loss_recognition_lines"]) == 2
-    assert sum(
-        line["principal_loss_minor"] for line in payload["loss_recognition_lines"]
-    ) == 30_000_00
+    assert (
+        sum(line["principal_loss_minor"] for line in payload["loss_recognition_lines"]) == 30_000_00
+    )
     assert cast(Any, loan).status == "written_off"
 
 
@@ -2341,8 +2350,7 @@ def test_risk_note_and_write_off_records_have_app_and_db_guards(
     with pytest.raises(DatabaseError) as loss_update_error, transaction.atomic():
         with connection.cursor() as cursor:
             cursor.execute(
-                "UPDATE servicing_investorlossrecognitionline "
-                "SET metadata = %s WHERE id = %s",
+                "UPDATE servicing_investorlossrecognitionline SET metadata = %s WHERE id = %s",
                 ['{"mutated": true}', loss_line.id.hex],
             )
     assert "append-only" in str(loss_update_error.value)

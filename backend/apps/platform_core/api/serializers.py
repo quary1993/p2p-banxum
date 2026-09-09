@@ -21,6 +21,9 @@ class QaDevModeStateSerializer(serializers.Serializer[Any]):
     entered_by_user_id = serializers.UUIDField(allow_null=True)
     snapshot_created_at = serializers.DateTimeField(allow_null=True)
     has_snapshot = serializers.BooleanField()
+    has_seed = serializers.BooleanField()
+    seed_created_at = serializers.DateTimeField(allow_null=True)
+    default_restore_target = serializers.ChoiceField(choices=["seed", "snapshot"])
     note = serializers.CharField(allow_blank=True)
     last_advanced_at = serializers.DateTimeField(allow_null=True)
     last_advance_summary = serializers.JSONField()
@@ -38,3 +41,23 @@ class QaDevModeAdvanceRequestSerializer(serializers.Serializer[Any]):
 
 class QaDevModeRevertRequestSerializer(serializers.Serializer[Any]):
     confirmation = serializers.CharField(max_length=64)
+    target = serializers.ChoiceField(choices=["auto", "seed", "snapshot"], default="auto")
+
+
+class QaDevModeRestoreResponseSerializer(QaDevModeStateSerializer):
+    requires_login = serializers.BooleanField()
+    restored_target = serializers.ChoiceField(choices=["seed", "snapshot"])
+
+
+class StoryImageUploadSerializer(serializers.Serializer[Any]):
+    file = serializers.FileField()
+
+
+class StoryImageSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    url = serializers.CharField()
+    width = serializers.IntegerField()
+    height = serializers.IntegerField()
+    byte_size = serializers.IntegerField()
+    content_type = serializers.CharField()
+    created_at = serializers.DateTimeField()

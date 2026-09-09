@@ -45,6 +45,7 @@ class LoanOriginatorSerializer(serializers.ModelSerializer[LoanOriginator]):
             "risk_observations",
             "status",
             "default_premium_fee_bps",
+            "investor_story",
             "created_by_admin_id",
             "updated_by_admin_id",
             "created_at",
@@ -82,6 +83,7 @@ class LoanOriginatorCreateSerializer(serializers.Serializer[dict[str, object]]):
     default_premium_fee_bps = serializers.IntegerField(
         min_value=0, max_value=10_000, required=False, default=5000
     )
+    investor_story = serializers.JSONField(required=False)
 
 
 class LoanOriginatorUpdateSerializer(serializers.Serializer[dict[str, object]]):
@@ -101,6 +103,7 @@ class LoanOriginatorUpdateSerializer(serializers.Serializer[dict[str, object]]):
     default_premium_fee_bps = serializers.IntegerField(
         min_value=0, max_value=10_000, required=False
     )
+    investor_story = serializers.JSONField(required=False)
 
 
 class OriginatorLoanCreateSerializer(serializers.Serializer[dict[str, object]]):

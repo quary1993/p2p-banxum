@@ -10,6 +10,7 @@ export type RouteName =
   | "market"
   | "smartInvest"
   | "loan"
+  | "loanSchedule"
   | "portfolio"
   | "secondary"
   | "balances"

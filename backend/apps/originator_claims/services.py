@@ -69,6 +69,7 @@ from backend.apps.platform_core.domain.payment_waterfall import (
     PaymentWaterfallObligations,
     allocate_payment_waterfall,
 )
+from backend.apps.platform_core.domain.story import StoryValidationError, validate_story
 from backend.apps.platform_core.domain.time import business_date, business_timezone, now_utc
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import (
@@ -83,6 +84,7 @@ from backend.apps.platform_core.services.sensitive_actions import (
     SensitiveActionVerificationError,
     verify_sensitive_action_code,
 )
+from backend.apps.platform_core.services.story_images import story_image_exists
 
 
 class OriginatorClaimsError(ValueError):
@@ -114,6 +116,7 @@ class CreateLoanOriginatorCommand:
     risk_observations: str = ""
     status: str = LoanOriginatorStatus.INACTIVE
     default_premium_fee_bps: int = 5000
+    investor_story: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -304,6 +307,7 @@ ORIGINATOR_MUTABLE_FIELDS = frozenset(
         "risk_observations",
         "status",
         "default_premium_fee_bps",
+        "investor_story",
     }
 )
 
@@ -653,6 +657,19 @@ def _record_event(
     )
 
 
+def _clean_story(value: Any) -> dict[str, Any]:
+    try:
+        return validate_story(value, image_exists=story_image_exists)
+    except StoryValidationError as exc:
+        raise OriginatorClaimsValidationError(str(exc)) from exc
+
+
+def _story_payload(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict) and isinstance(value.get("blocks"), list):
+        return {"version": 1, "blocks": list(value["blocks"])}
+    return {"version": 1, "blocks": []}
+
+
 @transaction.atomic
 def create_loan_originator(command: CreateLoanOriginatorCommand) -> LoanOriginator:
     _require_admin(command.actor)
@@ -680,6 +697,7 @@ def create_loan_originator(command: CreateLoanOriginatorCommand) -> LoanOriginat
         risk_observations=command.risk_observations.strip(),
         status=command.status,
         default_premium_fee_bps=_fee_bps(command.default_premium_fee_bps, "Default premium fee"),
+        investor_story=_clean_story(command.investor_story),
         created_by_admin_id=command.actor.pk,
     )
     _record_event(
@@ -716,6 +734,8 @@ def update_loan_originator(command: UpdateLoanOriginatorCommand) -> LoanOriginat
         choice for choice, _label in LoanOriginatorStatus.choices
     }:
         raise OriginatorClaimsValidationError("Invalid Loan Originator status.")
+    if "investor_story" in changes:
+        changes["investor_story"] = _clean_story(changes["investor_story"])
     for field_name, value in changes.items():
         if isinstance(value, str):
             value = value.strip()
@@ -3637,6 +3657,7 @@ def originator_marketplace_payload(
         {
             "borrower_id": None,
             "borrower_disclosure": _public_borrower_snapshot(profile),
+            "story": _story_payload(profile.originator.investor_story),
             "investor_summary": profile.loan.investor_summary,
             "purpose_description": profile.loan.purpose_description,
             "collateral_value_minor": collateral_value,

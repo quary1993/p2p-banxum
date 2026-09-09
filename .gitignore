@@ -25,3 +25,8 @@ db.sqlite3
 
 # Local FX design-preview builds
 .fx-preview/
+
+# Local handoff archives and scratch output may contain private test data.
+/Archive.zip
+/QA/Archive.zip
+/tmp/

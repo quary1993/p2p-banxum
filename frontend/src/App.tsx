@@ -106,6 +106,8 @@ import {
   zurichDateKey
 } from "./investorPortal/format";
 import type { AppRoute, DemoAccountState, RouteName } from "./investorPortal/types";
+import { normalizeStory, storyIsEmpty } from "./investorPortal/story";
+import { StoryView } from "./investorPortal/StoryView";
 import {
   Banner,
   Button,
@@ -269,6 +271,7 @@ const routeNames: RouteName[] = [
   "market",
   "smartInvest",
   "loan",
+  "loanSchedule",
   "portfolio",
   "secondary",
   "balances",
@@ -308,10 +311,10 @@ function routeFromPathname(pathname: string): AppRoute | null {
     "/portal/help": "faq"
   };
   if (directRoutes[normalized]) return { name: directRoutes[normalized] };
-  const loanMatch = normalized.match(/^\/marketplace\/([^/]+)$/);
+  const loanMatch = normalized.match(/^\/marketplace\/([^/]+)(\/schedule)?$/);
   if (!loanMatch) return null;
   try {
-    return { name: "loan", params: { loanId: decodeURIComponent(loanMatch[1]) } };
+    return { name: loanMatch[2] ? "loanSchedule" : "loan", params: { loanId: decodeURIComponent(loanMatch[1]) } };
   } catch {
     return null;
   }
@@ -328,6 +331,7 @@ function routePath(route: AppRoute) {
     market: "/marketplace",
     smartInvest: "/smart-invest",
     loan: `/marketplace/${encodeURIComponent(route.params?.loanId ?? "")}`,
+    loanSchedule: `/marketplace/${encodeURIComponent(route.params?.loanId ?? "")}/schedule`,
     portfolio: "/portfolio",
     secondary: "/secondary-market",
     balances: "/balances",
@@ -452,6 +456,7 @@ const routeTitles: Record<RouteName, string> = {
   market: "Investment Opportunities",
   smartInvest: "Smart Invest",
   loan: "Investment Opportunities",
+  loanSchedule: "Investment Opportunities",
   portfolio: "My Portfolio",
   secondary: "Secondary Market",
   balances: "Balances",
@@ -2222,6 +2227,15 @@ function InvestorShell({
             setRoute={setRoute}
           />
         );
+      case "loanSchedule":
+        return (
+          <LoanScheduleScreen
+            demoState={demoState}
+            loanId={route.params?.loanId ?? ""}
+            setInvestLoan={setInvestLoan}
+            setRoute={setRoute}
+          />
+        );
       case "portfolio":
         return <PortfolioScreen setRoute={setRoute} />;
       case "secondary":
@@ -2257,7 +2271,7 @@ function InvestorShell({
     ?? balances.summaries[0]?.currency
     ?? "CHF";
   const displayRouteName = !financialAccessAllowed && !isFixturePreview ? "kyc" : route.name;
-  const activeRoute = displayRouteName === "loan" ? "market" : displayRouteName;
+  const activeRoute = displayRouteName === "loan" || displayRouteName === "loanSchedule" ? "market" : displayRouteName;
 
   return (
     <div className="app">
@@ -4711,34 +4725,107 @@ function osProjection(amountMinor: number, yieldBps: number, termMonths: number,
   return { totalMinor: Math.round(amountMinor + interest), interestMinor: Math.round(interest), monthlyMinor: null };
 }
 
-function originatorSubscriptionProjection(
-  loan: MarketplaceLoanDetail,
+type InvestorScheduleRow = {
+  installment: number;
+  dueDate: string;
+  principalMinor: number;
+  interestMinor: number;
+  penaltyMinor: number;
+  totalMinor: number;
+  owedAfterMinor: number;
+};
+
+type InvestorScheduleProjection = {
+  basis: "direct" | "subscription" | "quoted" | "unavailable";
+  rows: InvestorScheduleRow[];
+  principalMinor: number;
+  interestMinor: number;
+  penaltyMinor: number;
+  totalMinor: number;
+};
+
+// Mirrors the backend entitlement math: a fixed proportional share of each
+// contracted installment. Direct loans allocate principal and interest by the
+// investor's share of the financeable principal; v2 originator subscriptions
+// entitle only rows after the boundary installment, with the declared interest
+// and penalty participation applied on top of the proportional share.
+function investorScheduleProjection(
+  detail: MarketplaceLoanDetail,
   amountMinor: number
-) {
-  const boundaryDate = loan.entitlement_start_date;
-  const rows = (loan.originator_schedule ?? []).filter(
-    (row) => !boundaryDate || row.due_date > boundaryDate
-  );
-  if (amountMinor <= 0 || loan.principal_minor <= 0 || rows.length === 0) {
-    return { totalMinor: amountMinor, interestMinor: 0, monthlyMinor: null };
-  }
-  const participation = (loan.investor_interest_participation_bps ?? 0) / 10_000;
-  let currentPrincipal = amountMinor;
-  let projectedPrincipal = 0;
-  let projectedInterest = 0;
-  rows.forEach((row, index) => {
-    const opening = Math.max(1, row.opening_principal_minor);
-    const principalPart = index === rows.length - 1
-      ? currentPrincipal
-      : Math.min(currentPrincipal, Math.round((row.principal_minor * currentPrincipal) / opening));
-    projectedPrincipal += principalPart;
-    projectedInterest += Math.round((row.interest_minor * currentPrincipal * participation) / opening);
-    currentPrincipal -= principalPart;
+): InvestorScheduleProjection {
+  const empty = (basis: InvestorScheduleProjection["basis"]): InvestorScheduleProjection => ({
+    basis,
+    rows: [],
+    principalMinor: 0,
+    interestMinor: 0,
+    penaltyMinor: 0,
+    totalMinor: 0
+  });
+  if (amountMinor <= 0) return empty("unavailable");
+  if (usesImmediateClaimAssignment(detail)) return empty("quoted");
+  const subscription = usesOriginatorSubscription(detail);
+  const boundaryDate = detail.entitlement_start_date ?? null;
+  const source: { installment: number; dueDate: string; opening: number; principal: number; interest: number; penalty: number }[] = subscription
+    ? (detail.originator_schedule ?? [])
+        .filter((row) => !boundaryDate || row.due_date > boundaryDate)
+        .map((row) => ({
+          installment: row.installment_number,
+          dueDate: row.due_date,
+          opening: Math.max(1, row.opening_principal_minor),
+          principal: row.principal_minor,
+          interest: row.interest_minor,
+          penalty: row.penalty_minor
+        }))
+    : (detail.loan_schedule ?? []).filter((row) => row.row_type !== "repayment_event").map((row) => ({
+        installment: row.installment_number,
+        dueDate: row.due_date,
+        opening: Math.max(1, detail.principal_minor),
+        principal: row.principal_minor,
+        interest: row.interest_minor,
+        penalty: 0
+      }));
+  if (source.length === 0) return empty("unavailable");
+  const interestParticipation = subscription ? (detail.investor_interest_participation_bps ?? 0) : 10_000;
+  const penaltyParticipation = subscription ? (detail.investor_penalty_participation_bps ?? 0) : 10_000;
+  const rows: InvestorScheduleRow[] = [];
+  let remaining = amountMinor;
+  let totalInterest = 0;
+  let totalPenalty = 0;
+  source.forEach((row, index) => {
+    // For direct loans the share of the financeable principal is constant; for
+    // subscriptions the share of each row's opening principal stays constant as
+    // both the loan and the holding amortise proportionally.
+    const sharePrincipal = BigInt(subscription ? remaining : amountMinor);
+    const denominator = BigInt(row.opening) * 10_000n;
+    const proportional = (component: number, participation = 10_000) => {
+      const numerator = BigInt(component) * sharePrincipal * BigInt(participation);
+      return Number((numerator * 2n + denominator) / (denominator * 2n));
+    };
+    const principalPart = index === source.length - 1
+      ? remaining
+      : Math.min(remaining, proportional(row.principal));
+    const interestPart = proportional(row.interest, interestParticipation);
+    const penaltyPart = proportional(row.penalty, penaltyParticipation);
+    remaining -= principalPart;
+    totalInterest += interestPart;
+    totalPenalty += penaltyPart;
+    rows.push({
+      installment: row.installment,
+      dueDate: row.dueDate,
+      principalMinor: principalPart,
+      interestMinor: interestPart,
+      penaltyMinor: penaltyPart,
+      totalMinor: principalPart + interestPart + penaltyPart,
+      owedAfterMinor: Math.max(0, remaining)
+    });
   });
   return {
-    totalMinor: projectedPrincipal + projectedInterest,
-    interestMinor: projectedInterest,
-    monthlyMinor: null
+    basis: subscription ? "subscription" : "direct",
+    rows,
+    principalMinor: amountMinor,
+    interestMinor: totalInterest,
+    penaltyMinor: totalPenalty,
+    totalMinor: amountMinor + totalInterest + totalPenalty
   };
 }
 
@@ -4749,9 +4836,20 @@ function marketplaceProjection(
   termMonths: number,
   repaymentType: string
 ) {
-  return detail && usesOriginatorSubscription(detail)
-    ? originatorSubscriptionProjection(detail, amountMinor)
-    : osProjection(amountMinor, yieldBps, termMonths, repaymentType);
+  if (detail) {
+    const projection = investorScheduleProjection(detail, amountMinor);
+    if (projection.rows.length > 0) {
+      return {
+        totalMinor: projection.totalMinor,
+        interestMinor: projection.interestMinor,
+        monthlyMinor: repaymentType === "equal_installments" ? projection.rows[0].totalMinor : null
+      };
+    }
+    if (projection.basis === "subscription") {
+      return { totalMinor: amountMinor, interestMinor: 0, monthlyMinor: null };
+    }
+  }
+  return osProjection(amountMinor, yieldBps, termMonths, repaymentType);
 }
 
 function MarketplaceLoanSheet({
@@ -4770,6 +4868,10 @@ function MarketplaceLoanSheet({
   const portfolio = usePortfolioData(true).data;
   const [stepOpen, setStepOpen] = useState(false);
   const [amountText, setAmountText] = useState<string | null>(null);
+  const [calcOpen, setCalcOpen] = useState(false);
+  const [calcText, setCalcText] = useState("");
+  const [calcError, setCalcError] = useState("");
+  const [calcResult, setCalcResult] = useState<InvestorScheduleProjection | null>(null);
   useEffect(() => {
     const listener = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
@@ -4831,6 +4933,10 @@ function MarketplaceLoanSheet({
   const goDetail = () => {
     onClose();
     goTo(setRoute, "loan", { loanId: loan.loan_id });
+  };
+  const goSchedule = () => {
+    onClose();
+    goTo(setRoute, "loanSchedule", { loanId: loan.loan_id });
   };
   const reviewOrder = () => {
     if (!detail || underMin || amountMinor <= 0 || overCash) return;
@@ -4966,6 +5072,104 @@ function MarketplaceLoanSheet({
               </div>
             )}
 
+            <div className="os-card os-calc">
+              <button aria-expanded={calcOpen} className="os-calc-toggle" onClick={() => setCalcOpen((open) => !open)} type="button">
+                <span className="os-cap">Investment schedule calculator</span>
+                <span className="os-calc-hint">how a given amount comes back to you, installment by installment</span>
+                <span className="ls-spacer" />
+                <span className="os-over">{calcOpen ? "Hide ▴" : "Show ▾"}</span>
+              </button>
+              {calcOpen ? (
+                <div className="os-calc-body">
+                  {detail && usesImmediateClaimAssignment(detail) ? (
+                    <div className="os-note">This claim is priced by an executable quote at its target yield, so the exact schedule is fixed only when you review a purchase — the quote shows every installment you would receive.</div>
+                  ) : (
+                    <>
+                      <form
+                        className="os-calc-row"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          setCalcError("");
+                          setCalcResult(null);
+                          if (!detail) {
+                            setCalcError("The loan schedule is still loading.");
+                            return;
+                          }
+                          const parsed = parseMoneyInputToMinorUnits(calcText, ccy);
+                          const value = parsed.amountMinor;
+                          if (parsed.error || value <= 0) {
+                            setCalcError(parsed.error ?? "Enter a valid amount.");
+                            return;
+                          }
+                          if (value < minInvestMinor) {
+                            setCalcError(`The minimum in any one loan is ${pfMoneyLabel(ccy, minInvestMinor)}.`);
+                            return;
+                          }
+                          if (value > availableMinor) {
+                            setCalcError(`Only ${pfMoneyLabel(ccy, availableMinor)} is available in this opportunity.`);
+                            return;
+                          }
+                          if (value > investableMinor) {
+                            setCalcError(`Only ${pfMoneyLabel(ccy, investableMinor)} is not lent — today's maximum here.`);
+                            return;
+                          }
+                          const projection = investorScheduleProjection(detail, value);
+                          if (projection.rows.length === 0) {
+                            setCalcError("No contracted schedule is available for this loan yet.");
+                            return;
+                          }
+                          setCalcResult(projection);
+                        }}
+                      >
+                        <div className="os-amt-box os-amt-box-sm">
+                          <span className="os-amt-ccy">{ccy === "EUR" ? "€" : ccy}</span>
+                          <input aria-label="Amount to calculate" className="os-amt-input os-amt-input-sm" inputMode="decimal" onChange={(event) => setCalcText(event.target.value)} placeholder={formatMoneyMinor(minInvestMinor, ccy).replace(/[^\d.]/g, "")} type="text" value={calcText} />
+                        </div>
+                        <button className="si-pill-dark os-calc-btn" type="submit">Calculate</button>
+                        <span className="os-over os-calc-limits">minimum {pfMoneyLabel(ccy, minInvestMinor)} · up to {pfMoneyLabel(ccy, Math.min(availableMinor, investableMinor))} today</span>
+                      </form>
+                      {calcError ? <div className="os-step-note os-calc-error" role="alert">{calcError}</div> : null}
+                      {calcResult ? (
+                        <div className={`os-calc-result ${calcResult.penaltyMinor > 0 ? "has-penalty" : ""}`}>
+                          <div className="ls-th">
+                            <span className="ls-td-due">Due</span>
+                            <span className="ls-td-cap">Capital</span>
+                            <span className="ls-td-int">Interest</span>
+                            {calcResult.penaltyMinor > 0 ? <span className="ls-td-cap">Penalty</span> : null}
+                            <span className="ls-td-amt">Payment</span>
+                            <span className="ls-td-bal">Owed after</span>
+                          </div>
+                          {calcResult.rows.map((row) => (
+                            <div className="ls-tr" key={row.installment}>
+                              <span className="ls-td-due">{pfShortDate(row.dueDate)}</span>
+                              <span className="ls-td-cap">{formatMoneyMinor(row.principalMinor, ccy)}</span>
+                              <span className="ls-td-int">{formatMoneyMinor(row.interestMinor, ccy)}</span>
+                              {calcResult.penaltyMinor > 0 ? <span className="ls-td-cap">{formatMoneyMinor(row.penaltyMinor, ccy)}</span> : null}
+                              <span className="ls-td-amt">{formatMoneyMinor(row.totalMinor, ccy)}</span>
+                              <span className="ls-td-bal">{formatMoneyMinor(row.owedAfterMinor, ccy)}</span>
+                            </div>
+                          ))}
+                          <div className="ls-tr os-calc-total">
+                            <span className="ls-td-due">{calcResult.rows.length} payments</span>
+                            <span className="ls-td-cap">{formatMoneyMinor(calcResult.principalMinor, ccy)}</span>
+                            <span className="ls-td-int">{formatMoneyMinor(calcResult.interestMinor, ccy)}</span>
+                            {calcResult.penaltyMinor > 0 ? <span className="ls-td-cap">{formatMoneyMinor(calcResult.penaltyMinor, ccy)}</span> : null}
+                            <span className="ls-td-amt">{formatMoneyMinor(calcResult.totalMinor, ccy)}</span>
+                            <span className="ls-td-bal">—</span>
+                          </div>
+                          <div className="ls-sched-note">
+                            {calcResult.basis === "subscription"
+                              ? `Only installments after the boundary installment${detail?.entitlement_start_date ? ` (${formatDate(detail.entitlement_start_date)})` : ""} count. Capital is your proportional share of each installment; interest counts ${formatRateBps(detail?.investor_interest_participation_bps ?? 0)} and penalties ${formatRateBps(detail?.investor_penalty_participation_bps ?? 0)} of the amount attributable to your share. No interest accrues during funding, and the boundary installment belongs to the Loan Originator.`
+                              : "Indicative share of the current schedule, assuming the campaign funds in full. At a partial close the schedule and your share are recalculated. Actual distributions may differ by rounding; repayments are not guaranteed."}
+                          </div>
+                        </div>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              ) : null}
+            </div>
+
             <div className="os-card">
               <div className="os-cap">Who you are lending to</div>
               <div className="os-text">{chain}</div>
@@ -4983,13 +5187,15 @@ function MarketplaceLoanSheet({
               <div className="os-wallet-cap green">You would earn</div>
               <div className="os-bar-row"><span className="os-bar-val green">≈ {pfMoneyLabel(ccy, marketplaceProjection(detail, commitableMinor, yieldBps, loan.term_months, repaymentType).interestMinor)}</span><span className="os-bar-sub">interest, over the remaining schedule</span></div>
             </div>
-            <span className="ls-spacer" />
-            {!claim && detail ? (
-              <button className="os-meet-btn" onClick={goDetail} type="button">Meet the borrower →</button>
-            ) : claim && detail ? (
-              <button className="os-meet-btn" onClick={goDetail} type="button">The full credit file →</button>
-            ) : null}
-            <button className="ls-sell-btn" disabled={!openLoan || !detail || commitableMinor <= 0} onClick={() => setStepOpen(true)} title={!openLoan ? "This opportunity is not open to new investment." : commitableMinor <= 0 ? "No investable balance is available in this currency." : undefined} type="button">Invest now</button>
+            <div className="os-bar-actions">
+              {detail ? (
+                <div className="os-bar-links">
+                  <button className="os-meet-btn" onClick={goDetail} type="button">{claim ? "Meet the originator" : "Meet the borrower"} →</button>
+                  <button className="os-meet-btn" onClick={goSchedule} type="button">Loan schedule →</button>
+                </div>
+              ) : null}
+              <button className="ls-sell-btn" disabled={!openLoan || !detail || commitableMinor <= 0} onClick={() => setStepOpen(true)} title={!openLoan ? "This opportunity is not open to new investment." : commitableMinor <= 0 ? "No investable balance is available in this currency." : undefined} type="button">Invest now</button>
+            </div>
           </div>
         ) : (
           <div className="os-step">
@@ -5166,20 +5372,186 @@ function MarketplaceOpportunityList({
   );
 }
 
-function LoanDetailScreen({
-  loanId,
-  setRoute,
+type LoanPageKind = "story" | "schedule";
+
+function loanCounterpartyLabel(loan: MarketplaceLoanDetail) {
+  return isOriginatorClaimLoan(loan) ? "Meet the originator" : "Meet the borrower";
+}
+
+function loanStorySubjectName(loan: MarketplaceLoanDetail) {
+  if (isOriginatorClaimLoan(loan)) return loan.originator_name || "the loan originator";
+  return borrowerDisclosureForLoan(loan).legal_name || loan.title;
+}
+
+function loanClosesRow(loan: MarketplaceLoanDetail): [string, string] {
+  const subscriptionClaim = usesOriginatorSubscription(loan);
+  const originatorClaim = isOriginatorClaimLoan(loan);
+  if (subscriptionClaim || !originatorClaim) {
+    return ["Closes", loan.funding_deadline ? formatDate(loan.funding_deadline) : "Not available"];
+  }
+  return ["Maturity", loan.maturity_date ? formatDate(loan.maturity_date) : "Not available"];
+}
+
+/** The key facts shared by both loan pages: name, counterparty, rate, LTV, amount and the like. */
+function LoanFactsCard({ loan }: { loan: MarketplaceLoanDetail }) {
+  const originatorClaim = isOriginatorClaimLoan(loan);
+  const subscriptionClaim = usesOriginatorSubscription(loan);
+  const disclosure = borrowerDisclosureForLoan(loan);
+  const availableMinor = marketplaceAvailableMinor(loan);
+  const financialsCurrency = disclosure.financials_currency || loan.currency;
+  const [closesLabel, closesValue] = loanClosesRow(loan);
+  const borrowerName = originatorClaim
+    ? loan.borrower_display_name || disclosure.legal_name || "Undisclosed final borrower"
+    : disclosure.legal_name || loan.title;
+  const documents = disclosure.documents ?? [];
+  const rows: Array<[string, ReactNode, boolean?]> = [
+    ["Borrower", borrowerName],
+    ...(originatorClaim && loan.originator_name ? [["Loan originator", loan.originator_name] as [string, ReactNode]] : []),
+    ...(originatorClaim && (loan.skin_in_the_game_bps ?? 0) > 0
+      ? [["Skin in the game", `${formatRateBps(loan.skin_in_the_game_bps ?? 0)} of the outstanding principal stays with the originator`] as [string, ReactNode]]
+      : []),
+    [subscriptionClaim ? "Nominal investor interest rate" : "Investor yield", `${formatRateBps(marketplaceYieldBps(loan))} p.a.`, true],
+    ...(originatorClaim ? [["Borrower coupon", `${formatRateBps(loan.underlying_interest_rate_bps)} p.a.`, true] as [string, ReactNode, boolean]] : []),
+    ["Loan-to-value", loan.ltv_bps !== null ? `${(loan.ltv_bps / 100).toFixed(1)}%` : "Not shown (no collateral value)", true],
+    ["Collateral", loan.collateral_value_minor > 0 ? `${loan.collateral_type} · ${loan.currency} ${formatMoneyMinor(loan.collateral_value_minor, loan.currency)}` : loan.collateral_type],
+    ["Collateral / backing", loan.collateral_description],
+    ...(subscriptionClaim ? [
+      ["Investor interest participation", formatRateBps(loan.investor_interest_participation_bps ?? 0), true] as [string, ReactNode, boolean],
+      ["Investor penalty participation", formatRateBps(loan.investor_penalty_participation_bps ?? 0), true] as [string, ReactNode, boolean],
+      ["Boundary installment due", loan.entitlement_start_date ? formatDate(loan.entitlement_start_date) : "Not available"] as [string, ReactNode]
+    ] : []),
+    ["Purpose", loan.purpose_description || loan.purpose],
+    ["Risk rating", <Rating key="rating" value={loan.risk_rating} />],
+    ["Repayment type", formatEnumLabel(loan.repayment_type)],
+    ["Minimum investment", `${loan.currency} ${formatMoneyMinor(loan.minimum_investment_minor, loan.currency)}`, true],
+    ["Available now", `${loan.currency} ${formatMoneyMinor(availableMinor, loan.currency)}`, true],
+    [closesLabel, closesValue],
+    ...(disclosure.country ? [["Country", disclosure.country] as [string, ReactNode]] : []),
+    ...(disclosure.year_founded ? [["Year founded", String(disclosure.year_founded)] as [string, ReactNode]] : []),
+    ...(disclosure.business_classification ? [["Business", disclosure.business_classification] as [string, ReactNode]] : []),
+    ...(disclosure.registered_address ? [["Registered address", disclosure.registered_address] as [string, ReactNode]] : []),
+    ...(disclosure.contact_info ? [["Contact info", disclosure.contact_info] as [string, ReactNode]] : []),
+    ...(disclosure.assets_minor !== undefined ? [["Assets", disclosureMoney(disclosure.assets_minor, financialsCurrency), true] as [string, ReactNode, boolean]] : []),
+    ...(disclosure.liabilities_minor !== undefined ? [["Liabilities", disclosureMoney(disclosure.liabilities_minor, financialsCurrency), true] as [string, ReactNode, boolean]] : []),
+    ...(disclosure.revenue_last_year_minor !== undefined ? [["Revenue last year", disclosureMoney(disclosure.revenue_last_year_minor, financialsCurrency), true] as [string, ReactNode, boolean]] : []),
+    ...(disclosure.profit_last_year_minor !== undefined ? [["Profit last year", disclosureMoney(disclosure.profit_last_year_minor, financialsCurrency), true] as [string, ReactNode, boolean]] : []),
+    ...(documents.length > 0
+      ? [["Documents", <div className="col gap-8" key="documents">{documents.map((document, index) => <div key={document.id ?? index}>
+          <strong>{document.display_name || "Borrower document"}</strong>
+          {document.description ? <div>{document.description}</div> : null}
+          {document.document_type ? <span className="tag">{humanizeToken(document.document_type)}</span> : null}
+          {document.id ? <CopyIdButton ariaLabel="Copy document ID" id={document.id} /> : null}
+        </div>)}</div>] as [string, ReactNode]]
+      : [])
+  ];
+
+  return (
+    <Card padded>
+      <div className="lp-stats">
+        <Stat amountMinor={loan.principal_minor} currency={loan.currency} label={originatorClaim ? "Current principal" : "Amount"} />
+        <Stat label="Yield" raw={formatRateBps(marketplaceYieldBps(loan))} sub={subscriptionClaim ? "nominal rate after boundary" : originatorClaim ? "effective annual · ACT/365" : "nominal annual rate"} />
+        <Stat label="Term" raw={loan.remaining_term_days === null ? `${loan.term_months} mo` : `${loan.remaining_term_days} days`} sub={formatEnumLabel(loan.repayment_type)} />
+        <Stat label={subscriptionClaim ? "Reserved" : originatorClaim ? "Claim sold" : "Funded"} raw={`${fundingPercent(loan)}%`} sub={`${loan.currency} ${formatMoneyMinor(loan.committed_principal_minor, loan.currency)}`} />
+      </div>
+      <div style={{ marginTop: 14 }}>
+        <Progress percent={fundingPercent(loan)} />
+        <div className="row spread muted" style={{ fontSize: 12, marginTop: 6 }}>
+          <span>{loan.currency} {formatMoneyMinor(loan.committed_principal_minor, loan.currency)} {subscriptionClaim ? "reserved" : originatorClaim ? "claim principal sold" : "allocated"}</span>
+          <span>{closesLabel === "Closes" ? `Closes ${closesValue}` : `Matures ${closesValue}`}</span>
+        </div>
+      </div>
+      <div className="hr" style={{ margin: "16px 0" }} />
+      <div className="eyebrow" style={{ marginBottom: 6 }}>Key facts</div>
+      <dl className="kv lp-facts">
+        {rows.map(([label, value, mono]) =>
+          value !== undefined && value !== "" ? <KeyValueRow key={label} label={label} mono={mono} value={value} /> : null
+        )}
+      </dl>
+      {loan.investor_summary ? <p className="muted-2 lp-summary">{loan.investor_summary}</p> : null}
+    </Card>
+  );
+}
+
+function LoanInvestAside({
+  loan,
   demoState,
   setInvestLoan
 }: {
-  loanId: string;
-  setRoute: (route: AppRoute) => void;
+  loan: MarketplaceLoanDetail;
   demoState: DemoAccountState;
   setInvestLoan: (loan: MarketplaceLoanDetail) => void;
 }) {
+  const blocked = demoState !== "active";
+  const originatorClaim = isOriginatorClaimLoan(loan);
+  const subscriptionClaim = usesOriginatorSubscription(loan);
+  const openForInvestment = isOpenMarketplaceLoan(loan);
+  const availableMinor = marketplaceAvailableMinor(loan);
+  const [closesLabel, closesValue] = loanClosesRow(loan);
+  return (
+    <aside className="aside-sticky">
+      <Card padded>
+        {!openForInvestment ? (
+          <Empty icon="checkCircle" title="Not open for investment">
+            {originatorClaim
+              ? "This originator claim is sold, on hold, repaid, late, defaulted, or within 30 days of maturity."
+              : "This loan is closed to new orders."}
+          </Empty>
+        ) : (
+          <>
+            <div className="eyebrow" style={{ marginBottom: 8 }}>{subscriptionClaim ? "Subscribe at par" : originatorClaim ? "Buy this loan claim" : "Invest in this loan"}</div>
+            {originatorClaim && loan.originator_name ? <KeyValue label="Loan originator" value={loan.originator_name} /> : null}
+            {originatorClaim && (loan.skin_in_the_game_bps ?? 0) > 0 ? <KeyValue label="Skin in the game" value={`${formatRateBps(loan.skin_in_the_game_bps ?? 0)} kept by the originator`} /> : null}
+            <KeyValue label="Yield" value={`${formatRateBps(marketplaceYieldBps(loan))} p.a.`} />
+            {originatorClaim ? <KeyValue label="Borrower coupon" value={`${formatRateBps(loan.underlying_interest_rate_bps)} p.a.`} /> : null}
+            <KeyValue label="Minimum investment" value={`${loan.currency} ${formatMoneyMinor(loan.minimum_investment_minor, loan.currency)}`} />
+            <KeyValue label="Available now" value={`${loan.currency} ${formatMoneyMinor(availableMinor, loan.currency)}`} />
+            <KeyValue label={closesLabel} value={closesValue} />
+            {blocked || isReadonlyImpersonationActive() ? (
+              <Banner tone={demoState === "frozen" ? "bad" : "warn"} title={demoState === "frozen" ? "Financial actions frozen" : "Investing not yet available"}>
+                {isReadonlyImpersonationActive()
+                  ? "Read-only impersonation cannot place orders."
+                  : demoState === "frozen"
+                    ? "Provide a usable payout IBAN to unlock investing."
+                    : "Complete KYC verification to unlock investing."}
+              </Banner>
+            ) : (
+              <Button block icon="trend" variant="primary" onClick={() => setInvestLoan(loan)}>
+                {usesImmediateClaimAssignment(loan) ? "Review claim purchase" : "Invest now"}
+              </Button>
+            )}
+            <p className="muted" style={{ fontSize: 11, lineHeight: 1.5, marginTop: 10 }}>
+              {subscriptionClaim
+                ? "The order reserves balance at par and becomes a holding automatically at funding close. No interest accrues during funding; the boundary installment belongs entirely to the LO."
+                : originatorClaim
+                ? "BANXUM generates an executable quote from the remaining borrower cash flows. A confirmed purchase assigns the legal claim immediately."
+                : "Orders are intents and do not reserve capacity until funds are allocated and validated."}
+            </p>
+          </>
+        )}
+      </Card>
+    </aside>
+  );
+}
+
+/** Shared frame of the two loan pages: header, page switcher, facts, main content and the invest aside. */
+function LoanPageFrame({
+  loanId,
+  page,
+  setRoute,
+  demoState,
+  setInvestLoan,
+  children
+}: {
+  loanId: string;
+  page: LoanPageKind;
+  setRoute: (route: AppRoute) => void;
+  demoState: DemoAccountState;
+  setInvestLoan: (loan: MarketplaceLoanDetail) => void;
+  children: (loan: MarketplaceLoanDetail) => ReactNode;
+}) {
   const loanQuery = useLoanDetailData(loanId);
   const loan = loanQuery.data;
-  const [tab, setTab] = useState<"overview" | "terms" | "docs" | "risk">("overview");
+  const title = page === "story" ? loanCounterpartyLabel : () => "Loan schedule & payments";
   if (loanQuery.isError && !loan) {
     return (
       <ScreenError title="Loan detail" onRetry={() => void loanQuery.refetch()}>
@@ -5188,11 +5560,7 @@ function LoanDetailScreen({
     );
   }
   if (!loan) return <ScreenLoading title="Loan detail" />;
-  const blocked = demoState !== "active";
   const originatorClaim = isOriginatorClaimLoan(loan);
-  const subscriptionClaim = usesOriginatorSubscription(loan);
-  const openForInvestment = isOpenMarketplaceLoan(loan);
-  const availableMinor = marketplaceAvailableMinor(loan);
 
   return (
     <main className="content">
@@ -5207,106 +5575,149 @@ function LoanDetailScreen({
             {originatorClaim ? <span className="tag">Originator claim</span> : null}
           </div>
           <h1>{loan.title}</h1>
-          <div className="ph-sub"><CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" /></div>
+          <div className="ph-sub"><span className="lp-eyebrow">{title(loan)}</span> <CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" /></div>
         </div>
+        <nav aria-label="Loan pages" className="lp-switch">
+          <button aria-current={page === "story" ? "page" : undefined} className={`lp-switch-btn ${page === "story" ? "on" : ""}`} onClick={() => goTo(setRoute, "loan", { loanId: loan.loan_id })} type="button">{loanCounterpartyLabel(loan)}</button>
+          <button aria-current={page === "schedule" ? "page" : undefined} className={`lp-switch-btn ${page === "schedule" ? "on" : ""}`} onClick={() => goTo(setRoute, "loanSchedule", { loanId: loan.loan_id })} type="button">Loan schedule & payments</button>
+        </nav>
       </div>
       <div className="split loan-detail-layout">
         <div>
-          <Card padded>
-            <div className="grid grid-4" style={{ gap: 0 }}>
-              <Stat amountMinor={loan.principal_minor} currency={loan.currency} label={originatorClaim ? "Current principal" : "Amount"} />
-              <Stat label="Yield" raw={formatRateBps(marketplaceYieldBps(loan))} sub={subscriptionClaim ? "nominal rate after activation" : "effective annual · ACT/365"} />
-              <Stat label="Term" raw={loan.remaining_term_days === null ? `${loan.term_months} mo` : `${loan.remaining_term_days} days`} sub={loan.repayment_type} />
-              <Stat label={subscriptionClaim ? "Reserved" : originatorClaim ? "Claim sold" : "Funded"} raw={`${fundingPercent(loan)}%`} sub={`${loan.currency} ${formatMoneyMinor(loan.committed_principal_minor, loan.currency)}`} />
-            </div>
-            <div style={{ marginTop: 14 }}>
-              <Progress percent={fundingPercent(loan)} />
-              <div className="row spread muted" style={{ fontSize: 12, marginTop: 6 }}>
-                <span>{loan.currency} {formatMoneyMinor(loan.committed_principal_minor, loan.currency)} {subscriptionClaim ? "reserved" : originatorClaim ? "claim principal sold" : "allocated"}</span>
-                <span>
-                  {subscriptionClaim
-                    ? loan.funding_deadline ? `Funding closes ${formatDate(loan.funding_deadline)}` : "Funding deadline unavailable"
-                    : originatorClaim
-                    ? loan.maturity_date
-                      ? `Matures ${formatDate(loan.maturity_date)}`
-                      : "Maturity unavailable"
-                    : loan.funding_deadline
-                      ? `Closes ${formatDate(loan.funding_deadline)}`
-                      : "No funding deadline"}
-                </span>
-              </div>
-            </div>
-          </Card>
-          <div style={{ marginTop: 16 }}>
-            <Tabs
-              tabs={[
-                { value: "overview", label: "Overview" },
-                { value: "terms", label: "Terms & collateral" },
-                { value: "docs", label: "Documents" },
-                { value: "risk", label: "Risk" }
-              ]}
-              value={tab}
-              onChange={setTab}
-            />
-          </div>
-          <div style={{ paddingTop: 16 }}>
-            {tab === "overview" ? <LoanOverview loan={loan} /> : null}
-            {tab === "terms" ? <LoanTerms loan={loan} /> : null}
-            {tab === "docs" ? <LoanDocuments loan={loan} /> : null}
-            {tab === "risk" ? <RiskDisclosure /> : null}
-          </div>
+          <LoanFactsCard loan={loan} />
+          <div style={{ marginTop: 16 }}>{children(loan)}</div>
         </div>
-        <aside className="aside-sticky">
-          <Card padded>
-            {!openForInvestment ? (
-              <Empty icon="checkCircle" title="Not open for investment">
-                {originatorClaim
-                  ? "This originator claim is sold, on hold, repaid, late, defaulted, or within 30 days of maturity."
-                  : "This loan is closed to new orders."}
-              </Empty>
-            ) : (
-              <>
-                <div className="eyebrow" style={{ marginBottom: 8 }}>{subscriptionClaim ? "Subscribe at par" : originatorClaim ? "Buy this loan claim" : "Invest in this loan"}</div>
-                {originatorClaim && loan.originator_name ? <KeyValue label="Loan originator" value={loan.originator_name} /> : null}
-                {originatorClaim && (loan.skin_in_the_game_bps ?? 0) > 0 ? <KeyValue label="Skin in the game" value={`${formatRateBps(loan.skin_in_the_game_bps ?? 0)} kept by the originator`} /> : null}
-                <KeyValue label="Yield" value={`${formatRateBps(marketplaceYieldBps(loan))} p.a.`} />
-                {originatorClaim ? <KeyValue label="Borrower coupon" value={`${formatRateBps(loan.underlying_interest_rate_bps)} p.a.`} /> : null}
-                <KeyValue label="Minimum investment" value={`${loan.currency} ${formatMoneyMinor(loan.minimum_investment_minor, loan.currency)}`} />
-                <KeyValue label="Available now" value={`${loan.currency} ${formatMoneyMinor(availableMinor, loan.currency)}`} />
-                <KeyValue
-                  label={subscriptionClaim || !originatorClaim ? "Closes" : "Maturity"}
-                  value={subscriptionClaim
-                    ? loan.funding_deadline ? formatDate(loan.funding_deadline) : "Not available"
-                    : originatorClaim
-                    ? loan.maturity_date ? formatDate(loan.maturity_date) : "Not available"
-                    : loan.funding_deadline ? formatDate(loan.funding_deadline) : "Not available"}
-                />
-                {blocked || isReadonlyImpersonationActive() ? (
-                  <Banner tone={demoState === "frozen" ? "bad" : "warn"} title={demoState === "frozen" ? "Financial actions frozen" : "Investing not yet available"}>
-                    {isReadonlyImpersonationActive()
-                      ? "Read-only impersonation cannot place orders."
-                      : demoState === "frozen"
-                        ? "Provide a usable payout IBAN to unlock investing."
-                        : "Complete KYC verification to unlock investing."}
-                  </Banner>
-                ) : (
-                  <Button block icon="trend" variant="primary" onClick={() => setInvestLoan(loan)}>
-                    {usesImmediateClaimAssignment(loan) ? "Review claim purchase" : "Place investment order"}
-                  </Button>
-                )}
-                <p className="muted" style={{ fontSize: 11, lineHeight: 1.5, marginTop: 10 }}>
-                  {subscriptionClaim
-                    ? "The order reserves balance at par and becomes a holding automatically at funding close. No interest accrues during funding; the boundary installment belongs entirely to the LO."
-                    : originatorClaim
-                    ? "BANXUM generates an executable quote from the remaining borrower cash flows. A confirmed purchase assigns the legal claim immediately."
-                    : "Orders are intents and do not reserve capacity until funds are allocated and validated."}
-                </p>
-              </>
-            )}
-          </Card>
-        </aside>
+        <LoanInvestAside demoState={demoState} loan={loan} setInvestLoan={setInvestLoan} />
       </div>
     </main>
+  );
+}
+
+/** "Meet the borrower" (direct loans) / "Meet the originator" (originator claims): key facts + the admin-authored story. */
+function LoanDetailScreen({
+  loanId,
+  setRoute,
+  demoState,
+  setInvestLoan
+}: {
+  loanId: string;
+  setRoute: (route: AppRoute) => void;
+  demoState: DemoAccountState;
+  setInvestLoan: (loan: MarketplaceLoanDetail) => void;
+}) {
+  return (
+    <LoanPageFrame demoState={demoState} loanId={loanId} page="story" setInvestLoan={setInvestLoan} setRoute={setRoute}>
+      {(loan) => {
+        const story = normalizeStory((loan as MarketplaceLoanDetail & { story?: unknown }).story);
+        const subject = loanStorySubjectName(loan);
+        const originatorClaim = isOriginatorClaimLoan(loan);
+        return (
+          <Card className="lp-story-card" padded>
+            <div className="eyebrow" style={{ marginBottom: 6 }}>{originatorClaim ? "About the loan originator" : "About the borrower"}</div>
+            {storyIsEmpty(story) ? (
+              <Empty icon="doc" title={`No story published yet for ${subject}`}>
+                {originatorClaim
+                  ? "BANXUM has not published a profile of this loan originator yet."
+                  : "BANXUM has not published a profile of this borrower yet."}
+              </Empty>
+            ) : (
+              <StoryView story={story} />
+            )}
+            {!storyIsEmpty(story) ? <p className="muted lp-story-note">
+              Published by BANXUM from {originatorClaim ? "the loan originator's" : "the borrower's"} material. Investment terms and risk disclosures apply; repayments are not guaranteed.
+            </p> : null}
+          </Card>
+        );
+      }}
+    </LoanPageFrame>
+  );
+}
+
+function DirectLoanScheduleSection({ loan }: { loan: MarketplaceLoanDetail }) {
+  const schedule = loan.loan_schedule ?? [];
+  const hasPayments = schedule.some((row) => row.row_type === "repayment_event");
+  const totals = schedule.reduce(
+    (acc, row) => {
+      acc.principal += row.principal_minor;
+      acc.interest += row.interest_minor;
+      acc.total += row.total_minor;
+      return acc;
+    },
+    { principal: 0, interest: 0, total: 0 }
+  );
+  return (
+    <Card className="section" padded>
+      <div className="row gap-8 wrap" style={{ marginBottom: 6 }}>
+        <div className="eyebrow">Contracted repayment schedule</div>
+        <span className="tag">Version {loan.schedule_version}</span>
+      </div>
+      <p className="muted" style={{ fontSize: 12, lineHeight: 1.5, maxWidth: 760 }}>
+        The borrower's full schedule on the published principal, {formatEnumLabel(loan.repayment_type).toLowerCase()} at {formatRateBps(loan.interest_rate_bps)} p.a.
+        {loan.first_payment_date ? ` First payment ${formatDate(loan.first_payment_date)}.` : ""} {isOpenMarketplaceLoan(loan) ? "If the campaign closes at its minimum, the loan is made on the smaller principal and this schedule is regenerated." : "Recorded payments are followed by the remaining schedule."} Your share follows your share of the principal.
+      </p>
+      {schedule.length > 0 ? (
+        <div className="tbl-wrap" style={{ marginTop: 12 }}>
+          <table className="tbl">
+            <thead><tr><th>Installment / payment</th><th>Date</th><th className="num">Principal</th><th className="num">Interest</th><th className="num">Total</th><th className="num">Outstanding after</th><th>Status</th></tr></thead>
+            <tbody>
+              {schedule.map((row) => (
+                <tr key={row.id ?? row.installment_number}>
+                  <td>{row.label ?? row.installment_number}</td>
+                  <td>{formatDate(row.payment_date ?? row.due_date)}</td>
+                  <td className="num">{formatMoneyMinor(row.principal_minor, loan.currency)}</td>
+                  <td className="num">{formatMoneyMinor(row.interest_minor, loan.currency)}</td>
+                  <td className="num col-strong">{formatMoneyMinor(row.total_minor, loan.currency)}</td>
+                  <td className="num">{formatMoneyMinor(row.outstanding_after_minor, loan.currency)}</td>
+                  <td>{humanizeToken(row.status ?? "upcoming")}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot className="schedule-totals">
+              <tr>
+                <th colSpan={2}>Totals · {schedule.length} payments</th>
+                <th className="num">{formatMoneyMinor(totals.principal, loan.currency)}</th>
+                <th className="num">{formatMoneyMinor(totals.interest, loan.currency)}</th>
+                <th className="num">{formatMoneyMinor(totals.total, loan.currency)}</th>
+                <th className="num">-</th>
+                <th />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      ) : (
+        <Empty icon="doc" title="Schedule not available yet">The contracted schedule appears once the loan is published with its installments.</Empty>
+      )}
+      {!hasPayments ? <><div className="eyebrow" style={{ margin: "16px 0 8px" }}>Payment history</div>
+      <Empty icon="checkCircle" title="No borrower payments yet">
+        {isOpenMarketplaceLoan(loan)
+          ? "This loan is still funding. Borrower payments are listed here once the first installment is collected."
+          : "No borrower payments have been recorded for this loan."}
+      </Empty></> : null}
+    </Card>
+  );
+}
+
+/** Loan schedule & payment history page: the contracted schedule and what the borrower has paid, nothing else. */
+function LoanScheduleScreen({
+  loanId,
+  setRoute,
+  demoState,
+  setInvestLoan
+}: {
+  loanId: string;
+  setRoute: (route: AppRoute) => void;
+  demoState: DemoAccountState;
+  setInvestLoan: (loan: MarketplaceLoanDetail) => void;
+}) {
+  return (
+    <LoanPageFrame demoState={demoState} loanId={loanId} page="schedule" setInvestLoan={setInvestLoan} setRoute={setRoute}>
+      {(loan) => (
+        <>
+          {isOriginatorClaimLoan(loan) ? <OriginatorClaimLoanSection loan={loan} /> : <DirectLoanScheduleSection loan={loan} />}
+          {loan.is_refinancing ? <OriginalLoanSection loan={loan} /> : null}
+        </>
+      )}
+    </LoanPageFrame>
   );
 }
 
@@ -5340,59 +5751,6 @@ function borrowerDisclosureForLoan(loan: MarketplaceLoanDetail): BorrowerDisclos
 function disclosureMoney(value: number | undefined, currency: string | undefined) {
   if (value === undefined || currency === undefined || currency === "") return undefined;
   return `${currency} ${formatMoneyMinor(value, currency)}`;
-}
-
-function LoanOverview({ loan }: { loan: MarketplaceLoanDetail }) {
-  const borrowerDisclosure = borrowerDisclosureForLoan(loan);
-  const borrowerName = borrowerDisclosure.legal_name || loan.title;
-  const financialsCurrency = borrowerDisclosure.financials_currency || loan.currency;
-  const borrowerRows: Array<[string, ReactNode, boolean?]> = [
-    ["Legal business name", borrowerName],
-    ["Business classification", borrowerDisclosure.business_classification],
-    ["Country", borrowerDisclosure.country],
-    ["Year founded", borrowerDisclosure.year_founded],
-    ["Registered address", borrowerDisclosure.registered_address],
-    ["Contact info", borrowerDisclosure.contact_info],
-    ["Assets", disclosureMoney(borrowerDisclosure.assets_minor, financialsCurrency), true],
-    ["Liabilities", disclosureMoney(borrowerDisclosure.liabilities_minor, financialsCurrency), true],
-    ["Revenue last year", disclosureMoney(borrowerDisclosure.revenue_last_year_minor, financialsCurrency), true],
-    ["Profit last year", disclosureMoney(borrowerDisclosure.profit_last_year_minor, financialsCurrency), true]
-  ];
-
-  return (
-    <>
-    <Card padded>
-      <div className="eyebrow" style={{ marginBottom: 6 }}>Purpose</div>
-      <p className="muted-2" style={{ lineHeight: 1.6, maxWidth: 680 }}>{loan.purpose_description}</p>
-      <div className="hr" style={{ margin: "16px 0" }} />
-      <div className="eyebrow" style={{ marginBottom: 6 }}>Borrower disclosure</div>
-      <dl className="kv">
-        {borrowerRows.map(([label, value, mono]) =>
-          value !== undefined && value !== "" ? (
-            <KeyValueRow key={label} label={label} mono={mono} value={value} />
-          ) : null
-        )}
-      </dl>
-      <p className="muted" style={{ fontSize: 11.5, lineHeight: 1.5, marginTop: 10 }}>
-        Borrower optional fields are shown only when Garanta has marked the field public for this borrower.
-      </p>
-      <div className="hr" style={{ margin: "16px 0" }} />
-      <dl className="kv">
-        <KeyValueRow label="Loan reference" value={<CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" />} />
-        <KeyValueRow label="Borrower" value={borrowerName} />
-        {isOriginatorClaimLoan(loan) && loan.originator_name ? <KeyValueRow label="Loan originator" value={loan.originator_name} /> : null}
-        {isOriginatorClaimLoan(loan) && (loan.skin_in_the_game_bps ?? 0) > 0 ? <KeyValueRow label="Skin in the game" value={`${formatRateBps(loan.skin_in_the_game_bps ?? 0)} of the outstanding principal stays with the originator`} /> : null}
-        <KeyValueRow label="Currency" value={loan.currency} />
-        <KeyValueRow label="Repayment type" value={loan.repayment_type} />
-        <KeyValueRow label="Risk rating" value={loan.risk_rating} />
-        <KeyValueRow label="Collateral type" value={loan.collateral_type} />
-        {loan.ltv_bps !== null ? <KeyValueRow label="Loan-to-value" value={`${(loan.ltv_bps / 100).toFixed(1)}%`} /> : null}
-      </dl>
-    </Card>
-    {isOriginatorClaimLoan(loan) ? <OriginatorClaimLoanSection loan={loan} /> : null}
-    {loan.is_refinancing ? <OriginalLoanSection loan={loan} /> : null}
-    </>
-  );
 }
 
 function OriginatorClaimLoanSection({ loan }: { loan: MarketplaceLoanDetail }) {
@@ -5576,87 +5934,6 @@ function OriginalLoanSection({ loan }: { loan: MarketplaceLoanDetail }) {
           </p>
         </>
       ) : null}
-    </Card>
-  );
-}
-
-function LoanTerms({ loan }: { loan: MarketplaceLoanDetail }) {
-  const originatorClaim = isOriginatorClaimLoan(loan);
-  const subscriptionClaim = usesOriginatorSubscription(loan);
-  return (
-    <Card padded>
-      <dl className="kv">
-        {originatorClaim && loan.originator_name ? <KeyValueRow label="Loan originator" value={loan.originator_name} /> : null}
-        {originatorClaim && (loan.skin_in_the_game_bps ?? 0) > 0 ? <KeyValueRow label="Skin in the game" mono value={`${formatRateBps(loan.skin_in_the_game_bps ?? 0)} kept by the originator`} /> : null}
-        <KeyValueRow label={subscriptionClaim ? "Nominal investor interest rate" : "Investor yield"} mono value={`${formatRateBps(marketplaceYieldBps(loan))} p.a.`} />
-        {originatorClaim ? <KeyValueRow label="Underlying borrower coupon" mono value={`${formatRateBps(loan.underlying_interest_rate_bps)} p.a.`} /> : null}
-        {subscriptionClaim ? <KeyValueRow label="Investor interest participation" mono value={formatRateBps(loan.investor_interest_participation_bps ?? 0)} /> : null}
-        {subscriptionClaim ? <KeyValueRow label="Investor penalty participation" mono value={formatRateBps(loan.investor_penalty_participation_bps ?? 0)} /> : null}
-        {subscriptionClaim && loan.funding_deadline ? <KeyValueRow label="Funding deadline" value={formatDate(loan.funding_deadline)} /> : null}
-        {subscriptionClaim && loan.entitlement_start_date ? <KeyValueRow label="Boundary installment due" value={formatDate(loan.entitlement_start_date)} /> : null}
-        <KeyValueRow label="Repayment type" value={loan.repayment_type} />
-        <KeyValueRow label="Collateral / backing" value={loan.collateral_description} />
-        {loan.collateral_value_minor > 0 ? <KeyValueRow label="Collateral value" mono value={`${loan.currency} ${formatMoneyMinor(loan.collateral_value_minor, loan.currency)}`} /> : null}
-        {loan.ltv_bps !== null ? <KeyValueRow label="LTV" mono value={`${(loan.ltv_bps / 100).toFixed(1)}%`} /> : null}
-        <KeyValueRow label="Primary investor fee" value="None" />
-      </dl>
-      {loan.ltv_bps === null ? <Banner tone="warn" title="No LTV shown">Collateral value is zero or not applicable. The platform does not show LTV for this loan.</Banner> : null}
-    </Card>
-  );
-}
-
-function LoanDocuments({ loan }: { loan: MarketplaceLoanDetail }) {
-  const documents = borrowerDisclosureForLoan(loan).documents ?? [];
-  if (documents.length === 0) {
-    return (
-      <Card>
-        <Empty icon="doc" title="No borrower documents available">
-          Investor-visible borrower documents appear here after Garanta links a clean-scanned borrower file to the loan borrower.
-        </Empty>
-      </Card>
-    );
-  }
-
-  return (
-    <Card>
-      {documents.map((document, index) => (
-        <div
-          className="row spread"
-          key={document.id ?? `${document.display_name}-${index}`}
-          style={{ alignItems: "flex-start", borderBottom: index < documents.length - 1 ? "1px solid var(--line)" : 0, gap: 16, padding: "12px 16px" }}
-        >
-          <span className="row gap-8" style={{ alignItems: "flex-start" }}>
-            <Icon className="muted" name="doc" size={16} />
-            <span className="col gap-4">
-              <strong>{document.display_name || "Borrower document"}</strong>
-              {document.description ? <span className="muted" style={{ fontSize: 12 }}>{document.description}</span> : null}
-              {document.document_type ? <span className="tag">{humanizeToken(document.document_type)}</span> : null}
-            </span>
-          </span>
-          {document.id ? <CopyIdButton ariaLabel="Copy document ID" id={document.id} label="Copy document ID" /> : null}
-        </div>
-      ))}
-    </Card>
-  );
-}
-
-function RiskDisclosure() {
-  return (
-    <Card padded>
-      <div className="col gap-8">
-        {[
-          "Loss of some or all invested capital",
-          "Borrower default and delayed repayment",
-          "Collateral valuation and enforcement risk",
-          "Illiquidity - secondary-market exit may be unavailable or discounted",
-          "No guaranteed return and no deposit protection"
-        ].map((item) => (
-          <div className="row gap-8" key={item} style={{ alignItems: "flex-start", fontSize: 13 }}>
-            <Icon name="alert" size={15} />
-            <span className="muted-2">{item}</span>
-          </div>
-        ))}
-      </div>
     </Card>
   );
 }

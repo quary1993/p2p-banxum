@@ -20,6 +20,7 @@ from backend.apps.accounts_auth.api.serializers import (
     AdminLoginStartResponseSerializer,
     AdminUserCreateRequestSerializer,
     AuthenticatedUserResponseSerializer,
+    CurrentUserResponseSerializer,
     MagicLinkConsumeSerializer,
     MagicLinkRequestSerializer,
     MarketingConsentUpdateRequestSerializer,
@@ -388,9 +389,16 @@ class AccountAccessChangeView(APIView):
 class CurrentUserView(APIView):
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(responses={200: AuthenticatedUserResponseSerializer})
+    @extend_schema(responses={200: CurrentUserResponseSerializer})
     def get(self, request: Request) -> Response:
-        return Response({"user": serialize_user(cast(User, request.user))})
+        from backend.apps.platform_core.services.qa_dev_mode import qa_controls_available
+
+        return Response(
+            {
+                "user": serialize_user(cast(User, request.user)),
+                "qa_controls_available": qa_controls_available(request.user),
+            }
+        )
 
 
 class MarketingConsentView(APIView):

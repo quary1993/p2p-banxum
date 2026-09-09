@@ -30,6 +30,7 @@ class QaEnvironmentGuardMiddleware:
             "/api/v1/qa/dev-mode/enable/",
             "/api/v1/qa/dev-mode/advance/",
             "/api/v1/qa/dev-mode/revert/",
+            "/api/v1/qa/dev-mode/snapshot/",
         }:
             return self.get_response(request)
         try:

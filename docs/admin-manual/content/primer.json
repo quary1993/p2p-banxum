@@ -120,7 +120,7 @@
         "Loans: where you create and edit borrowers and loans, publish loans to the marketplace, and close or cancel funding.",
         "Reports: where you generate operational and financial reports (for example FX delta and realised-settlement reports) for a chosen date range.",
         "Users: where you search the full user directory, inspect account state, open read-only investor views, and apply audited account access controls.",
-        "Superadmin settings: superadmin-only configuration, such as document templates, platform settings, creating other admin accounts, and staging-only QA controls."
+        "Superadmin settings: superadmin-only configuration, such as document templates, platform settings and creating other admin accounts. QA mode is a separate staging/local section available to active regular admins as well."
       ]
     },
     {
@@ -128,16 +128,16 @@
       "body": [
         "BANXUM has separate deployment contexts. Production is the real customer environment at nxnarena.com. Staging is the private testing and training environment at staging.nxnarena.com. Staging runs the real application stack, not the browser-only preview fixtures, but it is still a test environment: data can be changed, reset, or rolled back during QA.",
         "Preview mode, staging, and production are three different things. Preview mode is local/demo UI data and is marked as not real account data. Staging is a live backend/database used for private testing. Production is the real operating environment and should be treated as legal and operational truth.",
-        "QA mode is a staging/local-only superadmin feature for testing time-based behavior. It must never be enabled in production and should never be used with real customer funds, real customer onboarding, or live-money provider actions. In staging, a superadmin can enter QA mode from the Superadmin area when the deployment has QA mode explicitly enabled.",
+        "QA mode is a staging/local-only admin feature for testing time-based behavior. Active regular admins and superadmins can open the separate QA mode section when the deployment allows it. Production hides these controls and rejects their API requests even for superadmins. Never use QA mode with real customer funds, real customer onboarding or live-money provider actions.",
         "When QA mode is entered, the system captures a database snapshot. While QA mode is active, BANXUM's business-time helper returns the simulated time instead of normal wall-clock time. Advancing time is day-based: for each Europe/Zurich business date crossed, the system runs the daily jobs that would normally happen in real time.",
         "Fast-forwarding is intended to behave like real time for core platform jobs. It runs balance ageing and penalty charging, servicing status scans, primary funding-deadline resolution, reconciliation-break task sync, Loan Originator settlement-task sync, originator lifecycle scans and due email dispatch for the crossed dates. This lets admins test funding-window/day-60 balance behavior, forced withdrawals, penalty mode, late/default transitions, campaign expiry, automatic LO activation at funding close and scheduled notifications without waiting weeks.",
-        "Revert restores the database snapshot captured at QA-mode entry and clears the simulated clock. Treat revert as a full test reset: sessions may be invalidated, records created during the QA window disappear, and IDs created during the window should not be referenced afterward."
+        "Restore seed returns to the original regression seed, including its original simulated clock, accounts and balances. Create snapshot saves a later checkpoint without replacing that seed; Restore snapshot returns to this checkpoint. Without a manually saved snapshot, seed is the default and Restore snapshot is disabled. Records created after the selected restore point disappear. The restoring admin receives a fresh session if the restored credentials and permissions still match; all other sessions must sign in again."
       ],
       "bullets": [
         "Use staging QA mode only for private testing, training, and regression checks. Do not use it to create legal production evidence or operate real money.",
-        "Snapshot/revert covers database state, not already-sent email/SMS, downloaded files, object-storage artifacts or other external side effects. Restore checks the snapshot checksum and migration signature before an atomic flush/load; failure leaves the previous database intact. Recreate the baseline after schema migrations.",
+        "Snapshot/revert covers database state, not already-sent email/SMS, downloaded files, object-storage artifacts or other external side effects. Restore checks the snapshot checksum and migration signature before an atomic flush/load; failure leaves the previous database intact. After schema migrations, the environment owner must upgrade the saved baseline in an isolated database or explicitly create a new seed; never bypass these checks.",
         "QA snapshot, restore and fast-forward take an exclusive environment lock. Concurrent application requests and scheduled jobs are refused temporarily. Fast-forward runs the relevant jobs for crossed dates. Do not run uncoordinated database scripts during QA operations.",
-        "Record what you are testing before enabling QA mode, then revert when finished so the staging environment returns to its entry state."
+        "Coordinate with other testers, save evidence outside the database, then restore the seed between independent regression branches. Use Restore snapshot only when intentionally resuming that saved checkpoint."
       ]
     },
     {

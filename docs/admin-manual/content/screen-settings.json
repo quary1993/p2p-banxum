@@ -4,7 +4,7 @@
   "intro": [
     "This screen is the governance area of the admin console. It is locked to superadmins. A superadmin is the highest level of staff account; a plain admin cannot open most of what is here.",
     "There are two kinds of accounts on BANXUM. Investors (also called lenders) are the public users who deposit money and fund loans. Admins are Garanta staff who run the platform from this console. They are completely separate; an investor is never an admin.",
-    "Four jobs live on this screen. First: manage the legal documents that investors must tick a box to accept (called templates). Second: create new admin staff accounts. Third: look up any user and change whether their account is allowed to log in or transact. Fourth: on staging only, superadmins can use QA mode to fast-forward time for controlled testing and then revert the database to the entry snapshot.",
+    "Use this area to manage legal document templates and platform-wide settings. User lookup, access changes and admin creation are in Users. On staging/local, the separate QA mode section lets active regular admins as well as superadmins fast-forward time, save a checkpoint and restore either that snapshot or the original seed. QA controls never appear on production.",
     "A note on jargon. 'Clickwrap' means the small legal text plus tick-boxes a user agrees to before an action (like accepting terms). A 'template' is the wording of that text. A 'version' is one dated snapshot of that wording. 'Immutable' means once saved it can never be edited; you only ever create a new version. This matters because every acceptance is kept as legal evidence tied to the exact version the user saw."
   ],
   "whatYouDoHere": [
@@ -13,7 +13,7 @@
     "Confirm that the current Registration template and Primary Market Investment template are published before live onboarding or investment testing. The primary-market template produces one project investment confirmation PDF per investment order.",
     "Create a new admin staff account (only an active superadmin is allowed to do this).",
     "Search the full user directory (admins and investors) by name, email, investor reference, or UUID.",
-    "On staging, enter QA mode, advance simulated business time, run the same daily jobs that real time would trigger, and revert to the captured database snapshot after the test. This control is blocked in production. Revert validates the snapshot checksum and schema before restoring atomically; a failed restore leaves the pre-attempt database intact. Concurrent requests/jobs are rejected for retry while the exclusive QA operation runs. Capture a fresh baseline after schema changes.",
+    "Open the separate QA mode section on staging/local to advance time, create a snapshot, Restore snapshot or Restore seed. Active regular admins can also do this. Restoring the seed keeps its original QA date; the independent saved checkpoint does not replace it. Restores validate the checksum and schema and run atomically under an exclusive lock. The restoring admin normally remains signed in with a fresh session; other sessions sign in again. The environment owner must upgrade saved baselines after schema changes. Production rejects all QA actions.",
     "Account-level actions (create admin staff, restrict/lock/close accounts, read-only investor views) moved to the Users module; this screen keeps a pointer card so you know where they went."
   ],
   "figures": [

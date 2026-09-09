@@ -335,6 +335,13 @@ Each entry should include:
 - Suggested improvement: consider sticky loan identity columns if more comparison fields are added, keeping both rates readable without losing row context.
 - Priority: nice-to-have.
 
+## 2026-09-09: QA Restore Controls
+
+- Screen or component: Staging QA mode.
+- Current first-version behavior: active regular admins can save a manual snapshot, restore it or restore the separate seed. Missing manual snapshots disable only that restore button. Production hides the section and rejects its endpoints. Successful restores refresh the session and page; changed restored credentials require login.
+- Suggested improvement: show asynchronous restore progress if future baseline growth approaches the synchronous request timeout; keep the existing exclusive maintenance guard and transactional restore.
+- Priority: nice-to-have.
+
 ## 2026-08-05: Universal Borrower-Payment Waterfall
 
 - Screen or component: Loans > Manage > Record borrower repayment / Record recovery payment, plus Loan Originator replacement-import repayment review.

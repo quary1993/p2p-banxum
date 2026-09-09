@@ -423,6 +423,46 @@ def test_full_marketplace_loan_includes_selected_borrower_disclosure(
     assert "bank_account_details" not in disclosure
     assert "kyb_aml_observations" not in disclosure
     assert "financial_risk" not in disclosure
+    assert payload["story"] == {"version": 1, "blocks": []}
+
+    borrower.investor_story = {
+        "version": 1,
+        "blocks": [{"type": "paragraph", "runs": [{"text": "Our story."}]}],
+    }
+    borrower.save(update_fields=["investor_story"])
+    payload = get_full_marketplace_loan(actor=investor, loan_id=str(cast(Any, loan).id))
+    assert payload["story"]["blocks"] == [{"type": "paragraph", "runs": [{"text": "Our story."}]}]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "loan_status", ["funded", "active", "late", "defaulted", "repaid", "written_off"]
+)
+def test_published_loan_details_remain_readable_after_funding(
+    admin_user: Model, investor: Model, loan_status: str
+) -> None:
+    _approve_financial_access(investor)
+    loan = cast(Any, _create_published_loan(admin_user))
+    apps.get_model("loans", "LoanInstallment").objects.create(
+        loan=loan,
+        schedule_version=loan.schedule_version,
+        installment_number=1,
+        due_date=loan.first_payment_date,
+        principal_minor=loan.principal_minor,
+        interest_minor=loan.total_scheduled_interest_minor,
+        total_minor=loan.principal_minor + loan.total_scheduled_interest_minor,
+    )
+    loan.status = loan_status
+    loan.save(update_fields=["status"])
+    payload = get_full_marketplace_loan(actor=investor, loan_id=str(loan.pk))
+    assert payload["status"] == loan_status
+    assert payload["loan_schedule"]
+    assert sum(row["principal_minor"] for row in payload["loan_schedule"]) == loan.principal_minor
+    assert payload["loan_schedule"][-1]["outstanding_after_minor"] == 0
+    loan.published_at = None
+    loan.save(update_fields=["published_at"])
+    with pytest.raises(MarketplacePrimaryValidationError, match="not been published"):
+        get_full_marketplace_loan(actor=investor, loan_id=str(loan.pk))
 
 
 @pytest.mark.django_db

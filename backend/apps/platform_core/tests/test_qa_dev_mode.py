@@ -85,18 +85,18 @@ def test_qa_dev_mode_is_never_allowed_in_production(
 
 
 @pytest.mark.django_db
-def test_qa_dev_mode_requires_superadmin(settings: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_qa_dev_mode_rejects_investors(settings: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     settings.QA_DEV_MODE_ALLOWED = True
     settings.IS_PRODUCTION = False
     admin = _user(
         email="qa-admin@example.test",
-        account_type="admin",
+        account_type="natural_person_lender",
         is_superuser=False,
-        is_staff=True,
+        is_staff=False,
     )
     _stub_snapshot(monkeypatch)
 
-    with pytest.raises(QaDevModeAuthorizationError, match="superadmin"):
+    with pytest.raises(QaDevModeAuthorizationError, match="admin"):
         enable_qa_dev_mode(EnableQaDevModeCommand(actor=admin))
 
 
@@ -199,7 +199,7 @@ def test_revert_qa_dev_mode_requires_confirmation(
 
 
 @pytest.mark.django_db
-def test_qa_dev_mode_api_is_superadmin_only(
+def test_qa_dev_mode_api_allows_regular_admins(
     client: Client,
     settings: Any,
     monkeypatch: pytest.MonkeyPatch,
@@ -216,8 +216,8 @@ def test_qa_dev_mode_api_is_superadmin_only(
     _stub_snapshot(monkeypatch)
 
     client.force_login(admin)
-    forbidden = client.get("/api/v1/qa/dev-mode/")
-    assert forbidden.status_code == 403
+    allowed = client.get("/api/v1/qa/dev-mode/")
+    assert allowed.status_code == 200
 
     client.force_login(superadmin)
     response = client.post(

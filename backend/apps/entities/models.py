@@ -78,6 +78,7 @@ class BorrowerEntity(TimestampedModel):
     liabilities_minor = models.BigIntegerField(null=True, blank=True)
     revenue_last_year_minor = models.BigIntegerField(null=True, blank=True)
     profit_last_year_minor = models.BigIntegerField(null=True, blank=True)
+    investor_story = models.JSONField(default=dict, blank=True)
     created_by_admin_id = models.UUIDField()
     updated_by_admin_id = models.UUIDField(null=True, blank=True)
 

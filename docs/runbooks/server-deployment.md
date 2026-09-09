@@ -352,7 +352,7 @@ Do not add `-v` unless deliberately deleting that environment's database volumes
 
 ## QA Development Mode
 
-QA development mode is a temporary superadmin-only staging/local tool for end-to-end testing of
+QA development mode is a temporary admin-only staging/local tool for end-to-end testing of
 time-based workflows. It must never be enabled in production.
 
 Enable it only in a non-production environment by setting:
@@ -363,8 +363,9 @@ QA_DEV_MODE_SNAPSHOT_DIR=/opt/banxum/staging/qa-snapshots
 QA_DEV_MODE_MAX_ADVANCE_DAYS=120
 ```
 
-The admin console exposes the controls under `/admin` -> `QA mode` for superadmins only. The backend
-also enforces superadmin-only access and rejects the feature when `ENVIRONMENT=production` /
+The admin console exposes `/admin` -> `QA mode` to active regular admins and superadmins only
+when the server advertises `qa_controls_available`. Production hides the navigation completely.
+The backend independently rejects the feature when `ENVIRONMENT=production` (or `prod`) /
 `IS_PRODUCTION=true`, even if the env flag is set incorrectly.
 
 Behavior:
@@ -376,14 +377,24 @@ Behavior:
   daily scheduled jobs: balance ageing and penalty charging, loan servicing status scan, primary
   funding-expiry scan, reconciliation-break task sync, Loan Originator settlement-task sync,
   Loan Originator opportunity/activation lifecycle scan, and due email dispatch.
-- Reverting restores the database snapshot captured at QA-mode entry and clears the simulated clock.
-  Sessions are part of database state and should be expected to reset; the operator may need to sign
-  in again.
+- **Create snapshot** saves a manual checkpoint without replacing the original seed.
+- **Restore seed** returns to the exact regression seed, including its saved clock. **Restore
+  snapshot** returns to the latest manual checkpoint and its saved clock. Without a manual
+  checkpoint, an API restore with no target defaults to the seed. The manual button is disabled.
+  A seed/checkpoint captured with QA enabled keeps QA enabled; an ordinary pre-QA entry snapshot
+  restores the original disabled state.
+- The private `restore-points.json` registry keeps seed and manual bookmarks outside the database,
+  so either remains available after restoring the other. Creating a NEW regression seed deliberately
+  clears the previous manual bookmark. Retain the fixture, manifest and registry together.
+- Restore invalidates all old sessions. The calling admin receives a fresh session only if that
+  same account remains an active admin with unchanged credentials in the restored data; otherwise
+  the UI requests login. It clears cached data and shows a restore confirmation, not a stale-session
+  API error. Other testers must sign in again. Login metadata may reflect this fresh sign-in.
 - Snapshot checksum and migration compatibility are checked before mutation. Flush
   and load run in one database transaction: a failed load restores the pre-attempt
   database. PostgreSQL table locks also exclude uncoordinated table writes during
   restoration. Never alter a manifest to force an incompatible snapshot to load.
-- Enable, advance and revert acquire an environment-wide exclusive QA guard.
+- Enable, snapshot, advance and revert acquire an environment-wide exclusive QA guard.
   Ordinary HTTP requests and scheduled jobs acquire shared guards; overlapping work
   is rejected for retry rather than racing a restore. PostgreSQL advisory locks cover
   workers on multiple hosts; SQLite's local file lock is for single-host local QA.
@@ -396,8 +407,12 @@ Important limits:
   credentials.
 - Do not schedule normal crons against the same environment while a manual QA time-travel run is in
   progress; the QA panel already invokes the scheduled-job service for crossed business dates.
-- Recreate the baseline after schema migrations. Older snapshots without a valid
-  matching manifest are not loadable through the QA panel. Arbitrary external scripts
+- After schema migrations, either explicitly create a new baseline or upgrade the existing one
+  in an isolated database: restore it using its original release, run the actual new migrations,
+  verify original records/balances/IDs/clock, then capture and validate a new fixture/manifest and
+  register it as the seed. Never relabel an incompatible manifest. This must not reset the serving
+  database or affect production. Older snapshots without a valid matching manifest are not loadable
+  through the QA panel. Arbitrary external scripts
   must opt into the QA guard; the application cannot rewind external services.
 
 ### Repeatable Synthetic Starting Point
@@ -451,13 +466,14 @@ python3 infra/deploy/reset_qa_environment.py --environment staging --execute \
 
 `QA_DEV_MODE_ALLOWED` and durable `QA_DEV_MODE_SNAPSHOT_DIR` must already be configured.
 The reset automatically captures the completed seed inside its transaction, including
-the QA clock and its snapshot pointer. **Revert database** in QA development restores
+the QA clock and its snapshot pointer. **Restore seed** in QA development restores
 this exact seed and keeps QA enabled, so repeated resets use the SAME baseline and date.
 It does not capture a later test state or reseed with new dates/IDs. Sessions may be
 invalidated. Seed clock/ledger/calendar comparisons must match after two consecutive
 mutate/revert cycles. Files, sent emails, external providers and real transfers are not
-rewound. A schema change requires a NEW approved reset and matching dated CSV pack.
-Ordinary manually enabled QA snapshots still exit QA on restore.
+rewound. A schema change requires an isolated, verified baseline migration or a NEW
+approved reset and matching dated CSV pack. A pre-QA entry snapshot exits QA on restore;
+manual checkpoints captured while QA is enabled keep their captured clock enabled.
 Snapshots preserve full timestamp precision. Restore batch-inserts the preserved audit,
 domain-event and scheduled-job history, without changing timestamps or running model
 hooks; other records use the normal fixture loader. Both loaders share the same atomic
@@ -468,8 +484,8 @@ Normal email-dispatch cron runs and job
 runtime monitoring use real time, so frozen QA financial dates do not stop email retries.
 Explicit `--as-of` job runs still honor their supplied business date.
 
-The regular admin tester does not receive extra permissions. The environment owner
-performs clock advances/restores as support; registration and superadmin-only tests are
+Regular admins receive QA controls only in the enabled staging/local environment and
+can perform clock advances and seed/snapshot restores; registration and superadmin-only tests are
 excluded from the distributed regression cases. Completed UUID retries do not add money;
 reusing a UUID with a different account profile is rejected. Preserve the private pre-reset
 backups as a separate recovery route, not as the tester's clean seed snapshot.

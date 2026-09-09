@@ -72,6 +72,10 @@ class AuthenticatedUserResponseSerializer(serializers.Serializer[Any]):
     user = UserSummarySerializer()
 
 
+class CurrentUserResponseSerializer(AuthenticatedUserResponseSerializer):
+    qa_controls_available = serializers.BooleanField()
+
+
 class MarketingConsentUpdateRequestSerializer(serializers.Serializer[Any]):
     marketing_consent = serializers.BooleanField()
 

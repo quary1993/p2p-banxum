@@ -14,6 +14,7 @@ import {
   useV1AdminOpsReconciliationBreakTasksSyncCreate
 } from "../api/generated/banxumApi";
 import { clearReadonlyImpersonation } from "../api/client/impersonation";
+import { ApiClientError } from "../api/client/httpClient";
 import { isFixturePreview } from "../investorPortal/data";
 import { formatDate, formatDateTime } from "../investorPortal/format";
 import {
@@ -289,6 +290,16 @@ function isAdminPortalUser(user: { account_type?: string; status?: string } | un
 
 export function AdminApp() {
   const queryClient = useQueryClient();
+  const [restoredTarget] = useState<"seed" | "snapshot" | null>(() => {
+    const value = new URLSearchParams(window.location.search).get("qa_restored");
+    return value === "seed" || value === "snapshot" ? value : null;
+  });
+  useEffect(() => {
+    if (!restoredTarget) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("qa_restored");
+    window.history.replaceState(null, "", url);
+  }, [restoredTarget]);
   const [localAuthState, setLocalAuthState] = useState<"unknown" | "authenticated" | "signed_out">(
     isFixturePreview ? "authenticated" : "unknown"
   );
@@ -309,8 +320,9 @@ export function AdminApp() {
     }
   });
   const hasSessionAdmin = isAdminPortalUser(sessionQuery.data?.user);
+  const sessionExpired = sessionQuery.error instanceof ApiClientError && [401, 403].includes(sessionQuery.error.status);
   const authenticated =
-    isFixturePreview || localAuthState === "authenticated" || hasSessionAdmin;
+    isFixturePreview || (!sessionExpired && (localAuthState === "authenticated" || hasSessionAdmin));
 
   if (!authenticated && sessionQuery.isLoading && localAuthState === "unknown") {
     return (
@@ -333,18 +345,27 @@ export function AdminApp() {
 
   if (!authenticated) {
     return (
+      <>
+      {restoredTarget ? <Banner tone="ok" title="QA database restored">The {restoredTarget} was restored successfully. Sign in again to continue.</Banner> : null}
       <AdminLogin
         onAuthenticated={() => {
           setLocalAuthState("authenticated");
           void sessionQuery.refetch();
         }}
       />
+      </>
     );
   }
 
   return (
     <AdminShell
-      isSuperadmin={isFixturePreview || sessionQuery.data?.user.account_type === "superadmin"}
+      qaControlsAvailable={isFixturePreview || sessionQuery.data?.qa_controls_available === true}
+      restoredTarget={restoredTarget}
+      onQaRestored={(target) => {
+        queryClient.clear();
+        clearReadonlyImpersonation();
+        window.location.assign(`/admin?qa_restored=${target}`);
+      }}
       isLoggingOut={logoutMutation.isPending}
       onLogout={() => {
         if (isFixturePreview) {
@@ -511,22 +532,26 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
 }
 
 function AdminShell({
-  isSuperadmin,
+  qaControlsAvailable,
+  restoredTarget,
+  onQaRestored,
   isLoggingOut,
   onLogout
 }: {
-  isSuperadmin: boolean;
+  qaControlsAvailable: boolean;
+  restoredTarget: "seed" | "snapshot" | null;
+  onQaRestored: (target: "seed" | "snapshot") => void;
   isLoggingOut: boolean;
   onLogout: () => void;
 }) {
-  const [selectedNav, setSelectedNav] = useState("dashboard");
-  const visibleNavItems = navItems.filter((item) => item.id !== "qa" || isSuperadmin);
+  const [selectedNav, setSelectedNav] = useState(restoredTarget && qaControlsAvailable ? "qa" : "dashboard");
+  const visibleNavItems = navItems.filter((item) => item.id !== "qa" || qaControlsAvailable);
 
   useEffect(() => {
-    if (!isSuperadmin && selectedNav === "qa") {
+    if (!qaControlsAvailable && selectedNav === "qa") {
       setSelectedNav("dashboard");
     }
-  }, [isSuperadmin, selectedNav]);
+  }, [qaControlsAvailable, selectedNav]);
 
   return (
     <div className="admin-app">
@@ -581,7 +606,10 @@ function AdminShell({
         {selectedNav === "finance" ? <FinanceOpsPanel /> : null}
         {selectedNav === "loans" ? <LoansPanel /> : null}
         {selectedNav === "reports" ? <ReportsPanel /> : null}
-        {selectedNav === "qa" && isSuperadmin ? <QaDevModePanel /> : null}
+        {selectedNav === "qa" && qaControlsAvailable ? <>
+          {restoredTarget ? <Banner tone="ok" title="QA database restored">The {restoredTarget} and its saved clock were restored successfully.</Banner> : null}
+          <QaDevModePanel onRestored={onQaRestored} />
+        </> : null}
         {selectedNav === "settings" ? <SettingsPanel /> : null}
       </main>
     </div>

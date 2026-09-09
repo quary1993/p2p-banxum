@@ -1,5 +1,12 @@
 # Claude Design TODO
 
+## 2026-09-09: Borrower and Originator Stories
+
+- Screen or component: opportunity calculator, borrower/originator story and separate schedule pages.
+- Current behavior: structured rich text and authenticated raster images; direct loans use the borrower's story, LO loans only the originator's story. Selected-public facts remain visible. Investment entry exists on both pages; full schedules retain actual repayments, including prepayments.
+- Suggested improvement: final editorial/accessibility review of long stories, empty profiles, long image captions and narrow-screen calculator tables. Preserve confidentiality and label projections as indicative, not guaranteed or received payments.
+- Priority: important.
+
 This file is the working brief for Claude Design. Claude Design owns the complete user-facing UI/UX pass for BANXUM before launch. Implementation agents should add entries here whenever they build or touch public, investor, client-portal, onboarding, marketplace, documents, payments, FX, reporting, or account-settings UI visible to platform users.
 
 Admin console UI/UX is not owned by Claude Design. Admin console screens are implemented and designed by the Codex implementation agent and tracked in `docs/admin-console/TODO.md`.

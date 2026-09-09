@@ -128,6 +128,7 @@ class BorrowerEntityListCreateView(APIView):
                     liabilities_minor=data.get("liabilities_minor"),
                     revenue_last_year_minor=data.get("revenue_last_year_minor"),
                     profit_last_year_minor=data.get("profit_last_year_minor"),
+                    investor_story=data.get("investor_story"),
                     note=data.get("note", ""),
                     evidence_summary=data.get("evidence_summary", ""),
                 )
@@ -196,6 +197,7 @@ class BorrowerEntityDetailView(APIView):
                     liabilities_minor=data.get("liabilities_minor"),
                     revenue_last_year_minor=data.get("revenue_last_year_minor"),
                     profit_last_year_minor=data.get("profit_last_year_minor"),
+                    investor_story=data.get("investor_story"),
                     clear_assets=bool(data.get("clear_assets", False)),
                     clear_liabilities=bool(data.get("clear_liabilities", False)),
                     clear_revenue_last_year=bool(data.get("clear_revenue_last_year", False)),

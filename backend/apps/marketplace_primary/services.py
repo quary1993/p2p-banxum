@@ -6,7 +6,7 @@ import hashlib
 import json
 import logging
 import uuid
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date
 from importlib import import_module
 from typing import Any, cast
@@ -2478,11 +2478,13 @@ def cancel_primary_loan_funding(
             "Only published loans or failed funding closes can be cancelled."
         )
     if (
-        str(loan_ref.status) == "funding_close_failed"
-        or loan_ref.funding_deadline < business_date(now_utc())
-    ) and int(loan_ref.committed_principal_minor) > 0 and int(
-        loan_ref.committed_principal_minor
-    ) >= _minimum_subscription_required_minor(loan):
+        (
+            str(loan_ref.status) == "funding_close_failed"
+            or loan_ref.funding_deadline < business_date(now_utc())
+        )
+        and int(loan_ref.committed_principal_minor) > 0
+        and int(loan_ref.committed_principal_minor) >= _minimum_subscription_required_minor(loan)
+    ):
         raise MarketplacePrimaryValidationError(
             "The published minimum is met. Funding must resolve automatically; "
             "an admin cannot replace that result with cancellation."
@@ -2866,6 +2868,32 @@ def public_marketplace_listing_payload(loan: Model) -> dict[str, Any]:
     }
 
 
+def _direct_loan_schedule_payload(loan: Model) -> list[dict[str, Any]]:
+    """Reuse servicing history plus remaining installments, including advance payments."""
+    servicing = import_module("backend.apps.servicing.services")
+    rows = servicing.get_loan_repayment_schedule_snapshots(
+        loans=[loan], as_of_date=business_date(now_utc())
+    )[str(loan.pk)]
+    outstanding = sum(int(row.principal_minor) for row in rows)
+    payload: list[dict[str, Any]] = []
+    for row in rows:
+        outstanding -= int(row.principal_minor)
+        payload.append(
+            {
+                **asdict(row),
+                "outstanding_after_minor": max(0, outstanding),
+            }
+        )
+    return payload
+
+
+def _story_payload(value: Any) -> dict[str, Any]:
+    """Investor-facing story document; always a well-formed (possibly empty) document."""
+    if isinstance(value, dict) and isinstance(value.get("blocks"), list):
+        return {"version": 1, "blocks": list(value["blocks"])}
+    return {"version": 1, "blocks": []}
+
+
 def full_marketplace_listing_payload(loan: Model) -> dict[str, Any]:
     loan_ref = cast(Any, loan)
     if str(loan_ref.product_type) == "originator_claim":
@@ -2879,6 +2907,7 @@ def full_marketplace_listing_payload(loan: Model) -> dict[str, Any]:
         {
             "borrower_id": str(loan_ref.borrower_id),
             "borrower_disclosure": entities_services.borrower_investor_disclosure(borrower),
+            "story": _story_payload(getattr(borrower, "investor_story", None)),
             "investor_summary": str(loan_ref.investor_summary),
             "purpose_description": str(loan_ref.purpose_description),
             "collateral_value_minor": int(loan_ref.collateral_value_minor),
@@ -2910,6 +2939,7 @@ def full_marketplace_listing_payload(loan: Model) -> dict[str, Any]:
             "loan_start_date": loan_ref.loan_start_date,
             "first_payment_date": loan_ref.first_payment_date,
             "schedule_version": int(loan_ref.schedule_version),
+            "loan_schedule": _direct_loan_schedule_payload(loan),
             "originator_schedule": [],
             "originator_payment_history": [],
             "schedule_revision": None,
@@ -2956,7 +2986,17 @@ def get_full_marketplace_loan(*, actor: Model, loan_id: str) -> dict[str, Any]:
             )
         except originator_services.OriginatorClaimsError as exc:
             raise MarketplacePrimaryValidationError(str(exc)) from exc
-    _assert_published_loan_open(loan)
+    if str(cast(Any, loan).status) not in {
+        "funded",
+        "active",
+        "late",
+        "defaulted",
+        "repaid",
+        "written_off",
+    }:
+        _assert_published_loan_open(loan)
+    elif cast(Any, loan).published_at is None:
+        raise MarketplacePrimaryValidationError("This loan has not been published.")
     return full_marketplace_listing_payload(loan)
 
 

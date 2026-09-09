@@ -637,8 +637,83 @@ const refinancedOriginalScheduleFixture: MarketplaceOriginalLoanScheduleRow[] = 
   }
 );
 
+const fixtureAnnuityRows = (principalMinor: number, rateBps: number, months: number, firstDueIso: string) => {
+  const monthly = rateBps / 120_000;
+  const payment = monthly > 0 ? (principalMinor * monthly) / (1 - Math.pow(1 + monthly, -months)) : principalMinor / months;
+  const first = new Date(`${firstDueIso}T00:00:00`);
+  let outstanding = principalMinor;
+  return Array.from({ length: months }, (_, index) => {
+    const interest = Math.round(outstanding * monthly);
+    const principal = index === months - 1 ? outstanding : Math.round(payment - interest);
+    outstanding -= principal;
+    const due = new Date(first.getFullYear(), first.getMonth() + index, first.getDate());
+    return {
+      installment_number: index + 1,
+      due_date: `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, "0")}-${String(due.getDate()).padStart(2, "0")}`,
+      principal_minor: principal,
+      interest_minor: interest,
+      total_minor: principal + interest,
+      outstanding_after_minor: outstanding
+    };
+  });
+};
+
+export const fixtureStoryImageId = "6f1d2c3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f";
+
+const helvetiaStoryFixture = {
+  version: 1,
+  blocks: [
+    { type: "heading", level: 2, runs: [{ text: "Moving Swiss goods since 1994" }] },
+    {
+      type: "paragraph",
+      runs: [
+        { text: "Helvetia Logistik AG runs " },
+        { text: "42 trucks and two cross-dock warehouses", bold: true },
+        { text: " between Zurich, Basel and the Ticino border. Founded by the Brunner family, the company is now in its second generation and employs 118 people." }
+      ]
+    },
+    { type: "image", image_id: fixtureStoryImageId, alt: "Helvetia Logistik cross-dock warehouse in Duebendorf", caption: "The Duebendorf cross-dock, refinanced with this loan." },
+    { type: "heading", level: 3, runs: [{ text: "Why they borrow" }] },
+    {
+      type: "paragraph",
+      runs: [
+        { text: "The loan refinances the Duebendorf warehouse at a lower rate and adds working capital for six new electric trucks. Management expects the fleet change to cut fuel cost by roughly a fifth; see the " },
+        { text: "company site", href: "https://example.test/helvetia" },
+        { text: " for the sustainability report." }
+      ]
+    },
+    { type: "bullet_list", items: [[{ text: "Long-term contracts with two national retailers" }], [{ text: "Owner-occupied real estate as collateral" }], [{ text: "Audited accounts since 2012" }]] },
+    { type: "quote", runs: [{ text: "We only borrow to buy assets that pay for themselves." }] },
+    { type: "divider" },
+    { type: "paragraph", runs: [{ text: "This story was written by BANXUM based on borrower-provided material and the credit file." , italic: true }] }
+  ]
+};
+
+const originatorStoryFixture = {
+  version: 1,
+  blocks: [
+    { type: "heading", level: 2, runs: [{ text: "Alpine Credit Partners AG" }] },
+    {
+      type: "paragraph",
+      runs: [
+        { text: "A FINMA-registered SME lender based in Chur, lending to Swiss manufacturers since 2009. Alpine keeps " },
+        { text: "skin in every loan it lists", bold: true },
+        { text: " and services the borrower relationship end to end." }
+      ]
+    },
+    { type: "numbered_list", items: [[{ text: "CHF 180m originated to date" }], [{ text: "Historic loss rate below 1%" }], [{ text: "Quarterly audited servicing reports" }]] }
+  ]
+};
+
 const directLoanDetailsFixture: MarketplaceLoanDetail[] = directMarketplaceLoanPreviews.map((loan) => ({
   ...loan,
+  story: loan.loan_id === "GA-2401" ? helvetiaStoryFixture : { version: 1, blocks: [] },
+  loan_schedule: fixtureAnnuityRows(
+    loan.principal_minor,
+    loan.interest_rate_bps,
+    loan.term_months,
+    loan.funding_deadline ? `${loan.funding_deadline.slice(0, 8)}28` : "2026-07-28"
+  ),
   default_penalty_interest_bps: loan.loan_id === "GA-2390" ? 0 : 1200,
   borrower_id: `borrower-${loan.loan_id}`,
   borrower_disclosure: {
@@ -760,6 +835,7 @@ const originatorScheduleFixture = [
 const originatorLoanDetailFixture: MarketplaceLoanDetail = {
   ...originatorMarketplaceLoanFixture,
   borrower_id: null,
+  story: originatorStoryFixture,
   borrower_disclosure: {
     legal_name: "Established Swiss precision manufacturer",
     year_founded: 2007,

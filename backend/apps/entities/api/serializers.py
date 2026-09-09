@@ -44,6 +44,7 @@ class BorrowerEntitySerializer(serializers.Serializer[Any]):
     liabilities_minor = serializers.IntegerField(allow_null=True)
     revenue_last_year_minor = serializers.IntegerField(allow_null=True)
     profit_last_year_minor = serializers.IntegerField(allow_null=True)
+    investor_story = serializers.JSONField()
     created_by_admin_id = serializers.UUIDField()
     updated_by_admin_id = serializers.UUIDField(allow_null=True)
     created_at = serializers.DateTimeField()
@@ -96,6 +97,7 @@ class BorrowerEntityCreateRequestSerializer(serializers.Serializer[Any]):
     liabilities_minor = serializers.IntegerField(required=False, allow_null=True)
     revenue_last_year_minor = serializers.IntegerField(required=False, allow_null=True)
     profit_last_year_minor = serializers.IntegerField(required=False, allow_null=True)
+    investor_story = serializers.JSONField(required=False)
     note = serializers.CharField(required=False, allow_blank=True)
     evidence_summary = serializers.CharField(required=False, allow_blank=True)
 
@@ -144,6 +146,7 @@ class BorrowerEntityUpdateRequestSerializer(serializers.Serializer[Any]):
     clear_liabilities = serializers.BooleanField(required=False, default=False)
     clear_revenue_last_year = serializers.BooleanField(required=False, default=False)
     clear_profit_last_year = serializers.BooleanField(required=False, default=False)
+    investor_story = serializers.JSONField(required=False)
     note = serializers.CharField(required=False, allow_blank=True)
     evidence_summary = serializers.CharField(required=False, allow_blank=True)
 

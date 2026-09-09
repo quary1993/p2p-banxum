@@ -19,7 +19,7 @@ from django.db import connection, models, transaction
 from django.db.migrations.recorder import MigrationRecorder
 from django.utils import timezone
 
-from backend.apps.platform_core.domain.access import actor_ref_for_user, is_superadmin_actor
+from backend.apps.platform_core.domain.access import actor_ref_for_user, is_admin_actor
 from backend.apps.platform_core.domain.time import (
     business_date,
     business_timezone,
@@ -30,6 +30,10 @@ from backend.apps.platform_core.models.scheduled_jobs import ScheduledJobRunStat
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import DomainEventCommand, record_domain_event
 from backend.apps.platform_core.services.qa_guard import QaEnvironmentBusy, qa_environment_guard
+from backend.apps.platform_core.services.qa_restore_points import (
+    read_restore_points,
+    register_restore_point,
+)
 from backend.apps.platform_core.services.qa_snapshot import (
     partition_validated_snapshot,
     restore_snapshot_history,
@@ -77,6 +81,12 @@ class AdvanceQaDevModeTimeCommand:
 class RevertQaDevModeCommand:
     actor: models.Model
     confirmation: str
+    target: str = "auto"
+
+
+@dataclass(frozen=True, slots=True)
+class CreateQaSnapshotCommand:
+    actor: models.Model
 
 
 def _clear_cached_time() -> None:
@@ -91,21 +101,33 @@ def _cache_current_time(value: datetime | None) -> None:
 
 
 def _qa_enabled_by_settings() -> bool:
-    return bool(getattr(settings, "QA_DEV_MODE_ALLOWED", False)) and not bool(
-        getattr(settings, "IS_PRODUCTION", False)
+    return (
+        bool(getattr(settings, "QA_DEV_MODE_ALLOWED", False))
+        and not bool(getattr(settings, "IS_PRODUCTION", False))
+        and str(getattr(settings, "ENVIRONMENT", "local")).lower() not in {"production", "prod"}
     )
 
 
+def qa_controls_available(actor: Any) -> bool:
+    return _qa_enabled_by_settings() and is_admin_actor(actor)
+
+
+def qa_deployment_available() -> bool:
+    return _qa_enabled_by_settings()
+
+
 def _assert_qa_allowed() -> None:
-    if bool(getattr(settings, "IS_PRODUCTION", False)):
+    if bool(getattr(settings, "IS_PRODUCTION", False)) or str(
+        getattr(settings, "ENVIRONMENT", "local")
+    ).lower() in {"production", "prod"}:
         raise QaDevModeValidationError("QA development mode is never allowed in production.")
     if not bool(getattr(settings, "QA_DEV_MODE_ALLOWED", False)):
         raise QaDevModeValidationError("QA development mode is disabled by deployment config.")
 
 
-def _require_superadmin_actor(actor: models.Model) -> None:
-    if not is_superadmin_actor(actor):
-        raise QaDevModeAuthorizationError("Only an active superadmin can manage QA mode.")
+def _require_qa_admin_actor(actor: models.Model) -> None:
+    if not is_admin_actor(actor):
+        raise QaDevModeAuthorizationError("Only an active admin can manage QA mode.")
 
 
 def _snapshot_dir() -> Path:
@@ -297,14 +319,20 @@ def _record_qa_event(
 
 
 def serialize_qa_dev_mode_state(state: QaDevModeState) -> dict[str, Any]:
+    points = _restore_points(state) if _qa_enabled_by_settings() else {}
+    snapshot = points.get("snapshot", {})
+    seed = points.get("seed", {})
     return {
         "allowed": _qa_enabled_by_settings(),
         "is_enabled": state.is_enabled if _qa_enabled_by_settings() else False,
         "current_time": state.current_time,
         "entered_at": state.entered_at,
         "entered_by_user_id": state.entered_by_user_id,
-        "snapshot_created_at": state.snapshot_created_at,
-        "has_snapshot": bool(state.snapshot_path),
+        "snapshot_created_at": snapshot.get("created_at"),
+        "has_snapshot": bool(snapshot),
+        "seed_created_at": seed.get("created_at"),
+        "has_seed": bool(seed),
+        "default_restore_target": "snapshot" if snapshot else "seed",
         "note": state.note,
         "last_advanced_at": state.last_advanced_at,
         "last_advance_summary": state.last_advance_summary,
@@ -315,14 +343,14 @@ def serialize_qa_dev_mode_state(state: QaDevModeState) -> dict[str, Any]:
 
 def enable_qa_dev_mode(command: EnableQaDevModeCommand) -> QaDevModeState:
     _assert_qa_allowed()
-    _require_superadmin_actor(command.actor)
+    _require_qa_admin_actor(command.actor)
     with _exclusive_qa_operation():
         return _enable_qa_dev_mode(command)
 
 
 def _enable_qa_dev_mode(command: EnableQaDevModeCommand) -> QaDevModeState:
     _assert_qa_allowed()
-    _require_superadmin_actor(command.actor)
+    _require_qa_admin_actor(command.actor)
     real_now = timezone.now()
     with transaction.atomic():
         _lock_database_tables()
@@ -373,6 +401,54 @@ def _enable_qa_dev_mode(command: EnableQaDevModeCommand) -> QaDevModeState:
             # Include the enabled clock and its own snapshot pointer. Restoring this
             # baseline can be repeated without capturing a later, already-used dataset.
             _create_database_snapshot(created_at=real_now)
+        transaction.on_commit(
+            lambda: register_restore_point(
+                kind="seed" if command.repeatable_seed_snapshot else "snapshot",
+                path=snapshot_path,
+                created_at=real_now,
+                new_seed=command.repeatable_seed_snapshot,
+            )
+        )
+        return state
+
+
+def _restore_points(state: QaDevModeState) -> dict[str, dict[str, Any]]:
+    points = read_restore_points()
+    if not points and state.snapshot_path and state.snapshot_created_at:
+        # Legacy entry snapshots remain usable until an explicit seed is registered.
+        points["snapshot"] = {
+            "path": state.snapshot_path,
+            "created_at": state.snapshot_created_at.isoformat(),
+        }
+    return points
+
+
+def create_qa_snapshot(command: CreateQaSnapshotCommand) -> QaDevModeState:
+    _assert_qa_allowed()
+    _require_qa_admin_actor(command.actor)
+    with _exclusive_qa_operation(), transaction.atomic():
+        _lock_database_tables()
+        state = _state_for_update()
+        if not state.is_enabled:
+            raise QaDevModeValidationError("Enable QA mode before creating a snapshot.")
+        created_at = timezone.now()
+        state.snapshot_path = str(_snapshot_dir() / _snapshot_filename(created_at=created_at))
+        state.snapshot_created_at = created_at
+        state.save(update_fields=["snapshot_path", "snapshot_created_at", "updated_at"])
+        _record_qa_event(
+            actor=command.actor,
+            action="platform_core.qa_dev_mode.snapshot_created",
+            state=state,
+            metadata={"created_at": created_at.isoformat()},
+        )
+        path = _create_database_snapshot(created_at=created_at)
+        transaction.on_commit(
+            lambda: register_restore_point(
+                kind="snapshot",
+                path=path,
+                created_at=created_at,
+            )
+        )
         return state
 
 
@@ -397,14 +473,14 @@ def _scheduled_result_payload(result: Any) -> list[dict[str, Any]]:
 
 def advance_qa_dev_mode_time(command: AdvanceQaDevModeTimeCommand) -> QaDevModeState:
     _assert_qa_allowed()
-    _require_superadmin_actor(command.actor)
+    _require_qa_admin_actor(command.actor)
     with _exclusive_qa_operation():
         return _advance_qa_dev_mode_time(command)
 
 
 def _advance_qa_dev_mode_time(command: AdvanceQaDevModeTimeCommand) -> QaDevModeState:
     _assert_qa_allowed()
-    _require_superadmin_actor(command.actor)
+    _require_qa_admin_actor(command.actor)
     max_days = int(getattr(settings, "QA_DEV_MODE_MAX_ADVANCE_DAYS", 120))
     if command.days < 1 or command.days > max_days:
         raise QaDevModeValidationError(f"Advance days must be between 1 and {max_days}.")
@@ -517,30 +593,36 @@ def _advance_qa_dev_mode_time(command: AdvanceQaDevModeTimeCommand) -> QaDevMode
     return state
 
 
-def revert_qa_dev_mode(command: RevertQaDevModeCommand) -> None:
+def revert_qa_dev_mode(command: RevertQaDevModeCommand) -> str:
     _assert_qa_allowed()
-    _require_superadmin_actor(command.actor)
+    _require_qa_admin_actor(command.actor)
     with _exclusive_qa_operation():
-        _revert_qa_dev_mode(command)
+        return _revert_qa_dev_mode(command)
 
 
-def _revert_qa_dev_mode(command: RevertQaDevModeCommand) -> None:
+def _revert_qa_dev_mode(command: RevertQaDevModeCommand) -> str:
     _assert_qa_allowed()
-    _require_superadmin_actor(command.actor)
+    _require_qa_admin_actor(command.actor)
     if command.confirmation != QA_REVERT_CONFIRMATION:
         raise QaDevModeValidationError(f'Type "{QA_REVERT_CONFIRMATION}" to revert QA mode.')
     with transaction.atomic():
         state = _state_for_update()
-        if not state.is_enabled:
-            raise QaDevModeValidationError("QA development mode is not enabled.")
-        snapshot_path = state.snapshot_path
-        if not snapshot_path:
-            raise QaDevModeValidationError("QA snapshot path is missing; database was not changed.")
+        points = _restore_points(state)
+        target = command.target
+        if target == "auto":
+            target = "snapshot" if "snapshot" in points else "seed"
+        if target not in {"seed", "snapshot"}:
+            raise QaDevModeValidationError("Choose snapshot or seed to restore.")
+        point = points.get(target)
+        if not point:
+            raise QaDevModeValidationError(f"No {target} is saved; database was not changed.")
+        snapshot_path = point["path"]
         metadata = {
             "snapshot_created_at": (
                 state.snapshot_created_at.isoformat() if state.snapshot_created_at else ""
             ),
             "current_time": state.current_time.isoformat() if state.current_time else "",
+            "target": target,
         }
         _record_qa_event(
             actor=command.actor,
@@ -550,6 +632,7 @@ def _revert_qa_dev_mode(command: RevertQaDevModeCommand) -> None:
         )
     _clear_cached_time()
     _restore_database_snapshot(snapshot_path)
+    return target
 
 
 def qa_dev_mode_snapshot_manifest() -> dict[str, Any]:

@@ -56,9 +56,7 @@ class AuthThrottle(BaseThrottle):
 
             for window_rule in self.window_rules:
                 bucket = now // window_rule.seconds
-                key = (
-                    f"throttle:{self.scope}:window:{window_rule.name}:{identifier}:{bucket}"
-                )
+                key = f"throttle:{self.scope}:window:{window_rule.name}:{identifier}:{bucket}"
                 count = int(cache.get(key, 0))
                 if count >= window_rule.limit:
                     self._wait = window_rule.seconds - (now % window_rule.seconds)
@@ -71,9 +69,7 @@ class AuthThrottle(BaseThrottle):
 
             for window_rule in self.window_rules:
                 bucket = now // window_rule.seconds
-                key = (
-                    f"throttle:{self.scope}:window:{window_rule.name}:{identifier}:{bucket}"
-                )
+                key = f"throttle:{self.scope}:window:{window_rule.name}:{identifier}:{bucket}"
                 cache.add(key, 0, timeout=window_rule.seconds + 5)
                 cache.incr(key)
 

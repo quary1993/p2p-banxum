@@ -76,6 +76,7 @@ class LoanOriginator(TimestampedModel):
         default=LoanOriginatorStatus.INACTIVE,
     )
     default_premium_fee_bps = models.PositiveSmallIntegerField(default=5000)
+    investor_story = models.JSONField(default=dict, blank=True)
     created_by_admin_id = models.UUIDField()
     updated_by_admin_id = models.UUIDField(null=True, blank=True)
 

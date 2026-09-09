@@ -846,6 +846,7 @@ export interface BorrowerEntity {
   revenue_last_year_minor: number | null;
   /** @nullable */
   profit_last_year_minor: number | null;
+  investor_story: unknown;
   created_by_admin_id: string;
   /** @nullable */
   updated_by_admin_id: string | null;
@@ -937,6 +938,7 @@ export interface BorrowerEntityCreateRequest {
   revenue_last_year_minor?: number | null;
   /** @nullable */
   profit_last_year_minor?: number | null;
+  investor_story?: unknown;
   note?: string;
   evidence_summary?: string;
 }
@@ -1160,6 +1162,11 @@ export const CurrencyScopeEnum = {
   EUR: 'EUR',
 } as const;
 
+export interface CurrentUserResponse {
+  user: UserSummary;
+  qa_controls_available: boolean;
+}
+
 /**
  * * `approve` - Approve
  * * `decline` - Decline
@@ -1174,6 +1181,18 @@ export const DecisionEnum = {
   decline: 'decline',
   request_reverification: 'request_reverification',
   reopen: 'reopen',
+} as const;
+
+/**
+ * * `seed` - seed
+ * * `snapshot` - snapshot
+ */
+export type DefaultRestoreTargetEnum = typeof DefaultRestoreTargetEnum[keyof typeof DefaultRestoreTargetEnum];
+
+
+export const DefaultRestoreTargetEnum = {
+  seed: 'seed',
+  snapshot: 'snapshot',
 } as const;
 
 export interface DepositInstruction {
@@ -2541,6 +2560,7 @@ export interface LoanOriginator {
      * @maximum 10000
      */
   default_premium_fee_bps?: number;
+  investor_story?: unknown;
   readonly created_by_admin_id: string;
   /** @nullable */
   readonly updated_by_admin_id: string | null;
@@ -2575,6 +2595,7 @@ export interface LoanOriginatorCreate {
      * @maximum 10000
      */
   default_premium_fee_bps?: number;
+  investor_story?: unknown;
 }
 
 export interface LoanRecoveryEvent {
@@ -2799,6 +2820,13 @@ export interface MagicLinkRequest {
 
 export type MarketplaceLoanDetailBorrowerDisclosure = {[key: string]: unknown};
 
+export type StoryDocumentBlocksItem = {[key: string]: unknown};
+
+export interface StoryDocument {
+  version: number;
+  blocks: StoryDocumentBlocksItem[];
+}
+
 export interface MarketplaceOriginalLoanScheduleRow {
   installment_number: number;
   due_date: string;
@@ -2807,6 +2835,25 @@ export interface MarketplaceOriginalLoanScheduleRow {
   total_minor: number;
   outstanding_after_minor: number;
   paid_before_publication: boolean;
+}
+
+export interface MarketplaceLoanScheduleRow {
+  id?: string;
+  installment_number: number;
+  due_date: string;
+  principal_minor: number;
+  interest_minor: number;
+  total_minor: number;
+  outstanding_after_minor: number;
+  status?: string;
+  row_type?: string;
+  label?: string;
+  /** @nullable */
+  payment_date?: string | null;
+  paid_principal_minor?: number;
+  paid_interest_minor?: number;
+  outstanding_principal_minor?: number;
+  outstanding_interest_minor?: number;
 }
 
 export interface MarketplaceOriginatorScheduleRow {
@@ -2884,6 +2931,7 @@ export interface MarketplaceLoanDetail {
   /** @nullable */
   borrower_id: string | null;
   borrower_disclosure: MarketplaceLoanDetailBorrowerDisclosure;
+  story?: StoryDocument;
   investor_summary: string;
   purpose_description: string;
   collateral_value_minor: number;
@@ -2906,6 +2954,7 @@ export interface MarketplaceLoanDetail {
   /** @nullable */
   first_payment_date: string | null;
   schedule_version: number;
+  loan_schedule?: MarketplaceLoanScheduleRow[];
   originator_schedule?: MarketplaceOriginatorScheduleRow[];
   originator_payment_history?: MarketplaceOriginatorPaymentRow[];
   /** @nullable */
@@ -3441,6 +3490,7 @@ export interface PatchedBorrowerEntityUpdateRequest {
   clear_liabilities?: boolean;
   clear_revenue_last_year?: boolean;
   clear_profit_last_year?: boolean;
+  investor_story?: unknown;
   note?: string;
   evidence_summary?: string;
 }
@@ -3472,6 +3522,7 @@ export interface PatchedLoanOriginatorUpdate {
      * @maximum 10000
      */
   default_premium_fee_bps?: number;
+  investor_story?: unknown;
 }
 
 export interface PatchedLoanUpdateRequest {
@@ -3859,9 +3910,62 @@ export interface QaDevModeEnableRequest {
   note?: string;
 }
 
+/**
+ * * `seed` - seed
+ * * `snapshot` - snapshot
+ */
+export type RestoredTargetEnum = typeof RestoredTargetEnum[keyof typeof RestoredTargetEnum];
+
+
+export const RestoredTargetEnum = {
+  seed: 'seed',
+  snapshot: 'snapshot',
+} as const;
+
+export interface QaDevModeRestoreResponse {
+  allowed: boolean;
+  is_enabled: boolean;
+  /** @nullable */
+  current_time: string | null;
+  /** @nullable */
+  entered_at: string | null;
+  /** @nullable */
+  entered_by_user_id: string | null;
+  /** @nullable */
+  snapshot_created_at: string | null;
+  has_snapshot: boolean;
+  has_seed: boolean;
+  /** @nullable */
+  seed_created_at: string | null;
+  default_restore_target: DefaultRestoreTargetEnum;
+  note: string;
+  /** @nullable */
+  last_advanced_at: string | null;
+  last_advance_summary: unknown;
+  max_advance_days: number;
+  environment: string;
+  requires_login: boolean;
+  restored_target: RestoredTargetEnum;
+}
+
+/**
+ * * `auto` - auto
+ * * `seed` - seed
+ * * `snapshot` - snapshot
+ */
+export type TargetEnum = typeof TargetEnum[keyof typeof TargetEnum];
+
+
+export const TargetEnum = {
+  auto: 'auto',
+  seed: 'seed',
+  snapshot: 'snapshot',
+} as const;
+
 export interface QaDevModeRevertRequest {
   /** @maxLength 64 */
   confirmation: string;
+  target?: TargetEnum;
 }
 
 export interface QaDevModeState {
@@ -3876,6 +3980,10 @@ export interface QaDevModeState {
   /** @nullable */
   snapshot_created_at: string | null;
   has_snapshot: boolean;
+  has_seed: boolean;
+  /** @nullable */
+  seed_created_at: string | null;
+  default_restore_target: DefaultRestoreTargetEnum;
   note: string;
   /** @nullable */
   last_advanced_at: string | null;
@@ -4534,6 +4642,20 @@ export interface SmartInvestRuleSaveRequest {
   /** @maxLength 64 */
   purpose?: string;
   loan_kind?: LoanKindEnum;
+}
+
+export interface StoryImage {
+  id: string;
+  url: string;
+  width: number;
+  height: number;
+  byte_size: number;
+  content_type: string;
+  created_at: string;
+}
+
+export interface StoryImageUpload {
+  file: string;
 }
 
 export type V1AdminOpsAuditEventsListParams = {
@@ -7430,6 +7552,79 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       return useMutation(getV1AdminOpsUsersReadonlyImpersonationCreateMutationOptions(options), queryClient);
     }
 
+export const getV1AdminStoryImagesCreateUrl = () => {
+
+
+
+
+  return `/api/v1/admin/story-images/`
+}
+
+/**
+ * Admin-only intake for story images (verified, re-encoded, <= 1 MB).
+ */
+export const v1AdminStoryImagesCreate = async (storyImageUpload: StoryImageUpload, options?: Parameters<typeof httpClient>[1]): Promise<StoryImage> => {
+    const formData = new FormData();
+formData.append(`file`, storyImageUpload.file);
+
+  return httpClient<StoryImage>(getV1AdminStoryImagesCreateUrl(),
+  {
+    ...options,
+    method: 'POST'
+    ,
+    body: formData
+  }
+);}
+
+
+
+
+
+export const getV1AdminStoryImagesCreateMutationKey = () => ['v1AdminStoryImagesCreate'] as const;
+
+export const getV1AdminStoryImagesCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AdminStoryImagesCreate>>, TError,V1AdminStoryImagesCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1AdminStoryImagesCreate>>, TError,V1AdminStoryImagesCreateMutationVariables, TContext> => {
+
+const mutationKey = getV1AdminStoryImagesCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1AdminStoryImagesCreate>>, V1AdminStoryImagesCreateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  v1AdminStoryImagesCreate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1AdminStoryImagesCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1AdminStoryImagesCreate>>>
+    export type V1AdminStoryImagesCreateMutationBody = StoryImageUpload
+    export type V1AdminStoryImagesCreateMutationError = unknown
+    export type V1AdminStoryImagesCreateMutationVariables = {data: StoryImageUpload}
+
+    export const useV1AdminStoryImagesCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1AdminStoryImagesCreate>>, TError,V1AdminStoryImagesCreateMutationVariables, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1AdminStoryImagesCreate>>,
+        TError,
+        V1AdminStoryImagesCreateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getV1AdminStoryImagesCreateMutationOptions(options), queryClient);
+    }
+
 export const getV1AuthAdminLoginConfirmCreateUrl = () => {
 
 
@@ -7951,9 +8146,9 @@ export const getV1AuthMeRetrieveUrl = () => {
   return `/api/v1/auth/me/`
 }
 
-export const v1AuthMeRetrieve = async ( options?: Parameters<typeof httpClient>[1]): Promise<AuthenticatedUserResponse> => {
+export const v1AuthMeRetrieve = async ( options?: Parameters<typeof httpClient>[1]): Promise<CurrentUserResponse> => {
 
-  return httpClient<AuthenticatedUserResponse>(getV1AuthMeRetrieveUrl(),
+  return httpClient<CurrentUserResponse>(getV1AuthMeRetrieveUrl(),
   {
     ...options,
     method: 'GET'
@@ -16668,7 +16863,7 @@ export const getV1QaDevModeRevertCreateUrl = () => {
   return `/api/v1/qa/dev-mode/revert/`
 }
 
-export const v1QaDevModeRevertCreate = async (qaDevModeRevertRequest: QaDevModeRevertRequest, options?: Parameters<typeof httpClient>[1]): Promise<QaDevModeState> => {
+export const v1QaDevModeRevertCreate = async (qaDevModeRevertRequest: QaDevModeRevertRequest, options?: Parameters<typeof httpClient>[1]): Promise<QaDevModeRestoreResponse> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -16676,7 +16871,7 @@ export const v1QaDevModeRevertCreate = async (qaDevModeRevertRequest: QaDevModeR
     if (Array.isArray(h)) return Object.fromEntries(h);
     return h;
   };
-return httpClient<QaDevModeState>(getV1QaDevModeRevertCreateUrl(),
+return httpClient<QaDevModeRestoreResponse>(getV1QaDevModeRevertCreateUrl(),
   {
     ...options,
     method: 'POST',
@@ -16732,6 +16927,74 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
         TContext
       > => {
       return useMutation(getV1QaDevModeRevertCreateMutationOptions(options), queryClient);
+    }
+
+export const getV1QaDevModeSnapshotCreateUrl = () => {
+
+
+
+
+  return `/api/v1/qa/dev-mode/snapshot/`
+}
+
+export const v1QaDevModeSnapshotCreate = async ( options?: Parameters<typeof httpClient>[1]): Promise<QaDevModeState> => {
+
+  return httpClient<QaDevModeState>(getV1QaDevModeSnapshotCreateUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1QaDevModeSnapshotCreateMutationKey = () => ['v1QaDevModeSnapshotCreate'] as const;
+
+export const getV1QaDevModeSnapshotCreateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1QaDevModeSnapshotCreate>>, TError,void, TContext>, request?: SecondParameter<typeof httpClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof v1QaDevModeSnapshotCreate>>, TError,void, TContext> => {
+
+const mutationKey = getV1QaDevModeSnapshotCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof v1QaDevModeSnapshotCreate>>, void> = () => {
+
+
+          return  v1QaDevModeSnapshotCreate(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type V1QaDevModeSnapshotCreateMutationResult = NonNullable<Awaited<ReturnType<typeof v1QaDevModeSnapshotCreate>>>
+
+    export type V1QaDevModeSnapshotCreateMutationError = unknown
+
+
+    export const useV1QaDevModeSnapshotCreate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof v1QaDevModeSnapshotCreate>>, TError,void, TContext>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof v1QaDevModeSnapshotCreate>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getV1QaDevModeSnapshotCreateMutationOptions(options), queryClient);
     }
 
 export const getV1ReportingAdminReportsCreateUrl = () => {
@@ -17451,6 +17714,104 @@ export function useV1ServicingLoanRiskNotesList<TData = Awaited<ReturnType<typeo
 }
 
 
+
+
+
+
+
+export const getV1StoryImagesRetrieveUrl = (imageId: string,) => {
+
+
+
+
+  return `/api/v1/story-images/${imageId}/`
+}
+
+/**
+ * Serve a story image to any signed-in user; never public, never cached shared.
+ */
+export const v1StoryImagesRetrieve = async (imageId: string, options?: Parameters<typeof httpClient>[1]): Promise<Blob> => {
+
+  return httpClient<Blob>(getV1StoryImagesRetrieveUrl(imageId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getV1StoryImagesRetrieveQueryKey = (imageId: string,) => {
+    return [
+    `/api/v1/story-images/${imageId}/`
+    ] as const;
+    }
+
+
+export const getV1StoryImagesRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof v1StoryImagesRetrieve>>, TError = unknown>(imageId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1StoryImagesRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getV1StoryImagesRetrieveQueryKey(imageId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof v1StoryImagesRetrieve>>> = ({ signal }) => v1StoryImagesRetrieve(imageId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: imageId !== null && imageId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof v1StoryImagesRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type V1StoryImagesRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof v1StoryImagesRetrieve>>>
+export type V1StoryImagesRetrieveQueryError = unknown
+
+
+export function useV1StoryImagesRetrieve<TData = Awaited<ReturnType<typeof v1StoryImagesRetrieve>>, TError = unknown>(
+ imageId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1StoryImagesRetrieve>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1StoryImagesRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1StoryImagesRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1StoryImagesRetrieve<TData = Awaited<ReturnType<typeof v1StoryImagesRetrieve>>, TError = unknown>(
+ imageId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1StoryImagesRetrieve>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof v1StoryImagesRetrieve>>,
+          TError,
+          Awaited<ReturnType<typeof v1StoryImagesRetrieve>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useV1StoryImagesRetrieve<TData = Awaited<ReturnType<typeof v1StoryImagesRetrieve>>, TError = unknown>(
+ imageId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1StoryImagesRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useV1StoryImagesRetrieve<TData = Awaited<ReturnType<typeof v1StoryImagesRetrieve>>, TError = unknown>(
+ imageId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof v1StoryImagesRetrieve>>, TError, TData>>, request?: SecondParameter<typeof httpClient>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getV1StoryImagesRetrieveQueryOptions(imageId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
 export const getV1AdminOpsAuditEventsListResponseMock = (): AuditEvent[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), occurred_at: faker.date.past().toISOString().slice(0, 19) + 'Z', actor_type: faker.string.alpha({length: {min: 10, max: 20}}), actor_id: faker.string.alpha({length: {min: 10, max: 20}}), action: faker.string.alpha({length: {min: 10, max: 20}}), target_type: faker.string.alpha({length: {min: 10, max: 20}}), target_id: faker.string.alpha({length: {min: 10, max: 20}}), request_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})))
 
 export const getV1AdminOpsDashboardRetrieveResponseMock = (overrideResponse: Partial<Extract<AdminOperationsDashboard, object>> = {}): AdminOperationsDashboard => ({as_of: faker.date.past().toISOString().slice(0, 19) + 'Z', as_of_date: faker.date.past().toISOString().slice(0, 10), due_window_days: faker.number.int(), queue_limit: faker.number.int(), summary: {}, currency_summaries: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({currency: faker.string.alpha({length: {min: 10, max: 20}}), available_balance_minor: faker.number.int(), investable_available_minor: faker.number.int(), withdraw_only_available_minor: faker.number.int(), overdue_available_minor: faker.number.int(), frozen_available_minor: faker.number.int(), penalty_mode_available_minor: faker.number.int(), pending_withdrawal_minor: faker.number.int(), forced_withdrawal_minor: faker.number.int(), pending_bank_operation_minor: faker.number.int(), fx_unsettled_sold_minor: faker.number.int(), fx_unsettled_bought_minor: faker.number.int(), fx_unsettled_fee_minor: faker.number.int()})), queues: {admin_tasks: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int(), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), kyc_reviews: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int(), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), bank_operations_pending: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int(), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), withdrawals_requested: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int(), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), forced_withdrawals_requested: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int(), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), balance_ageing_actions: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int(), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), funding_loans: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int(), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), servicing_due: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int(), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), loan_risk: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int(), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), secondary_listing_approvals: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int(), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), fx_settlement_deltas: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int(), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), failed_emails: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int(), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}})), reconciliation_breaks: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({kind: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), priority: faker.string.alpha({length: {min: 10, max: 20}}), due_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), due_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.helpers.arrayElement([faker.number.int(), null]), object_type: faker.string.alpha({length: {min: 10, max: 20}}), object_id: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}}))}, ...overrideResponse})
@@ -17493,6 +17854,8 @@ export const getV1AdminOpsUsersDocumentsArtifactCreateResponseMock = (overrideRe
 
 export const getV1AdminOpsUsersReadonlyImpersonationCreateResponseMock = (overrideResponse: Partial<Extract<ReadOnlyImpersonationStartResponse, object>> = {}): ReadOnlyImpersonationStartResponse => ({token: faker.string.alpha({length: {min: 10, max: 20}}), expires_in_seconds: faker.number.int(), target_user_id: faker.string.uuid(), target_email: faker.internet.email(), target_full_name: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
+export const getV1AdminStoryImagesCreateResponseMock = (overrideResponse: Partial<Extract<StoryImage, object>> = {}): StoryImage => ({id: faker.string.uuid(), url: faker.string.alpha({length: {min: 10, max: 20}}), width: faker.number.int(), height: faker.number.int(), byte_size: faker.number.int(), content_type: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+
 export const getV1AuthAdminLoginConfirmCreateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
 
 export const getV1AuthAdminLoginStartCreateResponseMock = (overrideResponse: Partial<Extract<AdminLoginStartResponse, object>> = {}): AdminLoginStartResponse => ({code_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), expires_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
@@ -17503,7 +17866,7 @@ export const getV1AuthAdminUsersAccessCreateResponseMock = (overrideResponse: Pa
 
 export const getV1AuthMagicLinkConsumeCreateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
 
-export const getV1AuthMeRetrieveResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
+export const getV1AuthMeRetrieveResponseMock = (overrideResponse: Partial<Extract<CurrentUserResponse, object>> = {}): CurrentUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, qa_controls_available: faker.datatype.boolean(), ...overrideResponse})
 
 export const getV1AuthPhoneConfirmCreateResponseMock = (overrideResponse: Partial<Extract<PhoneVerificationConfirmResponse, object>> = {}): PhoneVerificationConfirmResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
 
@@ -17531,13 +17894,13 @@ export const getV1DocumentsTemplatesCurrentRetrieveResponseMock = (overrideRespo
 
 export const getV1DocumentsTemplatesCurrentArtifactRetrieveResponseMock = (overrideResponse: Partial<Extract<DocumentTemplatePreviewArtifactResponse, object>> = {}): DocumentTemplatePreviewArtifactResponse => ({template_version_id: faker.string.uuid(), category: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), version_number: faker.number.int(), content_hash: faker.string.alpha({length: {min: 10, max: 20}}), content_type: faker.string.alpha({length: {min: 10, max: 20}}), content_encoding: faker.string.alpha({length: {min: 10, max: 20}}), filename: faker.string.alpha({length: {min: 10, max: 20}}), content: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getV1EntitiesAdminBorrowersListResponseMock = (): BorrowerEntity[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), legal_name: faker.string.alpha({length: {min: 10, max: 20}}), year_founded: faker.number.int(), entity_type: faker.string.alpha({length: {min: 10, max: 20}}), kyb_status: faker.string.alpha({length: {min: 10, max: 20}}), compliance_hold: faker.datatype.boolean(), can_transact: faker.datatype.boolean(), country: faker.string.alpha({length: {min: 10, max: 20}}), registration_number: faker.string.alpha({length: {min: 10, max: 20}}), business_classification: faker.string.alpha({length: {min: 10, max: 20}}), business_classification_public: faker.datatype.boolean(), registered_address: faker.string.alpha({length: {min: 10, max: 20}}), registered_address_public: faker.datatype.boolean(), operating_address: faker.string.alpha({length: {min: 10, max: 20}}), contact_info: faker.string.alpha({length: {min: 10, max: 20}}), contact_info_public: faker.datatype.boolean(), industry_activity: faker.string.alpha({length: {min: 10, max: 20}}), ownership_structure: faker.string.alpha({length: {min: 10, max: 20}}), beneficial_owners: {}, directors_officers: {}, authorized_signatories: {}, bank_account_details: {}, kyb_aml_observations: faker.string.alpha({length: {min: 10, max: 20}}), financial_risk: faker.string.alpha({length: {min: 10, max: 20}}), financials_currency: faker.string.alpha({length: {min: 10, max: 20}}), assets_minor: faker.helpers.arrayElement([faker.number.int(), null]), liabilities_minor: faker.helpers.arrayElement([faker.number.int(), null]), revenue_last_year_minor: faker.helpers.arrayElement([faker.number.int(), null]), profit_last_year_minor: faker.helpers.arrayElement([faker.number.int(), null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})))
+export const getV1EntitiesAdminBorrowersListResponseMock = (): BorrowerEntity[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), legal_name: faker.string.alpha({length: {min: 10, max: 20}}), year_founded: faker.number.int(), entity_type: faker.string.alpha({length: {min: 10, max: 20}}), kyb_status: faker.string.alpha({length: {min: 10, max: 20}}), compliance_hold: faker.datatype.boolean(), can_transact: faker.datatype.boolean(), country: faker.string.alpha({length: {min: 10, max: 20}}), registration_number: faker.string.alpha({length: {min: 10, max: 20}}), business_classification: faker.string.alpha({length: {min: 10, max: 20}}), business_classification_public: faker.datatype.boolean(), registered_address: faker.string.alpha({length: {min: 10, max: 20}}), registered_address_public: faker.datatype.boolean(), operating_address: faker.string.alpha({length: {min: 10, max: 20}}), contact_info: faker.string.alpha({length: {min: 10, max: 20}}), contact_info_public: faker.datatype.boolean(), industry_activity: faker.string.alpha({length: {min: 10, max: 20}}), ownership_structure: faker.string.alpha({length: {min: 10, max: 20}}), beneficial_owners: {}, directors_officers: {}, authorized_signatories: {}, bank_account_details: {}, kyb_aml_observations: faker.string.alpha({length: {min: 10, max: 20}}), financial_risk: faker.string.alpha({length: {min: 10, max: 20}}), financials_currency: faker.string.alpha({length: {min: 10, max: 20}}), assets_minor: faker.helpers.arrayElement([faker.number.int(), null]), liabilities_minor: faker.helpers.arrayElement([faker.number.int(), null]), revenue_last_year_minor: faker.helpers.arrayElement([faker.number.int(), null]), profit_last_year_minor: faker.helpers.arrayElement([faker.number.int(), null]), investor_story: {}, created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})))
 
-export const getV1EntitiesAdminBorrowersCreateResponseMock = (overrideResponse: Partial<Extract<BorrowerEntity, object>> = {}): BorrowerEntity => ({id: faker.string.uuid(), legal_name: faker.string.alpha({length: {min: 10, max: 20}}), year_founded: faker.number.int(), entity_type: faker.string.alpha({length: {min: 10, max: 20}}), kyb_status: faker.string.alpha({length: {min: 10, max: 20}}), compliance_hold: faker.datatype.boolean(), can_transact: faker.datatype.boolean(), country: faker.string.alpha({length: {min: 10, max: 20}}), registration_number: faker.string.alpha({length: {min: 10, max: 20}}), business_classification: faker.string.alpha({length: {min: 10, max: 20}}), business_classification_public: faker.datatype.boolean(), registered_address: faker.string.alpha({length: {min: 10, max: 20}}), registered_address_public: faker.datatype.boolean(), operating_address: faker.string.alpha({length: {min: 10, max: 20}}), contact_info: faker.string.alpha({length: {min: 10, max: 20}}), contact_info_public: faker.datatype.boolean(), industry_activity: faker.string.alpha({length: {min: 10, max: 20}}), ownership_structure: faker.string.alpha({length: {min: 10, max: 20}}), beneficial_owners: {}, directors_officers: {}, authorized_signatories: {}, bank_account_details: {}, kyb_aml_observations: faker.string.alpha({length: {min: 10, max: 20}}), financial_risk: faker.string.alpha({length: {min: 10, max: 20}}), financials_currency: faker.string.alpha({length: {min: 10, max: 20}}), assets_minor: faker.helpers.arrayElement([faker.number.int(), null]), liabilities_minor: faker.helpers.arrayElement([faker.number.int(), null]), revenue_last_year_minor: faker.helpers.arrayElement([faker.number.int(), null]), profit_last_year_minor: faker.helpers.arrayElement([faker.number.int(), null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+export const getV1EntitiesAdminBorrowersCreateResponseMock = (overrideResponse: Partial<Extract<BorrowerEntity, object>> = {}): BorrowerEntity => ({id: faker.string.uuid(), legal_name: faker.string.alpha({length: {min: 10, max: 20}}), year_founded: faker.number.int(), entity_type: faker.string.alpha({length: {min: 10, max: 20}}), kyb_status: faker.string.alpha({length: {min: 10, max: 20}}), compliance_hold: faker.datatype.boolean(), can_transact: faker.datatype.boolean(), country: faker.string.alpha({length: {min: 10, max: 20}}), registration_number: faker.string.alpha({length: {min: 10, max: 20}}), business_classification: faker.string.alpha({length: {min: 10, max: 20}}), business_classification_public: faker.datatype.boolean(), registered_address: faker.string.alpha({length: {min: 10, max: 20}}), registered_address_public: faker.datatype.boolean(), operating_address: faker.string.alpha({length: {min: 10, max: 20}}), contact_info: faker.string.alpha({length: {min: 10, max: 20}}), contact_info_public: faker.datatype.boolean(), industry_activity: faker.string.alpha({length: {min: 10, max: 20}}), ownership_structure: faker.string.alpha({length: {min: 10, max: 20}}), beneficial_owners: {}, directors_officers: {}, authorized_signatories: {}, bank_account_details: {}, kyb_aml_observations: faker.string.alpha({length: {min: 10, max: 20}}), financial_risk: faker.string.alpha({length: {min: 10, max: 20}}), financials_currency: faker.string.alpha({length: {min: 10, max: 20}}), assets_minor: faker.helpers.arrayElement([faker.number.int(), null]), liabilities_minor: faker.helpers.arrayElement([faker.number.int(), null]), revenue_last_year_minor: faker.helpers.arrayElement([faker.number.int(), null]), profit_last_year_minor: faker.helpers.arrayElement([faker.number.int(), null]), investor_story: {}, created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
-export const getV1EntitiesAdminBorrowersRetrieveResponseMock = (overrideResponse: Partial<Extract<BorrowerEntity, object>> = {}): BorrowerEntity => ({id: faker.string.uuid(), legal_name: faker.string.alpha({length: {min: 10, max: 20}}), year_founded: faker.number.int(), entity_type: faker.string.alpha({length: {min: 10, max: 20}}), kyb_status: faker.string.alpha({length: {min: 10, max: 20}}), compliance_hold: faker.datatype.boolean(), can_transact: faker.datatype.boolean(), country: faker.string.alpha({length: {min: 10, max: 20}}), registration_number: faker.string.alpha({length: {min: 10, max: 20}}), business_classification: faker.string.alpha({length: {min: 10, max: 20}}), business_classification_public: faker.datatype.boolean(), registered_address: faker.string.alpha({length: {min: 10, max: 20}}), registered_address_public: faker.datatype.boolean(), operating_address: faker.string.alpha({length: {min: 10, max: 20}}), contact_info: faker.string.alpha({length: {min: 10, max: 20}}), contact_info_public: faker.datatype.boolean(), industry_activity: faker.string.alpha({length: {min: 10, max: 20}}), ownership_structure: faker.string.alpha({length: {min: 10, max: 20}}), beneficial_owners: {}, directors_officers: {}, authorized_signatories: {}, bank_account_details: {}, kyb_aml_observations: faker.string.alpha({length: {min: 10, max: 20}}), financial_risk: faker.string.alpha({length: {min: 10, max: 20}}), financials_currency: faker.string.alpha({length: {min: 10, max: 20}}), assets_minor: faker.helpers.arrayElement([faker.number.int(), null]), liabilities_minor: faker.helpers.arrayElement([faker.number.int(), null]), revenue_last_year_minor: faker.helpers.arrayElement([faker.number.int(), null]), profit_last_year_minor: faker.helpers.arrayElement([faker.number.int(), null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+export const getV1EntitiesAdminBorrowersRetrieveResponseMock = (overrideResponse: Partial<Extract<BorrowerEntity, object>> = {}): BorrowerEntity => ({id: faker.string.uuid(), legal_name: faker.string.alpha({length: {min: 10, max: 20}}), year_founded: faker.number.int(), entity_type: faker.string.alpha({length: {min: 10, max: 20}}), kyb_status: faker.string.alpha({length: {min: 10, max: 20}}), compliance_hold: faker.datatype.boolean(), can_transact: faker.datatype.boolean(), country: faker.string.alpha({length: {min: 10, max: 20}}), registration_number: faker.string.alpha({length: {min: 10, max: 20}}), business_classification: faker.string.alpha({length: {min: 10, max: 20}}), business_classification_public: faker.datatype.boolean(), registered_address: faker.string.alpha({length: {min: 10, max: 20}}), registered_address_public: faker.datatype.boolean(), operating_address: faker.string.alpha({length: {min: 10, max: 20}}), contact_info: faker.string.alpha({length: {min: 10, max: 20}}), contact_info_public: faker.datatype.boolean(), industry_activity: faker.string.alpha({length: {min: 10, max: 20}}), ownership_structure: faker.string.alpha({length: {min: 10, max: 20}}), beneficial_owners: {}, directors_officers: {}, authorized_signatories: {}, bank_account_details: {}, kyb_aml_observations: faker.string.alpha({length: {min: 10, max: 20}}), financial_risk: faker.string.alpha({length: {min: 10, max: 20}}), financials_currency: faker.string.alpha({length: {min: 10, max: 20}}), assets_minor: faker.helpers.arrayElement([faker.number.int(), null]), liabilities_minor: faker.helpers.arrayElement([faker.number.int(), null]), revenue_last_year_minor: faker.helpers.arrayElement([faker.number.int(), null]), profit_last_year_minor: faker.helpers.arrayElement([faker.number.int(), null]), investor_story: {}, created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
-export const getV1EntitiesAdminBorrowersPartialUpdateResponseMock = (overrideResponse: Partial<Extract<BorrowerEntity, object>> = {}): BorrowerEntity => ({id: faker.string.uuid(), legal_name: faker.string.alpha({length: {min: 10, max: 20}}), year_founded: faker.number.int(), entity_type: faker.string.alpha({length: {min: 10, max: 20}}), kyb_status: faker.string.alpha({length: {min: 10, max: 20}}), compliance_hold: faker.datatype.boolean(), can_transact: faker.datatype.boolean(), country: faker.string.alpha({length: {min: 10, max: 20}}), registration_number: faker.string.alpha({length: {min: 10, max: 20}}), business_classification: faker.string.alpha({length: {min: 10, max: 20}}), business_classification_public: faker.datatype.boolean(), registered_address: faker.string.alpha({length: {min: 10, max: 20}}), registered_address_public: faker.datatype.boolean(), operating_address: faker.string.alpha({length: {min: 10, max: 20}}), contact_info: faker.string.alpha({length: {min: 10, max: 20}}), contact_info_public: faker.datatype.boolean(), industry_activity: faker.string.alpha({length: {min: 10, max: 20}}), ownership_structure: faker.string.alpha({length: {min: 10, max: 20}}), beneficial_owners: {}, directors_officers: {}, authorized_signatories: {}, bank_account_details: {}, kyb_aml_observations: faker.string.alpha({length: {min: 10, max: 20}}), financial_risk: faker.string.alpha({length: {min: 10, max: 20}}), financials_currency: faker.string.alpha({length: {min: 10, max: 20}}), assets_minor: faker.helpers.arrayElement([faker.number.int(), null]), liabilities_minor: faker.helpers.arrayElement([faker.number.int(), null]), revenue_last_year_minor: faker.helpers.arrayElement([faker.number.int(), null]), profit_last_year_minor: faker.helpers.arrayElement([faker.number.int(), null]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+export const getV1EntitiesAdminBorrowersPartialUpdateResponseMock = (overrideResponse: Partial<Extract<BorrowerEntity, object>> = {}): BorrowerEntity => ({id: faker.string.uuid(), legal_name: faker.string.alpha({length: {min: 10, max: 20}}), year_founded: faker.number.int(), entity_type: faker.string.alpha({length: {min: 10, max: 20}}), kyb_status: faker.string.alpha({length: {min: 10, max: 20}}), compliance_hold: faker.datatype.boolean(), can_transact: faker.datatype.boolean(), country: faker.string.alpha({length: {min: 10, max: 20}}), registration_number: faker.string.alpha({length: {min: 10, max: 20}}), business_classification: faker.string.alpha({length: {min: 10, max: 20}}), business_classification_public: faker.datatype.boolean(), registered_address: faker.string.alpha({length: {min: 10, max: 20}}), registered_address_public: faker.datatype.boolean(), operating_address: faker.string.alpha({length: {min: 10, max: 20}}), contact_info: faker.string.alpha({length: {min: 10, max: 20}}), contact_info_public: faker.datatype.boolean(), industry_activity: faker.string.alpha({length: {min: 10, max: 20}}), ownership_structure: faker.string.alpha({length: {min: 10, max: 20}}), beneficial_owners: {}, directors_officers: {}, authorized_signatories: {}, bank_account_details: {}, kyb_aml_observations: faker.string.alpha({length: {min: 10, max: 20}}), financial_risk: faker.string.alpha({length: {min: 10, max: 20}}), financials_currency: faker.string.alpha({length: {min: 10, max: 20}}), assets_minor: faker.helpers.arrayElement([faker.number.int(), null]), liabilities_minor: faker.helpers.arrayElement([faker.number.int(), null]), revenue_last_year_minor: faker.helpers.arrayElement([faker.number.int(), null]), profit_last_year_minor: faker.helpers.arrayElement([faker.number.int(), null]), investor_story: {}, created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
 export const getV1EntitiesAdminBorrowersDocumentsListResponseMock = (): BorrowerDocument[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), borrower_id: faker.string.uuid(), document_type: faker.string.alpha({length: {min: 10, max: 20}}), display_name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.string.alpha({length: {min: 10, max: 20}}), stored_file_id: faker.number.int(), investor_visible: faker.datatype.boolean(), created_by_admin_id: faker.string.uuid(), created_by_account_type: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})))
 
@@ -17655,7 +18018,9 @@ export const getV1MarketplacePrimaryLoansListResponseMock = (): MarketplaceLoanP
 
 export const getV1MarketplacePrimaryLoansRetrieveResponseMock = (overrideResponse: Partial<Extract<MarketplaceLoanDetail, object>> = {}): MarketplaceLoanDetail => ({loan_id: faker.string.uuid(), product_type: faker.string.alpha({length: {min: 10, max: 20}}), investment_flow: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), purpose: faker.string.alpha({length: {min: 10, max: 20}}), collateral_type: faker.string.alpha({length: {min: 10, max: 20}}), interest_rate_bps: faker.number.int(), yield_bps: faker.number.int(), underlying_interest_rate_bps: faker.number.int(), term_months: faker.number.int(), remaining_term_days: faker.helpers.arrayElement([faker.number.int(), null]), risk_rating: faker.string.alpha({length: {min: 10, max: 20}}), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), maturity_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), status: faker.string.alpha({length: {min: 10, max: 20}}), loan_status: faker.string.alpha({length: {min: 10, max: 20}}), opportunity_status: faker.string.alpha({length: {min: 10, max: 20}}), currency: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int(), committed_principal_minor: faker.number.int(), remaining_capacity_minor: faker.number.int(), fillable_amount_minor: faker.number.int(), minimum_investment_minor: faker.number.int(), ltv_bps: faker.helpers.arrayElement([faker.number.int(), null]), is_refinancing: faker.datatype.boolean(), originator_id: faker.helpers.arrayElement([faker.string.uuid(), null]), originator_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), borrower_display_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), distribution_model: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), entitlement_start_date: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), undefined]), investor_interest_participation_bps: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), investor_penalty_participation_bps: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), skin_in_the_game_bps: faker.number.int(), minimum_subscription_bps: faker.number.int(), default_penalty_interest_bps: faker.number.int(), borrower_id: faker.helpers.arrayElement([faker.string.uuid(), null]), borrower_disclosure: {
         [faker.string.alphanumeric(5)]: {}
-      }, investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), collateral_value_minor: faker.number.int(), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), ltv_warnings: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), original_principal_minor: faker.number.int(), original_interest_rate_bps: faker.helpers.arrayElement([faker.number.int(), null]), original_term_months: faker.helpers.arrayElement([faker.number.int(), null]), original_repayment_type: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), original_interest_only_months: faker.helpers.arrayElement([faker.number.int(), null]), original_loan_start_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), original_loan_schedule: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({installment_number: faker.number.int(), due_date: faker.date.past().toISOString().slice(0, 10), principal_minor: faker.number.int(), interest_minor: faker.number.int(), total_minor: faker.number.int(), outstanding_after_minor: faker.number.int(), paid_before_publication: faker.datatype.boolean()})), undefined]), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), loan_start_date: faker.date.past().toISOString().slice(0, 10), first_payment_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), schedule_version: faker.number.int(), originator_schedule: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({installment_number: faker.number.int(), accrual_start_date: faker.date.past().toISOString().slice(0, 10), due_date: faker.date.past().toISOString().slice(0, 10), opening_principal_minor: faker.number.int(), principal_minor: faker.number.int(), interest_minor: faker.number.int(), penalty_minor: faker.number.int(), fee_minor: faker.number.int(), total_minor: faker.number.int(), outstanding_after_minor: faker.number.int()})), undefined]), originator_payment_history: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({reference: faker.string.alpha({length: {min: 10, max: 20}}), value_date: faker.date.past().toISOString().slice(0, 10), payment_type: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int(), interest_minor: faker.number.int(), penalty_minor: faker.number.int(), fee_minor: faker.number.int(), total_minor: faker.number.int(), resulting_principal_minor: faker.number.int()})), undefined]), schedule_revision: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), pricing_as_of_date: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), undefined]), ...overrideResponse})
+      }, story: faker.helpers.arrayElement([{version: faker.number.int(), blocks: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({
+        [faker.string.alphanumeric(5)]: {}
+      }))}, undefined]), investor_summary: faker.string.alpha({length: {min: 10, max: 20}}), purpose_description: faker.string.alpha({length: {min: 10, max: 20}}), collateral_value_minor: faker.number.int(), collateral_description: faker.string.alpha({length: {min: 10, max: 20}}), ltv_warnings: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), original_principal_minor: faker.number.int(), original_interest_rate_bps: faker.helpers.arrayElement([faker.number.int(), null]), original_term_months: faker.helpers.arrayElement([faker.number.int(), null]), original_repayment_type: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), original_interest_only_months: faker.helpers.arrayElement([faker.number.int(), null]), original_loan_start_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), original_loan_schedule: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({installment_number: faker.number.int(), due_date: faker.date.past().toISOString().slice(0, 10), principal_minor: faker.number.int(), interest_minor: faker.number.int(), total_minor: faker.number.int(), outstanding_after_minor: faker.number.int(), paid_before_publication: faker.datatype.boolean()})), undefined]), repayment_type: faker.string.alpha({length: {min: 10, max: 20}}), loan_start_date: faker.date.past().toISOString().slice(0, 10), first_payment_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), schedule_version: faker.number.int(), loan_schedule: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.helpers.arrayElement([faker.string.uuid(), undefined]), installment_number: faker.number.int(), due_date: faker.date.past().toISOString().slice(0, 10), principal_minor: faker.number.int(), interest_minor: faker.number.int(), total_minor: faker.number.int(), outstanding_after_minor: faker.number.int(), status: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), row_type: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), label: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), payment_date: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), undefined]), paid_principal_minor: faker.helpers.arrayElement([faker.number.int(), undefined]), paid_interest_minor: faker.helpers.arrayElement([faker.number.int(), undefined]), outstanding_principal_minor: faker.helpers.arrayElement([faker.number.int(), undefined]), outstanding_interest_minor: faker.helpers.arrayElement([faker.number.int(), undefined])})), undefined]), originator_schedule: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({installment_number: faker.number.int(), accrual_start_date: faker.date.past().toISOString().slice(0, 10), due_date: faker.date.past().toISOString().slice(0, 10), opening_principal_minor: faker.number.int(), principal_minor: faker.number.int(), interest_minor: faker.number.int(), penalty_minor: faker.number.int(), fee_minor: faker.number.int(), total_minor: faker.number.int(), outstanding_after_minor: faker.number.int()})), undefined]), originator_payment_history: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({reference: faker.string.alpha({length: {min: 10, max: 20}}), value_date: faker.date.past().toISOString().slice(0, 10), payment_type: faker.string.alpha({length: {min: 10, max: 20}}), principal_minor: faker.number.int(), interest_minor: faker.number.int(), penalty_minor: faker.number.int(), fee_minor: faker.number.int(), total_minor: faker.number.int(), resulting_principal_minor: faker.number.int()})), undefined]), schedule_revision: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), pricing_as_of_date: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), undefined]), ...overrideResponse})
 
 export const getV1MarketplacePrimaryOrdersCreateResponseMock = (overrideResponse: Partial<Extract<PrimaryInvestmentOrder, object>> = {}): PrimaryInvestmentOrder => ({id: faker.string.uuid(), loan_id: faker.string.uuid(), investor_user_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), requested_amount_minor: faker.number.int(), allocated_amount_minor: faker.number.int(), currency: faker.string.alpha({length: {min: 10, max: 20}}), document_acceptance_id: faker.helpers.arrayElement([faker.string.uuid(), null]), reservation_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), release_journal_entry_id: faker.helpers.arrayElement([faker.string.uuid(), null]), lot_allocations: {}, created_by_user_id: faker.string.uuid(), allocated_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), released_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), closed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), closed_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), notes: faker.string.alpha({length: {min: 10, max: 20}}), admin_notes: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
@@ -17703,13 +18068,13 @@ export const getOriginatorClaimsAdminLoansSubscriptionActivateResponseMock = (ov
 
 export const getOriginatorClaimsAdminLoansSubscriptionCancelResponseMock = (overrideResponse: Partial<Extract<OriginatorLoanProfileResponse, object>> = {}): OriginatorLoanProfileResponse => ({loan_id: faker.string.uuid(), originator_id: faker.string.uuid(), originator_name: faker.string.alpha({length: {min: 10, max: 20}}), opportunity_status: faker.string.alpha({length: {min: 10, max: 20}}), loan_status: faker.string.alpha({length: {min: 10, max: 20}}), distribution_model: faker.string.alpha({length: {min: 10, max: 20}}), target_yield_bps: faker.number.int(), minimum_investment_minor: faker.number.int(), premium_fee_bps: faker.number.int(), funding_deadline: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), entitlement_start_date: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 10), null]), activation_outstanding_principal_minor: faker.helpers.arrayElement([faker.number.int(), null]), investor_interest_participation_bps: faker.number.int(), investor_penalty_participation_bps: faker.number.int(), current_outstanding_principal_minor: faker.number.int(), unsold_principal_minor: faker.number.int(), skin_in_the_game_bps: faker.number.int(), retained_principal_minor: faker.number.int(), sellable_principal_minor: faker.number.int(), maturity_date: faker.date.past().toISOString().slice(0, 10), schedule_revision: faker.number.int(), borrower_display_name: faker.string.alpha({length: {min: 10, max: 20}}), is_on_hold: faker.datatype.boolean(), hold_reason: faker.string.alpha({length: {min: 10, max: 20}}), import_id: faker.helpers.arrayElement([faker.string.uuid(), undefined]), ...overrideResponse})
 
-export const getOriginatorClaimsAdminOriginatorsListResponseMock = (): LoanOriginator[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), legal_name: faker.string.alpha({length: {min: 10, max: 255}}), public_name: faker.string.alpha({length: {min: 10, max: 255}}), registration_number: faker.string.alpha({length: {min: 10, max: 128}}), jurisdiction: faker.string.alpha({length: {min: 10, max: 64}}), registered_address: faker.string.alpha({length: {min: 10, max: 20}}), contact_info: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), settlement_account_name: faker.string.alpha({length: {min: 10, max: 255}}), settlement_iban: faker.string.alpha({length: {min: 10, max: 128}}), settlement_bic: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 64}}), undefined]), kyb_evidence_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 255}}), undefined]), kyb_aml_observations: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), risk_observations: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), status: faker.helpers.arrayElement([faker.helpers.arrayElement(Object.values(Status828Enum)), undefined]), default_premium_fee_bps: faker.helpers.arrayElement([faker.number.int({min: 0, max: 10000}), undefined]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})))
+export const getOriginatorClaimsAdminOriginatorsListResponseMock = (): LoanOriginator[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), legal_name: faker.string.alpha({length: {min: 10, max: 255}}), public_name: faker.string.alpha({length: {min: 10, max: 255}}), registration_number: faker.string.alpha({length: {min: 10, max: 128}}), jurisdiction: faker.string.alpha({length: {min: 10, max: 64}}), registered_address: faker.string.alpha({length: {min: 10, max: 20}}), contact_info: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), settlement_account_name: faker.string.alpha({length: {min: 10, max: 255}}), settlement_iban: faker.string.alpha({length: {min: 10, max: 128}}), settlement_bic: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 64}}), undefined]), kyb_evidence_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 255}}), undefined]), kyb_aml_observations: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), risk_observations: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), status: faker.helpers.arrayElement([faker.helpers.arrayElement(Object.values(Status828Enum)), undefined]), default_premium_fee_bps: faker.helpers.arrayElement([faker.number.int({min: 0, max: 10000}), undefined]), investor_story: faker.helpers.arrayElement([{}, undefined]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})))
 
-export const getOriginatorClaimsAdminOriginatorsCreateResponseMock = (overrideResponse: Partial<Extract<LoanOriginator, object>> = {}): LoanOriginator => ({id: faker.string.uuid(), legal_name: faker.string.alpha({length: {min: 10, max: 255}}), public_name: faker.string.alpha({length: {min: 10, max: 255}}), registration_number: faker.string.alpha({length: {min: 10, max: 128}}), jurisdiction: faker.string.alpha({length: {min: 10, max: 64}}), registered_address: faker.string.alpha({length: {min: 10, max: 20}}), contact_info: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), settlement_account_name: faker.string.alpha({length: {min: 10, max: 255}}), settlement_iban: faker.string.alpha({length: {min: 10, max: 128}}), settlement_bic: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 64}}), undefined]), kyb_evidence_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 255}}), undefined]), kyb_aml_observations: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), risk_observations: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), status: faker.helpers.arrayElement([faker.helpers.arrayElement(Object.values(Status828Enum)), undefined]), default_premium_fee_bps: faker.helpers.arrayElement([faker.number.int({min: 0, max: 10000}), undefined]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+export const getOriginatorClaimsAdminOriginatorsCreateResponseMock = (overrideResponse: Partial<Extract<LoanOriginator, object>> = {}): LoanOriginator => ({id: faker.string.uuid(), legal_name: faker.string.alpha({length: {min: 10, max: 255}}), public_name: faker.string.alpha({length: {min: 10, max: 255}}), registration_number: faker.string.alpha({length: {min: 10, max: 128}}), jurisdiction: faker.string.alpha({length: {min: 10, max: 64}}), registered_address: faker.string.alpha({length: {min: 10, max: 20}}), contact_info: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), settlement_account_name: faker.string.alpha({length: {min: 10, max: 255}}), settlement_iban: faker.string.alpha({length: {min: 10, max: 128}}), settlement_bic: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 64}}), undefined]), kyb_evidence_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 255}}), undefined]), kyb_aml_observations: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), risk_observations: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), status: faker.helpers.arrayElement([faker.helpers.arrayElement(Object.values(Status828Enum)), undefined]), default_premium_fee_bps: faker.helpers.arrayElement([faker.number.int({min: 0, max: 10000}), undefined]), investor_story: faker.helpers.arrayElement([{}, undefined]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
-export const getOriginatorClaimsAdminOriginatorsRetrieveResponseMock = (overrideResponse: Partial<Extract<LoanOriginator, object>> = {}): LoanOriginator => ({id: faker.string.uuid(), legal_name: faker.string.alpha({length: {min: 10, max: 255}}), public_name: faker.string.alpha({length: {min: 10, max: 255}}), registration_number: faker.string.alpha({length: {min: 10, max: 128}}), jurisdiction: faker.string.alpha({length: {min: 10, max: 64}}), registered_address: faker.string.alpha({length: {min: 10, max: 20}}), contact_info: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), settlement_account_name: faker.string.alpha({length: {min: 10, max: 255}}), settlement_iban: faker.string.alpha({length: {min: 10, max: 128}}), settlement_bic: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 64}}), undefined]), kyb_evidence_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 255}}), undefined]), kyb_aml_observations: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), risk_observations: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), status: faker.helpers.arrayElement([faker.helpers.arrayElement(Object.values(Status828Enum)), undefined]), default_premium_fee_bps: faker.helpers.arrayElement([faker.number.int({min: 0, max: 10000}), undefined]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+export const getOriginatorClaimsAdminOriginatorsRetrieveResponseMock = (overrideResponse: Partial<Extract<LoanOriginator, object>> = {}): LoanOriginator => ({id: faker.string.uuid(), legal_name: faker.string.alpha({length: {min: 10, max: 255}}), public_name: faker.string.alpha({length: {min: 10, max: 255}}), registration_number: faker.string.alpha({length: {min: 10, max: 128}}), jurisdiction: faker.string.alpha({length: {min: 10, max: 64}}), registered_address: faker.string.alpha({length: {min: 10, max: 20}}), contact_info: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), settlement_account_name: faker.string.alpha({length: {min: 10, max: 255}}), settlement_iban: faker.string.alpha({length: {min: 10, max: 128}}), settlement_bic: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 64}}), undefined]), kyb_evidence_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 255}}), undefined]), kyb_aml_observations: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), risk_observations: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), status: faker.helpers.arrayElement([faker.helpers.arrayElement(Object.values(Status828Enum)), undefined]), default_premium_fee_bps: faker.helpers.arrayElement([faker.number.int({min: 0, max: 10000}), undefined]), investor_story: faker.helpers.arrayElement([{}, undefined]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
-export const getOriginatorClaimsAdminOriginatorsUpdateResponseMock = (overrideResponse: Partial<Extract<LoanOriginator, object>> = {}): LoanOriginator => ({id: faker.string.uuid(), legal_name: faker.string.alpha({length: {min: 10, max: 255}}), public_name: faker.string.alpha({length: {min: 10, max: 255}}), registration_number: faker.string.alpha({length: {min: 10, max: 128}}), jurisdiction: faker.string.alpha({length: {min: 10, max: 64}}), registered_address: faker.string.alpha({length: {min: 10, max: 20}}), contact_info: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), settlement_account_name: faker.string.alpha({length: {min: 10, max: 255}}), settlement_iban: faker.string.alpha({length: {min: 10, max: 128}}), settlement_bic: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 64}}), undefined]), kyb_evidence_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 255}}), undefined]), kyb_aml_observations: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), risk_observations: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), status: faker.helpers.arrayElement([faker.helpers.arrayElement(Object.values(Status828Enum)), undefined]), default_premium_fee_bps: faker.helpers.arrayElement([faker.number.int({min: 0, max: 10000}), undefined]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+export const getOriginatorClaimsAdminOriginatorsUpdateResponseMock = (overrideResponse: Partial<Extract<LoanOriginator, object>> = {}): LoanOriginator => ({id: faker.string.uuid(), legal_name: faker.string.alpha({length: {min: 10, max: 255}}), public_name: faker.string.alpha({length: {min: 10, max: 255}}), registration_number: faker.string.alpha({length: {min: 10, max: 128}}), jurisdiction: faker.string.alpha({length: {min: 10, max: 64}}), registered_address: faker.string.alpha({length: {min: 10, max: 20}}), contact_info: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), settlement_account_name: faker.string.alpha({length: {min: 10, max: 255}}), settlement_iban: faker.string.alpha({length: {min: 10, max: 128}}), settlement_bic: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 64}}), undefined]), kyb_evidence_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 255}}), undefined]), kyb_aml_observations: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), risk_observations: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), undefined]), status: faker.helpers.arrayElement([faker.helpers.arrayElement(Object.values(Status828Enum)), undefined]), default_premium_fee_bps: faker.helpers.arrayElement([faker.number.int({min: 0, max: 10000}), undefined]), investor_story: faker.helpers.arrayElement([{}, undefined]), created_by_admin_id: faker.string.uuid(), updated_by_admin_id: faker.helpers.arrayElement([faker.string.uuid(), null]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
 export const getOriginatorClaimsAdminSettlementsCreateResponseMock = (overrideResponse: Partial<Extract<OriginatorSettlementResponse, object>> = {}): OriginatorSettlementResponse => ({settlement_id: faker.string.uuid(), originator_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), amount_minor: faker.number.int(), purchase_count: faker.number.int(), repayment_count: faker.number.int(), purchase_amount_minor: faker.number.int(), servicing_amount_minor: faker.number.int(), bank_operation_id: faker.string.uuid(), journal_entry_id: faker.string.uuid(), settled_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
@@ -17719,13 +18084,15 @@ export const getOriginatorClaimsLoansQuoteCreateResponseMock = (overrideResponse
 
 export const getOriginatorClaimsQuotesPurchaseCreateResponseMock = (overrideResponse: Partial<Extract<OriginatorClaimPurchaseResponse, object>> = {}): OriginatorClaimPurchaseResponse => ({purchase_id: faker.string.uuid(), quote_id: faker.string.uuid(), loan_id: faker.string.uuid(), holding_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), cash_consideration_minor: faker.number.int(), assigned_principal_minor: faker.number.int(), outstanding_principal_at_pricing_minor: faker.number.int(), share_ppm: faker.number.int(), target_yield_bps: faker.number.int(), purchased_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
-export const getV1QaDevModeRetrieveResponseMock = (overrideResponse: Partial<Extract<QaDevModeState, object>> = {}): QaDevModeState => ({allowed: faker.datatype.boolean(), is_enabled: faker.datatype.boolean(), current_time: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), entered_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), entered_by_user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), snapshot_created_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), has_snapshot: faker.datatype.boolean(), note: faker.string.alpha({length: {min: 10, max: 20}}), last_advanced_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), last_advance_summary: {}, max_advance_days: faker.number.int(), environment: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+export const getV1QaDevModeRetrieveResponseMock = (overrideResponse: Partial<Extract<QaDevModeState, object>> = {}): QaDevModeState => ({allowed: faker.datatype.boolean(), is_enabled: faker.datatype.boolean(), current_time: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), entered_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), entered_by_user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), snapshot_created_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), has_snapshot: faker.datatype.boolean(), has_seed: faker.datatype.boolean(), seed_created_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), default_restore_target: faker.helpers.arrayElement(Object.values(DefaultRestoreTargetEnum)), note: faker.string.alpha({length: {min: 10, max: 20}}), last_advanced_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), last_advance_summary: {}, max_advance_days: faker.number.int(), environment: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getV1QaDevModeAdvanceCreateResponseMock = (overrideResponse: Partial<Extract<QaDevModeState, object>> = {}): QaDevModeState => ({allowed: faker.datatype.boolean(), is_enabled: faker.datatype.boolean(), current_time: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), entered_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), entered_by_user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), snapshot_created_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), has_snapshot: faker.datatype.boolean(), note: faker.string.alpha({length: {min: 10, max: 20}}), last_advanced_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), last_advance_summary: {}, max_advance_days: faker.number.int(), environment: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+export const getV1QaDevModeAdvanceCreateResponseMock = (overrideResponse: Partial<Extract<QaDevModeState, object>> = {}): QaDevModeState => ({allowed: faker.datatype.boolean(), is_enabled: faker.datatype.boolean(), current_time: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), entered_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), entered_by_user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), snapshot_created_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), has_snapshot: faker.datatype.boolean(), has_seed: faker.datatype.boolean(), seed_created_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), default_restore_target: faker.helpers.arrayElement(Object.values(DefaultRestoreTargetEnum)), note: faker.string.alpha({length: {min: 10, max: 20}}), last_advanced_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), last_advance_summary: {}, max_advance_days: faker.number.int(), environment: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getV1QaDevModeEnableCreateResponseMock = (overrideResponse: Partial<Extract<QaDevModeState, object>> = {}): QaDevModeState => ({allowed: faker.datatype.boolean(), is_enabled: faker.datatype.boolean(), current_time: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), entered_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), entered_by_user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), snapshot_created_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), has_snapshot: faker.datatype.boolean(), note: faker.string.alpha({length: {min: 10, max: 20}}), last_advanced_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), last_advance_summary: {}, max_advance_days: faker.number.int(), environment: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+export const getV1QaDevModeEnableCreateResponseMock = (overrideResponse: Partial<Extract<QaDevModeState, object>> = {}): QaDevModeState => ({allowed: faker.datatype.boolean(), is_enabled: faker.datatype.boolean(), current_time: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), entered_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), entered_by_user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), snapshot_created_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), has_snapshot: faker.datatype.boolean(), has_seed: faker.datatype.boolean(), seed_created_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), default_restore_target: faker.helpers.arrayElement(Object.values(DefaultRestoreTargetEnum)), note: faker.string.alpha({length: {min: 10, max: 20}}), last_advanced_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), last_advance_summary: {}, max_advance_days: faker.number.int(), environment: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getV1QaDevModeRevertCreateResponseMock = (overrideResponse: Partial<Extract<QaDevModeState, object>> = {}): QaDevModeState => ({allowed: faker.datatype.boolean(), is_enabled: faker.datatype.boolean(), current_time: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), entered_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), entered_by_user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), snapshot_created_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), has_snapshot: faker.datatype.boolean(), note: faker.string.alpha({length: {min: 10, max: 20}}), last_advanced_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), last_advance_summary: {}, max_advance_days: faker.number.int(), environment: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+export const getV1QaDevModeRevertCreateResponseMock = (overrideResponse: Partial<Extract<QaDevModeRestoreResponse, object>> = {}): QaDevModeRestoreResponse => ({allowed: faker.datatype.boolean(), is_enabled: faker.datatype.boolean(), current_time: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), entered_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), entered_by_user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), snapshot_created_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), has_snapshot: faker.datatype.boolean(), has_seed: faker.datatype.boolean(), seed_created_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), default_restore_target: faker.helpers.arrayElement(Object.values(DefaultRestoreTargetEnum)), note: faker.string.alpha({length: {min: 10, max: 20}}), last_advanced_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), last_advance_summary: {}, max_advance_days: faker.number.int(), environment: faker.string.alpha({length: {min: 10, max: 20}}), requires_login: faker.datatype.boolean(), restored_target: faker.helpers.arrayElement(Object.values(RestoredTargetEnum)), ...overrideResponse})
+
+export const getV1QaDevModeSnapshotCreateResponseMock = (overrideResponse: Partial<Extract<QaDevModeState, object>> = {}): QaDevModeState => ({allowed: faker.datatype.boolean(), is_enabled: faker.datatype.boolean(), current_time: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), entered_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), entered_by_user_id: faker.helpers.arrayElement([faker.string.uuid(), null]), snapshot_created_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), has_snapshot: faker.datatype.boolean(), has_seed: faker.datatype.boolean(), seed_created_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), default_restore_target: faker.helpers.arrayElement(Object.values(DefaultRestoreTargetEnum)), note: faker.string.alpha({length: {min: 10, max: 20}}), last_advanced_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), last_advance_summary: {}, max_advance_days: faker.number.int(), environment: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getV1ReportingAdminReportsCreateResponseMock = (overrideResponse: Partial<Extract<ReportGenerateResponse, object>> = {}): ReportGenerateResponse => ({report_run: {id: faker.string.uuid(), report_type: faker.string.alpha({length: {min: 10, max: 20}}), output_format: faker.string.alpha({length: {min: 10, max: 20}}), redaction_mode: faker.string.alpha({length: {min: 10, max: 20}}), start_date: faker.date.past().toISOString().slice(0, 10), end_date: faker.date.past().toISOString().slice(0, 10), generated_by_admin_id: faker.string.uuid(), generated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', definition_version: faker.string.alpha({length: {min: 10, max: 20}}), filters: {}, row_count: faker.number.int(), content_sha256: faker.string.alpha({length: {min: 10, max: 20}}), manifest: {}, destination_note: faker.string.alpha({length: {min: 10, max: 20}}), metadata: {}, created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z'}, content_type: faker.string.alpha({length: {min: 10, max: 20}}), filename: faker.string.alpha({length: {min: 10, max: 20}}), content_encoding: faker.string.alpha({length: {min: 10, max: 20}}), content: faker.string.alpha({length: {min: 10, max: 20}}), manifest: {}, ...overrideResponse})
 
@@ -17744,6 +18111,8 @@ export const getV1ServicingAdminStatusScanCreateResponseMock = (overrideResponse
 export const getV1ServicingAdminWriteOffsCreateResponseMock = (overrideResponse: Partial<Extract<LoanWriteOffRecordResponse, object>> = {}): LoanWriteOffRecordResponse => ({write_off_event: {id: faker.string.uuid(), loan_id: faker.string.uuid(), borrower_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), written_off_principal_minor: faker.number.int(), written_off_contractual_interest_minor: faker.number.int(), written_off_default_interest_minor: faker.number.int(), written_off_fees_minor: faker.number.int(), written_off_penalties_minor: faker.number.int(), total_written_off_minor: faker.number.int(), previous_loan_status: faker.string.alpha({length: {min: 10, max: 20}}), new_loan_status: faker.string.alpha({length: {min: 10, max: 20}}), reason: faker.string.alpha({length: {min: 10, max: 20}}), notes: faker.string.alpha({length: {min: 10, max: 20}}), evidence_reference: faker.string.alpha({length: {min: 10, max: 20}}), written_off_at: faker.date.past().toISOString().slice(0, 19) + 'Z', created_by_admin_id: faker.string.uuid(), metadata: {}, idempotency_key: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z'}, loss_recognition_lines: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), write_off_event_id: faker.string.uuid(), holding_id: faker.string.uuid(), investor_user_id: faker.string.uuid(), currency: faker.string.alpha({length: {min: 10, max: 20}}), principal_loss_minor: faker.number.int(), contractual_interest_loss_minor: faker.number.int(), default_interest_loss_minor: faker.number.int(), fees_loss_minor: faker.number.int(), penalties_loss_minor: faker.number.int(), total_loss_minor: faker.number.int(), current_principal_before_minor: faker.number.int(), current_principal_after_minor: faker.number.int(), metadata: {}, occurred_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), ...overrideResponse})
 
 export const getV1ServicingLoanRiskNotesListResponseMock = (): PublicLoanRiskNote[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), loan_id: faker.string.uuid(), visibility: faker.string.alpha({length: {min: 10, max: 20}}), note_type: faker.string.alpha({length: {min: 10, max: 20}}), title: faker.string.alpha({length: {min: 10, max: 20}}), body: faker.string.alpha({length: {min: 10, max: 20}}), occurred_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})))
+
+export const getV1StoryImagesRetrieveResponseMock = (): ArrayBuffer => (new ArrayBuffer(faker.number.int({ min: 1, max: 64 })))
 
 
 export const getV1AdminOpsAuditEventsListMockHandler = (overrideResponse?: AuditEvent[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AuditEvent[]> | AuditEvent[]), options?: RequestHandlerOptions) => {
@@ -17998,6 +18367,18 @@ export const getV1AdminOpsUsersReadonlyImpersonationCreateMockHandler = (overrid
   }, options)
 }
 
+export const getV1AdminStoryImagesCreateMockHandler = (overrideResponse?: StoryImage | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<StoryImage> | StoryImage), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/admin/story-images/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1AdminStoryImagesCreateResponseMock(),
+      { status: 201
+      })
+  }, options)
+}
+
 export const getV1AuthAdminLoginConfirmCreateMockHandler = (overrideResponse?: AuthenticatedUserResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AuthenticatedUserResponse> | AuthenticatedUserResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/auth/admin/login/confirm/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
 
@@ -18078,7 +18459,7 @@ export const getV1AuthMagicLinkRequestCreateMockHandler = (overrideResponse?: vo
   }, options)
 }
 
-export const getV1AuthMeRetrieveMockHandler = (overrideResponse?: AuthenticatedUserResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AuthenticatedUserResponse> | AuthenticatedUserResponse), options?: RequestHandlerOptions) => {
+export const getV1AuthMeRetrieveMockHandler = (overrideResponse?: CurrentUserResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<CurrentUserResponse> | CurrentUserResponse), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/auth/me/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
 
 
@@ -19326,13 +19707,25 @@ export const getV1QaDevModeEnableCreateMockHandler = (overrideResponse?: QaDevMo
   }, options)
 }
 
-export const getV1QaDevModeRevertCreateMockHandler = (overrideResponse?: QaDevModeState | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<QaDevModeState> | QaDevModeState), options?: RequestHandlerOptions) => {
+export const getV1QaDevModeRevertCreateMockHandler = (overrideResponse?: QaDevModeRestoreResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<QaDevModeRestoreResponse> | QaDevModeRestoreResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/qa/dev-mode/revert/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
 
 
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getV1QaDevModeRevertCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getV1QaDevModeSnapshotCreateMockHandler = (overrideResponse?: QaDevModeState | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<QaDevModeState> | QaDevModeState), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/qa/dev-mode/snapshot/', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1QaDevModeSnapshotCreateResponseMock(),
       { status: 200
       })
   }, options)
@@ -19445,6 +19838,22 @@ export const getV1ServicingLoanRiskNotesListMockHandler = (overrideResponse?: Pu
       })
   }, options)
 }
+
+export const getV1StoryImagesRetrieveMockHandler = (overrideResponse?: ArrayBuffer | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<ArrayBuffer> | ArrayBuffer), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/story-images/:imageId/', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+  const binaryBody = overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getV1StoryImagesRetrieveResponseMock();
+    return HttpResponse.arrayBuffer(
+      binaryBody instanceof ArrayBuffer
+        ? binaryBody
+        : new ArrayBuffer(0),
+      { status: 200,
+        headers: { 'Content-Type': 'image/jpeg' }
+      })
+  }, options)
+}
 export const getBanxumApiMock = () => [
   getV1AdminOpsAuditEventsListMockHandler(),
   getV1AdminOpsDashboardRetrieveMockHandler(),
@@ -19467,6 +19876,7 @@ export const getBanxumApiMock = () => [
   getV1AdminOpsUsersDocumentsRetrieveMockHandler(),
   getV1AdminOpsUsersDocumentsArtifactCreateMockHandler(),
   getV1AdminOpsUsersReadonlyImpersonationCreateMockHandler(),
+  getV1AdminStoryImagesCreateMockHandler(),
   getV1AuthAdminLoginConfirmCreateMockHandler(),
   getV1AuthAdminLoginStartCreateMockHandler(),
   getV1AuthAdminUsersCreateMockHandler(),
@@ -19579,6 +19989,7 @@ export const getBanxumApiMock = () => [
   getV1QaDevModeAdvanceCreateMockHandler(),
   getV1QaDevModeEnableCreateMockHandler(),
   getV1QaDevModeRevertCreateMockHandler(),
+  getV1QaDevModeSnapshotCreateMockHandler(),
   getV1ReportingAdminReportsCreateMockHandler(),
   getV1ServicingAdminBorrowerRepaymentsCreateMockHandler(),
   getV1ServicingAdminBorrowerRepaymentsAdvancePreviewCreateMockHandler(),
@@ -19587,5 +19998,6 @@ export const getBanxumApiMock = () => [
   getV1ServicingAdminRiskNotesCreateMockHandler(),
   getV1ServicingAdminStatusScanCreateMockHandler(),
   getV1ServicingAdminWriteOffsCreateMockHandler(),
-  getV1ServicingLoanRiskNotesListMockHandler()
+  getV1ServicingLoanRiskNotesListMockHandler(),
+  getV1StoryImagesRetrieveMockHandler()
 ]

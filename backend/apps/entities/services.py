@@ -17,10 +17,12 @@ from backend.apps.entities.models import (
     BorrowerKybStatus,
 )
 from backend.apps.platform_core.domain.access import actor_ref_for_user, is_admin_actor
+from backend.apps.platform_core.domain.story import StoryValidationError, validate_story
 from backend.apps.platform_core.models import StoredFile
 from backend.apps.platform_core.models.files import FileScanStatus
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import DomainEventCommand, record_domain_event
+from backend.apps.platform_core.services.story_images import story_image_exists
 
 
 class EntitiesError(ValueError):
@@ -50,6 +52,13 @@ FINANCIAL_FIELDS = frozenset(
         "profit_last_year_minor",
     }
 )
+
+
+def _clean_story(value: Any) -> dict[str, Any]:
+    try:
+        return validate_story(value, image_exists=story_image_exists)
+    except StoryValidationError as exc:
+        raise BorrowerValidationError(str(exc)) from exc
 
 
 def _actor_account_type(actor: Model) -> str:
@@ -208,6 +217,7 @@ class CreateBorrowerEntityCommand:
     liabilities_minor: int | None = None
     revenue_last_year_minor: int | None = None
     profit_last_year_minor: int | None = None
+    investor_story: dict[str, Any] | None = None
     note: str = ""
     evidence_summary: str = ""
 
@@ -247,6 +257,7 @@ class UpdateBorrowerEntityCommand:
     clear_liabilities: bool = False
     clear_revenue_last_year: bool = False
     clear_profit_last_year: bool = False
+    investor_story: dict[str, Any] | None = None
     note: str = ""
     evidence_summary: str = ""
 
@@ -303,6 +314,7 @@ def create_borrower_entity(command: CreateBorrowerEntityCommand) -> BorrowerEnti
         liabilities_minor=command.liabilities_minor,
         revenue_last_year_minor=command.revenue_last_year_minor,
         profit_last_year_minor=command.profit_last_year_minor,
+        investor_story=_clean_story(command.investor_story),
         created_by_admin_id=command.actor.pk,
     )
     metadata = _event_metadata_for_borrower(borrower)
@@ -467,6 +479,16 @@ def update_borrower_entity(command: UpdateBorrowerEntityCommand) -> BorrowerEnti
                     changes=changes,
                 )
 
+    if command.investor_story is not None:
+        new_story = _clean_story(command.investor_story)
+        if new_story != (borrower.investor_story or {}):
+            # Event log keeps a shape summary, not the full prose.
+            changes["investor_story"] = {
+                "previous": f"{len((borrower.investor_story or {}).get('blocks', []))} blocks",
+                "new": f"{len(new_story['blocks'])} blocks",
+            }
+            borrower.investor_story = new_story
+
     _validate_financials(
         {
             "financials_currency": borrower.financials_currency,
@@ -515,6 +537,7 @@ def update_borrower_entity(command: UpdateBorrowerEntityCommand) -> BorrowerEnti
             "liabilities_minor",
             "revenue_last_year_minor",
             "profit_last_year_minor",
+            "investor_story",
             "updated_by_admin_id",
             "updated_at",
         ]

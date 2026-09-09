@@ -64,6 +64,7 @@ import {
   useV1QaDevModeEnableCreate,
   useV1QaDevModeRetrieve,
   useV1QaDevModeRevertCreate,
+  useV1QaDevModeSnapshotCreate,
   useV1ReportingAdminReportsCreate,
   useV1ServicingAdminBorrowerRepaymentsAdvancePreviewCreate,
   useV1ServicingAdminBorrowerRepaymentsCreate,
@@ -144,6 +145,8 @@ import { isFixturePreview } from "../investorPortal/data";
 import { formatDate, formatDateTime, formatMoneyMinor, formatRateBps } from "../investorPortal/format";
 import { Banner, Button, Card, Chip, Empty, Field, Modal, Money, Tooltip, type Tone } from "../investorPortal/ui";
 import { adminFormDefaults } from "./adminFixtures";
+import { StoryEditor } from "./StoryEditor";
+import { emptyStory, type StoryDocument } from "../investorPortal/story";
 import {
   isWithdrawalQueueItem,
   useAuditEventsData,
@@ -1122,11 +1125,13 @@ function ActionFooter({
   mutation,
   previewMessage,
   successMessage,
+  disabled = false,
   submitLabel
 }: {
   mutation: MutationLike;
   previewMessage: string | null;
   successMessage?: string;
+  disabled?: boolean;
   submitLabel: string;
 }) {
   return (
@@ -1146,7 +1151,7 @@ function ActionFooter({
           {successMessage}
         </Banner>
       ) : null}
-      <Button disabled={mutation.isPending} type="submit" variant="primary">
+      <Button disabled={disabled || mutation.isPending} type="submit" variant="primary">
         {submitLabel}
       </Button>
     </div>
@@ -2828,6 +2833,8 @@ function LoanOriginatorForm({
   const [kybEvidence, setKybEvidence] = useState(originator?.kyb_evidence_reference ?? "");
   const [kybNotes, setKybNotes] = useState(originator?.kyb_aml_observations ?? "");
   const [riskNotes, setRiskNotes] = useState(originator?.risk_observations ?? "");
+  const [story, setStory] = useState<StoryDocument>(emptyStory);
+  const [storyReady, setStoryReady] = useState(true);
   const [status, setStatus] = useState<LoanOriginatorCreate["status"]>(originator?.status ?? "inactive");
   const [feeBps, setFeeBps] = useState(String(originator?.default_premium_fee_bps ?? 5000));
   const [preview, setPreview] = useState<string | null>(null);
@@ -2837,6 +2844,7 @@ function LoanOriginatorForm({
 
   function submit(event: FormEvent) {
     event.preventDefault();
+    if (!storyReady) return;
     const data: LoanOriginatorCreate = {
       legal_name: legalName,
       public_name: publicName,
@@ -2851,7 +2859,8 @@ function LoanOriginatorForm({
       kyb_aml_observations: kybNotes,
       risk_observations: riskNotes,
       status,
-      default_premium_fee_bps: intValue(feeBps, 5000)
+      default_premium_fee_bps: intValue(feeBps, 5000),
+      investor_story: story
     };
     if (isFixturePreview) {
       setPreview(`${publicName || legalName} would be ${originator ? "updated" : "created"}.`);
@@ -2886,7 +2895,14 @@ function LoanOriginatorForm({
       <TextAreaInput label="Contact information" onChange={setContactInfo} value={contactInfo} />
       <TextAreaInput hint="Internal only." label="KYB / AML observations" onChange={setKybNotes} value={kybNotes} />
       <TextAreaInput hint="Internal only." label="Risk observations" onChange={setRiskNotes} value={riskNotes} />
-      <ActionFooter mutation={mutation} previewMessage={preview} submitLabel={originator ? "Save Loan Originator" : "Create Loan Originator"} />
+      <StoryEditor
+        hint="Investor-facing. Shown on “Meet the originator” for every loan this originator lists: who they are, how they lend, track record. Never the end borrower's private data."
+        label="Originator story (shown to investors)"
+        onReadyChange={setStoryReady}
+        onChange={setStory}
+        value={originator?.investor_story}
+      />
+      <ActionFooter disabled={!storyReady} mutation={mutation} previewMessage={preview} submitLabel={originator ? "Save Loan Originator" : "Create Loan Originator"} />
     </form>
   );
 }
@@ -3429,6 +3445,8 @@ function BorrowerCreateForm({ onCreated }: { onCreated?: () => void }) {
   const [financialRisk, setFinancialRisk] = useState("");
   const [financialsCurrency, setFinancialsCurrency] = useState("CHF");
   const [assets, setAssets] = useState("");
+  const [story, setStory] = useState<StoryDocument>(emptyStory);
+  const [storyReady, setStoryReady] = useState(true);
   const [note, setNote] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | undefined>();
@@ -3443,6 +3461,7 @@ function BorrowerCreateForm({ onCreated }: { onCreated?: () => void }) {
 
   function submit(event: FormEvent) {
     event.preventDefault();
+    if (!storyReady) return;
     const data: BorrowerEntityCreateRequest = {
       legal_name: legalName,
       year_founded: intValue(yearFounded, 2000),
@@ -3462,6 +3481,7 @@ function BorrowerCreateForm({ onCreated }: { onCreated?: () => void }) {
       financial_risk: financialRisk,
       financials_currency: financialsCurrency,
       assets_minor: assets ? intValue(assets) : null,
+      investor_story: story,
       note
     };
     if (isFixturePreview) {
@@ -3504,8 +3524,15 @@ function BorrowerCreateForm({ onCreated }: { onCreated?: () => void }) {
         <TextAreaInput hint="Internal only. Plain notes are stored under bank_account_details.notes; JSON objects are accepted for structured details." label="Bank accounts" onChange={setBankAccounts} value={bankAccounts} />
         <TextAreaInput hint="Internal only." label="KYB/AML observations" onChange={setKybAmlObservations} value={kybAmlObservations} />
         <TextAreaInput hint="Internal only." label="Financial risk" onChange={setFinancialRisk} value={financialRisk} />
+        <StoryEditor
+          hint="Investor-facing. Shown on “Meet the borrower” for every loan of this borrower. Write it like an article: who they are, what they do, why they borrow."
+          label="Borrower story (shown to investors)"
+          onChange={setStory}
+          value={undefined}
+          onReadyChange={setStoryReady}
+        />
         <TextAreaInput label="Admin note" onChange={setNote} value={note} />
-        <ActionFooter mutation={mutation} previewMessage={preview} successMessage={success} submitLabel="Create borrower" />
+        <ActionFooter disabled={!storyReady} mutation={mutation} previewMessage={preview} successMessage={success} submitLabel="Create borrower" />
       </form>
     </div>
   );
@@ -3534,6 +3561,8 @@ function BorrowerEditForm({ borrower, onSaved }: { borrower: BorrowerEntity; onS
   const [liabilities, setLiabilities] = useState(borrower.liabilities_minor === null ? "" : String(borrower.liabilities_minor));
   const [revenue, setRevenue] = useState(borrower.revenue_last_year_minor === null ? "" : String(borrower.revenue_last_year_minor));
   const [profit, setProfit] = useState(borrower.profit_last_year_minor === null ? "" : String(borrower.profit_last_year_minor));
+  const [story, setStory] = useState<StoryDocument>(emptyStory);
+  const [storyReady, setStoryReady] = useState(true);
   const [note, setNote] = useState("");
   const [evidenceSummary, setEvidenceSummary] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
@@ -3549,6 +3578,7 @@ function BorrowerEditForm({ borrower, onSaved }: { borrower: BorrowerEntity; onS
 
   function submit(event: FormEvent) {
     event.preventDefault();
+    if (!storyReady) return;
     const data: PatchedBorrowerEntityUpdateRequest = {
       legal_name: legalName,
       year_founded: intValue(yearFounded, borrower.year_founded),
@@ -3576,6 +3606,7 @@ function BorrowerEditForm({ borrower, onSaved }: { borrower: BorrowerEntity; onS
       clear_liabilities: !liabilities,
       clear_revenue_last_year: !revenue,
       clear_profit_last_year: !profit,
+      investor_story: story,
       note,
       evidence_summary: evidenceSummary
     };
@@ -3626,13 +3657,20 @@ function BorrowerEditForm({ borrower, onSaved }: { borrower: BorrowerEntity; onS
         <TextAreaInput hint="Internal only. Plain notes are stored under bank_account_details.notes; JSON objects are accepted for structured details." label="Bank accounts" onChange={setBankAccounts} value={bankAccounts} />
         <TextAreaInput hint="Internal only." label="KYB/AML observations" onChange={setKybAmlObservations} value={kybAmlObservations} />
         <TextAreaInput hint="Internal only." label="Financial risk" onChange={setFinancialRisk} value={financialRisk} />
+        <StoryEditor
+          hint="Investor-facing. Shown on “Meet the borrower” for every loan of this borrower. Write it like an article: who they are, what they do, why they borrow."
+          label="Borrower story (shown to investors)"
+          onChange={setStory}
+          value={borrower.investor_story}
+          onReadyChange={setStoryReady}
+        />
         <label className="check-row">
           <input checked={complianceHold} onChange={(event) => setComplianceHold(event.target.checked)} type="checkbox" />
           Compliance hold is active.
         </label>
         <TextAreaInput label="Admin note" onChange={setNote} value={note} />
         <TextAreaInput label="Evidence summary" onChange={setEvidenceSummary} value={evidenceSummary} />
-        <ActionFooter mutation={mutation} previewMessage={preview} successMessage={success} submitLabel="Save borrower changes" />
+        <ActionFooter disabled={!storyReady} mutation={mutation} previewMessage={preview} successMessage={success} submitLabel="Save borrower changes" />
       </form>
     </div>
   );
@@ -6107,6 +6145,9 @@ const qaDevModePreviewState: QaDevModeState = {
   entered_by_user_id: null,
   snapshot_created_at: null,
   has_snapshot: false,
+  has_seed: true,
+  seed_created_at: new Date().toISOString(),
+  default_restore_target: "seed",
   note: "",
   last_advanced_at: null,
   last_advance_summary: {},
@@ -6128,7 +6169,7 @@ function qaFailedCount(state: QaDevModeState | undefined) {
   return typeof failed === "number" ? failed : 0;
 }
 
-export function QaDevModePanel() {
+export function QaDevModePanel({ onRestored }: { onRestored: (target: "seed" | "snapshot") => void }) {
   const [note, setNote] = useState("QA session");
   const [days, setDays] = useState("1");
   const [confirmation, setConfirmation] = useState("");
@@ -6144,9 +6185,11 @@ export function QaDevModePanel() {
   const enable = useV1QaDevModeEnableCreate();
   const advance = useV1QaDevModeAdvanceCreate();
   const revert = useV1QaDevModeRevertCreate();
+  const snapshot = useV1QaDevModeSnapshotCreate();
   const state = stateQuery.data ?? qaDevModePreviewState;
   const failedCount = qaFailedCount(state);
   const batches = qaSummaryBatches(state);
+  const busy = stateQuery.isFetching || enable.isPending || advance.isPending || revert.isPending || snapshot.isPending;
 
   function refresh() {
     refetchLive(stateQuery.refetch);
@@ -6185,26 +6228,41 @@ export function QaDevModePanel() {
     );
   }
 
-  function revertMode() {
+  function saveSnapshot() {
     if (isFixturePreview) {
-      setNotice("Preview mode: revert would restore the entry database snapshot and sign the operator out.");
+      setNotice("Preview mode: a manual snapshot would be saved without replacing the seed.");
+      return;
+    }
+    snapshot.mutate(undefined, { onSuccess: () => {
+      setNotice("Snapshot saved. The seed baseline is unchanged.");
+      refresh();
+    }});
+  }
+
+  function revertMode(target: "seed" | "snapshot") {
+    if (isFixturePreview) {
+      setNotice(`Preview mode: the saved ${target} and its clock would be restored.`);
       return;
     }
     revert.mutate(
-      { data: { confirmation } },
+      { data: { confirmation, target } },
       {
-        onSuccess: () => {
-          setNotice("Database revert was requested and completed. Sign in again if your session is reset.");
-          setConfirmation("");
-          refresh();
-        }
+        onSuccess: (result) => onRestored(result.restored_target)
       }
     );
   }
 
+  if (!isFixturePreview && stateQuery.error) {
+    return <Banner tone="bad" title="Could not load QA mode">{errorMessage(stateQuery.error)}
+      <Button onClick={refresh}>Try again</Button>
+    </Banner>;
+  }
+  if (!isFixturePreview && !stateQuery.data) return <Empty icon="clock" title="Loading QA controls">Checking this environment.</Empty>;
+  if (!state.allowed) return null;
+
   return (
     <div className="admin-content">
-      <PreviewNotice>QA mode is dummy-only in preview. Live mode requires QA_DEV_MODE_ALLOWED and an active superadmin session.</PreviewNotice>
+      <PreviewNotice>QA mode is dummy-only in preview. QA deployments require an active admin session.</PreviewNotice>
       <section className="admin-section">
         <Card padded>
           <SectionHeader
@@ -6247,7 +6305,11 @@ export function QaDevModePanel() {
             </div>
             <div className="admin-review-row">
               <span>Snapshot</span>
-              <strong>{state.has_snapshot ? "Captured" : "-"}</strong>
+              <strong>{state.snapshot_created_at ? formatDateTime(state.snapshot_created_at) : "No manual snapshot"}</strong>
+            </div>
+            <div className="admin-review-row">
+              <span>Seed baseline</span>
+              <strong>{state.seed_created_at ? formatDateTime(state.seed_created_at) : "Not configured"}</strong>
             </div>
             <div className="admin-review-row">
               <span>Max advance</span>
@@ -6278,7 +6340,7 @@ export function QaDevModePanel() {
               { label: "Environment", value: state.environment },
               { label: "Snapshot", value: "Captured before enabling" }
             ]}
-            disabled={!state.allowed || state.is_enabled || enable.isPending}
+            disabled={!state.allowed || state.is_enabled || busy}
             onConfirm={enableMode}
             title="Enable QA development mode"
             variant="danger"
@@ -6309,7 +6371,7 @@ export function QaDevModePanel() {
               { label: "Current simulated time", value: state.current_time ? formatDateTime(state.current_time) : "-" },
               { label: "Days", value: days || "0" }
             ]}
-            disabled={!state.allowed || !state.is_enabled || advance.isPending}
+            disabled={!state.allowed || !state.is_enabled || busy}
             onConfirm={advanceTime}
             title="Advance QA time"
             variant="danger"
@@ -6320,33 +6382,42 @@ export function QaDevModePanel() {
 
         <Card padded>
           <SectionHeader
-            description="Restores the saved database snapshot. A seeded regression baseline also restores the seed clock and stays available for repeated resets; an ordinary entry snapshot exits QA mode."
-            title="Revert database"
+            description="Save a test checkpoint without changing the original seed. Both restore points remain available after a restore."
+            title="Snapshots and restore"
           />
+          {snapshot.error ? <Banner tone="bad" title="Could not save snapshot">{errorMessage(snapshot.error)}</Banner> : null}
+          <OperationConfirmButton
+            confirmLabel="Create snapshot"
+            description="Replace the manual checkpoint with the current database and QA clock. The seed is not changed."
+            details={[{ label: "Current simulated time", value: state.current_time ? formatDateTime(state.current_time) : "-" }]}
+            disabled={!state.is_enabled || busy}
+            onConfirm={saveSnapshot}
+            title="Create QA snapshot"
+          >Create snapshot</OperationConfirmButton>
           <Banner tone="bad" title="Destructive QA reset">
-            This removes changes made after the saved snapshot, including test investments and payments. A seeded regression snapshot restores the initial accounts, balances and loan catalogue. Expect to sign in again.
+            Restore removes database changes after the chosen point. Sent emails and uploaded files cannot be undone. You may need to sign in again if your account changed.
           </Banner>
+          {!state.has_snapshot && state.has_seed ? <p className="muted">No manual snapshot exists. The seed is the default restore point.</p> : null}
           <Field hint='Type "REVERT QA DB" exactly.' label="Confirmation">
             <input
+              aria-label="Confirmation"
               onChange={(event) => setConfirmation(event.target.value)}
               value={confirmation}
             />
           </Field>
           {revert.error ? <Banner tone="bad" title="Could not revert QA mode">{errorMessage(revert.error)}</Banner> : null}
-          <OperationConfirmButton
-            confirmLabel="Restore snapshot"
-            description="This reverts the database snapshot captured when QA mode was enabled. File/object storage is not rolled back."
-            details={[
-              { label: "Snapshot", value: state.has_snapshot ? "Captured" : "Missing" },
-              { label: "Confirmation", value: confirmation || "-" }
-            ]}
-            disabled={!state.allowed || !state.is_enabled || confirmation !== "REVERT QA DB" || revert.isPending}
-            onConfirm={revertMode}
-            title="Revert QA database"
-            variant="danger"
-          >
-            Revert database
-          </OperationConfirmButton>
+          <div className="row gap-8 wrap">
+            {(["snapshot", "seed"] as const).map((target) => <OperationConfirmButton
+              key={target}
+              confirmLabel={`Restore ${target}`}
+              description={target === "seed" ? "Return to the original seeded accounts, balances, loans and clock." : "Return to the most recently saved manual checkpoint and its clock."}
+              details={[{ label: "Restore point", value: target }, { label: "Confirmation", value: confirmation || "-" }]}
+              disabled={!(target === "seed" ? state.has_seed : state.has_snapshot) || confirmation !== "REVERT QA DB" || busy}
+              onConfirm={() => revertMode(target)}
+              title={`Restore QA ${target}`}
+              variant="danger"
+            >Restore {target}</OperationConfirmButton>)}
+          </div>
         </Card>
       </section>
 

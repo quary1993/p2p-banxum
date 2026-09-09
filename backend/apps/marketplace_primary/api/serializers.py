@@ -70,6 +70,24 @@ class MarketplaceOriginalLoanScheduleRowSerializer(serializers.Serializer[Any]):
     paid_before_publication = serializers.BooleanField()
 
 
+class MarketplaceLoanScheduleRowSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField(required=False)
+    installment_number = serializers.IntegerField()
+    due_date = serializers.DateField()
+    principal_minor = serializers.IntegerField()
+    interest_minor = serializers.IntegerField()
+    total_minor = serializers.IntegerField()
+    outstanding_after_minor = serializers.IntegerField()
+    status = serializers.CharField(required=False)
+    row_type = serializers.CharField(required=False)
+    label = serializers.CharField(required=False)  # type: ignore[assignment]
+    payment_date = serializers.DateField(allow_null=True, required=False)
+    paid_principal_minor = serializers.IntegerField(required=False)
+    paid_interest_minor = serializers.IntegerField(required=False)
+    outstanding_principal_minor = serializers.IntegerField(required=False)
+    outstanding_interest_minor = serializers.IntegerField(required=False)
+
+
 class MarketplaceOriginatorScheduleRowSerializer(serializers.Serializer[Any]):
     installment_number = serializers.IntegerField()
     accrual_start_date = serializers.DateField()
@@ -95,10 +113,16 @@ class MarketplaceOriginatorPaymentRowSerializer(serializers.Serializer[Any]):
     resulting_principal_minor = serializers.IntegerField()
 
 
+class StoryDocumentSerializer(serializers.Serializer[Any]):
+    version = serializers.IntegerField()
+    blocks = serializers.ListField(child=serializers.DictField())
+
+
 class MarketplaceLoanDetailSerializer(MarketplaceLoanPreviewSerializer):
     default_penalty_interest_bps = serializers.IntegerField(required=False, default=0)
     borrower_id = serializers.UUIDField(allow_null=True)
     borrower_disclosure = serializers.DictField()
+    story = StoryDocumentSerializer(required=False)
     investor_summary = serializers.CharField()
     purpose_description = serializers.CharField()
     collateral_value_minor = serializers.IntegerField()
@@ -118,6 +142,7 @@ class MarketplaceLoanDetailSerializer(MarketplaceLoanPreviewSerializer):
     loan_start_date = serializers.DateField()
     first_payment_date = serializers.DateField(allow_null=True)
     schedule_version = serializers.IntegerField()
+    loan_schedule = MarketplaceLoanScheduleRowSerializer(many=True, required=False)
     originator_schedule = MarketplaceOriginatorScheduleRowSerializer(many=True, required=False)
     originator_payment_history = MarketplaceOriginatorPaymentRowSerializer(
         many=True, required=False

@@ -2,13 +2,13 @@
 
 Test the website as an investor and as an administrator. Follow the actions below and check the result after each story. Start with successful flows, then test more complicated situations, and finish with mistakes, limits and failures.
 
-Reference release: f185460. Prepared 9 September 2026. Use the current deployed version in the run record. This is a test procedure, not a report of tests already passed.
+Updated 9 September 2026 for the regression seed, admin QA controls and borrower/originator story pages. Record the current deployed release before testing. This is a test procedure, not a report of tests already passed.
 
 ## Before you start
 
 ### Use a safe test environment
 
-Use staging or a dedicated local test environment. Do not declare invented deposits, repayments or bank transfers in a real-money environment. The production QA reset is a separate, explicitly approved maintenance operation, not part of this regression run.
+Use staging or a dedicated local test environment. Do not declare invented deposits, repayments or bank transfers in a real-money environment. Production has no QA controls and must not be reset as part of this regression run.
 
 Confirm with the environment owner that the accounts, balances, borrowers, documents and bank evidence are test data. Check whether email, SMS and identity verification use test providers or real providers. QA mode changes time; it does not by itself guarantee that external messages or provider calls are disabled. Only send to mailboxes and phone numbers controlled by the tester.
 
@@ -47,11 +47,11 @@ The supplied dates start on 2026-09-09. For another start date, ask the environm
 python3 QA/prepare_resources.py --start-date 2026-10-01 --output /tmp/banxum-qa-2026-10-01
 ```
 
-This only creates local CSVs. It does not contact the website or reset any data. Use the new RUN-DATES.md and map instead of the old resource folder. Use the QA clock date in Europe/Zurich, not the computer's local date. Do not change the device clock. Where a story says advance to a date, this is an environment-owner prerequisite, not a superadmin action for the tester. Pause that story until the owner confirms the date and jobs are ready.
+This only creates local CSVs. It does not contact the website or reset any data. Use the new RUN-DATES.md and map instead of the old resource folder. Use the QA clock date in Europe/Zurich, not the computer's local date. Do not change the device clock. Where a story says advance to a date, Admin uses the staging **QA mode** page and waits for the scheduled jobs to finish. No superadmin account is needed.
 
 ### Starting data and how to repeat a test
 
-Use the manual regression seed on staging, not the generic demo reset. It creates ten unfunded direct loans and ten unfunded LO loans. The private account mapping identifies the tester's Admin and three investor aliases. Admin remains a regular admin. The environment owner handles clock changes and seed restores outside the tester's cases. Never use production for this baseline.
+Use the manual regression seed on staging, not the generic demo reset. It creates ten unfunded direct loans and ten unfunded LO loans. The private account mapping identifies the tester's Admin and three investor aliases. Admin remains a regular admin and can manage the staging QA clock, save snapshots and restore the seed. Production has no QA controls. Never use production for this baseline.
 
 | Account | Starting CHF | Starting EUR | Starting state |
 | --- | --- | --- | --- |
@@ -73,7 +73,7 @@ Create the two main loans before starting the timed stories:
 
 Create separate copies for competing-purchase, prepayment, late/default, partial-funding and invalid-import tests. Do not apply mutually exclusive payment branches to the same loan.
 
-The regression reset captures a repeatable seed snapshot automatically, before any manual test action. QA mode remains enabled at the seed clock date. Confirm its note says "Manual regression seed baseline" before starting. Finish access and setup stories S01 to S10, skipping the retired story IDs. Do not replace the seed snapshot after creating orders or receiving money.
+The regression reset captures a repeatable seed automatically, before any manual test action. QA mode remains enabled at the seed clock date. Confirm its note says "Manual regression seed baseline" before starting. Finish access and setup stories S01 to S10, skipping the retired story IDs. **Create snapshot** is optional and saves a later checkpoint without replacing this seed. Always choose **Restore seed** for a clean branch; use **Restore snapshot** only when deliberately resuming the saved checkpoint.
 
 Use this execution order so the date never needs to move backward:
 
@@ -81,15 +81,15 @@ Use this execution order so the date never needs to move backward:
 2. Separate resale branch: restore the seed snapshot. Recreate the main loans using S09 and S10 and any deposit/IBAN prerequisites, repeat the needed funding/disbursement and LO boundary steps, then run S28 to S30. Repeat S31 document checks for those sales. Do not reuse an already-repaid main loan.
 3. Complex and edge cases: restore the seed before each independent branch and sign in again. QA mode and its original seed clock stay enabled; do not capture a fresh snapshot. Create that branch's loans before advancing time and repeat only its prerequisites.
 
-For a standalone seeded-loan close, restore first. User 1 funds a direct loan's full remaining amount; the owner prepares the date after that loan's inclusive deadline and Admin verifies the automatic close before recording disbursement. In a separate restored branch, User 2 buys an LO loan's full AVAILABLE principal, not the original face principal; verify immediate close and the later boundary payment. Restore again before partial-funding or insufficient-funds tests. A large wallet must not accidentally turn a partial-funding case into a fully funded case: enter the amounts specified in that story, not Maximum.
+For a standalone seeded-loan close, restore first. User 1 funds a direct loan's full remaining amount; Admin advances to the date after that loan's inclusive deadline and verifies the automatic close before recording disbursement. In a separate restored branch, User 2 buys an LO loan's full AVAILABLE principal, not the original face principal; verify immediate close and the later boundary payment. Restore again before partial-funding or insufficient-funds tests. A large wallet must not accidentally turn a partial-funding case into a fully funded case: enter the amounts specified in that story, not Maximum.
 
 Some complex stories require a SMALLER wallet, old sources, or several specific lots (especially C06 to C10 and the insufficient-funds cases). Use empty User 3 for those money-source steps instead of a funded User 1, recording the role substitution. Admin adds only the story's required amounts. Ask the environment owner for aged-source fixtures where stated. Never change or delete journal rows by hand to reduce a seeded balance.
 
-To reset: save evidence and ask the environment owner to restore the seed. No superadmin login is required from the tester. Sign in again after the owner confirms completion. Check User 1 and User 2 have exactly five million of each currency, User 3 has zero, the catalogue has 10 direct and 10 LO unfunded opportunities, and test-created loans and transactions have gone. Perform the same checks after a second restore. The regular Admin account cannot restore the database.
+To reset: save evidence, then Admin opens **QA mode**, enters **REVERT QA DB** and clicks **Restore seed**. Coordinate with all testers first. Without a manually created snapshot, seed is the default and **Restore snapshot** is disabled. Wait for the completion message. The restoring admin normally stays signed in; all investors and other admin sessions must sign in again. If restored credentials or permissions differ, Admin must also sign in again. Check User 1 and User 2 have exactly five million of each currency, User 3 has zero, the catalogue has 10 direct and 10 LO unfunded opportunities, and test-created loans and transactions have gone. Perform the same checks after a second seed restore.
 
-Save screenshots and results outside the database before restoring. Never assume a restored mutation still exists. Repeatable seed restores also reset the QA clock to its original date, so reuse the matching resource pack even if the real calendar moved. If the owner creates a NEW seed or applies database migrations, create a new matching resource pack and baseline; old snapshots cannot be restored across schema changes.
+Save screenshots and results outside the database before restoring. Never assume a restored mutation still exists. Seed restores also reset the QA clock to its original date, so reuse the matching resource pack even if the real calendar moved. If the owner creates a NEW seed, use a matching resource pack. Database migrations require the owner to upgrade the saved baseline safely or explicitly replace it; old snapshots cannot simply be forced across schema changes.
 
-Revert restores the database, not emails already sent, bank movements or file/object storage. It can restore accounts and sessions to their earlier state. Coordinate with other testers because the QA clock and restore affect the whole environment.
+Restore returns database records and account state, not emails already sent, bank movements or file/object storage. It does not revive old sessions. Coordinate with other testers because the QA clock and restore affect the whole environment.
 
 ### Simple rules to check throughout
 
@@ -162,7 +162,8 @@ Expected: instructions say to put the reference in bank payment details and expl
 
 1. Admin opens Loans and creates a borrower named QA Direct Borrower. Fill business classification, registered address and contact information; choose which are public.
 2. Fill ownership, bank account notes, KYB/AML observations and financial risk with clearly marked private test text. Add optional financial fields where available.
-3. Save and reopen the borrower. Later compare the investor detail page after publishing S09.
+3. Write a borrower story with a heading, paragraphs, bold and italic text, and an HTTPS link. Add a small synthetic PNG or JPEG and a caption. Wait for its upload to finish before saving.
+4. Save and reopen the borrower. Later compare the investor detail page after publishing S09. Edit the link with Enter and with Apply link; neither action should accidentally submit the borrower form. Check the image, formatting and caption after reload.
 
 Expected: saved values survive reload. Only selected public fields are visible to investors. Internal notes stay internal. Missing optional data is hidden rather than shown as misleading zero values. Offline company checks do not require an in-platform KYC journey.
 
@@ -176,7 +177,7 @@ Expected: the draft is not public until publication. First payment is one month 
 
 ### S10 Create and publish the main LO loan
 
-1. Admin creates or selects an active test Loan Originator with its public name and approved external settlement details. No LO login or wallet is created.
+1. Admin creates or selects an active test Loan Originator with its public name and approved external settlement details. Write a clearly different originator story, including a synthetic image. No LO login or wallet is created.
 2. Create QA LO Main. Use resources/valid/lo-a-01-publish.csv and ALL form values from lo-import-map.csv. Use EUR and a clearly anonymized public final-borrower name; keep legal identity private.
 3. Review imported schedule, boundary date, EUR 8,000 post-boundary principal, 70% interest participation, 50% penalty participation and 10% retention. Publish.
 
@@ -184,11 +185,14 @@ Expected: EUR 7,200 is available to investors. Admin shows 12.00% loan interest 
 
 ### S11 Browse loan details and projections
 
-1. User 1 opens both main loans from Investment Opportunities, then follows the full detail link.
-2. Inspect rates, minimum order, funding progress, collateral/LTV, term, repayment type, risk, borrower information and available documents. Change the proposed investment amount where allowed.
-3. Open schedules and total rows wherever offered. Compare them with Admin's loan schedule.
+1. User 1 opens both main loans from Investment Opportunities. Open Meet the borrower for the direct loan and The full credit file for the LO loan. Compare their story text, formatting, links and images with S08 and S10. The LO page must show the originator story, not the confidential final borrower's story or internal data.
+2. Inspect rates, minimum order, funding progress, collateral/LTV, term, repayment type, risk, selected-public borrower information and available documents. Open the investment schedule calculator, enter a valid amount and compare its principal and interest totals. Try a second amount and both currencies on separate loans.
+3. Open Loan schedule & payments. Compare the full schedule and bold total rows with Admin's schedule. Return after a repayment or prepayment later in the run: past payments must remain visible alongside the remaining schedule.
+4. Use Invest now from both the story and schedule pages, check the correct loan, then cancel without placing a duplicate order. Reload each page directly and repeat at phone width. Check a borrower with no story also has a clean layout.
 
 Expected: correct loan name throughout. Investor projections follow the amount and currency selected, while a full-loan schedule remains clearly labelled as the whole loan. Running outstanding balances are not added together in a totals row. No promised automatic reinvestment or guaranteed returns.
+
+For an image-error branch, Admin tries a file over 25 MB and a renamed non-image file. The upload must fail clearly. Valid images are compressed to at most 1 MB when stored. A failed or still-uploading image must not silently disappear when saving; fix or remove it first. A signed-out browser must not fetch a protected story image by its URL.
 
 ### S12 Filter and sort investment opportunities
 
@@ -280,7 +284,7 @@ Expected: owner, currency, amount, status and due date are consistent. Completed
 
 ### S23 Resolve direct funding and disburse
 
-1. Prerequisite: ask the environment owner to prepare the direct resolution date in RUN-DATES.md, after the final subscription date. Admin then checks the resulting loan state.
+1. Admin advances the QA clock to the direct resolution date in RUN-DATES.md, after the final subscription date, waits for the jobs, then checks the resulting loan state.
 2. Admin checks QA Direct Main: it is Funded and awaits disbursement. Open Manage, Borrower disbursement; review payout and fee and enter the collection account and bank evidence.
 3. Finalize the synthetic disbursement. Users 1 and 2 reopen their holdings.
 
@@ -361,7 +365,7 @@ Expected: read status persists only for that user. Marketing is optional; transa
 ### S33 Generate admin reports and review audit evidence
 
 1. Admin opens Reports. Generate supported CSV, PDF and ZIP outputs for a period containing the tested deposits, investments, disbursement, LO payments, FX and withdrawals.
-2. Compare redacted and full modes, inspect dates, currencies, loan/product identifiers, originator payable and bank reconciliation figures. Open every produced file.
+2. Use Redacted mode and report types allowed for regular admins. Inspect dates, currencies, loan/product identifiers, originator payable and bank reconciliation figures. Open every produced file. Full mode and superadmin-only report types are outside this run.
 3. In the audit list find one investor action and one admin action by copied reference and time.
 
 Expected: exported totals reconcile to the tested operations, not displayed market values. Redacted output does not disclose full private identity. Actor attribution is correct. A generated file has the advertised format and non-empty meaningful content. Unsupported type/format combinations give a clear error, not a corrupt file.
@@ -751,12 +755,12 @@ Expected: no missing cents, negative outstanding or summed running-balance total
 
 1. Check that every story has a recorded result and that failed/blocked items have evidence and an owner. Do not sign off a money mismatch, unauthorized data exposure or failed authentication path.
 2. Save the results, files generated by the website and screenshots outside the database. Use only synthetic data in anything shared with development.
-3. Ask the environment owner to restore the staging seed snapshot, verify the seed date and starting balances, and check that no test job is still running. The regression baseline intentionally keeps QA mode enabled for the next run. Coordinate provider settings and the end of the QA campaign with the environment owner. Do not delete real records or send real transfers as cleanup.
+3. Admin uses **Restore seed** on staging, verifies the seed date and starting balances, and checks that no test job is still running. The regression baseline intentionally keeps QA mode enabled for the next run. Coordinate provider settings and the end of the QA campaign with the environment owner. Do not delete real records or send real transfers as cleanup.
 4. Record the release actually tested, dates, browser/resolution coverage, unresolved issues and whether external email/SMS/Didit delivery was really observed or only simulated.
 
 ## Coverage and source notes
 
-The stories cover public browsing, investor/admin authentication, account controls, offline company setup, direct and LO origination, funding, Smart Invest, batch orders, balances, IBANs, withdrawals, FX, portfolio, schedules, secondary trading, servicing, recovery, accepted documents, reporting, notifications, admin work queues and permissions. Registration and superadmin tools are excluded. Time changes and seed restores are preparation handled by the environment owner.
+The stories cover public browsing, investor/admin authentication, account controls, offline company setup, direct and LO origination, funding, Smart Invest, batch orders, balances, IBANs, withdrawals, FX, portfolio, schedules, secondary trading, servicing, recovery, accepted documents, reporting, notifications, admin work queues and permissions. Registration and superadmin-only tools are excluded. The regular Admin handles staging time changes and seed restores as preparation for each branch.
 
 Some operational services are implemented without a complete admin UI. Those cases explicitly need an environment owner to prepare or execute the supported service; a manual tester should not be asked to invent a screen or edit the database. The current LO CSV penalty obligations are taken from validated contractual import evidence; they are not independently rebuilt from a separate LO penalty-rate policy. Validate the source evidence as well as the platform split.
 
