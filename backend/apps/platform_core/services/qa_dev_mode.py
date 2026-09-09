@@ -60,6 +60,7 @@ class QaDevModeValidationError(QaDevModeError):
 class EnableQaDevModeCommand:
     actor: models.Model
     note: str = ""
+    repeatable_seed_snapshot: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,8 +156,13 @@ def _create_database_snapshot(*, created_at: datetime) -> str:
     ) as tmp:
         tmp_path = Path(tmp.name)
     try:
+        serializers.register_serializer(
+            "qa_snapshot", "backend.apps.platform_core.services.qa_snapshot"
+        )
         call_command(
             "dumpdata",
+            format="qa_snapshot",
+            use_base_manager=True,
             exclude=["contenttypes", "auth.Permission", "sessions.Session"],
             indent=2,
             output=str(tmp_path),
@@ -318,7 +324,11 @@ def _enable_qa_dev_mode(command: EnableQaDevModeCommand) -> QaDevModeState:
         if state.is_enabled:
             _cache_current_time(state.current_time)
             return state
-        snapshot_path = _create_database_snapshot(created_at=real_now)
+        snapshot_path = (
+            str(_snapshot_dir() / _snapshot_filename(created_at=real_now))
+            if command.repeatable_seed_snapshot
+            else _create_database_snapshot(created_at=real_now)
+        )
         state.is_enabled = True
         state.entered_at = real_now
         state.entered_by_user_id = command.actor.pk
@@ -353,6 +363,10 @@ def _enable_qa_dev_mode(command: EnableQaDevModeCommand) -> QaDevModeState:
                 "note": state.note,
             },
         )
+        if command.repeatable_seed_snapshot:
+            # Include the enabled clock and its own snapshot pointer. Restoring this
+            # baseline can be repeated without capturing a later, already-used dataset.
+            _create_database_snapshot(created_at=real_now)
         return state
 
 

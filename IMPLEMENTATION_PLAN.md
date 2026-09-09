@@ -29,6 +29,8 @@ Resolved audits, completed work-item specs, boilerplate module READMEs, and temp
 
 ## 0.1 Implementation Status
 
+Manual regression baseline (2026-09-09): the opt-in staging/local reset profile uses a private mapping for one existing regular admin and three investors. Users 1 and 2 receive CHF/EUR 5,000,000 each, User 3 zero; other investors keep the generic reset default. It can explicitly create missing synthetic verified investors, but does not change existing roles/identity checks or invent document acceptance or payout IBANs. It captures the completed seed with QA enabled: repeated database reverts restore the same initial data and seed clock, not the state after manual setup. Generic QA snapshots still exit QA on restore. Production cannot use this profile. See `QA/Regression-Guide.md` and the deployment runbook. The tester's guide starts at this exact seed, excludes registration and superadmin-only cases, and treats clock/restore as environment-owner support.
+
 Implemented and committed:
 
 - 2026-09-09: Explicit offline QA dataset reset preserves accounts/roles/verification, agreements, configuration, investor activity projections and user/admin audit history while rebuilding operational financial data. It produces ten unfunded direct loans, ten unfunded LO v2 loans and CHF/EUR 500,000 per lender account only. A superadmin, transient maintenance-process opt-in, exact environment/site confirmation, stopped writers, validated private backups and transactional rollback are mandatory. Production execution is an explicit pre-launch QA exception, not a normal operational deletion path. See `docs/runbooks/server-deployment.md` for the repeatable maintenance command.

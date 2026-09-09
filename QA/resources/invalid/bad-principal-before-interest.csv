@@ -1,0 +1,6 @@
+row_type,reference,installment_number,accrual_start_date,due_date,value_date,payment_type,opening_principal_minor,principal_minor,interest_minor,penalty_minor,fee_minor,total_minor,closing_principal_minor,resulting_principal_minor
+schedule,,1,2026-08-19,2026-09-19,,,1000000,200000,10000,0,0,210000,800000,
+schedule,,2,2026-09-19,2026-10-19,,,800000,408000,0,0,0,408000,392000,
+schedule,,3,2026-10-19,2026-11-19,,,392000,392000,3920,0,0,395920,0,
+payment,QA-BOUNDARY-1,,,,2026-09-19,regular,,200000,10000,0,0,210000,,800000
+payment,QA-WRONG-WATERFALL,,,,2026-10-19,repayment_in_advance,,408000,0,0,0,408000,,392000

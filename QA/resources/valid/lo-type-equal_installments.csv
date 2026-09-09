@@ -1,0 +1,4 @@
+row_type,reference,installment_number,accrual_start_date,due_date,value_date,payment_type,opening_principal_minor,principal_minor,interest_minor,penalty_minor,fee_minor,total_minor,closing_principal_minor,resulting_principal_minor
+schedule,,1,2026-08-19,2026-09-19,,,1000000,330022,10000,0,0,340022,669978,
+schedule,,2,2026-09-19,2026-10-19,,,669978,333322,6699,0,0,340021,336656,
+schedule,,3,2026-10-19,2026-11-19,,,336656,336656,3367,0,0,340023,0,

@@ -421,6 +421,55 @@ to repeat it. Do not mistake the temporary templates for approved legal terms.
 
 ### Clean QA Rebuild Preserving Accounts And History
 
+#### Manual Regression Profile
+
+For the three-account regression guide in `QA/`, use the following opt-in profile on
+**staging only**. It preserves the generic reset safeguards and ten-direct/ten-LO
+catalogue, but gives User 1 and User 2 CHF/EUR 5,000,000 each and User 3 zero. Other
+investors retain the generic CHF/EUR 500,000 default. No admin receives a wallet.
+
+Create a private 0600 JSON file outside the release/Git with exactly four string keys:
+`admin`, `user1`, `user2`, `user3`, containing the controlled test email addresses.
+The named admin must already be an active regular admin; the execution actor is the
+separate existing superadmin. `--create-missing-investors` explicitly creates missing
+synthetic active, phone-verified, manually KYC-approved staging test investors with
+unusable passwords. These are labelled synthetic decisions, not provider verification.
+It does not fabricate legal acceptances, phone numbers, payout IBANs or send seed emails.
+Existing identities must already be suitable; their roles and checks are not overwritten.
+
+```bash
+python3 infra/deploy/reset_qa_environment.py --environment staging \
+  --regression-accounts /PRIVATE/PATH/regression-accounts.json \
+  --create-missing-investors
+
+python3 infra/deploy/reset_qa_environment.py --environment staging --execute \
+  --regression-accounts /PRIVATE/PATH/regression-accounts.json \
+  --create-missing-investors --actor-email "$SUPERADMIN_EMAIL" \
+  --run-id "$RESET_UUID" \
+  --confirm "RESET QA DATA staging https://staging.nxnarena.com"
+```
+
+`QA_DEV_MODE_ALLOWED` and durable `QA_DEV_MODE_SNAPSHOT_DIR` must already be configured.
+The reset automatically captures the completed seed inside its transaction, including
+the QA clock and its snapshot pointer. **Revert database** in QA development restores
+this exact seed and keeps QA enabled, so repeated resets use the SAME baseline and date.
+It does not capture a later test state or reseed with new dates/IDs. Sessions may be
+invalidated. Seed clock/ledger/calendar comparisons must match after two consecutive
+mutate/revert cycles. Files, sent emails, external providers and real transfers are not
+rewound. A schema change requires a NEW approved reset and matching dated CSV pack.
+Ordinary manually enabled QA snapshots still exit QA on restore.
+Snapshots preserve full timestamp precision. Normal email-dispatch cron runs and job
+runtime monitoring use real time, so frozen QA financial dates do not stop email retries.
+Explicit `--as-of` job runs still honor their supplied business date.
+
+The regular admin tester does not receive extra permissions. The environment owner
+performs clock advances/restores as support; registration and superadmin-only tests are
+excluded from the distributed regression cases. Completed UUID retries do not add money;
+reusing a UUID with a different account profile is rejected. Preserve the private pre-reset
+backups as a separate recovery route, not as the tester's clean seed snapshot.
+
+#### Generic Reset
+
 This separate, destructive operation is for explicitly approved pre-launch testing,
 including the current nxnarena production-labelled test deployment. Do not use after
 real-money launch. It is **not** the additive seed above or the QA clock rollback.

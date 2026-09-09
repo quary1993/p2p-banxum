@@ -1,0 +1,10 @@
+operation,actor,owner,currency,amount_minor,bank_reference,payment_reference,source_or_destination,dates,notes
+deposit,Admin,User 1,CHF,2500000,QA-U1-DEP-CHF,Use User 1 investor reference,Use approved synthetic checksum-valid IBAN,Use QA start date,Do not send real bank funds
+deposit,Admin,User 1,EUR,2500000,QA-U1-DEP-EUR,Use User 1 investor reference,Use approved synthetic checksum-valid IBAN,Use QA start date,Use EUR collection account
+deposit,Admin,User 2,CHF,2500000,QA-U2-DEP-CHF,Use User 2 investor reference,Use approved synthetic checksum-valid IBAN,Use QA start date,Only User 2 should be credited
+deposit,Admin,User 2,EUR,2500000,QA-U2-DEP-EUR,Use User 2 investor reference,Use approved synthetic checksum-valid IBAN,Use QA start date,Only User 2 should be credited
+withdrawal,User 1 and Admin,User 1,CHF,25000,QA-U1-WD-1,Use generated withdrawal reference,Use User 1 verified test IBAN,Use current QA date,Request then synthetic admin execution
+direct disbursement,Admin,QA Direct Main,CHF,980000,QA-DIRECT-DISB-1,QA-DIRECT-DISB-1,Approved synthetic borrower bank account,After automatic close,Example assumes configured fee 20000; payout plus fee equals 1000000
+LO boundary receipt,Admin,QA LO Main,EUR,210000,QA-LO-BANK-1,QA-BOUNDARY-1,Approved synthetic borrower bank account,Use lo_boundary in dates.json,All proceeds belong to LO
+LO next receipt,Admin,QA LO Main,EUR,408000,QA-LO-BANK-2,QA-REGULAR-2,Approved synthetic borrower bank account,Use lo_second_payment in dates.json,Upload full replacement file 03
+LO final receipt,Admin,QA LO Main,EUR,404000,QA-LO-BANK-3,QA-FINAL-3,Approved synthetic borrower bank account,Use lo_final_payment in dates.json,Upload full replacement file 04

@@ -10,6 +10,7 @@ from django.apps import apps
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, models, transaction
+from django.utils import timezone
 
 from backend.apps.platform_core.domain.access import actor_ref_for_user, is_admin_actor
 from backend.apps.platform_core.domain.actors import ActorRef
@@ -196,7 +197,7 @@ def _claim_job_run(
     actor: models.Model | None,
 ) -> tuple[ScheduledJobRun, bool]:
     actor_user_id = getattr(actor, "pk", None)
-    started_at = now_utc()
+    started_at = timezone.now()
     try:
         with transaction.atomic():
             existing = ScheduledJobRun.objects.select_for_update().filter(run_key=run_key).first()
@@ -267,7 +268,7 @@ def _complete_job_run(
     job_run.status = status
     job_run.summary = summary
     job_run.error = error[:4000]
-    job_run.finished_at = now_utc()
+    job_run.finished_at = timezone.now()
     job_run.save(update_fields=["status", "summary", "error", "finished_at", "updated_at"])
     return job_run
 
@@ -514,13 +515,19 @@ def _run_scheduled_jobs(command: RunScheduledJobsCommand) -> ScheduledJobsResult
 
     results: list[ScheduledJobExecutionResult] = []
     for job_name in job_names:
-        run_key = _scheduled_job_run_key(job_name, as_of=as_of, force=command.force)
+        # Delivery/retries keep running while the financial QA clock is frozen.
+        job_as_of = (
+            timezone.now()
+            if job_name == EMAIL_OUTBOX_DISPATCH_JOB and command.as_of is None
+            else as_of
+        )
+        run_key = _scheduled_job_run_key(job_name, as_of=job_as_of, force=command.force)
         if command.dry_run:
             run_key += ":dry-run"
         job_run, should_run = _claim_job_run(
             job_name=job_name,
             run_key=run_key,
-            scheduled_for=as_of,
+            scheduled_for=job_as_of,
             actor=actor if job_name in ADMIN_ACTOR_JOB_NAMES else None,
         )
         if not should_run:
@@ -543,7 +550,7 @@ def _run_scheduled_jobs(command: RunScheduledJobsCommand) -> ScheduledJobsResult
                 job_name=job_name,
                 command=command,
                 actor=actor,
-                as_of=as_of,
+                as_of=job_as_of,
             )
             if job_name in {
                 PRIMARY_FUNDING_EXPIRY_SCAN_JOB, ORIGINATOR_OPPORTUNITY_LIFECYCLE_SCAN_JOB

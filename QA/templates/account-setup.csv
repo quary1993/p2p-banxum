@@ -1,0 +1,5 @@
+role,test_email,browser_profile,starting_verification,starting_CHF,starting_EUR,approved_test_IBAN_CHF,approved_test_IBAN_EUR,notes
+Admin,,,Regular admin role,,,,,Use this role for normal operations
+User 1,,,Synthetic verified test investor,5000000.00,5000000.00,,,Main investor and seller; enough to fill seeded loans alone
+User 2,,,Synthetic verified test investor,5000000.00,5000000.00,,,Second investor and buyer; enough to fill seeded loans alone
+User 3,,,Synthetic verified test investor,0.00,0.00,,,Empty and insufficient-funds tests; restore seed between incompatible branches

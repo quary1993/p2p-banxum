@@ -45,6 +45,34 @@ def _as_of() -> datetime:
 
 
 @pytest.mark.django_db
+def test_email_dispatch_keeps_running_with_frozen_business_clock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frozen = _as_of()
+    real_now = frozen + timedelta(days=5)
+    dispatched_at = []
+    monkeypatch.setattr(scheduled_jobs, "now_utc", lambda: frozen)
+    monkeypatch.setattr(timezone, "now", lambda: real_now)
+
+    def dispatch(_command: RunScheduledJobsCommand, as_of: datetime) -> dict[str, Any]:
+        dispatched_at.append(as_of)
+        return {}
+
+    monkeypatch.setattr(scheduled_jobs, "_email_outbox_dispatch_summary", dispatch)
+    command = RunScheduledJobsCommand(job_names=(EMAIL_OUTBOX_DISPATCH_JOB,))
+    first = run_scheduled_jobs(command)
+    repeated = run_scheduled_jobs(command)
+    real_now += timedelta(minutes=5)
+    second = run_scheduled_jobs(command)
+    assert len(dispatched_at) == 2
+    assert dispatched_at == [frozen + timedelta(days=5), real_now]
+    assert repeated.results[0].status == ScheduledJobRunStatus.SKIPPED
+    assert first.results[0].run_key != second.results[0].run_key
+    latest = ScheduledJobRun.objects.get(pk=second.results[0].run_id)
+    assert latest.started_at == latest.finished_at == latest.scheduled_for == real_now
+
+
+@pytest.mark.django_db
 def test_scheduled_jobs_run_once_per_period_and_skip_duplicates() -> None:
     admin = _admin_user()
     first = run_scheduled_jobs(RunScheduledJobsCommand(actor=admin, as_of=_as_of()))

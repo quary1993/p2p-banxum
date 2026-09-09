@@ -1,0 +1,13 @@
+{
+  "start_date": "2026-09-09",
+  "direct_deadline": "2026-09-11",
+  "direct_resolution_date": "2026-09-12",
+  "lo_deadline": "2026-09-14",
+  "lo_deadline_resolution": "2026-09-15",
+  "lo_boundary": "2026-09-19",
+  "lo_second_payment": "2026-10-19",
+  "lo_final_payment": "2026-11-19",
+  "lo_advance_date": "2026-10-04",
+  "lo_advance_interest_minor": 4000,
+  "lo_advance_payment_minor": 104000
+}

@@ -33,7 +33,17 @@ from backend.apps.platform_core.models import (
 )
 from backend.apps.platform_core.services.activity_archive import archive_activity_entries
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
-from backend.apps.platform_core.services.qa_dev_mode import _lock_database_tables
+from backend.apps.platform_core.services.qa_dev_mode import (
+    EnableQaDevModeCommand,
+    _lock_database_tables,
+    enable_qa_dev_mode,
+)
+from backend.apps.platform_core.services.qa_regression import (
+    REGRESSION_BALANCES,
+    RegressionAccounts,
+    create_missing_regression_investors,
+    regression_accounts_plan,
+)
 
 LENDER_TYPES = ("natural_person_lender", "legal_entity_lender_representative")
 RESET_APPS = frozenset(
@@ -63,6 +73,8 @@ class ResetQaDatasetCommand:
     backup_directory: Path
     maintenance_confirmed: bool = False
     allow_production: bool = False
+    regression_accounts: RegressionAccounts | None = None
+    create_missing_investors: bool = False
 
 
 def reset_confirmation() -> str:
@@ -76,8 +88,10 @@ def _reset_models() -> list[type[models.Model]]:
     )
 
 
-def qa_reset_plan() -> dict[str, Any]:
-    return {
+def qa_reset_plan(
+    *, regression_accounts: RegressionAccounts | None = None, create_missing_investors: bool = False
+) -> dict[str, Any]:
+    result = {
         "environment": settings.ENVIRONMENT,
         "confirmation": reset_confirmation(),
         "accounts_preserved": get_user_model().objects.count(),
@@ -99,6 +113,25 @@ def qa_reset_plan() -> dict[str, Any]:
             "job evidence",
         ],
     }
+    if create_missing_investors and regression_accounts is None:
+        raise ValueError("Missing investors can only be created with the regression profile.")
+    if regression_accounts:
+        profile = regression_accounts_plan(
+            regression_accounts, create_missing=create_missing_investors
+        )
+        result["regression"] = profile
+        result["repeatable_seed_baseline"] = True
+        # The generic balance applies only to investors outside the three selected roles.
+        result["default_balance_other_investors_minor"] = result.pop("balance_per_investor_minor")
+        existing_zero = sum(
+            row["role"] == "user3" and row["account_id"] is not None for row in profile["accounts"]
+        )
+        new_funded = sum(
+            row["create_synthetic_investor"] and row["role"] in {"user1", "user2"}
+            for row in profile["accounts"]
+        )
+        result["investors_credited"] += new_funded - existing_zero
+    return result
 
 
 def _validate(command: ResetQaDatasetCommand) -> None:
@@ -276,14 +309,33 @@ def reset_qa_dataset(command: ResetQaDatasetCommand) -> dict[str, Any]:
             _lock_database_tables()
             previous = QaDatasetReset.objects.filter(pk=command.reset_id).first()
             if previous:
+                expected = (
+                    command.regression_accounts.fingerprint()
+                    if command.regression_accounts
+                    else None
+                )
+                if previous.summary.get("regression", {}).get("accounts_fingerprint") != expected:
+                    raise ValueError(
+                        "This reset UUID already completed with another account profile."
+                    )
                 return {**previous.summary, "already_completed": True}
-            users = get_user_model().objects.all()
+            user_ids = list(get_user_model().objects.values_list("pk", flat=True))
+            users = get_user_model().objects.filter(pk__in=user_ids)
             identity_fingerprint = _fingerprint(users)
             audit_ids = list(AuditEvent.objects.values_list("pk", flat=True))
             audit_fingerprint = _fingerprint(AuditEvent.objects.filter(pk__in=audit_ids))
-            plan = qa_reset_plan()
+            plan = qa_reset_plan(
+                regression_accounts=command.regression_accounts,
+                create_missing_investors=command.create_missing_investors,
+            )
             backup, checksum = _backup(command)
-            investors = list(users.filter(account_type__in=LENDER_TYPES).order_by("id"))
+            if command.regression_accounts and command.create_missing_investors:
+                create_missing_regression_investors(
+                    actor=command.actor, accounts=command.regression_accounts
+                )
+            investors = list(
+                get_user_model().objects.filter(account_type__in=LENDER_TYPES).order_by("id")
+            )
             portal = import_module("backend.apps.investor_portal.services")
             archived = 0
             for investor in users.order_by("id"):
@@ -301,13 +353,26 @@ def reset_qa_dataset(command: ResetQaDatasetCommand) -> dict[str, Any]:
             cache.delete("platform_core:qa_dev_mode:current_time")
             _seed_catalogue(actor=command.actor)
             ledger_seed = import_module("backend.apps.ledger.qa_seed")
+            overrides = (
+                {
+                    email: REGRESSION_BALANCES[role]
+                    for role, email in command.regression_accounts.emails().items()
+                    if role != "admin"
+                }
+                if command.regression_accounts
+                else {}
+            )
             for investor in investors:
+                amount = overrides.get(investor.email.lower(), 50_000_000)
+                if amount == 0:
+                    continue
                 for currency in ("CHF", "EUR"):
                     ledger_seed.create_qa_opening_balance(
                         actor=command.actor,
                         investor_user_id=str(investor.pk),
                         currency_code=currency,
                         reset_id=command.reset_id,
+                        amount_minor=amount,
                     )
             # Preserve communication evidence, but never send stale or synthetic requests.
             discarded = OutboxMessage.objects.exclude(status="processed").update(
@@ -358,6 +423,15 @@ def reset_qa_dataset(command: ResetQaDatasetCommand) -> dict[str, Any]:
                     metadata=summary,
                 )
             )
+            if command.regression_accounts:
+                enable_qa_dev_mode(
+                    EnableQaDevModeCommand(
+                        actor=command.actor,
+                        note=f"Manual regression seed baseline {command.reset_id}. "
+                        "Revert returns to this dataset and seed clock; QA stays enabled.",
+                        repeatable_seed_snapshot=True,
+                    )
+                )
             transaction.on_commit(cache.clear)
             return summary
     finally:

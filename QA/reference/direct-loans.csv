@@ -1,0 +1,9 @@
+label,currency,principal_minor,interest_rate_bps,term_months,repayment_type,minimum_subscription_bps,collateral_type,collateral_value_minor,loan_start_date,funding_deadline,user_1_amount_minor,user_2_amount_minor,purpose
+QA Direct Main,CHF,1000000,1200,3,amortizing_principal_interest,5000,real_estate,2000000,Use direct_deadline in dates.json,Use direct_deadline in dates.json,600000,400000,Main successful direct lifecycle
+QA Direct Partial,EUR,1000000,1200,3,amortizing_principal_interest,5000,real_estate,2000000,Use direct_deadline in dates.json,Use direct_deadline in dates.json,300000,200000,Exact 50 percent automatic partial close
+QA Direct Below,EUR,1000000,1200,3,amortizing_principal_interest,5000,real_estate,2000000,Use direct_deadline in dates.json,Use direct_deadline in dates.json,400000,0,Below minimum automatic cancellation
+QA Direct Empty,CHF,1000000,1200,3,amortizing_principal_interest,5000,real_estate,2000000,Use direct_deadline in dates.json,Use direct_deadline in dates.json,0,0,No subscriptions
+QA Direct Custom Minimum,CHF,1000000,1200,3,amortizing_principal_interest,7500,real_estate,2000000,Use direct_deadline in dates.json,Use direct_deadline in dates.json,400000,350000,Per-loan 75 percent threshold
+QA Direct Secondary,CHF,1000000,1200,3,amortizing_principal_interest,5000,real_estate,2000000,Use direct_deadline in dates.json,Use direct_deadline in dates.json,600000,400000,Separate sale branch; keep current by recording due payments
+QA Direct Advance,CHF,1000000,1200,3,amortizing_principal_interest,5000,real_estate,2000000,Use direct_deadline in dates.json,Use direct_deadline in dates.json,600000,400000,Separate prepayment branch
+QA Direct Default,CHF,1000000,1200,3,amortizing_principal_interest,5000,real_estate,2000000,Use direct_deadline in dates.json,Use direct_deadline in dates.json,600000,400000,Separate missed-payment and recovery branch

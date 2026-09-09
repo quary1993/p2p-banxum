@@ -6320,11 +6320,11 @@ export function QaDevModePanel() {
 
         <Card padded>
           <SectionHeader
-            description="Restores the entry snapshot and exits QA mode. Sessions and all data changes made since entry are reset."
+            description="Restores the saved database snapshot. A seeded regression baseline also restores the seed clock and stays available for repeated resets; an ordinary entry snapshot exits QA mode."
             title="Revert database"
           />
           <Banner tone="bad" title="Destructive QA reset">
-            This restores the database to the moment QA mode was enabled. You should expect to sign in again.
+            This removes changes made after the saved snapshot, including test investments and payments. A seeded regression snapshot restores the initial accounts, balances and loan catalogue. Expect to sign in again.
           </Banner>
           <Field hint='Type "REVERT QA DB" exactly.' label="Confirmation">
             <input

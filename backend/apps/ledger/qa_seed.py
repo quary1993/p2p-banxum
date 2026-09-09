@@ -30,19 +30,28 @@ from backend.apps.platform_core.domain.time import business_date, now_utc
 
 @transaction.atomic
 def create_qa_opening_balance(
-    *, actor: Any, investor_user_id: str, currency_code: str, reset_id: UUID
+    *,
+    actor: Any,
+    investor_user_id: str,
+    currency_code: str,
+    reset_id: UUID,
+    amount_minor: int = 50_000_000,
 ) -> InvestorBalanceLot:
     if not settings.QA_DATA_RESET_ALLOWED or not is_superadmin_actor(actor):
         raise ValueError("QA opening balances require the offline reset and an active superadmin.")
+    if type(amount_minor) is not int or amount_minor <= 0:
+        raise ValueError("QA opening balance must be a positive integer number of minor units.")
     investor = _lender_account_for_id(investor_user_id)
     currency = _enabled_currency(currency_code)
     key = f"qa-reset:{reset_id}:{investor.pk}:{currency.code}"
     existing = InvestorBalanceLot.objects.filter(source_id=key).first()
     if existing is not None:
+        if existing.original_amount_minor != amount_minor:
+            raise ValueError("This QA opening balance was already created with another amount.")
         return existing
     if InvestorBalanceLot.objects.filter(investor_user_id=investor.pk, currency=currency).exists():
         raise ValueError("QA opening balances require an empty investor balance ledger.")
-    amount = 50_000_000
+    amount = amount_minor
     received = now_utc()
     day = business_date(received)
     cash = get_or_create_ledger_account(

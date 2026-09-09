@@ -47,8 +47,28 @@ def main() -> None:
     parser.add_argument("--run-id", default="")
     parser.add_argument("--confirm", default="")
     parser.add_argument("--allow-production", action="store_true")
+    parser.add_argument(
+        "--regression-accounts",
+        type=Path,
+        help="Private host JSON mapping of admin/user1/user2/user3 emails.",
+    )
+    parser.add_argument("--create-missing-investors", action="store_true")
     args = parser.parse_args()
     environment = args.environment
+    regression_flags = []
+    regression_mount = []
+    if args.regression_accounts:
+        if environment != "staging":
+            raise RuntimeError("The regression profile is staging-only on deployed environments.")
+        path = args.regression_accounts.resolve(strict=True)
+        if path.stat().st_mode & 0o077:
+            raise RuntimeError("The account mapping must have private 0600 permissions.")
+        regression_flags = ["--regression-accounts", "/qa-regression-accounts.json"]
+        regression_mount = ["-v", f"{path}:/qa-regression-accounts.json:ro"]
+    if args.create_missing_investors:
+        if not args.regression_accounts:
+            raise RuntimeError("Missing investors require the regression account mapping.")
+        regression_flags.append("--create-missing-investors")
     project = "banxum_prod" if environment == "production" else "banxum_staging"
     backend = f"{project}-backend-1"
     frontend = f"{project}-frontend-1"
@@ -60,10 +80,25 @@ def main() -> None:
     env = dict(item.split("=", 1) for item in config["Config"]["Env"] if "=" in item)
     if env.get("ENVIRONMENT") != environment:
         raise RuntimeError("Backend container environment does not match target.")
+    compose = [
+        "docker",
+        "compose",
+        "--project-name",
+        project,
+        "--env-file",
+        "infra/deploy/.env",
+        "-f",
+        "infra/deploy/docker-compose.yml",
+    ]
+    preview_command = (
+        compose
+        + ["run", "--rm", "--no-deps", "-T"]
+        + regression_mount
+        + ["--entrypoint", ".venv/bin/python", "backend", "backend/manage.py", "reset_qa_dataset"]
+        + regression_flags
+    )
     if not args.execute:
-        run(
-            ["docker", "exec", backend, ".venv/bin/python", "backend/manage.py", "reset_qa_dataset"]
-        )
+        run(preview_command, cwd=app_dir)
         return
     run_id = UUID(args.run_id)
     required = f"RESET QA DATA {environment} {env.get('PUBLIC_APP_BASE_URL', '').rstrip('/')}"
@@ -76,18 +111,7 @@ def main() -> None:
             raise RuntimeError(f"{name} must be running before starting the maintenance wrapper.")
     health(port, environment)
     prior = json.loads(
-        subprocess.check_output(
-            [
-                "docker",
-                "exec",
-                backend,
-                ".venv/bin/python",
-                "backend/manage.py",
-                "reset_qa_dataset",
-                "--run-id",
-                str(run_id),
-            ]
-        )
+        subprocess.check_output(preview_command + ["--run-id", str(run_id)], cwd=app_dir)
     )
     if prior["already_completed"]:
         print(json.dumps({"already_completed": True, "result": prior["completed_reset"]}))
@@ -205,6 +229,7 @@ def main() -> None:
             "--rm",
             "--no-deps",
             "-T",
+            *regression_mount,
             "-e",
             "QA_DATA_RESET_ALLOWED=true",
             "-v",
@@ -226,6 +251,7 @@ def main() -> None:
             "--backup-directory",
             "/qa-reset-backups",
             "--maintenance-confirmed",
+            *regression_flags,
         ]
         if environment == "production":
             command.append("--allow-production")
