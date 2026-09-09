@@ -458,7 +458,13 @@ invalidated. Seed clock/ledger/calendar comparisons must match after two consecu
 mutate/revert cycles. Files, sent emails, external providers and real transfers are not
 rewound. A schema change requires a NEW approved reset and matching dated CSV pack.
 Ordinary manually enabled QA snapshots still exit QA on restore.
-Snapshots preserve full timestamp precision. Normal email-dispatch cron runs and job
+Snapshots preserve full timestamp precision. Restore batch-inserts the preserved audit,
+domain-event and scheduled-job history, without changing timestamps or running model
+hooks; other records use the normal fixture loader. Both loaders share the same atomic
+restore, so any failure rolls back the whole operation. This avoids tens of thousands of
+individual history updates/inserts exhausting the admin request timeout. Verify restore
+duration against the deployed request timeout when a baseline becomes substantially larger.
+Normal email-dispatch cron runs and job
 runtime monitoring use real time, so frozen QA financial dates do not stop email retries.
 Explicit `--as-of` job runs still honor their supplied business date.
 

@@ -280,6 +280,103 @@ def test_qa_failed_load_rolls_back_flush(settings: Any, monkeypatch: pytest.Monk
 
 
 @pytest.mark.django_db
+def test_history_restore_batches_preserve_every_field(settings: Any) -> None:
+    from django.core import serializers
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    from backend.apps.platform_core.models import AuditEvent, DomainEvent, ScheduledJobRun
+    from backend.apps.platform_core.services.qa_snapshot import SnapshotJSONEncoder
+
+    settings.QA_DEV_MODE_ALLOWED = True
+    settings.IS_PRODUCTION = False
+    admin = _user(email="history-admin@example.test")
+    instant = timezone.now().replace(microsecond=123456)
+    AuditEvent.objects.bulk_create(
+        [
+            AuditEvent(
+                actor_type="system",
+                actor_id="qa",
+                action=f"history.{n}",
+                metadata={"n": n, "nested": [True, None, "quoted text"]},
+            )
+            for n in range(600)
+        ]
+    )
+    DomainEvent.objects.bulk_create(
+        [
+            DomainEvent(
+                event_type="history",
+                aggregate_type="qa",
+                aggregate_id=str(n),
+                idempotency_key=f"history:{n}",
+                payload={"n": n},
+            )
+            for n in range(600)
+        ]
+    )
+    ScheduledJobRun.objects.bulk_create(
+        [
+            ScheduledJobRun(
+                job_name="history",
+                run_key=f"history:{n}",
+                status="succeeded",
+                scheduled_for=instant,
+                started_at=instant,
+                finished_at=instant,
+                actor_user_id=admin.pk,
+                summary={"n": n},
+            )
+            for n in range(600)
+        ]
+    )
+    models = (AuditEvent, DomainEvent, ScheduledJobRun)
+
+    def contents() -> list[str]:
+        return [
+            serializers.serialize("json", model.objects.order_by("pk"), cls=SnapshotJSONEncoder)
+            for model in models
+        ]
+
+    expected = contents()
+    enable_qa_dev_mode(EnableQaDevModeCommand(actor=admin))
+    with CaptureQueriesContext(connection) as captured:
+        revert_qa_dev_mode(RevertQaDevModeCommand(actor=admin, confirmation="REVERT QA DB"))
+    assert contents() == expected
+    tables = tuple(model._meta.db_table for model in models)
+    inserts = [
+        q["sql"]
+        for q in captured
+        if q["sql"].startswith("INSERT") and any(table in q["sql"] for table in tables)
+    ]
+    assert len(inserts) < 35  # Hundreds of history rows must not mean hundreds of round trips.
+
+
+@pytest.mark.django_db
+def test_failed_history_batch_rolls_back_complete_restore(
+    settings: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend.apps.platform_core.services.qa_snapshot import restore_snapshot_history
+
+    settings.QA_DEV_MODE_ALLOWED = True
+    settings.IS_PRODUCTION = False
+    admin = _user(email="batch-admin@example.test")
+    enable_qa_dev_mode(EnableQaDevModeCommand(actor=admin))
+    extra = _user(email="batch-must-survive@example.test")
+
+    def fail_after_batch(history: Any) -> None:
+        restore_snapshot_history(history)
+        raise RuntimeError("Injected batch failure")
+
+    monkeypatch.setattr(qa_dev_mode, "restore_snapshot_history", fail_after_batch)
+    with pytest.raises(RuntimeError, match="Injected batch failure"):
+        revert_qa_dev_mode(RevertQaDevModeCommand(actor=admin, confirmation="REVERT QA DB"))
+    assert get_user_model().objects.filter(pk=extra.pk).exists()
+    assert QaDevModeState.objects.get(singleton_id=1).is_enabled
+
+
+@pytest.mark.django_db
 def test_qa_corrupt_snapshot_does_not_touch_data(settings: Any) -> None:
     settings.QA_DEV_MODE_ALLOWED = True
     settings.IS_PRODUCTION = False

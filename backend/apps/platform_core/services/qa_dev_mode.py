@@ -30,6 +30,10 @@ from backend.apps.platform_core.models.scheduled_jobs import ScheduledJobRunStat
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import DomainEventCommand, record_domain_event
 from backend.apps.platform_core.services.qa_guard import QaEnvironmentBusy, qa_environment_guard
+from backend.apps.platform_core.services.qa_snapshot import (
+    partition_validated_snapshot,
+    restore_snapshot_history,
+)
 from backend.apps.platform_core.services.scheduled_jobs import (
     DAILY_JOB_NAMES,
     DEFAULT_SCHEDULED_JOB_NAMES,
@@ -196,7 +200,8 @@ def _restore_database_snapshot(snapshot_path: str) -> None:
         if manifest.get("migrations") != _schema_signature():
             raise ValueError("Database schema changed since the snapshot was created.")
         # Check model/field names and fixture structure before touching live rows.
-        list(serializers.deserialize("json", content.decode("utf-8")))
+        objects = list(serializers.deserialize("json", content.decode("utf-8")))
+        fixture_content, history = partition_validated_snapshot(content, objects)
     except Exception as exc:
         raise QaDevModeValidationError(
             "QA snapshot validation failed; database was not changed. " + str(exc)
@@ -214,11 +219,12 @@ def _restore_database_snapshot(snapshot_path: str) -> None:
                 for name, _sql in triggers:
                     cursor.execute(f"DROP TRIGGER {connection.ops.quote_name(name)}")
         call_command("flush", interactive=False, verbosity=0)
-        # Load the exact validated bytes, not a path that could change after preflight.
+        # Load the validated non-history rows, never re-read a mutable snapshot path.
         with tempfile.NamedTemporaryFile(suffix=".json") as validated:
-            validated.write(content)
+            validated.write(fixture_content)
             validated.flush()
             call_command("loaddata", validated.name, verbosity=0)
+        restore_snapshot_history(history)
         with connection.cursor() as cursor:
             for _name, sql in triggers:
                 cursor.execute(sql)
