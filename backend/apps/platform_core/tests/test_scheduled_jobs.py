@@ -380,3 +380,39 @@ def test_monitor_rejects_stale_or_simulated_coverage(problem: str) -> None:
     )
     with pytest.raises(CommandError, match="missing coverage"):
         call_command("check_scheduled_jobs", "--job", EMAIL_OUTBOX_DISPATCH_JOB, stdout=StringIO())
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("days", [-10, 10])
+def test_monitor_separates_paused_qa_periods_from_real_job_runtime(
+    monkeypatch: pytest.MonkeyPatch, days: int,
+) -> None:
+    from backend.apps.platform_core.management.commands import check_scheduled_jobs as monitor
+
+    now = timezone.now()
+    qa_now = now + timedelta(days=days)
+    monkeypatch.setattr(monitor, "qa_time_override_from_db", lambda: qa_now)
+    for name in DEFAULT_SCHEDULED_JOB_NAMES:
+        finished = now if name == EMAIL_OUTBOX_DISPATCH_JOB else now - timedelta(days=2)
+        ScheduledJobRun.objects.create(
+            job_name=name, run_key=f"{name}:qa-clock",
+            status=ScheduledJobRunStatus.SUCCEEDED,
+            scheduled_for=qa_now,
+            started_at=finished,
+            finished_at=finished,
+        )
+    call_command("check_scheduled_jobs", stdout=StringIO())
+    ScheduledJobRun.objects.filter(job_name=EMAIL_OUTBOX_DISPATCH_JOB).update(
+        finished_at=now - timedelta(minutes=10)
+    )
+    with pytest.raises(CommandError, match="missing coverage"):
+        call_command("check_scheduled_jobs", stdout=StringIO())
+    ScheduledJobRun.objects.create(
+        job_name=LOAN_SERVICING_STATUS_SCAN_JOB, run_key="stuck:qa-clock",
+        status=ScheduledJobRunStatus.RUNNING,
+        scheduled_for=qa_now, started_at=now - timedelta(hours=3),
+    )
+    output = StringIO()
+    with pytest.raises(CommandError, match="failed or stale"):
+        call_command("check_scheduled_jobs", stdout=output)
+    assert "Stale RUNNING runs" in output.getvalue()

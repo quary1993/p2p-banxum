@@ -5,12 +5,13 @@ from datetime import timedelta
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db.models import Q
+from django.utils import timezone
 
-from backend.apps.platform_core.domain.time import now_utc
 from backend.apps.platform_core.models.scheduled_jobs import (
     ScheduledJobRun,
     ScheduledJobRunStatus,
 )
+from backend.apps.platform_core.services.qa_dev_mode import qa_time_override_from_db
 from backend.apps.platform_core.services.scheduled_jobs import (
     ALL_SCHEDULED_JOB_NAMES,
     DEFAULT_SCHEDULED_JOB_NAMES,
@@ -63,7 +64,8 @@ class Command(BaseCommand):
         unknown = set(job_names) - ALL_SCHEDULED_JOB_NAMES
         if unknown:
             raise CommandError(f"Unknown scheduled job(s): {', '.join(sorted(unknown))}.")
-        now = now_utc()
+        now = timezone.now()
+        qa_now = qa_time_override_from_db()
         cutoff = now - timedelta(minutes=timeout_minutes)
 
         runs = ScheduledJobRun.objects.all()
@@ -91,24 +93,30 @@ class Command(BaseCommand):
             success = (
                 runs.filter(job_name=job_name, status=ScheduledJobRunStatus.SUCCEEDED)
                 .filter(Q(summary__dry_run=False) | Q(summary__dry_run__isnull=True))
-                .order_by("-scheduled_for", "-finished_at", "-id")
+                .order_by("-finished_at", "-scheduled_for", "-id")
                 .first()
             )
             if success is None:
                 coverage_errors.append(f"{job_name}: no successful non-dry-run execution.")
                 continue
             freshness_cutoff = now - timedelta(minutes=max_age_minutes)
+            period_now = qa_now if qa_now is not None else now
+            period_cutoff = period_now - timedelta(minutes=max_age_minutes)
+            # A paused QA business date does not make a completed daily scan stale.
+            # Email delivery and stuck-run timing must still follow wall time.
+            check_runtime_age = qa_now is None or job_name == EMAIL_OUTBOX_DISPATCH_JOB
+            check_period_age = qa_now is None or job_name != EMAIL_OUTBOX_DISPATCH_JOB
             if (
                 success.finished_at is None
-                or success.finished_at < freshness_cutoff
-                or success.scheduled_for < freshness_cutoff
+                or (check_runtime_age and success.finished_at < freshness_cutoff)
+                or (check_period_age and success.scheduled_for < period_cutoff)
             ):
                 coverage_errors.append(
                     f"{job_name}: successful execution is overdue "
                     f"(maximum age {max_age_minutes} minutes)."
                 )
-            elif success.scheduled_for > now + timedelta(
-                minutes=5
+            elif (
+                check_period_age and success.scheduled_for > period_now + timedelta(minutes=5)
             ) or success.finished_at > now + timedelta(minutes=5):
                 coverage_errors.append(f"{job_name}: execution is dated in the future.")
 
