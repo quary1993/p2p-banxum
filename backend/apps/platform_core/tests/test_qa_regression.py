@@ -8,6 +8,7 @@ from django.apps import apps
 from django.contrib.auth import get_user_model
 from django.core import serializers
 from django.core.cache import cache
+from django.db import connection
 
 from backend.apps.ledger.qa_seed import create_qa_opening_balance
 from backend.apps.platform_core.services.qa_dev_mode import (
@@ -161,6 +162,9 @@ def test_failed_reset_does_not_leave_created_accounts(regression: Any, monkeypat
     assert get_user_model().objects.count() == before
 
 
+# PostgreSQL restore needs committed ledger triggers; SQLite teardown uses DELETE,
+# so keep its append-only fixtures inside pytest's rollback transaction.
+@pytest.mark.django_db(transaction=connection.vendor == "postgresql")
 def test_baseline_snapshot_restores_balances_and_empty_account(
     regression: Any, settings: Any, tmp_path: Path
 ) -> None:
