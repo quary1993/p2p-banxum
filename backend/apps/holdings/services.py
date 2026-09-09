@@ -88,6 +88,7 @@ class CreateOriginatorClaimHoldingCommand:
     idempotency_key: str
     loan_share_ppm: int
     metadata: dict[str, Any] | None = None
+    economic_entitlement_start_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,6 +263,11 @@ def _originator_claim_request_fingerprint(
             "loan_share_ppm": loan_share_ppm,
             "currency": currency_code,
             "assignment_effective_at": command.assignment_effective_at,
+            **(
+                {"economic_entitlement_start_at": command.economic_entitlement_start_at}
+                if command.economic_entitlement_start_at is not None
+                else {}
+            ),
             "idempotency_key": idempotency_key,
         }
     )
@@ -517,7 +523,9 @@ def create_originator_claim_holding(
             currency=currency,
             loan_share_ppm=loan_share_ppm,
             assignment_effective_at=command.assignment_effective_at,
-            economic_entitlement_start_at=command.assignment_effective_at,
+            economic_entitlement_start_at=(
+                command.economic_entitlement_start_at or command.assignment_effective_at
+            ),
             created_by_admin_id=command.actor.pk,
             metadata=metadata,
             idempotency_key=idempotency_key,

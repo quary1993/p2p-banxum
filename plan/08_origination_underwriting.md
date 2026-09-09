@@ -174,8 +174,8 @@ The workflow must separate loan purpose from collateral/backing. A loan may be r
 
 The workflow should be extensible to richer collateral/backing records later, but launch underwriting must support:
 
-- Admin-recorded off-platform legal-entity KYB and beneficial ownership checks.
-- Borrower KYB/AML approval before loan publication, disbursement, or other platform transaction activity. Routine post-publication KYB expiry is allowed only for deterministic funding close; explicit holds and adverse/review statuses remain blocking.
+- Garanta-completed off-platform company KYB and beneficial ownership checks; platform references and documents are optional.
+- Company checks are completed offline before publication or transactions. The platform blocks explicit compliance holds and declined/manual-review decisions, but does not require a locally approved KYB case and does not block on absent or expired optional records.
 - Collateral/backing type.
 - Collateral value.
 - Calculated LTV.
@@ -189,7 +189,7 @@ The workflow should be extensible to richer collateral/backing records later, bu
 3. Platform validates mandatory fields and sanity checks.
 4. Platform calculates LTV.
 5. Loan is saved only if required information is complete.
-6. Admin publishes listing when ready, provided borrower KYB/AML status remains approved and no compliance hold applies.
+6. Admin publishes when ready after offline company review. No explicit compliance hold or declined/manual-review decision may remain; optional platform KYB approval is not a prerequisite.
 
 ## Offline Credit Inputs and Optional Evidence
 

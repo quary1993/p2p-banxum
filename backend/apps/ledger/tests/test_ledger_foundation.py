@@ -13,6 +13,7 @@ from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.db.models import Model
 from django.test import Client
 from django.utils import timezone
+from freezegun import freeze_time
 
 from backend.apps.ledger.models import (
     BalanceLotStatus,
@@ -28,11 +29,13 @@ from backend.apps.ledger.models import (
     LedgerPostingSide,
     ReconciliationSnapshot,
 )
+from backend.apps.ledger.selectors import balance_lot_amounts_as_of
 from backend.apps.ledger.services import (
     CancelInvestorWithdrawalCommand,
     ClosePrimaryLoanFundingCommand,
     CreateReconciliationSnapshotCommand,
     DeclareLenderDepositCommand,
+    ExecuteInvestorFxExchangeLedgerCommand,
     FinalizeBorrowerDisbursementCommand,
     FinalizeInvestorWithdrawalCommand,
     LedgerValidationError,
@@ -40,12 +43,15 @@ from backend.apps.ledger.services import (
     PostJournalEntryCommand,
     RegisterInvestorPayoutInstructionCommand,
     RegisterInvestorSelfServicePayoutInstructionCommand,
+    ReleaseInvestmentBalanceReservationCommand,
     RequestInvestorWithdrawalCommand,
+    ReserveInvestmentBalanceCommand,
     RunBalanceAgeingScanCommand,
     cancel_investor_withdrawal,
     close_primary_loan_funding,
     create_reconciliation_snapshot,
     declare_lender_deposit,
+    execute_investor_fx_exchange_ledger,
     finalize_borrower_disbursement,
     finalize_investor_withdrawal,
     get_or_create_ledger_account,
@@ -53,7 +59,9 @@ from backend.apps.ledger.services import (
     post_journal_entry,
     register_investor_payout_instruction,
     register_investor_self_service_payout_instruction,
+    release_investor_balance_investment_reservation,
     request_investor_withdrawal,
+    reserve_investor_balance_for_investment,
     run_balance_ageing_scan,
     summarize_investor_balance,
 )
@@ -384,6 +392,152 @@ def test_post_journal_entry_rejects_received_at_that_contradicts_value_date(
 
 
 @pytest.mark.django_db
+def test_historical_balance_replays_reservation_release_and_fx(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    with freeze_time("2026-01-01T12:00:00Z"):
+        lot = declare_lender_deposit(_deposit_command(admin_user, investor)).balance_lot
+        _approve_financial_access(investor)
+    loan_id = str(uuid.uuid4())
+    reserved = reserve_investor_balance_for_investment(
+        ReserveInvestmentBalanceCommand(
+            actor=admin_user,
+            investor_user_id=str(investor.pk),
+            loan_id=loan_id,
+            amount_minor=60_00,
+            currency="CHF",
+            loan_funding_deadline=date(2026, 1, 20),
+            source_type="test",
+            source_id="historical-reserve",
+            idempotency_key="historical-reserve",
+            as_of=_received_at(date(2026, 1, 3)),
+        )
+    )
+    release_investor_balance_investment_reservation(
+        ReleaseInvestmentBalanceReservationCommand(
+            actor=admin_user,
+            investor_user_id=str(investor.pk),
+            loan_id=loan_id,
+            amount_minor=60_00,
+            currency="CHF",
+            source_type="test",
+            source_id="historical-release",
+            reservation_journal_entry_id=str(reserved.journal_entry.pk),
+            lot_allocations=reserved.lot_allocations,
+            reason="Cancelled before funding close.",
+            idempotency_key="historical-release",
+            as_of=_received_at(date(2026, 1, 5)),
+        )
+    )
+    execute_investor_fx_exchange_ledger(
+        ExecuteInvestorFxExchangeLedgerCommand(
+            actor=admin_user,
+            investor_user_id=str(investor.pk),
+            source_currency="CHF",
+            target_currency="EUR",
+            source_amount_minor=30_00,
+            gross_target_amount_minor=33_00,
+            target_amount_minor=32_90,
+            fee_minor=10,
+            source_type="test",
+            source_id="historical-fx",
+            idempotency_key="historical-fx",
+            as_of=_received_at(date(2026, 1, 7)),
+        )
+    )
+    lot.refresh_from_db()
+    assert lot.available_amount_minor == 70_00
+    for day, available, invested, converted in (
+        (2, 100_00, 0, 0),
+        (4, 40_00, 60_00, 0),
+        (6, 100_00, 0, 0),
+        (8, 70_00, 0, 30_00),
+    ):
+        state = balance_lot_amounts_as_of(lots=[lot], as_of=_received_at(date(2026, 1, day)))[
+            str(lot.pk)
+        ]
+        assert (
+            state["available_amount_minor"],
+            state["invested_amount_minor"],
+            state["converted_amount_minor"],
+        ) == (available, invested, converted)
+
+
+@pytest.mark.django_db
+def test_historical_balance_keeps_withdrawal_reserved_until_cancellation(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    with freeze_time("2026-01-01T12:00:00Z"):
+        lot = declare_lender_deposit(_deposit_command(admin_user, investor)).balance_lot
+        _approve_financial_access(investor)
+    with freeze_time("2026-01-10T12:00:00Z"):
+        withdrawal = request_investor_withdrawal(
+            RequestInvestorWithdrawalCommand(
+                actor=investor,
+                amount_minor=60_00,
+                currency="CHF",
+                destination_iban="CH9300762011623852957",
+                destination_account_name="Ledger Investor",
+                idempotency_key="historical-withdrawal",
+                **_sensitive_code_payload(investor, "withdrawal"),
+            )
+        )
+    with freeze_time("2026-01-12T12:00:00Z"):
+        cancel_investor_withdrawal(
+            CancelInvestorWithdrawalCommand(
+                actor=admin_user,
+                withdrawal_request_id=str(withdrawal.pk),
+                reason="Incorrect destination before external payout.",
+                idempotency_key="historical-cancel",
+            )
+        )
+    lot.refresh_from_db()
+    assert lot.available_amount_minor == 100_00
+    for day, available, withdrawn in ((9, 100_00, 0), (11, 40_00, 60_00), (13, 100_00, 0)):
+        state = balance_lot_amounts_as_of(lots=[lot], as_of=_received_at(date(2026, 1, day)))[
+            str(lot.pk)
+        ]
+        assert (state["available_amount_minor"], state["withdrawn_amount_minor"]) == (
+            available,
+            withdrawn,
+        )
+
+
+@pytest.mark.django_db
+def test_historical_balance_excludes_later_penalty_charges(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    with freeze_time("2026-01-01T12:00:00Z"):
+        deposit = declare_lender_deposit(_deposit_command(admin_user, investor))
+        _disable_deposit_payout_instruction(deposit)
+    for day in (2, 3):
+        with freeze_time(f"2026-03-{day:02d}T12:00:00Z"):
+            run_balance_ageing_scan(
+                RunBalanceAgeingScanCommand(
+                    actor=admin_user, as_of=_received_at(date(2026, 3, day))
+                )
+            )
+    lot = InvestorBalanceLot.objects.get(pk=deposit.balance_lot.pk)
+    assert lot.available_amount_minor == 98_00
+    for day, available, penalized, status in (
+        (1, 100_00, 0, BalanceLotStatus.AVAILABLE),
+        (2, 99_00, 1_00, BalanceLotStatus.PENALTY_MODE),
+        (3, 98_00, 2_00, BalanceLotStatus.PENALTY_MODE),
+    ):
+        state = balance_lot_amounts_as_of(lots=[lot], as_of=_received_at(date(2026, 3, day)))[
+            str(lot.pk)
+        ]
+        assert (
+            state["available_amount_minor"],
+            state["penalized_amount_minor"],
+            state["status"],
+        ) == (available, penalized, status)
+
+
+@pytest.mark.django_db
 def test_lender_deposit_posts_double_entry_and_creates_balance_lot(
     admin_user: Model,
     investor: Model,
@@ -398,7 +552,7 @@ def test_lender_deposit_posts_double_entry_and_creates_balance_lot(
     assert result.balance_lot.original_amount_minor == 100_00
     assert result.balance_lot.available_amount_minor == 100_00
     assert result.balance_lot.received_at == _received_at(date(2026, 1, 1))
-    assert result.balance_lot.investment_deadline_at == _received_at(date(2026, 1, 31))
+    assert result.balance_lot.investment_deadline_at == result.balance_lot.withdrawal_deadline_at
     assert result.balance_lot.withdrawal_deadline_at == _received_at(date(2026, 3, 2))
     assert [(posting.side, posting.amount_minor) for posting in postings] == [
         ("credit", 100_00),
@@ -550,7 +704,7 @@ def test_lender_deposit_returns_existing_result_after_idempotency_race(
 
 
 @pytest.mark.django_db
-def test_balance_summary_classifies_30_and_60_day_ageing(
+def test_balance_summary_remains_potentially_investable_until_holding_deadline(
     admin_user: Model,
     investor: Model,
 ) -> None:
@@ -574,8 +728,8 @@ def test_balance_summary_classifies_30_and_60_day_ageing(
 
     assert day_10.investable_minor == 100_00
     assert day_10.withdraw_only_minor == 0
-    assert day_31.investable_minor == 0
-    assert day_31.withdraw_only_minor == 100_00
+    assert day_31.investable_minor == 100_00
+    assert day_31.withdraw_only_minor == 0
     assert day_61.withdraw_only_minor == 0
     assert day_61.overdue_minor == 100_00
 
@@ -629,7 +783,7 @@ def test_terminal_balance_lot_status_requires_zero_available_amount(
 
 
 @pytest.mark.django_db
-def test_investment_consumption_plan_uses_fifo_and_pledge_deadline(
+def test_investment_consumption_plan_uses_fifo_and_remaining_funding_window(
     admin_user: Model,
     investor: Model,
 ) -> None:
@@ -673,16 +827,53 @@ def test_investment_consumption_plan_uses_fifo_and_pledge_deadline(
     )
 
     assert [(line.lot_id, line.amount_minor) for line in post_first_deadline_plan] == [
-        (str(second.balance_lot.id), 100_00),
+        (str(first.balance_lot.id), 100_00),
     ]
     with pytest.raises(LedgerValidationError):
         plan_investment_balance_consumption(
             investor_user_id=str(investor.pk),
             currency="CHF",
             amount_minor=150_00,
-            loan_funding_deadline=date(2026, 2, 5),
+            loan_funding_deadline=date(2026, 3, 2),
             as_of=_received_at(date(2026, 2, 1)),
         )
+
+
+@pytest.mark.django_db
+def test_reservation_skips_old_sources_for_long_windows_and_preserves_failed_attempt(
+    admin_user: Model, investor: Model,
+) -> None:
+    first = declare_lender_deposit(_deposit_command(
+        admin_user, investor, value_date=date(2026, 1, 1), idempotency_key="window-old"
+    )).balance_lot
+    newer = declare_lender_deposit(_deposit_command(
+        admin_user, investor, value_date=date(2026, 2, 1), idempotency_key="window-new"
+    )).balance_lot
+    InvestorBalanceLot.objects.filter(pk=first.pk).update(
+        investment_deadline_at=_received_at(date(2026, 1, 31))
+    )
+    as_of = _received_at(date(2026, 2, 15))
+    short = plan_investment_balance_consumption(
+        investor_user_id=str(investor.pk), currency="CHF", amount_minor=100_00,
+        loan_funding_deadline=date(2026, 3, 1), as_of=as_of,
+    )
+    assert short[0].lot_id == str(first.pk)
+    command = ReserveInvestmentBalanceCommand(
+        actor=admin_user, investor_user_id=str(investor.pk), loan_id=str(uuid.uuid4()),
+        amount_minor=150_00, currency="CHF", loan_funding_deadline=date(2026, 3, 16),
+        source_type="test_window", source_id="long", idempotency_key="window-too-large",
+        as_of=as_of,
+    )
+    with pytest.raises(LedgerValidationError, match="funding window"):
+        reserve_investor_balance_for_investment(command)
+    newer.refresh_from_db()
+    assert newer.available_amount_minor == 100_00
+    reserved = reserve_investor_balance_for_investment(replace(
+        command, amount_minor=100_00, idempotency_key="window-long"
+    ))
+    assert reserved.lot_allocations[0]["lot_id"] == str(newer.pk)
+    first.refresh_from_db()
+    assert first.available_amount_minor == 100_00
 
 
 @pytest.mark.django_db

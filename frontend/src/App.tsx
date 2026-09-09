@@ -868,13 +868,14 @@ function fundingDeadlineLabel(deadline: string, asOf?: string) {
 
 function currentInvestableLotsForLoanCurrency(
   lots: BalanceLot[] | undefined,
-  loan: Pick<MarketplaceLoanPreview, "currency">
+  loan: Pick<MarketplaceLoanPreview, "currency" | "funding_deadline">
 ) {
   return (lots ?? []).filter(
     (lot) =>
       lot.currency === loan.currency &&
       lot.status === "available" &&
       lot.bucket === "investable" &&
+      (!loan.funding_deadline || loan.funding_deadline < zurichDateKey(new Date(lot.withdrawal_deadline_at))) &&
       lot.available_amount_minor > 0
   );
 }
@@ -2521,28 +2522,12 @@ function Dashboard({
 
   const deskMatches = (smartInvest?.matches ?? []).filter((match) => match.currency === ccy);
   const deskTickable = deskMatches.filter(isOpenMarketplaceLoan);
-  // Equal split, but a loan whose minimum the split cannot reach is dropped and
-  // the remaining balance is re-split until every ticked loan is affordable.
-  let deskTicked = idleMinor > 0 ? deskTickable.filter((match) => !unticked[match.loan_id]) : [];
-  for (;;) {
-    if (deskTicked.length === 0) break;
-    const per = Math.floor(idleMinor / deskTicked.length);
-    const affordable = deskTicked.filter(
-      (match) => Math.min(per, marketplaceAvailableMinor(match)) >= match.minimum_investment_minor
-    );
-    if (affordable.length === deskTicked.length) break;
-    deskTicked = affordable;
-  }
+  const deskPlan = allocationPlan(deskTickable, unticked, new Map([[ccy, idleMinor]]), balances.lots);
+  const deskTicked = deskTickable.filter((match) => deskPlan.ticked.has(match.loan_id));
   const deskAffordableIds = new Set(deskTicked.map((match) => match.loan_id));
   const deskUnaffordable = (match: MarketplaceLoanPreview) =>
     !deskAffordableIds.has(match.loan_id) && !unticked[match.loan_id];
-  const deskSplit = new Map<string, number>();
-  if (deskTicked.length > 0) {
-    const per = Math.floor(idleMinor / deskTicked.length);
-    for (const match of deskTicked) {
-      deskSplit.set(match.loan_id, Math.max(0, Math.min(per, marketplaceAvailableMinor(match))));
-    }
-  }
+  const deskSplit = deskPlan.split;
   const deskItems = deskTicked
     .map((match) => ({ match, amountMinor: deskSplit.get(match.loan_id) ?? 0 }));
   const deskBatchReady = deskItems.length > 0;
@@ -2678,9 +2663,9 @@ function Dashboard({
                 const unaffordable = tickable && deskUnaffordable(match);
                 const ticked = tickable && deskAffordableIds.has(match.loan_id);
                 const amount = deskSplit.get(match.loan_id) ?? 0;
-                const affordNote = idleMinor <= 0
+                const affordNote = deskPlan.blocked.get(match.loan_id) ?? (idleMinor <= 0
                   ? `You have no investable ${ccy} balance, so nothing can be committed to this loan yet.`
-                  : `Splitting your ${pfMoneyLabel(ccy, idleMinor)} across the ticked loans leaves less than this loan's minimum investment of ${pfMoneyLabel(ccy, match.minimum_investment_minor)}.`;
+                  : `Splitting your ${pfMoneyLabel(ccy, idleMinor)} across the ticked loans leaves less than this loan's minimum investment of ${pfMoneyLabel(ccy, match.minimum_investment_minor)}.`);
                 return (
                   <div className="dz-desk-row" key={match.loan_id}>
                     {!tickable ? (
@@ -2919,7 +2904,8 @@ type BatchPreparedQuote = Pick<
 function allocationPlan(
   matches: AllocMatch[],
   untickedIds: Record<string, boolean>,
-  allocByCcy: Map<string, number>
+  allocByCcy: Map<string, number>,
+  lots: BalanceLot[] | undefined
 ): AllocPlan {
   const ticked = new Set<string>();
   const split = new Map<string, number>();
@@ -2929,20 +2915,44 @@ function allocationPlan(
   for (const currency of currencies) {
     const alloc = allocByCcy.get(currency) ?? 0;
     const pool = matches.filter((match) => match.currency === currency);
+    const splitSources = (selected: AllocMatch[]) => {
+      const remaining = new Map((lots ?? []).map((lot) => [lot.id, lot.available_amount_minor]));
+      const amounts = new Map<string, number>();
+      const per = selected.length > 0 ? Math.floor(alloc / selected.length) : 0;
+      // Long windows have fewer eligible sources; allocate those first, as on the server.
+      const ordered = [...selected].sort((a, b) =>
+        (b.funding_deadline ?? "").localeCompare(a.funding_deadline ?? "") || a.loan_id.localeCompare(b.loan_id)
+      );
+      for (const match of ordered) {
+        let needed = Math.min(per, marketplaceAvailableMinor(match));
+        let assigned = 0;
+        const eligible = currentInvestableLotsForLoanCurrency(lots, match).sort((a, b) =>
+          a.received_at.localeCompare(b.received_at) || a.id.localeCompare(b.id)
+        );
+        for (const lot of eligible) {
+          const amount = Math.min(needed, remaining.get(lot.id) ?? 0);
+          remaining.set(lot.id, (remaining.get(lot.id) ?? 0) - amount);
+          needed -= amount;
+          assigned += amount;
+        }
+        amounts.set(match.loan_id, assigned);
+      }
+      return amounts;
+    };
     let selected = alloc > 0 ? pool.filter((match) => !untickedIds[match.loan_id]) : [];
     for (;;) {
       if (selected.length === 0) break;
-      const per = Math.floor(alloc / selected.length);
+      const amounts = splitSources(selected);
       const affordable = selected.filter(
-        (match) => Math.min(per, marketplaceAvailableMinor(match)) >= match.minimum_investment_minor
+        (match) => (amounts.get(match.loan_id) ?? 0) >= match.minimum_investment_minor
       );
       if (affordable.length === selected.length) break;
       selected = affordable;
     }
     let total = 0;
-    const per = selected.length > 0 ? Math.floor(alloc / selected.length) : 0;
+    const amounts = splitSources(selected);
     for (const match of selected) {
-      const amount = Math.max(0, Math.min(per, marketplaceAvailableMinor(match)));
+      const amount = amounts.get(match.loan_id) ?? 0;
       ticked.add(match.loan_id);
       split.set(match.loan_id, amount);
       total += amount;
@@ -2950,15 +2960,21 @@ function allocationPlan(
     totals.set(currency, total);
     for (const match of pool) {
       if (ticked.has(match.loan_id)) continue;
+      if (sumLotAvailableMinor(currentInvestableLotsForLoanCurrency(lots, match)) < match.minimum_investment_minor) {
+        blocked.set(match.loan_id,
+          `Your eligible ${currency} sources cannot cover this loan's remaining funding period at its minimum investment. Use newer funds or choose a shorter funding window.`
+        );
+        continue;
+      }
       if (untickedIds[match.loan_id]) {
         // Manually unticked: disabled only if re-ticking could never reach its minimum.
         const withIt = [...selected, match];
         let test = withIt;
         for (;;) {
           if (test.length === 0) break;
-          const perTest = Math.floor(alloc / test.length);
+          const testAmounts = splitSources(test);
           const ok = test.filter(
-            (candidate) => Math.min(perTest, marketplaceAvailableMinor(candidate)) >= candidate.minimum_investment_minor
+            (candidate) => (testAmounts.get(candidate.loan_id) ?? 0) >= candidate.minimum_investment_minor
           );
           if (ok.length === test.length) break;
           test = ok;
@@ -3078,7 +3094,7 @@ function ApproveAllocationModal({
       allocByCcy.set(currency, Math.min(investable, Math.max(0, parsed.amountMinor)));
     }
   }
-  const plan = allocationPlan(tickable, unticked, allocByCcy);
+  const plan = allocationPlan(tickable, unticked, allocByCcy, balances?.lots);
   const items = tickable
     .filter((match) => plan.ticked.has(match.loan_id))
     .map((match) => ({ match, amountMinor: plan.split.get(match.loan_id) ?? 0 }));
@@ -3226,7 +3242,7 @@ function ApproveAllocationModal({
               <h2 className="aa-title">Every selected investment is in.</h2>
               <p className="aa-done-text">
                 {allocCommitLabel(reviewTotals)} committed across {selectedCount === 1 ? "1 loan" : `${selectedCount} loans`}.
-                {reservedOrderCount > 0 ? ` ${reservedOrderCount === 1 ? "One order reserves" : `${reservedOrderCount} orders reserve`} balance until the applicable funding round closes and completes its activation controls.` : ""}
+                {reservedOrderCount > 0 ? ` ${reservedOrderCount === 1 ? "One order reserves" : `${reservedOrderCount} orders reserve`} balance until the applicable funding round closes.` : ""}
                 {immediateClaimCount > 0 ? ` ${immediateClaimCount === 1 ? "One legacy Loan Originator claim was" : `${immediateClaimCount} legacy Loan Originator claims were`} purchased immediately at the reviewed prices.` : ""}
               </p>
             </div>
@@ -4090,12 +4106,12 @@ function MarketplaceScreen({
         <div>
           <span className="marketplace-process-number">02</span>
           <strong>Confirm the applicable investment flow</strong>
-          <p>Current opportunities reserve eligible balance during funding. A Loan Originator subscription buys principal at par and activates only after its boundary payment is verified.</p>
+          <p>Current opportunities reserve eligible balance during funding. A Loan Originator subscription buys principal at par and activates automatically when funding closes.</p>
         </div>
         <div>
           <span className="marketplace-process-number">03</span>
           <strong>Your portfolio records the legal claim</strong>
-          <p>Direct-loan holdings start at funding close. Loan Originator subscription holdings start after the first post-funding installment is paid to the originator and activation controls pass.</p>
+          <p>Holdings start at funding close. For Loan Originator loans, the first post-funding installment belongs entirely to the LO; investors participate in subsequent installments.</p>
         </div>
         <button className="marketplace-process-help" onClick={() => setShowOrderGuide(true)} type="button">
           Full order explanation <Icon name="chevR" size={14} />
@@ -4112,8 +4128,8 @@ function MarketplaceScreen({
           <div className="marketplace-order-guide">
             <div><span>1</span><p><strong>You submit an order.</strong> It records the amount you want to invest, but a pending order does not reserve loan capacity.</p></div>
             <div><span>2</span><p><strong>BANXUM validates eligible balance.</strong> Allocation is first come, first served and remains subject to your balance-lot investment window and the loan's remaining capacity.</p></div>
-            <div><span>3</span><p><strong>Allocated money is reserved.</strong> A direct loan becomes a holding at funding close. A Loan Originator subscription remains reserved until the first post-funding installment is verified and the subscription activates.</p></div>
-            <div><span>4</span><p><strong>If activation does not proceed, the reservation is released.</strong> The amount returns to your platform balance and keeps its original regulatory ageing deadlines.</p></div>
+            <div><span>3</span><p><strong>Allocated money is reserved until funding closes.</strong> Direct and Loan Originator orders become holdings at funding close. The LO's boundary installment is excluded from investor payments.</p></div>
+            <div><span>4</span><p><strong>If the funding round is cancelled, the reservation is released.</strong> The amount returns to your platform balance and keeps its original regulatory ageing deadlines. An operational close failure keeps funds reserved while BANXUM resolves it.</p></div>
           </div>
           <Banner tone="neutral" title="Minimum order">
             The launch minimum is CHF/EUR 1,000 per order. The backend confirms eligibility, capacity, terms acceptance and the fresh email code before allocation.
@@ -4483,7 +4499,7 @@ function SmartInvestScreen({
   const matchTickable = data.matches.filter((match) =>
     isOpenMarketplaceLoan(match as unknown as MarketplaceLoanPreview)
   ) as unknown as MarketplaceLoanPreview[];
-  const matchPlan = allocationPlan(matchTickable, matchUnticked, matchAllocByCcy);
+  const matchPlan = allocationPlan(matchTickable, matchUnticked, matchAllocByCcy, balances?.lots);
 
   return (
     <main className="content smart-invest-page">
@@ -4897,10 +4913,10 @@ function MarketplaceLoanSheet({
               <div className="os-card">
                 <div className="os-cap">Loan Originator subscription terms</div>
                 <div className="os-text">
-                  Every {ccy} 1.00 reserved buys {ccy} 1.00 of outstanding principal at activation.
+                  Every {ccy} 1.00 reserved buys {ccy} 1.00 of post-boundary principal at funding close.
                   No investor interest accrues during funding. The first installment after the funding
-                  deadline belongs entirely to the Loan Originator; investor entitlement starts only
-                  after that payment is verified and the subscription is activated.
+                  deadline belongs entirely to the Loan Originator. Your holding activates automatically
+                  at funding close; investor entitlements cover only installments after that boundary date.
                 </div>
                 <div className="os-kv"><span className="os-kv-lbl">Underlying borrower coupon</span><span className="os-kv-dots" /><span className="os-kv-val">{formatRateBps(loan.underlying_interest_rate_bps)}</span></div>
                 <div className="os-kv"><span className="os-kv-lbl">Your share of attributable interest</span><span className="os-kv-dots" /><span className="os-kv-val">{formatRateBps(loan.investor_interest_participation_bps ?? 0)}</span></div>
@@ -4939,7 +4955,7 @@ function MarketplaceLoanSheet({
                 <div className="os-window-line"><span className="os-window-sub"><strong>{pct}%</strong> reserved · {pfMoneyLabel(ccy, availableMinor)} available at par</span></div>
                 <div className="os-strip met">
                   <span className="os-strip-lead">Reserved, then activated</span>
-                  <span className="os-strip-text">Your money remains reserved after this round closes. It becomes an investor holding only after BANXUM verifies the boundary installment and activates the subscription. If activation cannot proceed, an admin cancels the round and returns the reserved balance with its original ageing dates.</span>
+                  <span className="os-strip-text">Your money becomes an active investment automatically when this round closes. The boundary installment belongs entirely to the LO; your schedule starts afterward. If the round is cancelled before close, your reserved balance returns with its original ageing dates.</span>
                 </div>
               </div>
             ) : (
@@ -5280,7 +5296,7 @@ function LoanDetailScreen({
                 )}
                 <p className="muted" style={{ fontSize: 11, lineHeight: 1.5, marginTop: 10 }}>
                   {subscriptionClaim
-                    ? "The order reserves balance at par. No interest accrues during funding; the holding starts only after the boundary installment is verified and BANXUM activates the subscription."
+                    ? "The order reserves balance at par and becomes a holding automatically at funding close. No interest accrues during funding; the boundary installment belongs entirely to the LO."
                     : originatorClaim
                     ? "BANXUM generates an executable quote from the remaining borrower cash flows. A confirmed purchase assigns the legal claim immediately."
                     : "Orders are intents and do not reserve capacity until funds are allocated and validated."}
@@ -5412,7 +5428,7 @@ function OriginatorClaimLoanSection({ loan }: { loan: MarketplaceLoanDetail }) {
       </div>
       <p className="muted" style={{ fontSize: 12, lineHeight: 1.5, maxWidth: 760 }}>
         {subscriptionClaim
-          ? "The Loan Originator retains the unsold principal. Your order reserves cash at par during the funding round. Investor entitlement starts only after the first post-funding installment is paid entirely to the originator and BANXUM verifies the activation evidence."
+          ? "The Loan Originator retains the unsold principal. Your order reserves cash at par during funding and activates automatically at funding close. The first post-funding installment belongs entirely to the LO. You participate in subsequent payments under the declared interest and penalty percentages."
           : "The Loan Originator owns the unsold claim. A legacy purchase assigns part of the final-borrower claim immediately. The yield shown by BANXUM is the effective annual ACT/365 yield priced from the remaining cash flows; it is distinct from the borrower coupon."}
       </p>
       <dl className="kv" style={{ marginTop: 10 }}>
@@ -5429,7 +5445,7 @@ function OriginatorClaimLoanSection({ loan }: { loan: MarketplaceLoanDetail }) {
       </dl>
       {subscriptionClaim ? (
         <Banner tone="info" title="No funding-period interest">
-          The boundary installment is excluded from investor entitlement. After activation, principal
+          The boundary installment is excluded from investor entitlement. For subsequent installments, principal
           follows the imported loan schedule; interest and penalties are distributed using the declared
           participation percentages. Unsold rights remain with the Loan Originator.
         </Banner>
@@ -5722,7 +5738,7 @@ function BalancesScreen({ demoState }: { demoState: DemoAccountState }) {
   if (!summary) {
     return (
       <main className="content">
-        <div className="page-head"><div><h1>Balances</h1><div className="ph-sub">Funds are non-interest-bearing and subject to 30/60-day regulatory ageing rules.</div></div></div>
+        <div className="page-head"><div><h1>Balances</h1><div className="ph-sub">Funds are non-interest-bearing and subject to a 60-day holding limit.</div></div></div>
         <Card><Empty icon="balance" title="No balances yet">Deposits, repayments, recoveries, FX proceeds, and sale proceeds will appear here after reconciliation.</Empty></Card>
       </main>
     );
@@ -5733,7 +5749,7 @@ function BalancesScreen({ demoState }: { demoState: DemoAccountState }) {
       <div className="page-head">
         <div>
           <h1>Balances</h1>
-          <div className="ph-sub">Funds are non-interest-bearing and subject to 30/60-day regulatory ageing rules.</div>
+          <div className="ph-sub">Funds are non-interest-bearing and subject to a 60-day holding limit.</div>
         </div>
         <Segmented options={[{ value: "CHF", label: "CHF" }, { value: "EUR", label: "EUR" }]} value={currency} onChange={setCurrency} />
       </div>
@@ -5746,7 +5762,7 @@ function BalancesScreen({ demoState }: { demoState: DemoAccountState }) {
         </div>
       ) : null}
       <div className="grid grid-4" style={{ marginBottom: 16 }}>
-        <BucketTile label="Investable" value={summary.investable_minor} currency={currency} tone="ok" sub="Within 30-day window" />
+        <BucketTile label="Potentially investable" value={summary.investable_minor} currency={currency} tone="ok" sub="Depends on the loan funding window" />
         <BucketTile label="Withdraw-only" value={summary.withdraw_only_minor} currency={currency} tone="warn" sub="Investment window closed" />
         <BucketTile label="Overdue" value={summary.overdue_minor} currency={currency} tone="warn" sub="Withdraw before day 60" />
         <BucketTile label="Penalty/frozen" value={frozen ? summary.overdue_minor : summary.penalty_mode_minor + summary.frozen_minor} currency={currency} tone={frozen ? "bad" : "neutral"} sub={frozen ? "IBAN required" : "None"} />
@@ -5760,9 +5776,9 @@ function BalancesScreen({ demoState }: { demoState: DemoAccountState }) {
         <div className="row gap-12" style={{ alignItems: "flex-start" }}>
           <Icon name="info" size={18} />
           <p className="muted-2" style={{ fontSize: 12.5, lineHeight: 1.6 }}>
-            Every incoming amount is a lot with its own clock. You have 30 days to invest/reinvest
-            a lot and 60 days to withdraw it. Lots are consumed oldest-first. FX conversion does not
-            reset the clock; converted funds inherit the source lot deadlines.
+            Every incoming amount has a 60-day holding limit. To invest, that amount must have
+            enough time left to cover the loan's remaining funding period. Shorter periods can use
+            older funds. Eligible lots are consumed oldest-first. FX conversion does not reset this limit.
           </p>
         </div>
       </Card>
@@ -5822,7 +5838,7 @@ function BalanceLotsTable({ lots, frozen }: { lots: BalanceLot[]; frozen: boolea
                   <td style={{ minWidth: 150 }}>
                     <DeadlineMeter daysUntilWithdrawal={lot.days_until_withdrawal_deadline} />
                     <div className="row spread muted" style={{ fontSize: 10.5, marginTop: 4 }}>
-                      <span>{lot.days_until_investment_deadline > 0 ? `${lot.days_until_investment_deadline}d to invest` : "Invest window closed"}</span>
+                      <span>{lot.days_until_withdrawal_deadline > 0 ? `${lot.days_until_withdrawal_deadline}d holding time left` : "Holding deadline reached"}</span>
                       <span>{lot.days_until_withdrawal_deadline}d to withdraw</span>
                     </div>
                   </td>
@@ -5925,7 +5941,7 @@ function DepositModal({
               BANXUM account.
             </span>
           </div>
-          <p className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>A new balance lot is created on the bank value date and starts its 30/60-day clock.</p>
+          <p className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>The bank value date starts the new balance lot's 60-day holding period.</p>
           <p className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>{payload.reference_rule}</p>
         </div>
       </div>
@@ -6374,8 +6390,8 @@ function FxScreen({ demoState }: { demoState: DemoAccountState }) {
           <div className="fx-cta-line">
             <span className="fx-cta-copy">
               {preview
-                ? `Converting makes ${fxMoneyLabel(to, preview.target_amount_minor)} available in your ${to} balance. Converted money keeps the earliest deadline of the funds it came from — FX never resets the 30/60-day clock.`
-                : "Converted money keeps the earliest deadline of the funds it came from — FX never resets the 30/60-day clock."}
+                ? `Converting makes ${fxMoneyLabel(to, preview.target_amount_minor)} available in your ${to} balance. Converted money keeps the earliest deadline of the funds it came from — FX never resets the 60-day holding clock.`
+                : "Converted money keeps the earliest deadline of the funds it came from — FX never resets the 60-day holding clock."}
             </span>
             <button
               className="fx-convert-btn"
@@ -6531,7 +6547,7 @@ function FxConfirmModal({ from, to, sourceMinor, targetMinor, feeMinor, rate, qu
     return (
       <Modal footer={<Button variant="primary" onClick={onClose}>Done</Button>} onClose={onClose} title="Exchange settled">
         <SuccessState title={`${to} ${formatMoneyMinor(targetMinor, to)} credited`}>
-          The new {to} lot inherits the deadline of the consumed source lots. FX does not reset the 30/60-day timer.
+          The new {to} lot inherits the deadline of the consumed source lots. FX does not reset the 60-day holding clock.
         </SuccessState>
       </Modal>
     );
@@ -6556,7 +6572,7 @@ function FxConfirmModal({ from, to, sourceMinor, targetMinor, feeMinor, rate, qu
           onRequest={codeRequest.requestCode}
         />
         {quote?.expires_at ? <p className="muted" style={{ fontSize: 11.5 }}>Quote expires {formatDateTime(quote.expires_at)}.</p> : null}
-        <Banner tone="warn" title="Inherited ageing deadline">The target balance inherits the earliest consumed source-lot deadline. It does not start a fresh 30/60-day window.</Banner>
+        <Banner tone="warn" title="Inherited ageing deadline">The target balance inherits the earliest consumed source-lot deadline. It does not start a fresh 60-day holding period.</Banner>
         <Check checked={ack} id="fx-ack" onChange={setAck}>I accept the currency-exchange terms and understand the rate, fee and inherited deadline.</Check>
         {codeRequest.error || error ? <Banner tone="bad" title="Could not execute FX">{codeRequest.error || error}</Banner> : null}
       </div>
@@ -9635,7 +9651,7 @@ const faqSections: FaqSection[] = [
   },
   {
     title: "Balances and deadlines",
-    summary: "Operational balances are controlled by 30-day and 60-day regulatory ageing rules.",
+    summary: "Uninvested funds have a 60-day holding limit. Investment eligibility depends on the loan funding window.",
     items: [
       {
         question: "How do I add funds?",
@@ -9662,9 +9678,10 @@ const faqSections: FaqSection[] = [
         question: "How long can money remain uninvested?",
         answer: (
           <>
-            Newly received funds are investable for 30 days. After day 30 they become withdraw-only, and by
-            day 60 they must leave the platform — either through your own withdrawal or the platform's return
-            process.
+            Funds must cover the full remaining funding period of the loan you choose, within their
+            original 60-day holding limit. For example, a 30-day remaining subscription window needs
+            at least 30 days of holding time left; a 10-day window needs 10. Uninvested funds must be
+            returned by the holding deadline. Exchanging currency does not restart this clock.
           </>
         )
       },
@@ -9784,7 +9801,7 @@ const faqSections: FaqSection[] = [
         answer: (
           <>
             No. FX is a settlement function, not a way to restart deadlines. Converted balance inherits the
-            deadlines of the funds you converted — it never receives a fresh 30/60-day timer.
+            deadlines of the funds you converted — it never receives a fresh 60-day holding period.
           </>
         )
       }
@@ -10193,7 +10210,7 @@ function OriginatorClaimInvestModal({ loan, onClose, initialAmount }: { loan: Ma
             BANXUM prices the remaining cash flows to the displayed yield and assigns the purchased claim immediately.
           </Banner>
           <div className="row spread"><span className="muted">Investable {loan.currency} balance</span><span className="mono col-strong">{loan.currency} {formatMoneyMinor(investableBalanceMinor, loan.currency)}</span></div>
-          {investableBalanceMinor === 0 ? <Banner tone="bad" title="No investable balance">Deposit fresh funds or use balance still inside its 30-day investment window.</Banner> : null}
+          {investableBalanceMinor === 0 ? <Banner tone="bad" title="No eligible balance for this loan">Use funds whose holding time covers this loan's remaining funding period, or choose a shorter funding window.</Banner> : null}
           <Field error={amountError} hint={`Minimum ${loan.currency} ${formatMoneyMinor(loan.minimum_investment_minor, loan.currency)} · up to ${loan.currency} ${formatMoneyMinor(maxInvest, loan.currency)}`} label="Cash amount to invest">
             <div className="input-affix"><span className="prefix">{loan.currency}</span><input className="input mono" inputMode="decimal" onChange={(event) => setAmount(event.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" style={{ paddingLeft: 44 }} value={amount} /></div>
           </Field>
@@ -10353,7 +10370,7 @@ function InvestModal({ loan, onClose, initialAmount }: { loan: MarketplaceLoanDe
           <div className="row spread"><span className="muted">Investable {loan.currency} balance</span><span className="mono col-strong">{loan.currency} {formatMoneyMinor(investableBalanceMinor, loan.currency)}</span></div>
           {investableBalanceMinor === 0 ? (
             <Banner tone="bad" title="No investable balance">
-              Deposit fresh funds or use balance that is still inside its 30-day investment window.
+              Use funds whose holding time covers this loan's remaining funding period, or choose a shorter funding window.
             </Banner>
           ) : null}
           <Field error={amountError} hint={`Between ${loan.currency} ${formatMoneyMinor(loan.minimum_investment_minor, loan.currency)} and ${formatMoneyMinor(maxInvest, loan.currency)}`} label="Investment amount">
@@ -10361,7 +10378,7 @@ function InvestModal({ loan, onClose, initialAmount }: { loan: MarketplaceLoanDe
           </Field>
           <Banner tone="neutral" title={subscriptionClaim ? "Subscription at par" : "Allocation"}>
             {subscriptionClaim
-              ? `Every ${loan.currency} 1.00 reserves the right to receive ${loan.currency} 1.00 of outstanding principal after activation. No interest accrues during funding, and the boundary installment belongs to the Loan Originator.`
+              ? `Every ${loan.currency} 1.00 buys ${loan.currency} 1.00 of post-boundary principal when funding closes. Holdings activate automatically. No interest accrues during funding, and the boundary installment belongs entirely to the Loan Originator.`
               : "Orders are intents only. They become effective after funds are allocated and validated, first-come first-served."}
           </Banner>
         </div>
@@ -10371,7 +10388,7 @@ function InvestModal({ loan, onClose, initialAmount }: { loan: MarketplaceLoanDe
             { label: "Loan", value: <span className="entity-inline"><span>{loan.title}</span><CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" /></span> },
             ...(subscriptionClaim && loan.originator_name ? [{ label: "Loan Originator", value: loan.originator_name }] : []),
             { label: "Order amount", value: `${loan.currency} ${formatMoneyMinor(amountMinor, loan.currency)}` },
-            { label: subscriptionClaim ? "Principal acquired at activation" : "Investment amount", value: `${loan.currency} ${formatMoneyMinor(amountMinor, loan.currency)}` },
+            { label: subscriptionClaim ? "Principal acquired at funding close" : "Investment amount", value: `${loan.currency} ${formatMoneyMinor(amountMinor, loan.currency)}` },
             { label: subscriptionClaim ? "Nominal investor interest rate" : "Yield", value: `${formatRateBps(marketplaceYieldBps(loan))} p.a.` },
             ...(subscriptionClaim ? [
               { label: "Underlying borrower coupon", value: `${formatRateBps(loan.underlying_interest_rate_bps)} p.a.` },
@@ -10425,7 +10442,7 @@ function InvestModal({ loan, onClose, initialAmount }: { loan: MarketplaceLoanDe
       ) : (
         <SuccessState title="Order placed">
           {subscriptionClaim
-            ? "Your balance is reserved for the Loan Originator funding round. It becomes a holding only after the boundary installment is verified and BANXUM activates the subscription; otherwise the reservation is returned."
+            ? "Your balance is reserved for the Loan Originator funding round and becomes an active holding automatically at funding close. The boundary installment belongs entirely to the LO. Reservations are returned if the round is cancelled before close."
             : "Your order is pending allocation. Investment evidence will be added to Documents when generated."}
         </SuccessState>
       )}

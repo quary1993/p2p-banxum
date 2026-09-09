@@ -34,6 +34,11 @@ from backend.apps.loans.models import (
     RiskRating,
 )
 from backend.apps.platform_core.domain.access import actor_ref_for_user, is_admin_actor
+from backend.apps.platform_core.domain.funding import (
+    DEFAULT_FUNDING_PERIOD_DAYS,
+    MAX_FUNDING_PERIOD_DAYS,
+    latest_funding_deadline,
+)
 from backend.apps.platform_core.domain.money import Money, normalize_currency
 from backend.apps.platform_core.domain.payment_waterfall import PAYMENT_WATERFALL_VERSION
 from backend.apps.platform_core.domain.time import business_date, now_utc
@@ -58,9 +63,9 @@ MIN_PRINCIPAL_MAJOR = 1_000
 MAX_PRINCIPAL_MAJOR = 1_000_000_000
 MIN_TERM_MONTHS = 1
 MAX_TERM_MONTHS = 600
-MAX_FUNDING_DEADLINE_DAYS = 60
-MAX_PUBLISHABLE_FUNDING_DEADLINE_DAYS = 29
-DEFAULT_FUNDING_DEADLINE_DAYS = MAX_PUBLISHABLE_FUNDING_DEADLINE_DAYS
+MAX_FUNDING_DEADLINE_DAYS = MAX_FUNDING_PERIOD_DAYS - 1
+MAX_PUBLISHABLE_FUNDING_DEADLINE_DAYS = MAX_FUNDING_DEADLINE_DAYS
+DEFAULT_FUNDING_DEADLINE_DAYS = DEFAULT_FUNDING_PERIOD_DAYS - 1
 MAX_RATE_BPS = 100_000
 MAX_FEE_BPS = 10_000
 
@@ -301,7 +306,9 @@ def _resolve_funding_deadline(value: date | None) -> date:
     if deadline < today:
         raise LoanValidationError("Funding deadline cannot be in the past.")
     if (deadline - today).days > MAX_FUNDING_DEADLINE_DAYS:
-        raise LoanValidationError("Funding deadline cannot be more than 60 days from today.")
+        raise LoanValidationError(
+            "Funding period cannot exceed 50 subscription days, including today."
+        )
     return deadline
 
 
@@ -312,13 +319,12 @@ def _assert_publishable_funding_deadline(funding_deadline: date) -> None:
             "Funding deadline must not be before today's Zurich business date "
             f"({today.isoformat()})."
         )
-    latest_publishable = today + timedelta(days=MAX_PUBLISHABLE_FUNDING_DEADLINE_DAYS)
+    latest_publishable = latest_funding_deadline(today)
     if funding_deadline > latest_publishable:
         raise LoanValidationError(
-            "Funding deadline is too far in the future for balance-funded publication. "
-            f"Use a deadline no later than {latest_publishable.isoformat()} so investor "
-            "funds pledged near the end of their 30-day investment window can still settle "
-            "inside the 60-day operating limit."
+            "Funding period cannot exceed 50 subscription days, including today. "
+            f"Use a deadline no later than {latest_publishable.isoformat()}. "
+            "Each reserved balance source must cover the full remaining funding window."
         )
 
 
@@ -943,6 +949,13 @@ def update_loan(command: UpdateLoanCommand) -> Loan:
         )
 
     if (
+        command.funding_deadline is not None
+        and command.funding_deadline != loan.funding_deadline
+        and loan.status != LoanStatus.DRAFT
+    ):
+        raise LoanValidationError("Funding deadline is frozen at publication.")
+
+    if (
         command.minimum_subscription_bps is not None
         and int(command.minimum_subscription_bps) != int(loan.minimum_subscription_bps)
         and loan.status != LoanStatus.DRAFT
@@ -1314,7 +1327,9 @@ def publish_loan(command: PublishLoanCommand) -> Loan:
     if loan.status != LoanStatus.DRAFT:
         raise LoanValidationError("Only draft loans can be published.")
     if not _borrower_can_transact(cast(Model, loan.borrower)):
-        raise LoanValidationError("Borrower KYB must be approved and free of compliance hold.")
+        raise LoanValidationError(
+            "Borrower has an explicit compliance hold or adverse KYB decision."
+        )
     if loan.funding_deadline is None:
         raise LoanValidationError("Direct loans require a funding deadline before publication.")
     _assert_publishable_funding_deadline(loan.funding_deadline)

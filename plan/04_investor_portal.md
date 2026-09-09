@@ -89,7 +89,7 @@ Investors cannot cancel orders. Pending orders remain open until the loan fundin
 4. Deposit funds to enabled currency collection accounts after KYC approval.
 5. Withdraw available balances to verified bank account.
 6. Use eligible balances for primary-market investments, secondary-market purchases, or currency exchange.
-7. Receive explicit errors when trying to invest/reinvest with balance source entries older than 30 days.
+7. Receive explicit errors when the available source balance cannot cover the selected loan's remaining funding window.
 8. Receive ageing reminders on days 25, 46, 53, 58, 59, and 60 for unconsumed balance source entries.
 9. See day-60 notice that balance is subject to penalties if not withdrawn.
 10. If no usable IBAN is available after day 60, see a blocking banner requiring an IBAN before further financial actions are unlocked, while keeping read-only access to portfolio, documents, tax information statements, notices, and messages.
@@ -105,7 +105,7 @@ Balance funds are non-interest-bearing. Registration-time terms must explain tha
 5. Accept FX terms by checkbox/clickwrap before the executable quote expires, or refresh the quote after expiry.
 6. Submit exchange.
 7. Receive the target-currency balance instantly in the platform.
-8. The target-currency source inherits the 30/60-day ageing deadlines from the consumed source balance. If multiple source entries are consumed, the target entry uses the earliest consumed investment and withdrawal deadlines.
+8. The target-currency source inherits the 60-day holding deadlines from the consumed source balance. If multiple source entries are consumed, the target entry uses the earliest consumed investment and withdrawal deadlines.
 9. See exchange status and ledger entries, including the effective rate net of fees.
 
 FX is an auxiliary settlement function, not a trading or speculative feature. Launch FX fee is 1.5%, configurable by superadmin. Enabled currencies start with CHF and EUR and are configurable by superadmin. Launch FX pairs are CHF/EUR and EUR/CHF only, with more pairs configurable later.
@@ -253,7 +253,7 @@ This text is not final legal wording. It is a generic placeholder for product de
 - Show full loan data only after registration-time KYC/AML approval, subject to final jurisdiction and eligibility restrictions.
 - Block terms/contracts acceptance, deposit instructions, balance access, withdrawal, FX, and investment actions until natural-person lender KYC/AML is valid.
 - Block dashboard, deposit, balance, FX, primary-market, and secondary-market access until registration-time KYC/AML is valid.
-- Block legal-entity lender financial actions until admin-recorded KYB/AML approval is complete and no compliance hold applies.
+- Legal-entity lender financial actions require an active, unrestricted, phone-verified representative. Garanta completes KYB/AML offline; no platform company approval case or evidence upload is required.
 - Use email magic-link login for investor/client portal access at launch.
 - Require mandatory phone verification for natural-person investors at launch.
 - Provide support-facing offline account-access recovery for lost or bouncing email access, using identity re-verification and verified phone/account evidence before admin updates email/login access.
@@ -262,8 +262,8 @@ This text is not final legal wording. It is a generic placeholder for product de
 - Show investor balances by enabled currency.
 - Track balance source entries with received timestamp, source type, remaining amount, reinvestment deadline, withdrawal deadline, and penalty status.
 - Consume balances FIFO within each currency.
-- Block investment/reinvestment from balance source entries older than 30 days.
-- Allow primary-market investment when the source entries are pledged/allocated inside their 30-day investment window, even if the loan funding deadline is later than the source entries' day-30 investment deadline.
+- Block investment when the selected sources cannot cover the loan's remaining funding window.
+- Allow older sources into shorter funding windows when their holding deadlines cover the last inclusive funding date.
 - Show explicit errors and per-currency balance breakdowns for investable, withdraw-required, FX-eligible, and penalty/frozen balances.
 - Send balance ageing reminders on days 25, 46, 53, 58, 59, and 60.
 - Apply day-60 penalty treatment according to env/deployment configuration and legal/compliance policy.

@@ -127,10 +127,8 @@ def _balance_bucket(lot: Any, *, as_of: datetime) -> str:
         return "penalty_exhausted"
     if status != "available":
         return status
-    if as_of > lot.withdrawal_deadline_at:
+    if business_date(as_of) >= business_date(lot.withdrawal_deadline_at):
         return "overdue"
-    if as_of > lot.investment_deadline_at:
-        return "withdraw_only"
     return "investable"
 
 
@@ -147,10 +145,10 @@ def _lot_payload(lot: Any, *, as_of: datetime) -> dict[str, Any]:
         "status": str(lot.status),
         "bucket": bucket,
         "received_at": lot.received_at,
-        "investment_deadline_at": lot.investment_deadline_at,
+        "investment_deadline_at": lot.withdrawal_deadline_at,
         "withdrawal_deadline_at": lot.withdrawal_deadline_at,
         "days_until_investment_deadline": _days_until(
-            lot.investment_deadline_at,
+            lot.withdrawal_deadline_at,
             as_of=as_of,
         ),
         "days_until_withdrawal_deadline": _days_until(
@@ -222,7 +220,7 @@ def _balance_summaries(
         elif bucket == "penalty_mode":
             summary["penalty_mode_minor"] += available
         if bucket in {"investable", "withdraw_only", "overdue"}:
-            investment_deadline = lot.investment_deadline_at
+            investment_deadline = lot.withdrawal_deadline_at
             withdrawal_deadline = lot.withdrawal_deadline_at
             current_investment_deadline = summary["next_investment_deadline_at"]
             current_withdrawal_deadline = summary["next_withdrawal_deadline_at"]

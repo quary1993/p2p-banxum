@@ -72,9 +72,9 @@ Date: 2026-05-15. Updated 2026-05-29.
 Owner: Garanta compliance / operations.
 
 Decision:
-UBO, director, authorized signatory, and legal-entity KYB rules are not in scope for automated client-portal onboarding. Legal-entity lenders and borrowers are onboarded off-platform or through external providers. The platform stores their admin-entered data, documents, compliance status, provider references, reports, decisions, and evidence, but does not expose a legal-entity self-service KYC/KYB workflow at launch.
+Amended 2026-09-07: Garanta conducts and retains company KYB/AML offline, including legal-entity lenders, borrowers and Loan Originators. Platform records do not require company compliance documents, provider sessions or evidence references. Existing optional records remain restricted and are not deleted. Only natural-person lenders undergo platform KYC.
 
-KYC/KYB approval is required before any legal-entity lender can transact as a lender and before a borrower can be published, disbursed, processed for repayment, or used in secondary operational workflows where applicable. A routine borrower KYB expiry after publication does not block deterministic funding close; an explicit compliance hold or adverse/review status still blocks it and creates an operations failure case with reservations preserved.
+An active, phone-verified legal-entity representative is assumed to have completed company KYB offline. Account locks/restrictions still block access. Borrower platform KYB absence or expiry does not block publication or funding; explicit compliance holds, declined decisions and manual-review flags remain blocking. Loan Originator inactive/blocked status and per-loan holds remain enforced.
 
 Rationale:
 The platform must support operational records and regulatory evidence without exposing a borrower or legal-entity lender self-service onboarding workflow.
@@ -138,7 +138,7 @@ Date: 2026-05-22. Updated 2026-05-29.
 Owner: Garanta compliance / technology.
 
 Decision:
-All KYC/KYB/AML checks are performed through external providers, with Didit as the selected launch provider. Garanta must also store locally the full KYC/KYB/AML evidence required for regulatory, audit, VQF/SRO, bank/payment partner, and internal compliance purposes.
+Natural-person lender KYC uses Didit. Garanta retains the required personal KYC evidence on restricted Swiss-controlled infrastructure. Company KYB/AML is conducted and retained offline by Garanta; company evidence uploads or provider sessions are not a platform requirement.
 
 All relevant KYC/AML data and documents must be stored on Garanta-controlled infrastructure located in Switzerland. The platform must be designed to download, import, or store local copies of provider reports and supporting documents where legally and technically possible. If a provider artifact cannot legally or technically be stored locally, the platform must store the strongest available reference, metadata, and gap note for compliance review.
 
@@ -232,16 +232,16 @@ Date: 2026-05-29.
 Owner: Garanta compliance / operations / product.
 
 Decision:
-KYC/KYB approval is required before any lender or borrower can perform transactions on or through the platform.
+Amended 2026-09-07: natural-person lender KYC is checked in the platform; company KYB is completed and retained by Garanta offline. The platform does not require company compliance files or a locally approved company case.
 
 For natural-person lenders, this blocks dashboard, deposit, balance, FX, primary-market investing, secondary-market listing/purchase, withdrawal, and transaction-document acceptance until KYC/AML is approved and no compliance hold applies.
 
-For legal-entity lenders, this blocks account activation for financial transactions and manual/admin-entered investments until KYB/AML is approved and no compliance hold applies.
+For legal-entity lenders, financial access requires an active, unrestricted representative account and verified phone. Garanta is responsible for offline KYB; no stored platform company-KYB approval is required.
 
-For borrowers, which do not have borrower portal accounts at launch, this blocks operational platform transactions involving that entity. Admin cannot publish a loan, disburse funds, process borrower-side transactional workflows, or otherwise activate loan operations until KYB/AML is approved and no compliance hold applies. The sole funding-close exception is routine expiry after publication: the deterministic deadline resolver may close the campaign, but a compliance hold or adverse/review status still blocks it and creates an urgent operations case.
+Borrowers and Loan Originators have no portal accounts. Publication and transactions assume Garanta has completed company KYB offline. Explicit borrower compliance holds, declined/manual-review decisions, blocked originators and opportunity holds must be resolved; absence or expiry of optional platform evidence alone does not block the workflow.
 
 Rationale:
-The platform should not allow financial, contractual, or settlement activity for parties that have not passed KYC/KYB/AML approval.
+The platform enforces natural-person KYC and explicit account/compliance restrictions. Company onboarding assumes Garanta has completed the required offline KYB/AML; absence or expiry of optional local company records alone does not block transactions.
 
 ### KYC-DEC-007: Provider-Side Ongoing Monitoring and Manual Remediation
 
@@ -294,7 +294,7 @@ Confirm where Didit provider-side monitoring alerts are reviewed operationally a
 1. Legal-entity lender onboarding happens off-platform.
 2. Admin creates the legal-entity lender record.
 3. Admin stores required entity data, documents, provider/off-platform references, compliance status, manual-review decisions, and evidence.
-4. Legal-entity lender financial actions remain blocked until KYB/AML is approved and no compliance hold applies.
+4. Garanta completes company KYB offline. The representative needs an active, unrestricted account and verified phone; no platform company-KYB case is required.
 5. If Garanta enables account access, the legal-entity lender account behaves like a regular lender account; admin can also manually enter investments from the legal-entity lender database where Garanta operates without self-service action.
 
 ### Borrower Entity Lifecycle
@@ -302,7 +302,7 @@ Confirm where Didit provider-side monitoring alerts are reviewed operationally a
 1. Borrower onboarding happens off-platform.
 2. Admin creates the borrower entity record.
 3. Admin stores required entity data, documents, provider/off-platform references, compliance status, manual-review decisions, and evidence.
-4. Borrower platform activity remains blocked until KYB/AML is approved and no compliance hold applies.
+4. Borrower operations assume offline KYB and remain blocked by explicit compliance holds or declined/manual-review decisions.
 5. Admin creates and manages borrower loan records. Borrowers do not log in.
 
 ## Verification States
@@ -351,8 +351,8 @@ Confirm where Didit provider-side monitoring alerts are reviewed operationally a
 - Clarify high-risk relationships, unusual activity, and PEP/high-risk-country exposure.
 - Support suspicious activity escalation and reporting workflow.
 - Prevent lenders under compliance hold from accessing balances, depositing, withdrawing, exchanging currency, completing investments, or changing critical details.
-- Prevent legal-entity lenders without approved KYB/AML from financial activity.
-- Prevent borrowers without approved KYB/AML from loan publication, disbursement, repayment processing, or other platform transaction activity. Funding close is the narrow exception: routine post-publication expiry is permitted, while holds and adverse/review statuses remain blocking.
+- Enforce representative account/phone access controls; company KYB remains Garanta's offline responsibility.
+- Enforce explicit borrower holds and declined/manual-review decisions across publication and funding close, without requiring company compliance documents in the platform.
 - Store relevant KYC/KYB/AML data and documents on Garanta-controlled infrastructure located in Switzerland.
 - Retain KYC/KYB/AML files, reports, decisions, audit logs, raw provider webhook payloads where possible, and related evidence for at least 10 years, subject to final legal/compliance confirmation.
 - Support local evidence export packages for VQF/SRO, auditors, banks, payment partners, and internal compliance reviews.

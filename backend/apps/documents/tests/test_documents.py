@@ -141,11 +141,7 @@ def _template_command(
 
 def _write_minimal_docx(path: Any, blocks: list[str]) -> None:
     paragraphs = "\n".join(
-        (
-            '<w:p><w:r><w:t xml:space="preserve">'
-            f"{html.escape(block)}"
-            "</w:t></w:r></w:p>"
-        )
+        (f'<w:p><w:r><w:t xml:space="preserve">{html.escape(block)}</w:t></w:r></w:p>')
         for block in blocks
     )
     document_xml = (
@@ -288,12 +284,10 @@ def test_lender_user_agreement_docx_import_extracts_body_and_checkbox(tmp_path: 
     assert imported.checkbox_label.startswith("I have read, understood")
     assert "must be completed before production launch" not in imported.body
     assert (
-        "relevant project, quote, listing, withdrawal or transaction confirmation"
-        in imported.body
+        "relevant project, quote, listing, withdrawal or transaction confirmation" in imported.body
     )
     assert (
-        "As disclosed in the relevant project-specific or transaction confirmation"
-        in imported.body
+        "As disclosed in the relevant project-specific or transaction confirmation" in imported.body
     )
     assert "As disclosed before the relevant transaction is confirmed" in imported.body
     assert imported.unresolved_placeholders == ()
@@ -613,9 +607,7 @@ def test_acceptance_rejects_legacy_current_placeholder_template(
 
 @pytest.mark.django_db
 def test_publish_draft_creates_immutable_published_copy(superadmin_user: Model) -> None:
-    draft = create_document_template_version(
-        _template_command(superadmin_user, publish_now=False)
-    )
+    draft = create_document_template_version(_template_command(superadmin_user, publish_now=False))
     published = publish_document_template_version(
         PublishDocumentTemplateVersionCommand(
             actor=superadmin_user,
@@ -635,9 +627,7 @@ def test_publish_draft_creates_immutable_published_copy(superadmin_user: Model) 
 
 @pytest.mark.django_db
 def test_publish_draft_twice_returns_existing_current_clone(superadmin_user: Model) -> None:
-    draft = create_document_template_version(
-        _template_command(superadmin_user, publish_now=False)
-    )
+    draft = create_document_template_version(_template_command(superadmin_user, publish_now=False))
     first_publish = publish_document_template_version(
         PublishDocumentTemplateVersionCommand(
             actor=superadmin_user,
@@ -1080,13 +1070,16 @@ def test_render_acceptance_pdf_is_template_driven_and_records_artifact(
     assert artifact.manifest["legal_content_status"] == (
         "template_content_must_be_approved_before_production_use"
     )
-    assert artifact.manifest["renderer_version"] == "document-artifact-renderer-v2"
+    assert artifact.manifest["renderer_version"] == "document-artifact-renderer-v3"
     assert b"Table of contents" in pdf_bytes
     assert b"BANXUM accepted-document artifact" in pdf_bytes
-    assert DocumentRenderedArtifact.objects.filter(
-        acceptance=acceptance,
-        content_sha256=artifact.content_sha256,
-    ).count() == 2
+    assert (
+        DocumentRenderedArtifact.objects.filter(
+            acceptance=acceptance,
+            content_sha256=artifact.content_sha256,
+        ).count()
+        == 2
+    )
     assert DocumentEvent.objects.filter(event_type="artifact_rendered").count() == 2
     assert DomainEvent.objects.filter(event_type="DocumentArtifactRendered").count() == 2
     assert AuditEvent.objects.filter(action="document.artifact_rendered").count() == 2
@@ -1102,7 +1095,7 @@ def test_render_acceptance_csv_neutralizes_formula_cells(
         investor=investor,
         idempotency_key="accept-render-csv",
         body="{{loan.title}}",
-        loan_title="=HYPERLINK(\"https://evil.example\")",
+        loan_title='=HYPERLINK("https://evil.example")',
     )
 
     artifact = render_document_acceptance_artifact(

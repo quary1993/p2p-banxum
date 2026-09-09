@@ -90,7 +90,12 @@ class InvestorBalanceLotSerializer(serializers.Serializer[Any]):
     source_id = serializers.CharField()
     status = serializers.CharField()
     received_at = serializers.DateTimeField()
-    investment_deadline_at = serializers.DateTimeField()
+    investment_deadline_at = serializers.DateTimeField(
+        help_text=(
+            "Legacy stored deadline retained as evidence; eligibility uses "
+            "withdrawal_deadline_at and the loan funding window."
+        )
+    )
     withdrawal_deadline_at = serializers.DateTimeField()
     original_amount_minor = serializers.IntegerField()
     available_amount_minor = serializers.IntegerField()

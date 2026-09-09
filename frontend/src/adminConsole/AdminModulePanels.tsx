@@ -46,7 +46,6 @@ import {
   useOriginatorClaimsAdminLoansHold,
   useOriginatorClaimsAdminLoansPublish,
   useOriginatorClaimsAdminLoansRetrieve,
-  useOriginatorClaimsAdminLoansSubscriptionActivate,
   useOriginatorClaimsAdminLoansSubscriptionCancel,
   useOriginatorClaimsAdminLoansUpdate,
   useOriginatorClaimsAdminLoanRepaymentsCreate,
@@ -116,7 +115,6 @@ import {
   type OriginatorAdminLoanDetailResponse,
   type OriginatorFundingRoundCloseRequest,
   type OriginatorLoanCreate,
-  type OriginatorSubscriptionActivationRequest,
   type OriginatorSubscriptionCancellationRequest,
   type OriginatorSettlementQueueRow,
   type OriginatorSettlementRequest,
@@ -2064,7 +2062,7 @@ function BalanceAgeingScanForm() {
   return (
     <Card padded>
       <h2>Balance ageing scan</h2>
-      <p>Find reminder, forced-withdrawal and penalty-mode actions for 30/60-day balance lots.</p>
+      <p>Find reminders, forced-withdrawal and penalty-mode actions for the 60-day balance holding limit.</p>
       <form className="admin-action-form" onSubmit={submit}>
         <FieldGrid>
           <TextInput label="As of timestamp" onChange={setAsOf} type="datetime-local" value={asOf} />
@@ -2634,7 +2632,7 @@ export function LoansPanel() {
                 <Button icon="plus" onClick={() => setShowOriginatorLoanCreate(true)} size="sm">Import originator claim loan</Button>
               </div>
             }
-            description="Direct loans and current Loan Originator claims both use finite funding rounds. Originator subscriptions reserve investor balances at par, then activate only after the declared boundary installment and post-payment principal are verified."
+            description="Direct loans and current Loan Originator claims both use finite funding rounds. Originator subscriptions reserve investor balances at par, then activate automatically when funding closes. The boundary installment belongs entirely to the LO."
             filters={
               <select
                 aria-label="Filter loans by status"
@@ -2880,7 +2878,7 @@ function LoanOriginatorForm({
         <TextInput label="Settlement account name" onChange={setAccountName} required value={accountName} />
         <TextInput label="Settlement IBAN" onChange={setIban} required value={iban} />
         <TextInput label="Settlement BIC" onChange={setBic} value={bic} />
-        <TextInput label="KYB evidence reference" onChange={setKybEvidence} required value={kybEvidence} />
+        <TextInput label="Offline KYB reference (optional)" onChange={setKybEvidence} value={kybEvidence} />
       </FieldGrid>
       <TextAreaInput label="Registered address" onChange={setRegisteredAddress} required value={registeredAddress} />
       <TextAreaInput label="Contact information" onChange={setContactInfo} value={contactInfo} />
@@ -2937,6 +2935,7 @@ function OriginatorLoanCreateForm({
   const [sourceFilename, setSourceFilename] = useState("");
   const [skinBps, setSkinBps] = useState(detail ? String(detail.skin_in_the_game_bps ?? 0) : "0");
   const [borrowerLegalName, setBorrowerLegalName] = useState(String(snapshot.borrower_legal_name ?? ""));
+  const [borrowerLegalNamePublic, setBorrowerLegalNamePublic] = useState(snapshot.borrower_legal_name_public === true);
   const [borrowerDisplayName, setBorrowerDisplayName] = useState(String(snapshot.borrower_display_name ?? "Anonymized borrower"));
   const [borrowerYearFounded, setBorrowerYearFounded] = useState(snapshot.year_founded == null ? "" : String(snapshot.year_founded));
   const [borrowerEntityType, setBorrowerEntityType] = useState(String(snapshot.entity_type ?? "company"));
@@ -3023,6 +3022,7 @@ function OriginatorLoanCreateForm({
         as_of_date: asOfDate,
         borrower_snapshot: {
           borrower_legal_name: borrowerLegalName,
+          borrower_legal_name_public: borrowerLegalNamePublic,
           borrower_display_name: borrowerDisplayName,
           year_founded: optionalMinorValue(borrowerYearFounded),
           entity_type: borrowerEntityType,
@@ -3089,8 +3089,8 @@ function OriginatorLoanCreateForm({
         <MoneyMinorInput currency={currency} label="Original final-borrower principal minor units" onChange={setOriginalPrincipal} required value={originalPrincipal} />
         <TextInput label="Underlying borrower coupon bps" onChange={setCouponBps} required value={couponBps} />
         <MoneyMinorInput currency={currency} label="Minimum investment minor units" onChange={setMinimumInvestment} required value={minimumInvestment} />
-        <TextInput hint="The finite primary-market reservation window. A full subscription closes earlier automatically." label="Funding deadline" onChange={setFundingDeadline} required type="date" value={fundingDeadline} />
-        <TextInput hint="Due date of the first installment after the funding round. That boundary installment belongs entirely to the Loan Originator; investor entitlement starts after it is verified." label="Investor entitlement starts after installment due" onChange={setEntitlementStartDate} required type="date" value={entitlementStartDate} />
+        <TextInput hint="Last inclusive subscription date. Maximum 50 days including the opening date. Reserved sources must cover the remaining window. A full subscription closes earlier automatically." label="Funding deadline" onChange={setFundingDeadline} required type="date" value={fundingDeadline} />
+        <TextInput hint="Due date of the first installment after the funding round. Holdings activate at funding close, but this boundary installment belongs entirely to the Loan Originator." label="Investor entitlement starts after installment due" onChange={setEntitlementStartDate} required type="date" value={entitlementStartDate} />
         <MoneyMinorInput currency={currency} label="Expected outstanding principal after boundary payment" onChange={setActivationOutstandingPrincipal} required value={activationOutstandingPrincipal} />
         <TextInput hint="0-10,000 bps. Applied after the investor's pro-rata principal share; 7,000 means investors receive 70% of their proportional contractual interest." label="Investor interest participation bps" onChange={setInterestParticipationBps} required type="number" value={interestParticipationBps} />
         <TextInput hint="0-10,000 bps. Applied after the investor's pro-rata principal share; 5,000 means investors receive 50% of their proportional penalty." label="Investor penalty participation bps" onChange={setPenaltyParticipationBps} required type="number" value={penaltyParticipationBps} />
@@ -3105,14 +3105,14 @@ function OriginatorLoanCreateForm({
       </FieldGrid>
       <TextAreaInput label="Investor summary" onChange={setSummary} required value={summary} />
       <Banner tone="neutral" title="Par subscription and delayed entitlement">
-        Investor reservations buy post-boundary outstanding principal at par: one currency unit buys one unit of principal. No primary purchase fee applies and no investor interest accrues during funding. Activation is a separate admin step after the boundary installment is received and the expected outstanding principal is verified; otherwise reservations can be refunded intact.
+        Investor reservations buy post-boundary outstanding principal at par: one currency unit buys one unit of principal. Holdings activate automatically when funding closes. No primary purchase fee applies and no investor interest accrues during funding. The boundary installment belongs entirely to the LO and is recorded through borrower repayments.
       </Banner>
       <TextAreaInput label="Purpose description" onChange={setPurposeDescription} value={purposeDescription} />
       <TextAreaInput label="Collateral description" onChange={setCollateralDescription} value={collateralDescription} />
       <h3>Final borrower snapshot</h3>
-      <Banner tone="neutral" title="Private identity, controlled disclosure">The legal borrower identity, ownership, bank, KYB and risk fields remain internal. Investors receive the anonymized display name and only fields explicitly marked public.</Banner>
+      <Banner tone="neutral" title="Private identity, controlled disclosure">Investors receive the public display name. The legal name is disclosed only when explicitly selected below. Ownership, bank, KYB and risk fields remain internal.</Banner>
       <FieldGrid>
-        <TextInput label="Legal business name (internal)" onChange={setBorrowerLegalName} required value={borrowerLegalName} />
+        <TextInput label="Legal business name" onChange={setBorrowerLegalName} required value={borrowerLegalName} />
         <TextInput label="Anonymized borrower name (public)" onChange={setBorrowerDisplayName} required value={borrowerDisplayName} />
         <TextInput label="Year founded" onChange={setBorrowerYearFounded} value={borrowerYearFounded} />
         <TextInput label="Entity type" onChange={setBorrowerEntityType} value={borrowerEntityType} />
@@ -3127,6 +3127,7 @@ function OriginatorLoanCreateForm({
         <MoneyMinorInput currency={financialsCurrency || currency} label="Profit last year minor units" onChange={setProfitMinor} value={profitMinor} />
       </FieldGrid>
       <label className="check-row"><input checked={businessClassificationPublic} onChange={(event) => setBusinessClassificationPublic(event.target.checked)} type="checkbox" />Show business classification to investors.</label>
+      <label className="check-row"><input checked={borrowerLegalNamePublic} onChange={(event) => setBorrowerLegalNamePublic(event.target.checked)} type="checkbox" />Publish the legal borrower name to investors and in their investment documents.</label>
       <TextAreaInput label="Registered address" onChange={setRegisteredAddress} value={registeredAddress} />
       <label className="check-row"><input checked={registeredAddressPublic} onChange={(event) => setRegisteredAddressPublic(event.target.checked)} type="checkbox" />Show registered address to investors.</label>
       <TextAreaInput label="Operating address (internal)" onChange={setOperatingAddress} value={operatingAddress} />
@@ -3155,12 +3156,17 @@ function OriginatorLoanEvidenceReview({ detail }: { detail: OriginatorAdminLoanD
       interest: totals.interest + row.interest_minor,
       penalty: totals.penalty + row.penalty_minor,
       fee: totals.fee + row.fee_minor,
-      total: totals.total + row.total_minor
+      total: totals.total + row.total_minor,
+      investor: totals.investor + (row.projected_investor_minor ?? 0),
+      originator: totals.originator + (row.projected_originator_minor ?? 0)
     }),
-    { principal: 0, interest: 0, penalty: 0, fee: 0, total: 0 }
+    { principal: 0, interest: 0, penalty: 0, fee: 0, total: 0, investor: 0, originator: 0 }
   );
+  const hasProjection = detail.schedule.some((row) => row.projected_investor_minor != null);
+  const splitValue = (amount: number | null | undefined) => amount == null
+    ? "-" : <Money amountMinor={amount} currency={detail.currency} />;
   return (
-    <div className="admin-stack">
+    <div className="admin-stack admin-originator-evidence">
       <div className="admin-context-bar">
         <span>Import revision {detail.schedule_revision}</span>
         <span>{detail.source_filename}</span>
@@ -3171,12 +3177,12 @@ function OriginatorLoanEvidenceReview({ detail }: { detail: OriginatorAdminLoanD
         <h3>Imported contractual schedule</h3>
         <div className="table-wrap admin-table-wrap">
           <table className="admin-table admin-schedule-table">
-            <thead><tr><th>#</th><th>Accrual start</th><th>Due</th><th>Opening</th><th>Principal</th><th>Interest</th><th>Penalty</th><th>Legal / recovery costs</th><th>Total</th><th>Closing</th></tr></thead>
+            <thead><tr><th>#</th><th>Accrual start</th><th>Due</th><th>Opening</th><th>Principal</th><th>Interest</th><th>Penalty</th><th>Legal / recovery costs</th><th>Total</th><th>Closing</th><th>Projected investors</th><th>Projected LO</th></tr></thead>
             <tbody>
               {detail.schedule.map((row) => (
-                <tr key={row.installment_number}><td>{row.installment_number}</td><td>{formatDate(row.accrual_start_date)}</td><td>{formatDate(row.due_date)}</td><td><Money amountMinor={row.opening_principal_minor} currency={detail.currency} /></td><td><Money amountMinor={row.principal_minor} currency={detail.currency} /></td><td><Money amountMinor={row.interest_minor} currency={detail.currency} /></td><td><Money amountMinor={row.penalty_minor} currency={detail.currency} /></td><td><Money amountMinor={row.fee_minor} currency={detail.currency} /></td><td><Money amountMinor={row.total_minor} currency={detail.currency} /></td><td><Money amountMinor={row.closing_principal_minor} currency={detail.currency} /></td></tr>
+                <tr key={row.installment_number}><td>{row.installment_number}{row.is_originator_boundary ? <Chip tone="info">LO boundary</Chip> : null}</td><td>{formatDate(row.accrual_start_date)}</td><td>{formatDate(row.due_date)}</td><td><Money amountMinor={row.opening_principal_minor} currency={detail.currency} /></td><td><Money amountMinor={row.principal_minor} currency={detail.currency} /></td><td><Money amountMinor={row.interest_minor} currency={detail.currency} /></td><td><Money amountMinor={row.penalty_minor} currency={detail.currency} /></td><td><Money amountMinor={row.fee_minor} currency={detail.currency} /></td><td><Money amountMinor={row.total_minor} currency={detail.currency} /></td><td><Money amountMinor={row.closing_principal_minor} currency={detail.currency} /></td><td>{splitValue(row.projected_investor_minor)}</td><td>{splitValue(row.projected_originator_minor)}</td></tr>
               ))}
-              <tr className="admin-schedule-total-row"><td colSpan={4}><strong>Totals</strong></td><td><strong><Money amountMinor={scheduleTotals.principal} currency={detail.currency} /></strong></td><td><strong><Money amountMinor={scheduleTotals.interest} currency={detail.currency} /></strong></td><td><strong><Money amountMinor={scheduleTotals.penalty} currency={detail.currency} /></strong></td><td><strong><Money amountMinor={scheduleTotals.fee} currency={detail.currency} /></strong></td><td><strong><Money amountMinor={scheduleTotals.total} currency={detail.currency} /></strong></td><td>-</td></tr>
+              <tr className="admin-schedule-total-row"><td colSpan={4}><strong>Totals</strong></td><td><strong><Money amountMinor={scheduleTotals.principal} currency={detail.currency} /></strong></td><td><strong><Money amountMinor={scheduleTotals.interest} currency={detail.currency} /></strong></td><td><strong><Money amountMinor={scheduleTotals.penalty} currency={detail.currency} /></strong></td><td><strong><Money amountMinor={scheduleTotals.fee} currency={detail.currency} /></strong></td><td><strong><Money amountMinor={scheduleTotals.total} currency={detail.currency} /></strong></td><td>-</td><td><strong>{hasProjection ? splitValue(scheduleTotals.investor) : "-"}</strong></td><td><strong>{hasProjection ? splitValue(scheduleTotals.originator) : "-"}</strong></td></tr>
             </tbody>
           </table>
         </div>
@@ -3185,7 +3191,7 @@ function OriginatorLoanEvidenceReview({ detail }: { detail: OriginatorAdminLoanD
         <h3>Historical payments</h3>
         {detail.payment_history.length ? (
           <div className="table-wrap admin-table-wrap">
-            <table className="admin-table"><thead><tr><th>Reference</th><th>Value date</th><th>Type</th><th>Principal</th><th>Interest</th><th>Penalty</th><th>Legal / recovery costs</th><th>Total</th><th>Principal after</th></tr></thead><tbody>{detail.payment_history.map((row) => <tr key={row.reference}><td className="mono">{row.reference}</td><td>{formatDate(row.value_date)}</td><td>{labelize(row.payment_type)}</td><td><Money amountMinor={row.principal_minor} currency={detail.currency} /></td><td><Money amountMinor={row.interest_minor} currency={detail.currency} /></td><td><Money amountMinor={row.penalty_minor} currency={detail.currency} /></td><td><Money amountMinor={row.fee_minor} currency={detail.currency} /></td><td><Money amountMinor={row.total_minor} currency={detail.currency} /></td><td><Money amountMinor={row.resulting_principal_minor} currency={detail.currency} /></td></tr>)}</tbody></table>
+            <table className="admin-table"><thead><tr><th>Reference</th><th>Value date</th><th>Type</th><th>Principal</th><th>Interest</th><th>Penalty</th><th>Legal / recovery costs</th><th>Total</th><th>Principal after</th><th>Investors credited</th><th>LO payable</th></tr></thead><tbody>{detail.payment_history.map((row) => <tr key={row.reference}><td className="mono">{row.reference}</td><td>{formatDate(row.value_date)}</td><td>{labelize(row.payment_type)}</td><td><Money amountMinor={row.principal_minor} currency={detail.currency} /></td><td><Money amountMinor={row.interest_minor} currency={detail.currency} /></td><td><Money amountMinor={row.penalty_minor} currency={detail.currency} /></td><td><Money amountMinor={row.fee_minor} currency={detail.currency} /></td><td><Money amountMinor={row.total_minor} currency={detail.currency} /></td><td><Money amountMinor={row.resulting_principal_minor} currency={detail.currency} /></td><td>{splitValue(row.investor_distributed_minor)}</td><td><strong>{splitValue(row.originator_payable_minor)}</strong></td></tr>)}</tbody></table>
           </div>
         ) : <Empty icon="docs" title="No historical payments">The imported loan had no borrower payments before this revision's as-of date.</Empty>}
       </div>
@@ -3205,7 +3211,7 @@ function OriginatorLoanManageModal({
   onClose: () => void;
 }) {
   const [action, setAction] = useState<
-    "menu" | "edit" | "publish" | "close_round" | "activate" | "cancel" | "hold" | "repayment"
+    "menu" | "edit" | "publish" | "close_round" | "cancel" | "hold" | "repayment"
   >("menu");
   const [asOfDate, setAsOfDate] = useState(today);
   const [closeReason, setCloseReason] = useState("funding_deadline_reached");
@@ -3213,8 +3219,6 @@ function OriginatorLoanManageModal({
   const [csvContent, setCsvContent] = useState("");
   const [sourceFilename, setSourceFilename] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
-  const [boundaryPaymentReference, setBoundaryPaymentReference] = useState("");
-  const [boundaryPaymentDate, setBoundaryPaymentDate] = useState("");
   const [bookingDate, setBookingDate] = useState(today);
   const [valueDate, setValueDate] = useState(today);
   const [collectionAccount, setCollectionAccount] = useState(defaultCollectionAccount);
@@ -3233,21 +3237,23 @@ function OriginatorLoanManageModal({
   const detail = detailQuery.data;
   const publishMutation = useOriginatorClaimsAdminLoansPublish({ mutation: { onSuccess: () => { onChanged(); onClose(); } } });
   const closeRoundMutation = useOriginatorClaimsAdminLoansFundingClose({ mutation: { onSuccess: () => { onChanged(); onClose(); } } });
-  const activationMutation = useOriginatorClaimsAdminLoansSubscriptionActivate({ mutation: { onSuccess: () => { onChanged(); onClose(); } } });
   const cancellationMutation = useOriginatorClaimsAdminLoansSubscriptionCancel({ mutation: { onSuccess: () => { onChanged(); onClose(); } } });
   const holdMutation = useOriginatorClaimsAdminLoansHold({ mutation: { onSuccess: () => { onChanged(); onClose(); } } });
-  const repaymentMutation = useOriginatorClaimsAdminLoanRepaymentsCreate({ mutation: { onSuccess: () => { onChanged(); onClose(); } } });
+  const repaymentMutation = useOriginatorClaimsAdminLoanRepaymentsCreate({
+    mutation: { onSuccess: () => {
+      onChanged();
+      void detailQuery.refetch();
+      setAction("menu");
+      setCsvContent("");
+      setSourceFilename("");
+      setPaymentReference("");
+    } }
+  });
 
   async function chooseCsv(file: File | undefined) {
     setSourceFilename(file?.name ?? "");
     setCsvContent(await readTextFile(file));
   }
-
-  useEffect(() => {
-    if (!boundaryPaymentDate && detail?.entitlement_start_date) {
-      setBoundaryPaymentDate(detail.entitlement_start_date);
-    }
-  }, [boundaryPaymentDate, detail?.entitlement_start_date]);
 
   function publish() {
     if (isFixturePreview) { setPreview("The reviewed originator claim would open a finite at-par subscription round."); return; }
@@ -3260,23 +3266,8 @@ function OriginatorLoanManageModal({
       close_reason: closeReason,
       idempotency_key: idempotencyKey("originator-funding-close")
     };
-    if (isFixturePreview) { setPreview("The round would close with its allocated subscriptions and move to boundary-payment verification."); return; }
+    if (isFixturePreview) { setPreview("The round would close, create active holdings, and record the LO payable automatically. The boundary installment remains entirely payable to the LO."); return; }
     closeRoundMutation.mutate({ loanId: loan.id, data });
-  }
-
-  function activateSubscription() {
-    const effectiveBoundaryPaymentDate = detail?.entitlement_start_date ?? boundaryPaymentDate;
-    const data: OriginatorSubscriptionActivationRequest = {
-      csv_content: csvContent,
-      source_filename: sourceFilename,
-      as_of_date: asOfDate,
-      boundary_payment_reference: boundaryPaymentReference,
-      boundary_payment_date: effectiveBoundaryPaymentDate,
-      notes,
-      idempotency_key: idempotencyKey("originator-subscription-activation")
-    };
-    if (isFixturePreview) { setPreview("The boundary payment would be validated, reserved principal assigned at par, and investor entitlement activated from the next schedule period."); return; }
-    activationMutation.mutate({ loanId: loan.id, data });
   }
 
   function cancelSubscription() {
@@ -3322,13 +3313,28 @@ function OriginatorLoanManageModal({
     repaymentMutation.mutate({ loanId: loan.id, data });
   }
 
-  const mutationError = publishMutation.error || closeRoundMutation.error || activationMutation.error || cancellationMutation.error || holdMutation.error || repaymentMutation.error;
+  if (!isFixturePreview && !detail) {
+    return (
+      <Modal title={`Manage originator claim - ${loan.title}`} onClose={onClose} xwide>
+        {detailQuery.error ? (
+          <Banner tone="bad" title="Could not load imported loan evidence">
+            {errorMessage(detailQuery.error)}
+            <Button onClick={() => void detailQuery.refetch()} size="sm">Retry</Button>
+          </Banner>
+        ) : <Empty icon="clock" title="Loading loan evidence">Fetching the current schedule and subscription terms.</Empty>}
+      </Modal>
+    );
+  }
+
+  const mutationError = publishMutation.error || closeRoundMutation.error || cancellationMutation.error || holdMutation.error || repaymentMutation.error;
   const isParSubscription = detail?.distribution_model === "par_component_v2";
   const failedClose = loan.status === "funding_close_failed";
   const held = Boolean(detail?.is_on_hold);
-  const fixedBoundaryPaymentDate = detail?.entitlement_start_date ?? boundaryPaymentDate;
+  const mandatoryClose = isParSubscription && loan.committed_principal_minor > 0 && (
+    failedClose || !detail?.funding_deadline || isPastBusinessDate(detail.funding_deadline)
+  );
   return (
-    <Modal title={`Manage originator claim - ${loan.title}`} onClose={onClose} wide>
+    <Modal title={`Manage originator claim - ${loan.title}`} onClose={onClose} xwide>
       <div className="admin-context-bar">
         <Chip tone="info">Originator claim</Chip>
         <span>{loan.originator_name}</span>
@@ -3342,7 +3348,7 @@ function OriginatorLoanManageModal({
       </div>
       {action === "menu" && held ? (
         <Banner tone={failedClose ? "bad" : "warn"} title={failedClose ? "Funding close failed" : "Subscription is on hold"}>
-          {detail?.hold_reason || "This opportunity is hidden and cannot accept or activate subscriptions."} {failedClose ? "Investor reservations remain unchanged. Retry the close after resolving the cause, or cancel and refund the round." : "Investor reservations remain unchanged until the round is cancelled or the hold is otherwise resolved."}
+          {detail?.hold_reason || "This opportunity is hidden and cannot accept or activate subscriptions."} {failedClose ? "Investor reservations remain unchanged. Automatic funding resolution will retry; investigate and repair the reported cause." : "Investor reservations remain unchanged until the round is cancelled or the hold is otherwise resolved."}
         </Banner>
       ) : null}
       {action !== "menu" ? <Button onClick={() => setAction("menu")} size="sm">All actions</Button> : null}
@@ -3350,29 +3356,20 @@ function OriginatorLoanManageModal({
         <div className="admin-action-choice-grid">
           {loan.opportunity_status === "draft" ? <button disabled={!detail} onClick={() => setAction("edit")} type="button"><strong>Edit draft and replace import</strong><span>Correct loan, private borrower, component participation, collateral, boundary terms, or CSV data by creating a new immutable draft revision.</span></button> : null}
           {loan.opportunity_status === "draft" ? <button disabled={!detail} onClick={() => setAction("publish")} type="button"><strong>Publish funding round</strong><span>Revalidate the active originator, imported schedule, finite deadline, boundary installment and post-payment principal before accepting reservations.</span></button> : null}
-          {loan.opportunity_status === "open" && isParSubscription && (!held || failedClose) ? <button onClick={() => setAction("close_round")} type="button"><strong>{failedClose ? "Retry funding close" : "Close funding round"}</strong><span>{failedClose ? "Retry the deterministic close after resolving the reported cause. Existing reservations have remained locked and unchanged." : "Close a fully subscribed round now, or a partially subscribed round after its deadline, then await boundary-payment verification."}</span></button> : null}
-          {["open", "awaiting_activation"].includes(loan.opportunity_status ?? "") && isParSubscription ? <button onClick={() => setAction("cancel")} type="button"><strong>Cancel and refund reservations</strong><span>Use when the boundary installment is late, missing, changed, or the opportunity cannot safely activate. Original balance-lot dates are preserved.</span></button> : null}
-          {loan.opportunity_status === "awaiting_activation" && isParSubscription && !held ? <button onClick={() => setAction("activate")} type="button"><strong>Verify boundary payment and activate</strong><span>Import exactly the declared boundary installment, verify the post-payment principal, assign subscribed principal at par, and start investor rights afterward.</span></button> : null}
+          {loan.opportunity_status === "open" && isParSubscription && (!held || failedClose) ? <button onClick={() => setAction("close_round")} type="button"><strong>{failedClose ? "Retry funding close" : "Close funding round"}</strong><span>{failedClose ? "Retry the deterministic close after resolving the reported cause. Existing reservations have remained locked and unchanged." : "Close a fully subscribed round now, or a partially subscribed round after its deadline. Holdings activate and the funding escrow becomes payable to the LO."}</span></button> : null}
+          {["open", "awaiting_activation"].includes(loan.opportunity_status ?? "") && isParSubscription && !mandatoryClose ? <button onClick={() => setAction("cancel")} type="button"><strong>Cancel and refund reservations</strong><span>Withdraw a campaign before its deadline, or resolve an empty round. Original balance-lot dates are preserved; qualified expired or failed rounds must close automatically.</span></button> : null}
           {["open", "awaiting_activation"].includes(loan.opportunity_status ?? "") && isParSubscription && !held ? <button onClick={() => setAction("hold")} type="button"><strong>Pause subscription</strong><span>Hide the opportunity and block close or activation while preserving every investor reservation for investigation.</span></button> : null}
           {loan.opportunity_status === "open" && detail && !isParSubscription ? <button onClick={() => setAction("hold")} type="button"><strong>Place legacy opportunity on hold</strong><span>Close new immediate claim sales while continuing to service claims already sold.</span></button> : null}
-          {["active", "late", "defaulted"].includes(loan.status) ? <button onClick={() => setAction("repayment")} type="button"><strong>Record borrower repayment / schedule revision</strong><span>Upload the complete revised schedule and payment history. Distribute the banked cash using dated claim ownership.</span></button> : null}
+          {["active", "late", "defaulted"].includes(loan.status) ? <button onClick={() => { repaymentMutation.reset(); setAction("repayment"); }} type="button"><strong>Record borrower repayment / schedule revision</strong><span>Upload the complete revised schedule and payment history. Distribute the banked cash using dated claim ownership.</span></button> : null}
         </div>
       ) : null}
       {action === "edit" && detail ? <OriginatorLoanCreateForm detail={detail} loanId={loan.id} originators={originators} onCreated={() => { void detailQuery.refetch(); onChanged(); setAction("menu"); }} /> : null}
-      {action === "publish" ? <div className="admin-form-panel"><TextInput label="Review as-of date" onChange={setAsOfDate} required type="date" value={asOfDate} /><OperationConfirmButton confirmLabel="Publish funding round" description="Publishing accepts balance reservations at par until the finite deadline. Investors receive no funding-period interest and no rights until the boundary installment is verified in a separate activation step." details={[{ label: "Loan", value: loan.title }, { label: "Originator", value: loan.originator_name ?? "-" }, { label: "Funding deadline", value: formatDate(detail?.funding_deadline) }, { label: "Boundary installment", value: formatDate(detail?.entitlement_start_date) }, { label: "Post-boundary principal", value: <Money amountMinor={detail?.activation_outstanding_principal_minor ?? 0} currency={loan.currency} /> }]} onConfirm={publish} title="Publish Loan Originator funding round" variant="primary">Review and publish</OperationConfirmButton></div> : null}
+      {action === "publish" ? <div className="admin-form-panel"><TextInput label="Review as-of date" onChange={setAsOfDate} required type="date" value={asOfDate} /><OperationConfirmButton confirmLabel="Publish funding round" description="Publishing accepts balance reservations at par until the finite deadline. Holdings activate automatically at funding close. No investor interest accrues during funding, and the boundary installment belongs entirely to the LO." details={[{ label: "Loan", value: loan.title }, { label: "Originator", value: loan.originator_name ?? "-" }, { label: "Funding deadline", value: formatDate(detail?.funding_deadline) }, { label: "Boundary installment", value: formatDate(detail?.entitlement_start_date) }, { label: "Post-boundary principal", value: <Money amountMinor={detail?.activation_outstanding_principal_minor ?? 0} currency={loan.currency} /> }]} onConfirm={publish} title="Publish Loan Originator funding round" variant="primary">Review and publish</OperationConfirmButton></div> : null}
       {action === "close_round" ? (
         <div className="admin-form-panel">
           <Banner tone="neutral" title="No minimum subscription threshold">A full round closes automatically. After the deadline, this action closes at whatever principal was actually subscribed; zero-subscription rounds must be cancelled.</Banner>
           <FieldGrid><TextInput label="Close as-of date" onChange={setAsOfDate} required type="date" value={asOfDate} /><TextInput hint="Short audit reason, maximum 64 characters." label="Close reason" onChange={setCloseReason} required value={closeReason} /></FieldGrid>
-          <OperationConfirmButton confirmLabel="Close funding round" description="Pending unallocated orders close without investment. Allocated balances remain reserved until boundary activation or cancellation/refund." details={[{ label: "Loan", value: loan.title }, { label: "Committed", value: <Money amountMinor={loan.committed_principal_minor} currency={loan.currency} /> }, { label: "Funding deadline", value: formatDate(detail?.funding_deadline) }, { label: "Reason", value: closeReason || "Required" }]} disabled={!closeReason.trim() || closeRoundMutation.isPending} onConfirm={closeRound} title="Close originator funding round" variant="primary">Review and close round</OperationConfirmButton>
-        </div>
-      ) : null}
-      {action === "activate" ? (
-        <div className="admin-form-panel">
-          <Banner tone="warn" title="Boundary installment must be verified">The replacement CSV must preserve every prior row and add exactly the declared boundary payment. It must result in the expected post-payment principal. Investors receive nothing from that payment; their component rights begin afterward.</Banner>
-          <FieldGrid><TextInput label="Import as-of date" onChange={setAsOfDate} required type="date" value={asOfDate} /><TextInput label="Boundary payment reference" onChange={setBoundaryPaymentReference} required value={boundaryPaymentReference} /><TextInput hint="Fixed when the opportunity was published. A payment on another date requires cancellation and refund." label="Boundary payment date" onChange={setBoundaryPaymentDate} readOnly required type="date" value={fixedBoundaryPaymentDate} /><Field label="Full CSV including boundary payment"><input accept=".csv,text/csv" onChange={(event) => void chooseCsv(event.target.files?.[0])} required type="file" /></Field></FieldGrid>
-          <TextAreaInput hint="Required immutable operations evidence." label="Activation notes" onChange={setNotes} required value={notes} />
-          <OperationConfirmButton confirmLabel="Activate subscriptions" description="This assigns each subscribed unit of principal at par, creates investor holdings only after the boundary payment, drains the reserved escrow into the Loan Originator payable, and starts component participation with the next schedule period." details={[{ label: "Loan", value: loan.title }, { label: "Boundary payment", value: boundaryPaymentReference || "Required" }, { label: "Boundary date", value: fixedBoundaryPaymentDate || "Required" }, { label: "CSV", value: sourceFilename || "Required" }, { label: "Expected principal", value: <Money amountMinor={detail?.activation_outstanding_principal_minor ?? 0} currency={loan.currency} /> }]} disabled={!csvContent || !sourceFilename || !boundaryPaymentReference.trim() || !fixedBoundaryPaymentDate || !notes.trim() || activationMutation.isPending} onConfirm={activateSubscription} title="Activate Loan Originator subscriptions" variant="primary">Review and activate</OperationConfirmButton>
+          <OperationConfirmButton confirmLabel="Close funding round" description="Pending unallocated orders close without investment. Allocated balances become active holdings and are recorded as payable to the LO in the same transaction." details={[{ label: "Loan", value: loan.title }, { label: "Committed", value: <Money amountMinor={loan.committed_principal_minor} currency={loan.currency} /> }, { label: "Funding deadline", value: formatDate(detail?.funding_deadline) }, { label: "Reason", value: closeReason || "Required" }]} disabled={!closeReason.trim() || closeRoundMutation.isPending} onConfirm={closeRound} title="Close originator funding round" variant="primary">Review and close round</OperationConfirmButton>
         </div>
       ) : null}
       {action === "cancel" ? (
@@ -3383,14 +3380,25 @@ function OriginatorLoanManageModal({
           <OperationConfirmButton confirmLabel="Cancel and refund" description="This is irreversible for the funding round. All allocated reservations are released and every pending order is closed without investment." details={[{ label: "Loan", value: loan.title }, { label: "Committed", value: <Money amountMinor={loan.committed_principal_minor} currency={loan.currency} /> }, { label: "Reason", value: cancellationReason || "Required" }, { label: "Investor notice", value: investorMessage || "Required" }]} disabled={!cancellationReason.trim() || !investorMessage.trim() || cancellationMutation.isPending} onConfirm={cancelSubscription} title="Cancel Loan Originator subscription" variant="danger">Review cancellation</OperationConfirmButton>
         </div>
       ) : null}
-      {action === "hold" ? <div className="admin-form-panel"><TextAreaInput label="Hold reason" onChange={setHoldReason} required value={holdReason} /><OperationConfirmButton confirmLabel={isParSubscription ? "Pause subscription" : "Close opportunity"} description={isParSubscription ? "The opportunity leaves the marketplace and cannot close or activate. Existing balance reservations remain locked until an admin cancels and refunds the round." : "No further primary-market claim sales will be allowed. Existing investors continue to be serviced."} details={[{ label: "Loan", value: loan.title }, { label: isParSubscription ? "Reserved" : "Unsold principal", value: <Money amountMinor={isParSubscription ? loan.committed_principal_minor : (loan.unsold_principal_minor ?? 0)} currency={loan.currency} /> }, { label: "Reason", value: holdReason || "Required" }]} disabled={!holdReason.trim()} onConfirm={hold} title={isParSubscription ? "Pause Loan Originator subscription" : "Place originator claim on hold"} variant="danger">{isParSubscription ? "Review and pause" : "Review and close"}</OperationConfirmButton></div> : null}
+      {action === "hold" ? <div className="admin-form-panel"><TextAreaInput label="Hold reason" onChange={setHoldReason} required value={holdReason} /><OperationConfirmButton confirmLabel={isParSubscription ? "Pause subscription" : "Close opportunity"} description={isParSubscription ? "The opportunity leaves the marketplace. Reservations remain locked while the cause is investigated; a hold does not authorize overriding the published funding outcome after the deadline." : "No further primary-market claim sales will be allowed. Existing investors continue to be serviced."} details={[{ label: "Loan", value: loan.title }, { label: isParSubscription ? "Reserved" : "Unsold principal", value: <Money amountMinor={isParSubscription ? loan.committed_principal_minor : (loan.unsold_principal_minor ?? 0)} currency={loan.currency} /> }, { label: "Reason", value: holdReason || "Required" }]} disabled={!holdReason.trim()} onConfirm={hold} title={isParSubscription ? "Pause Loan Originator subscription" : "Place originator claim on hold"} variant="danger">{isParSubscription ? "Review and pause" : "Review and close"}</OperationConfirmButton></div> : null}
       {action === "repayment" ? (
         <div className="admin-form-panel">
           <Banner tone="warn" title="Bank cash and full replacement evidence required">The payment amount and components come from the imported payment row. The new CSV must contain the complete current schedule plus complete historical payments, including this unique reference.</Banner>
           <FieldGrid><TextInput label="Import as-of date" onChange={setAsOfDate} required type="date" value={asOfDate} /><TextInput label="Unique payment reference" onChange={setPaymentReference} required value={paymentReference} /><TextInput label="Booking date" onChange={setBookingDate} required type="date" value={bookingDate} /><TextInput label="Value date" onChange={setValueDate} required type="date" value={valueDate} /><TextInput label="Collection account" onChange={setCollectionAccount} required value={collectionAccount} /><TextInput label="Payer name" onChange={setPayerName} required value={payerName} /><TextInput label="Payer account" onChange={setPayerAccount} value={payerAccount} /><TextInput label="Bank reference" onChange={setBankReference} value={bankReference} /><TextInput label="Bank payment reference" onChange={setBankPaymentReference} value={bankPaymentReference} /><TextInput label="Evidence reference" onChange={setEvidenceReference} value={evidenceReference} /><Field label="Revised full CSV"><input accept=".csv,text/csv" onChange={(event) => void chooseCsv(event.target.files?.[0])} required type="file" /></Field></FieldGrid>
           <TextAreaInput label="Admin notes" onChange={setNotes} value={notes} />
-          <OperationConfirmButton confirmLabel="Record repayment" description="This posts borrower cash, distributes investor entitlements, accrues the unsold Loan Originator share, reduces holdings, reprices open secondary listings, and replaces the current schedule revision atomically." details={[{ label: "Loan", value: loan.title }, { label: "Payment reference", value: paymentReference || "Required" }, { label: "CSV", value: sourceFilename || "Required" }, { label: "Value date", value: valueDate }]} disabled={!csvContent || !paymentReference || !payerName || repaymentMutation.isPending} onConfirm={repayment} title="Record originator-loan borrower repayment" variant="primary">Review repayment</OperationConfirmButton>
+          <OperationConfirmButton confirmLabel="Record repayment" description="This posts borrower cash, distributes investor entitlements, records the LO's remaining contractual share as payable, reduces holdings, reprices open secondary listings, and replaces the current schedule revision atomically." details={[{ label: "Loan", value: loan.title }, { label: "Payment reference", value: paymentReference || "Required" }, { label: "CSV", value: sourceFilename || "Required" }, { label: "Value date", value: valueDate }]} disabled={!csvContent || !paymentReference || !payerName || repaymentMutation.isPending} onConfirm={repayment} title="Record originator-loan borrower repayment" variant="primary">Review repayment</OperationConfirmButton>
         </div>
+      ) : null}
+      {repaymentMutation.data ? (
+        <Banner tone="ok" title="Repayment recorded">
+          <div className="admin-context-bar">
+            <span>Received by Garanta <Money amountMinor={repaymentMutation.data.amount_minor} currency={repaymentMutation.data.currency} /></span>
+            <span>Credited to investors <Money amountMinor={repaymentMutation.data.investor_distributed_minor} currency={repaymentMutation.data.currency} /></span>
+            <span><strong>Payable to Loan Originator <Money amountMinor={repaymentMutation.data.originator_payable_minor} currency={repaymentMutation.data.currency} /></strong></span>
+            <span>Garanta legal / recovery costs <Money amountMinor={repaymentMutation.data.platform_costs_minor} currency={repaymentMutation.data.currency} /></span>
+          </div>
+          Record the external LO transfer in Finance operations. The payment split remains in the loan's payment history.
+        </Banner>
       ) : null}
       {mutationError ? <Banner tone="bad" title="Originator claim action failed">{errorMessage(mutationError)}</Banner> : null}
       {detailQuery.error ? <Banner tone="bad" title="Could not load imported loan evidence">{errorMessage(detailQuery.error)}</Banner> : null}
@@ -3906,7 +3914,7 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
             type="date"
             value={loanStartDate}
           />
-          <TextInput label="Funding deadline" onChange={setFundingDeadline} type="date" value={fundingDeadline} />
+          <TextInput hint="Last inclusive subscription date; at most 50 days including today. Funding resolves automatically using the published minimum." label="Funding deadline" onChange={setFundingDeadline} type="date" value={fundingDeadline} />
           <TextInput
             hint="If subscriptions reach this share of the principal by the deadline, the loan closes at the subscribed amount; below it, the campaign is cancelled and refunded."
             label="Minimum subscription bps"
@@ -4054,7 +4062,7 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
             type="date"
             value={loanStartDate}
           />
-          <TextInput label="Funding deadline" onChange={setFundingDeadline} type="date" value={fundingDeadline ?? ""} />
+          <TextInput hint="Last inclusive subscription date; at most 50 days including today. Published funding terms cannot be extended." label="Funding deadline" onChange={setFundingDeadline} type="date" value={fundingDeadline ?? ""} />
           <TextInput
             hint={
               loan.status === "draft"
@@ -4118,7 +4126,7 @@ const MANAGE_LOAN_ACTIONS: Array<{
     title: "Cancel funding",
     description:
       "Stop the campaign before close: reserved balances are released and pending orders close as not invested.",
-    statuses: ["published", "funding_close_failed"],
+    statuses: ["published"],
     danger: true
   },
   {
@@ -4133,7 +4141,7 @@ const MANAGE_LOAN_ACTIONS: Array<{
     title: "Release an order's balance",
     description:
       "Return one allocated order's reserved balance to its investor without touching the rest of the campaign.",
-    statuses: ["published", "funding_close_failed"],
+    statuses: ["published"],
     danger: true
   },
   {
@@ -4576,7 +4584,11 @@ function ManageLoanModal({
   const recProjectedPrincipalMinor = Math.max(recAfterPenaltyMinor - recInterestAppliedMinor, 0);
   const recCanSubmit = recNetAvailableMinor > 0;
 
-  const available = MANAGE_LOAN_ACTIONS.filter((item) => item.statuses.includes(loan.status));
+  const fundingEnded = Boolean(loan.funding_deadline && isPastBusinessDate(loan.funding_deadline));
+  const available = MANAGE_LOAN_ACTIONS.filter((item) =>
+    item.statuses.includes(loan.status)
+    && !(fundingEnded && ["cancel", "release"].includes(item.id))
+  );
   const active = MANAGE_LOAN_ACTIONS.find((item) => item.id === action) ?? null;
   const anyError =
     publish.error || cancelFunding.error || expiryScan.error || releaseOrder.error || recordRecovery.error;

@@ -1,7 +1,7 @@
 # BANXUM Go-Live And Real-Money Readiness Checklist
 
 Status: working launch runbook.
-Last updated: 2026-08-04.
+Last updated: 2026-09-07.
 
 This checklist is the operational gate before BANXUM handles real lender money or real production KYC evidence. It complements `admin_todo_accounts.md`, `admin_todo_garanta.md`, `admin_todo_tech.md`, and `docs/runbooks/server-deployment.md`.
 
@@ -57,8 +57,9 @@ Complete these before calling any environment production-like.
   - Generated agreement PDFs/CSVs are rendered on demand from immutable acceptance evidence and are downloadable from investor Documents plus the admin Users document-history modal. Legal terms and transaction-agreement PDFs are not emailed by default.
   - Loan Originator subscription wording has counsel approval for: reservation
     during finite funding, no investor accrual during funding or on the boundary
-    installment, activation only after exact boundary-payment verification, par
-    principal, separate interest/penalty participation, refund on failed activation,
+    installment, automatic activation at successful funding close, par principal,
+    separate interest/penalty participation, preserved reservations on close failure,
+    cancellation with restoration of original lots and deadlines,
     no recourse/buyback, Garanta servicing, and secondary transfer at par/discount.
 - Loan Originators:
   - Each enabled originator has current off-platform KYB/AML evidence, an internal
@@ -78,8 +79,10 @@ Complete these before calling any environment production-like.
   - Closure-time reversible pseudonymization, offline private-key custody, and the recovery procedure are implemented and tested before processing a production closure request.
   - Production data is never copied to staging without an approved anonymization/pseudonymization process.
 - Communications and monitoring:
-  - Scheduled jobs are installed for email dispatch, daily balance ageing/penalty charging, servicing status scan, campaign expiry scan, and reconciliation-break task sync.
+  - Scheduled jobs are installed for email dispatch, daily balance ageing/penalty charging, servicing status scan, campaign expiry scan, reconciliation-break task sync, Loan Originator settlement-task sync, and Loan Originator opportunity/activation lifecycle scan.
   - `check_scheduled_jobs` runs at least every 15 minutes and alerts on non-zero exit.
+    Verify missing job history, overdue success, failed runs and stuck runs all fail;
+    a dry run must not satisfy successful execution coverage or suppress a real run.
   - Failed email/outbox queues are visible in the admin dashboard.
   - Operational mailbox owners are assigned for support, tech alerts, provider alerts, and DMARC reports.
 
@@ -113,12 +116,13 @@ Use this as the daily operating checklist once the environment is live.
   - Escalate day-3 originator payable tasks immediately and never allow the oldest
     unsettled item to exceed five calendar days.
 - Loans and marketplace:
-  - Publish only approved-KYB/no-hold borrowers.
+  - Confirm company KYB offline before publication. No platform KYB file is required; explicit borrower holds and declined/manual-review decisions must block publication.
+  - Verify PAY-DEC-031 admission checks, short/long-window source selection, same-day close-before-ageing ordering, and automatic retries. A persistent failed close is an urgent technical incident; the available-balance sweep does not cover reserved escrow.
   - Keep funding deadlines inside the publishable campaign window.
   - Confirm each direct loan's minimum subscription (default 50%) before publication; publication freezes it even when no commitment exists yet.
   - Run the funding-deadline resolver: at/above the threshold it closes automatically at the subscribed amount; below it, it cancels and restores reservations.
   - Confirm `funding_close_failed` loans are not public, retain reservations, create an urgent task, and send an alert to `OPERATIONS_ALERT_EMAIL`.
-  - Resolve the root cause, then retry the deterministic resolver or cancel/refund. Do not manually choose a partial-close amount.
+  - Repair failed-close causes promptly and verify the scheduled retry succeeds. Do not choose a different funding outcome, release individual reservations after deadline, or cancel a threshold-qualified direct loan.
   - Record borrower repayments with exact value date and warning acknowledgement for irregular payments.
   - Record recoveries only for defaulted loans and use final loss recognition only after Garanta/legal/accounting approval.
   - For a current originator claim, verify originator status/settlement instructions,
@@ -179,12 +183,13 @@ Run these checks in staging before production, and again in production before re
   - An allocated order creates one reservation and no holding, entitlement, or
     originator payable. Exact replay creates no duplicate reservation.
   - Full subscription closes automatically; the deadline scan closes any positive
-    partial round and cancels an empty round. Closing leaves reservations in escrow.
-  - Exact boundary-payment activation creates one holding/purchase/entitlement set
-    per allocated order and one escrow-to-originator-payable journal. The boundary
+    partial round and cancels an empty round. Successful close creates one
+    holding/purchase/entitlement set per allocated order and one
+    escrow-to-originator-payable journal in the same transaction. The boundary
     installment is excluded from every investor projection and distribution.
-  - Boundary mismatch, pre-activation repayment/schedule change, or explicit hold
-    prevents activation and follows the cancellation/refund path.
+  - Published schedule inconsistency or an explicit hold prevents close. A close
+    failure hides the offer, preserves reservations and creates an urgent task/email.
+    Cancellation refunds the original lots; retry must not change accepted economics.
   - Opportunity access fails closed for inactive/blocked originators, holds,
     late/default/repaid loans, no sellable principal, stale revisions, invalid
     funding dates, and invalid activation terms.
@@ -207,7 +212,8 @@ Run this as an end-to-end staging rehearsal with test users and small provider-s
   - Confirm dashboard balance, balance lots, ageing deadlines, and deposit notification.
   - Run a dry-run ageing scan and verify no unintended money movement.
 - Primary investment:
-  - Publish a test borrower/loan with valid KYB and funding deadline.
+  - Publish a test borrower/loan after offline company KYB, with no explicit hold or
+    adverse decision, and with a funding deadline no later than the 50th inclusive subscription date.
   - Place an investment order with automatic email-code issuance.
   - Accept project investment confirmation and download the generated PDF.
   - Allocate above the configured minimum, advance past the deadline/run the resolver, and verify automatic close plus holding creation.
@@ -225,13 +231,18 @@ Run this as an end-to-end staging rehearsal with test users and small provider-s
   - Repeat with the same idempotency key and confirm no duplicate financial/evidence
     records. Confirm full subscription auto-closes and positive partial funding closes
     only through deterministic deadline resolution.
-  - Verify close leaves funds reserved and creates an activation task. Record the exact
-    boundary payment/resulting principal and confirm activation creates the holdings,
-    post-boundary entitlements, originator payable, and downloadable evidence.
-  - Test a missing/partial/changed boundary payment and a pre-activation schedule
-    change. Confirm activation is blocked and cancellation restores exact original
-    lots and ageing dates. Simulate close failure and verify urgent task/email/retry.
-  - Record regular and advance post-activation payments through replacement imports.
+  - Verify successful close immediately creates holdings, post-boundary entitlements,
+    originator payable and downloadable evidence, without an activation task or bank import.
+    A failure anywhere in that transaction must leave no partial holding or settlement.
+  - Record the real boundary payment later. Confirm every component belongs to the
+    LO, investor balances are unchanged, and the original entitlement schedule remains intact.
+  - Test historical closed reservations from the previous release: healthy records
+    upgrade from original evidence without invented bank receipts; held/inconsistent
+    records create an immediate repair task/email and do not starve later scan entries.
+  - Test a partial/changed payment through servicing and reject unapproved removal of
+    future interest/penalty from a regular-payment import. Simulate close failure and
+    verify urgent task/email/retry. Cancellation restores original lots and ageing dates.
+  - Record regular and advance payments through replacement imports.
     Reconcile principal ownership and separate investor interest/penalty participation
     plus originator servicing payable to every imported component exactly.
   - Transfer a performing originator holding on the secondary market. Confirm the

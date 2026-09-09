@@ -150,7 +150,7 @@ const queueDefinitions: Array<{
     label: "Balance ageing",
     shortLabel: "Ageing",
     group: "Finance",
-    description: "Balance lots near or past the 30/60-day regulatory windows."
+    description: "Balance lots near or past their original 60-day holding deadline."
   },
   {
     key: "funding_loans",

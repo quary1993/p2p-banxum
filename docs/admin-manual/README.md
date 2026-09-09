@@ -6,7 +6,7 @@ the internal admin console (`/admin`) with **annotated screenshots** (numbered
 badges + arrows pointing at real UI elements), **end-to-end workflows**, and a
 **glossary**.
 
-- **Deliverable:** [`BANXUM-Admin-Manual.pdf`](BANXUM-Admin-Manual.pdf) (61 pages)
+- **Deliverable:** [`BANXUM-Admin-Manual.pdf`](BANXUM-Admin-Manual.pdf) (60 pages)
 - **On-screen version:** `manual.html` (same content; annotations are live SVG)
 
 ## What's inside the manual
@@ -16,7 +16,7 @@ badges + arrows pointing at real UI elements), **end-to-end workflows**, and a
 3. Sections 3–10 — One per admin screen: Daily Dashboard, Tasks, Users,
    Compliance, Finance Operations, Loans & Marketplace, Reports & Audit,
    Superadmin Settings
-4. End-to-end workflows (12 click-by-click recipes)
+4. End-to-end workflows (13 click-by-click recipes)
 5. Glossary & quick reference (terms, statuses, dashboard queues)
 
 ## How it was built

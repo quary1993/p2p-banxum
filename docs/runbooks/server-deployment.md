@@ -227,7 +227,13 @@ the migration drift gate uses the production database engine.
 Backups must be environment-scoped, encrypted off-host, and monitored. The backup helper acquires a
 per-environment lock, creates a compressed custom-format `pg_dump`, validates it with `pg_restore
 --list`, writes a SHA-256 checksum, uploads both files with S3 server-side encryption, and retains a
-short local recovery window. It never touches another Compose project.
+short local recovery window. It never touches another Compose project. The `.offsite`
+completion marker is published only after both remote uploads succeed. When off-site
+storage is configured or required, freshness checks require that marker, the exact
+configured destination, a matching remote archive size and the remote checksum file.
+Missing credentials, failed upload or unavailable remote evidence fails the monitor
+even if a recent valid local dump exists. This is evidence of transfer, not a substitute
+for a restore drill or for verifying bucket encryption, region and access policies.
 
 Example production environment file consumed by the cron wrapper (store outside Git):
 
@@ -280,11 +286,11 @@ In staging and production, `SCHEDULED_JOBS_ACTOR_EMAIL` must point to a dedicate
 service admin account, not a human admin account.
 
 Set `OPERATIONS_ALERT_EMAIL` to the monitored operations mailbox (`hq@banxum.com` at launch).
-The daily primary-funding resolver uses this address when a deadline close/cancellation fails. Such
+The primary-funding resolver uses this address when a deadline close/cancellation fails. Such
 a failure removes the loan from public listings, preserves investor reservations, and creates an
 urgent admin task. Alerting must page on the email/outbox failure as well as on open
-`LoanFundingCloseFailure` tasks; operators then fix the cause and retry the deterministic resolver
-or cancel/refund the campaign.
+`LoanFundingCloseFailure` tasks; operators repair the cause while the deterministic resolver retries
+automatically. A qualified failed close cannot be replaced by discretionary cancellation/refund.
 
 Monitoring should call the read-only check command and alert on any non-zero exit:
 
@@ -298,19 +304,37 @@ docker compose \
 
 The monitor fails when it finds:
 
-- a scheduled-job run still marked `failed`; or
-- a `running` scheduled-job run older than `SCHEDULED_JOBS_RUNNING_TIMEOUT_MINUTES`.
+- a scheduled-job run still marked `failed`;
+- a `running` scheduled-job run older than `SCHEDULED_JOBS_RUNNING_TIMEOUT_MINUTES`;
+- any required default job without a successful non-dry-run execution; or
+- success evidence older than `SCHEDULED_JOBS_EMAIL_MAX_AGE_MINUTES` for email
+  dispatch or `SCHEDULED_JOBS_DAILY_MAX_AGE_MINUTES` for daily jobs, or dated in the future.
+
+Daily coverage defaults to 30 hours; email coverage defaults to five minutes. Choose
+the email threshold with enough headroom for the installed cadence and runtime. A
+monitor failure is expected on a fresh environment until all required jobs have run.
+Dry runs use separate execution keys and neither satisfy coverage nor occupy the
+corresponding real-run slot. Do not delete financial or scheduler evidence to silence alerts.
 
 Separately monitor open urgent admin tasks whose related object type is
-`LoanFundingCloseFailure`. Scheduled-job success only proves the scan completed; an individual
-campaign can intentionally finish the scan in the preserved-reservation failure state and still
-require immediate operations action.
+`LoanFundingCloseFailure`. A scan with an individual funding-resolution failure is recorded as
+failed, retaining its partial-success summary, and is eligible for retry on the next scheduler
+invocation. Alert emails are limited to one per loan/business date; financial retry evidence remains
+append-only. Repair persistent failures urgently; no admin choice overrides the published threshold.
 
-Example cron shape for the current shared-server launch, using only BANXUM project names and paths:
+Example cron shape for the current shared-server launch, using only BANXUM project names and paths.
+The daily run must execute at 00:10 Europe/Zurich; translate that to the host cron timezone (including
+DST) or configure the host accordingly. Verify the timezone before installation. The combined run
+resolves funding before balance ageing. Failed keys are retried without waiting for another day.
+Successful daily keys normally skip repeat invocations, but funding jobs reopen if a new failed round
+appears later that day (for example, a fully subscribed LO round fails in the purchase request).
+Each attempt has distinct audit/domain evidence. Apply and verify these schedules in each
+deployment; editing this runbook alone does not change installed server cron entries.
 
 ```cron
 */5 * * * * cd /opt/banxum/staging/app && docker compose --project-name banxum_staging --env-file infra/deploy/.env -f infra/deploy/docker-compose.yml exec -T backend .venv/bin/python backend/manage.py run_scheduled_jobs --job email_outbox_dispatch >> /var/log/banxum-staging-jobs.log 2>&1
-10 6 * * * cd /opt/banxum/staging/app && docker compose --project-name banxum_staging --env-file infra/deploy/.env -f infra/deploy/docker-compose.yml exec -T backend .venv/bin/python backend/manage.py run_scheduled_jobs >> /var/log/banxum-staging-jobs.log 2>&1
+*/5 * * * * cd /opt/banxum/staging/app && docker compose --project-name banxum_staging --env-file infra/deploy/.env -f infra/deploy/docker-compose.yml exec -T backend .venv/bin/python backend/manage.py run_scheduled_jobs --job primary_funding_expiry_scan --job originator_opportunity_lifecycle_scan >> /var/log/banxum-staging-jobs.log 2>&1
+10 0 * * * cd /opt/banxum/staging/app && docker compose --project-name banxum_staging --env-file infra/deploy/.env -f infra/deploy/docker-compose.yml exec -T backend .venv/bin/python backend/manage.py run_scheduled_jobs >> /var/log/banxum-staging-jobs.log 2>&1
 */15 * * * * cd /opt/banxum/staging/app && docker compose --project-name banxum_staging --env-file infra/deploy/.env -f infra/deploy/docker-compose.yml exec -T backend .venv/bin/python backend/manage.py check_scheduled_jobs >> /var/log/banxum-staging-job-monitor.log 2>&1
 ```
 
@@ -345,14 +369,24 @@ also enforces superadmin-only access and rejects the feature when `ENVIRONMENT=p
 
 Behavior:
 
-- Enabling QA mode creates a Django database fixture snapshot before any QA-time changes are made.
+- Enabling QA mode creates a private Django fixture plus a SHA-256/schema manifest
+  before any QA-time changes. Retain both files and restrict their access.
 - While QA mode is enabled, the platform's `now_utc()` helper returns the simulated QA time.
 - Advancing time is day-based. For each crossed Europe/Zurich business date, the system runs the
   daily scheduled jobs: balance ageing and penalty charging, loan servicing status scan, primary
-  funding-expiry scan, reconciliation-break task sync, and due email dispatch.
+  funding-expiry scan, reconciliation-break task sync, Loan Originator settlement-task sync,
+  Loan Originator opportunity/activation lifecycle scan, and due email dispatch.
 - Reverting restores the database snapshot captured at QA-mode entry and clears the simulated clock.
   Sessions are part of database state and should be expected to reset; the operator may need to sign
   in again.
+- Snapshot checksum and migration compatibility are checked before mutation. Flush
+  and load run in one database transaction: a failed load restores the pre-attempt
+  database. PostgreSQL table locks also exclude uncoordinated table writes during
+  restoration. Never alter a manifest to force an incompatible snapshot to load.
+- Enable, advance and revert acquire an environment-wide exclusive QA guard.
+  Ordinary HTTP requests and scheduled jobs acquire shared guards; overlapping work
+  is rejected for retry rather than racing a restore. PostgreSQL advisory locks cover
+  workers on multiple hosts; SQLite's local file lock is for single-host local QA.
 
 Important limits:
 
@@ -362,3 +396,25 @@ Important limits:
   credentials.
 - Do not schedule normal crons against the same environment while a manual QA time-travel run is in
   progress; the QA panel already invokes the scheduled-job service for crossed business dates.
+- Recreate the baseline after schema migrations. Older snapshots without a valid
+  matching manifest are not loadable through the QA panel. Arbitrary external scripts
+  must opt into the QA guard; the application cannot rewind external services.
+
+### Repeatable Synthetic Starting Point
+
+Use only a disposable local/staging database with `COMMUNICATIONS_EMAIL_PROVIDER=mock`,
+an active superadmin and no real customer data. The command refuses production and
+real email providers; it is never part of container startup or ordinary deployment.
+
+```bash
+.venv/bin/python backend/manage.py seed_qa_starting_point --actor-email YOUR-QA-SUPERADMIN-EMAIL
+```
+
+It creates a synthetic verified investor with an unusable password, CHF/EUR deposits,
+eight direct opportunities, ten LO v2 opportunities, pending/allocated orders,
+an automatically activated LO holding and clearly marked QA acceptance evidence.
+No LO login/wallet or external bank transfer is created. Repeating the command with
+the same baseline is idempotent; it does not refresh an aged or modified scenario.
+Use superadmin read-only view to inspect the investor, or mock login for interactive
+QA. Enable QA mode after seeding to capture that state, advance time and then revert
+to repeat it. Do not mistake the temporary templates for approved legal terms.

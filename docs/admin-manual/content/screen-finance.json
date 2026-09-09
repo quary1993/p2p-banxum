@@ -13,7 +13,7 @@
     "Declare a matched incoming lender deposit and credit it to the investor's balance.",
     "Review and add verified payout IBANs without removing verified accounts already established by deposits.",
     "Look up an investor's ledger balance broken into investable, withdraw-only, overdue, frozen and penalty buckets.",
-    "Run the balance ageing scan that fires 30/60-day reminders, forced withdrawals, and penalty charges (with a safe dry-run mode).",
+    "Run the balance ageing scan that fires 60-day holding reminders, forced withdrawals, and penalty charges (with a safe dry-run mode).",
     "Create a reconciliation snapshot that compares the bank's stated balance against what the ledger expects.",
     "Finalize or cancel investor withdrawals, finalize direct borrower loan disbursements, declare external FX settlements, and settle complete Loan Originator payable batches after the bank transfer executes."
   ],
@@ -104,7 +104,7 @@
         {
           "item": 5,
           "label": "Value date",
-          "text": "The date the funds became available (the bank value date). This is the important one: it starts the investor's holding clock. From this date the system sets a 30-day investment deadline and a 60-day withdrawal deadline on the new balance lot."
+          "text": "The date the funds became available (the bank value date). This is the important one: it starts the investor's holding clock. From this date the system sets the 60-day holding deadline; a reservation must cover the loan's remaining funding period on the new balance lot."
         },
         {
           "item": 6,
@@ -134,7 +134,7 @@
       ],
       "notes": [
         "Only an active admin can declare a deposit. The chosen account must be a lender account that is not restricted, locked, or closed. A pending-KYC lender may receive a deposit; financial actions remain blocked until onboarding gates pass.",
-        "The new balance lot starts the 30-day 'pledge/invest' window and the 60-day 'must withdraw' window from the value date. New loan investments must be pledged before the lot's 30-day deadline; the loan can close later inside its own capped campaign window. These windows drive the ageing scan later.",
+        "The new source's 60-day holding clock starts on the bank value date. A reservation is permitted only when that source can cover the loan's entire remaining funding window. Shorter campaigns can use older funds. At day 60, uninvested sources enter the return process.",
         "Investor deposit instructions show the investor-specific payment reference as BX-{currency}-{investor_reference}. The CHF screen also shows the verified Garanta_CHF Swiss QR-bill payload. That QR payload identifies the CHF collector account but does not include the investor's BANXUM payment reference, so the investor must still copy the displayed payment reference into the bank transfer reference/description. The EUR collector currently has IBAN/BIC instructions only; no EUR QR payload has been supplied.",
         "Source IBAN is mandatory. It must be the account the deposit actually came from and pass full IBAN validation. A successful deposit makes that exact investor/currency IBAN verified and usable for ordinary and forced withdrawals; this is not a separate manual payout-verification step.",
         "Each deposit gets an automatic idempotency key, so resubmitting the same declaration returns the original result rather than crediting the investor twice."
@@ -201,18 +201,18 @@
         {
           "item": 3,
           "label": "Load balance summary",
-          "text": "Fetches the summary and displays four figures below: Available (total usable balance), Investable (still inside the 30-day window, can be lent), Withdraw-only (past 30 days but before 60 - can still be withdrawn but no longer invested), and Overdue (past the 60-day withdrawal deadline). If the lookup fails, a red banner shows the reason."
+          "text": "Fetches the summary and displays four figures below: Available (total usable balance), Investable (before the holding deadline, subject to each loan's remaining funding window), Withdraw-only (legacy compatibility bucket, normally zero under deadline-based eligibility), and Overdue (past the 60-day withdrawal deadline). If the lookup fails, a red banner shows the reason."
         }
       ],
       "notes": [
-        "The buckets are derived live from the investor's balance lots: AVAILABLE lots are classed as investable / withdraw-only / overdue based on the as-of time against each lot's 30-day and 60-day deadlines. Frozen and penalty-mode lots are tracked separately and are not normal spendable balance.",
+        "The buckets are derived live from the investor's balance lots: AVAILABLE lots are classed as investable / withdraw-only / overdue based on the as-of business date against each lot's holding deadline; individual loans additionally require source coverage through their final subscription date. Frozen and penalty-mode lots are tracked separately and are not normal spendable balance.",
         "This screen shows Available, Investable, Withdraw-only and Overdue. Use it before a forced withdrawal or to explain to an investor why funds are or are not investable.",
         "Read-only: it never moves money or changes a lot's status."
       ]
     },
     {
       "id": "finance-5-balance-ageing-scan",
-      "caption": "Balance ageing scan: drive the 30/60-day reminders, forced withdrawals and penalties.",
+      "caption": "Balance ageing scan: drive the 60-day holding reminders, forced withdrawals and penalties.",
       "summary": "This scan walks every investor's still-available balance lots and applies the ageing rules: it raises reminders as lots approach the 60-day limit, and at/after day 60 it either auto-creates a forced withdrawal (if a verified payout IBAN exists) or moves the lot into penalty mode and charges a daily penalty. It can be run safely as a dry run first.",
       "annotations": [
         {
@@ -389,7 +389,7 @@
         }
       ],
       "notes": [
-        "SAFETY RULES enforced by the system: the loan must be in 'funded' status; the loan's currency must equal the disbursement currency; the selected borrower must match the loan's borrower; the borrower's KYB must be approved with no compliance hold (the borrower must be allowed to transact); borrower transfer + fee must not exceed the funded amount; and the fee must be between 0 and 10% of the funded amount. Any of these failing blocks the disbursement.",
+        "SAFETY RULES enforced by the system: the loan must be in 'funded' status; the loan's currency must equal the disbursement currency; the selected borrower must match the loan's borrower; the borrower must have no explicit compliance hold or Declined/Manual review decision (company KYB is offline); borrower transfer + fee must exactly clear the outstanding borrower payable; and the fee must be between 0 and 10% of the funded amount. Any of these failing blocks the disbursement.",
         "The default amount and fee are readonly: overriding them is only possible together and with a required explanation note, which is stored for audit.",
         "'KYB' (Know Your Business) is the business equivalent of identity verification for the borrowing company.",
         "Only an active admin can finalize, and the automatic idempotency key prevents double-paying the borrower on a repeat click."
@@ -452,10 +452,9 @@
         }
       ],
       "notes": [
-        "'Load reports' is read-only; 'Declare settlement' is the only money-recording action on this panel.",
-        "Residual = the difference between what the internal exchanges expected and what the bank actually executed; it is expected to be small and is tracked per currency in the realized report.",
-        "Only an active admin can load reports or declare a settlement. Sold and bought currencies must differ and the pair must be enabled.",
-        "Workflow: pick the date range, Load reports, read the internal delta to see the net to settle, confirm against the realized report, then enter the actual sold/bought amounts and Declare settlement."
+        "Load reports is read-only. Declare settlement records money movement; both require an active admin and an enabled pair of different currencies.",
+        "Residuals compare expected internal FX amounts with actual bank execution. Review them by currency in the realized report.",
+        "Choose dates, load reports, reconcile the internal delta against bank evidence, enter actual sold/bought amounts, then declare settlement."
       ]
     }
   ]

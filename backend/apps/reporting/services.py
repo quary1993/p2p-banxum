@@ -10,12 +10,13 @@ import textwrap
 import zipfile
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
+from importlib import import_module
 from typing import Any
 
 from django.apps import apps
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Model
+from django.db.models import F, Model, Q
 
 from backend.apps.platform_core.domain.access import (
     actor_ref_for_user,
@@ -54,7 +55,7 @@ class ReportingValidationError(ReportingError):
     pass
 
 
-REPORT_DEFINITION_VERSION = "reporting-v2"
+REPORT_DEFINITION_VERSION = "reporting-v3"
 CSV_CONTENT_TYPE = "text/csv; charset=utf-8"
 PDF_CONTENT_TYPE = "application/pdf"
 ZIP_CONTENT_TYPE = "application/zip"
@@ -967,13 +968,18 @@ def _investor_balances_dataset(
     ]
     queryset = (
         lot_model.objects.select_related("currency", "source_journal_entry")
-        .filter(received_at__lte=end_dt)
+        .filter(received_at__lte=end_dt, source_journal_entry__effective_at__lte=end_dt)
         .order_by("currency__code", "investor_user_id", "received_at", "created_at", "id")
     )
     queryset = _apply_currency_filter(queryset, filters)
     investor_id = str(filters.get("investor_user_id", "") or filters.get("participant_id", ""))
     if investor_id:
         queryset = queryset.filter(investor_user_id=investor_id)
+    lots = list(queryset)
+    historical = import_module("backend.apps.ledger.selectors").balance_lot_amounts_as_of(
+        lots=lots,
+        as_of=end_dt,
+    )
     rows = [
         {
             "balance_lot_id": str(lot.id),
@@ -984,21 +990,28 @@ def _investor_balances_dataset(
             "currency": lot.currency.code,
             "source_type": lot.source_type,
             "source_id": lot.source_id,
-            "status": lot.status,
+            "status": historical[str(lot.pk)]["status"],
             "received_at": lot.received_at,
             "investment_deadline_at": lot.investment_deadline_at,
             "withdrawal_deadline_at": lot.withdrawal_deadline_at,
             "age_days_as_of_end_date": calendar_day_difference(lot.received_at, end_dt),
             "original_amount_minor": lot.original_amount_minor,
-            "available_amount_minor": lot.available_amount_minor,
-            "invested_amount_minor": lot.invested_amount_minor,
-            "converted_amount_minor": lot.converted_amount_minor,
-            "withdrawn_amount_minor": lot.withdrawn_amount_minor,
-            "penalized_amount_minor": lot.penalized_amount_minor,
+            **{
+                key: value
+                for key, value in historical[str(lot.pk)].items()
+                if key.endswith("_minor")
+            },
             "source_journal_entry_id": str(lot.source_journal_entry_id),
-            "lineage_json": _redacted_json(lot.lineage, redaction_mode=redaction_mode),
+            "lineage_json": _redacted_json(
+                [
+                    item
+                    for item in lot.lineage
+                    if not item.get("as_of") or datetime.fromisoformat(item["as_of"]) <= end_dt
+                ],
+                redaction_mode=redaction_mode,
+            ),
         }
-        for lot in list(queryset)
+        for lot in lots
     ]
     return ReportDataset(
         columns=columns,
@@ -1035,16 +1048,28 @@ def _balance_ageing_dataset(
     ]
     queryset = (
         lot_model.objects.select_related("currency")
-        .filter(available_amount_minor__gt=0, received_at__lte=end_dt)
+        .filter(received_at__lte=end_dt, source_journal_entry__effective_at__lte=end_dt)
         .order_by("withdrawal_deadline_at", "investment_deadline_at", "received_at", "id")
     )
     queryset = _apply_currency_filter(queryset, filters)
+    lots = list(queryset)
+    historical = import_module("backend.apps.ledger.selectors").balance_lot_amounts_as_of(
+        lots=lots,
+        as_of=end_dt,
+    )
     rows: list[dict[str, Any]] = []
-    for lot in list(queryset):
+    for lot in lots:
+        state = historical[str(lot.pk)]
+        if state["available_amount_minor"] <= 0:
+            continue
         age_days = calendar_day_difference(lot.received_at, end_dt)
-        investment_days_left = (lot.investment_deadline_at.date() - end_date).days
-        withdrawal_days_left = (lot.withdrawal_deadline_at.date() - end_date).days
-        if lot.status == "penalty_mode" or withdrawal_days_left < 0:
+        investment_days_left = (
+            lot.withdrawal_deadline_at.astimezone(business_timezone()).date() - end_date
+        ).days
+        withdrawal_days_left = (
+            lot.withdrawal_deadline_at.astimezone(business_timezone()).date() - end_date
+        ).days
+        if state["status"] == "penalty_mode" or withdrawal_days_left <= 0:
             bucket = "day_60_plus_penalty_or_withdraw_required"
             action = "withdraw_or_forced_withdrawal"
         elif withdrawal_days_left <= 2:
@@ -1053,12 +1078,9 @@ def _balance_ageing_dataset(
         elif withdrawal_days_left <= 7:
             bucket = "day_53_to_57"
             action = "withdrawal_reminder"
-        elif investment_days_left < 0:
-            bucket = "withdraw_only"
-            action = "withdrawal_or_fx_only"
         else:
             bucket = "investable"
-            action = "none"
+            action = "loan_specific_funding_deadline_check"
         rows.append(
             {
                 "balance_lot_id": str(lot.id),
@@ -1067,12 +1089,12 @@ def _balance_ageing_dataset(
                     redaction_mode=redaction_mode,
                 ),
                 "currency": lot.currency.code,
-                "status": lot.status,
+                "status": state["status"],
                 "source_type": lot.source_type,
-                "available_amount_minor": lot.available_amount_minor,
+                "available_amount_minor": state["available_amount_minor"],
                 "received_at": lot.received_at,
                 "age_days": age_days,
-                "investment_deadline_at": lot.investment_deadline_at,
+                "investment_deadline_at": lot.withdrawal_deadline_at,
                 "withdrawal_deadline_at": lot.withdrawal_deadline_at,
                 "days_until_investment_deadline": investment_days_left,
                 "days_until_withdrawal_deadline": withdrawal_days_left,
@@ -1256,6 +1278,17 @@ def _loan_funding_dataset(
     )
 
 
+def _repayment_bucket(*, outstanding: int, due_date: date, as_of: date) -> str:
+    days = max(0, (as_of - due_date).days) if outstanding else 0
+    if not outstanding:
+        return "paid"
+    if days >= 16:
+        return "default_threshold"
+    if days >= 5:
+        return "late_threshold"
+    return "past_due_under_late_threshold" if due_date < as_of else "due_or_upcoming"
+
+
 def _repayment_status_dataset(
     *,
     start_date: date,
@@ -1264,81 +1297,289 @@ def _repayment_status_dataset(
     filters: dict[str, Any],
 ) -> ReportDataset:
     del redaction_mode
+    _, end_dt = _date_time_bounds(start_date, end_date)
     installment_model = _external_model("loans", "LoanInstallment")
     repayment_model = _external_model("servicing", "BorrowerRepaymentEvent")
+    loan_model = _external_model("loans", "Loan")
+    event_model = _external_model("loans", "LoanEvent")
     columns = [
         "loan_id",
+        "loan_name",
+        "product_type",
         "borrower_id",
+        "borrower_display_name",
+        "originator_id",
+        "originator_name",
+        "distribution_model",
         "loan_status",
         "currency",
         "schedule_version",
+        "import_id",
+        "row_type",
         "installment_id",
         "installment_number",
+        "payment_reference",
         "due_date",
+        "payment_date",
         "scheduled_principal_minor",
         "scheduled_interest_minor",
+        "scheduled_penalty_minor",
+        "scheduled_fee_minor",
         "scheduled_total_minor",
         "paid_principal_minor",
         "paid_interest_minor",
+        "paid_penalty_minor",
+        "paid_fee_minor",
         "paid_future_principal_minor",
         "paid_total_minor",
         "outstanding_minor",
         "days_past_due_as_of_end_date",
         "repayment_status_bucket",
+        "investor_distributed_minor",
+        "originator_payable_minor",
+        "platform_costs_minor",
+        "is_originator_boundary",
     ]
-    queryset = (
-        installment_model.objects.select_related("loan", "loan__currency")
-        .filter(due_date__gte=start_date, due_date__lte=end_date)
-        .order_by("due_date", "loan_id", "installment_number", "id")
+    loans = (
+        loan_model.objects.select_related(
+            "borrower",
+            "currency",
+            "originator_profile__originator",
+        )
+        .filter(created_at__lte=end_dt)
+        .order_by("pk")
     )
-    queryset = _apply_currency_filter(queryset, filters, field_name="loan__currency")
+    loans = _apply_currency_filter(loans, filters)
+    if filters.get("loan_id"):
+        loans = loans.filter(pk=filters["loan_id"])
+    if filters.get("product_type"):
+        loans = loans.filter(product_type=filters["product_type"])
     rows: list[dict[str, Any]] = []
-    for installment in list(queryset):
-        repayments = list(repayment_model.objects.filter(installment_id=installment.id))
-        paid_principal = sum(int(event.principal_applied_minor) for event in repayments)
-        paid_interest = sum(int(event.interest_applied_minor) for event in repayments)
-        paid_future_principal = sum(
-            int(event.future_principal_applied_minor) for event in repayments
+    for loan in loans.iterator():
+        profile = getattr(loan, "originator_profile", None)
+        event = (
+            event_model.objects.filter(
+                loan=loan,
+                occurred_at__lte=end_dt,
+            )
+            .exclude(new_status="")
+            .exclude(previous_status=F("new_status"))
+            .order_by("-occurred_at", "-pk")
+            .first()
         )
-        paid_total = sum(int(event.amount_minor) for event in repayments)
-        outstanding = max(0, int(installment.total_minor) - paid_principal - paid_interest)
-        days_past_due = max(0, (end_date - installment.due_date).days) if outstanding else 0
-        if outstanding == 0:
-            bucket = "paid"
-        elif days_past_due >= 16:
-            bucket = "default_threshold"
-        elif days_past_due >= 5:
-            bucket = "late_threshold"
-        elif installment.due_date < end_date:
-            bucket = "past_due_under_late_threshold"
-        else:
-            bucket = "due_or_upcoming"
-        rows.append(
-            {
-                "loan_id": str(installment.loan_id),
-                "borrower_id": str(installment.loan.borrower_id),
-                "loan_status": installment.loan.status,
-                "currency": installment.loan.currency.code,
-                "schedule_version": installment.schedule_version,
-                "installment_id": str(installment.id),
-                "installment_number": installment.installment_number,
-                "due_date": installment.due_date,
-                "scheduled_principal_minor": installment.principal_minor,
-                "scheduled_interest_minor": installment.interest_minor,
-                "scheduled_total_minor": installment.total_minor,
-                "paid_principal_minor": paid_principal,
-                "paid_interest_minor": paid_interest,
-                "paid_future_principal_minor": paid_future_principal,
-                "paid_total_minor": paid_total,
-                "outstanding_minor": outstanding,
-                "days_past_due_as_of_end_date": days_past_due,
-                "repayment_status_bucket": bucket,
+        base = {
+            "loan_id": str(loan.pk),
+            "loan_name": loan.title,
+            "product_type": loan.product_type,
+            "borrower_id": str(loan.borrower_id or ""),
+            "borrower_display_name": (
+                profile.borrower_display_name if profile else loan.borrower.legal_name
+            ),
+            "originator_id": str(profile.originator_id) if profile else "",
+            "originator_name": profile.originator.public_name if profile else "",
+            "distribution_model": profile.distribution_model if profile else "",
+            "loan_status": event.new_status if event else "unknown",
+            "currency": loan.currency_id,
+        }
+        if profile is not None:
+            loan_import = (
+                loan.originator_imports.filter(
+                    as_of_date__lte=end_date,
+                    imported_at__lte=end_dt,
+                )
+                .order_by("-revision")
+                .first()
+            )
+            if loan_import is None:
+                continue
+            base.update(schedule_version=loan_import.revision, import_id=str(loan_import.pk))
+            recorded = {
+                repayment.payment_reference: repayment
+                for repayment in profile.repayments.filter(value_date__lte=end_date)
             }
+            # Imports preserve payment history. Only their outstanding schedule is
+            # added, so superseded contractual rows do not double-count payments.
+            for payment in loan_import.payment_rows.filter(
+                value_date__gte=start_date,
+                value_date__lte=end_date,
+            ).order_by("value_date", "reference"):
+                evidence = recorded.get(payment.reference)
+                rows.append(
+                    {
+                        **base,
+                        "row_type": "repayment_event",
+                        "installment_id": str(payment.pk),
+                        "installment_number": "",
+                        "payment_reference": payment.reference,
+                        "due_date": payment.value_date,
+                        "payment_date": payment.value_date,
+                        "scheduled_principal_minor": 0,
+                        "scheduled_interest_minor": 0,
+                        "scheduled_penalty_minor": 0,
+                        "scheduled_fee_minor": 0,
+                        "scheduled_total_minor": 0,
+                        "paid_principal_minor": payment.principal_minor,
+                        "paid_interest_minor": payment.interest_minor,
+                        "paid_penalty_minor": payment.penalty_minor,
+                        "paid_fee_minor": payment.fee_minor,
+                        "paid_future_principal_minor": 0,
+                        "paid_total_minor": payment.total_minor,
+                        "outstanding_minor": 0,
+                        "days_past_due_as_of_end_date": 0,
+                        "repayment_status_bucket": "paid",
+                        "investor_distributed_minor": (
+                            evidence.investor_distributed_minor if evidence else None
+                        ),
+                        "originator_payable_minor": evidence.originator_payable_minor
+                        if evidence
+                        else None,
+                        "platform_costs_minor": evidence.platform_costs_minor if evidence else None,
+                        "is_originator_boundary": bool(
+                            evidence and evidence.metadata.get("boundary_components")
+                        ),
+                    }
+                )
+            for installment in loan_import.schedule_rows.filter(
+                due_date__gt=loan_import.as_of_date,
+                due_date__gte=start_date,
+                due_date__lte=end_date,
+            ).order_by("due_date", "installment_number"):
+                outstanding = int(installment.total_minor)
+                rows.append(
+                    {
+                        **base,
+                        "row_type": "installment",
+                        "installment_id": str(installment.pk),
+                        "installment_number": installment.installment_number,
+                        "payment_reference": "",
+                        "payment_date": None,
+                        "due_date": installment.due_date,
+                        "scheduled_principal_minor": installment.principal_minor,
+                        "scheduled_interest_minor": installment.interest_minor,
+                        "scheduled_penalty_minor": installment.penalty_minor,
+                        "scheduled_fee_minor": installment.fee_minor,
+                        "scheduled_total_minor": installment.total_minor,
+                        "paid_principal_minor": 0,
+                        "paid_interest_minor": 0,
+                        "paid_penalty_minor": 0,
+                        "paid_fee_minor": 0,
+                        "paid_future_principal_minor": 0,
+                        "paid_total_minor": 0,
+                        "outstanding_minor": outstanding,
+                        "days_past_due_as_of_end_date": max(
+                            0, (end_date - installment.due_date).days
+                        ),
+                        "repayment_status_bucket": _repayment_bucket(
+                            outstanding=outstanding,
+                            due_date=installment.due_date,
+                            as_of=end_date,
+                        ),
+                        "investor_distributed_minor": None,
+                        "originator_payable_minor": None,
+                        "platform_costs_minor": None,
+                        "is_originator_boundary": installment.due_date
+                        == profile.entitlement_start_date,
+                    }
+                )
+            continue
+
+        versions = installment_model.objects.filter(
+            loan=loan,
+            created_at__lte=end_dt,
+        ).order_by("-schedule_version")
+        latest = versions.first()
+        if latest is None:
+            continue
+        current_version = latest.schedule_version
+        # A full payoff creates an empty replacement schedule. Its append-only
+        # event, rather than the last row, establishes the version at the cutoff.
+        schedule_event = (
+            event_model.objects.filter(
+                loan=loan,
+                event_type="schedule_generated",
+                occurred_at__lte=end_dt,
+                metadata__new_schedule_version__isnull=False,
+            )
+            .order_by("-occurred_at", "-pk")
+            .first()
         )
+        if schedule_event is not None:
+            current_version = max(
+                current_version, int(schedule_event.metadata["new_schedule_version"])
+            )
+        paid_in_period = repayment_model.objects.filter(
+            loan=loan, value_date__gte=start_date, value_date__lte=end_date
+        ).values_list("installment_id", flat=True)
+        for installment in versions.filter(
+            Q(due_date__gte=start_date, due_date__lte=end_date) | Q(pk__in=paid_in_period)
+        ).order_by("due_date", "installment_number", "pk"):
+            historical = installment.schedule_version != current_version
+            payment_only = historical or not start_date <= installment.due_date <= end_date
+            payment_query = repayment_model.objects.filter(
+                installment=installment, value_date__lte=end_date
+            )
+            if payment_only:
+                payment_query = payment_query.filter(value_date__gte=start_date)
+            repayments = list(payment_query)
+            paid_principal = sum(int(item.principal_applied_minor) for item in repayments)
+            paid_interest = sum(int(item.interest_applied_minor) for item in repayments)
+            paid_future = sum(int(item.future_principal_applied_minor) for item in repayments)
+            paid_penalty = sum(int(item.penalties_applied_minor) for item in repayments)
+            paid_fees = sum(int(item.fees_applied_minor) for item in repayments)
+            if payment_only and not repayments:
+                continue
+            outstanding = (
+                0
+                if payment_only
+                else max(0, int(installment.total_minor) - paid_principal - paid_interest)
+            )
+            rows.append(
+                {
+                    **base,
+                    "schedule_version": installment.schedule_version,
+                    "import_id": "",
+                    "row_type": "historical_repayment" if payment_only else "installment",
+                    "installment_id": str(installment.pk),
+                    "installment_number": installment.installment_number,
+                    "payment_reference": "",
+                    "payment_date": max(item.value_date for item in repayments)
+                    if payment_only
+                    else None,
+                    "due_date": installment.due_date,
+                    "scheduled_principal_minor": 0 if payment_only else installment.principal_minor,
+                    "scheduled_interest_minor": 0 if payment_only else installment.interest_minor,
+                    "scheduled_penalty_minor": 0,
+                    "scheduled_fee_minor": 0,
+                    "scheduled_total_minor": 0 if payment_only else installment.total_minor,
+                    "paid_principal_minor": paid_principal,
+                    "paid_interest_minor": paid_interest,
+                    "paid_penalty_minor": paid_penalty,
+                    "paid_fee_minor": paid_fees,
+                    "paid_future_principal_minor": paid_future,
+                    "paid_total_minor": sum(int(item.amount_minor) for item in repayments),
+                    "outstanding_minor": outstanding,
+                    "days_past_due_as_of_end_date": (
+                        max(0, (end_date - installment.due_date).days) if outstanding else 0
+                    ),
+                    "repayment_status_bucket": _repayment_bucket(
+                        outstanding=outstanding,
+                        due_date=installment.due_date,
+                        as_of=end_date,
+                    ),
+                    "investor_distributed_minor": None,
+                    "originator_payable_minor": None,
+                    "platform_costs_minor": None,
+                    "is_originator_boundary": False,
+                }
+            )
+    rows.sort(key=lambda row: (row["due_date"], row["loan_id"], row["installment_id"]))
     return ReportDataset(
         columns=columns,
         rows=rows,
-        source_counts={"loan_installments": len(rows)},
+        source_counts={
+            "direct_rows": sum(row["product_type"] == "direct" for row in rows),
+            "originator_rows": sum(row["product_type"] == "originator_claim" for row in rows),
+        },
     )
 
 

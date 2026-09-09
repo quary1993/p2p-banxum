@@ -9,7 +9,7 @@ Define how borrower entity records are represented in the platform. Borrowers do
 ## Scope
 
 - Admin-created borrower entity profiles.
-- Off-platform KYB/AML evidence storage.
+- Optional references to Garanta's offline KYB/AML records; platform evidence storage is not required for companies.
 - Beneficial owner and authorized signatory data recorded by admin where required.
 - Admin-created complete loan records.
 - Admin-uploaded documents where available.
@@ -43,9 +43,9 @@ Borrower-facing self-service and borrower portal access are out of scope. The pl
 
 1. Admin creates borrower entity.
 2. Admin enters registration, address, ownership, director, and signatory data.
-3. Admin uploads off-platform KYB/AML evidence and borrower documents.
+3. Garanta retains company KYB/AML evidence offline. Admin may attach optional references or borrower documents, but these are not a publication requirement.
 4. Admin sets compliance status.
-5. Borrower remains blocked from platform transactions until KYB/AML is approved and no compliance hold applies.
+5. Borrower transactions assume completed offline KYB/AML. Explicit compliance holds and declined/manual-review decisions block transactions; absent or expired optional platform KYB records do not.
 6. Admin creates loan records under the borrower entity.
 
 ### Admin Loan Record Creation
@@ -122,7 +122,7 @@ Mandatory borrower display fields for launch are entity name and year founded. A
 - Borrower must be a supported legal entity before a loan record is saved or published.
 - Borrower cannot publish to marketplace directly and has no portal access.
 - Off-platform compliance status must be acceptable before listing.
-- KYB/AML approval is required before loan publication, disbursement, repayment processing, or any other platform transaction involving the borrower. Routine KYB expiry after publication does not block deterministic funding close; compliance holds and adverse/review statuses remain blocking.
+- Garanta completes company KYB/AML offline before onboarding. Publication, funding close, disbursement and servicing do not require a platform-approved KYB case or document pack. Explicit compliance holds and declined/manual-review decisions remain blocking; optional record absence or expiry alone is not blocking.
 - Off-platform credit review must be complete before admin saves or publishes the loan.
 - Signatory authority must be verified before contract signature.
 - Bank account changes require elevated verification and approval.
@@ -139,7 +139,7 @@ Mandatory borrower display fields for launch are entity name and year founded. A
 ## Q/A Backlog
 
 1. Partly answered by Operating Model DEC-007: legal entities only; exact legal forms and jurisdictions still need definition.
-2. Updated by KYC-DEC-001, KYC-DEC-002, and KYC-DEC-008: borrowers are entered and managed by admin; no borrower self-service accounts; borrower KYB/AML approval is required before platform transactions involving the entity.
+2. Amended 2026-09-07 under KYC-DEC-002/KYC-DEC-008: borrowers are entered and managed by admin with no self-service account. Garanta conducts and retains company KYB/AML offline; platform holds/adverse decisions remain enforced without requiring local company evidence or approval records.
 3. Partly answered by DOC-DEC-004 and DOC-DEC-006: borrower-side documents are optional admin uploads in v1; borrower presentation, financial PDF, and admin-named generic documents can be investor-visible when uploaded/published.
 4. Answered by MKT-DEC-012: no broker/introducer submission workflow in v1; Garanta admins enter borrower/loan opportunities directly.
 5. Answered: borrowers cannot see loan progress in a portal; admin tracks it internally.

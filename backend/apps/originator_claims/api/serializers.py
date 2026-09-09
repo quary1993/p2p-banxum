@@ -71,7 +71,7 @@ class LoanOriginatorCreateSerializer(serializers.Serializer[dict[str, object]]):
     settlement_bic = serializers.CharField(
         max_length=64, required=False, allow_blank=True, default=""
     )
-    kyb_evidence_reference = serializers.CharField(max_length=255)
+    kyb_evidence_reference = serializers.CharField(max_length=255, required=False, allow_blank=True)
     kyb_aml_observations = serializers.CharField(required=False, allow_blank=True, default="")
     risk_observations = serializers.CharField(required=False, allow_blank=True, default="")
     status = serializers.ChoiceField(
@@ -94,7 +94,7 @@ class LoanOriginatorUpdateSerializer(serializers.Serializer[dict[str, object]]):
     settlement_account_name = serializers.CharField(max_length=255, required=False)
     settlement_iban = serializers.CharField(max_length=128, required=False)
     settlement_bic = serializers.CharField(max_length=64, required=False, allow_blank=True)
-    kyb_evidence_reference = serializers.CharField(max_length=255, required=False)
+    kyb_evidence_reference = serializers.CharField(max_length=255, required=False, allow_blank=True)
     kyb_aml_observations = serializers.CharField(required=False, allow_blank=True)
     risk_observations = serializers.CharField(required=False, allow_blank=True)
     status = serializers.ChoiceField(choices=LoanOriginatorStatus.choices, required=False)
@@ -155,6 +155,9 @@ class OriginatorLoanScheduleRowResponseSerializer(serializers.Serializer[dict[st
     fee_minor = serializers.IntegerField()
     total_minor = serializers.IntegerField()
     closing_principal_minor = serializers.IntegerField()
+    is_originator_boundary = serializers.BooleanField()
+    projected_investor_minor = serializers.IntegerField(allow_null=True)
+    projected_originator_minor = serializers.IntegerField(allow_null=True)
 
 
 class OriginatorLoanPaymentRowResponseSerializer(serializers.Serializer[dict[str, object]]):
@@ -167,6 +170,9 @@ class OriginatorLoanPaymentRowResponseSerializer(serializers.Serializer[dict[str
     fee_minor = serializers.IntegerField()
     total_minor = serializers.IntegerField()
     resulting_principal_minor = serializers.IntegerField()
+    investor_distributed_minor = serializers.IntegerField(allow_null=True)
+    originator_payable_minor = serializers.IntegerField(allow_null=True)
+    platform_costs_minor = serializers.IntegerField(allow_null=True)
 
 
 class OriginatorAdminLoanDetailResponseSerializer(serializers.Serializer[dict[str, object]]):

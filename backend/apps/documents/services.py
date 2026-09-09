@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import csv
 import hashlib
 import io
@@ -77,7 +78,7 @@ CSV_CONTENT_TYPE = "text/csv; charset=utf-8"
 PDF_CONTENT_TYPE = "application/pdf"
 TEXT_CONTENT_ENCODING = "text"
 BASE64_CONTENT_ENCODING = "base64"
-DOCUMENT_ARTIFACT_RENDERER_VERSION = "document-artifact-renderer-v2"
+DOCUMENT_ARTIFACT_RENDERER_VERSION = "document-artifact-renderer-v3"
 CSV_FORMULA_PREFIXES = ("=", "+", "-", "@")
 CSV_FORMULA_LEADING_CHARS = ("\t", "\r", "\n")
 SYSTEM_SEED_ACTOR_ID = uuid.UUID("00000000-0000-0000-0000-000000000000")
@@ -165,8 +166,9 @@ PLACEHOLDER_LEGAL_TEMPLATES: dict[str, dict[str, Any]] = {
             "may only be possible at a lower price than the outstanding principal.\n\n"
             "## Platform balances\n\n"
             "Platform balances are non-interest-bearing operational funds, not bank "
-            "deposits, and are subject to 30-day investment and 60-day withdrawal "
-            "deadlines that cannot be extended.\n\n"
+            "deposits, and are subject to a 60-day holding deadline that cannot be extended. "
+            "Investment eligibility depends on each source's remaining holding time covering "
+            "the loan's remaining funding period.\n\n"
             "Final advisor-approved risk disclosure wording remains pending; this "
             "generic disclosure applies until it is replaced."
         ),
@@ -631,7 +633,7 @@ def _primary_order_context_snapshot(*, context_type: str, context_id: str) -> di
     if str(loan_ref.product_type) == "originator_claim":
         profile_model = apps.get_model("originator_claims", "OriginatorLoanProfile")
         originator_profile = (
-            profile_model.objects.select_related("originator")
+            profile_model.objects.select_related("originator", "current_import")
             .filter(loan_id=loan_ref.id)
             .first()
         )
@@ -660,12 +662,18 @@ def _primary_order_context_snapshot(*, context_type: str, context_id: str) -> di
     if not collateral_security:
         collateral_security = "As described in the Project Summary"
     confirmation_datetime = order_ref.allocated_at or order_ref.created_at
+    subscription_snapshot: dict[str, Any] = {}
     if originator_profile is not None and originator_ref is not None:
         profile_ref = cast(Any, originator_profile)
         borrower_snapshot = {
             "id": f"ANON-{str(loan_ref.id)[:8].upper()}",
-            "legal_name": str(profile_ref.borrower_legal_name),
+            "legal_name": str(
+                profile_ref.borrower_legal_name
+                if profile_ref.borrower_legal_name_public
+                else profile_ref.borrower_display_name
+            ),
             "display_name": str(profile_ref.borrower_display_name),
+            "legal_name_published": bool(profile_ref.borrower_legal_name_public),
         }
         originator_snapshot = {
             "id": str(originator_ref.id),
@@ -684,6 +692,59 @@ def _primary_order_context_snapshot(*, context_type: str, context_id: str) -> di
                 else ""
             ),
         }
+        if profile_ref.distribution_model == "par_component_v2":
+            loan_import = profile_ref.current_import
+            if loan_import is None:
+                raise DocumentValidationError("The subscribed loan has no schedule evidence.")
+            subscription_snapshot = {
+                "distribution_model": "par_component_v2",
+                "funding_deadline": profile_ref.funding_deadline.isoformat(),
+                "boundary_installment_date": profile_ref.entitlement_start_date.isoformat(),
+                "post_boundary_principal_minor": int(
+                    profile_ref.activation_outstanding_principal_minor
+                ),
+                "investor_interest_participation_bps": int(
+                    profile_ref.investor_interest_participation_bps
+                ),
+                "investor_penalty_participation_bps": int(
+                    profile_ref.investor_penalty_participation_bps
+                ),
+                "underlying_coupon_bps": int(loan_ref.interest_rate_bps),
+                "skin_in_the_game_bps": int(loan_ref.skin_in_the_game_bps),
+                "minimum_investment_minor": int(profile_ref.minimum_investment_minor),
+                "currency": currency,
+                "purchase_price_bps": 10_000,
+                "primary_purchase_fee_minor": 0,
+                "activation": "automatic_at_funding_close",
+                "funding_period_investor_interest_minor": 0,
+                "boundary_installment_beneficiary": "loan_originator",
+                "rights": (
+                    "One currency unit buys one unit of post-boundary principal. "
+                    "Holdings activate when funding closes. No investor interest accrues "
+                    "during funding; the boundary installment belongs entirely to the "
+                    "Loan Originator. Subsequent principal follows ownership; interest and "
+                    "penalty participation apply to the investor's proportional share. "
+                    "Returns are not guaranteed and there is no originator buyback."
+                ),
+                "schedule_revision": int(profile_ref.schedule_revision),
+                "loan_import_id": str(loan_import.pk),
+                "schedule_source_sha256": str(loan_import.source_sha256),
+                "schedule": [
+                    {
+                        "installment_number": int(row.installment_number),
+                        "accrual_start_date": row.accrual_start_date.isoformat(),
+                        "due_date": row.due_date.isoformat(),
+                        "opening_principal_minor": int(row.opening_principal_minor),
+                        "principal_minor": int(row.principal_minor),
+                        "interest_minor": int(row.interest_minor),
+                        "penalty_minor": int(row.penalty_minor),
+                        "fee_minor": int(row.fee_minor),
+                        "total_minor": int(row.total_minor),
+                        "closing_principal_minor": int(row.closing_principal_minor),
+                    }
+                    for row in loan_import.schedule_rows.order_by("installment_number", "id")
+                ],
+            }
     else:
         if borrower_ref is None:
             raise DocumentValidationError(
@@ -715,14 +776,19 @@ def _primary_order_context_snapshot(*, context_type: str, context_id: str) -> di
         "loan": {
             "id": str(loan_ref.id),
             "title": str(loan_ref.title),
+            "product_type": str(loan_ref.product_type),
             "agreement_no": f"LOAN-{str(loan_ref.id)[:8].upper()}",
             "interest_rate_percent": _format_bps_percent_for_document(
                 int(loan_ref.interest_rate_bps)
             ),
             "maturity_date": (
-                cast(Any, maturity_installment).due_date.isoformat()
-                if maturity_installment is not None
-                else ""
+                cast(Any, originator_profile).maturity_date.isoformat()
+                if originator_profile is not None
+                else (
+                    cast(Any, maturity_installment).due_date.isoformat()
+                    if maturity_installment is not None
+                    else ""
+                )
             ),
             "repayment_type": _display_choice(loan, "repayment_type"),
             "minimum_subscription_bps": int(loan_ref.minimum_subscription_bps),
@@ -739,6 +805,7 @@ def _primary_order_context_snapshot(*, context_type: str, context_id: str) -> di
             "id": holding_id,
         },
         "assignment": assignment_snapshot,
+        **({"originator_subscription": subscription_snapshot} if subscription_snapshot else {}),
     }
 
 
@@ -820,8 +887,13 @@ def _originator_claim_context_snapshot(
         },
         "borrower": {
             "id": f"ANON-{str(loan.id)[:8].upper()}",
-            "legal_name": str(profile.borrower_display_name),
+            "legal_name": str(
+                profile.borrower_legal_name
+                if profile.borrower_legal_name_public
+                else profile.borrower_display_name
+            ),
             "display_name": str(profile.borrower_display_name),
+            "legal_name_published": bool(profile.borrower_legal_name_public),
         },
         "originator": {
             "id": str(originator.id),
@@ -855,6 +927,8 @@ def _acceptance_data_snapshot(
     context_id: str,
 ) -> dict[str, Any]:
     snapshot = dict(raw_snapshot)
+    # These economics are always reconstructed from the immutable loan import.
+    snapshot.pop("originator_subscription", None)
     authoritative = {
         "user": {
             "id": str(actor.pk),
@@ -1918,6 +1992,52 @@ def _render_acceptance_body_pages(
     document_title: str,
     page_offset: int,
 ) -> tuple[list[list[str]], list[_DocumentTocEntry]]:
+    subscription = acceptance.data_snapshot.get("originator_subscription")
+    if (
+        isinstance(subscription, dict)
+        and subscription.get("distribution_model") == "par_component_v2"
+    ):
+        currency = str(subscription["currency"])
+        appendix = [
+            "LO subscription economics recorded at acceptance",
+            str(subscription["rights"]),
+            f"Funding deadline: {subscription['funding_deadline']}\n"
+            f"LO boundary installment: {subscription['boundary_installment_date']}\n"
+            "Post-boundary loan principal: "
+            + _format_minor_units_for_document(
+                int(subscription["post_boundary_principal_minor"]), currency
+            )
+            + "\nInvestor interest participation: "
+            + _format_bps_percent_for_document(
+                int(subscription["investor_interest_participation_bps"])
+            )
+            + "% of proportional contractual interest\nInvestor penalty participation: "
+            + _format_bps_percent_for_document(
+                int(subscription["investor_penalty_participation_bps"])
+            )
+            + "% of proportional penalty\nUnderlying borrower coupon: "
+            + _format_bps_percent_for_document(int(subscription["underlying_coupon_bps"]))
+            + "% annually\nSkin in the game: "
+            + _format_bps_percent_for_document(int(subscription["skin_in_the_game_bps"]))
+            + "%\nPurchase price: par. Primary purchase fee: zero.",
+            f"Schedule revision: {subscription['schedule_revision']}\n"
+            f"Import reference: {subscription['loan_import_id']}\n"
+            f"Source SHA-256: {subscription['schedule_source_sha256']}",
+        ]
+        for row in subscription["schedule"]:
+            appendix.append(
+                f"Installment {row['installment_number']} due {row['due_date']}\n"
+                + " / ".join(
+                    f"{label}: {_format_minor_units_for_document(int(row[key]), currency)}"
+                    for label, key in (
+                        ("Principal", "principal_minor"),
+                        ("Interest", "interest_minor"),
+                        ("Penalty", "penalty_minor"),
+                        ("Legal/recovery costs", "fee_minor"),
+                    )
+                )
+            )
+        rendered_body += "\n\n" + "\n\n".join(appendix)
     body_canvas, y, toc_entries = _render_document_body_canvas(
         rendered_body=rendered_body,
         document_title=document_title,
@@ -2130,8 +2250,28 @@ def _artifact_manifest(
         "renderer_version": DOCUMENT_ARTIFACT_RENDERER_VERSION,
         "rendered_body_sha256": hashlib.sha256(rendered_body.encode("utf-8")).hexdigest(),
         "source_of_truth": "template_version_and_acceptance_snapshot",
+        "disclosure_redacted": bool(acceptance.data_snapshot.get("disclosure_note")),
+        "disclosure_note": acceptance.data_snapshot.get("disclosure_note", ""),
         "legal_content_status": "template_content_must_be_approved_before_production_use",
     }
+
+
+def acceptance_disclosure_snapshot(acceptance: DocumentAcceptanceEvidence) -> dict[str, Any]:
+    """Keep legacy private LO identities out of downloadable/public evidence copies."""
+    snapshot = copy.deepcopy(acceptance.data_snapshot or {})
+    borrower = snapshot.get("borrower")
+    if (
+        snapshot.get("originator")
+        and isinstance(borrower, dict)
+        and borrower.get("legal_name_published") is not True
+        and borrower.get("legal_name") != borrower.get("display_name")
+    ):
+        borrower["legal_name"] = borrower.get("display_name") or "Undisclosed borrower"
+        snapshot["disclosure_note"] = (
+            "An internal borrower identity is withheld from this copy. "
+            "The original acceptance evidence remains unchanged in the restricted audit record."
+        )
+    return snapshot
 
 
 def _acceptance_render_context(acceptance: DocumentAcceptanceEvidence) -> dict[str, Any]:
@@ -2865,11 +3005,15 @@ def render_document_acceptance_artifact(
             "agreements created for each order."
         )
 
+    acceptance = copy.copy(acceptance)
+    acceptance.data_snapshot = acceptance_disclosure_snapshot(acceptance)
     context = _acceptance_render_context(acceptance)
     rendered_body = _render_template_text(
         body=acceptance.template_version.body,
         context=context,
     )
+    if acceptance.data_snapshot.get("disclosure_note"):
+        rendered_body += "\n\n" + str(acceptance.data_snapshot["disclosure_note"])
     filename_base = _safe_filename(
         f"{acceptance.template_version.title}-{acceptance.context_type}-{acceptance.context_id}"
     )

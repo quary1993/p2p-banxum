@@ -309,6 +309,8 @@ def _resolve_fully_subscribed_originator_orders(
 ) -> None:
     for loan_id in {str(order.loan_id) for order in orders}:
         _resolve_fully_subscribed_originator_round(actor=actor, loan_id=loan_id)
+    for order in orders:
+        order.refresh_from_db()
 
 
 def _loan_for_update(loan_id: str) -> Model:
@@ -679,12 +681,8 @@ def _minimum_subscription_required_minor(loan: Model) -> int:
 
 
 def _borrower_allows_funding_close(borrower: Model) -> bool:
-    """Allow routine KYB expiry, but never fund through an explicit risk hold."""
-
-    borrower_ref = cast(Any, borrower)
-    if bool(borrower_ref.compliance_hold):
-        return False
-    return str(borrower_ref.kyb_status) in {"approved", "expired"}
+    """Use the same offline-company compliance boundary as publication."""
+    return bool(getattr(borrower, "can_transact", False))
 
 
 def _existing_order_for_idempotency(
@@ -953,6 +951,7 @@ def allocate_primary_order_from_balance(
     if order.status in {
         PrimaryInvestmentOrderStatus.BALANCE_ALLOCATED,
         PrimaryInvestmentOrderStatus.PARTIALLY_ALLOCATED,
+        PrimaryInvestmentOrderStatus.CLOSED_INVESTED,
     }:
         if (
             metadata.get(ALLOCATION_IDEMPOTENCY_METADATA_KEY) == idempotency_key
@@ -962,6 +961,7 @@ def allocate_primary_order_from_balance(
                 actor=command.actor,
                 loan_id=str(order.loan_id),
             )
+            order.refresh_from_db()
             return order
         raise MarketplacePrimaryValidationError("Primary investment order is already allocated.")
     if order.status != PrimaryInvestmentOrderStatus.PENDING:
@@ -991,6 +991,7 @@ def allocate_primary_order_from_balance(
         actor=command.actor,
         loan_id=str(allocated.loan_id),
     )
+    allocated.refresh_from_db()
     return allocated
 
 
@@ -1345,7 +1346,15 @@ def place_primary_order_batch(
             _enabled_currency(currency_code)
 
         allocated_orders: list[PrimaryInvestmentOrder] = []
-        for item in order_items:
+        # Preserve newer sources for campaigns whose windows require them.
+        allocation_items = sorted(
+            order_items,
+            key=lambda item: (
+                -cast(Any, loans_by_id[str(item["loan_id"])]).funding_deadline.toordinal(),
+                str(item["loan_id"]),
+            ),
+        )
+        for item in allocation_items:
             order = create_primary_investment_order(
                 CreatePrimaryInvestmentOrderCommand(
                     actor=command.actor,
@@ -1688,6 +1697,8 @@ def _allocate_primary_order_from_balance_after_sensitive_code(
 @transaction.atomic
 def release_primary_order_balance(
     command: ReleasePrimaryInvestmentOrderCommand,
+    *,
+    funding_resolution: bool = False,
 ) -> PrimaryInvestmentOrder:
     _require_admin_actor(command.actor)
     idempotency_key = _clean_idempotency_key(command.idempotency_key)
@@ -1763,6 +1774,17 @@ def release_primary_order_balance(
     if order.reservation_journal_entry is None:
         raise MarketplacePrimaryValidationError("Order has no reservation journal to release.")
     loan_ref = cast(Any, loan)
+    if not funding_resolution and (
+        str(loan_ref.status) == "funding_close_failed"
+        or (
+            loan_ref.funding_deadline is not None
+            and loan_ref.funding_deadline < business_date(now_utc())
+        )
+    ):
+        raise MarketplacePrimaryValidationError(
+            "Reservations are frozen for automatic funding resolution; "
+            "an admin cannot change the subscribed amount after the deadline."
+        )
     releaseable_statuses = {"published", "funding_close_failed"}
     if str(loan_ref.product_type) == "originator_claim":
         profile_model = _model("originator_claims", "OriginatorLoanProfile")
@@ -2079,7 +2101,7 @@ def _mark_funding_close_failed(
     ).strip()
     enqueue_outbox_message(
         OutboxCommand(
-            idempotency_key=f"email:loan-funding-close-failed:{event.pk}",
+            idempotency_key=f"email:loan-funding-close-failed:{loan_ref.id}:{as_of_date.isoformat()}",
             topic="email.loan_funding_close_failed",
             payload={
                 "email": operations_email,
@@ -2092,8 +2114,8 @@ def _mark_funding_close_failed(
                     f"({loan_ref.id}).\n\n"
                     f"Reason: {error_message}\n\n"
                     "The loan is no longer public. Investor reservations remain locked and "
-                    "unchanged. Resolve the cause, then retry the deterministic funding "
-                    "resolution or cancel and refund the campaign from the admin console."
+                    "unchanged. The system retries the stored threshold decision automatically. "
+                    "Repair the reported cause promptly; no admin funding decision is required."
                 ),
                 "template_key": "ops.loan_funding_close_failed.v1",
                 "data_rows": [
@@ -2125,6 +2147,10 @@ def close_primary_loan_funding(
     command: ClosePrimaryLoanFundingCommand,
 ) -> PrimaryLoanClose:
     _require_admin_actor(command.actor)
+    if command.as_of_date and command.as_of_date > business_date(now_utc()):
+        raise MarketplacePrimaryValidationError(
+            "Funding resolution cannot run for a future date. Use the QA clock to advance time."
+        )
     idempotency_key = _clean_idempotency_key(command.idempotency_key)
     reason = _clean_required(command.reason, "Close reason")
     close_fingerprint = _close_request_fingerprint(command, idempotency_key=idempotency_key)
@@ -2451,6 +2477,16 @@ def cancel_primary_loan_funding(
         raise MarketplacePrimaryValidationError(
             "Only published loans or failed funding closes can be cancelled."
         )
+    if (
+        str(loan_ref.status) == "funding_close_failed"
+        or loan_ref.funding_deadline < business_date(now_utc())
+    ) and int(loan_ref.committed_principal_minor) > 0 and int(
+        loan_ref.committed_principal_minor
+    ) >= _minimum_subscription_required_minor(loan):
+        raise MarketplacePrimaryValidationError(
+            "The published minimum is met. Funding must resolve automatically; "
+            "an admin cannot replace that result with cancellation."
+        )
 
     allocated_orders = _allocated_orders_for_close(str(loan_ref.id))
     pending_orders = _pending_orders_for_close(str(loan_ref.id))
@@ -2475,7 +2511,8 @@ def cancel_primary_loan_funding(
                     idempotency_key,
                     str(order.id),
                 ),
-            )
+            ),
+            funding_resolution=True,
         )
         released_order_ids.append(str(released.id))
         released_principal += int(released.allocated_amount_minor)
@@ -2706,6 +2743,10 @@ def scan_expired_primary_loan_funding(
 ) -> dict[str, Any]:
     _require_admin_actor(command.actor)
     as_of_date = command.as_of_date or business_date(now_utc())
+    if as_of_date > business_date(now_utc()):
+        raise MarketplacePrimaryValidationError(
+            "Funding resolution cannot run for a future date. Use the QA clock to advance time."
+        )
     limit = command.limit
     if limit < 1 or limit > 1000:
         raise MarketplacePrimaryValidationError("Scan limit must be between 1 and 1000.")
@@ -2732,14 +2773,15 @@ def scan_expired_primary_loan_funding(
             | Q(status="published", funding_deadline__lt=as_of_date)
         )
     else:
-        query = loan_model.objects.filter(
-            status="published",
-            product_type="direct",
-            funding_deadline__lt=as_of_date,
+        query = loan_model.objects.filter(product_type="direct").filter(
+            Q(status="funding_close_failed")
+            | Q(status="published", funding_deadline__lt=as_of_date)
         )
     loan_ids = [
         str(value)
-        for value in query.order_by("funding_deadline", "id").values_list("id", flat=True)[:limit]
+        for value in query.order_by("funding_deadline", "id")
+        .values_list("id", flat=True)
+        .iterator(chunk_size=limit)
     ]
     cancellations: list[PrimaryLoanCancellation] = []
     closes: list[PrimaryLoanClose] = []

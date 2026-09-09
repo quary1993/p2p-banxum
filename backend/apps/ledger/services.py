@@ -41,6 +41,7 @@ from backend.apps.platform_core.domain.access import (
     is_lender_actor,
     user_can_access_financial_features,
 )
+from backend.apps.platform_core.domain.funding import balance_covers_funding
 from backend.apps.platform_core.domain.iban import IbanValidationError, normalize_and_validate_iban
 from backend.apps.platform_core.domain.money import (
     Money,
@@ -85,7 +86,6 @@ class LedgerValidationError(LedgerError):
     pass
 
 
-INVESTMENT_DEADLINE_DAYS = 30
 WITHDRAWAL_DEADLINE_DAYS = 60
 BALANCE_AGEING_REMINDER_DAYS = (25, 46, 53, 58, 59, 60)
 MAX_IDEMPOTENCY_KEY_LENGTH = 160
@@ -1016,9 +1016,9 @@ def _received_at_from_value_date(value_date: date) -> datetime:
 
 def _lot_deadlines(received_at: datetime) -> tuple[datetime, datetime]:
     business_received_at = to_business_time(received_at)
-    investment_deadline_at = business_received_at + timedelta(days=INVESTMENT_DEADLINE_DAYS)
     withdrawal_deadline_at = business_received_at + timedelta(days=WITHDRAWAL_DEADLINE_DAYS)
-    return investment_deadline_at, withdrawal_deadline_at
+    # Retain the legacy field for API/history compatibility; eligibility is per loan.
+    return withdrawal_deadline_at, withdrawal_deadline_at
 
 
 def _validate_lot_conservation_values(
@@ -4633,10 +4633,8 @@ def summarize_investor_balance(
             penalty_mode += amount
         elif lot.status == BalanceLotStatus.AVAILABLE:
             total_available += amount
-            if now_value > lot.withdrawal_deadline_at:
+            if business_date(now_value) >= business_date(lot.withdrawal_deadline_at):
                 overdue += amount
-            elif now_value > lot.investment_deadline_at:
-                withdraw_only += amount
             else:
                 investable += amount
     return BalanceSummary(
@@ -4672,7 +4670,11 @@ def plan_investment_balance_consumption(
     ).order_by("received_at", "created_at", "id")
     for lot in lots:
         _validate_lot_conservation(lot)
-        if now_value > lot.investment_deadline_at:
+        if not balance_covers_funding(
+            withdrawal_deadline_at=lot.withdrawal_deadline_at,
+            funding_deadline=loan_funding_deadline,
+            as_of=now_value,
+        ):
             continue
         amount = min(remaining, lot.available_amount_minor)
         plan.append(
@@ -4687,8 +4689,9 @@ def plan_investment_balance_consumption(
         if remaining == 0:
             return plan
     raise LedgerValidationError(
-        "Insufficient eligible balance for the requested investment. Balance lots can only be "
-        "pledged while they are inside the 30-day investment window."
+        "Insufficient eligible balance for this funding window. Each source must have enough "
+        "time remaining before its 60-day holding deadline to cover the loan's last funding day. "
+        "Use newer funds or choose a loan with a shorter remaining funding period."
     )
 
 
@@ -5106,7 +5109,7 @@ def _consume_lots_for_fx(
         _validate_lot_conservation(lot)
         if remaining <= 0:
             break
-        if as_of > lot.withdrawal_deadline_at:
+        if business_date(as_of) >= business_date(lot.withdrawal_deadline_at):
             continue
         amount = min(remaining, lot.available_amount_minor)
         if amount <= 0:
@@ -5164,7 +5167,11 @@ def _consume_lots_for_investment(
         _validate_lot_conservation(lot)
         if remaining <= 0:
             break
-        if as_of > lot.investment_deadline_at:
+        if not balance_covers_funding(
+            withdrawal_deadline_at=lot.withdrawal_deadline_at,
+            funding_deadline=loan_funding_deadline,
+            as_of=as_of,
+        ):
             continue
         amount = min(remaining, lot.available_amount_minor)
         if amount <= 0:
@@ -5205,8 +5212,9 @@ def _consume_lots_for_investment(
         remaining -= amount
     if remaining > 0:
         raise LedgerValidationError(
-            "Insufficient eligible balance for the requested investment. Balance lots can only be "
-            "pledged while they are inside the 30-day investment window."
+            "Insufficient eligible balance for this funding window. Each source must have enough "
+            "time before its 60-day holding deadline to cover the loan's last funding day. "
+            "Use newer funds or choose a loan with a shorter remaining funding period."
         )
     return allocations
 

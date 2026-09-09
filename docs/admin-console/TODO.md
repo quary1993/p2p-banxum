@@ -6,6 +6,12 @@ Entries are a dated implementation history. Earlier “no UI” entries describe
 
 ## Standing Instruction
 
+### 2026-09-07: Funding Windows
+
+- Current behavior: direct and LO funding dates allow at most 50 inclusive subscription dates; hints explain the cap and source coverage. Expired direct campaigns expose deterministic resolution rather than manual reservation release/cancellation.
+- Follow-up: show a calculated last subscription date beside any future duration input, and keep actual failed-close incidents prominent without suggesting an admin choice of funding outcome.
+- Priority: nice-to-have.
+
 Admin console screens should be implemented as complete operational UI by Codex during the relevant implementation slices. The admin console should be dense, clear, restrained, auditable, and optimized for repeated operational work rather than marketing-style presentation.
 
 When an implementation slice builds or touches admin console UI, record follow-up items here. Do not move admin console UI/UX work to `docs/claude-design/TODO.md`.
@@ -286,18 +292,24 @@ Each entry should include:
   live console receives; consider generating fixtures from the serializer.
 - Priority: important.
 
-## 2026-08-04: Loan Originator Administration And Settlement
+## 2026-09-07: Loan Originator Administration And Settlement
 
 - Screen or component: Loans, Loan Originators, originator-loan CSV import/manage
   dialog, Finance Operations originator settlement queue.
 - Current first-version behavior: admins can search/create/update Loan Originators
-  with off-platform KYB evidence, settlement instructions, active/blocked state,
-  and negotiated premium-fee percentage. Originator loans are created separately
-  with anonymized per-loan borrower disclosure, coupon, target effective annual
-  yield, minimum investment, fee override, and strict schedule/payment CSV. The
+  with optional off-platform KYB references, settlement instructions, active/blocked
+  state and legacy premium-fee settings. Current LO loans are created separately
+  with anonymized per-loan borrower disclosure, an explicit publish-legal-name toggle,
+  coupon, interest/penalty participation, minimum investment, finite funding dates,
+  post-boundary principal and a strict schedule/payment CSV. The
   combined loan table identifies the product and originator. Manage supports
-  review/publish, hold/release, and replacement-import repayment recording. Finance
-  Operations groups unsettled purchase and servicing payable by
+  review/publish, hold, pre-deadline cancellation/refund, failed-close retry and replacement-import repayment recording. Subscribed expired or failed rounds cannot be cancelled instead of closing. Future resolution dates are rejected; operators must use the QA clock for staging time travel. Funding
+  close activates holdings automatically without a separate admin activation step.
+  Repayment confirmation shows investor credits, LO payable and Garanta costs; the
+  admin schedule retains actual payment splits separately from future projections.
+  The wide manage dialog uses the shared action-menu styling, waits for current
+  evidence before showing actions, and keeps schedule scrolling inside the table
+  at desktop, tablet and mobile widths. Finance Operations groups unsettled purchase and servicing payable by
   originator/currency and settles a complete batch with bank evidence; day-3/day-5
   states are visible and scheduler tasks are created.
 - Required admin-console improvement: before production volume, add server-backed

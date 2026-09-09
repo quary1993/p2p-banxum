@@ -89,7 +89,9 @@
       "notes": [
         "Permission gates enforced by the backend: only an active admin can generate any report; Full redaction mode is superadmin-only; and the four restricted types (KYC status, Audit log, Participant account statement, Annual tax information) are superadmin-only regardless of redaction mode.",
         "Every generated report is itself recorded: it creates an immutable report-run row, a report event, and an audit-log entry. There is no way to generate a report silently.",
-        "Each report run carries a SHA-256 checksum and a fixed definition version (reporting-v2). The checksum lets a recipient confirm the file they received is byte-for-byte the one that was generated.",
+        "Each report run carries a SHA-256 checksum and a fixed definition version (reporting-v3). The checksum lets a recipient confirm the file they received is byte-for-byte the one that was generated.",
+        "Repayment status includes direct loans and Loan Originator claims, identified by product, loan and originator. LO rows distinguish imported payments from the remaining schedule and show actual investor credits, LO payable and Garanta costs where recorded. Blank distribution fields mean no platform payment evidence, not zero payment.",
+        "Repayment reports select the schedule version known at the period end and exclude superseded unpaid rows and later-value-date repayments. Historical payment rows remain visible, including a full early payoff with an empty replacement schedule. Balance ageing and investor balances reconstruct amounts from dated financial evidence rather than today's mutable lot balances. Later backdated corrections can restate a newly generated export; keep the original artifact and checksum when comparing periods.",
         "The generated filename follows the pattern reporttype_startdate_enddate.extension (for example operational_subledger_2026-01-01_2026-03-31.csv).",
         "PDF and ZIP outputs are base64-encoded and cannot be read in the on-screen preview; you must download them. Only CSV shows a readable preview (first 2000 characters)."
       ]

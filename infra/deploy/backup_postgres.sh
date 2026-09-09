@@ -62,10 +62,14 @@ if [[ -n "$S3_URI" ]]; then
   fi
   aws s3 cp "$final_path" "${S3_URI%/}/$base_name" "${upload_args[@]}"
   aws s3 cp "$checksum_path" "${S3_URI%/}/${base_name}.sha256" "${upload_args[@]}"
+  # A local archive alone must never prove that the off-site upload completed.
+  printf '%s\n' "${S3_URI%/}/$base_name" > "${final_path}.offsite.tmp"
+  chmod 0600 "${final_path}.offsite.tmp"
+  mv "${final_path}.offsite.tmp" "${final_path}.offsite"
 fi
 
 find "$BACKUP_DIR" -maxdepth 1 -type f \
-  \( -name "${PROJECT_NAME}-postgres-*.dump" -o -name "${PROJECT_NAME}-postgres-*.dump.sha256" \) \
+  \( -name "${PROJECT_NAME}-postgres-*.dump" -o -name "${PROJECT_NAME}-postgres-*.dump.sha256" -o -name "${PROJECT_NAME}-postgres-*.dump.offsite" \) \
   -mtime "+$RETENTION_DAYS" -delete
 
 echo "Created and validated $final_path"

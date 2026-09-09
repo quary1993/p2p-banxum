@@ -61,8 +61,8 @@ export const adminDashboardFixture: AdminOperationsDashboard = {
     {
       currency: "CHF",
       available_balance_minor: 98422000,
-      investable_available_minor: 51450000,
-      withdraw_only_available_minor: 23900000,
+      investable_available_minor: 83862000,
+      withdraw_only_available_minor: 0,
       overdue_available_minor: 8710000,
       frozen_available_minor: 3150000,
       penalty_mode_available_minor: 2700000,
@@ -76,8 +76,8 @@ export const adminDashboardFixture: AdminOperationsDashboard = {
     {
       currency: "EUR",
       available_balance_minor: 64180000,
-      investable_available_minor: 38940000,
-      withdraw_only_available_minor: 14500000,
+      investable_available_minor: 57440000,
+      withdraw_only_available_minor: 0,
       overdue_available_minor: 4700000,
       frozen_available_minor: 2040000,
       penalty_mode_available_minor: 0,
@@ -191,15 +191,15 @@ export const adminDashboardFixture: AdminOperationsDashboard = {
       queueItem({
         kind: "balance_ageing",
         id: "lot-883",
-        title: "Lot enters withdraw-only window today",
-        status: "withdraw_only",
+        title: "Balance lot reaches its 60-day holding deadline",
+        status: "available",
         priority: "normal",
         due_date: "2026-06-05",
         currency: "CHF",
         amount_minor: 9800000,
         object_type: "investor_balance_lot",
         object_id: "lot-883",
-        metadata: { investor_reference: "INV-2204", investment_deadline: "2026-06-05" }
+        metadata: { investor_reference: "INV-2204", withdrawal_deadline: "2026-06-05" }
       }),
       queueItem({
         kind: "balance_ageing",

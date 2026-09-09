@@ -263,7 +263,7 @@ def test_zero_collateral_hides_ltv_and_warns(admin_user: Model) -> None:
 
 @pytest.mark.django_db
 def test_publish_requires_borrower_can_transact(admin_user: Model) -> None:
-    pending_borrower = _borrower(admin_user, kyb_status="pending")
+    pending_borrower = _borrower(admin_user, kyb_status="declined")
     loan = create_loan(_loan_command(admin_user, pending_borrower))
 
     with pytest.raises(LoanValidationError):
@@ -276,6 +276,46 @@ def test_publish_requires_borrower_can_transact(admin_user: Model) -> None:
     assert published.status == LoanStatus.PUBLISHED
     assert published.published_at is not None
     assert LoanEvent.objects.filter(loan=published, event_type="published").exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("status", ["not_started", "pending", "expired", "approved"])
+def test_offline_company_kyb_does_not_require_platform_evidence(
+    admin_user: Model,
+    status: str,
+) -> None:
+    borrower = _borrower(admin_user, kyb_status=status)
+    loan = create_loan(_loan_command(admin_user, borrower))
+    assert (
+        publish_loan(
+            PublishLoanCommand(
+                actor=admin_user,
+                loan_id=str(loan.id),
+            )
+        ).status
+        == LoanStatus.PUBLISHED
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("status,hold", [("approved", True), ("manual_review", False)])
+def test_explicit_company_compliance_restrictions_still_block_publication(
+    admin_user: Model,
+    status: str,
+    hold: bool,
+) -> None:
+    loan = create_loan(
+        _loan_command(
+            admin_user,
+            _borrower(
+                admin_user,
+                kyb_status=status,
+                hold=hold,
+            ),
+        )
+    )
+    with pytest.raises(LoanValidationError, match="explicit compliance"):
+        publish_loan(PublishLoanCommand(actor=admin_user, loan_id=str(loan.id)))
 
 
 @pytest.mark.django_db
@@ -451,9 +491,9 @@ def test_publish_rejects_funding_deadline_in_past(admin_user: Model) -> None:
 
 
 @pytest.mark.django_db
-def test_publish_rejects_funding_deadline_at_thirty_day_cutoff(admin_user: Model) -> None:
+def test_funding_period_allows_fifty_inclusive_days_but_not_fifty_one(admin_user: Model) -> None:
     borrower = _borrower(admin_user)
-    funding_deadline = timezone.localdate() + timedelta(days=30)
+    funding_deadline = timezone.localdate() + timedelta(days=49)
     loan = create_loan(
         replace(
             _loan_command(admin_user, borrower),
@@ -461,7 +501,23 @@ def test_publish_rejects_funding_deadline_at_thirty_day_cutoff(admin_user: Model
         )
     )
 
-    with pytest.raises(LoanValidationError, match="too far in the future"):
+    published = publish_loan(PublishLoanCommand(actor=admin_user, loan_id=str(loan.id)))
+    assert published.status == LoanStatus.PUBLISHED
+    with pytest.raises(LoanValidationError, match="frozen at publication"):
+        update_loan(UpdateLoanCommand(
+            actor=admin_user, loan_id=str(loan.id),
+            funding_deadline=funding_deadline - timedelta(days=1),
+        ))
+    with pytest.raises(LoanValidationError, match="50 subscription days"):
+        create_loan(replace(
+            _loan_command(admin_user, borrower),
+            funding_deadline=funding_deadline + timedelta(days=1),
+        ))
+
+    loan.status = LoanStatus.DRAFT
+    loan.funding_deadline = funding_deadline + timedelta(days=1)
+    loan.save(update_fields=["status", "funding_deadline"])
+    with pytest.raises(LoanValidationError, match="50 subscription days"):
         publish_loan(PublishLoanCommand(actor=admin_user, loan_id=str(loan.id)))
 
     loan.refresh_from_db()

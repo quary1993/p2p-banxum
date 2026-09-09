@@ -8,7 +8,7 @@ import {
   readReadonlyImpersonationToken,
   writeReadonlyImpersonation
 } from "./api/client/impersonation";
-import { activityFixture, marketplaceLoansFixture, portfolioFixture, primaryOrdersFixture, smartInvestFixture } from "./investorPortal/fixtures";
+import { activityFixture, balanceLotsFixture, marketplaceLoansFixture, portfolioFixture, primaryOrdersFixture, smartInvestFixture } from "./investorPortal/fixtures";
 import { onboardingStepForUser } from "./onboarding";
 
 function renderApp(path = "/") {
@@ -772,6 +772,28 @@ test("portfolio loans sort from the header and the sort menu", () => {
   expect(rowNames()[0]).toBe("Engadin Hospitality AG");
 });
 
+test("loan-specific funding windows block an otherwise positive balance in the opportunity sheet", () => {
+  const loan = marketplaceLoansFixture.find((item) => item.loan_id === "LO-2601")!;
+  const lots = balanceLotsFixture.filter((lot) => lot.currency === loan.currency);
+  const originals = lots.map((lot) => lot.withdrawal_deadline_at);
+  lots.forEach((lot) => { lot.withdrawal_deadline_at = `${loan.funding_deadline}T00:00:00Z`; });
+  try {
+    renderApp();
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+    fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+      target: { value: "lukas.brunner@example.ch" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
+    fireEvent.click(screen.getByText(loan.title));
+    const sheet = screen.getByRole("dialog", { name: loan.title });
+    expect(within(sheet).getByRole("button", { name: "Invest now" })).toBeDisabled();
+  } finally {
+    lots.forEach((lot, index) => { lot.withdrawal_deadline_at = originals[index]; });
+  }
+});
+
 test("originator subscription validates the minimum and stages a par reservation", () => {
   renderApp();
 
@@ -787,6 +809,8 @@ test("originator subscription validates the minimum and stages a par reservation
   const claimSheet = screen.getByRole("dialog", { name: "Swiss SME equipment claim" });
   expect(within(claimSheet).getByText(/reserved.*available at par/i)).toBeInTheDocument();
   expect(within(claimSheet).getByText(/No investor interest accrues during funding/i)).toBeInTheDocument();
+  expect(within(claimSheet).getByText(/Your holding activates automatically at funding close/i)).toBeInTheDocument();
+  expect(within(claimSheet).queryByText(/after that payment is verified/i)).not.toBeInTheDocument();
   expect(within(claimSheet).getByText(/Your share of attributable interest/i)).toBeInTheDocument();
   fireEvent.click(within(claimSheet).getByRole("button", { name: "Invest now" }));
 
@@ -799,7 +823,7 @@ test("originator subscription validates the minimum and stages a par reservation
   fireEvent.change(amountInput, { target: { value: "1000" } });
   fireEvent.click(reviewButton);
   const orderDialog = screen.getByRole("dialog", { name: "Invest - Swiss SME equipment claim" });
-  expect(within(orderDialog).getByText(/Principal acquired at activation/)).toBeInTheDocument();
+  expect(within(orderDialog).getByText(/Principal acquired at funding close/)).toBeInTheDocument();
   expect(within(orderDialog).getByText(/Boundary installment/)).toBeInTheDocument();
   expect(within(orderDialog).queryByText(/Executable for five minutes/)).not.toBeInTheDocument();
 });

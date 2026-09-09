@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from importlib import import_module
 from typing import Any, cast
+from unittest.mock import patch
 
 import pytest
 from django.apps import apps
@@ -52,6 +53,18 @@ from backend.apps.platform_core.tests.factories import (
     SensitiveActionCodePayload,
     issue_sensitive_action_test_code,
 )
+
+
+def _close_primary_at_as_of(command: ClosePrimaryLoanFundingCommand) -> PrimaryLoanClose:
+    clock = datetime.combine(command.as_of_date or business_date(timezone.now()), time(12), UTC)
+    with patch("backend.apps.marketplace_primary.services.now_utc", return_value=clock):
+        return close_primary_loan_funding(command)
+
+
+def _scan_primary_at_as_of(command: ScanExpiredPrimaryFundingCommand) -> dict[str, Any]:
+    clock = datetime.combine(command.as_of_date or business_date(timezone.now()), time(12), UTC)
+    with patch("backend.apps.marketplace_primary.services.now_utc", return_value=clock):
+        return scan_expired_primary_loan_funding(command)
 
 
 @pytest.fixture
@@ -130,10 +143,11 @@ def _create_published_loan(
     admin_user: Model,
     *,
     principal_minor: int = 100_000_00,
-    funding_deadline: date = date(2030, 1, 10),
+    funding_deadline: date | None = None,
     minimum_subscription_bps: int = 5_000,
     currency_code: str = "CHF",
 ) -> Model:
+    funding_deadline = funding_deadline or business_date(timezone.now()) + timedelta(days=20)
     borrower = _create_borrower(admin_user)
     loan_model = apps.get_model("loans", "Loan")
     currency = Currency.objects.get(code=currency_code)
@@ -177,8 +191,7 @@ def _declare_deposit(
     currency: str = "CHF",
 ) -> Any:
     if value_date is None:
-        # Relative to the real clock: allocation checks the lot's 30-day
-        # investment window against now, so a fixed date goes stale.
+        # Relative dates keep the source eligible through the test campaign's close.
         value_date = business_date(timezone.now())
     ledger = import_module("backend.apps.ledger.services")
     return ledger.declare_lender_deposit(
@@ -1154,7 +1167,7 @@ def test_close_full_funding_creates_holdings_and_moves_escrow(
         idempotency_prefix="market-close-second",
     )
 
-    close = close_primary_loan_funding(
+    close = _close_primary_at_as_of(
         ClosePrimaryLoanFundingCommand(
             actor=admin_user,
             loan_id=str(loan.pk),
@@ -1255,7 +1268,7 @@ def test_close_reconciles_holding_share_ppm_with_largest_remainder(
             idempotency_prefix=f"market-share-{index}",
         )
 
-    close = close_primary_loan_funding(
+    close = _close_primary_at_as_of(
         ClosePrimaryLoanFundingCommand(
             actor=admin_user,
             loan_id=str(loan.pk),
@@ -1293,7 +1306,7 @@ def test_close_partial_funding_regenerates_schedule_and_requires_message(
     )
 
     with pytest.raises(MarketplacePrimaryValidationError, match="Investor message"):
-        close_primary_loan_funding(
+        _close_primary_at_as_of(
             ClosePrimaryLoanFundingCommand(
                 actor=admin_user,
                 loan_id=str(loan.pk),
@@ -1304,7 +1317,7 @@ def test_close_partial_funding_regenerates_schedule_and_requires_message(
             )
         )
 
-    close = close_primary_loan_funding(
+    close = _close_primary_at_as_of(
         ClosePrimaryLoanFundingCommand(
             actor=admin_user,
             loan_id=str(loan.pk),
@@ -1350,7 +1363,7 @@ def test_close_rejects_allocated_order_and_committed_principal_drift(
     loan.save(update_fields=["committed_principal_minor"])
 
     with pytest.raises(MarketplacePrimaryValidationError, match="committed principal"):
-        close_primary_loan_funding(
+        _close_primary_at_as_of(
             ClosePrimaryLoanFundingCommand(
                 actor=admin_user,
                 loan_id=str(loan.pk),
@@ -1377,7 +1390,7 @@ def test_close_is_idempotent_and_rejects_conflicting_replay(
         idempotency_prefix="market-close-idem",
     )
 
-    first = close_primary_loan_funding(
+    first = _close_primary_at_as_of(
         ClosePrimaryLoanFundingCommand(
             actor=admin_user,
             loan_id=str(loan.pk),
@@ -1387,7 +1400,7 @@ def test_close_is_idempotent_and_rejects_conflicting_replay(
             as_of_date=date(2030, 1, 11),
         )
     )
-    second = close_primary_loan_funding(
+    second = _close_primary_at_as_of(
         ClosePrimaryLoanFundingCommand(
             actor=admin_user,
             loan_id=str(loan.pk),
@@ -1400,7 +1413,7 @@ def test_close_is_idempotent_and_rejects_conflicting_replay(
 
     assert second.id == first.id
     with pytest.raises(MarketplacePrimaryValidationError, match="different close request"):
-        close_primary_loan_funding(
+        _close_primary_at_as_of(
             ClosePrimaryLoanFundingCommand(
                 actor=admin_user,
                 loan_id=str(loan.pk),
@@ -1425,7 +1438,7 @@ def test_close_requires_admin_allocated_orders_and_borrower_clearance(
     )
 
     with pytest.raises(MarketplacePrimaryAuthorizationError):
-        close_primary_loan_funding(
+        _close_primary_at_as_of(
             ClosePrimaryLoanFundingCommand(
                 actor=investor,
                 loan_id=str(loan.pk),
@@ -1436,7 +1449,7 @@ def test_close_requires_admin_allocated_orders_and_borrower_clearance(
             )
         )
     with pytest.raises(MarketplacePrimaryValidationError, match="no allocated"):
-        close_primary_loan_funding(
+        _close_primary_at_as_of(
             ClosePrimaryLoanFundingCommand(
                 actor=admin_user,
                 loan_id=str(loan.pk),
@@ -1458,7 +1471,7 @@ def test_close_requires_admin_allocated_orders_and_borrower_clearance(
     )
 
     with pytest.raises(MarketplacePrimaryValidationError, match="compliance hold"):
-        close_primary_loan_funding(
+        _close_primary_at_as_of(
             ClosePrimaryLoanFundingCommand(
                 actor=admin_user,
                 loan_id=str(loan.pk),
@@ -1531,7 +1544,7 @@ def test_cancel_funding_releases_allocations_closes_pending_and_cancels_loan(
     assert DomainEvent.objects.filter(event_type="LoanFundingCancelled").exists()
 
     with pytest.raises(MarketplacePrimaryValidationError, match="expired published"):
-        close_primary_loan_funding(
+        _close_primary_at_as_of(
             ClosePrimaryLoanFundingCommand(
                 actor=admin_user,
                 loan_id=str(loan.pk),
@@ -1631,7 +1644,7 @@ def test_cancel_funding_rejects_closed_or_non_admin(
         amount_minor=10_000_00,
         idempotency_prefix="market-close-before-cancel",
     )
-    close_primary_loan_funding(
+    _close_primary_at_as_of(
         ClosePrimaryLoanFundingCommand(
             actor=admin_user,
             loan_id=str(loan.pk),
@@ -1709,7 +1722,7 @@ def test_expiry_scan_closes_at_minimum_and_cancels_below(
         )
     )
 
-    result = scan_expired_primary_loan_funding(
+    result = _scan_primary_at_as_of(
         ScanExpiredPrimaryFundingCommand(
             actor=admin_user,
             as_of_date=date(2030, 1, 11),
@@ -1737,7 +1750,7 @@ def test_expiry_scan_closes_at_minimum_and_cancels_below(
     assert pending_order.status == PrimaryInvestmentOrderStatus.CLOSED_NOT_INVESTED
     assert PrimaryLoanCancellation.objects.count() == 2
 
-    rerun = scan_expired_primary_loan_funding(
+    rerun = _scan_primary_at_as_of(
         ScanExpiredPrimaryFundingCommand(
             actor=admin_user,
             as_of_date=date(2030, 1, 11),
@@ -1785,7 +1798,7 @@ def test_expiry_resolution_uses_exact_minor_unit_threshold_and_allows_kyb_expiry
         idempotency_prefix="exact-threshold-met",
     )
 
-    result = scan_expired_primary_loan_funding(
+    result = _scan_primary_at_as_of(
         ScanExpiredPrimaryFundingCommand(
             actor=admin_user,
             as_of_date=date(2030, 1, 11),
@@ -1837,7 +1850,7 @@ def test_expiry_close_failure_unpublishes_preserves_reservations_and_escalates(
 
     with monkeypatch.context() as patch:
         patch.setattr(marketplace_services, "_holding_share_ppm_by_order", fail_holding_plan)
-        failed = scan_expired_primary_loan_funding(
+        failed = _scan_primary_at_as_of(
             ScanExpiredPrimaryFundingCommand(
                 actor=admin_user,
                 as_of_date=date(2030, 1, 11),
@@ -1870,6 +1883,30 @@ def test_expiry_close_failure_unpublishes_preserves_reservations_and_escalates(
         for row in marketplace_services.list_public_marketplace_loans()
     )
 
+    with pytest.raises(MarketplacePrimaryValidationError, match="published minimum is met"):
+        cancel_primary_loan_funding(
+            CancelPrimaryLoanFundingCommand(
+                actor=admin_user,
+                loan_id=str(loan.pk),
+                reason="Manual cancellation must not override the threshold.",
+                investor_message="This attempt must not be applied.",
+                idempotency_key="failed-close-cancel-blocked",
+            )
+        )
+    with pytest.raises(MarketplacePrimaryValidationError, match="automatic"):
+        release_primary_order_balance(
+            ReleasePrimaryInvestmentOrderCommand(
+                actor=admin_user,
+                order_id=str(order.pk),
+                reason="Manual release must not change the subscribed amount.",
+                idempotency_key="failed-close-release-blocked",
+            )
+        )
+    loan.refresh_from_db()
+    order.refresh_from_db()
+    assert cast(Any, loan).committed_principal_minor == 5_000_00
+    assert order.status == PrimaryInvestmentOrderStatus.BALANCE_ALLOCATED
+
     admin_ops_services = import_module("backend.apps.admin_ops.services")
 
     def fail_task_resolution(**_kwargs: Any) -> None:
@@ -1881,7 +1918,7 @@ def test_expiry_close_failure_unpublishes_preserves_reservations_and_escalates(
             "resolve_loan_funding_close_failure_task",
             fail_task_resolution,
         )
-        failed_retry = scan_expired_primary_loan_funding(
+        failed_retry = _scan_primary_at_as_of(
             ScanExpiredPrimaryFundingCommand(
                 actor=admin_user,
                 as_of_date=date(2030, 1, 11),
@@ -1896,11 +1933,11 @@ def test_expiry_close_failure_unpublishes_preserves_reservations_and_escalates(
     assert order.status == PrimaryInvestmentOrderStatus.BALANCE_ALLOCATED
     assert not PrimaryLoanClose.objects.filter(loan_id=loan.pk).exists()
 
-    retried = scan_expired_primary_loan_funding(
+    retried = _scan_primary_at_as_of(
         ScanExpiredPrimaryFundingCommand(
             actor=admin_user,
             as_of_date=date(2030, 1, 11),
-            loan_ids=(str(loan.pk),),
+            limit=1,
         )
     )
     loan.refresh_from_db()
@@ -1910,6 +1947,7 @@ def test_expiry_close_failure_unpublishes_preserves_reservations_and_escalates(
     assert cast(Any, loan).status == "funded"
     assert order.status == PrimaryInvestmentOrderStatus.CLOSED_INVESTED
     assert task.status == "resolved"
+    assert outbox_model.objects.filter(topic="email.loan_funding_close_failed").count() == 1
 
 
 @pytest.mark.django_db
@@ -1921,7 +1959,7 @@ def test_expiry_scan_rejects_non_admin(admin_user: Model, investor: Model) -> No
     )
 
     with pytest.raises(MarketplacePrimaryAuthorizationError):
-        scan_expired_primary_loan_funding(
+        _scan_primary_at_as_of(
             ScanExpiredPrimaryFundingCommand(
                 actor=investor,
                 as_of_date=date(2030, 1, 11),
@@ -1943,7 +1981,7 @@ def test_primary_close_and_holding_events_have_append_only_guards(
         amount_minor=10_000_00,
         idempotency_prefix="market-close-guard",
     )
-    close = close_primary_loan_funding(
+    close = _close_primary_at_as_of(
         ClosePrimaryLoanFundingCommand(
             actor=admin_user,
             loan_id=str(loan.pk),
@@ -2113,15 +2151,19 @@ def test_primary_marketplace_api_flow(
         },
         content_type="application/json",
     )
-    close_response = client.post(
-        "/api/v1/marketplace/primary/admin/loans/expiry-scan/",
-        data={
-            "as_of_date": "2030-01-11",
-            "loan_ids": [str(loan.pk)],
-            "idempotency_key": "api-market-close-1",
-        },
-        content_type="application/json",
-    )
+    with patch(
+        "backend.apps.marketplace_primary.services.now_utc",
+        return_value=datetime(2030, 1, 11, 12, tzinfo=UTC),
+    ):
+        close_response = client.post(
+            "/api/v1/marketplace/primary/admin/loans/expiry-scan/",
+            data={
+                "as_of_date": "2030-01-11",
+                "loan_ids": [str(loan.pk)],
+                "idempotency_key": "api-market-close-1",
+            },
+            content_type="application/json",
+        )
 
     assert manual_close_response.status_code == 400
     assert "automatically" in manual_close_response.json()["detail"]
@@ -2218,7 +2260,7 @@ def test_primary_loan_expiry_scan_api_is_admin_only(
     )
 
     client.force_login(cast(Any, admin_user))
-    response = client.post(
+    future_response = client.post(
         "/api/v1/marketplace/primary/admin/loans/expiry-scan/",
         data={
             "as_of_date": "2030-01-11",
@@ -2227,6 +2269,22 @@ def test_primary_loan_expiry_scan_api_is_admin_only(
         },
         content_type="application/json",
     )
+    assert future_response.status_code == 400
+    assert "future date" in future_response.json()["detail"]
+    assert not PrimaryLoanCancellation.objects.filter(loan_id=loan.pk).exists()
+    with patch(
+        "backend.apps.marketplace_primary.services.now_utc",
+        return_value=datetime(2030, 1, 11, 12, tzinfo=UTC),
+    ):
+        response = client.post(
+            "/api/v1/marketplace/primary/admin/loans/expiry-scan/",
+            data={
+                "as_of_date": "2030-01-11",
+                "loan_ids": [str(loan.pk)],
+                "idempotency_key": "api-market-expiry-scan",
+            },
+            content_type="application/json",
+        )
 
     loan.refresh_from_db()
     assert forbidden.status_code == 403

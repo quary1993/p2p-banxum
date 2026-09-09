@@ -112,12 +112,12 @@
         {
           "item": 12,
           "label": "Queue tab: Balance ageing (Finance)",
-          "text": "Investor balance 'lots' (tracked chunks of deposited money) that are near or past the regulatory time windows. The rules: after 30 days money can no longer be invested (becomes withdraw-only), and after 60 days it must be returned. This queue surfaces lots already past the 60-day withdrawal deadline and lots stuck in penalty mode (waiting for a usable payout IBAN)."
+          "text": "Investor balance 'lots' (tracked chunks of deposited money) that are near or past the regulatory time windows. The rules: each reserved source must cover the loan's remaining funding period, and uninvested money must be returned by day 60. This queue surfaces lots already past the 60-day withdrawal deadline and lots stuck in penalty mode (waiting for a usable payout IBAN)."
         },
         {
           "item": 13,
           "label": "Queue tab: Funding loans (Marketplace)",
-          "text": "Direct loans still raising funds plus non-public funding-close failures that need intervention. Published campaigns are sorted by deadline; a funding_close_failed item has preserved investor reservations and an urgent operations task. Fix its cause in Loans, then retry deterministic resolution or cancel/refund."
+          "text": "Direct loans still raising funds plus non-public funding-close failures that need intervention. Published campaigns are sorted by deadline; a funding_close_failed item has preserved investor reservations and an urgent operations task. Fix its cause in Loans. Automatic retries preserve the published outcome; a qualified close cannot be replaced by cancellation."
         },
         {
           "item": 14,
@@ -196,17 +196,17 @@
         {
           "item": 1,
           "label": "Column: Available",
-          "text": "The total investor money currently available in this currency across all balance lots (a 'lot' is a tracked chunk of deposited funds). This is the grand total; the next three columns break it down by what the money is allowed to do. Why it matters: it is the headline liability the platform holds for investors in this currency."
+          "text": "The total unconsumed investor balance in this currency across all balance lots (a 'lot' is a tracked chunk of deposited funds), including frozen and penalty-mode amounts. The balance bucket columns explain what can be done with this money. It is not the amount eligible for a particular loan."
         },
         {
           "item": 2,
           "label": "Column: Investable",
-          "text": "The portion of Available that is still inside its investment window and may be used to fund loans (within the first 30 days). This is the money that can actually flow into the marketplace."
+          "text": "The portion of Available that is before its holding deadline. This is a potential investment balance; each loan's remaining funding window is checked separately before reservation."
         },
         {
           "item": 3,
           "label": "Column: Withdraw-only",
-          "text": "The portion of Available that has passed its 30-day investment deadline but not yet its 60-day withdrawal deadline. It can no longer be invested, only withdrawn. Why it matters: this money is ageing toward a forced return and should be flagged to the investor."
+          "text": "A compatibility bucket, normally zero. The current policy does not make money withdraw-only at day 30: investment eligibility depends on the remaining funding window. At day 60, uninvested sources enter the overdue return process."
         },
         {
           "item": 4,
@@ -250,7 +250,7 @@
         }
       ],
       "notes": [
-        "Available is the sum of Investable + Withdraw-only + Overdue for lots in 'available' status; Frozen and Penalty lots are tracked separately and are not part of the Available split.",
+        "Available includes Investable + Withdraw-only + Overdue + Frozen + Penalty. Frozen and Penalty are not investable; each potential investment also requires source coverage through the loan's final subscription date.",
         "All figures here are derived snapshots, refreshed with the dashboard. You cannot edit them on this screen - to change a balance you act in Finance ops.",
         "If the table shows 'No currency summaries', the backend has not yet returned currency-level data; press Refresh.",
         "Amounts are stored internally in minor units (e.g. cents/rappen) and displayed formatted in each currency."

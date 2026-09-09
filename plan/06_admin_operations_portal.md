@@ -180,7 +180,7 @@ Admin-created legal-entity lender mandatory fields:
 - Risk rating.
 - Tax residency.
 
-Legal-entity lender evidence must be recorded before financial activation. Exact upload categories can be configured, but the platform must support local Swiss-controlled storage or references to Garanta-controlled Swiss evidence storage for the KYB pack, register extract, proof of address, ownership/control evidence, tax form, bank proof, provider/off-platform report, manual AML review decision, and internal approval note.
+Amended 2026-09-07: Garanta completes and retains legal-entity lender KYB/AML offline. Platform uploads, company approval cases and evidence references are optional. Natural-person lender KYC remains in-platform. Existing optional company records stay restricted and are not deleted; representative account restrictions and explicit compliance holds still apply.
 
 ## High-Risk Admin Actions
 
@@ -195,7 +195,7 @@ Legal-entity lender evidence must be recorded before financial activation. Exact
 - Approve borrower for listing.
 - Record final loan terms.
 - Publish loan listing.
-- Resolve funding deadline automatically from the loan's configured minimum subscription; retry or cancel a `funding_close_failed` operations case.
+- Resolve funding deadlines automatically from the published subscription condition; repair and retry a `funding_close_failed` case without choosing a different outcome.
 - Validate received investment funds and order allocation.
 - Confirm excess/refund-due handling.
 - Release funds.
@@ -243,7 +243,7 @@ No high-risk action requires dual approval at launch. Each high-risk action shou
 - Generate KYC/KYB/AML evidence package: admin only.
 - Record offline credit approval / approve loans for publication: admin.
 - Publish listing: admin, subject to workflow rules.
-- Funding-deadline resolution: scheduler/admin-triggered deterministic close or cancellation. Admins may retry a failed resolution or cancel/refund, but cannot choose a discretionary partial close.
+- Funding-deadline resolution: automatic deterministic close or cancellation under the published minimum. Failed execution is retried automatically; admins may repair the cause and trigger the same resolver, but cannot choose a different outcome or release reserved funds after the deadline.
 - Confirm payments: admin.
 - Enter borrower repayment amount and generate lender distribution: admin.
 - Attach lender payment evidence/bank statement: admin.
@@ -297,7 +297,7 @@ No high-risk action requires dual approval at launch. Each high-risk action shou
 5. Answered by Operating Model DEC-010 and COMMS-DEC-006: there is no separate support role or support-ticket view at launch; only superadmin/admin portal roles are in scope, and external support is handled by normal email.
 6. Answered by RPT-DEC-003: auditors/regulators do not need direct portal access at launch; admin generates and shares/export packages offline.
 7. Answered: daily reports are cash reconciliation, balance ageing, pending withdrawals/forced withdrawals, FX delta, failed communications, due/late/defaulted loans, and pending admin actions.
-8. Updated by KYC-DEC-005/KYC-DEC-008: legal-entity lender mandatory fields are legal name, registration number, jurisdiction, registered address, representative name/email/phone, bank IBAN, onboarding/KYB status and date, risk rating, and tax residency. KYB/AML evidence must be recorded before financial activation, with exact evidence categories configurable. Borrower mandatory fields are defined in the borrower/entity module.
+8. Amended 2026-09-07 under KYC-DEC-002/KYC-DEC-008: company onboarding and KYB evidence remain offline with Garanta. Operational entity/representative fields and settlement instructions remain available, but no local KYB approval record, status/date or compliance file is required to activate company transactions. Explicit account restrictions, holds and adverse decisions remain enforced.
 9. Answered by FIN-DEC-004/006: admin generates borrower account statements and annual tax information statements as PDF/CSV, admin generates Garanta internal annual account/tax information reports, and admin or superadmin can approve finance corrections.
 10. Answered by RPT-DEC-002/RPT-DEC-003: admin-only report exports support PDF, CSV, and ZIP evidence packages with redacted/full modes.
 11. Answered by COMMS-DEC-004/005/007: failed emails create admin notices, admin chooses public note/email/both for material loan updates, and superadmin owns email template changes.
@@ -305,10 +305,10 @@ No high-risk action requires dual approval at launch. Each high-risk action shou
 
 ## Loan Originator Operations
 
-Admins maintain originators, off-platform KYB evidence, active/blocked state, and settlement details. They create originator-claim loans separately, upload/validate schedule/payment CSV evidence, define finite funding and exact activation-boundary terms, declare interest/penalty participation, review anonymized disclosure, and publish after all gates.
+Admins maintain originator counterparties, active/blocked state and external settlement details. Company KYB is handled offline; platform compliance documents are not required. Admins import immutable schedule/payment CSV evidence, define finite funding and the LO-owned boundary installment, declare interest/penalty participation, review public disclosure, and publish. Final-borrower legal name is private unless explicitly selected for publication on that loan.
 
-The Loans table combines products and shows type, borrower/originator, reserved/sellable principal, nominal investor yield, funding deadline, maturity, and lifecycle status. Current originator rows never expose direct close/cancel/disbursement/servicing actions. Their Manage flow provides publish, deterministic subscription close, exact boundary-payment activation, cancellation/refund, hold/release, and post-activation replacement-import repayment actions.
+The Loans table combines products and shows type, borrower/originator, reserved/sellable principal, nominal investor yield, funding deadline, maturity and status. Current originator rows use product-specific publish, deterministic close/retry, cancellation/refund, hold and replacement-import repayment actions. There is no manual activation action or general-purpose release-hold button. A paused subscription can be withdrawn before its deadline; a subscribed expired or failed round requires repair and automatic retry, not discretionary cancellation. Successful funding close creates holdings and originator payable atomically. The boundary installment belongs wholly to the LO and is excluded from investor projections.
 
-Full subscription triggers close automatically. The deadline resolver closes any positive round and cancels an empty round. Failed close processing preserves reservations, hides the opportunity, creates an urgent task, and emails operations. Close creates a normal activation task; activation is allowed only when boundary payment/reference/date/resulting principal match. Any mismatch is resolved through audited cancellation/refund, never discretionary repricing.
+Full subscription triggers close automatically. The deadline resolver closes any positive round and cancels an empty round. Failed close preserves reservations, hides the opportunity, creates an urgent task and emails operations. The boundary payment is recorded later as a real borrower receipt, never a prerequisite or invented evidence for activation. Repayment confirmation and the admin schedule retain the investor credit, LO payable and Garanta costs. Historical closed-but-unactivated records are upgraded from their original schedule; incompatible or held records raise an immediate repair task/email and retain their reservations. Routine company KYB absence/expiry does not block operations; explicit holds and adverse review decisions remain blocking.
 
 Finance Ops groups originator payable by originator/currency with activation and servicing items, total payable, oldest age, due/overdue state, and settlement action. Tasks start at day 3 and escalate after day 5. Reports/reconciliation show funding escrow and originator payable separately.

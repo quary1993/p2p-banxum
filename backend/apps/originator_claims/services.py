@@ -37,6 +37,7 @@ from backend.apps.originator_claims.models import (
     OriginatorClaimQuote,
     OriginatorDistributionModel,
     OriginatorFundingRoundClose,
+    OriginatorImportPaymentType,
     OriginatorLoanImport,
     OriginatorLoanPaymentRow,
     OriginatorLoanProfile,
@@ -53,6 +54,7 @@ from backend.apps.platform_core.domain.access import (
     is_admin_actor,
     user_can_access_financial_features,
 )
+from backend.apps.platform_core.domain.funding import latest_funding_deadline
 from backend.apps.platform_core.domain.iban import IbanValidationError, normalize_and_validate_iban
 from backend.apps.platform_core.domain.money import (
     Money,
@@ -105,7 +107,7 @@ class CreateLoanOriginatorCommand:
     registered_address: str
     settlement_account_name: str
     settlement_iban: str
-    kyb_evidence_reference: str
+    kyb_evidence_reference: str = ""
     contact_info: str = ""
     settlement_bic: str = ""
     kyb_aml_observations: str = ""
@@ -673,7 +675,7 @@ def create_loan_originator(command: CreateLoanOriginatorCommand) -> LoanOriginat
         ),
         settlement_iban=settlement_iban,
         settlement_bic=command.settlement_bic.strip().upper(),
-        kyb_evidence_reference=_required(command.kyb_evidence_reference, "KYB evidence reference"),
+        kyb_evidence_reference=command.kyb_evidence_reference.strip(),
         kyb_aml_observations=command.kyb_aml_observations.strip(),
         risk_observations=command.risk_observations.strip(),
         status=command.status,
@@ -750,6 +752,7 @@ def _snapshot_value(snapshot: dict[str, Any], key: str, default: Any = "") -> An
 def _private_borrower_snapshot(profile: OriginatorLoanProfile) -> dict[str, Any]:
     return {
         "borrower_legal_name": profile.borrower_legal_name,
+        "borrower_legal_name_public": profile.borrower_legal_name_public,
         "borrower_display_name": profile.borrower_display_name,
         "year_founded": profile.borrower_year_founded,
         "entity_type": profile.borrower_entity_type,
@@ -790,6 +793,7 @@ def _apply_borrower_snapshot(
         str(_snapshot_value(snapshot, "borrower_display_name")),
         "Anonymized borrower display name",
     )
+    profile.borrower_legal_name_public = snapshot.get("borrower_legal_name_public", False)
     profile.borrower_year_founded = _snapshot_value(snapshot, "year_founded", None)
     profile.borrower_entity_type = str(_snapshot_value(snapshot, "entity_type"))
     profile.borrower_country = str(_snapshot_value(snapshot, "country"))
@@ -821,6 +825,14 @@ def _apply_borrower_snapshot(
 
 
 def _validate_borrower_snapshot(snapshot: dict[str, Any]) -> None:
+    for field in (
+        "borrower_legal_name_public",
+        "business_classification_public",
+        "registered_address_public",
+        "contact_info_public",
+    ):
+        if field in snapshot and type(snapshot[field]) is not bool:
+            raise OriginatorClaimsValidationError(f"{field} must be an explicit boolean.")
     _required(
         str(_snapshot_value(snapshot, "borrower_legal_name")),
         "Borrower legal name",
@@ -954,9 +966,9 @@ def _validate_par_subscription_terms(
         )
     if command.funding_deadline < command.as_of_date:
         raise OriginatorClaimsValidationError("Funding deadline cannot be in the past.")
-    if command.funding_deadline > command.as_of_date + timedelta(days=29):
+    if command.funding_deadline > latest_funding_deadline(command.as_of_date):
         raise OriginatorClaimsValidationError(
-            "Funding deadline cannot be later than 29 days after the publication date."
+            "Funding period cannot exceed 50 subscription days, including the import as-of date."
         )
     if command.funding_deadline >= command.entitlement_start_date:
         raise OriginatorClaimsValidationError(
@@ -1137,6 +1149,7 @@ def create_originator_loan(command: CreateOriginatorLoanCommand) -> OriginatorLo
         unsold_principal_minor=profile_principal_minor,
         maturity_date=parsed.maturity_date,
         borrower_legal_name=borrower_legal_name,
+        borrower_legal_name_public=snapshot.get("borrower_legal_name_public", False),
         borrower_display_name=borrower_display_name,
         borrower_year_founded=_snapshot_value(snapshot, "year_founded", None),
         borrower_entity_type=str(_snapshot_value(snapshot, "entity_type")),
@@ -1266,6 +1279,51 @@ def get_originator_admin_loan_payload(*, actor: Model, loan_id: str) -> dict[str
         raise OriginatorClaimsValidationError("Originator claim loan does not exist.")
     loan = cast(Any, profile.loan)
     loan_import = profile.current_import
+    repayments_by_reference = {
+        payment.payment_reference: payment
+        for payment in OriginatorBorrowerRepayment.objects.filter(loan_profile=profile)
+    }
+    projected_investor_totals: dict[str, int] = {}
+    active_investment = profile.opportunity_status == OriginatorOpportunityStatus.ACTIVE
+    if active_investment:
+        holding_model = apps.get_model("holdings", "InvestorLoanHolding")
+        holdings = list(
+            holding_model.objects.filter(
+                loan_id=loan.pk, status="active", current_principal_minor__gt=0
+            )
+        )
+        projections = get_originator_holding_schedule_payloads(
+            holdings=holdings, as_of_date=business_date(now_utc())
+        )
+        for projection in projections.values():
+            for row in projection:
+                key = str(row["loan_installment_id"])
+                projected_investor_totals[key] = projected_investor_totals.get(key, 0) + int(
+                    row["projected_total_minor"]
+                )
+
+    def projected_split(row: OriginatorLoanScheduleRow) -> dict[str, int | None]:
+        if not active_investment or row.due_date <= loan_import.as_of_date:
+            return {"projected_investor_minor": None, "projected_originator_minor": None}
+        investor_total = projected_investor_totals.get(str(row.pk), 0)
+        return {
+            "projected_investor_minor": investor_total,
+            "projected_originator_minor": int(row.total_minor)
+            - int(row.fee_minor)
+            - investor_total,
+        }
+
+    def payment_split(row: OriginatorLoanPaymentRow) -> dict[str, int | None]:
+        repayment = repayments_by_reference.get(row.reference)
+        return {
+            key: int(getattr(repayment, key)) if repayment is not None else None
+            for key in (
+                "investor_distributed_minor",
+                "originator_payable_minor",
+                "platform_costs_minor",
+            )
+        }
+
     return {
         "loan_id": str(profile.loan_id),
         "originator_id": str(profile.originator_id),
@@ -1322,6 +1380,10 @@ def get_originator_admin_loan_payload(*, actor: Model, loan_id: str) -> dict[str
                 "fee_minor": int(row.fee_minor),
                 "total_minor": int(row.total_minor),
                 "closing_principal_minor": int(row.closing_principal_minor),
+                "is_originator_boundary": (
+                    _is_par_subscription(profile) and row.due_date == profile.entitlement_start_date
+                ),
+                **projected_split(row),
             }
             for row in loan_import.schedule_rows.all()
         ],
@@ -1336,6 +1398,7 @@ def get_originator_admin_loan_payload(*, actor: Model, loan_id: str) -> dict[str
                 "fee_minor": int(row.fee_minor),
                 "total_minor": int(row.total_minor),
                 "resulting_principal_minor": int(row.resulting_principal_minor),
+                **payment_split(row),
             }
             for row in loan_import.payment_rows.all()
         ],
@@ -1561,15 +1624,21 @@ def publish_originator_loan(command: PublishOriginatorLoanCommand) -> Originator
             "Originator opportunities require more than 30 calendar days to maturity."
         )
     if _is_par_subscription(profile):
+        publication_date = business_date(now_utc())
         if profile.funding_deadline is None or profile.entitlement_start_date is None:
             raise OriginatorClaimsValidationError(
                 "Funding and entitlement dates are required for this subscription."
             )
-        if profile.funding_deadline < command.as_of_date:
+        if profile.funding_deadline < publication_date:
             raise OriginatorClaimsValidationError("Funding deadline cannot be in the past.")
-        if profile.funding_deadline > command.as_of_date + timedelta(days=29):
+        if profile.funding_deadline > latest_funding_deadline(publication_date):
             raise OriginatorClaimsValidationError(
-                "Originator subscription funding periods cannot exceed 29 calendar days."
+                "Originator subscription funding periods cannot exceed 50 subscription days, "
+                "including the publication date."
+            )
+        if profile.maturity_date <= publication_date + timedelta(days=30):
+            raise OriginatorClaimsValidationError(
+                "Originator opportunities require more than 30 calendar days to maturity."
             )
         if profile.funding_deadline >= profile.entitlement_start_date:
             raise OriginatorClaimsValidationError(
@@ -1665,6 +1734,22 @@ def _loan_status_event(
     )
 
 
+def _has_explicit_subscription_hold(profile: OriginatorLoanProfile, loan_status: str) -> bool:
+    if not profile.is_on_hold:
+        return False
+    if loan_status != "funding_close_failed":
+        return True
+    failure = (
+        OriginatorClaimEvent.objects.filter(
+            loan_id=profile.loan_id,
+            event_type=OriginatorClaimEventType.FUNDING_ROUND_CLOSE_FAILED,
+        )
+        .order_by("-occurred_at", "-id")
+        .first()
+    )
+    return bool(failure and failure.metadata.get("explicit_hold"))
+
+
 @transaction.atomic
 def mark_originator_funding_close_failed(
     *,
@@ -1693,14 +1778,16 @@ def mark_originator_funding_close_failed(
 
     error_message = str(error).strip() or error.__class__.__name__
     previous_loan_status = str(loan.status)
+    explicit_hold = _has_explicit_subscription_hold(profile, previous_loan_status)
     failed_at = now_utc()
     loan.status = "funding_close_failed"
     loan.updated_by_admin_id = operations_actor.pk
     loan.save(update_fields=["status", "updated_by_admin_id", "updated_at"])
     profile.is_on_hold = True
-    profile.hold_reason = f"Automatic funding close failed: {error_message}"[:255]
-    profile.held_at = failed_at
-    profile.held_by_admin_id = operations_actor.pk
+    if not explicit_hold:
+        profile.hold_reason = f"Automatic funding close failed: {error_message}"[:255]
+        profile.held_at = failed_at
+        profile.held_by_admin_id = operations_actor.pk
     profile.save(
         update_fields=[
             "is_on_hold",
@@ -1720,6 +1807,7 @@ def mark_originator_funding_close_failed(
         "subscribed_principal_minor": int(loan.committed_principal_minor),
         "sellable_principal_minor": originator_sellable_principal_minor(profile),
         "reservations_preserved": True,
+        "explicit_hold": explicit_hold,
         "triggering_user_id": str(triggering_actor.pk),
         "triggering_account_type": str(getattr(triggering_actor, "account_type", "")),
     }
@@ -1761,10 +1849,11 @@ def mark_originator_funding_close_failed(
             f"The automatic {resolution_action} failed for {loan.title} ({loan.id}).\n\n"
             f"Reason: {error_message}\n\n"
             "The opportunity is no longer public. Investor reservations remain locked and "
-            "unchanged. Resolve the cause and retry the close, or cancel and refund the round."
+            "unchanged. The system retries the funding result automatically. "
+            "Repair the reported cause promptly; no admin funding decision is required."
         ),
         template_key="originator_subscription.close_failed.v1",
-        idempotency_key=f"originator-round-close-failed:{loan_event.pk}",
+        idempotency_key=f"originator-round-close-failed:{loan.id}:{as_of_date.isoformat()}",
         metadata={
             **metadata,
             "loan_event_id": str(loan_event.pk),
@@ -1816,6 +1905,10 @@ def _existing_round_close(
 def close_originator_subscription_round(
     command: CloseOriginatorSubscriptionRoundCommand,
 ) -> OriginatorFundingRoundClose:
+    if command.as_of_date > business_date(now_utc()):
+        raise OriginatorClaimsValidationError(
+            "Funding resolution cannot run for a future date. Use the QA clock to advance time."
+        )
     idempotency_key = _required(command.idempotency_key, "Idempotency key")
     if len(idempotency_key) > 160:
         raise OriginatorClaimsValidationError("Idempotency key cannot exceed 160 characters.")
@@ -1863,9 +1956,13 @@ def close_originator_subscription_round(
         raise OriginatorClaimsAuthorizationError(
             "Only an admin can retry a failed originator funding close."
         )
-    if profile.is_on_hold and not retrying_failed_close:
+    if _has_explicit_subscription_hold(profile, str(loan.status)):
         raise OriginatorClaimsValidationError(
-            "A held originator funding round cannot close; cancel it or resolve the hold first."
+            "A held originator funding round cannot close; resolve the explicit hold first."
+        )
+    if profile.originator.status != LoanOriginatorStatus.ACTIVE:
+        raise OriginatorClaimsValidationError(
+            "The Loan Originator must be active before its funding round can close."
         )
     if profile.funding_deadline is None:
         raise OriginatorClaimsValidationError("Originator funding deadline is unavailable.")
@@ -1933,6 +2030,7 @@ def close_originator_subscription_round(
 
     metadata = {
         "loan_id": str(loan.id),
+        "as_of_date": command.as_of_date.isoformat(),
         "subscribed_principal_minor": subscribed_principal,
         "sellable_principal_minor": sellable_principal,
         "fully_subscribed": fully_subscribed,
@@ -1972,7 +2070,6 @@ def close_originator_subscription_round(
         loan.updated_by_admin_id = command.actor.pk
         loan_update_fields.append("updated_by_admin_id")
     loan.save(update_fields=loan_update_fields)
-    profile.opportunity_status = OriginatorOpportunityStatus.AWAITING_ACTIVATION
     profile.closed_at = closed_at
     profile.close_reason = close_reason
     profile_update_fields = ["opportunity_status", "closed_at", "close_reason", "updated_at"]
@@ -1981,9 +2078,7 @@ def close_originator_subscription_round(
         profile.hold_reason = ""
         profile.held_at = None
         profile.held_by_admin_id = None
-        profile_update_fields.extend(
-            ["is_on_hold", "hold_reason", "held_at", "held_by_admin_id"]
-        )
+        profile_update_fields.extend(["is_on_hold", "hold_reason", "held_at", "held_by_admin_id"])
     profile.save(update_fields=profile_update_fields)
     _loan_status_event(
         loan=loan,
@@ -2004,17 +2099,8 @@ def close_originator_subscription_round(
     )
     admin_ops = import_module("backend.apps.admin_ops.services")
     operations_actor = _operations_admin_actor(command.actor)
-    admin_ops.ensure_originator_subscription_activation_task(
-        admin_ops.EnsureOriginatorActivationTaskCommand(
-            requested_by=operations_actor,
-            loan_id=str(loan.id),
-            loan_title=str(loan.title),
-            originator_name=str(profile.originator.public_name),
-            currency=str(loan.currency_id),
-            subscribed_principal_minor=subscribed_principal,
-            funding_round_close_id=str(close.id),
-            entitlement_start_date=cast(date, profile.entitlement_start_date),
-        )
+    _activate_funded_subscription(
+        actor=operations_actor, loan=loan, profile=profile, round_close=close
     )
     if retrying_failed_close:
         admin_ops.resolve_loan_funding_close_failure_task(
@@ -2022,18 +2108,6 @@ def close_originator_subscription_round(
             loan_id=str(loan.id),
             completion_note=f"Originator funding round closed successfully as {close.id}.",
         )
-    _enqueue_operations_email(
-        topic="email.originator_subscription_awaiting_activation",
-        subject=f"BANXUM originator subscription ready for activation: {loan.title}",
-        body_text=(
-            f"The funding round for {loan.title} closed with "
-            f"{format_amount_minor(subscribed_principal, str(loan.currency_id))} subscribed. "
-            "Verify and import the boundary installment before activating investor claims."
-        ),
-        template_key="originator_subscription.awaiting_activation.v1",
-        idempotency_key=f"originator-round-close-alert:{close.id}",
-        metadata={**metadata, "funding_round_close_id": str(close.id)},
-    )
     return close
 
 
@@ -2159,148 +2233,62 @@ def _existing_subscription_activation(
     return cast(OriginatorSubscriptionActivation, existing)
 
 
-@transaction.atomic
 def activate_originator_subscription(
     command: ActivateOriginatorSubscriptionCommand,
 ) -> OriginatorSubscriptionActivation:
     _require_admin(command.actor)
-    idempotency_key = _required(command.idempotency_key, "Idempotency key")
-    if len(idempotency_key) > 160:
-        raise OriginatorClaimsValidationError("Idempotency key cannot exceed 160 characters.")
-    reference = _required(command.boundary_payment_reference, "Boundary payment reference")
-    notes = _required(command.notes, "Activation notes")
-    fingerprint = _request_fingerprint(
-        {
-            "loan_id": str(command.loan_id),
-            "source_sha256": hashlib.sha256(command.csv_content.encode("utf-8")).hexdigest(),
-            "source_filename": command.source_filename.strip(),
-            "as_of_date": command.as_of_date.isoformat(),
-            "boundary_payment_reference": reference,
-            "boundary_payment_date": command.boundary_payment_date.isoformat(),
-            "notes": notes,
-            "idempotency_key": idempotency_key,
-        }
+    raise OriginatorClaimsValidationError(
+        "Subscriptions activate automatically when funding closes. Record the boundary "
+        "installment through borrower repayments; it belongs entirely to the Loan Originator."
     )
-    existing = _existing_subscription_activation(
-        idempotency_key=idempotency_key,
-        fingerprint=fingerprint,
-    )
-    if existing is not None:
-        return existing
 
-    loan_model = apps.get_model("loans", "Loan")
-    loan = loan_model.objects.select_for_update().filter(id=command.loan_id).first()
-    if loan is None:
-        raise OriginatorClaimsValidationError("Originator claim loan does not exist.")
-    profile = _locked_profile_for_loan(
-        command.loan_id,
-        "originator",
-        "current_import",
-        "loan__currency",
-    )
-    existing = _existing_subscription_activation(
-        idempotency_key=idempotency_key,
-        fingerprint=fingerprint,
-    )
-    if existing is not None:
-        return existing
-    if not _is_par_subscription(profile):
-        raise OriginatorClaimsValidationError(
-            "Legacy originator opportunities do not use subscription activation."
-        )
-    if profile.opportunity_status != OriginatorOpportunityStatus.AWAITING_ACTIVATION:
-        raise OriginatorClaimsValidationError("Originator subscription is not awaiting activation.")
-    if profile.is_on_hold:
-        raise OriginatorClaimsValidationError(
-            "A held originator subscription cannot be activated; cancel it or resolve the "
-            "hold first."
-        )
-    if loan.status != "funded":
-        raise OriginatorClaimsValidationError("Originator subscription loan is not funded.")
-    round_close = (
-        OriginatorFundingRoundClose.objects.select_for_update().filter(loan_profile=profile).first()
-    )
-    if round_close is None:
-        raise OriginatorClaimsValidationError("Funding-round close evidence is unavailable.")
-    if OriginatorSubscriptionCancellation.objects.filter(loan_profile=profile).exists():
-        raise OriginatorClaimsValidationError("Cancelled subscriptions cannot be activated.")
-    if command.boundary_payment_date != cast(date, profile.entitlement_start_date):
-        raise OriginatorClaimsValidationError(
-            "Boundary payment must be received on the declared installment due date. "
-            "A delayed or changed payment requires subscription cancellation and refund."
-        )
-    if command.boundary_payment_date > command.as_of_date:
-        raise OriginatorClaimsValidationError("Boundary payment cannot be after the import date.")
+
+def _activate_funded_subscription(
+    *,
+    actor: Model,
+    loan: Any,
+    profile: OriginatorLoanProfile,
+    round_close: OriginatorFundingRoundClose,
+    legacy_upgrade: bool = False,
+) -> OriginatorSubscriptionActivation:
+    """Create holdings and settle escrow inside the funding-close transaction."""
+    idempotency_key = f"originator-auto-activate:{round_close.pk}"
     current_import = profile.current_import
     if current_import is None:
         raise OriginatorClaimsValidationError("Current schedule evidence is unavailable.")
-    next_entitled_installment = (
-        current_import.schedule_rows.filter(due_date__gt=cast(date, profile.entitlement_start_date))
-        .order_by("due_date", "installment_number", "id")
-        .first()
+    scheduled_boundary_date = cast(date, profile.entitlement_start_date)
+    expected_starting_principal = int(profile.activation_outstanding_principal_minor or 0)
+    current_principal = int(current_import.current_outstanding_principal_minor)
+    future_rows = list(
+        current_import.schedule_rows.filter(due_date__gt=current_import.as_of_date).order_by(
+            "due_date", "installment_number", "id"
+        )
     )
+    boundary_row = future_rows[0] if future_rows else None
     if (
-        next_entitled_installment is not None
-        and command.boundary_payment_date >= next_entitled_installment.due_date
+        boundary_row is None
+        or boundary_row.due_date != scheduled_boundary_date
+        or int(boundary_row.opening_principal_minor) != current_principal
+        or int(boundary_row.closing_principal_minor) != expected_starting_principal
+        or current_principal - int(boundary_row.principal_minor) != expected_starting_principal
     ):
         raise OriginatorClaimsValidationError(
-            "The boundary payment arrived on or after the next installment due date. "
-            "Cancel and refund the subscription rather than granting retroactive entitlement."
+            "The published boundary schedule no longer reconciles to the offered principal."
         )
-    try:
-        parsed = parse_originator_import_csv(
-            csv_content=command.csv_content,
-            original_principal_minor=int(loan.original_principal_minor),
-            as_of_date=command.as_of_date,
-            repayment_type=str(loan.repayment_type),
-            interest_only_months=int(loan.interest_only_months),
-        )
-    except OriginatorImportValidationError as exc:
-        raise OriginatorClaimsValidationError(str(exc)) from exc
-    previous_payments = {_payment_row_evidence(row) for row in current_import.payment_rows.all()}
-    imported_payments = {_payment_row_evidence(row) for row in parsed.payment_rows}
-    if not previous_payments.issubset(imported_payments):
-        raise OriginatorClaimsValidationError(
-            "Activation import must preserve every previously imported payment unchanged."
-        )
-    new_payments = [
-        row for row in parsed.payment_rows if _payment_row_evidence(row) not in previous_payments
-    ]
-    if len(new_payments) != 1:
-        raise OriginatorClaimsValidationError(
-            "Activation import must add exactly one boundary installment payment."
-        )
-    boundary_payment = new_payments[0]
-    if boundary_payment.reference != reference:
-        raise OriginatorClaimsValidationError(
-            "Boundary payment reference does not match the new imported payment."
-        )
-    if boundary_payment.value_date != command.boundary_payment_date:
-        raise OriginatorClaimsValidationError(
-            "Boundary payment date does not match the new imported payment."
-        )
-    if profile.activation_outstanding_principal_minor is None:
-        raise OriginatorClaimsValidationError(
-            "Originator subscription starting principal is unavailable."
-        )
-    expected_starting_principal = int(profile.activation_outstanding_principal_minor)
-    if parsed.current_outstanding_principal_minor != expected_starting_principal:
-        raise OriginatorClaimsValidationError(
-            "Boundary payment must leave the declared activation outstanding principal."
-        )
-    if boundary_payment.resulting_principal_minor != expected_starting_principal:
-        raise OriginatorClaimsValidationError(
-            "Boundary payment resulting principal does not match activation principal."
-        )
-    if (
-        int(current_import.current_outstanding_principal_minor)
-        - int(boundary_payment.principal_minor)
-        != expected_starting_principal
-    ):
-        raise OriginatorClaimsValidationError(
-            "Boundary payment principal does not reconcile from the previous import."
-        )
-
+    fingerprint = _request_fingerprint(
+        {
+            "funding_round_close_id": str(round_close.pk),
+            "loan_import_id": str(current_import.pk),
+            "schedule_revision": int(profile.schedule_revision),
+            "activation_mode": "funding_close",
+        }
+    )
+    existing = _existing_subscription_activation(
+        idempotency_key=idempotency_key, fingerprint=fingerprint
+    )
+    if existing is not None:
+        return existing
+    notes = "Investment activated automatically at funding close."
     allocated_orders, pending_orders = _subscription_orders_for_update(str(loan.id))
     if pending_orders:
         raise OriginatorClaimsValidationError(
@@ -2321,22 +2309,8 @@ def activate_originator_subscription(
             "Activation would breach the Loan Originator skin-in-the-game floor."
         )
 
-    revision = int(profile.schedule_revision) + 1
-    loan_import = _persist_import_revision(
-        actor=command.actor,
-        loan=loan,
-        revision=revision,
-        parsed=parsed,
-        as_of_date=command.as_of_date,
-        source_filename=command.source_filename,
-        csv_content=command.csv_content,
-        validation_summary={
-            "action": "subscription_activation",
-            "boundary_payment_reference": reference,
-            "boundary_payment_date": command.boundary_payment_date.isoformat(),
-            "starting_outstanding_principal_minor": expected_starting_principal,
-        },
-    )
+    revision = int(profile.schedule_revision)
+    loan_import = current_import
     schedule_rows = list(
         loan_import.schedule_rows.filter(
             due_date__gt=cast(date, profile.entitlement_start_date)
@@ -2355,7 +2329,7 @@ def activate_originator_subscription(
     )
     activated_at = now_utc()
     entitlement_start_at = datetime.combine(
-        command.boundary_payment_date,
+        scheduled_boundary_date,
         time.min,
         tzinfo=business_timezone(),
     ).astimezone(UTC)
@@ -2364,7 +2338,7 @@ def activate_originator_subscription(
     try:
         ledger_result = ledger.activate_originator_subscription_ledger(
             ledger.ActivateOriginatorSubscriptionLedgerCommand(
-                actor=command.actor,
+                actor=actor,
                 activation_id=str(activation_id),
                 loan_id=str(loan.id),
                 originator_id=str(profile.originator_id),
@@ -2434,14 +2408,15 @@ def activate_originator_subscription(
         try:
             holding = holdings.create_originator_claim_holding(
                 holdings.CreateOriginatorClaimHoldingCommand(
-                    actor=command.actor,
+                    actor=actor,
                     investor_user_id=str(order.investor_user_id),
                     loan_id=str(loan.id),
                     purchase_id=str(purchase_id),
                     principal_minor=order.allocated_amount_minor,
-                    current_loan_principal_minor=expected_starting_principal,
+                    current_loan_principal_minor=current_principal,
                     currency=str(loan.currency_id),
-                    assignment_effective_at=entitlement_start_at,
+                    assignment_effective_at=activated_at,
+                    economic_entitlement_start_at=entitlement_start_at,
                     idempotency_key=f"originator-activation-holding:{order.id}",
                     loan_share_ppm=share_ppm,
                     metadata={
@@ -2501,7 +2476,7 @@ def activate_originator_subscription(
         previous_status = str(order.status)
         order.status = "closed_invested"
         order.closed_at = activated_at
-        order.closed_by_admin_id = command.actor.pk
+        order.closed_by_admin_id = actor.pk
         order.admin_notes = notes
         order.metadata = {
             **cast(dict[str, Any], order.metadata),
@@ -2521,7 +2496,7 @@ def activate_originator_subscription(
         )
         _primary_order_event(
             order=order,
-            actor=command.actor,
+            actor=actor,
             event_type="closed_invested",
             previous_status=previous_status,
             new_status=str(order.status),
@@ -2537,8 +2512,8 @@ def activate_originator_subscription(
 
     profile.current_import = loan_import
     profile.schedule_revision = revision
-    profile.current_outstanding_principal_minor = expected_starting_principal
-    profile.unsold_principal_minor = retained_principal
+    profile.current_outstanding_principal_minor = current_principal
+    profile.unsold_principal_minor = current_principal - assigned_principal
     profile.opportunity_status = OriginatorOpportunityStatus.ACTIVE
     profile.save(
         update_fields=[
@@ -2553,9 +2528,13 @@ def activate_originator_subscription(
     previous_loan_status = str(loan.status)
     loan.status = "active"
     loan.schedule_version = revision
-    loan.total_scheduled_principal_minor = sum(int(row.principal_minor) for row in schedule_rows)
-    loan.total_scheduled_interest_minor = sum(int(row.interest_minor) for row in schedule_rows)
-    loan.updated_by_admin_id = command.actor.pk
+    loan.total_scheduled_principal_minor = sum(
+        int(row.principal_minor) for row in loan_import.schedule_rows.all()
+    )
+    loan.total_scheduled_interest_minor = sum(
+        int(row.interest_minor) for row in loan_import.schedule_rows.all()
+    )
+    loan.updated_by_admin_id = actor.pk
     loan.save(
         update_fields=[
             "status",
@@ -2569,11 +2548,22 @@ def activate_originator_subscription(
     activation_metadata = {
         "loan_id": str(loan.id),
         "funding_round_close_id": str(round_close.id),
-        "boundary_payment_reference": reference,
-        "boundary_payment_date": command.boundary_payment_date.isoformat(),
-        "starting_outstanding_principal_minor": expected_starting_principal,
+        "activation_mode": "funding_close",
+        "legacy_upgrade": legacy_upgrade,
+        "triggered_by_user_id": str(round_close.triggered_by_user_id),
+        "boundary_installment": {
+            "installment_number": int(boundary_row.installment_number),
+            "due_date": scheduled_boundary_date.isoformat(),
+            "principal_minor": int(boundary_row.principal_minor),
+            "interest_minor": int(boundary_row.interest_minor),
+            "penalty_minor": int(boundary_row.penalty_minor),
+            "fee_minor": int(boundary_row.fee_minor),
+        },
+        "post_boundary_principal_minor": expected_starting_principal,
+        "scheduled_entitlement_start_date": scheduled_boundary_date.isoformat(),
+        "starting_outstanding_principal_minor": current_principal,
         "assigned_principal_minor": assigned_principal,
-        "originator_retained_principal_minor": retained_principal,
+        "originator_retained_principal_minor": current_principal - assigned_principal,
         "purchase_ids": [str(purchase.id) for purchase in purchases],
         "holding_ids": holding_ids,
         "loan_import_id": str(loan_import.id),
@@ -2587,13 +2577,13 @@ def activate_originator_subscription(
                     id=activation_id,
                     loan_profile=profile,
                     funding_round_close=round_close,
-                    boundary_payment_reference=reference,
-                    boundary_payment_date=command.boundary_payment_date,
-                    starting_outstanding_principal_minor=expected_starting_principal,
+                    boundary_payment_reference="",
+                    boundary_payment_date=None,
+                    starting_outstanding_principal_minor=current_principal,
                     assigned_principal_minor=assigned_principal,
-                    originator_retained_principal_minor=retained_principal,
+                    originator_retained_principal_minor=current_principal - assigned_principal,
                     activation_journal_entry=ledger_result.journal_entry,
-                    activated_by_admin_id=command.actor.pk,
+                    activated_by_admin_id=actor.pk,
                     activated_at=activated_at,
                     idempotency_key=idempotency_key,
                     request_fingerprint=fingerprint,
@@ -2610,7 +2600,7 @@ def activate_originator_subscription(
         return existing_after_race
     _loan_status_event(
         loan=loan,
-        actor=command.actor,
+        actor=actor,
         event_type="originator_subscription_activated",
         previous_status=previous_loan_status,
         new_status=str(loan.status),
@@ -2618,7 +2608,7 @@ def activate_originator_subscription(
         metadata=activation_metadata,
     )
     _record_event(
-        actor=command.actor,
+        actor=actor,
         event_type=OriginatorClaimEventType.SUBSCRIPTION_ACTIVATED,
         originator=profile.originator,
         loan_id=loan.id,
@@ -2628,7 +2618,7 @@ def activate_originator_subscription(
     import_module(
         "backend.apps.admin_ops.services"
     ).resolve_originator_subscription_activation_task(
-        actor=command.actor,
+        actor=actor,
         loan_id=str(loan.id),
         completion_note=f"Subscription activated as {activation.id}.",
     )
@@ -2653,6 +2643,118 @@ def activate_originator_subscription(
             },
         )
     return activation
+
+
+@transaction.atomic
+def upgrade_closed_originator_subscription(
+    *, actor: Model, loan_id: str
+) -> OriginatorSubscriptionActivation:
+    """Upgrade an old closed reservation without inventing a borrower payment."""
+    _require_admin(actor)
+    loan_model = apps.get_model("loans", "Loan")
+    loan = loan_model.objects.select_for_update().get(pk=loan_id)
+    profile = _locked_profile_for_loan(loan_id, "originator", "current_import")
+    existing = OriginatorSubscriptionActivation.objects.filter(loan_profile=profile).first()
+    if existing is not None:
+        return cast(OriginatorSubscriptionActivation, existing)
+    if (
+        not _is_par_subscription(profile)
+        or loan.status != "funded"
+        or profile.opportunity_status != OriginatorOpportunityStatus.AWAITING_ACTIVATION
+    ):
+        raise OriginatorClaimsValidationError("This is not a legacy closed subscription.")
+    if profile.is_on_hold:
+        raise OriginatorClaimsValidationError(
+            "Resolve the explicit hold or cancel/refund before upgrading this subscription."
+        )
+    round_close = OriginatorFundingRoundClose.objects.get(loan_profile=profile)
+    return _activate_funded_subscription(
+        actor=actor, loan=loan, profile=profile, round_close=round_close, legacy_upgrade=True
+    )
+
+
+@transaction.atomic
+def _escalate_legacy_subscription_upgrade(
+    *,
+    actor: Model,
+    profile_id: str,
+    as_of_date: date,
+    failure_reason: str,
+) -> dict[str, str] | None:
+    profile = (
+        OriginatorLoanProfile.objects.select_for_update(of=("self",))
+        .select_related("loan", "originator")
+        .filter(id=profile_id)
+        .first()
+    )
+    if profile is None or not _is_par_subscription(profile):
+        return None
+    entitlement_start_date = profile.entitlement_start_date
+    if (
+        profile.opportunity_status != OriginatorOpportunityStatus.AWAITING_ACTIVATION
+        or str(profile.loan.status) != "funded"
+        or entitlement_start_date is None
+        or OriginatorSubscriptionActivation.objects.filter(loan_profile=profile).exists()
+        or OriginatorSubscriptionCancellation.objects.filter(loan_profile=profile).exists()
+    ):
+        return None
+
+    event_exists = OriginatorClaimEvent.objects.filter(
+        event_type=OriginatorClaimEventType.SUBSCRIPTION_ACTIVATION_OVERDUE,
+        loan_id=profile.loan_id,
+    ).exists()
+    admin_ops = import_module("backend.apps.admin_ops.services")
+    round_close = OriginatorFundingRoundClose.objects.filter(loan_profile=profile).first()
+    admin_ops.ensure_originator_subscription_activation_task(
+        admin_ops.EnsureOriginatorActivationTaskCommand(
+            requested_by=actor,
+            loan_id=str(profile.loan_id),
+            loan_title=profile.loan.title,
+            originator_name=profile.originator.public_name,
+            currency=profile.loan.currency_id,
+            subscribed_principal_minor=profile.loan.committed_principal_minor,
+            funding_round_close_id=str(round_close.pk) if round_close else "missing",
+            entitlement_start_date=entitlement_start_date,
+        )
+    )
+    task_result = admin_ops.escalate_originator_subscription_activation_task(
+        actor=actor,
+        loan_id=str(profile.loan_id),
+        entitlement_start_date=entitlement_start_date,
+        failure_reason=failure_reason,
+    )
+    if event_exists:
+        return None
+
+    metadata = {
+        "loan_id": str(profile.loan_id),
+        "entitlement_start_date": entitlement_start_date.isoformat(),
+        "as_of_date": as_of_date.isoformat(),
+        "admin_task_id": str(task_result.task.id),
+        "failure_reason": failure_reason,
+    }
+    _record_event(
+        actor=actor,
+        event_type=OriginatorClaimEventType.SUBSCRIPTION_ACTIVATION_OVERDUE,
+        originator=profile.originator,
+        loan_id=profile.loan_id,
+        note="The legacy subscription could not be upgraded automatically.",
+        metadata=metadata,
+    )
+    _enqueue_operations_email(
+        topic="email.originator_subscription_activation_overdue",
+        subject=f"URGENT: BANXUM legacy LO subscription repair: {profile.loan.title}",
+        body_text=(
+            f"Automatic upgrade failed for {profile.loan.title} ({profile.loan_id}). "
+            f"Reason: {failure_reason}. Investor subscriptions remain reserved. "
+            "Resolve the explicit hold or source inconsistency, then rerun the lifecycle scan. "
+            "Do not invent a boundary payment. Cancel and refund if evidence cannot reconcile."
+        ),
+        template_key="originator_subscription.activation_overdue.v1",
+        idempotency_key=f"originator-activation-overdue:{profile.id}:{entitlement_start_date}",
+        metadata=metadata,
+    )
+    return {"loan_id": str(profile.loan_id), "reason": "legacy_upgrade_failed"}
 
 
 def _existing_subscription_cancellation(
@@ -2718,6 +2820,19 @@ def cancel_originator_subscription(
         raise OriginatorClaimsValidationError("Originator subscription cannot be cancelled now.")
     if OriginatorSubscriptionActivation.objects.filter(loan_profile=profile).exists():
         raise OriginatorClaimsValidationError("Activated subscriptions cannot be cancelled.")
+    if (
+        profile.opportunity_status == OriginatorOpportunityStatus.OPEN
+        and int(loan.committed_principal_minor) > 0
+        and (
+            loan.status == "funding_close_failed"
+            or profile.funding_deadline is None
+            or profile.funding_deadline < business_date(now_utc())
+        )
+    ):
+        raise OriginatorClaimsValidationError(
+            "The published subscription condition is met. Funding must resolve automatically; "
+            "an admin cannot replace that result with cancellation."
+        )
     allocated_orders, pending_orders = _subscription_orders_for_update(str(loan.id))
     marketplace = import_module("backend.apps.marketplace_primary.services")
     released_principal = 0
@@ -2732,7 +2847,8 @@ def cancel_originator_subscription(
                     order_id=str(order.id),
                     reason=reason,
                     idempotency_key=f"originator-subscription-cancel:{idempotency_key}:{order.id}",
-                )
+                ),
+                funding_resolution=True,
             )
         except marketplace.MarketplacePrimaryError as exc:
             raise OriginatorClaimsValidationError(str(exc)) from exc
@@ -2944,7 +3060,11 @@ def list_loan_originators(*, actor: Model, query: str = "") -> Any:
 
 def _public_borrower_snapshot(profile: OriginatorLoanProfile) -> dict[str, Any]:
     payload: dict[str, Any] = {
-        "legal_name": profile.borrower_display_name,
+        "legal_name": (
+            profile.borrower_legal_name
+            if profile.borrower_legal_name_public
+            else profile.borrower_display_name
+        ),
         "display_name": profile.borrower_display_name,
     }
     optional = {
@@ -3111,7 +3231,12 @@ def originator_portfolio_schedule_payload(
                     )
                 ),
                 "row_type": "originator_schedule",
-                "label": f"Installment {schedule_row.installment_number}",
+                "label": (
+                    f"Installment {schedule_row.installment_number} - LO boundary"
+                    if _is_par_subscription(profile)
+                    and schedule_row.due_date == profile.entitlement_start_date
+                    else f"Installment {schedule_row.installment_number}"
+                ),
                 "payment_date": None,
                 "accrual_start_date": schedule_row.accrual_start_date,
                 "opening_principal_minor": int(schedule_row.opening_principal_minor),
@@ -3181,7 +3306,21 @@ def get_originator_holding_schedule_payloads(
                 "due_date", "installment_number", "id"
             )
         )
+        automatic_activation = OriginatorSubscriptionActivation.objects.filter(
+            loan_profile=profile, metadata__activation_mode="funding_close"
+        ).exists()
         for row in schedule_rows:
+            if (
+                automatic_activation
+                and profile.entitlement_start_date is not None
+                and row.due_date <= profile.entitlement_start_date
+            ):
+                originator_remaining -= int(row.principal_minor)
+                if originator_remaining < 0:
+                    raise OriginatorClaimsValidationError(
+                        "The LO cannot cover its boundary installment principal."
+                    )
+                continue
             ordered_holdings = [
                 holding for holding in loan_holdings if remaining[str(cast(Any, holding).pk)] > 0
             ]
@@ -4272,6 +4411,28 @@ def _originator_payment_waterfall(
     return allocation
 
 
+def _boundary_components_remaining(profile: OriginatorLoanProfile) -> dict[str, int]:
+    """Unpaid boundary components belong to the LO, not to active investor holdings."""
+    components = {f"{name}_minor": 0 for name in ("principal", "interest", "penalty")}
+    activation = OriginatorSubscriptionActivation.objects.filter(loan_profile=profile).first()
+    if activation is None or activation.metadata.get("activation_mode") != "funding_close":
+        return components
+    boundary = activation.metadata["boundary_installment"]
+    paid = list(
+        OriginatorBorrowerRepayment.objects.filter(loan_profile=profile).values_list(
+            "metadata", flat=True
+        )
+    )
+    return {
+        key: max(
+            0,
+            int(boundary.get(key, 0))
+            - sum(int(item.get("boundary_components", {}).get(key, 0)) for item in paid),
+        )
+        for key in components
+    }
+
+
 def _originator_repayment_plan(
     *,
     holdings: list[Any],
@@ -4286,21 +4447,33 @@ def _originator_repayment_plan(
     distribution_model: str = OriginatorDistributionModel.LEGACY_YIELD_V1,
     investor_interest_participation_bps: int = 10_000,
     investor_penalty_participation_bps: int = 10_000,
+    boundary_principal_remaining_minor: int = 0,
+    boundary_interest_minor: int = 0,
+    boundary_penalty_minor: int = 0,
 ) -> tuple[list[OriginatorRepaymentPlanLine], dict[str, int]]:
     holding_principals = [int(holding.current_principal_minor) for holding in holdings]
-    principal_weights = [*holding_principals, originator_principal_minor]
+    boundary_principal_minor = min(principal_minor, boundary_principal_remaining_minor)
+    participating_originator_principal = (
+        originator_principal_minor - boundary_principal_remaining_minor
+    )
+    if participating_originator_principal < 0:
+        raise OriginatorClaimsValidationError("Boundary principal exceeds LO ownership.")
+    principal_weights = [*holding_principals, participating_originator_principal]
     principal_parts, retained_after_minor = _allocate_principal_with_retention(
         holding_principals=holding_principals,
-        originator_principal_minor=originator_principal_minor,
+        originator_principal_minor=participating_originator_principal,
         skin_in_the_game_bps=skin_in_the_game_bps,
-        principal_minor=principal_minor,
+        principal_minor=principal_minor - boundary_principal_minor,
         currency=currency,
+    )
+    principal_parts[-1] = Money(
+        principal_parts[-1].amount_minor + boundary_principal_minor, currency
     )
     total_principal = sum(principal_weights)
     if distribution_model == OriginatorDistributionModel.PAR_COMPONENT_V2:
         investor_principal = sum(holding_principals)
         investor_interest_pool = _component_pool_minor(
-            component_minor=interest_minor,
+            component_minor=interest_minor - boundary_interest_minor,
             investor_principal_minor=investor_principal,
             total_principal_minor=total_principal,
             participation_bps=_participation_bps(
@@ -4309,7 +4482,7 @@ def _originator_repayment_plan(
             ),
         )
         investor_penalty_pool = _component_pool_minor(
-            component_minor=penalty_minor,
+            component_minor=penalty_minor - boundary_penalty_minor,
             investor_principal_minor=investor_principal,
             total_principal_minor=total_principal,
             participation_bps=_participation_bps(
@@ -4513,6 +4686,15 @@ def record_originator_borrower_repayment(
         raise OriginatorClaimsValidationError(
             "Replacement schedule as-of date cannot precede the repayment value date."
         )
+    if _is_par_subscription(profile):
+        close = OriginatorFundingRoundClose.objects.filter(loan_profile=profile).first()
+        if close is not None:
+            close_date = date.fromisoformat(str(close.metadata["as_of_date"]))
+            if command.value_date < close_date:
+                raise OriginatorClaimsValidationError(
+                    "The payment predates funding close. A funding-period asset change "
+                    "requires a reviewed correction, not a post-close repayment."
+                )
     try:
         parsed = parse_originator_import_csv(
             csv_content=command.csv_content,
@@ -4544,6 +4726,34 @@ def record_originator_borrower_repayment(
         raise OriginatorClaimsValidationError(
             "CSV payment value date must match the declared bank value date."
         )
+    if (
+        _is_par_subscription(profile)
+        and payment.payment_type == OriginatorImportPaymentType.REGULAR
+    ):
+        schedule_fields = (
+            "installment_number",
+            "accrual_start_date",
+            "due_date",
+            "opening_principal_minor",
+            "principal_minor",
+            "interest_minor",
+            "penalty_minor",
+            "fee_minor",
+            "total_minor",
+            "closing_principal_minor",
+        )
+        previous_schedule = {
+            tuple(getattr(row, field) for field in schedule_fields)
+            for row in current_import.schedule_rows.all()
+        }
+        replacement_schedule = {
+            tuple(getattr(row, field) for field in schedule_fields) for row in parsed.schedule_rows
+        }
+        if previous_schedule != replacement_schedule:
+            raise OriginatorClaimsValidationError(
+                "A regular repayment must preserve the agreed loan schedule. "
+                "Use the repayment-in-advance flow for an actual principal prepayment."
+            )
     before_principal = int(profile.current_outstanding_principal_minor)
     waterfall = _originator_payment_waterfall(
         loan_import=current_import,
@@ -4570,6 +4780,10 @@ def record_originator_borrower_repayment(
         loan_import=current_import,
         value_date=command.value_date,
     )
+    boundary_remaining = _boundary_components_remaining(profile)
+    boundary_components = {
+        key: min(int(getattr(payment, key)), amount) for key, amount in boundary_remaining.items()
+    }
     plan, originator_components = _originator_repayment_plan(
         holdings=holdings,
         originator_principal_minor=int(profile.unsold_principal_minor),
@@ -4583,6 +4797,9 @@ def record_originator_borrower_repayment(
         distribution_model=str(profile.distribution_model),
         investor_interest_participation_bps=int(profile.investor_interest_participation_bps),
         investor_penalty_participation_bps=int(profile.investor_penalty_participation_bps),
+        boundary_principal_remaining_minor=boundary_remaining["principal_minor"],
+        boundary_interest_minor=boundary_components["interest_minor"],
+        boundary_penalty_minor=boundary_components["penalty_minor"],
     )
     originator_principal_before = int(profile.unsold_principal_minor)
     originator_principal_after = (
@@ -4683,6 +4900,7 @@ def record_originator_borrower_repayment(
             "accrual_start_date": accrual_start.isoformat(),
             "schedule_revision": revision,
             "originator_components": originator_components,
+            "boundary_components": boundary_components,
             "payment_waterfall_version": PAYMENT_WATERFALL_VERSION,
             "payment_waterfall_order": list(PAYMENT_WATERFALL_ORDER),
             "platform_costs_minor": platform_costs_minor,
@@ -5349,14 +5567,22 @@ def scan_originator_opportunity_lifecycle(
     limit: int = 1000,
 ) -> list[dict[str, str]]:
     _require_admin(actor)
+    if as_of_date > business_date(now_utc()):
+        raise OriginatorClaimsValidationError(
+            "Funding resolution cannot run for a future date. Use the QA clock to advance time."
+        )
     if limit < 1 or limit > 5000:
         raise OriginatorClaimsValidationError("Lifecycle scan limit must be between 1 and 5000.")
-    profile_rows = list(
+    profile_rows = (
         OriginatorLoanProfile.objects.filter(
             Q(opportunity_status=OriginatorOpportunityStatus.OPEN)
-            | Q(loan__status__in=["active", "late"])
+            | Q(
+                opportunity_status=OriginatorOpportunityStatus.AWAITING_ACTIVATION,
+                loan__status="funded",
+            )
+            | Q(loan__status__in=["active", "late", "funding_close_failed"])
         )
-        .order_by("maturity_date", "id")
+        .order_by("id")
         .values(
             "id",
             "loan_id",
@@ -5366,19 +5592,45 @@ def scan_originator_opportunity_lifecycle(
             "loan__status",
             "loan__committed_principal_minor",
             "is_on_hold",
-        )[:limit]
+            "entitlement_start_date",
+        )
+        .iterator(chunk_size=limit)
     )
     closed: list[dict[str, str]] = []
     for row in profile_rows:
         is_subscription = row["distribution_model"] == OriginatorDistributionModel.PAR_COMPONENT_V2
+        is_awaiting_activation = (
+            is_subscription
+            and row["opportunity_status"] == OriginatorOpportunityStatus.AWAITING_ACTIVATION
+            and row["loan__status"] == "funded"
+        )
+        if is_awaiting_activation:
+            failure_reason = "Explicit operational hold requires admin review."
+            if not row["is_on_hold"]:
+                try:
+                    upgrade_closed_originator_subscription(actor=actor, loan_id=str(row["loan_id"]))
+                    closed.append(
+                        {"loan_id": str(row["loan_id"]), "reason": "legacy_subscription_upgraded"}
+                    )
+                    continue
+                except Exception as exc:
+                    failure_reason = str(exc).strip() or exc.__class__.__name__
+            escalation = _escalate_legacy_subscription_upgrade(
+                actor=actor,
+                profile_id=str(row["id"]),
+                as_of_date=as_of_date,
+                failure_reason=failure_reason,
+            )
+            if escalation is not None:
+                closed.append(escalation)
+            continue
         deadline = row["funding_deadline"]
         is_expired_open_round = (
             is_subscription
             and row["opportunity_status"] == OriginatorOpportunityStatus.OPEN
-            and row["loan__status"] == "published"
+            and row["loan__status"] in {"published", "funding_close_failed"}
             and deadline is not None
-            and as_of_date > deadline
-            and not bool(row["is_on_hold"])
+            and (as_of_date > deadline or row["loan__status"] == "funding_close_failed")
         )
         if is_expired_open_round:
             loan_id = str(row["loan_id"])

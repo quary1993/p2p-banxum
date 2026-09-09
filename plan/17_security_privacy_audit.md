@@ -2,6 +2,8 @@
 
 Status: Draft. Updated with document acceptance, balance, FX, reporting/export, communication-retention, authentication, retention, privacy, production-access, reversible pseudonymization, and Swiss KYC/KYB/AML evidence storage decisions on 2026-05-30.
 
+Implementation status (2026-09-07): closure-time reversible pseudonymization and offline-key recovery, protected provider-payload/evidence retention, and final private-storage/malware-scanning hardening remain outstanding launch controls. The descriptions below specify the target behavior; they are not claims that those controls are implemented. Company KYB is completed and retained by Garanta offline, so platform company files/references are optional. Natural-person lender KYC and its required evidence safeguards remain in scope.
+
 ## Purpose
 
 Define platform-wide security, privacy, data protection, and auditability requirements for a regulated lending platform handling identity, financial, and contractual data.

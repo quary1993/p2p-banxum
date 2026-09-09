@@ -405,14 +405,13 @@ def test_balances_are_self_scoped_and_bucketed(
     chf = next(item for item in payload["summaries"] if item["currency"] == "CHF")
 
     assert chf["total_available_minor"] == 10_000_00
-    assert chf["investable_minor"] == 1_000_00
-    assert chf["withdraw_only_minor"] == 2_000_00
+    assert chf["investable_minor"] == 3_000_00
+    assert chf["withdraw_only_minor"] == 0
     assert chf["overdue_minor"] == 3_000_00
     assert chf["penalty_mode_minor"] == 4_000_00
     assert payload["has_penalty_mode_balance"] is True
     assert {lot["bucket"] for lot in payload["lots"]} == {
         "investable",
-        "withdraw_only",
         "overdue",
         "penalty_mode",
     }

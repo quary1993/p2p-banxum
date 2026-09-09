@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from importlib import import_module
 from typing import Any, cast
 
+from django.apps import apps
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, models, transaction
@@ -19,6 +20,7 @@ from backend.apps.platform_core.models.scheduled_jobs import (
 )
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import DomainEventCommand, record_domain_event
+from backend.apps.platform_core.services.qa_guard import qa_environment_guard
 
 EMAIL_OUTBOX_DISPATCH_JOB = "email_outbox_dispatch"
 BALANCE_AGEING_SCAN_JOB = "balance_ageing_scan"
@@ -30,12 +32,12 @@ ORIGINATOR_OPPORTUNITY_LIFECYCLE_SCAN_JOB = "originator_opportunity_lifecycle_sc
 
 DEFAULT_SCHEDULED_JOB_NAMES = (
     EMAIL_OUTBOX_DISPATCH_JOB,
+    PRIMARY_FUNDING_EXPIRY_SCAN_JOB,
+    ORIGINATOR_OPPORTUNITY_LIFECYCLE_SCAN_JOB,
     BALANCE_AGEING_SCAN_JOB,
     LOAN_SERVICING_STATUS_SCAN_JOB,
-    PRIMARY_FUNDING_EXPIRY_SCAN_JOB,
     RECONCILIATION_BREAK_TASK_SYNC_JOB,
     ORIGINATOR_SETTLEMENT_TASK_SYNC_JOB,
-    ORIGINATOR_OPPORTUNITY_LIFECYCLE_SCAN_JOB,
 )
 ALL_SCHEDULED_JOB_NAMES = frozenset(DEFAULT_SCHEDULED_JOB_NAMES)
 ADMIN_ACTOR_JOB_NAMES = frozenset(DEFAULT_SCHEDULED_JOB_NAMES) - {EMAIL_OUTBOX_DISPATCH_JOB}
@@ -173,6 +175,19 @@ def _is_stale_running_run(job_run: ScheduledJobRun, *, now: datetime) -> bool:
     return job_run.started_at <= now - _running_timeout()
 
 
+def _has_unresolved_funding(job_name: str) -> bool:
+    product_type = {
+        PRIMARY_FUNDING_EXPIRY_SCAN_JOB: "direct",
+        ORIGINATOR_OPPORTUNITY_LIFECYCLE_SCAN_JOB: "originator_claim",
+    }.get(job_name)
+    if product_type is None:
+        return False
+    loan_model = apps.get_model("loans", "Loan")
+    return bool(loan_model.objects.filter(
+        product_type=product_type, status="funding_close_failed"
+    ).exists())
+
+
 def _claim_job_run(
     *,
     job_name: str,
@@ -188,7 +203,12 @@ def _claim_job_run(
             if existing is not None:
                 stale_running = _is_stale_running_run(existing, now=started_at)
                 was_failed = existing.status == ScheduledJobRunStatus.FAILED
-                if was_failed or stale_running:
+                # A subscription may fail after today's lifecycle scan succeeded.
+                pending_funding = (
+                    existing.status == ScheduledJobRunStatus.SUCCEEDED
+                    and _has_unresolved_funding(job_name)
+                )
+                if was_failed or stale_running or pending_funding:
                     previous_started_at = existing.started_at
                     previous_summary = dict(existing.summary or {})
                     existing.status = ScheduledJobRunStatus.RUNNING
@@ -199,6 +219,7 @@ def _claim_job_run(
                     existing.error = ""
                     existing.summary = {
                         "retry_of_failed_run": was_failed,
+                        "retry_for_pending_funding": pending_funding,
                         "reclaimed_stale_running_run": stale_running,
                         "previous_started_at": previous_started_at.isoformat(),
                         "previous_summary": previous_summary,
@@ -280,7 +301,9 @@ def _record_scheduled_job_evidence(
             aggregate_type="ScheduledJobRun",
             aggregate_id=str(job_run.id),
             payload=metadata,
-            idempotency_key=f"scheduled-job-run:{job_run.id}:{job_run.status}",
+            idempotency_key=(
+                f"scheduled-job-run:{job_run.id}:{job_run.attempt_count}:{job_run.status}"
+            ),
         )
     )
 
@@ -424,15 +447,29 @@ def _originator_opportunity_lifecycle_summary(
 ) -> dict[str, Any]:
     services: Any = import_module("backend.apps.originator_claims.services")
     as_of_date = business_date(as_of)
-    closed = services.scan_originator_opportunity_lifecycle(
+    actions = services.scan_originator_opportunity_lifecycle(
         actor=actor,
         as_of_date=as_of_date,
         limit=5000,
     )
+    activation_overdue = [
+        action for action in actions if action.get("reason") == "activation_overdue"
+    ]
+    failures = [
+        action for action in actions
+        if action.get("reason") in {"funding_close_failed", "legacy_upgrade_failed"}
+    ]
+    closed = [action for action in actions if action not in activation_overdue + failures]
     return {
         "as_of_date": as_of_date.isoformat(),
+        "action_count": len(actions),
+        "actions": actions,
+        "failed_count": len(failures),
+        "failures": failures,
         "closed_count": len(closed),
         "closed": closed,
+        "activation_overdue_count": len(activation_overdue),
+        "activation_overdue": activation_overdue,
     }
 
 
@@ -463,6 +500,11 @@ def _execute_scheduled_job(
 
 
 def run_scheduled_jobs(command: RunScheduledJobsCommand | None = None) -> ScheduledJobsResult:
+    with qa_environment_guard():
+        return _run_scheduled_jobs(command or RunScheduledJobsCommand())
+
+
+def _run_scheduled_jobs(command: RunScheduledJobsCommand) -> ScheduledJobsResult:
     command = command or RunScheduledJobsCommand()
     as_of = command.as_of or now_utc()
     to_business_time(as_of)
@@ -473,6 +515,8 @@ def run_scheduled_jobs(command: RunScheduledJobsCommand | None = None) -> Schedu
     results: list[ScheduledJobExecutionResult] = []
     for job_name in job_names:
         run_key = _scheduled_job_run_key(job_name, as_of=as_of, force=command.force)
+        if command.dry_run:
+            run_key += ":dry-run"
         job_run, should_run = _claim_job_run(
             job_name=job_name,
             run_key=run_key,
@@ -493,6 +537,7 @@ def run_scheduled_jobs(command: RunScheduledJobsCommand | None = None) -> Schedu
                 )
             )
             continue
+        summary: dict[str, Any] = {}
         try:
             summary = _execute_scheduled_job(
                 job_name=job_name,
@@ -500,6 +545,13 @@ def run_scheduled_jobs(command: RunScheduledJobsCommand | None = None) -> Schedu
                 actor=actor,
                 as_of=as_of,
             )
+            if job_name in {
+                PRIMARY_FUNDING_EXPIRY_SCAN_JOB, ORIGINATOR_OPPORTUNITY_LIFECYCLE_SCAN_JOB
+            } and summary.get("failed_count", 0):
+                raise ScheduledJobError(
+                    "Funding resolution has unresolved failures; reservations are preserved "
+                    "and the deterministic resolution will retry on the next scheduled run."
+                )
             _complete_job_run(
                 job_run=job_run,
                 status=ScheduledJobRunStatus.SUCCEEDED,
@@ -520,7 +572,7 @@ def run_scheduled_jobs(command: RunScheduledJobsCommand | None = None) -> Schedu
             _complete_job_run(
                 job_run=job_run,
                 status=ScheduledJobRunStatus.FAILED,
-                summary={},
+                summary=summary,
                 error=error,
             )
             _record_scheduled_job_evidence(job_run=job_run, actor=actor)
@@ -530,7 +582,7 @@ def run_scheduled_jobs(command: RunScheduledJobsCommand | None = None) -> Schedu
                     run_key=run_key,
                     status=ScheduledJobRunStatus.FAILED,
                     run_id=str(job_run.id),
-                    summary={},
+                    summary=summary,
                     error=error,
                 )
             )

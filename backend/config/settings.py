@@ -63,6 +63,7 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "backend.apps.platform_core.middleware.SoftwareIpNoticeMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
+    "backend.apps.platform_core.middleware.QaEnvironmentGuardMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -227,6 +228,8 @@ COMMUNICATIONS_IMMEDIATE_AUTH_EMAILS = env.bool(
     default=True,
 )
 SCHEDULED_JOBS_ACTOR_EMAIL = env("SCHEDULED_JOBS_ACTOR_EMAIL", default="")
+SCHEDULED_JOBS_EMAIL_MAX_AGE_MINUTES = env.int("SCHEDULED_JOBS_EMAIL_MAX_AGE_MINUTES", default=5)
+SCHEDULED_JOBS_DAILY_MAX_AGE_MINUTES = env.int("SCHEDULED_JOBS_DAILY_MAX_AGE_MINUTES", default=1800)
 SCHEDULED_JOBS_RUNNING_TIMEOUT_MINUTES = env.int(
     "SCHEDULED_JOBS_RUNNING_TIMEOUT_MINUTES",
     default=120,

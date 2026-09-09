@@ -26,7 +26,7 @@
     },
     {
       "term": "KYB (Know Your Business)",
-      "definition": "The same idea as KYC but for a company (a borrower). It checks the business is real, who owns it, who runs it, and whether it is safe to deal with. A borrower can only transact when KYB is approved and there is no compliance hold."
+      "definition": "Company identity, ownership and AML checks, completed and retained offline by Garanta. Platform company files are optional. Explicit borrower holds and Declined/Manual review decisions block transactions; missing or expired optional records do not."
     },
     {
       "term": "AML (Anti-Money-Laundering)",
@@ -166,7 +166,7 @@
     },
     {
       "term": "Ageing",
-      "definition": "Tracking how long each balance lot of uninvested money has been sitting. Swiss rules limit how long the platform may hold idle investor cash, so lots approaching the 30-day and 60-day windows surface for action, and day-60 lots get a forced withdrawal back to the investor."
+      "definition": "Tracking how long each balance lot of uninvested money has been sitting. The platform enforces its 60-day holding limit: approaching-deadline lots surface for action, and day-60 lots enter the return process. Investment eligibility depends on the loan's remaining funding window."
     },
     {
       "term": "Disbursement",
@@ -254,7 +254,7 @@
     },
     {
       "term": "Originator claim",
-      "definition": "Participation in an existing final-borrower loan offered through a finite funding round. Cash reserves at par during funding. A holding and post-boundary component rights arise only after BANXUM verifies the declared boundary installment and activates the subscription."
+      "definition": "Participation in an existing loan offered by a Loan Originator through a finite funding round. Cash reserves at par during funding. Funding close creates an active holding automatically; the boundary installment remains wholly payable to the LO and investor component rights start after it."
     },
     {
       "term": "Coupon versus participating yield",
@@ -262,7 +262,7 @@
     },
     {
       "term": "Dated entitlement",
-      "definition": "The immutable post-boundary start and principal/component rights that determine which principal, interest and penalty amounts belong to an investor. Funding and the boundary installment belong economically to the originator; investor rights begin only after activation."
+      "definition": "The immutable post-boundary principal and component rights recorded when the investment activates at funding close. No investor interest accrues during funding; the boundary installment belongs entirely to the LO."
     },
     {
       "term": "Originator payable",
@@ -276,7 +276,7 @@
     },
     {
       "name": "Account: Active",
-      "meaning": "The account is in normal standing. A lender still needs the other financial-access gates, such as phone verification and any required KYC/KYB state, before using money features."
+      "meaning": "The account is in normal standing. Money features also require a verified phone and, for natural-person lenders, approved KYC. Company KYB is handled offline."
     },
     {
       "name": "Account: Restricted",
@@ -348,15 +348,15 @@
     },
     {
       "name": "KYB (borrower): Not started",
-      "meaning": "Business verification has not begun."
+      "meaning": "Optional platform record has not been started. Garanta must already have completed company checks offline; this value alone does not block transactions."
     },
     {
       "name": "KYB (borrower): Pending",
-      "meaning": "Business verification is in progress. Default state for a new borrower."
+      "meaning": "Optional platform record is pending. This alone is not a transaction block; company review is handled offline."
     },
     {
       "name": "KYB (borrower): Approved",
-      "meaning": "The business passed checks. Combined with no compliance hold, it can transact."
+      "meaning": "Optional record of completed company checks. Explicit compliance holds still block transactions."
     },
     {
       "name": "KYB (borrower): Declined",
@@ -364,15 +364,15 @@
     },
     {
       "name": "KYB (borrower): Manual review",
-      "meaning": "Business verification needs a human decision by Garanta staff."
+      "meaning": "An explicit unresolved company review decision. Blocks borrower transactions until reviewed and resolved by Garanta."
     },
     {
       "name": "KYB (borrower): Expired",
-      "meaning": "A previously valid business verification has aged out."
+      "meaning": "Optional platform record has expired. This alone does not block transactions; Garanta manages company review offline."
     },
     {
       "name": "KYB (borrower): Re-verification required",
-      "meaning": "The business must redo verification before continuing."
+      "meaning": "Optional company review reminder. Garanta handles it offline; this value alone is not a transaction block. Use an explicit hold for a restriction."
     },
     {
       "name": "Loan: Draft",
@@ -384,15 +384,15 @@
     },
     {
       "name": "Loan: Funded",
-      "meaning": "Funding has closed. For a direct loan, accepted principal sits in borrower-disbursement payable until payout. For a current Loan Originator subscription, allocated balance stays in funding escrow and the originator profile is Awaiting activation until the exact boundary payment is verified."
+      "meaning": "Direct-loan funding has closed and principal is payable to the borrower pending disbursement. Current LO v2 investments become Active automatically when funding closes, without waiting for a borrower payment."
     },
     {
-      "name": "Originator subscription: Awaiting activation",
-      "meaning": "The finite funding round closed with positive subscriptions, but investor holdings do not exist yet. Funds remain reserved. Verify the declared boundary installment and resulting principal exactly, then activate; otherwise cancel and refund."
+      "name": "Legacy subscription: upgrade exception",
+      "meaning": "Historical closed reservations are upgraded automatically from their original schedule. New subscriptions never enter this stage. A held or inconsistent historical record retains funds and raises a repair task/email; resolve the cause and rerun the lifecycle scan, or cancel/refund."
     },
     {
       "name": "Loan: Funding close failed",
-      "meaning": "The deterministic close could not finish. The opportunity is hidden and investor funds remain reserved. Work the urgent task and operations alert, then retry close or use the product-specific cancellation/refund path."
+      "meaning": "The deterministic close could not finish. The opportunity is hidden and investor funds remain reserved. Repair the cause identified by the urgent task and operations alert. Automatic retries keep the published outcome; admins cannot cancel a qualified failed round instead."
     },
     {
       "name": "Loan: Late",
@@ -432,7 +432,7 @@
     },
     {
       "name": "Balance lot: Available",
-      "meaning": "Money remains in the lot, but what it can be used for depends on the ageing bucket. Before day 30 it can be pledged into loans; after day 30 it is withdraw-only for new loan funding; before day 60 it may still be eligible for FX; at/after day 60 it must be returned or moved to penalty handling."
+      "meaning": "Money remains in the lot, but what it can be used for depends on the ageing bucket. Before day 60 it may fund loans whose remaining subscription window fits within its remaining holding time; eligible FX preserves that deadline; at/after day 60 it must be returned or moved to penalty handling."
     },
     {
       "name": "Balance lot: Consumed",
@@ -534,7 +534,7 @@
     },
     {
       "name": "Balance ageing (Ageing)",
-      "meaning": "Balance lots that are near or past the 30-day and 60-day limits for holding idle investor cash. They need action so the platform stays within the rules."
+      "meaning": "Balance lots that are near or past the 60-day holding limit for holding idle investor cash. They need action so the platform stays within the rules."
     },
     {
       "name": "Funding loans (Funding)",

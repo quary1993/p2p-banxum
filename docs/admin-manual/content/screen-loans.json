@@ -6,12 +6,12 @@
     "A quick mental model of the product. Individual investors (called lenders) put money into their BANXUM account. The platform then funds loans to vetted business borrowers. Borrowers repay over time with interest. Lenders earn that interest and can later withdraw.",
     "Borrowers are companies, not people with logins. There is no borrower portal. An admin types in every borrower's details by hand. The borrower never sees this screen.",
     "Two jargon terms you will see everywhere. The primary market is where a brand-new loan is first funded by investors. The secondary market is where an investor who already owns a slice of a loan sells that slice to another investor. This screen handles admin tasks for both.",
-    "This page is laid out top to bottom as: key metrics, Loan Originators, Borrowers, Loans, Secondary-market approvals, and Servicing operations. Direct-loan actions live in Manage. Current originator-claim Manage actions are deliberately different: publish, resolve/close the subscription, verify activation, cancel/refund, place/release a hold, or record a post-activation repayment through a replacement CSV revision."
+    "This page contains key metrics, Loan Originators, Borrowers, Loans, Secondary-market approvals and Servicing operations. Direct-loan actions live in Manage. LO Manage provides publish, close/retry, cancel/refund, hold and replacement-import repayment actions. Holdings activate automatically at funding close; no manual activation action exists."
   ],
   "whatYouDoHere": [
-    "Add and edit borrower companies, and watch their KYB status (the company-level identity and compliance check).",
+    "Add and edit borrower companies. Company KYB is offline; use optional status records and explicit compliance holds for operational visibility.",
     "Create direct BANXUM loan drafts and review status, amount, yield, LTV and funding deadline. New refinancing-loan creation is disabled; legacy refinancing records remain serviceable.",
-    "Create and maintain Loan Originators after off-platform KYB/AML, then import existing performing claims with anonymized borrower disclosure, a finite funding deadline, activation-boundary payment terms, separate interest/penalty participation, minimum investment and a fully reconciled schedule/payment CSV. Optionally declare skin in the game: 0 bps disables the rule; a positive value is the minimum current principal the originator must retain. The retained slice caps subscription capacity.",
+    "Create and maintain Loan Originators after offline KYB, without requiring platform compliance documents. Import claims with selected public borrower disclosure, a finite funding deadline, an LO-owned boundary installment, separate interest/penalty participation, minimum investment and a reconciled CSV. Optional skin in the game is a retained-principal floor; it caps subscription capacity.",
     "Set each direct loan's minimum subscription (default 50% of the financeable principal) while it is a draft. Publication discloses and permanently freezes the threshold. When the funding deadline passes with the minimum met, the loan is closed and made at the amount subscribed; below the minimum the campaign is cancelled and every reservation is refunded.",
     "Open Manage on a loan row to publish it to the marketplace, resolve its passed funding deadline from the stored minimum, cancel it when required, release a stuck investor order, disburse a funded loan to the borrower, or record borrower repayments. Published loans cannot be put into effect through a discretionary manual close.",
     "Approve, reject or remove non-standard secondary-market listings (investor-to-investor resales).",
@@ -25,7 +25,7 @@
       "kpiTiles": [
         {
           "label": "Borrowers",
-          "text": "The total number of borrower companies currently loaded. The small text underneath shows how many of them 'can transact', meaning their KYB is approved and they have no compliance hold. Only those borrowers can have a loan published. Watch this to know how many companies are cleared to lend to versus still pending."
+          "text": "Number of borrower companies loaded. Can transact counts companies without an explicit compliance hold or Declined/Manual review decision. Company KYB is completed offline; optional missing or expired platform records do not block transactions."
         },
         {
           "label": "Loans",
@@ -63,7 +63,7 @@
         {
           "item": 2,
           "label": "Create Loan Originator",
-          "text": "Opens the originator form. Complete the legal identity, settlement and off-platform KYB/AML evidence before importing a claim loan owned by this originator."
+          "text": "Opens the originator form. Enter operational identity and settlement details after Garanta completes company KYB offline. Platform evidence references are optional."
         }
       ],
       "notes": [
@@ -74,7 +74,7 @@
     {
       "id": "loans-7-borrowers",
       "caption": "The Borrowers table: every borrower company and its compliance gate.",
-      "summary": "Borrowers are companies that admins enter by hand. KYB stands for Know Your Business: the company-level identity, ownership and compliance check (the business equivalent of KYC for a person). A loan to a borrower can only go live if that borrower's KYB is Approved and the borrower has no compliance hold.",
+      "summary": "Borrower companies are entered by admins after offline company KYB/AML. No platform compliance file is required. Explicit holds and Declined/Manual review decisions still block transactions.",
       "annotations": [
         {
           "item": 1,
@@ -89,7 +89,7 @@
         {
           "item": 3,
           "label": "KYB column",
-          "text": "The company's KYB status, shown as a coloured chip. There are seven possible values: Not started, Pending, Approved, Declined, Manual review, Expired, and Re-verification required. Only 'Approved' (combined with no compliance hold) lets a loan for this borrower be published. Any other value blocks publishing."
+          "text": "Optional company review status: Not started, Pending, Approved, Declined, Manual review, Expired or Re-verification required. Declined and Manual review block transactions; a compliance hold always blocks. Other values alone do not block, because company KYB is handled offline."
         },
         {
           "item": 4,
@@ -119,22 +119,22 @@
         {
           "item": 9,
           "label": "Create borrower button",
-          "text": "Opens a form to enter a new borrower company by hand: legal name, year founded, type, business classification, addresses and contact info (each with a 'public' checkbox that controls whether investors may see it), plus internal-only ownership, bank-account, KYB/AML-observation and financial-risk notes. New borrowers usually start with a Pending KYB status, so you cannot publish a loan for them until KYB is later moved to Approved."
+          "text": "Enter legal name, year founded, entity type, classification, addresses and contact information. Selected-public fields have per-borrower disclosure controls. Ownership, bank accounts, KYB/AML observations and financial risk remain internal. Optional Pending KYB is not a publication block."
         },
         {
           "item": 10,
           "label": "Edit button (row action)",
-          "text": "Opens the borrower edit form for that company. This is where KYB status and the compliance hold flag are changed. Moving KYB to Approved and clearing any compliance hold is what unlocks loan publishing for that borrower."
+          "text": "Edit operational borrower data, optional company review status and explicit compliance hold. Resolve adverse decisions only after review, with the required audit note or evidence summary."
         },
         {
           "item": 13,
           "label": "Approved chip",
-          "text": "Example of an 'Approved' KYB chip. A borrower in this state, with no compliance hold, is cleared to have its loans published and to receive borrower repayments."
+          "text": "An optional record of completed company review. Explicit compliance holds still block publishing, disbursement and servicing."
         },
         {
           "item": 15,
           "label": "Manual Review chip",
-          "text": "Example of a 'Manual review' KYB chip. The company is parked for a human compliance decision. Loans for this borrower cannot be published until KYB reaches Approved."
+          "text": "An explicit unresolved review decision. Borrower transactions are blocked until Garanta resolves it."
         },
         {
           "item": 12,
@@ -148,7 +148,7 @@
         }
       ],
       "notes": [
-        "A borrower is allowed to transact only when KYB equals Approved AND the compliance-hold flag is off. A compliance hold can block an otherwise-approved company.",
+        "Garanta completes company KYB offline. Explicit compliance holds and Declined/Manual review decisions block transactions; optional record absence or expiry does not.",
         "There is no borrower login anywhere in BANXUM. Every field you see here was typed in by an admin.",
         "The search box (top of the card) lets you find a borrower by legal name, registration number, country or UUID."
       ]
@@ -156,7 +156,7 @@
     {
       "id": "loans-8-loans",
       "caption": "The unified Loans table: direct loans and Loan Originator claim loans in one operational view.",
-      "summary": "Each row is one investor opportunity. Direct loans use their borrower funding/disbursement lifecycle. Current originator claims use an immutable imported schedule, anonymized borrower disclosure, a finite at-par subscription round, exact boundary-payment activation, separate component participation and an optional retention floor.",
+      "summary": "Each row is one opportunity. Direct loans use borrower funding/disbursement. Current LO claims use an immutable imported schedule, selected public borrower disclosure and a finite at-par subscription. Funding close automatically creates holdings; the boundary installment belongs wholly to the LO. Subsequent principal follows ownership and interest/penalty use declared participation.",
       "annotations": [
         {
           "item": 1,
@@ -240,9 +240,9 @@
         }
       ],
       "notes": [
-        "Publishing a direct loan checks required fields, schedule conservation, funding deadline and borrower KYB/no-hold status. Publishing a current originator claim checks the immutable import, originator status/hold, sellable principal, funding deadline, boundary row and expected activation principal.",
-        "Current originator orders reserve investor money in escrow. Full subscription closes automatically; deadline resolution closes any positive round or cancels an empty one. Close does not create holdings. Exact boundary-payment activation creates holdings and originator payable; any mismatch requires cancellation and exact-lot refund.",
-        "If originator close processing fails, funds remain reserved, the opportunity is hidden, and an urgent task plus operations email require retry or cancellation. Routine KYB expiry does not block close/activation, but an explicit adverse status or hold does.",
+        "Publishing checks required fields, schedule conservation and a deadline within 50 inclusive subscription dates. Company KYB is offline; explicit borrower holds/adverse reviews and originator inactive/hold states still block. LO checks also cover sellable principal, the original boundary row and declared post-boundary principal.",
+        "Current LO orders reserve money in escrow. Full subscription auto-closes; deadline resolution closes any positive round or cancels an empty one. Successful close creates active holdings, fixed post-boundary entitlements and LO payable atomically. A failure preserves reservations, hides the offer and alerts operations. Record the boundary receipt separately as wholly LO-payable.",
+        "If originator close processing fails, funds remain reserved, the opportunity is hidden, and an urgent task plus operations email require repair. The system retries automatically; admins cannot cancel a subscribed expired or failed round instead. Routine KYB expiry does not block close, but an explicit adverse status or hold does. Future resolution dates are rejected; staging time travel uses the QA clock.",
         "The universal payment waterfall applies to every product and status: Garanta legal costs and recovery fee, penalty, interest, then principal. Principal is never paid ahead of a due earlier tier.",
         "For an originator claim, imported payment-category columns are reconciliation evidence only. The server recomputes the applied split and rejects a CSV that relabels interest or penalty as principal.",
         "Status is enforced. Invalid product/status operations are rejected even if a client tries to call the endpoint directly."
@@ -287,7 +287,7 @@
       "notes": [
         "The menu is status-aware: a draft loan offers Publish; a published or funding-close-failed loan offers Cancel/Resolve deadline/Release; a funded loan offers Borrower disbursement; an active or late loan offers Record borrower repayment; a Defaulted loan offers Record a recovery payment. The Servicing operations panel below keeps only the status scan and public risk notes.",
         "Dangerous actions carry a 'Confirmation required' tag: after filling the form you still get a summary dialog restating loan, reason and message before the backend is called. Repayments in advance additionally show a preview of the allocation and the old and new schedules.",
-        "Publishing is subject to backend gates: borrower KYB approved, no compliance hold, complete loan data, a valid funding deadline, schedule principal equal to the financeable principal, and for refinancing loans a financeable principal not above the remaining outstanding of the original schedule."
+        "Publishing is subject to backend gates: no explicit borrower hold or Declined/Manual review decision; company KYB is offline, complete loan data, a valid funding deadline, schedule principal equal to the financeable principal, and for refinancing loans a financeable principal not above the remaining outstanding of the original schedule."
       ]
     },
     {

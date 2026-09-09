@@ -1,17 +1,22 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from pathlib import Path
 from typing import Any
 
 from django.conf import settings
+from django.core import serializers
 from django.core.cache import cache
 from django.core.management import call_command
-from django.db import models, transaction
+from django.db import connection, models, transaction
+from django.db.migrations.recorder import MigrationRecorder
 from django.utils import timezone
 
 from backend.apps.platform_core.domain.access import actor_ref_for_user, is_superadmin_actor
@@ -24,6 +29,7 @@ from backend.apps.platform_core.models.qa import QaDevModeState
 from backend.apps.platform_core.models.scheduled_jobs import ScheduledJobRunStatus
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import DomainEventCommand, record_domain_event
+from backend.apps.platform_core.services.qa_guard import QaEnvironmentBusy, qa_environment_guard
 from backend.apps.platform_core.services.scheduled_jobs import (
     DAILY_JOB_NAMES,
     DEFAULT_SCHEDULED_JOB_NAMES,
@@ -89,9 +95,7 @@ def _assert_qa_allowed() -> None:
     if bool(getattr(settings, "IS_PRODUCTION", False)):
         raise QaDevModeValidationError("QA development mode is never allowed in production.")
     if not bool(getattr(settings, "QA_DEV_MODE_ALLOWED", False)):
-        raise QaDevModeValidationError(
-            "QA development mode is disabled by deployment config."
-        )
+        raise QaDevModeValidationError("QA development mode is disabled by deployment config.")
 
 
 def _require_superadmin_actor(actor: models.Model) -> None:
@@ -106,8 +110,38 @@ def _snapshot_dir() -> Path:
 
 
 def _snapshot_filename(*, created_at: datetime) -> str:
-    stamp = created_at.astimezone(business_timezone()).strftime("%Y%m%dT%H%M%S%z")
+    stamp = created_at.astimezone(business_timezone()).strftime("%Y%m%dT%H%M%S%f%z")
     return f"qa-dev-mode-entry-{stamp}.json"
+
+
+def _schema_signature() -> list[str]:
+    return sorted(
+        f"{app}.{name}" for app, name in MigrationRecorder(connection).applied_migrations()
+    )
+
+
+def _lock_database_tables() -> None:
+    if connection.vendor == "postgresql":
+        names = sorted(connection.introspection.table_names())
+        with connection.cursor() as cursor:
+            cursor.execute("SET LOCAL lock_timeout = '5s'")
+            cursor.execute(
+                "LOCK TABLE "
+                + ", ".join(connection.ops.quote_name(name) for name in names)
+                + " IN ACCESS EXCLUSIVE MODE"
+            )
+
+
+@contextmanager
+def _exclusive_qa_operation() -> Iterator[None]:
+    try:
+        with qa_environment_guard(exclusive=True):
+            yield
+    except QaEnvironmentBusy as exc:
+        raise QaDevModeValidationError(str(exc)) from exc
+    except Exception:
+        _clear_cached_time()
+        raise
 
 
 def _create_database_snapshot(*, created_at: datetime) -> str:
@@ -129,6 +163,14 @@ def _create_database_snapshot(*, created_at: datetime) -> str:
             verbosity=0,
         )
         tmp_path.replace(target)
+        manifest = {
+            "sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
+            "migrations": _schema_signature(),
+        }
+        manifest_path = target.with_suffix(".manifest.json")
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        target.chmod(0o600)
+        manifest_path.chmod(0o600)
     except Exception:
         tmp_path.unlink(missing_ok=True)
         raise
@@ -136,11 +178,46 @@ def _create_database_snapshot(*, created_at: datetime) -> str:
 
 
 def _restore_database_snapshot(snapshot_path: str) -> None:
+    _assert_qa_allowed()
     path = Path(snapshot_path)
     if not path.exists():
         raise QaDevModeValidationError("QA snapshot file is missing; database was not changed.")
-    call_command("flush", interactive=False, verbosity=0)
-    call_command("loaddata", str(path), verbosity=0)
+    try:
+        content = path.read_bytes()
+        manifest = json.loads(path.with_suffix(".manifest.json").read_text(encoding="utf-8"))
+        if manifest.get("sha256") != hashlib.sha256(content).hexdigest():
+            raise ValueError("Snapshot checksum mismatch.")
+        if manifest.get("migrations") != _schema_signature():
+            raise ValueError("Database schema changed since the snapshot was created.")
+        # Check model/field names and fixture structure before touching live rows.
+        list(serializers.deserialize("json", content.decode("utf-8")))
+    except Exception as exc:
+        raise QaDevModeValidationError(
+            "QA snapshot validation failed; database was not changed. " + str(exc)
+        ) from exc
+    with connection.constraint_checks_disabled(), transaction.atomic():
+        _lock_database_tables()
+        triggers: list[tuple[str, str]] = []
+        if connection.vendor == "sqlite":
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT name, sql FROM sqlite_master WHERE type = 'trigger' "
+                    "AND name LIKE '%append_only%'"
+                )
+                triggers = cursor.fetchall()
+                for name, _sql in triggers:
+                    cursor.execute(f"DROP TRIGGER {connection.ops.quote_name(name)}")
+        call_command("flush", interactive=False, verbosity=0)
+        # Load the exact validated bytes, not a path that could change after preflight.
+        with tempfile.NamedTemporaryFile(suffix=".json") as validated:
+            validated.write(content)
+            validated.flush()
+            call_command("loaddata", validated.name, verbosity=0)
+        with connection.cursor() as cursor:
+            for _name, sql in triggers:
+                cursor.execute(sql)
+        connection.check_constraints()
+    _clear_cached_time()
 
 
 def _state_for_update() -> QaDevModeState:
@@ -153,9 +230,7 @@ def _state_for_update() -> QaDevModeState:
 def get_qa_dev_mode_state() -> QaDevModeState:
     if not _qa_enabled_by_settings():
         _clear_cached_time()
-    state, _created = QaDevModeState.objects.get_or_create(
-        singleton_id=QA_DEV_MODE_SINGLETON_ID
-    )
+    state, _created = QaDevModeState.objects.get_or_create(singleton_id=QA_DEV_MODE_SINGLETON_ID)
     return state
 
 
@@ -229,8 +304,16 @@ def serialize_qa_dev_mode_state(state: QaDevModeState) -> dict[str, Any]:
 def enable_qa_dev_mode(command: EnableQaDevModeCommand) -> QaDevModeState:
     _assert_qa_allowed()
     _require_superadmin_actor(command.actor)
+    with _exclusive_qa_operation():
+        return _enable_qa_dev_mode(command)
+
+
+def _enable_qa_dev_mode(command: EnableQaDevModeCommand) -> QaDevModeState:
+    _assert_qa_allowed()
+    _require_superadmin_actor(command.actor)
     real_now = timezone.now()
     with transaction.atomic():
+        _lock_database_tables()
         state = _state_for_update()
         if state.is_enabled:
             _cache_current_time(state.current_time)
@@ -293,6 +376,13 @@ def _scheduled_result_payload(result: Any) -> list[dict[str, Any]]:
 
 
 def advance_qa_dev_mode_time(command: AdvanceQaDevModeTimeCommand) -> QaDevModeState:
+    _assert_qa_allowed()
+    _require_superadmin_actor(command.actor)
+    with _exclusive_qa_operation():
+        return _advance_qa_dev_mode_time(command)
+
+
+def _advance_qa_dev_mode_time(command: AdvanceQaDevModeTimeCommand) -> QaDevModeState:
     _assert_qa_allowed()
     _require_superadmin_actor(command.actor)
     max_days = int(getattr(settings, "QA_DEV_MODE_MAX_ADVANCE_DAYS", 120))
@@ -408,6 +498,13 @@ def advance_qa_dev_mode_time(command: AdvanceQaDevModeTimeCommand) -> QaDevModeS
 
 
 def revert_qa_dev_mode(command: RevertQaDevModeCommand) -> None:
+    _assert_qa_allowed()
+    _require_superadmin_actor(command.actor)
+    with _exclusive_qa_operation():
+        _revert_qa_dev_mode(command)
+
+
+def _revert_qa_dev_mode(command: RevertQaDevModeCommand) -> None:
     _assert_qa_allowed()
     _require_superadmin_actor(command.actor)
     if command.confirmation != QA_REVERT_CONFIRMATION:

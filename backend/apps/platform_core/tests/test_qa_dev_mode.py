@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.test import Client
 from django.utils import timezone
 
@@ -52,7 +54,8 @@ def _stub_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
-def _clear_qa_cache() -> None:
+def _clear_qa_cache(settings: Any, tmp_path: Path) -> None:
+    settings.QA_DEV_MODE_SNAPSHOT_DIR = str(tmp_path)
     qa_dev_mode._clear_cached_time()
 
 
@@ -150,9 +153,7 @@ def test_advance_qa_dev_mode_runs_crossed_daily_jobs(
 
     monkeypatch.setattr(qa_dev_mode, "run_scheduled_jobs", fake_run)
 
-    state = advance_qa_dev_mode_time(
-        AdvanceQaDevModeTimeCommand(actor=superadmin, days=3)
-    )
+    state = advance_qa_dev_mode_time(AdvanceQaDevModeTimeCommand(actor=superadmin, days=3))
 
     assert state.current_time == start + timedelta(days=3)
     assert len(calls) == 7
@@ -227,3 +228,100 @@ def test_qa_dev_mode_api_is_superadmin_only(
 
     assert response.status_code == 200
     assert response.json()["is_enabled"] is True
+
+
+@pytest.mark.django_db
+def test_real_qa_snapshot_restores_data_and_append_only_guards(settings: Any) -> None:
+    from django.db import DatabaseError, connection, transaction
+
+    from backend.apps.platform_core.models import AuditEvent
+
+    settings.QA_DEV_MODE_ALLOWED = True
+    settings.IS_PRODUCTION = False
+    admin = _user(email="snapshot-admin@example.test")
+    original = AuditEvent.objects.create(
+        actor_type="system",
+        actor_id="qa",
+        action="qa.original",
+        target_type="test",
+        target_id="1",
+    )
+    enable_qa_dev_mode(EnableQaDevModeCommand(actor=admin))
+    extra = _user(email="qa-extra@example.test")
+    revert_qa_dev_mode(RevertQaDevModeCommand(actor=admin, confirmation="REVERT QA DB"))
+    assert get_user_model().objects.filter(pk=admin.pk).exists()
+    assert not get_user_model().objects.filter(pk=extra.pk).exists()
+    assert not QaDevModeState.objects.get(singleton_id=1).is_enabled
+    assert AuditEvent.objects.get(pk=original.pk).action == "qa.original"
+    with pytest.raises(DatabaseError), transaction.atomic(), connection.cursor() as cursor:
+        cursor.execute("UPDATE platform_core_auditevent SET action = 'tampered'")
+
+
+@pytest.mark.django_db
+def test_qa_failed_load_rolls_back_flush(settings: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    settings.QA_DEV_MODE_ALLOWED = True
+    settings.IS_PRODUCTION = False
+    admin = _user(email="failure-admin@example.test")
+    enable_qa_dev_mode(EnableQaDevModeCommand(actor=admin))
+    extra = _user(email="must-survive@example.test")
+    original_call = call_command
+
+    def fail_load(name: str, *args: Any, **kwargs: Any) -> Any:
+        if name == "loaddata":
+            assert get_user_model().objects.count() == 0
+            raise RuntimeError("Injected load failure after flush")
+        return original_call(name, *args, **kwargs)
+
+    monkeypatch.setattr(qa_dev_mode, "call_command", fail_load)
+    with pytest.raises(RuntimeError, match="Injected load failure"):
+        revert_qa_dev_mode(RevertQaDevModeCommand(actor=admin, confirmation="REVERT QA DB"))
+    assert get_user_model().objects.filter(pk=extra.pk).exists()
+    assert QaDevModeState.objects.get(singleton_id=1).is_enabled
+
+
+@pytest.mark.django_db
+def test_qa_corrupt_snapshot_does_not_touch_data(settings: Any) -> None:
+    settings.QA_DEV_MODE_ALLOWED = True
+    settings.IS_PRODUCTION = False
+    admin = _user(email="corruption-admin@example.test")
+    state = enable_qa_dev_mode(EnableQaDevModeCommand(actor=admin))
+    Path(state.snapshot_path).write_text("[]", encoding="utf-8")
+    with pytest.raises(QaDevModeValidationError, match="checksum"):
+        revert_qa_dev_mode(RevertQaDevModeCommand(actor=admin, confirmation="REVERT QA DB"))
+    assert get_user_model().objects.filter(pk=admin.pk).exists()
+    assert QaDevModeState.objects.get(singleton_id=1).is_enabled
+
+
+@pytest.mark.django_db(transaction=True)
+def test_qa_exclusive_guard_blocks_other_requests_and_jobs(settings: Any) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    from django.db import close_old_connections, connection
+    from django.http import HttpResponse
+    from django.test import RequestFactory
+
+    from backend.apps.platform_core.middleware import QaEnvironmentGuardMiddleware
+    from backend.apps.platform_core.services.qa_guard import (
+        QaEnvironmentBusy,
+        qa_environment_guard,
+    )
+    from backend.apps.platform_core.services.scheduled_jobs import run_scheduled_jobs
+
+    settings.QA_DEV_MODE_ALLOWED = True
+    settings.IS_PRODUCTION = False
+
+    def other_worker() -> int:
+        close_old_connections()
+        try:
+            middleware = QaEnvironmentGuardMiddleware(lambda request: HttpResponse("unexpected"))
+            response = middleware(RequestFactory().get("/api/v1/health/"))
+            with pytest.raises(QaEnvironmentBusy):
+                run_scheduled_jobs()
+            return response.status_code
+        finally:
+            connection.close()
+
+    with qa_environment_guard(exclusive=True), ThreadPoolExecutor(max_workers=1) as pool:
+        assert pool.submit(other_worker).result(timeout=5) == 503
+    with qa_environment_guard():
+        pass

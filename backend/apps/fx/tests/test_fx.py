@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import threading
+import time as time_module
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from importlib import import_module
@@ -9,7 +12,8 @@ from typing import Any, cast
 import pytest
 from django.apps import apps
 from django.contrib.auth import get_user_model
-from django.db import DatabaseError, connection, transaction
+from django.core.management import call_command
+from django.db import DatabaseError, close_old_connections, connection, transaction
 from django.db.models import Model
 from django.test import Client
 from django.test.utils import override_settings
@@ -102,9 +106,7 @@ def _provider_rate(
         provider="yahoo_finance",
         rate=Decimal(rate),
         previous_day_average_rate=(
-            Decimal(previous_day_average_rate)
-            if previous_day_average_rate is not None
-            else None
+            Decimal(previous_day_average_rate) if previous_day_average_rate is not None else None
         ),
         observed_at=as_of,
         provider_quote_id=f"test-rate:{rate}:{as_of.isoformat()}",
@@ -419,12 +421,8 @@ def test_execute_fx_quote_consumes_source_lots_and_inherits_earliest_deadlines(
     assert target_lot.original_amount_minor == 13_002_00
     assert target_lot.available_amount_minor == 13_002_00
     assert target_lot.received_at == as_of
-    assert target_lot.investment_deadline_at == _received_at(date(2026, 1, 1)) + timedelta(
-        days=30
-    )
-    assert target_lot.withdrawal_deadline_at == _received_at(date(2026, 1, 1)) + timedelta(
-        days=60
-    )
+    assert target_lot.investment_deadline_at == first_lot_data.investment_deadline_at
+    assert target_lot.withdrawal_deadline_at == _received_at(date(2026, 1, 1)) + timedelta(days=60)
     assert [allocation["amount_minor"] for allocation in exchange.source_lot_allocations] == [
         10_000_00,
         2_000_00,
@@ -599,8 +597,7 @@ def test_declare_fx_external_settlement_posts_cash_and_reports_realized_residual
     assert settlement.actual_rate == Decimal("1.098333333333")
     assert settlement.sold_bank_operation.operation_type == "currency_exchange_external_settlement"
     assert (
-        settlement.bought_bank_operation.operation_type
-        == "currency_exchange_external_settlement"
+        settlement.bought_bank_operation.operation_type == "currency_exchange_external_settlement"
     )
     assert settlement.sold_bank_operation.amount_minor == 12_000_00
     assert settlement.bought_bank_operation.amount_minor == 13_180_00
@@ -816,6 +813,67 @@ def test_fx_daily_limit_is_per_investor_and_idempotent_replay_still_returns_exis
         )
     )
     assert other_quote.investor_user_id == other_investor.pk
+
+
+@pytest.mark.django_db(transaction=True)
+def test_postgres_concurrent_quotes_share_one_daily_limit(
+    admin_user: Model,
+    investor: Model,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if connection.vendor != "postgresql":
+        pytest.skip("PostgreSQL row-lock concurrency test.")
+    # Transactional tests flush reference rows left by migrations/other tests.
+    call_command("seed_reference_data", verbosity=0)
+    services = import_module("backend.apps.fx.services")
+    _approve_financial_access(investor)
+    _deposit(admin_user, investor, amount_minor=150_000_00)
+    quotes = [
+        issue_fx_quote(
+            _quote_command(
+                investor,
+                amount_minor=60_000_00,
+                idempotency_key=f"concurrent-quote-{index}",
+            )
+        )
+        for index in range(2)
+    ]
+    original_check = services._assert_daily_limit
+    start = threading.Barrier(2)
+
+    def slow_check(**kwargs: Any) -> None:
+        original_check(**kwargs)
+        # Expose the old check-before-ledger-lock race; the investor lock must
+        # keep the second transaction outside this check until the first commits.
+        time_module.sleep(0.2)
+
+    monkeypatch.setattr(services, "_assert_daily_limit", slow_check)
+
+    def execute(index: int) -> str:
+        close_old_connections()
+        try:
+            actor = get_user_model().objects.get(pk=investor.pk)
+            start.wait(timeout=10)
+            try:
+                services._execute_fx_quote_after_sensitive_code(
+                    ExecuteFxQuoteCommand(
+                        actor=actor,
+                        quote_id=str(quotes[index].pk),
+                        idempotency_key=f"concurrent-exchange-{index}",
+                        as_of=_as_of(),
+                    )
+                )
+                return "executed"
+            except FxValidationError as exc:
+                assert "daily conversion limit" in str(exc)
+                return "limit_rejected"
+        finally:
+            close_old_connections()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = list(executor.map(execute, range(2)))
+    assert sorted(outcomes) == ["executed", "limit_rejected"]
+    assert FxExchange.objects.filter(investor_user_id=investor.pk).count() == 1
 
 
 @pytest.mark.django_db

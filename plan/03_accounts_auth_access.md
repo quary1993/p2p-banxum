@@ -297,7 +297,7 @@ The future organization model may support:
 - Phone confirmation is mandatory for natural-person lenders and is performed through Twilio SMS verification at launch.
 - Natural-person lenders must accept registration-time terms and complete KYC/AML before dashboard, deposit, balance, FX, primary-market, or secondary-market access.
 - Legal-entity lenders cannot self-register at launch; admin creates the entity/account after off-platform onboarding.
-- Admin-created legal-entity lender accounts do not complete Didit KYC; their KYC/KYB/AML evidence is recorded by admin and financial actions remain blocked until KYB/AML approval is complete.
+- Admin-created legal-entity lenders do not complete Didit KYC. Garanta completes and retains company KYB/AML offline; the platform requires an active, unrestricted, phone-verified representative, not a local company compliance file.
 - Borrowers cannot register or log in; admin creates borrower entity records.
 - Legal-entity lender accounts can behave like regular lender accounts once active and KYB/AML-approved; admin can also enter legal-entity lender investments manually from the lender database where Garanta operates without self-service action.
 - Auditor/regulator direct portal access is out of launch scope; admins generate PDF/CSV/ZIP evidence exports offline.

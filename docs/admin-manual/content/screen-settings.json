@@ -13,7 +13,7 @@
     "Confirm that the current Registration template and Primary Market Investment template are published before live onboarding or investment testing. The primary-market template produces one project investment confirmation PDF per investment order.",
     "Create a new admin staff account (only an active superadmin is allowed to do this).",
     "Search the full user directory (admins and investors) by name, email, investor reference, or UUID.",
-    "On staging, enter QA mode, advance simulated business time, run the same daily jobs that real time would trigger, and revert to the captured database snapshot after the test. This control is blocked in production.",
+    "On staging, enter QA mode, advance simulated business time, run the same daily jobs that real time would trigger, and revert to the captured database snapshot after the test. This control is blocked in production. Revert validates the snapshot checksum and schema before restoring atomically; a failed restore leaves the pre-attempt database intact. Concurrent requests/jobs are rejected for retry while the exclusive QA operation runs. Capture a fresh baseline after schema changes.",
     "Account-level actions (create admin staff, restrict/lock/close accounts, read-only investor views) moved to the Users module; this screen keeps a pointer card so you know where they went."
   ],
   "figures": [

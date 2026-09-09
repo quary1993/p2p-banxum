@@ -43,6 +43,10 @@ class OriginatorClaimEventType(models.TextChoices):
     OPPORTUNITY_HELD = "opportunity_held", "Opportunity held"
     FUNDING_ROUND_CLOSED = "funding_round_closed", "Funding round closed"
     FUNDING_ROUND_CLOSE_FAILED = "funding_round_close_failed", "Funding round close failed"
+    SUBSCRIPTION_ACTIVATION_OVERDUE = (
+        "subscription_activation_overdue",
+        "Subscription activation overdue",
+    )
     SUBSCRIPTION_ACTIVATED = "subscription_activated", "Subscription activated"
     SUBSCRIPTION_CANCELLED = "subscription_cancelled", "Subscription cancelled"
     QUOTE_CREATED = "quote_created", "Quote created"
@@ -63,7 +67,7 @@ class LoanOriginator(TimestampedModel):
     settlement_account_name = models.CharField(max_length=255)
     settlement_iban = models.CharField(max_length=128)
     settlement_bic = models.CharField(max_length=64, blank=True)
-    kyb_evidence_reference = models.CharField(max_length=255)
+    kyb_evidence_reference = models.CharField(max_length=255, blank=True)
     kyb_aml_observations = models.TextField(blank=True)
     risk_observations = models.TextField(blank=True)
     status = models.CharField(
@@ -138,6 +142,7 @@ class OriginatorLoanProfile(TimestampedModel):
         related_name="current_for_profiles",
     )
     borrower_legal_name = models.CharField(max_length=255)
+    borrower_legal_name_public = models.BooleanField(default=False)
     borrower_display_name = models.CharField(max_length=255)
     borrower_year_founded = models.PositiveSmallIntegerField(null=True, blank=True)
     borrower_entity_type = models.CharField(max_length=64, blank=True)
@@ -270,8 +275,8 @@ class OriginatorSubscriptionActivation(AppendOnlyModel, TimestampedModel):
         on_delete=models.PROTECT,
         related_name="activation",
     )
-    boundary_payment_reference = models.CharField(max_length=128)
-    boundary_payment_date = models.DateField()
+    boundary_payment_reference = models.CharField(max_length=128, blank=True)
+    boundary_payment_date = models.DateField(null=True, blank=True)
     starting_outstanding_principal_minor = models.BigIntegerField()
     assigned_principal_minor = models.BigIntegerField()
     originator_retained_principal_minor = models.BigIntegerField()

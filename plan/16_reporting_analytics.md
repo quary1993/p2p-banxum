@@ -193,7 +193,7 @@ Formal KYC provider reports, including KYC status, failed/rejected KYC, high-ris
 - Default list.
 - Investor exposure by defaulted loan.
 - Recovery/default action log covering platform actions, status changes, notes, document uploads, public notes, bulk investor emails, and recovery events.
-- Default-resolution/loss-recognition report only after Garanta finalizes the recovery-closure policy; operational v1 does not expose write-off as a normal state.
+- Direct-loan loss recognition is implemented as an explicit superadmin action: component balances and investor losses are recorded immutably, and the loan becomes `written_off`. This is not an automatic consequence of default. LO impairment/resale remains separately restricted.
 - Recovery payment/waterfall report showing gross recovered amount, externally deducted legal/recovery costs, third-party recovery costs, Garanta recovery-fee decision/amount, net amount received by Garanta, net amount available for allocation, contractual-interest cutoff at default, default/penalty interest percent and amount after default if applicable, the server-derived costs/penalty/interest/principal split in universal priority order, lender allocations, and recovery rounding differences.
 - Early repayments.
 - Partial repayments.
@@ -291,6 +291,14 @@ Formal KYC provider reports, including KYC status, failed/rejected KYC, high-ris
 - Evidence-package exports must be ZIP files with a manifest.
 - Direct auditor/regulator portal access is out of launch scope.
 
+## Historical Operational Reports (2026-09-07)
+
+Report definition `reporting-v3` includes direct loans and LO claims in repayment status. Rows identify product, loan, originator, distribution model and schedule/import revision. Payment rows retain component amounts and, when recorded by Garanta, investor credit, LO payable and platform costs. Offline imported payments have no fabricated platform distribution.
+
+The cutoff is the end of the selected Europe/Zurich business day. Direct reports select the last schedule version created by that cutoff and exclude later-valued repayments. Superseded unpaid rows are omitted; historical paid evidence remains separately identified. LO reports select the latest qualifying dated import, include actual payment history and only its outstanding schedule, avoiding repeated historical contractual rows. A status without a dated source event is `unknown`, not inferred from today's loan status.
+
+Balance and ageing exports reconstruct lot consumption, releases, withdrawals/cancellations, FX and penalties from dated ledger evidence, not today's mutable balances. Later backdated accounting corrections can restate source history; generated artifacts retain their checksum and report definition. Explicitly live exposure reports must not be presented as historical snapshots. Closure pseudonymization, protected provider evidence and final storage/scanning hardening remain launch deferrals, not completed reporting features.
+
 ## Dependencies
 
 - All business modules.
@@ -299,7 +307,7 @@ Formal KYC provider reports, including KYC status, failed/rejected KYC, high-ris
 
 ## Q/A Backlog
 
-1. Partly answered by RISK-DEC-011 and the 2026-06-06 launch decision: risk/recovery launch reports include default list, investor exposure by defaulted loan, action log, and recovery/default reports. Write-off is not an operational v1 state.
+1. Updated 2026-09-07: risk/recovery reports include default exposure, action logs and recovery evidence. Direct-loan loss recognition produces immutable write-off evidence and a `written_off` status; it is not automatic default closure.
 2. Answered by RPT-DEC-001: launch uses industry-standard operational, finance/accounting-source, risk, balance/FX, investor, borrower, audit, and evidence reports; exact external layouts can be refined later with examples.
 3. Answered by RPT-DEC-002: reports are on demand with custom ranges and daily, weekly, monthly, quarterly, yearly/calendar-year, and annual/fiscal-year presets.
 4. Answered by RPT-DEC-004: no launch BI/data warehouse layer is required, but the reporting architecture must be BI-ready.

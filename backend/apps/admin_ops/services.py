@@ -395,6 +395,12 @@ class EnsureOriginatorActivationTaskCommand:
     entitlement_start_date: date
 
 
+@dataclass(frozen=True, slots=True)
+class EscalateOriginatorActivationTaskResult:
+    task: AdminTask
+    changed: bool
+
+
 def _document_subject_user(user_id: str) -> Model:
     user = get_user_model().objects.filter(id=user_id).first()
     if user is None:
@@ -549,9 +555,7 @@ def ensure_loan_funding_close_failure_task(
         f"Target: {command.currency} {command.target_principal_minor} minor units",
     ]
     if command.minimum_subscription_bps > 0:
-        evidence_lines.append(
-            f"Minimum subscription: {command.minimum_subscription_bps} bps"
-        )
+        evidence_lines.append(f"Minimum subscription: {command.minimum_subscription_bps} bps")
     else:
         evidence_lines.append("Round minimum: none; resolve at subscribed principal")
     evidence_lines.append(f"Failure event: {command.failure_event_id}")
@@ -559,8 +563,7 @@ def ensure_loan_funding_close_failure_task(
         "The automatic funding-deadline resolution failed. Investor reservations remain "
         "locked and the loan has been removed from the marketplace. Resolve the reported "
         "cause, then retry the deterministic funding resolution or cancel and refund the "
-        "campaign.\n\n"
-        + "\n".join(evidence_lines)
+        "campaign.\n\n" + "\n".join(evidence_lines)
     )
     existing = (
         AdminTask.objects.select_for_update()
@@ -639,21 +642,22 @@ def resolve_loan_funding_close_failure_task(
 def ensure_originator_subscription_activation_task(
     command: EnsureOriginatorActivationTaskCommand,
 ) -> AdminTask:
-    """Create the single activation task for a closed originator subscription round."""
+    """Create a recovery task only for an incompatible legacy closed subscription."""
 
     _require_admin_actor(command.requested_by)
     related_type = "OriginatorSubscriptionActivationPending"
     loan_title = _clean_required(command.loan_title, "Loan title")
-    title = f"Activate Loan Originator subscription: {loan_title}"
+    title = f"Repair legacy LO subscription: {loan_title}"
     notes = "\n".join(
         [
             "Investor subscriptions are reserved and the funding round is closed.",
             f"Loan Originator: {_clean_required(command.originator_name, 'Loan Originator name')}",
             f"Subscribed: {command.currency} {command.subscribed_principal_minor} minor units",
             f"Boundary installment due: {command.entitlement_start_date.isoformat()}",
-            "Verify the boundary installment, import the resulting schedule, then activate "
-            "the investor claims. Cancel and refund the subscriptions if the boundary "
-            "installment is delayed, unpaid, or the imported principal does not reconcile.",
+            "New subscriptions activate automatically at funding close. This historical "
+            "record needs a consistency repair or explicit hold resolution before the "
+            "lifecycle scan can upgrade it. Do not fabricate a borrower payment or change "
+            "agreed economics. Cancel and refund if the original evidence cannot reconcile.",
         ]
     )
     task = (
@@ -721,6 +725,64 @@ def ensure_originator_subscription_activation_task(
         )
     )
     return task
+
+
+@transaction.atomic
+def escalate_originator_subscription_activation_task(
+    *,
+    actor: Model,
+    loan_id: str,
+    entitlement_start_date: date,
+    failure_reason: str = "Historical subscription could not be upgraded automatically.",
+) -> EscalateOriginatorActivationTaskResult:
+    """Mark an unresolved activation task overdue without creating a second task."""
+
+    _require_admin_actor(actor)
+    task = (
+        AdminTask.objects.select_for_update()
+        .filter(
+            task_type=AdminTaskType.LOAN_SETUP,
+            related_object_type="OriginatorSubscriptionActivationPending",
+            related_object_id=loan_id,
+        )
+        .first()
+    )
+    if task is None:
+        raise AdminTaskValidationError("Originator subscription activation task does not exist.")
+
+    marker = "LEGACY UPGRADE CONTROL:"
+    overdue_note = (
+        f"{marker} Boundary: {entitlement_start_date.isoformat()}. {failure_reason} "
+        "Reservations remain intact. Resolve the hold or source inconsistency and rerun "
+        "the lifecycle scan, or explicitly cancel and refund. No manual activation is needed."
+    )
+    desired_title = f"URGENT: Repair legacy LO subscription {loan_id}"[:255]
+    desired_notes = task.notes
+    if marker not in desired_notes:
+        desired_notes = f"{desired_notes.rstrip()}\n\n{overdue_note}".strip()
+
+    needs_update = any(
+        (
+            task.title != desired_title,
+            task.notes != desired_notes,
+            task.priority != AdminTaskPriority.URGENT,
+            task.status != AdminTaskStatus.OPEN,
+        )
+    )
+    if not needs_update:
+        return EscalateOriginatorActivationTaskResult(task=task, changed=False)
+
+    updated = update_admin_task(
+        UpdateAdminTaskCommand(
+            actor=actor,
+            task_id=str(task.id),
+            title=desired_title,
+            notes=desired_notes,
+            priority=AdminTaskPriority.URGENT,
+            status=AdminTaskStatus.OPEN,
+        )
+    )
+    return EscalateOriginatorActivationTaskResult(task=updated, changed=True)
 
 
 @transaction.atomic
@@ -1297,7 +1359,7 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
         summary["available_balance_minor"] += amount
         status = str(lot_ref.status)
         if status == BALANCE_AVAILABLE_STATUS:
-            if lot_ref.withdrawal_deadline_at < as_of:
+            if business_date(lot_ref.withdrawal_deadline_at) <= business_date(as_of):
                 summary["overdue_available_minor"] += amount
                 balance_lots_overdue_count += 1
                 if len(queues["balance_ageing_actions"]) < queue_limit:
@@ -1324,8 +1386,6 @@ def get_admin_operations_dashboard(command: GetAdminDashboardCommand) -> dict[st
                             },
                         )
                     )
-            elif lot_ref.investment_deadline_at < as_of:
-                summary["withdraw_only_available_minor"] += amount
             else:
                 summary["investable_available_minor"] += amount
         elif status == BALANCE_FROZEN_STATUS:

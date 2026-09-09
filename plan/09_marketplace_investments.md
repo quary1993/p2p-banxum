@@ -366,13 +366,13 @@ Date: 2026-05-22.
 Owner: Garanta product / finance / operations.
 
 Decision:
-Every primary-market loan has an admin-set funding deadline. Draft/admin planning records may carry a funding deadline up to 60 days. A loan cannot be published/opened to investors if the funding deadline is in the past or more than 29 calendar days from the Europe/Zurich business date; the launch publishable default is therefore 29 calendar days from that business date.
+Every primary-market loan has an admin-set funding deadline, capped at 50 inclusive Europe/Zurich subscription dates in both drafts and publication. The direct-loan default is 30 inclusive dates. A past deadline cannot be published; publication freezes the deadline. Each investor source must cover the remaining funding window within its original 60-day holding limit (PAY-DEC-031).
 
 If admin accepts a partially funded loan, the accepted funded amount becomes the final financeable principal. The repayment schedule is regenerated from that accepted funded principal with the same term, the same interest percentage, and the same percentage BANXUM fee. The borrower success fee applies to the accepted funded principal and books as Garanta revenue at disbursement, and the borrower repays the accepted funded principal plus agreed interest. For refinancing loans, the declared original loan data and the informational original schedule are preserved unchanged.
 
 Rationale:
 This keeps partial funding economically clear and avoids borrower schedules based on unfunded amounts.
-The publication cutoff keeps open campaigns compatible with the investor-balance ageing model: an investor may pledge a balance source entry only while that entry is inside its 30-day investment/reinvestment window, and the loan campaign itself may remain open for up to 29 days. This prevents Garanta from holding uninvested client money past the 60-day operating limit without treating the loan funding deadline as part of the source entry's day-30 pledge eligibility.
+Funding windows are limited to 50 inclusive Europe/Zurich subscription dates. At allocation, each source's withdrawal-deadline date must be later than the loan's final subscription date. There is no fixed day-30 investment cutoff; shorter remaining campaigns can use older sources. The deadline resolver runs before available-balance ageing.
 
 Follow-ups:
 Final legal terms must disclose the partial-funding treatment and investor notification rule.
@@ -546,9 +546,9 @@ Each loan is single-currency. Cross-currency transfers are not advised, but Gara
 
 Each direct loan has a disclosed minimum subscription threshold, defaulting to 50% and configurable while the loan is a draft. Publication freezes the threshold permanently, including when no investment has yet been committed. After the Europe/Zurich funding deadline, a scheduled resolver locks the loan and compares committed principal with the exact threshold rounded up to a minor unit. At or above the threshold, the loan closes automatically at the subscribed amount; below it, the campaign cancels and reservations return to their original balance lots. A partial close notifies lenders but does not require reconfirmation because partial-funding consent is included in the initial terms.
 
-If close or cancellation fails, the platform removes the loan from public listings, preserves all reservations, marks it `funding_close_failed`, creates an urgent admin task, and emails operations. An admin may fix the cause and retry the deterministic result or cancel and refund; the admin cannot substitute a discretionary close result. Routine KYB expiry does not block close, while an explicit compliance hold or unresolved adverse status does.
+If close or cancellation fails, the platform removes the loan from public listings, preserves reservations, marks it `funding_close_failed`, creates an urgent admin task and emails operations. The scheduled resolver retries automatically, using the frozen minimum; admins repair technical causes, not choose the economic result. After the deadline, manual reservation release and cancellation of a threshold-qualified direct loan cannot override that result. Routine KYB expiry does not block close, while explicit holds/adverse states remain safeguards.
 
-Investor balance entries are subject to the 30-day investment/reinvestment and 60-day withdrawal/holding rules defined in the payments module.
+Investor balance entries use loan-specific remaining-window eligibility and the absolute 60-day holding limit defined in PAY-DEC-031.
 
 ## Controls
 
@@ -562,9 +562,9 @@ Investor balance entries are subject to the 30-day investment/reinvestment and 6
 - Investor acknowledgements must be current.
 - Pending orders do not reserve loan capacity and do not affect the funding progress amount until balance/funds are allocated.
 - Each investor may have up to 50 pending orders at launch, subject to final configuration.
-- Balance-funded orders may use only eligible balance source entries that are still inside the 30-day investment/reinvestment window at allocation/pledge time.
-- The platform does not require the loan funding deadline to fall before the consumed source entry's 30-day investment deadline. The source entry only has to be pledged before day 30; the loan's own maximum funding period is capped separately so allocated cash remains inside the 60-day operating limit.
-- If available aggregate balance includes source entries older than 30 days, the platform must show an explicit error and a per-currency breakdown of investable versus withdraw-only balance.
+- Balance-funded orders consume eligible sources FIFO, skipping sources whose holding deadline does not cover the remaining campaign.
+- The last inclusive loan funding date must be strictly earlier than every consumed source's withdrawal-deadline date.
+- Show potentially investable balance by currency, and the exact loan-eligible amount in the investment flow. Explain insufficient holding time explicitly.
 - Amount limits are enforced. Exposure metrics and concentration warnings are shown/reported, but hard concentration limits are not enforced at launch.
 - First-come-first-served allocation is based on bank value date of validated received funds or balance reservation/allocation timestamp for balance-funded orders.
 - Orders cannot exceed available amount after validation/allocation; excess funds are returned, credited, or released to balance according to policy.
@@ -626,19 +626,25 @@ Investor balance entries are subject to the 30-day investment/reinvestment and 6
 
 An `originator_claim` appears in the existing primary opportunity table with a Loan Originator badge and public originator name. The common rate column is **Yield**: contractual investor rate for direct loans and a nominal participating-coupon indicator for current Loan Originator subscriptions. Detail also shows the underlying coupon and separately declared investor interest and penalty participation rates.
 
-New `par_component_v2` subscriptions use the ordinary primary-order review and allocation path. Allocation atomically locks the loan, validates eligibility/current terms/sensitive code/minimum/capacity, consumes FIFO balance lots, and posts investor liability to funding escrow. The order remains reserved until the subscription round closes and its boundary payment is verified. Closing does not create a holding. Activation atomically converts every allocated order into a par holding, creates post-boundary component entitlements, and transfers escrow to Loan Originator payable. Fingerprinted idempotency, stable loan locking, capacity constraints, and immutable close/activation evidence prevent replay and oversubscription.
+Amended 2026-09-07: new `par_component_v2` subscriptions use the ordinary primary-order review and allocation path. Allocation atomically locks the loan, validates eligibility/current terms/sensitive code/minimum/capacity, consumes FIFO balance lots, and posts investor liability to funding escrow. The order remains reserved until funding close. Closing atomically converts allocated orders into active par holdings, creates post-boundary component entitlements from the published schedule, and transfers escrow to the internal Loan Originator payable. There is no separate activation stage. Fingerprinted idempotency, stable loan locking, capacity constraints, and immutable close/activation evidence prevent replay and oversubscription.
 
-Historical `legacy_yield_v1` records retain their existing immediate quote/purchase path solely for compatibility; new originator opportunities cannot use it.
+The contractual boundary installment belongs entirely to the LO and is recorded as a borrower repayment received by Garanta. Investor holdings exist before that receipt but receive none of its components. Incidental bank timing cannot shift the entitlement boundary or rewrite the agreed economics. Future investor interest and penalty use the declared participation rates on proportional claim ownership; no investor interest accrues during funding.
+
+Historical `legacy_yield_v1` records retain their existing immediate quote/purchase path solely for compatibility; new originator opportunities cannot use it. Retiring test or legacy opportunities means placing them on hold or otherwise hiding them from new activity. Append-only financial, holding, purchase, and acceptance evidence is never wiped merely to clean a catalogue; a completely clean QA dataset requires rebuilding the environment.
 
 ### MKT-DEC-023: Funding Deadline Resolution and Failure Handling
 
 The administrator sets a finite funding deadline within the publication window. Full sellable-capacity subscription auto-closes the round. The scheduled deadline resolver closes any round with positive allocated principal and cancels an empty round. There is deliberately no round-level minimum percentage; the loan-specific per-investor minimum remains enforced on each order.
 
-Close preserves allocated reservations, closes pending intents as not invested, and creates an activation task. A close-processing failure never releases funds implicitly: it hides the opportunity, preserves escrow and order allocations, creates an urgent admin task, and notifies operations so an administrator can retry or cancel/refund. Generic direct-loan close/cancel primitives reject current originator subscriptions.
+Close settles allocated reservations into active investments and closes pending intents as not invested. A close-processing failure rolls back holdings and settlement, hides the opportunity, preserves escrow and order allocations, creates an urgent admin task, and notifies operations. Automatic retries retain the published outcome; admins cannot cancel a subscribed expired or failed round instead. Generic direct-loan close/cancel primitives reject current originator subscriptions. Neither product accepts future resolution dates outside the controlled QA clock.
+
+The daily lifecycle scan processes all eligible records using bounded fetch batches rather than limiting total coverage. It upgrades historical closed-but-unactivated reservations from their original immutable schedule, without recording fictitious borrower receipts. New rounds never enter `awaiting_activation`. Historical exceptions retain reservations and operational evidence until safely resolved.
+
+For v1, a payment, prepayment, or principal/schedule change dated while subscriptions were still open changes the asset offered to investors. While the round remains open, operations must cancel/refund it before its deadline and publish a replacement opportunity. If discovered after expiry, the inconsistency requires urgent repair against the accepted terms, not discretionary cancellation or repricing. Automatic capacity recalculation and deterministic partial order/lot release are deferred because they require an approved pro-rata allocation, minimum-order, rounding, disclosure, and consent policy; the platform does not silently rewrite existing subscriptions.
 
 ### MKT-DEC-024: Secondary-Market Continuity
 
-Originator-derived holdings may be transferred through the existing secondary market as a complete holding. The principal participation and its interest/penalty component rights travel together. A current `par_component_v2` holding may be listed only at par or a discount; a premium is rejected. Accrued interest through secondary settlement belongs to the seller and future entitlement to the buyer. Historical acquisition economics remain private.
+Originator-derived holdings may be transferred through the existing secondary market as a complete holding. The principal participation and its interest/penalty component rights travel together. A current `par_component_v2` holding may be listed only at par or a discount; a premium is rejected. Accrued interest through secondary settlement belongs to the seller and future entitlement to the buyer. The buyer pays that accrued amount at settlement under the same clean-price-plus-accrued convention as direct holdings; the next borrower installment belongs entirely to the buyer. This deliberately supersedes the earlier idea of leaving the seller entitled to a later installment-time payment: atomic settlement avoids an unsecured residual seller claim and makes the ownership transfer final, while the buyer retains borrower non-payment risk after purchase. Historical acquisition economics remain private.
 
 ### MKT-DEC-025: Optional Loan-Originator Retention Floor
 

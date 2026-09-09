@@ -17,6 +17,7 @@ from backend.apps.platform_core.models.scheduled_jobs import (
 )
 from backend.apps.platform_core.services import scheduled_jobs
 from backend.apps.platform_core.services.scheduled_jobs import (
+    BALANCE_AGEING_SCAN_JOB,
     DEFAULT_SCHEDULED_JOB_NAMES,
     EMAIL_OUTBOX_DISPATCH_JOB,
     LOAN_SERVICING_STATUS_SCAN_JOB,
@@ -94,6 +95,56 @@ def test_failed_scheduled_job_retries_with_same_run_key(monkeypatch: pytest.Monk
 
 
 @pytest.mark.django_db
+def test_funding_partial_failures_are_monitored_and_retried_automatically(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    admin = _admin_user()
+    name = scheduled_jobs.PRIMARY_FUNDING_EXPIRY_SCAN_JOB
+    assert DEFAULT_SCHEDULED_JOB_NAMES.index(name) < DEFAULT_SCHEDULED_JOB_NAMES.index(
+        BALANCE_AGEING_SCAN_JOB
+    )
+    assert DEFAULT_SCHEDULED_JOB_NAMES.index(
+        scheduled_jobs.ORIGINATOR_OPPORTUNITY_LIFECYCLE_SCAN_JOB
+    ) < DEFAULT_SCHEDULED_JOB_NAMES.index(BALANCE_AGEING_SCAN_JOB)
+    monkeypatch.setattr(scheduled_jobs, "_primary_funding_expiry_summary", lambda **_: {
+        "closed_count": 1, "failed_count": 1,
+    })
+    command = RunScheduledJobsCommand(actor=admin, as_of=_as_of(), job_names=(name,))
+    failed = run_scheduled_jobs(command).results[0]
+    assert failed.status == ScheduledJobRunStatus.FAILED
+    assert failed.summary["closed_count"] == 1
+    monkeypatch.setattr(scheduled_jobs, "_primary_funding_expiry_summary", lambda **_: {
+        "closed_count": 1, "failed_count": 0,
+    })
+    retried = run_scheduled_jobs(command).results[0]
+    assert retried.status == ScheduledJobRunStatus.SUCCEEDED
+    assert retried.run_key == failed.run_key
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("job_name", [
+    scheduled_jobs.PRIMARY_FUNDING_EXPIRY_SCAN_JOB,
+    scheduled_jobs.ORIGINATOR_OPPORTUNITY_LIFECYCLE_SCAN_JOB,
+])
+def test_new_funding_failure_reopens_successful_daily_scan(
+    monkeypatch: pytest.MonkeyPatch,
+    job_name: str,
+) -> None:
+    admin = _admin_user()
+    command = RunScheduledJobsCommand(actor=admin, as_of=_as_of(), job_names=(job_name,))
+    first = run_scheduled_jobs(command).results[0]
+    assert first.status == ScheduledJobRunStatus.SUCCEEDED
+    assert run_scheduled_jobs(command).results[0].status == ScheduledJobRunStatus.SKIPPED
+    monkeypatch.setattr(scheduled_jobs, "_has_unresolved_funding", lambda name: name == job_name)
+    second = run_scheduled_jobs(command).results[0]
+    assert second.status == ScheduledJobRunStatus.SUCCEEDED
+    assert second.run_key == first.run_key
+    assert ScheduledJobRun.objects.get(run_key=second.run_key).attempt_count == 2
+    monkeypatch.setattr(scheduled_jobs, "_has_unresolved_funding", lambda _: False)
+    assert run_scheduled_jobs(command).results[0].status == ScheduledJobRunStatus.SKIPPED
+
+
+@pytest.mark.django_db
 def test_stale_running_scheduled_job_is_reclaimed(
     settings: Any,
     monkeypatch: pytest.MonkeyPatch,
@@ -167,6 +218,28 @@ def test_dry_run_is_limited_to_balance_ageing_scan() -> None:
 
 
 @pytest.mark.django_db
+def test_preview_does_not_suppress_real_scheduled_run() -> None:
+    admin = _admin_user()
+    preview = run_scheduled_jobs(
+        RunScheduledJobsCommand(
+            actor=admin,
+            as_of=_as_of(),
+            job_names=(BALANCE_AGEING_SCAN_JOB,),
+            dry_run=True,
+        )
+    )
+    actual = run_scheduled_jobs(
+        RunScheduledJobsCommand(
+            actor=admin,
+            as_of=_as_of(),
+            job_names=(BALANCE_AGEING_SCAN_JOB,),
+        )
+    )
+    assert preview.results[0].run_key != actual.results[0].run_key
+    assert actual.results[0].status == ScheduledJobRunStatus.SUCCEEDED
+
+
+@pytest.mark.django_db
 def test_run_scheduled_jobs_command_resolves_configured_actor(settings: Any) -> None:
     admin = _admin_user(email="jobs@example.test")
     settings.SCHEDULED_JOBS_ACTOR_EMAIL = admin.email
@@ -190,7 +263,7 @@ def test_run_scheduled_jobs_command_resolves_configured_actor(settings: Any) -> 
 
 @pytest.mark.django_db
 def test_check_scheduled_jobs_command_passes_when_runs_are_healthy() -> None:
-    as_of = _as_of()
+    as_of = timezone.now()
     ScheduledJobRun.objects.create(
         job_name=EMAIL_OUTBOX_DISPATCH_JOB,
         run_key="email_outbox_dispatch:2026-01-10T12:00:00+01:00",
@@ -201,7 +274,7 @@ def test_check_scheduled_jobs_command_passes_when_runs_are_healthy() -> None:
     )
     output = StringIO()
 
-    call_command("check_scheduled_jobs", stdout=output)
+    call_command("check_scheduled_jobs", "--job", EMAIL_OUTBOX_DISPATCH_JOB, stdout=output)
 
     assert "Scheduled job monitor OK" in output.getvalue()
 
@@ -237,3 +310,45 @@ def test_check_scheduled_jobs_command_fails_on_failed_or_stale_running_runs(
     assert "FAILED runs" in rendered
     assert "Stale RUNNING runs" in rendered
     assert "provider outage" in rendered
+
+
+@pytest.mark.django_db
+def test_monitor_requires_all_expected_jobs_and_rejects_unknown_jobs() -> None:
+    with pytest.raises(CommandError, match="missing coverage"):
+        call_command("check_scheduled_jobs", stdout=StringIO())
+    with pytest.raises(CommandError, match="Unknown scheduled job"):
+        call_command("check_scheduled_jobs", "--job", "typo", stdout=StringIO())
+    now = timezone.now()
+    for job_name in DEFAULT_SCHEDULED_JOB_NAMES:
+        ScheduledJobRun.objects.create(
+            job_name=job_name,
+            run_key=f"{job_name}:monitor-test",
+            status=ScheduledJobRunStatus.SUCCEEDED,
+            scheduled_for=now,
+            started_at=now,
+            finished_at=now,
+        )
+    call_command("check_scheduled_jobs", stdout=StringIO())
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("problem", ["old_finish", "old_period", "dry_run", "future"])
+def test_monitor_rejects_stale_or_simulated_coverage(problem: str) -> None:
+    now = timezone.now()
+    ScheduledJobRun.objects.create(
+        job_name=EMAIL_OUTBOX_DISPATCH_JOB,
+        run_key=f"email_outbox_dispatch:monitor:{problem}",
+        status=ScheduledJobRunStatus.SUCCEEDED,
+        scheduled_for=(
+            now - timedelta(days=1)
+            if problem == "old_period"
+            else now + timedelta(days=1)
+            if problem == "future"
+            else now
+        ),
+        started_at=now,
+        finished_at=now - timedelta(minutes=10) if problem == "old_finish" else now,
+        summary={"dry_run": True} if problem == "dry_run" else {},
+    )
+    with pytest.raises(CommandError, match="missing coverage"):
+        call_command("check_scheduled_jobs", "--job", EMAIL_OUTBOX_DISPATCH_JOB, stdout=StringIO())

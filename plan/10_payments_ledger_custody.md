@@ -50,7 +50,7 @@ Launch requirements:
 - Funds must be non-interest-bearing.
 - Funds must not be used for Garanta's own account.
 - Funds must be invested/reinvested or withdrawn within the configured deadlines and never held beyond the regulatory maximum without penalty handling/escalation.
-- The platform must track a 30-day investment/reinvestment deadline and a 60-day absolute withdrawal deadline for each balance source entry, unless legal/compliance changes the interpretation.
+- The platform must track a 60-day absolute holding deadline and loan-specific investment eligibility for each balance source entry, unless legal/compliance changes the interpretation.
 - The 60-day deadline is non-extendable in platform terms.
 - Any balance source entry approaching the 60-day deadline must create investor reminders and finance/compliance visibility.
 - The platform must support withdrawal flows from investor balances.
@@ -213,7 +213,7 @@ After the Europe/Zurich funding deadline passes, the scheduled funding resolver 
 
 Lender reconfirmation is not required for partial funding, because this will be covered in the initial terms of service. Notification is enough.
 
-If the deterministic close/cancellation cannot complete, the loan moves to `funding_close_failed`, is removed from the public marketplace, and retains every investor reservation unchanged. The platform opens one urgent admin task and emails the configured operations mailbox. Admin fixes the cause and retries the same deterministic resolution, or explicitly cancels and refunds the campaign. The retry cannot choose a different threshold outcome.
+If the deterministic close/cancellation cannot complete, the loan moves to `funding_close_failed`, is removed from the public marketplace, and retains every investor reservation unchanged. The platform opens one urgent admin task and emails the configured operations mailbox. Admin fixes the cause and the scheduler retries the same deterministic resolution. Neither an admin nor balance ageing can replace a qualified close with cancellation. Under-subscribed or empty rounds automatically cancel and restore the original source dates.
 
 Routine KYB expiry does not block funding close. An explicit compliance hold, declined/review status, or another integrity/processing failure does block close and enters the operational failure path above.
 
@@ -383,14 +383,14 @@ Every investor balance source ledger entry has a received timestamp and ageing d
 Launch interpretation:
 
 - Balance ageing and reminder day counts use Europe/Zurich calendar days.
-- Funds should be invested or reinvested within 30 days of the received timestamp.
+- Investment eligibility is loan-specific: each consumed source must cover the full remaining funding period within its original 60-day holding limit.
 - Funds must be withdrawn no later than 60 days after the received timestamp if they are not invested/reinvested.
 - The 60-day limit is regulatory/compliance-driven and cannot be extended by Garanta through product or support processes.
 - If a balance source remains unwithdrawn after day 60, it becomes subject to an env/deployment-configurable penalty policy.
 - Launch default penalty mechanics: 1% simple daily penalty on the overdue source balance, applied once per Europe/Zurich calendar day after day 60, capped at the remaining overdue source balance, and never creating a negative balance or a claim against the investor beyond that source balance.
 - If penalty charges fully consume the remaining overdue source balance, the source entry moves to a terminal `penalty_exhausted` status with zero remaining amount. The event remains fully ledgered and reportable.
 - Penalty policy is configured through environment/deployment settings at launch. Reminder schedule and reminder templates remain superadmin-configurable.
-- Currency exchange does not reset the 30/60-day ageing clocks. The target-currency balance source entry inherits ageing deadlines from the source balance entries consumed by the FX transaction.
+- Currency exchange does not reset the 60-day holding clock. The target-currency balance source entry inherits ageing deadlines from the source balance entries consumed by the FX transaction.
 - If one FX conversion consumes multiple source balance entries with different expiry timestamps, v1 uses the earliest consumed investment and withdrawal deadlines for the resulting target-currency balance entry. The ledger must retain full lineage to every consumed source entry.
 
 Reminder schedule:
@@ -511,9 +511,9 @@ Owner: Garanta compliance / finance / product.
 Decision:
 Balance source entries are consumed FIFO within each currency, using the oldest eligible source entries first for investments, withdrawals, FX, fees, and penalties.
 
-Funds can be pledged, invested, or reinvested only while their source entry is within the 30-day investment/reinvestment period. After day 30, that source entry cannot be newly used for primary-market investment, secondary-market purchase, or reinvestment and becomes withdraw-only or subject to the day-60 return/penalty process.
+Funds may be newly invested before their 60-day holding deadline only if the remaining funding window fits within that deadline. Instant secondary-market and legacy claim purchases have no additional campaign wait. Frozen, penalty-mode and overdue sources remain ineligible.
 
-Primary-market investment from balance is allowed when every consumed source entry is still inside its 30-day investment/reinvestment window at allocation/pledge time. The loan funding deadline does not need to be on or before the consumed source entry's day-30 investment deadline; the campaign-open period is capped separately so a pledge made near day 30 can still settle before the 60-day operating limit. Source entries already older than 30 days are withdraw-only for new investments and cannot be committed or reserved.
+Primary-market investment requires every consumed source to cover the remaining funding window. The last inclusive subscription date must precede the source's withdrawal-deadline date. A source with 10 holding days left can fund a 10-day remaining window, but not a 30-day one. The same eligibility rule applies to direct and LO v2 subscriptions.
 
 The investor portal must show explicit errors when an investor tries to invest with an ineligible balance source. It must also show a per-currency balance breakdown:
 
@@ -522,7 +522,7 @@ The investor portal must show explicit errors when an investor tries to invest w
 - Amount that can be exchanged into another currency if FX is allowed and the source entry is still eligible under ageing rules.
 - Amount in penalty/frozen status.
 
-If an investor exchanges a source entry into another currency, the target-currency entry does not receive fresh 30/60-day ageing deadlines. The target-currency entry inherits the investment/reinvestment deadline and withdrawal deadline from the consumed source entry. If one FX conversion consumes multiple source entries with different deadlines, v1 sets the resulting target-currency entry deadlines from the earliest consumed investment and withdrawal deadlines. The ledger must retain source lineage to the original funds for audit and regulatory review.
+If an investor exchanges a source entry into another currency, the target-currency entry does not receive fresh 60-day holding deadlines. The target-currency entry inherits the investment/reinvestment deadline and withdrawal deadline from the consumed source entry. If one FX conversion consumes multiple source entries with different deadlines, v1 sets the resulting target-currency entry deadlines from the earliest consumed investment and withdrawal deadlines. The ledger must retain source lineage to the original funds for audit and regulatory review.
 
 Rationale:
 The platform must prevent funds that are already too old from entering another funding period while still giving investors clear usable-balance visibility.
@@ -742,14 +742,14 @@ Examples:
 3. Admin manually confirms deposits where needed by recording a `lender_deposit` bank operation with the checksum-valid source IBAN shown by the bank transfer.
 4. Ledger records the deposit as an `in` movement and creates or increases the investor balance liability in that currency.
 5. The exact source IBAN is recorded as a verified, usable payout instruction for that investor and currency without disabling any other verified payout account.
-6. The deposit balance source entry receives a received timestamp based on bank value date, a 30-day investment/reinvestment deadline, and a 60-day withdrawal deadline.
+6. The deposit balance source entry receives a timestamp based on bank value date and an absolute 60-day holding deadline. Investment eligibility is checked against each loan's remaining funding window.
 7. Investor creates a primary-market investment order using available balance.
 8. Pending unfunded order has no effect on loan funding capacity until sufficient eligible balance is reserved or allocated according to order rules.
 9. System checks remaining loan capacity using first-come-first-served order based on balance allocation timestamp or bank value date where external payment timing is relevant.
 10. If the order fits within remaining capacity, ledger debits available investor balance and records loan/funding-campaign settlement liability and funded/validated order state.
 11. If the order partially exceeds remaining capacity, ledger allocates the accepted portion and leaves/recredits the excess to investor balance with appropriate ageing treatment.
 12. If no capacity remains, the order closes in a final non-invested status and funds remain in investor balance or are withdrawn according to investor instruction and balance rules.
-13. Allocated loan funds remain segregated until the funding campaign succeeds, expires, reaches the 60-day limit, or is returned to investor balance/withdrawn.
+13. Allocated loan funds remain segregated until deterministic funding resolution converts them to holdings or releases them back to their original sources. Reservation eligibility ensures the funding window fits within the original 60-day holding limit; a failed execution requires automatic retry and incident repair, not an age-triggered outcome override.
 
 ### Borrower Drawdown
 
@@ -823,7 +823,7 @@ Examples:
 5. Investor reviews the quote. Normal balances and amounts display 2 decimals, while the FX confirmation view may show exchange details with 4 decimals.
 6. Investor accepts the fixed quote and required FX terms before expiry, or refreshes the quote after expiry.
 7. Ledger debits source currency balance and instantly credits target currency balance according to the accepted quote, using FIFO consumption on the source currency. FX rates and intermediate values are stored with at least 6 decimal places and half-up rounding is applied.
-8. The target-currency source entry inherits 30/60-day ageing deadlines from the consumed source balance entries. If multiple source entries are consumed, v1 uses the earliest consumed investment and withdrawal deadlines while retaining source-entry lineage.
+8. The target-currency source entry inherits 60-day holding deadlines from the consumed source balance entries. If multiple source entries are consumed, v1 uses the earliest consumed investment and withdrawal deadlines while retaining source-entry lineage.
 9. Background display-only FX rates are polled separately and may be skipped if sanity checks fail.
 10. Admin queries net FX deltas by day/period.
 11. Admin executes the required external currency exchange at end of day or beginning of next day.
@@ -853,12 +853,12 @@ Examples:
 - Investor balances are held per investor and currency.
 - Enabled balance currencies are configurable by superadmin.
 - Balance source entries must track received timestamp, source type, reinvestment deadline, withdrawal deadline, and remaining amount.
-- FX-generated balance source entries do not reset the 30/60-day ageing clocks.
+- FX-generated balance source entries do not reset the 60-day holding clock.
 - FX-generated balance source entries inherit deadlines from the source currency entries consumed and must retain lineage to those source entries.
 - If one FX conversion consumes multiple source entries with different deadlines, v1 uses the earliest consumed investment and withdrawal deadlines for the target entry.
 - Balance consumption is FIFO within each currency.
-- Balance entries older than 30 days cannot be newly used for primary-market investment, secondary-market purchase, or reinvestment.
-- Primary-market balance-funded orders must be blocked if the selected source entries are already older than the 30-day investment/reinvestment deadline at allocation/pledge time. They must not be blocked merely because the loan funding deadline is after that day-30 source-entry deadline.
+- Age alone does not make a pre-deadline source withdraw-only. Its remaining holding time must cover the selected investment's remaining funding period.
+- Primary-market reservations are blocked when any consumed source cannot cover the loan's final inclusive funding date within its holding limit.
 - The investor portal must show explicit errors and a per-currency breakdown of investable balance, withdraw-required balance, FX-eligible balance, and penalty/frozen balance.
 - Deposits, repayment/installment credits, secondary-market seller proceeds, refunds credited to balance, and FX proceeds are subject to balance ageing rules.
 - Balance reminders are sent at day 25, 46, 53, 58, 59, and 60 based on received timestamp and remaining unconsumed balance source amount.
@@ -873,7 +873,7 @@ Examples:
 - Lender-facing recovery buckets are allocated pro rata by current principal balance of each lender holding at the recovery event time, with deterministic largest-remainder rounding.
 - Contractual interest stops accruing on the official default declaration date. Default/penalty interest starts from that date instead of regular interest only if provided in the relevant agreement/project configuration and is classified separately.
 - Fund release requires loan close, offline contractual prerequisites, payment reconciliation, and approval.
-- Fund release and borrower-side transaction processing require borrower KYB/AML approval and no compliance hold.
+- Fund release and borrower-side processing assume Garanta has completed company KYB/AML offline. No platform company case or evidence pack is required. Explicit holds and declined/manual-review decisions remain blocking.
 - Secondary-market settlement requires buyer eligibility, valid transfer documentation, payment reconciliation, and servicing-record update.
 - Secondary-market settlement must normally complete much faster than 60 days after buyer funds arrive or balance is reserved and must never exceed the 60-day maximum operational settlement period.
 - Loan/funding-campaign funds must remain segregated from Garanta operating funds.
@@ -940,21 +940,23 @@ Examples:
 18. Answered by PAY-DEC-018: currency exchange is an auxiliary settlement function, not trading/speculation; launch pairs are CHF/EUR and EUR/CHF, with no minimum amount, CHF 100,000 per-investor daily maximum or equivalent configurable by admin, Yahoo Finance source rates, configurable 1.5% launch platform fee, live executable quotes fixed for 1 minute, background display polling, same-provider sanity checks, at-least-6-decimal stored precision, 2-decimal normal display, 4-decimal FX confirmation display, and half-up rounding.
 19. Answered by PAY-DEC-019: all money movements are ledgered with `in`/`out` direction and source-level received timestamps.
 20. Answered by PAY-DEC-020: admin can query FX deltas by day/period and record external FX execution.
-21. Answered by PAY-DEC-021: balance source entries are consumed FIFO; entries older than 30 days cannot be newly invested/reinvested and are withdraw-only. Balance-funded primary-market orders are blocked if the consumed source entries are already past their 30-day investment/reinvestment window at allocation/pledge time, but the loan funding deadline may be later than that day-30 source-entry deadline because the campaign-open period is capped separately. FX conversion does not reset ageing or restore investment eligibility; target-currency entries inherit deadlines from consumed source entries, using the earliest consumed investment and withdrawal deadlines when multiple source entries are consumed in one exchange.
+21. Updated by PAY-DEC-031: eligible balance sources are consumed FIFO. Each source must cover the loan's full remaining funding window within its original 60-day holding limit. FX preserves the earliest consumed holding deadline and source lineage; it never grants fresh holding time.
 22. Answered by PAY-DEC-022: day-60 funds trigger forced withdrawal if usable IBAN is known. If forced withdrawal cannot succeed because no usable payout path exists or bank-side return cannot be executed after operational review, penalty mode freezes financial actions until usable IBAN is declared while preserving read-only access. Withdrawals are final in-platform once admin records execution; later bank failures/returns are handled offline.
 23. Answered by PAY-DEC-023: deposits and installment payments use bank value date; secondary-market and FX events use internal transaction timestamp.
 24. Answered by PAY-DEC-024/PAY-DEC-027: investor FX settles instantly in platform balances; admin settles external FX at end of day or next morning using delta reports and records final realized sold/bought amounts from which the platform infers actual execution rate including fees/costs.
 25. Answered by PAY-DEC-026: all launch external bank movements are admin-declared bank operations using lender deposit, lender withdrawal, borrower loan disbursement, borrower repayment, Garanta out, Garanta in, and currency-exchange external settlement types.
 26. Answered by PAY-DEC-026/PAY-DEC-027: reconciliation compares bank-stated balances with investor balances, Garanta accrued revenue held in collection accounts, suspense/unmatched cash, and pending/exception balances by currency; external FX settlement records actual execution details and calculates realized FX surplus/deficit by currency.
-25. Updated by PAY-DEC-025 and KYC-DEC-008: admin-created legal-entity lender accounts behave like regular lenders for balances and transactions only after off-platform KYB/AML is recorded and approved by admin.
+25. Updated by PAY-DEC-025 and KYC-DEC-008 (2026-09-07): Garanta completes and retains company KYB/AML offline. Active, unrestricted, phone-verified legal-entity representatives use regular lender balances and transactions without a stored platform company approval or documents. Natural-person lender KYC remains in-platform and mandatory.
 
 ## Loan Originator Settlement Accounting
 
 ### PAY-DEC-028: Subscription Reservation and Activation Ledger
 
-Allocating a current Loan Originator subscription order debits investor-balance liability and credits loan-funding escrow at par. It consumes eligible balance lots FIFO and preserves their exact lineage while the subscription remains unresolved. Funding close leaves that escrow and the order allocations unchanged.
+Allocating a current Loan Originator subscription order debits investor-balance liability and credits loan-funding escrow at par. It consumes eligible balance lots FIFO and preserves exact lineage while funding remains open. Successful funding close immediately activates the investment; there is no post-close waiting stage.
 
-Only verified activation debits funding escrow and credits originator-settlement payable for the subscribed principal. The same transaction creates holdings, purchases, and post-boundary entitlements. There is no primary-market Loan Originator fee under `par_component_v2`. Cancellation instead reverses each reservation, restores the exact source lots and their original ageing deadlines, and creates no originator payable. Originator payable and funding escrow remain part of reconciliation and sign-anomaly controls.
+Automatic activation at funding close debits funding escrow and credits internal originator-settlement payable for the subscribed principal. The same transaction creates holdings, purchases and post-boundary entitlements from the published schedule. No borrower payment is implied. There is no primary-market LO fee under `par_component_v2`. Cancellation before successful close reverses reservations and restores exact source lots with their original ageing deadlines. Originator payable is an internal liability, not a Loan Originator login or wallet, and remains in reconciliation/sign-anomaly controls.
+
+Failed funding resolution is handled under PAY-DEC-031: automatic deterministic retries, with preserved reservations and urgent incident alerts, not a discretionary age-triggered cancellation overriding the published minimum.
 
 ### PAY-DEC-029: Batch Settlement
 
@@ -963,3 +965,13 @@ Garanta settles accumulated originator payable no later than five calendar days 
 ### PAY-DEC-030: Originator Servicing Payable
 
 Borrower repayments after activation split into investor liabilities and originator servicing payable only after the universal waterfall has derived legal costs/recovery fee, penalty, interest, and principal. Investors receive their current principal share and the separately declared post-boundary interest/penalty participation; the originator receives unsold principal, excluded component participation, and all boundary-installment economics. The same batch mechanism settles originator amounts. No recourse/buyback payable exists.
+
+### PAY-DEC-031: Deadline-Based Funding Eligibility (2026-09-07)
+
+This decision supersedes the fixed day-30 investment cutoff and the earlier 29-day publication cap. Admins define at most 50 inclusive Europe/Zurich subscription dates; the direct-loan default remains 30 dates. The last subscription date is inclusive and the scheduled resolver runs on the following business date, before available-balance ageing. Publication freezes the deadline: extending an open round is prohibited.
+
+Every reserved source must cover the entire remaining window within its original holding limit. Its withdrawal-deadline date must be strictly later than the last subscription date. A 30-day remaining window requires 30 holding days remaining; a 10-day window requires 10. An investor joining later covers only the remaining window. Sources at day 60, frozen or in penalty mode are excluded. This applies to direct and LO v2 orders, including batches. Instant purchases have no extra campaign wait. Generic balances are potentially investable, not a guarantee of eligibility for every campaign.
+
+Funding outcome is deterministic under terms frozen at publication. At deadline, qualified direct loans close at subscribed principal; below-minimum loans cancel and restore exact source lots without resetting age. Failed execution hides the opportunity, preserves reservations, raises an urgent task/email, and retries automatically. Runtime/database failure cannot be assumed impossible: persistent failure is an operational incident requiring repair, not a discretionary funding decision or permission to extend holding time. There is no age-triggered cancellation overriding the minimum result. Available-balance ageing is not claimed to sweep reserved escrow.
+
+Existing acceptances and completed journals remain immutable. The legacy investment_deadline_at storage field is not an eligibility gate; new entries, investor-facing compatibility projections and balance-ageing reports use the holding deadline. Raw balance exports preserve the historical stored field for evidence, not eligibility. Source holding deadlines and FX lineage are never reset. Previously published LO rounds retain their disclosed minimum terms; whether new LO rounds should adopt the direct-loan default is awaiting explicit product confirmation.

@@ -79,9 +79,9 @@ Garanta will support investor balances on the website. Investors may hold balanc
 
 Client funds must be held in segregated settlement or collection accounts, must be non-interest-bearing, must not be used for Garanta's own account, and must be tracked in the platform ledger by investor, currency, source entry, received timestamp, and ageing deadline.
 
-Every balance source entry is subject to a 30-day investment/reinvestment deadline and a 60-day absolute withdrawal deadline under the launch interpretation. The 60-day deadline is treated as regulatory/compliance-driven and non-extendable. Balances remaining after day 60 are subject to an env/deployment-configurable penalty policy. Launch default is 1% simple daily penalty on the overdue source balance, applied using Europe/Zurich calendar days, capped at the remaining overdue balance, and never creating a negative balance.
+Every balance source entry is subject to a 60-day absolute holding deadline and loan-specific investment eligibility under the launch interpretation. The 60-day deadline is treated as regulatory/compliance-driven and non-extendable. Balances remaining after day 60 are subject to an env/deployment-configurable penalty policy. Launch default is 1% simple daily penalty on the overdue source balance, applied using Europe/Zurich calendar days, capped at the remaining overdue balance, and never creating a negative balance.
 
-After day 30, the balance source becomes withdraw-only and cannot be used for investment/reinvestment. Currency exchange does not reset the 30/60-day ageing clocks and cannot restore investment eligibility. The target-currency source inherits ageing deadlines from the source balance entries consumed by the FX transaction, using the earliest consumed investment and withdrawal deadlines when multiple source entries are consumed in one exchange. After day 60, admin attempts forced withdrawal if a usable verified IBAN is known. If no usable IBAN is known, penalty mode freezes investor financial actions until a usable IBAN is declared, while preserving read-only access.
+A source remains potentially investable before day 60 if it covers the selected loan's remaining funding window. Currency exchange does not reset the 60-day holding clock and cannot restore investment eligibility. The target-currency source inherits ageing deadlines from the source balance entries consumed by the FX transaction, using the earliest consumed investment and withdrawal deadlines when multiple source entries are consumed in one exchange. After day 60, admin attempts forced withdrawal if a usable verified IBAN is known. If no usable IBAN is known, penalty mode freezes investor financial actions until a usable IBAN is declared, while preserving read-only access.
 
 Rationale:
 The updated product model requires multi-currency investor balances while preserving segregation from Garanta operating funds, non-interest treatment, source-level auditability, and hard ageing controls.
@@ -90,7 +90,7 @@ Impacted modules:
 Payments, Ledger, Custody, and Reconciliation; Investor Portal; Marketplace, Investments, and Allocations; Accounting, Tax, and Finance Operations; Communications and Notifications; Security, Privacy, and Auditability.
 
 Follow-ups:
-Validate with Swiss counsel, compliance, VQF/SRO, bank/payment partners, and auditors whether the balance and FX model remains inside Garanta's authorization perimeter or requires additional authorisation, partner structure, disclosures, controls, or licensing. Define the exact bank account structure, payment reference model, reconciliation process, automated 30/60-day monitoring, penalty treatment, and escalation path.
+Validate with Swiss counsel, compliance, VQF/SRO, bank/payment partners, and auditors whether the balance and FX model remains inside Garanta's authorization perimeter or requires additional authorisation, partner structure, disclosures, controls, or licensing. Define the exact bank account structure, payment reference model, reconciliation process, automated 60-day holding monitoring, penalty treatment, and escalation path.
 
 ### DEC-003: Launch Jurisdictions
 
@@ -301,7 +301,7 @@ Owner: Garanta management / operations / technology / compliance.
 Decision:
 The authoritative business timezone for BANXUM is Europe/Zurich.
 
-All calendar-day business rules use Europe/Zurich local dates unless a module explicitly states otherwise. This includes 30-day investment/reinvestment deadlines, 60-day withdrawal/holding deadlines, balance reminders, day-60 penalty mode, loan funding deadlines, secondary-market operational deadlines, day-5 late status, day-16 default status, scheduled background jobs, report cutoffs, and admin dashboard day buckets.
+All calendar-day business rules use Europe/Zurich local dates unless a module explicitly states otherwise. This includes loan-specific funding eligibility, 60-day withdrawal/holding deadlines, balance reminders, day-60 penalty mode, loan funding deadlines, secondary-market operational deadlines, day-5 late status, day-16 default status, scheduled background jobs, report cutoffs, and admin dashboard day buckets.
 
 Timestamps should still be stored in UTC with timezone-aware values. User-facing dates, business deadline calculations, scheduler cutoffs, and reports should render and evaluate using Europe/Zurich.
 
@@ -360,15 +360,15 @@ Confirm legal/regulatory treatment of currency exchange, FX rate-provider licens
 ## Core Controls
 
 - No investment before the investor passes required onboarding, eligibility, and risk checks.
-- No legal-entity lender financial activity before admin-recorded KYB/AML approval and no compliance hold.
+- Company KYB/AML is completed and retained offline by Garanta. No platform company case or document upload is required; representative account restrictions and explicit compliance holds remain enforced.
 - No borrower listing before entity verification, borrower KYB/AML approval, offline credit approval, mandatory structured loan information, and listing approval are complete.
-- No funds release before the loan reaches funding conditions, contractual documents are effective, borrower KYB/AML remains approved, and payment reconciliation passes.
+- No funds release before the loan reaches funding conditions, contractual documents are effective, the borrower has no explicit compliance hold/adverse decision, and payment reconciliation passes. Company KYB approval is Garanta's offline responsibility, not a required local status or expiry gate.
 - Relevant KYC/KYB/AML evidence must be stored on Garanta-controlled infrastructure located in Switzerland and retained for at least 10 years, subject to final legal/compliance confirmation.
 - Client funds and investor balances must remain segregated, non-interest-bearing, and unused for Garanta's own account.
 - External bank movements must be admin-declared as bank operations at launch and reconciled against the platform ledger by currency.
 - When no pending/suspense/exception items remain, collection-account bank balances must equal investor balances plus Garanta accrued commissions/revenue held in those accounts.
-- Investor balance source entries must track received timestamp, 30-day investment/reinvestment deadline, 60-day withdrawal deadline, and penalty status.
-- Investor balance source entries older than 30 days must be blocked from investment/reinvestment and shown with explicit user-facing errors.
+- Investor balance source entries must track received timestamp, 60-day holding deadline, loan-specific funding eligibility, and penalty status.
+- Sources with insufficient remaining holding time for the selected loan must be rejected with explicit user-facing errors.
 - Balance deadline reminders must be sent on days 25, 46, 53, 58, 59, and 60, with day 60 announcing penalty application.
 - Day-60 balances trigger forced withdrawal if a usable IBAN is known; missing usable IBAN triggers penalty mode and freezes financial actions until an IBAN is declared, while preserving read-only access.
 - The 60-day holding limit is non-extendable in platform terms and operational handling.
@@ -406,7 +406,7 @@ Confirm legal/regulatory treatment of currency exchange, FX rate-provider licens
 ## Q/A Backlog
 
 1. Answered by DEC-001: VQF/SRO affiliation for loans, leasing, payment, crowdfunding, and crowdlending; no banking, securities firm, collective investment scheme, or portfolio management licence.
-2. Answered by DEC-002 and PAY-DEC-003/PAY-DEC-017: investor balances are in scope, held in segregated non-interest-bearing collection accounts with source-level ageing, 30-day reinvestment deadline, 60-day withdrawal deadline, and penalty handling.
+2. Answered by DEC-002 and PAY-DEC-003/PAY-DEC-017: investor balances are in scope, held in segregated non-interest-bearing collection accounts with source-level ageing, 60-day holding deadline and loan-specific funding eligibility, and penalty handling.
 3. Answered by DEC-003: natural-person lenders may be accepted from Switzerland and EU/EEA; legal-entity lenders and borrowers are admin/offline onboarded rather than governed by a self-service country matrix.
 4. Answered by DEC-004: retail, professional, and institutional lenders may be supported.
 5. Answered by DEC-005: pro-rata assignment of receivables/loan claims.

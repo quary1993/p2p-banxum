@@ -316,7 +316,7 @@ Swiss regulatory requirements mean {{operator.legal_name}} must avoid keeping us
 
 Please invest or reinvest this balance before {{deadline_date}} if it is still eligible under the balance-ageing and loan-funding-deadline rules. Otherwise, please withdraw it.
 
-After day 30, this balance can no longer be invested or reinvested and becomes withdraw-only. Currency exchange does not reset the ageing deadline. If the balance remains after day 60, it will be subject to the configured penalty policy: {{penalty.description}}.
+This balance can fund only loans whose remaining funding window fits within its remaining holding time. Currency exchange does not reset the ageing deadline. If the balance remains after day 60, it will be subject to the configured penalty policy: {{penalty.description}}.
 
 Regards,
 {{platform.name}}

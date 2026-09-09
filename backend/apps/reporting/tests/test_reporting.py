@@ -14,6 +14,7 @@ from django.contrib.auth import get_user_model
 from django.db import DatabaseError, connection, transaction
 from django.db.models import Model
 from django.test import Client
+from freezegun import freeze_time
 
 from backend.apps.platform_core.domain.time import business_timezone
 from backend.apps.platform_core.models import AuditEvent, Currency, DomainEvent, OutboxMessage
@@ -31,6 +32,155 @@ from backend.apps.reporting.services import (
     ReportingAuthorizationError,
     generate_report,
 )
+
+
+@pytest.mark.django_db
+def test_historical_balance_exports_do_not_use_current_consumed_lots(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    InvestorBalanceLot = import_module("backend.apps.ledger.models").InvestorBalanceLot
+    ledger = import_module("backend.apps.ledger.services")
+    ReserveInvestmentBalanceCommand = ledger.ReserveInvestmentBalanceCommand
+    reserve_investor_balance_for_investment = ledger.reserve_investor_balance_for_investment
+
+    with freeze_time("2026-01-05T12:00:00Z"):
+        _declare_deposit(admin_user, investor)
+    report_args: dict[str, Any] = dict(
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 31),
+        actor=admin_user,
+    )
+    before = {
+        kind: _csv_rows(
+            generate_report(
+                GenerateReportCommand(
+                    report_type=kind,
+                    **report_args,
+                )
+            ).content
+        )
+        for kind in (ReportType.BALANCE_AGEING, ReportType.INVESTOR_BALANCES)
+    }
+    import uuid
+
+    reserve_investor_balance_for_investment(
+        ReserveInvestmentBalanceCommand(
+            actor=admin_user,
+            investor_user_id=str(investor.pk),
+            loan_id=str(uuid.uuid4()),
+            currency="CHF",
+            amount_minor=100_00,
+            loan_funding_deadline=date(2026, 2, 2),
+            source_type="test",
+            source_id="history",
+            idempotency_key="report-history-reserve",
+            as_of=_received_at(date(2026, 2, 1)),
+        )
+    )
+    assert InvestorBalanceLot.objects.get(investor_user_id=investor.pk).available_amount_minor == 0
+    for kind, original in before.items():
+        after = _csv_rows(
+            generate_report(
+                GenerateReportCommand(
+                    report_type=kind,
+                    **report_args,
+                )
+            ).content
+        )
+        assert after == original
+        assert after[0]["available_amount_minor"] == "10000"
+        assert after[0]["status"] == "available"
+
+
+@pytest.mark.django_db
+def test_repayment_report_uses_schedule_and_payments_at_the_cutoff(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    from django.apps import apps
+
+    servicing = import_module("backend.apps.servicing.services")
+    factory = import_module("backend.apps.servicing.tests.test_servicing_repayments")
+
+    with freeze_time("2026-02-01T12:00:00Z"):
+        loan = factory._funded_loan_with_holdings(admin_user, investor, investor)
+    command = GenerateReportCommand(
+        actor=admin_user,
+        report_type=ReportType.REPAYMENT_STATUS,
+        start_date=date(2026, 2, 1),
+        end_date=date(2026, 2, 28),
+    )
+    before = _csv_rows(generate_report(command).content)
+    assert len(before) == 1
+    assert before[0]["outstanding_minor"] == "330000"
+    with freeze_time("2026-03-01T12:00:00Z"):
+        servicing.record_borrower_repayment(factory._repayment_command(admin_user, loan))
+    with freeze_time("2026-03-02T12:00:00Z"):
+        apps.get_model("loans", "LoanInstallment").objects.create(
+            loan=loan,
+            schedule_version=2,
+            installment_number=2,
+            due_date=date(2026, 3, 31),
+            principal_minor=27_000_00,
+            interest_minor=100_00,
+            total_minor=27_100_00,
+        )
+    assert _csv_rows(generate_report(command).content) == before
+    after = _csv_rows(
+        generate_report(
+            GenerateReportCommand(
+                actor=admin_user,
+                report_type=ReportType.REPAYMENT_STATUS,
+                start_date=date(2026, 2, 1),
+                end_date=date(2026, 3, 31),
+            )
+        ).content
+    )
+    assert len(after) == 2
+    assert {row["row_type"] for row in after} == {"installment", "historical_repayment"}
+    assert sum(int(row["outstanding_minor"]) for row in after) == 27_100_00
+
+
+@pytest.mark.django_db
+def test_repayment_report_full_payoff_has_no_superseded_debt(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    servicing = import_module("backend.apps.servicing.services")
+    factory = import_module("backend.apps.servicing.tests.test_servicing_repayments")
+    with freeze_time("2026-02-01T12:00:00Z"):
+        loan = factory._funded_loan_with_holdings(admin_user, investor, investor)
+    with freeze_time("2026-03-15T12:00:00Z"):
+        result = servicing.record_borrower_repayment(
+            factory._repayment_command(
+                admin_user,
+                loan,
+                amount_minor=30_423_29,
+                booking_date=date(2026, 3, 15),
+                value_date=date(2026, 3, 15),
+                repayment_in_advance=True,
+                borrower_repayment_bank_date=date(2026, 3, 15),
+                idempotency_key="report-full-payoff",
+            )
+        )
+    rows = _csv_rows(
+        generate_report(
+            GenerateReportCommand(
+                actor=admin_user,
+                report_type=ReportType.REPAYMENT_STATUS,
+                start_date=date(2026, 3, 1),
+                end_date=date(2026, 12, 31),
+            )
+        ).content
+    )
+    assert len(rows) == 1
+    assert rows[0]["row_type"] == "historical_repayment"
+    assert rows[0]["payment_date"] == "2026-03-15"
+    assert int(rows[0]["paid_total_minor"]) == result.repayment_event.amount_minor
+    assert int(rows[0]["outstanding_minor"]) == 0
+    assert int(rows[0]["scheduled_total_minor"]) == 0
+    assert rows[0]["loan_status"] == "repaid"
 
 
 @pytest.fixture

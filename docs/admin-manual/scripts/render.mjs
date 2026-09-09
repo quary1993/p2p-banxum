@@ -272,7 +272,8 @@ figcaption { font-size:15.4px; font-weight:600; margin-bottom:3px; break-after:a
 
 /* Flows */
 .flow { break-inside:auto; border:1px solid #e3e0d4; border-radius:10px; padding:12px 14px; margin:11px 0; background:#fffdf8; }
-.flow-head { display:flex; align-items:center; gap:10px; break-after:avoid; }
+#flows > .flow:last-child { break-inside:avoid; }
+.flow-head { display:flex; align-items:center; gap:10px; break-inside:avoid; break-after:avoid; }
 .flow-n { flex:0 0 auto; width:26px; height:26px; border-radius:7px; background:#2f6b4f; color:#fff; font-weight:700; display:flex; align-items:center; justify-content:center; }
 .flow-head h3 { margin:0; font-size:16.6px; }
 .flow-goal { font-size:13.4px; color:#363d37; margin:7px 0; }
@@ -284,6 +285,7 @@ figcaption { font-size:15.4px; font-weight:600; margin-bottom:3px; break-after:a
 .step-action { font-weight:600; }
 .step-detail { color:#5b635c; font-size:12.8px; margin-top:1px; }
 .flow-out { background:#f0f4ef; border-radius:7px; padding:7px 10px; font-size:13px; }
+.flow-pit { break-inside:avoid; }
 .flow-pit ul { margin-bottom:0; }
 
 /* Glossary */

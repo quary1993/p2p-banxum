@@ -6,6 +6,12 @@ Admin console UI/UX is not owned by Claude Design. Admin console screens are imp
 
 ## Ownership Boundary
 
+### 2026-09-07: Funding-Window Eligibility
+
+- Current behavior: single and batch investment previews use each source's remaining holding time; shorter campaigns can use older funds. Balances and FAQ explain potential versus loan-specific eligibility. Fixed day-30 warnings are removed.
+- Follow-up: polish the potentially-investable balance label and batch tooltips without implying that all balance can fund every loan; preserve mobile wrapping and keyboard access.
+- Priority: nice-to-have.
+
 Claude Design owns:
 
 - Public and unauthenticated user-facing pages.
@@ -447,10 +453,10 @@ Before launch, Claude Design should produce or implement:
 - Suggested improvement: validate unusually long translated navigation labels before localization and confirm native option-menu rendering on the supported iOS, Android, Windows, and macOS browser matrix.
 - Priority: important.
 
-## 2026-09-03: Loan Originator Subscription Opportunities And Holdings
+## 2026-09-07: Loan Originator Subscription Opportunities And Holdings
 
 - Screen or component: Investment Opportunities common table/detail, finite
-  subscription review, activation waiting states, My Portfolio holding detail, activity, documents,
+  subscription review, funding-close exception states, My Portfolio holding detail, activity, documents,
   and secondary-market buyer detail.
 - Current behavior: direct BANXUM loans and Loan Originator claims share the primary
   opportunity table. The common rate column is `Yield`; an originator row carries a
@@ -459,23 +465,26 @@ Before launch, Claude Design should produce or implement:
   interest/penalty participation, minimum investment, funding deadline, maturity,
   current outstanding/sellable principal, and post-boundary cash flows. Current
   subscriptions reserve balance at par after clickwrap/email-code confirmation.
-  Close preserves the reservation; holdings and entitlements appear only after the
-  exact boundary installment is verified and activation completes. Portfolio and
+  Successful close creates holdings and immutable post-boundary entitlements in the
+  same transaction. The boundary installment belongs entirely to the LO and its
+  actual bank receipt is recorded separately. Portfolio and
   activity identify activated originator claims and show investor cash-flow projections.
   Performing originator holdings may be resold at par or a discount, not a premium.
 - Design decision: never present the underlying coupon as a promised investor IRR,
   never imply returns are guaranteed, and never expose private final-borrower legal
-  name, originator settlement status, or internal import references. Explain that no
+  name unless explicitly published per loan by an admin, originator settlement status,
+  or internal import references. Explain that no
   investor interest accrues during funding or on the boundary installment; one unit
   of cash buys one unit of principal at activation; later interest and penalty rights
-  use separate declared participation; and failed activation refunds the original
-  balance-lot reservation. No originator recourse/buyback exists.
+  use separate declared participation. Failed close preserves the reservation and
+  alerts operations; cancellation restores the original balance-lot amounts and
+  ageing dates. No originator recourse/buyback exists.
 - Remaining backend/API dependency: non-performing originator-claim resale is
   intentionally blocked until an approved impaired-accrual/default-entitlement
   pricing projection exists. Do not design around or bypass that v1 boundary.
 - Suggested improvement: run final mobile/tablet usability and accessibility review
   with long originator names, mixed currencies, near-deadline rounds, close-failure
-  and awaiting-activation states, empty projections, and cancellation/refund copy. The
+  and legacy upgrade exceptions, empty projections, and cancellation/refund copy. The
   review should preserve the existing marketplace table hierarchy rather than
   introducing a separate marketplace.
 - Priority: important.

@@ -17,14 +17,21 @@ class BalanceSummarySerializer(serializers.Serializer[Any]):
     investor_user_id = serializers.UUIDField()
     currency = serializers.CharField()
     total_available_minor = serializers.IntegerField()
-    investable_minor = serializers.IntegerField()
+    investable_minor = serializers.IntegerField(
+        help_text=(
+            "Potentially investable balance; each loan's remaining funding window "
+            "is checked separately."
+        )
+    )
     withdraw_only_minor = serializers.IntegerField()
     overdue_minor = serializers.IntegerField()
     frozen_minor = serializers.IntegerField()
     penalty_mode_minor = serializers.IntegerField()
     lot_count = serializers.IntegerField()
     active_lot_count = serializers.IntegerField()
-    next_investment_deadline_at = serializers.DateTimeField(allow_null=True)
+    next_investment_deadline_at = serializers.DateTimeField(
+        allow_null=True, help_text="Compatibility alias of the next source holding deadline."
+    )
     next_withdrawal_deadline_at = serializers.DateTimeField(allow_null=True)
 
 
@@ -35,7 +42,9 @@ class BalanceLotSerializer(serializers.Serializer[Any]):
     status = serializers.CharField()
     bucket = serializers.CharField()
     received_at = serializers.DateTimeField()
-    investment_deadline_at = serializers.DateTimeField()
+    investment_deadline_at = serializers.DateTimeField(
+        help_text="Compatibility alias of withdrawal_deadline_at, not a fixed source-age cutoff."
+    )
     withdrawal_deadline_at = serializers.DateTimeField()
     days_until_investment_deadline = serializers.IntegerField()
     days_until_withdrawal_deadline = serializers.IntegerField()

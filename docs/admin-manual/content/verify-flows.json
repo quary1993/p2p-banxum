@@ -26,8 +26,8 @@
     },
     {
       "location": "Flow 'Match an incoming bank deposit to a lender' > preconditions (jargon 'balance lot') and Flow 'day-60' pitfall 3 (\"The 60-day clock is per-lot... a new deposit does not reset an older lot\").",
-      "problem": "Slightly inaccurate on when the clock starts. The lot's investment_deadline (30 days) and withdrawal_deadline (60 days) are computed from received_at, which is derived from the VALUE DATE you enter on the deposit (_received_at_from_value_date / _lot_deadlines in ledger/services.py), not literally 'the day it arrived' or the day you keyed it. An admin who back- or forward-dates the value date shifts the whole ageing clock.",
-      "fix": "Note that the 30/60-day ageing clock runs from the deposit's VALUE DATE (the value_date field), so entering the value date correctly matters - it sets when reminders fire and when the lot becomes over-age.",
+      "problem": "The holding clock starts from the bank VALUE DATE, not the date the admin enters the deposit. Back- or forward-dating value_date changes received_at and therefore the original 60-day holding deadline.",
+      "fix": "Enter the actual bank value date. It controls reminders and the 60-day holding deadline. Investment eligibility additionally checks the remaining loan funding window (PAY-DEC-031); no fixed day-30 cutoff applies.",
       "severity": "medium"
     },
     {
@@ -50,9 +50,9 @@
     }
   ],
   "confirmedAccurate": [
-    "Loan create validations (updated in the refinancing-loans slice): financeable principal 1,000-1,000,000,000 in loan currency, term 1-600 months, funding deadline not in past and <=60 days out, schedule complete and summing to the financeable principal, refinancing loans require the four original loan data fields; the first installment is derived as one month after the loan start date (loans/services.py).",
-    "Publish gates (updated in the refinancing-loans slice): status must be DRAFT; borrower.can_transact (KYB approved AND compliance hold off); publishable funding deadline must be today..+29 days (MAX_PUBLISHABLE_FUNDING_DEADLINE_DAYS=29, stricter than the 60-day create limit); schedule complete and matching the financeable principal; refinancing loans must not have a financeable principal above the remaining outstanding of the informational original schedule (lower is allowed with an informational notice).",
-    "Publish failure string 'Borrower KYB must be approved and free of compliance hold.' is exact, and the 29-day publish rationale (late-pledged funds still settle inside the 60-day operating limit) matches the code comment.",
+    "Direct loan creation requires a complete schedule matching the financeable principal and a funding deadline from today through today+49, at most 50 inclusive subscription dates. The first installment is one month after loan start. The Loan Originator product replaces new refinancing origination; historical refinancing evidence is retained.",
+    "Publish gates require draft status, an eligible borrower, a complete schedule and at most 50 inclusive subscription dates. Company KYB is collected offline; explicit adverse status or a compliance hold still blocks. Publication freezes the direct deadline and minimum subscription. Every invested source must cover the remaining funding window within its own original 60-day holding limit.",
+    "The fixed day-30 investment cutoff and 29-day publication cap are superseded by PAY-DEC-031. Deadline resolution is automatic under the published threshold; failed execution preserves funds, alerts operations and retries without an admin choosing the funding outcome.",
     "A KYB status change requires a note OR evidence summary ('A note or evidence summary is required for KYB changes.' in entities/services.py update_borrower_entity).",
     "Borrowers cannot be deleted (no delete path; UnsupportedRemoveNote 'Borrower' in the UI; records kept via append-only events).",
     "Balance ageing reminder days are exactly 25, 46, 53, 58, 59, 60 (BALANCE_AGEING_REMINDER_DAYS).",

@@ -11,6 +11,7 @@ from backend.apps.documents.models import (
     DocumentTemplate,
     DocumentTemplateVersion,
 )
+from backend.apps.documents.services import acceptance_disclosure_snapshot
 
 
 class DocumentTemplateSerializer(serializers.Serializer[Any]):
@@ -70,7 +71,11 @@ class DocumentAcceptanceEvidenceSerializer(serializers.Serializer[Any]):
     context_type = serializers.CharField()
     context_id = serializers.CharField()
     accepted_checkbox_labels = serializers.JSONField()
-    data_snapshot = serializers.JSONField()
+    data_snapshot = serializers.SerializerMethodField()
+
+    def get_data_snapshot(self, obj: DocumentAcceptanceEvidence) -> dict[str, Any]:
+        return acceptance_disclosure_snapshot(obj)
+
     accepted_at = serializers.DateTimeField()
     ip_address = serializers.IPAddressField(allow_null=True)
     user_agent = serializers.CharField()

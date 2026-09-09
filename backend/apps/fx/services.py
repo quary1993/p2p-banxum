@@ -13,6 +13,7 @@ from importlib import import_module
 from typing import Any, cast
 
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.db.models import Model, QuerySet, Sum
 
@@ -336,9 +337,7 @@ def _quote_request_fingerprint(
             "source_amount_minor": source_amount_minor,
             "provider": command.provider_rate.provider,
             "rate": str(command.provider_rate.rate),
-            "previous_day_average_rate": str(
-                command.provider_rate.previous_day_average_rate or ""
-            ),
+            "previous_day_average_rate": str(command.provider_rate.previous_day_average_rate or ""),
             "provider_quote_id": command.provider_rate.provider_quote_id,
             "provider_observed_at": command.provider_rate.observed_at.isoformat(),
             "fee_bps": fee_bps,
@@ -717,15 +716,11 @@ def _validate_provider_rate(
             raise FxValidationError("Previous-day average FX rate must be positive.")
         deviation_bps = int(
             (
-                abs(rate - previous_day_average_rate)
-                / previous_day_average_rate
-                * Decimal(10_000)
+                abs(rate - previous_day_average_rate) / previous_day_average_rate * Decimal(10_000)
             ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
         )
         if deviation_bps > PREVIOUS_DAY_AVERAGE_MAX_DEVIATION_BPS:
-            raise FxValidationError(
-                "FX provider rate deviates too far from previous-day average."
-            )
+            raise FxValidationError("FX provider rate deviates too far from previous-day average.")
         sanity["checks"].append(
             {
                 "name": "previous_day_average",
@@ -1035,7 +1030,10 @@ def execute_fx_quote(command: ExecuteFxQuoteCommand) -> FxExchange:
 
 @transaction.atomic
 def _execute_fx_quote_after_sensitive_code(command: ExecuteFxQuoteCommand) -> FxExchange:
-    _require_financial_actor(command.actor)
+    # Different quotes share one investor/day allowance. Serialize before reading it,
+    # not merely when the ledger later locks the source balance lots.
+    investor = get_user_model().objects.select_for_update().get(pk=command.actor.pk)
+    _require_financial_actor(investor)
     idempotency_key = _clean_idempotency_key(command.idempotency_key)
     quote = (
         FxQuote.objects.select_for_update()
@@ -1478,9 +1476,7 @@ def create_fx_realized_settlement_report(
             actual_bought.get(bought_code, 0) + settlement.bought_amount_minor
         )
         fees[bought_code] = fees.get(bought_code, 0) + settlement.expected_fee_minor
-        residual[sold_code] = (
-            residual.get(sold_code, 0) + settlement.sold_currency_residual_minor
-        )
+        residual[sold_code] = residual.get(sold_code, 0) + settlement.sold_currency_residual_minor
         residual[bought_code] = (
             residual.get(bought_code, 0) + settlement.bought_currency_residual_minor
         )
@@ -1590,10 +1586,14 @@ def _yahoo_chart_provider_rate(
     if not isinstance(meta, dict):
         raise FxValidationError("Yahoo Finance chart metadata is missing.")
 
-    quote_rows = (result.get("indicators") or {}).get("quote") if isinstance(
-        result.get("indicators"),
-        dict,
-    ) else None
+    quote_rows = (
+        (result.get("indicators") or {}).get("quote")
+        if isinstance(
+            result.get("indicators"),
+            dict,
+        )
+        else None
+    )
     closes: list[Any] = []
     if isinstance(quote_rows, list) and quote_rows and isinstance(quote_rows[0], dict):
         close_values = quote_rows[0].get("close")

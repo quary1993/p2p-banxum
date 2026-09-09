@@ -157,37 +157,7 @@ export const portalFixture: InvestorPortalFixture = {
   }
 };
 
-const chfSummary: BalanceSummary = {
-  investor_user_id: investorId,
-  currency: "CHF",
-  total_available_minor: amount(28190),
-  investable_minor: amount(20090),
-  withdraw_only_minor: amount(3120),
-  overdue_minor: amount(980),
-  frozen_minor: 0,
-  penalty_mode_minor: 0,
-  lot_count: 5,
-  active_lot_count: 5,
-  next_investment_deadline_at: "2026-06-08T00:00:00+02:00",
-  next_withdrawal_deadline_at: "2026-06-08T00:00:00+02:00"
-};
-
-const eurSummary: BalanceSummary = {
-  investor_user_id: investorId,
-  currency: "EUR",
-  total_available_minor: amount(7420),
-  investable_minor: amount(5220),
-  withdraw_only_minor: amount(2200),
-  overdue_minor: 0,
-  frozen_minor: 0,
-  penalty_mode_minor: 0,
-  lot_count: 3,
-  active_lot_count: 3,
-  next_investment_deadline_at: "2026-06-14T00:00:00+02:00",
-  next_withdrawal_deadline_at: "2026-06-19T00:00:00+02:00"
-};
-
-export const balanceLotsFixture: BalanceLot[] = [
+const sourceBalanceLotsFixture: BalanceLot[] = [
   {
     id: "L-2041",
     currency: "CHF",
@@ -350,8 +320,41 @@ export const balanceLotsFixture: BalanceLot[] = [
   }
 ];
 
+export const balanceLotsFixture: BalanceLot[] = sourceBalanceLotsFixture.map((lot) => {
+  const daysLeft = lot.bucket === "overdue" ? -1 : lot.days_until_withdrawal_deadline;
+  const deadline = `${fixtureIsoDateFromToday(daysLeft)}T00:00:00Z`;
+  return {
+    ...lot,
+    received_at: `${fixtureIsoDateFromToday(daysLeft - 60)}T00:00:00Z`,
+    investment_deadline_at: deadline,
+    withdrawal_deadline_at: deadline,
+    days_until_investment_deadline: daysLeft,
+    days_until_withdrawal_deadline: daysLeft,
+    bucket: daysLeft > 0 ? "investable" : "overdue",
+    requires_withdrawal: daysLeft <= 0
+  };
+});
+
+function fixtureBalanceSummary(currency: string): BalanceSummary {
+  const lots = balanceLotsFixture.filter((lot) => lot.currency === currency);
+  const sum = (bucket?: string) => lots.reduce((total, lot) =>
+    total + (!bucket || lot.bucket === bucket ? lot.available_amount_minor : 0), 0
+  );
+  const next = lots.map((lot) => lot.withdrawal_deadline_at).sort()[0] ?? null;
+  return {
+    investor_user_id: investorId, currency,
+    total_available_minor: sum(), investable_minor: sum("investable"),
+    withdraw_only_minor: 0, overdue_minor: sum("overdue"), frozen_minor: 0,
+    penalty_mode_minor: 0, lot_count: lots.length, active_lot_count: lots.length,
+    next_investment_deadline_at: next, next_withdrawal_deadline_at: next
+  };
+}
+
+const chfSummary = fixtureBalanceSummary("CHF");
+const eurSummary = fixtureBalanceSummary("EUR");
+
 export const balancesFixture: InvestorBalancePortal = {
-  as_of: "2026-06-05T10:00:00+02:00",
+  as_of: new Date().toISOString(),
   summaries: [chfSummary, eurSummary],
   lots: balanceLotsFixture,
   payout_instructions: [
@@ -770,7 +773,7 @@ const originatorLoanDetailFixture: MarketplaceLoanDetail = {
     profit_last_year_minor: amount(315_000)
   },
   investor_summary:
-    "Existing final-borrower loan offered by a Loan Originator during a finite funding round. Investor money is reserved at par and claim rights begin only after the declared boundary installment is verified.",
+    "Existing final-borrower loan offered by a Loan Originator during a finite funding round. Investor money is reserved at par and holdings activate automatically at funding close. The boundary installment belongs entirely to the LO.",
   purpose_description:
     "Financing of production machinery. Garanta services the claim while investor ownership remains outstanding.",
   collateral_value_minor: amount(3_300_000),

@@ -92,7 +92,11 @@ class BorrowerEntity(TimestampedModel):
 
     @property
     def can_transact(self) -> bool:
-        return self.kyb_status == BorrowerKybStatus.APPROVED and not self.compliance_hold
+        # Company KYB is handled offline. Explicit adverse decisions still block.
+        return not self.compliance_hold and self.kyb_status not in {
+            BorrowerKybStatus.DECLINED,
+            BorrowerKybStatus.MANUAL_REVIEW,
+        }
 
     def __str__(self) -> str:
         return self.legal_name

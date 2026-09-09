@@ -293,8 +293,8 @@ export function useInvestorBalanceSummaryData(
         investor_user_id: params.investor_user_id,
         currency: params.currency,
         total_available_minor: 17150000,
-        investable_minor: 9800000,
-        withdraw_only_minor: 4100000,
+        investable_minor: 14900000,
+        withdraw_only_minor: 0,
         overdue_minor: 2250000,
         frozen_minor: 0,
         penalty_mode_minor: 0

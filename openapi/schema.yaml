@@ -5460,6 +5460,8 @@ components:
         investment_deadline_at:
           type: string
           format: date-time
+          description: Compatibility alias of withdrawal_deadline_at, not a fixed
+            source-age cutoff.
         withdrawal_deadline_at:
           type: string
           format: date-time
@@ -5555,6 +5557,8 @@ components:
           type: integer
         investable_minor:
           type: integer
+          description: Potentially investable balance; each loan's remaining funding
+            window is checked separately.
         withdraw_only_minor:
           type: integer
         overdue_minor:
@@ -5571,6 +5575,7 @@ components:
           type: string
           format: date-time
           nullable: true
+          description: Compatibility alias of the next source holding deadline.
         next_withdrawal_deadline_at:
           type: string
           format: date-time
@@ -6559,7 +6564,10 @@ components:
         context_id:
           type: string
         accepted_checkbox_labels: {}
-        data_snapshot: {}
+        data_snapshot:
+          type: object
+          additionalProperties: {}
+          readOnly: true
         accepted_at:
           type: string
           format: date-time
@@ -7583,6 +7591,8 @@ components:
         investment_deadline_at:
           type: string
           format: date-time
+          description: Legacy stored deadline retained as evidence; eligibility uses
+            withdrawal_deadline_at and the loan funding window.
         withdrawal_deadline_at:
           type: string
           format: date-time
@@ -9341,7 +9351,6 @@ components:
       - created_by_admin_id
       - id
       - jurisdiction
-      - kyb_evidence_reference
       - legal_name
       - public_name
       - registered_address
@@ -9400,7 +9409,6 @@ components:
           default: 5000
       required:
       - jurisdiction
-      - kyb_evidence_reference
       - legal_name
       - public_name
       - registered_address
@@ -10971,11 +10979,23 @@ components:
           type: integer
         resulting_principal_minor:
           type: integer
+        investor_distributed_minor:
+          type: integer
+          nullable: true
+        originator_payable_minor:
+          type: integer
+          nullable: true
+        platform_costs_minor:
+          type: integer
+          nullable: true
       required:
       - fee_minor
       - interest_minor
+      - investor_distributed_minor
+      - originator_payable_minor
       - payment_type
       - penalty_minor
+      - platform_costs_minor
       - principal_minor
       - reference
       - resulting_principal_minor
@@ -11101,6 +11121,14 @@ components:
           type: integer
         closing_principal_minor:
           type: integer
+        is_originator_boundary:
+          type: boolean
+        projected_investor_minor:
+          type: integer
+          nullable: true
+        projected_originator_minor:
+          type: integer
+          nullable: true
       required:
       - accrual_start_date
       - closing_principal_minor
@@ -11108,9 +11136,12 @@ components:
       - fee_minor
       - installment_number
       - interest_minor
+      - is_originator_boundary
       - opening_principal_minor
       - penalty_minor
       - principal_minor
+      - projected_investor_minor
+      - projected_originator_minor
       - total_minor
     OriginatorScopeEnum:
       enum:
