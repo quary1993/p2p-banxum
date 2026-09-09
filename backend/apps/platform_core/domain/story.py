@@ -117,6 +117,8 @@ def validate_story(
         if not isinstance(raw, dict):
             raise StoryValidationError("Each story block must be an object.")
         block_type = raw.get("type")
+        if not isinstance(block_type, str):
+            raise StoryValidationError("Each story block must have a text type.")
         if block_type in TEXT_BLOCKS:
             unknown = set(raw) - {"type", "runs", "level"}
             if unknown or (block_type != "heading" and "level" in raw):
@@ -126,7 +128,7 @@ def validate_story(
             block: dict[str, Any] = {"type": block_type, "runs": runs}
             if block_type == "heading":
                 level = raw.get("level", 2)
-                if level not in HEADING_LEVELS:
+                if type(level) is not int or level not in HEADING_LEVELS:
                     raise StoryValidationError("Headings must be level 2 or 3.")
                 block["level"] = level
             blocks.append(block)

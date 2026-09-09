@@ -109,6 +109,11 @@ def test_validate_story_accepts_empty_values() -> None:
     [
         {"version": 2, "blocks": []},
         {"version": 1, "blocks": [{"type": "script", "runs": []}]},
+        {"version": 1, "blocks": [{"type": []}]},
+        {"version": 1, "blocks": [{"type": {}}]},
+        {"version": 1, "blocks": [{"type": "heading", "level": []}]},
+        {"version": 1, "blocks": [{"type": "heading", "level": {}}]},
+        {"version": 1, "blocks": [{"type": "heading", "level": 2.0}]},
         {"version": 1, "blocks": [{"type": "paragraph", "runs": [{"text": "x", "onclick": "1"}]}]},
         {
             "version": 1,
