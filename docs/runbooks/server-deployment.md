@@ -418,3 +418,74 @@ the same baseline is idempotent; it does not refresh an aged or modified scenari
 Use superadmin read-only view to inspect the investor, or mock login for interactive
 QA. Enable QA mode after seeding to capture that state, advance time and then revert
 to repeat it. Do not mistake the temporary templates for approved legal terms.
+
+### Clean QA Rebuild Preserving Accounts And History
+
+This separate, destructive operation is for explicitly approved pre-launch testing,
+including the current nxnarena production-labelled test deployment. Do not use after
+real-money launch. It is **not** the additive seed above or the QA clock rollback.
+
+Run on the deployment host, from the target release directory. Preview first:
+
+```bash
+python3 infra/deploy/reset_qa_environment.py --environment staging
+```
+
+The preview shows the exact confirmation string, affected row counts and investor count.
+Provide the existing superadmin email, a new UUID and the exact preview confirmation:
+
+```bash
+python3 infra/deploy/reset_qa_environment.py \
+  --environment staging --execute \
+  --actor-email "$SUPERADMIN_EMAIL" \
+  --run-id "$RESET_UUID" \
+  --confirm "RESET QA DATA staging https://staging.nxnarena.com"
+```
+
+For the approved production-labelled QA target, use `--environment production`, the
+production URL from its preview, and the additional `--allow-production` flag. Execute
+staging first, verify the result, then execute production with a different UUID.
+
+The wrapper stops only that environment's backend/frontend, takes a private PostgreSQL
+dump under `/opt/banxum/<environment>/backups`, restores it into an isolated temporary
+database on the same instance, compares protected-table counts, and removes only that
+temporary verification database. It then runs the maintenance command in a one-off
+container with `QA_DATA_RESET_ALLOWED=true`; this flag must never be saved in the serving
+backend's `.env`. Backend/frontend restart and JSON health verification run even if the
+reset fails. Expect brief downtime; users may need to sign in again.
+
+The reset command also creates a private full Django fixture and checksum manifest
+before changing rows. It requires no other connected database clients, locks all tables,
+archives uncapped investor activity, and clears/reseeds in one transaction. An error rolls
+back the database; backup files remain. Reusing a completed UUID is a no-op, not a second
+credit or reset. After an interrupted command, inspect `QaDatasetReset` and retry with
+the **same UUID**; never assume an ambiguous response means the database did not commit.
+The wrapper detects completed runs before stopping the application. If a failed attempt
+has a backup but no committed reset record, it refuses to overwrite/reuse that backup;
+confirm rollback in the logs and use a new UUID for a fresh, fully backed-up attempt.
+
+Result and preservation contract:
+
+- Exactly ten direct loans and ten LO v2 loans, published, with zero subscriptions.
+- CHF 500,000 and EUR 500,000 per existing natural-person or legal-entity lender account.
+  Admin and superadmin accounts receive no balances. Restricted/closed/pending-KYC
+  accounts keep their access restrictions; the reset never approves their KYC.
+- Accounts, password hashes, roles, identity verification, registration/accepted
+  agreements, user/admin audit events, communication evidence, scheduler evidence,
+  platform/collector settings and stored files are retained.
+- Portfolio activity, secondary-market activity and FX exchange history remain readable
+  as "Before QA reset" entries. Historical source IDs remain evidence references, not
+  live loans/holdings. These archived projections never feed new balances or settlements.
+- Operational loans/borrowers/originators, balances, orders, holdings, repayments,
+  listings, quotes, payout instructions, tasks, reports and Smart Invest rules are cleared.
+  Their complete original records remain in the private backup, not active operation tables.
+- New balances use balanced synthetic opening journals, **not fabricated bank deposits**;
+  no dummy IBAN is verified and no external bank transfer is made.
+- Old pending outbox work and seed-generated messages are suppressed with an explicit
+  reason, not marked as successfully delivered. No seed email/SMS/provider call is made.
+- The QA clock is disabled, its previous rollback state is removed, and cached state is
+  cleared. Provider credentials and deployment configuration are not changed.
+
+Validate both currencies, exactly 20 unfunded opportunities, no old holdings/orders,
+unchanged account/role/KYC data, archived activity visibility, and admin audit access before
+resuming QA. Never delete or modify append-only evidence through ordinary admin commands.

@@ -6,6 +6,12 @@ Admin console UI/UX is not owned by Claude Design. Admin console screens are imp
 
 ## Ownership Boundary
 
+### 2026-09-09: Archived QA Activity
+
+- Current behavior: Portfolio activity, secondary-market activity and FX history retain pre-reset rows with a small "Before QA reset" label; the archived rows never contribute to current balances or holdings.
+- Follow-up: review label wrapping and scanability in the v9 tables on narrow screens. Keep these historical rows distinguishable from the new QA opening balances.
+- Priority: nice-to-have.
+
 ### 2026-09-07: Funding-Window Eligibility
 
 - Current behavior: single and batch investment previews use each source's remaining holding time; shorter campaigns can use older funds. Balances and FAQ explain potential versus loan-specific eligibility. Fixed day-30 warnings are removed.

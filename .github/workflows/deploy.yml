@@ -23,6 +23,14 @@ on:
         default: false
         type: boolean
 
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: banxum-deployment
+  cancel-in-progress: false
+
 jobs:
   deploy:
     name: Deploy BANXUM
@@ -32,6 +40,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Require passing CI for this revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&event=push&per_page=1" --jq '.workflow_runs[0].conclusion // "missing"')
+          if [ "$conclusion" != "success" ]; then
+            echo "CI for $GITHUB_SHA is $conclusion. Deploy only after CI passes." >&2
+            exit 1
+          fi
 
       - name: Validate required secrets
         env:
@@ -249,9 +268,14 @@ jobs:
             -f infra/deploy/docker-compose.yml \
             up -d --build
 
+          check_health() {
+            curl -fsS --connect-timeout 3 --max-time 10 \
+              -H 'X-Forwarded-Proto: https' "$health_url" | \
+              python3 -c 'import json,sys; data=json.load(sys.stdin); assert data.get("status") == "ok" and data.get("environment") == sys.argv[1]' "$TARGET"
+          }
           healthy=false
           for attempt in $(seq 1 30); do
-            if curl -fsS "$health_url" >/dev/null; then
+            if check_health; then
               echo "$TARGET health check passed: $health_url"
               healthy=true
               break
@@ -297,7 +321,7 @@ jobs:
               .venv/bin/python backend/manage.py seed_originator_demo_loans $seed_args
           fi
 
-          curl -fsS "$health_url" >/dev/null
+          check_health
           echo "$TARGET deployment completed successfully."
           REMOTE
           done

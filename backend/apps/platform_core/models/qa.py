@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from django.db import models
 
-from backend.apps.platform_core.models.base import TimestampedModel
+from backend.apps.platform_core.models.base import AppendOnlyModel, TimestampedModel
 
 
 class QaDevModeState(TimestampedModel):
@@ -27,3 +27,34 @@ class QaDevModeState(TimestampedModel):
 
     def __str__(self) -> str:
         return "qa-dev-mode:enabled" if self.is_enabled else "qa-dev-mode:disabled"
+
+
+class QaDatasetReset(AppendOnlyModel):
+    occurred_at = models.DateTimeField(auto_now_add=True)
+    actor_user_id = models.UUIDField()
+    environment = models.CharField(max_length=32)
+    backup_path = models.TextField()
+    backup_sha256 = models.CharField(max_length=64)
+    summary = models.JSONField(default=dict)
+
+
+class ArchivedInvestorActivity(AppendOnlyModel):
+    """Pre-reset display evidence, never a source for balances or investment metrics."""
+
+    investor_user_id = models.UUIDField()
+    stream = models.CharField(max_length=32)
+    source_id = models.CharField(max_length=128)
+    occurred_at = models.DateTimeField()
+    archived_at = models.DateTimeField(auto_now_add=True)
+    reset_id = models.UUIDField()
+    payload = models.JSONField()
+
+    class Meta:
+        ordering = ["-occurred_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["investor_user_id", "stream", "source_id"],
+                name="qa_activity_source_unique",
+            )
+        ]
+        indexes = [models.Index(fields=["investor_user_id", "stream", "occurred_at"])]

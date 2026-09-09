@@ -235,6 +235,8 @@ SCHEDULED_JOBS_RUNNING_TIMEOUT_MINUTES = env.int(
     default=120,
 )
 QA_DEV_MODE_ALLOWED = env.bool("QA_DEV_MODE_ALLOWED", default=False)
+# Maintenance CLI only. Never enable this on the serving application process.
+QA_DATA_RESET_ALLOWED = env.bool("QA_DATA_RESET_ALLOWED", default=False)
 QA_DEV_MODE_SNAPSHOT_DIR = env(
     "QA_DEV_MODE_SNAPSHOT_DIR",
     default=str(BASE_DIR / "tmp" / "qa-dev-snapshots"),

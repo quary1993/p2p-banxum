@@ -340,6 +340,7 @@ class PendingActionSerializer(serializers.Serializer[Any]):
 
 
 class ActivityEntrySerializer(serializers.Serializer[Any]):
+    archived_at = serializers.DateTimeField(required=False)
     id = serializers.CharField()
     activity_type = serializers.CharField()
     occurred_at = serializers.DateTimeField()
@@ -443,6 +444,7 @@ class SecondarySaleAsSellerPortalSerializer(serializers.Serializer[Any]):
 
 
 class SecondaryMarketActivityEntryPortalSerializer(serializers.Serializer[Any]):
+    archived_at = serializers.DateTimeField(required=False)
     id = serializers.CharField()
     action = serializers.CharField()
     event_type = serializers.CharField()
@@ -482,6 +484,7 @@ class FxQuotePortalSerializer(serializers.Serializer[Any]):
 
 
 class FxExchangePortalSerializer(serializers.Serializer[Any]):
+    archived_at = serializers.DateTimeField(required=False)
     id = serializers.UUIDField()
     quote_id = serializers.UUIDField()
     source_currency = serializers.CharField()

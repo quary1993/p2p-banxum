@@ -31,6 +31,8 @@ Resolved audits, completed work-item specs, boilerplate module READMEs, and temp
 
 Implemented and committed:
 
+- 2026-09-09: Explicit offline QA dataset reset preserves accounts/roles/verification, agreements, configuration, investor activity projections and user/admin audit history while rebuilding operational financial data. It produces ten unfunded direct loans, ten unfunded LO v2 loans and CHF/EUR 500,000 per lender account only. A superadmin, transient maintenance-process opt-in, exact environment/site confirmation, stopped writers, validated private backups and transactional rollback are mandatory. Production execution is an explicit pre-launch QA exception, not a normal operational deletion path. See `docs/runbooks/server-deployment.md` for the repeatable maintenance command.
+
 - Phase 0 bootstrap: Django/React scaffold, CI, `make agent-check`, OpenAPI generation, generated frontend client, MSW setup, import-boundary checks, local Docker Compose, and app smoke tests.
 - Phase 1 platform core foundation: currency registry, money/rate/time primitives, platform settings, audit events, domain events, outbox retry/idempotency, stored-file metadata/access checks, and DB-level append-only guards.
 - Phase 2 first accounts/auth slice: custom user model, natural-person lender registration record, registration terms acceptance evidence, magic-link login tokens, sensitive-action email codes, basic session auth API endpoints, and focused tests.

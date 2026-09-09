@@ -14,6 +14,7 @@ from django.db.models import Model, Q, Sum
 from backend.apps.platform_core.domain.access import user_can_access_financial_features
 from backend.apps.platform_core.domain.time import business_date, now_utc
 from backend.apps.platform_core.selectors.settings import get_platform_setting_value
+from backend.apps.platform_core.services.activity_archive import merge_archived_activity
 
 # Email bodies are private by default in the investor portal. Add a topic here only after
 # confirming the body cannot contain one-time codes, login links, bank details, or third-party PII.
@@ -1078,6 +1079,20 @@ def _activity(
 def get_investor_activity(*, actor: Model, limit: int | None = None) -> dict[str, Any]:
     investor_user_id = _require_financial_access(actor)
     limit_value = _bounded_limit(limit)
+    entries = _investor_activity_entries(investor_user_id, limit_value)
+    return {
+        "entries": merge_archived_activity(
+            investor_user_id=investor_user_id,
+            stream="portfolio",
+            entries=entries,
+            limit=limit_value,
+        )
+    }
+
+
+def _investor_activity_entries(
+    investor_user_id: str, limit_value: int | None
+) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     lot_model = _model("ledger", "InvestorBalanceLot")
     withdrawal_model = _model("ledger", "InvestorWithdrawalRequest")
@@ -1103,7 +1118,7 @@ def get_investor_activity(*, actor: Model, limit: int | None = None) -> dict[str
                 "penalty_reversal",
             ],
         )
-        .select_related("currency")
+        .select_related("currency", "source_journal_entry")
         .order_by("-created_at")[:limit_value]
     ):
         entries.append(
@@ -1112,7 +1127,11 @@ def get_investor_activity(*, actor: Model, limit: int | None = None) -> dict[str
                 activity_type=f"balance_{lot.source_type}",
                 occurred_at=lot.received_at,
                 direction="in",
-                title=str(lot.source_type).replace("_", " ").title(),
+                title=(
+                    "QA opening balance"
+                    if lot.source_journal_entry.event_type == "qa_opening_balance"
+                    else str(lot.source_type).replace("_", " ").title()
+                ),
                 amount_minor=int(lot.original_amount_minor),
                 currency=_currency_code(lot.currency),
                 status=str(lot.status),
@@ -1346,7 +1365,7 @@ def get_investor_activity(*, actor: Model, limit: int | None = None) -> dict[str
             )
         )
     entries.sort(key=lambda item: item["occurred_at"], reverse=True)
-    return {"entries": entries[:limit_value]}
+    return entries[:limit_value]
 
 
 def get_primary_orders(*, actor: Model, limit: int | None = None) -> dict[str, Any]:
@@ -1382,6 +1401,17 @@ def get_primary_orders(*, actor: Model, limit: int | None = None) -> dict[str, A
 def get_secondary_market_activity(*, actor: Model, limit: int | None = None) -> dict[str, Any]:
     investor_user_id = _require_financial_access(actor)
     limit_value = _bounded_limit(limit)
+    result = _secondary_market_activity(investor_user_id, limit_value)
+    result["entries"] = merge_archived_activity(
+        investor_user_id=investor_user_id,
+        stream="secondary",
+        entries=result["entries"],
+        limit=limit_value,
+    )
+    return result
+
+
+def _secondary_market_activity(investor_user_id: str, limit_value: int | None) -> dict[str, Any]:
     listing_model = _model("secondary_market", "SecondaryMarketListing")
     listing_event_model = _model("secondary_market", "SecondaryMarketListingEvent")
     purchase_model = _model("secondary_market", "SecondaryMarketPurchase")
@@ -1540,6 +1570,17 @@ def get_secondary_market_activity(*, actor: Model, limit: int | None = None) -> 
 def get_fx_history(*, actor: Model, limit: int | None = None) -> dict[str, Any]:
     investor_user_id = _require_financial_access(actor)
     limit_value = _bounded_limit(limit)
+    result = _fx_history(investor_user_id, limit_value)
+    result["exchanges"] = merge_archived_activity(
+        investor_user_id=investor_user_id,
+        stream="fx",
+        entries=result["exchanges"],
+        limit=limit_value,
+    )
+    return result
+
+
+def _fx_history(investor_user_id: str, limit_value: int | None) -> dict[str, Any]:
     quote_model = _model("fx", "FxQuote")
     exchange_model = _model("fx", "FxExchange")
     quotes = [
@@ -1587,6 +1628,15 @@ def get_fx_history(*, actor: Model, limit: int | None = None) -> dict[str, Any]:
         )
     ]
     return {"quotes": quotes, "exchanges": exchanges}
+
+
+def activity_for_qa_archive(*, investor_user_id: str) -> dict[str, list[dict[str, Any]]]:
+    """Internal maintenance projection: uncapped, including restricted account history."""
+    return {
+        "portfolio": _investor_activity_entries(investor_user_id, None),
+        "secondary": _secondary_market_activity(investor_user_id, None)["entries"],
+        "fx": _fx_history(investor_user_id, None)["exchanges"],
+    }
 
 
 def get_investor_dashboard(*, actor: Model, as_of: datetime | None = None) -> dict[str, Any]:

@@ -6465,7 +6465,7 @@ function FxScreen({ demoState }: { demoState: DemoAccountState }) {
           </div>
           {fx.exchanges.map((exchange) => (
             <div className="fx-history-row" key={exchange.id} role="row">
-              <span className="num fx-h-date" role="cell">{formatDate(exchange.executed_at)}</span>
+              <span className="num fx-h-date" role="cell">{formatDate(exchange.executed_at)}{exchange.archived_at ? <span className="qa-history-note">Before QA reset</span> : null}</span>
               <span className="num fx-h-converted" role="cell">{fxMoneyLabel(exchange.source_currency, exchange.source_amount_minor)}</span>
               <span className="num fx-h-rate" role="cell">1 {exchange.source_currency} = {fxRateLabel(exchange.effective_net_rate)} {exchange.target_currency}</span>
               <strong className="num fx-h-received" role="cell">{fxMoneyLabel(exchange.target_currency, exchange.target_amount_minor)}</strong>
@@ -7780,7 +7780,7 @@ function ActivityTable({ entries, dense = false }: { entries: ActivityEntry[]; d
               return (
                 <tr key={entry.id}>
                   <td className="mono muted" style={{ fontSize: 12 }}>{formatDateTime(entry.occurred_at)}</td>
-                  <td className="col-strong">{entry.title}</td>
+                  <td className="col-strong">{entry.title}{entry.archived_at ? <span className="qa-history-note">Before QA reset</span> : null}</td>
                   <td className="sub mono">{entry.loan_title || humanizeToken(entry.activity_type) || "-"}</td>
                   <td><ActivityTag category={category} /></td>
                   <td className="num"><ActivityAmount entry={entry} /></td>
@@ -8690,7 +8690,7 @@ function SecondaryMarketActivityTable({ entries }: { entries: SecondaryMarketAct
               <tbody>{visible.map((entry) => (
                 <tr key={entry.id}>
                   <td className="mono">{formatDateTime(entry.occurred_at)}</td>
-                  <td><div className="col gap-4"><strong>{secondaryActivityLabel(entry)}</strong>{entry.action === "list" && entry.price_bps !== null ? <span className="sub">{priceLabel(entry.price_bps - 10000)}</span> : null}</div></td>
+                  <td><div className="col gap-4"><strong>{secondaryActivityLabel(entry)}</strong>{entry.archived_at ? <span className="qa-history-note">Before QA reset</span> : null}{entry.action === "list" && entry.price_bps !== null ? <span className="sub">{priceLabel(entry.price_bps - 10000)}</span> : null}</div></td>
                   <td><EntityReference id={entry.loan_id} idLabel="Copy loan ID" title={entry.loan_title} /></td>
                   <td className="num"><Money amountMinor={entry.principal_minor} currency={entry.currency} /></td>
                   <td className={`num ${entry.action === "sale" ? "pos" : entry.action === "buy" ? "neg" : ""}`}><Money amountMinor={entry.cash_amount_minor} currency={entry.currency} /></td>

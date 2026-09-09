@@ -22,6 +22,14 @@ Define the deployment, runtime, observability, reliability, backup, environment,
 
 ## Decisions
 
+### INFRA-DEC-012: Explicit Pre-Launch QA Dataset Rebuild
+
+Decision (2026-09-09): both current test deployments may be rebuilt on explicit owner approval. Preserve accounts, roles, identity-verification state, accepted agreements, user/admin audit history and readable investor activity. Replace operational loans, investments, balances, settlements, tasks and Smart Invest rules with ten direct and ten LO v2 opportunities, all published and 0% funded, plus synthetic CHF 500,000 and EUR 500,000 opening balances for each lender account, never admins. Preserve restrictions and KYC gates; the seed does not approve identities or create verified IBANs.
+
+The reset is an offline superadmin maintenance command, not an HTTP/admin-panel action and never an app-startup job. It requires a separate transient process flag, exact environment/site confirmation, an additional production acknowledgement, no other database clients, private checksummed backups, a hosted PostgreSQL restore rehearsal and atomic clear/reseed verification. Existing investor financial activity is archived before its live source rows are removed; archived rows must not feed balances, holdings or new settlement calculations. Old pending outbox work is suppressed with explicit evidence, not marked as delivered. Credentials, legal templates, collector settings, provider configuration and audit records remain intact. The QA time override and active financial state are reset; external stored files remain retained evidence. After real-money launch this exception must not be used.
+
+The deployed revision must have successful CI. A redirect alone is not a valid backend health response: deployment verifies the JSON status and expected environment.
+
 ### INFRA-DEC-001: AWS-Oriented Cost-Optimized Hosting
 
 Status: Accepted.

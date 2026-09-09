@@ -41,6 +41,25 @@ test("renders the FAQ for logged-out visitors", () => {
   expect(screen.getByRole("button", { name: "Create lender account" })).toBeInTheDocument();
 });
 
+test("portfolio labels preserved pre-reset activity without replacing its details", () => {
+  const entry = activityFixture.entries[0];
+  const previous = entry.archived_at;
+  entry.archived_at = "2026-09-09T12:00:00Z";
+  try {
+    renderApp();
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+    fireEvent.change(screen.getByPlaceholderText("you@example.com"), { target: { value: "lukas.brunner@example.ch" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+    fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Activity" }));
+    expect(screen.getByText("Before QA reset")).toBeInTheDocument();
+    expect(screen.getByText(entry.title)).toBeInTheDocument();
+  } finally {
+    entry.archived_at = previous;
+  }
+});
+
 test("direct registration and login URLs render the requested public flow", () => {
   const registration = renderApp("/register");
 

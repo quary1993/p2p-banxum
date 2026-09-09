@@ -4413,6 +4413,9 @@ components:
     ActivityEntry:
       type: object
       properties:
+        archived_at:
+          type: string
+          format: date-time
         id:
           type: string
         activity_type:
@@ -6949,6 +6952,9 @@ components:
     FxExchangePortal:
       type: object
       properties:
+        archived_at:
+          type: string
+          format: date-time
         id:
           type: string
           format: uuid
@@ -13178,6 +13184,9 @@ components:
     SecondaryMarketActivityEntryPortal:
       type: object
       properties:
+        archived_at:
+          type: string
+          format: date-time
         id:
           type: string
         action:
