@@ -5,7 +5,11 @@ import uuid
 from django.db import models
 from django.db.models import F, Q
 
-from backend.apps.platform_core.models.base import AppendOnlyModel, TimestampedModel
+from backend.apps.platform_core.models.base import (
+    AppendOnlyModel,
+    PlatformDateTimeField,
+    TimestampedModel,
+)
 
 
 class LoanOriginatorStatus(models.TextChoices):
@@ -881,7 +885,7 @@ class OriginatorClaimEvent(AppendOnlyModel):
     actor_account_type = models.CharField(max_length=64)
     note = models.TextField(blank=True)
     metadata = models.JSONField(default=dict, blank=True)
-    occurred_at = models.DateTimeField(auto_now_add=True)
+    occurred_at = PlatformDateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["occurred_at", "id"]

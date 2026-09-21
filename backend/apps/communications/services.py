@@ -25,6 +25,7 @@ from backend.apps.communications.models import (
     EmailDeliveryStatus,
 )
 from backend.apps.platform_core.domain.actors import ActorRef
+from backend.apps.platform_core.domain.time import now_utc
 from backend.apps.platform_core.models import OutboxMessage
 from backend.apps.platform_core.models.events import OutboxStatus
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
@@ -928,7 +929,7 @@ def _record_delivery_attempt(
             provider_message_id=provider_message_id,
             status=status,
             attempt_number=attempt_number,
-            sent_at=timezone.now() if status == EmailDeliveryStatus.SENT else None,
+            sent_at=now_utc() if status == EmailDeliveryStatus.SENT else None,
             error=error[:4000],
             metadata={
                 **(rendered_email.metadata if rendered_email else {}),

@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from django.db import models
 
-from backend.apps.platform_core.models.base import AppendOnlyModel, TimestampedModel
+from backend.apps.platform_core.models.base import (
+    AppendOnlyModel,
+    PlatformDateTimeField,
+    TimestampedModel,
+)
 
 
 class FxExchangeStatus(models.TextChoices):
@@ -267,7 +271,7 @@ class FxEvent(AppendOnlyModel):
     actor_account_type = models.CharField(max_length=64)
     note = models.TextField(blank=True)
     metadata = models.JSONField(default=dict, blank=True)
-    occurred_at = models.DateTimeField(auto_now_add=True)
+    occurred_at = PlatformDateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["occurred_at", "id"]

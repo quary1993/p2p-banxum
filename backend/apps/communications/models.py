@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from django.db import models
 
-from backend.apps.platform_core.models.base import AppendOnlyModel
+from backend.apps.platform_core.models.base import AppendOnlyModel, PlatformDateTimeField
 
 
 class EmailDeliveryStatus(models.TextChoices):
@@ -35,7 +35,7 @@ class EmailDeliveryRecord(AppendOnlyModel):
     sent_at = models.DateTimeField(null=True, blank=True)
     error = models.TextField(blank=True)
     metadata = models.JSONField(default=dict, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = PlatformDateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["-created_at", "-id"]
@@ -69,7 +69,7 @@ class CommunicationEvent(AppendOnlyModel):
         null=True,
         blank=True,
     )
-    occurred_at = models.DateTimeField(auto_now_add=True)
+    occurred_at = PlatformDateTimeField(auto_now_add=True)
     metadata = models.JSONField(default=dict, blank=True)
 
     class Meta:

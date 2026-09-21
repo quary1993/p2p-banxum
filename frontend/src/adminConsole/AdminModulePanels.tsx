@@ -170,6 +170,7 @@ import {
   useKycManualReviewsData,
   useLoansData
 } from "./data";
+import { useAdminBusinessDate } from "./adminBusinessDate";
 
 type MutationLike = {
   isPending: boolean;
@@ -215,7 +216,6 @@ function AdminCopyIdButton({ id, label }: { id: string; label: string }) {
   );
 }
 
-const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Zurich" });
 const defaultCollectionAccount = adminFormDefaults.collectionAccount;
 
 function labelize(value: string | null | undefined) {
@@ -474,11 +474,11 @@ function splitMinorAmount(totalMinor: number, parts: number, index: number) {
   return base + (index < remainder ? 1 : 0);
 }
 
-function previewScheduleRows(loan: Loan): LoanInstallment[] {
+function previewScheduleRows(loan: Loan, businessDate: string): LoanInstallment[] {
   const term = Math.max(1, loan.term_months || 1);
   // The loan's own schedule is generated from the financeable principal.
   const firstDueDate =
-    loan.first_payment_date || addMonthsToDateString(loan.loan_start_date || loan.funding_deadline || today, 1);
+    loan.first_payment_date || addMonthsToDateString(loan.loan_start_date || loan.funding_deadline || businessDate, 1);
   const schedulePrincipalMinor = loan.principal_minor;
   const totalInterestMinor =
     loan.total_scheduled_interest_minor ||
@@ -640,8 +640,8 @@ function previewOriginalScheduleRows(loan: Loan): OriginalLoanScheduleRow[] {
   ).map((row) => ({ ...row, paid_before_publication: paidNumbers.has(row.installment_number) }));
 }
 
-function isPastBusinessDate(value: string) {
-  return value < today;
+function isPastBusinessDate(value: string, businessDate: string) {
+  return value < businessDate;
 }
 
 function dateDifferenceDays(later: string, earlier: string) {
@@ -1747,6 +1747,7 @@ export function FinanceOpsPanel() {
 }
 
 function OriginatorSettlementQueue() {
+  const businessDate = useAdminBusinessDate();
   const queueQuery = useOriginatorClaimsAdminSettlementsOutstandingList({
     query: { enabled: !isFixturePreview, retry: false }
   });
@@ -1754,8 +1755,8 @@ function OriginatorSettlementQueue() {
   const [selectedKey, setSelectedKey] = useState("");
   const selected = rows.find((row) => `${row.originator_id}:${row.currency}` === selectedKey)
     ?? rows[0];
-  const [bookingDate, setBookingDate] = useState(today);
-  const [valueDate, setValueDate] = useState(today);
+  const [bookingDate, setBookingDate] = useState(businessDate);
+  const [valueDate, setValueDate] = useState(businessDate);
   const [collectionAccount, setCollectionAccount] = useState(defaultCollectionAccount);
   const [bankReference, setBankReference] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
@@ -1838,12 +1839,13 @@ function OriginatorSettlementQueue() {
 }
 
 function DepositForm() {
+  const businessDate = useAdminBusinessDate();
   const [investorUserId, setInvestorUserId] = useState(adminFormDefaults.investorUserId);
   const [investorQuery, setInvestorQuery] = useState(adminFormDefaults.investorUserId);
   const [amountMinor, setAmountMinor] = useState("2500000");
   const [currency, setCurrency] = useState("CHF");
-  const [bookingDate, setBookingDate] = useState(today);
-  const [valueDate, setValueDate] = useState(today);
+  const [bookingDate, setBookingDate] = useState(businessDate);
+  const [valueDate, setValueDate] = useState(businessDate);
   const [collectionAccount, setCollectionAccount] = useState(defaultCollectionAccount);
   const [payerName, setPayerName] = useState("");
   const [sourceIban, setSourceIban] = useState("");
@@ -2084,8 +2086,9 @@ function BalanceAgeingScanForm() {
 }
 
 function ReconciliationSnapshotForm() {
+  const businessDate = useAdminBusinessDate();
   const [currency, setCurrency] = useState("CHF");
-  const [asOfDate, setAsOfDate] = useState(today);
+  const [asOfDate, setAsOfDate] = useState(businessDate);
   const [bankBalance, setBankBalance] = useState(isFixturePreview ? "100000000" : "");
   const [pendingException, setPendingException] = useState("0");
   const [notes, setNotes] = useState("");
@@ -2148,11 +2151,12 @@ export function WithdrawalExecutionForm({
   allowLookup?: boolean;
   onCompleted?: () => void;
 }) {
+  const businessDate = useAdminBusinessDate();
   const defaultWithdrawalId = initialWithdrawalId || adminFormDefaults.withdrawalId;
   const [withdrawalId, setWithdrawalId] = useState(defaultWithdrawalId);
   const [withdrawalQuery, setWithdrawalQuery] = useState(defaultWithdrawalId);
-  const [bookingDate, setBookingDate] = useState(today);
-  const [valueDate, setValueDate] = useState(today);
+  const [bookingDate, setBookingDate] = useState(businessDate);
+  const [valueDate, setValueDate] = useState(businessDate);
   const [collectionAccount, setCollectionAccount] = useState(defaultCollectionAccount);
   const [reason, setReason] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
@@ -2243,6 +2247,7 @@ export function WithdrawalExecutionForm({
 }
 
 function BorrowerDisbursementForm() {
+  const businessDate = useAdminBusinessDate();
   const [loanId, setLoanId] = useState(adminFormDefaults.loanId);
   const [loanQuery, setLoanQuery] = useState(adminFormDefaults.loanId);
   const [borrowerId, setBorrowerId] = useState(adminFormDefaults.borrowerId);
@@ -2251,8 +2256,8 @@ function BorrowerDisbursementForm() {
   const [feeMinor, setFeeMinor] = useState(isFixturePreview ? "2000000" : "");
   const [overrideNote, setOverrideNote] = useState("");
   const [currency, setCurrency] = useState("CHF");
-  const [bookingDate, setBookingDate] = useState(today);
-  const [valueDate, setValueDate] = useState(today);
+  const [bookingDate, setBookingDate] = useState(businessDate);
+  const [valueDate, setValueDate] = useState(businessDate);
   const [payeeName, setPayeeName] = useState(adminFormDefaults.borrowerName);
   const [payeeAccount, setPayeeAccount] = useState(adminFormDefaults.borrowerPayeeAccount);
   const [preview, setPreview] = useState<string | null>(null);
@@ -2349,8 +2354,9 @@ function BorrowerDisbursementForm() {
 }
 
 function FxAdminOps() {
-  const [startDate, setStartDate] = useState(today);
-  const [endDate, setEndDate] = useState(today);
+  const businessDate = useAdminBusinessDate();
+  const [startDate, setStartDate] = useState(businessDate);
+  const [endDate, setEndDate] = useState(businessDate);
   const [loadReports, setLoadReports] = useState(false);
   const deltaQuery = useFxDeltaReportData({ start_date: startDate, end_date: endDate }, loadReports);
   const realizedQuery = useFxRealizedSettlementReportData({ start_date: startDate, end_date: endDate }, loadReports);
@@ -2918,6 +2924,7 @@ function OriginatorLoanCreateForm({
   loanId?: string;
   detail?: OriginatorAdminLoanDetailResponse;
 }) {
+  const businessDate = useAdminBusinessDate();
   const activeOriginators = originators.filter((originator) => originator.status === "active");
   const snapshot = recordValue(detail?.borrower_snapshot);
   const [originatorId, setOriginatorId] = useState(detail?.originator_id ?? activeOriginators[0]?.id ?? "");
@@ -2948,7 +2955,7 @@ function OriginatorLoanCreateForm({
   const [collateralValue, setCollateralValue] = useState(detail ? String(detail.collateral_value_minor) : "0");
   const [collateralDescription, setCollateralDescription] = useState(detail?.collateral_description ?? "");
   const [riskRating, setRiskRating] = useState<OriginatorLoanCreate["risk_rating"]>((detail?.risk_rating as OriginatorLoanCreate["risk_rating"] | undefined) ?? RiskRatingEnum.B);
-  const [asOfDate, setAsOfDate] = useState(detail?.import_as_of_date ?? today);
+  const [asOfDate, setAsOfDate] = useState(detail?.import_as_of_date ?? businessDate);
   const [csvContent, setCsvContent] = useState("");
   const [sourceFilename, setSourceFilename] = useState("");
   const [skinBps, setSkinBps] = useState(detail ? String(detail.skin_in_the_game_bps ?? 0) : "0");
@@ -3228,17 +3235,18 @@ function OriginatorLoanManageModal({
   onChanged: () => void;
   onClose: () => void;
 }) {
+  const businessDate = useAdminBusinessDate();
   const [action, setAction] = useState<
     "menu" | "edit" | "publish" | "close_round" | "cancel" | "hold" | "repayment"
   >("menu");
-  const [asOfDate, setAsOfDate] = useState(today);
+  const [asOfDate, setAsOfDate] = useState(businessDate);
   const [closeReason, setCloseReason] = useState("funding_deadline_reached");
   const [holdReason, setHoldReason] = useState("");
   const [csvContent, setCsvContent] = useState("");
   const [sourceFilename, setSourceFilename] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
-  const [bookingDate, setBookingDate] = useState(today);
-  const [valueDate, setValueDate] = useState(today);
+  const [bookingDate, setBookingDate] = useState(businessDate);
+  const [valueDate, setValueDate] = useState(businessDate);
   const [collectionAccount, setCollectionAccount] = useState(defaultCollectionAccount);
   const [payerName, setPayerName] = useState("");
   const [payerAccount, setPayerAccount] = useState("");
@@ -3349,7 +3357,7 @@ function OriginatorLoanManageModal({
   const failedClose = loan.status === "funding_close_failed";
   const held = Boolean(detail?.is_on_hold);
   const mandatoryClose = isParSubscription && loan.committed_principal_minor > 0 && (
-    failedClose || !detail?.funding_deadline || isPastBusinessDate(detail.funding_deadline)
+    failedClose || !detail?.funding_deadline || isPastBusinessDate(detail.funding_deadline, businessDate)
   );
   return (
     <Modal title={`Manage originator claim - ${loan.title}`} onClose={onClose} xwide>
@@ -3693,6 +3701,7 @@ function OriginalScheduleInformationalViewer({
   repaymentType: LoanRepaymentType;
   interestOnlyMonths: number;
 }) {
+  const businessDate = useAdminBusinessDate();
   const rows = useMemo(
     () => originalPreviewScheduleRows(
       principalMinor,
@@ -3748,7 +3757,7 @@ function OriginalScheduleInformationalViewer({
               <tr key={row.installment_number}>
                 <td>
                   {row.installment_number}
-                  {isPastBusinessDate(row.due_date) ? <> <Chip tone="warn">Due</Chip></> : null}
+                  {isPastBusinessDate(row.due_date, businessDate) ? <> <Chip tone="warn">Due</Chip></> : null}
                 </td>
                 <td>{formatDate(row.due_date)}</td>
                 <td className="num"><Money amountMinor={row.principal_minor} currency={currency} /></td>
@@ -4346,6 +4355,7 @@ function OriginalScheduleReview({
   paidInstallmentNumbers: number[];
   onTogglePaidInstallment: (installmentNumber: number) => void;
 }) {
+  const businessDate = useAdminBusinessDate();
   const paidSet = new Set(paidInstallmentNumbers);
   const totals = rows.reduce(
     (acc, row) => {
@@ -4449,7 +4459,7 @@ function OriginalScheduleReview({
             </thead>
             <tbody>
               {rows.map((row) => {
-                const canMarkPaid = isPastBusinessDate(row.due_date);
+                const canMarkPaid = isPastBusinessDate(row.due_date, businessDate);
                 return (
                   <tr key={row.installment_number}>
                     <td>{row.installment_number}</td>
@@ -4500,13 +4510,14 @@ function ManageLoanModal({
   onChanged: () => void;
   onClose: () => void;
 }) {
+  const businessDate = useAdminBusinessDate();
   const [action, setAction] = useState<ManageLoanActionId | null>(null);
   const [note, setNote] = useState("");
   const [cancelReason, setCancelReason] = useState("Campaign cancelled before funding close.");
   const [cancelInvestorMessage, setCancelInvestorMessage] = useState(
     "The campaign was cancelled before funding close. Any reserved balance has been released to your BANXUM account."
   );
-  const [expiryAsOfDate, setExpiryAsOfDate] = useState(today);
+  const [expiryAsOfDate, setExpiryAsOfDate] = useState(businessDate);
   const [expiryReason, setExpiryReason] = useState("");
   const [expiryInvestorMessage, setExpiryInvestorMessage] = useState("");
   const [scanSelectedOnly, setScanSelectedOnly] = useState(true);
@@ -4521,8 +4532,8 @@ function ManageLoanModal({
   const [recContractualInterestDue, setRecContractualInterestDue] = useState("0");
   const [recDefaultInterestDue, setRecDefaultInterestDue] = useState("0");
   const [recPenaltiesDue, setRecPenaltiesDue] = useState("0");
-  const [recBookingDate, setRecBookingDate] = useState(today);
-  const [recValueDate, setRecValueDate] = useState(today);
+  const [recBookingDate, setRecBookingDate] = useState(businessDate);
+  const [recValueDate, setRecValueDate] = useState(businessDate);
   const [recPayerName, setRecPayerName] = useState(loan.title);
   const [prePublicationPaidNumbers, setPrePublicationPaidNumbers] = useState<number[]>(
     loan.pre_publication_paid_installments ?? []
@@ -4538,7 +4549,7 @@ function ManageLoanModal({
   const originalScheduleQuery = useV1LoansAdminLoansOriginalScheduleList(loanId, {
     query: { enabled: !isFixturePreview && action === "publish" && loan.is_refinancing, staleTime: 0 }
   });
-  const fixtureScheduleRows = useMemo(() => previewScheduleRows(loan), [loan]);
+  const fixtureScheduleRows = useMemo(() => previewScheduleRows(loan, businessDate), [businessDate, loan]);
   const scheduleRows = useMemo(
     () => (isFixturePreview ? fixtureScheduleRows : scheduleQuery.data ?? []),
     [fixtureScheduleRows, scheduleQuery.data]
@@ -4624,7 +4635,9 @@ function ManageLoanModal({
   const recProjectedPrincipalMinor = Math.max(recAfterPenaltyMinor - recInterestAppliedMinor, 0);
   const recCanSubmit = recNetAvailableMinor > 0;
 
-  const fundingEnded = Boolean(loan.funding_deadline && isPastBusinessDate(loan.funding_deadline));
+  const fundingEnded = Boolean(
+    loan.funding_deadline && isPastBusinessDate(loan.funding_deadline, businessDate)
+  );
   const available = MANAGE_LOAN_ACTIONS.filter((item) =>
     item.statuses.includes(loan.status)
     && !(fundingEnded && ["cancel", "release"].includes(item.id))
@@ -4642,7 +4655,7 @@ function ManageLoanModal({
 
   function togglePrePublicationPaidInstallment(installmentNumber: number) {
     const pastNumbers = originalScheduleRows
-      .filter((row) => isPastBusinessDate(row.due_date))
+      .filter((row) => isPastBusinessDate(row.due_date, businessDate))
       .map((row) => row.installment_number)
       .sort((a, b) => a - b);
     setPrePublicationPaidNumbers((current) => {
@@ -5033,6 +5046,7 @@ function ManageLoanModal({
 }
 
 function ManageDisbursementForm({ loan, onDone }: { loan: Loan; onDone: () => void }) {
+  const businessDate = useAdminBusinessDate();
   const defaultFeeMinor = Math.round((loan.principal_minor * loan.borrower_success_fee_bps) / 10000);
   const defaultAmountMinor = loan.principal_minor - defaultFeeMinor;
   const [override, setOverride] = useState(false);
@@ -5041,8 +5055,8 @@ function ManageDisbursementForm({ loan, onDone }: { loan: Loan; onDone: () => vo
   const [overrideNote, setOverrideNote] = useState("");
   const [payeeName, setPayeeName] = useState(adminFormDefaults.borrowerName);
   const [payeeAccount, setPayeeAccount] = useState(adminFormDefaults.borrowerPayeeAccount);
-  const [bookingDate, setBookingDate] = useState(today);
-  const [valueDate, setValueDate] = useState(today);
+  const [bookingDate, setBookingDate] = useState(businessDate);
+  const [valueDate, setValueDate] = useState(businessDate);
   const [bankReference, setBankReference] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
   const [evidenceReference, setEvidenceReference] = useState("");
@@ -5242,10 +5256,11 @@ function AdvanceScheduleTable({ rows, currency }: { rows: AdvanceRepaymentSchedu
 }
 
 function ManageBorrowerRepaymentForm({ loan, onDone }: { loan: Loan; onDone: () => void }) {
+  const businessDate = useAdminBusinessDate();
   const scheduleQuery = useV1LoansAdminLoansScheduleList(loan.id, {
     query: { enabled: !isFixturePreview, staleTime: 0 }
   });
-  const fixtureRows = useMemo(() => previewScheduleRows(loan), [loan]);
+  const fixtureRows = useMemo(() => previewScheduleRows(loan, businessDate), [businessDate, loan]);
   const scheduleRows = useMemo(
     () => (isFixturePreview ? fixtureRows : scheduleQuery.data ?? []),
     [fixtureRows, scheduleQuery.data]
@@ -5254,11 +5269,11 @@ function ManageBorrowerRepaymentForm({ loan, onDone }: { loan: Loan; onDone: () 
   const defaultAmountMinor = nextInstallment?.outstanding_total_minor ?? nextInstallment?.total_minor ?? 0;
   const [advance, setAdvance] = useState(false);
   const [advanceAmountMinor, setAdvanceAmountMinor] = useState("");
-  const [bankDate, setBankDate] = useState(today);
+  const [bankDate, setBankDate] = useState(businessDate);
   const [payerName, setPayerName] = useState(adminFormDefaults.borrowerName);
   const [payerAccount, setPayerAccount] = useState("");
-  const [bookingDate, setBookingDate] = useState(today);
-  const [valueDate, setValueDate] = useState(today);
+  const [bookingDate, setBookingDate] = useState(businessDate);
+  const [valueDate, setValueDate] = useState(businessDate);
   const [bankReference, setBankReference] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
   const [evidenceReference, setEvidenceReference] = useState("");
@@ -5396,7 +5411,7 @@ function ManageBorrowerRepaymentForm({ loan, onDone }: { loan: Loan; onDone: () 
 	                      <td>
 	                        {row.label}
 	                        {row.is_paid ? <> <Chip tone="ok">{row.status === "paid_in_advance" ? "Paid in advance" : "Paid"}</Chip></> : null}
-	                        {!row.is_paid && isPastBusinessDate(row.due_date) ? <> <Chip tone="warn">Due</Chip></> : null}
+	                        {!row.is_paid && isPastBusinessDate(row.due_date, businessDate) ? <> <Chip tone="warn">Due</Chip></> : null}
 	                      </td>
 	                      <td>{formatDate(isPayment && row.payment_date ? row.payment_date : row.due_date)}</td>
 	                      <td className="num"><Money amountMinor={row.principal_minor} currency={loan.currency} /></td>
@@ -5570,9 +5585,10 @@ function ServicingOpsForm({
   defaultLoanId: string;
   defaultLoanTitle: string;
 }) {
+  const businessDate = useAdminBusinessDate();
   const [loanId, setLoanId] = useState(defaultLoanId);
   const [loanQuery, setLoanQuery] = useState(defaultLoanId);
-  const [asOfDate, setAsOfDate] = useState(today);
+  const [asOfDate, setAsOfDate] = useState(businessDate);
   const [riskBody, setRiskBody] = useState("Public servicing update for affected investors.");
   const [preview, setPreview] = useState<string | null>(null);
   const scan = useV1ServicingAdminStatusScanCreate();
@@ -5874,14 +5890,15 @@ function SecondaryMarketApprovalsTable() {
 }
 
 export function ReportsPanel() {
+  const businessDate = useAdminBusinessDate();
   const [reportType, setReportType] = useState<AdminReportType>(ReportTypeEnum.operational_subledger);
   const [outputFormat, setOutputFormat] = useState<ReportOutputFormat>(
     ReportGenerateRequestOutputFormatEnum.csv
   );
   const [redactionMode, setRedactionMode] = useState<ReportRedactionMode>(RedactionModeEnum.redacted);
   const [periodPreset, setPeriodPreset] = useState<ReportPeriodPreset>(PeriodPresetEnum.custom);
-  const [startDate, setStartDate] = useState(today);
-  const [endDate, setEndDate] = useState(today);
+  const [startDate, setStartDate] = useState(businessDate);
+  const [endDate, setEndDate] = useState(businessDate);
   const [destinationNote, setDestinationNote] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
   const mutation = useV1ReportingAdminReportsCreate();
@@ -6169,7 +6186,13 @@ function qaFailedCount(state: QaDevModeState | undefined) {
   return typeof failed === "number" ? failed : 0;
 }
 
-export function QaDevModePanel({ onRestored }: { onRestored: (target: "seed" | "snapshot") => void }) {
+export function QaDevModePanel({
+  onClockChange,
+  onRestored
+}: {
+  onClockChange: (businessDate: string) => void;
+  onRestored: (target: "seed" | "snapshot") => void;
+}) {
   const [note, setNote] = useState("QA session");
   const [days, setDays] = useState("1");
   const [confirmation, setConfirmation] = useState("");
@@ -6203,8 +6226,11 @@ export function QaDevModePanel({ onRestored }: { onRestored: (target: "seed" | "
     enable.mutate(
       { data: { note } },
       {
-        onSuccess: () => {
+        onSuccess: (result) => {
           setNotice("QA mode enabled. A database snapshot was captured at entry.");
+          if (result.current_time) {
+            onClockChange(new Date(result.current_time).toLocaleDateString("en-CA", { timeZone: "Europe/Zurich" }));
+          }
           refresh();
         }
       }
@@ -6220,8 +6246,11 @@ export function QaDevModePanel({ onRestored }: { onRestored: (target: "seed" | "
     advance.mutate(
       { data: { days: parsedDays } },
       {
-        onSuccess: () => {
+        onSuccess: (result) => {
           setNotice(`QA clock advanced by ${parsedDays} day(s). Scheduled jobs were run for crossed business dates.`);
+          if (result.current_time) {
+            onClockChange(new Date(result.current_time).toLocaleDateString("en-CA", { timeZone: "Europe/Zurich" }));
+          }
           refresh();
         }
       }

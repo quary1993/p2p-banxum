@@ -40,6 +40,7 @@ import {
   UserAccountsPanel,
   WithdrawalExecutionForm
 } from "./AdminModulePanels";
+import { AdminBusinessDateProvider } from "./AdminBusinessDateProvider";
 import { AdminTasksPanel } from "./AdminTasksPanel";
 import { isWithdrawalQueueItem, useAdminOperationsDashboardData } from "./data";
 
@@ -290,6 +291,7 @@ function isAdminPortalUser(user: { account_type?: string; status?: string } | un
 
 export function AdminApp() {
   const queryClient = useQueryClient();
+  const [qaBusinessDate, setQaBusinessDate] = useState("");
   const [restoredTarget] = useState<"seed" | "snapshot" | null>(() => {
     const value = new URLSearchParams(window.location.search).get("qa_restored");
     return value === "seed" || value === "snapshot" ? value : null;
@@ -323,6 +325,8 @@ export function AdminApp() {
   const sessionExpired = sessionQuery.error instanceof ApiClientError && [401, 403].includes(sessionQuery.error.status);
   const authenticated =
     isFixturePreview || (!sessionExpired && (localAuthState === "authenticated" || hasSessionAdmin));
+  const platformBusinessDate = qaBusinessDate || sessionQuery.data?.platform_business_date ||
+    new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Zurich" });
 
   if (!authenticated && sessionQuery.isLoading && localAuthState === "unknown") {
     return (
@@ -358,23 +362,26 @@ export function AdminApp() {
   }
 
   return (
-    <AdminShell
-      qaControlsAvailable={isFixturePreview || sessionQuery.data?.qa_controls_available === true}
-      restoredTarget={restoredTarget}
-      onQaRestored={(target) => {
-        queryClient.clear();
-        clearReadonlyImpersonation();
-        window.location.assign(`/admin?qa_restored=${target}`);
-      }}
-      isLoggingOut={logoutMutation.isPending}
-      onLogout={() => {
-        if (isFixturePreview) {
-          finishLogout();
-          return;
-        }
-        logoutMutation.mutate();
-      }}
-    />
+    <AdminBusinessDateProvider businessDate={platformBusinessDate}>
+      <AdminShell
+        qaControlsAvailable={isFixturePreview || sessionQuery.data?.qa_controls_available === true}
+        restoredTarget={restoredTarget}
+        onQaRestored={(target) => {
+          queryClient.clear();
+          clearReadonlyImpersonation();
+          window.location.assign(`/admin?qa_restored=${target}`);
+        }}
+        onQaClockChange={setQaBusinessDate}
+        isLoggingOut={logoutMutation.isPending}
+        onLogout={() => {
+          if (isFixturePreview) {
+            finishLogout();
+            return;
+          }
+          logoutMutation.mutate();
+        }}
+      />
+    </AdminBusinessDateProvider>
   );
 }
 
@@ -535,12 +542,14 @@ function AdminShell({
   qaControlsAvailable,
   restoredTarget,
   onQaRestored,
+  onQaClockChange,
   isLoggingOut,
   onLogout
 }: {
   qaControlsAvailable: boolean;
   restoredTarget: "seed" | "snapshot" | null;
   onQaRestored: (target: "seed" | "snapshot") => void;
+  onQaClockChange: (businessDate: string) => void;
   isLoggingOut: boolean;
   onLogout: () => void;
 }) {
@@ -608,7 +617,7 @@ function AdminShell({
         {selectedNav === "reports" ? <ReportsPanel /> : null}
         {selectedNav === "qa" && qaControlsAvailable ? <>
           {restoredTarget ? <Banner tone="ok" title="QA database restored">The {restoredTarget} and its saved clock were restored successfully.</Banner> : null}
-          <QaDevModePanel onRestored={onQaRestored} />
+          <QaDevModePanel onClockChange={onQaClockChange} onRestored={onQaRestored} />
         </> : null}
         {selectedNav === "settings" ? <SettingsPanel /> : null}
       </main>

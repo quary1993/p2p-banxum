@@ -4,7 +4,11 @@ import uuid
 
 from django.db import models
 
-from backend.apps.platform_core.models.base import AppendOnlyModel, TimestampedModel
+from backend.apps.platform_core.models.base import (
+    AppendOnlyModel,
+    PlatformDateTimeField,
+    TimestampedModel,
+)
 
 
 class PrimaryInvestmentOrderStatus(models.TextChoices):
@@ -124,7 +128,7 @@ class PrimaryInvestmentOrderBatch(AppendOnlyModel):
     total_amount_minor = models.BigIntegerField(blank=True, null=True)
     request_fingerprint = models.CharField(max_length=64)
     idempotency_key = models.CharField(max_length=160, unique=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = PlatformDateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["-created_at", "-id"]
@@ -164,7 +168,7 @@ class PrimaryInvestmentOrderEvent(AppendOnlyModel):
     new_status = models.CharField(max_length=64, blank=True)
     note = models.TextField(blank=True)
     metadata = models.JSONField(default=dict, blank=True)
-    occurred_at = models.DateTimeField(auto_now_add=True)
+    occurred_at = PlatformDateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["occurred_at", "id"]

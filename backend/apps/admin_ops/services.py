@@ -9,7 +9,6 @@ from django.apps import apps
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Model, Sum
-from django.utils import timezone
 
 from backend.apps.admin_ops.models import (
     TERMINAL_ADMIN_TASK_STATUSES,
@@ -583,7 +582,7 @@ def ensure_loan_funding_close_failure_task(
                         task_type=AdminTaskType.LOAN_SETUP,
                         title=title,
                         priority=AdminTaskPriority.URGENT,
-                        due_at=timezone.now(),
+                        due_at=now_utc(),
                         notes=notes,
                         related_object_type="LoanFundingCloseFailure",
                         related_object_id=command.loan_id,
@@ -603,7 +602,7 @@ def ensure_loan_funding_close_failure_task(
             title=title,
             priority=AdminTaskPriority.URGENT,
             status=AdminTaskStatus.OPEN,
-            due_at=timezone.now(),
+            due_at=now_utc(),
             notes=notes,
         )
     )
@@ -679,7 +678,7 @@ def ensure_originator_subscription_activation_task(
                 priority=AdminTaskPriority.URGENT,
                 status=AdminTaskStatus.OPEN,
                 created_by=cast(Any, command.requested_by),
-                due_at=timezone.now(),
+                due_at=now_utc(),
                 notes=notes,
                 related_object_type=related_type,
                 related_object_id=command.loan_id,
@@ -845,7 +844,7 @@ def update_admin_task(command: UpdateAdminTaskCommand) -> AdminTask:
             changes["status"] = {"previous": task.status, "new": new_status}
             task.status = new_status
             if new_status in TERMINAL_ADMIN_TASK_STATUSES:
-                task.completed_at = timezone.now()
+                task.completed_at = now_utc()
             else:
                 task.completed_at = None
                 task.completion_note = ""

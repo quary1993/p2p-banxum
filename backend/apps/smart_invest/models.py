@@ -5,7 +5,11 @@ import uuid
 from django.conf import settings
 from django.db import models
 
-from backend.apps.platform_core.models.base import AppendOnlyModel, TimestampedModel
+from backend.apps.platform_core.models.base import (
+    AppendOnlyModel,
+    PlatformDateTimeField,
+    TimestampedModel,
+)
 
 
 class OriginatorScope(models.TextChoices):
@@ -108,7 +112,7 @@ class SmartInvestRuleEvent(AppendOnlyModel):
     revision = models.PositiveIntegerField()
     criteria_snapshot = models.JSONField(default=dict)
     metadata = models.JSONField(default=dict, blank=True)
-    occurred_at = models.DateTimeField(auto_now_add=True)
+    occurred_at = PlatformDateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["occurred_at", "id"]
@@ -134,7 +138,7 @@ class SmartInvestMatchNotification(AppendOnlyModel):
     )
     rule_revision = models.PositiveIntegerField()
     match_snapshot = models.JSONField(default=dict)
-    notified_at = models.DateTimeField(auto_now_add=True)
+    notified_at = PlatformDateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["notified_at", "id"]

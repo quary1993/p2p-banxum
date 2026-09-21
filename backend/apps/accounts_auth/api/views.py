@@ -86,6 +86,7 @@ from backend.apps.accounts_auth.services import (
     start_admin_login,
     update_marketing_consent,
 )
+from backend.apps.platform_core.domain.time import business_date, now_utc
 
 
 class NaturalPersonRegistrationView(APIView):
@@ -397,6 +398,7 @@ class CurrentUserView(APIView):
             {
                 "user": serialize_user(cast(User, request.user)),
                 "qa_controls_available": qa_controls_available(request.user),
+                "platform_business_date": business_date(now_utc()).isoformat(),
             }
         )
 

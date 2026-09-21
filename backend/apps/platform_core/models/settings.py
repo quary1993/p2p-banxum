@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from django.db import models
 
-from backend.apps.platform_core.models.base import AppendOnlyModel, TimestampedModel
+from backend.apps.platform_core.models.base import (
+    AppendOnlyModel,
+    PlatformDateTimeField,
+    TimestampedModel,
+)
 
 
 class PlatformSetting(TimestampedModel):
@@ -27,7 +31,7 @@ class PlatformSettingVersion(AppendOnlyModel):
     changed_by_type = models.CharField(max_length=64)
     changed_by_id = models.CharField(max_length=128)
     reason = models.TextField(blank=True)
-    occurred_at = models.DateTimeField(auto_now_add=True)
+    occurred_at = PlatformDateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["key", "version"]

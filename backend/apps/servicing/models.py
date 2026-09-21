@@ -4,7 +4,11 @@ import uuid
 
 from django.db import models
 
-from backend.apps.platform_core.models.base import AppendOnlyModel, TimestampedModel
+from backend.apps.platform_core.models.base import (
+    AppendOnlyModel,
+    PlatformDateTimeField,
+    TimestampedModel,
+)
 
 
 class BorrowerRepaymentEventType(models.TextChoices):
@@ -141,7 +145,7 @@ class InvestorRepaymentDistributionLine(AppendOnlyModel):
     current_principal_before_minor = models.BigIntegerField()
     current_principal_after_minor = models.BigIntegerField()
     metadata = models.JSONField(default=dict, blank=True)
-    occurred_at = models.DateTimeField(auto_now_add=True)
+    occurred_at = PlatformDateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["repayment_event", "occurred_at", "id"]
@@ -315,7 +319,7 @@ class InvestorRecoveryDistributionLine(AppendOnlyModel):
     current_principal_before_minor = models.BigIntegerField()
     current_principal_after_minor = models.BigIntegerField()
     metadata = models.JSONField(default=dict, blank=True)
-    occurred_at = models.DateTimeField(auto_now_add=True)
+    occurred_at = PlatformDateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["recovery_event", "occurred_at", "id"]
@@ -478,7 +482,7 @@ class InvestorLossRecognitionLine(AppendOnlyModel):
     current_principal_before_minor = models.BigIntegerField()
     current_principal_after_minor = models.BigIntegerField()
     metadata = models.JSONField(default=dict, blank=True)
-    occurred_at = models.DateTimeField(auto_now_add=True)
+    occurred_at = PlatformDateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["write_off_event", "occurred_at", "id"]

@@ -5,7 +5,11 @@ import uuid
 from django.conf import settings
 from django.db import models
 
-from backend.apps.platform_core.models.base import AppendOnlyModel, TimestampedModel
+from backend.apps.platform_core.models.base import (
+    AppendOnlyModel,
+    PlatformDateTimeField,
+    TimestampedModel,
+)
 
 
 class AdminTaskType(models.TextChoices):
@@ -159,7 +163,7 @@ class AdminTaskEvent(AppendOnlyModel):
     new_status = models.CharField(max_length=32, blank=True)
     note = models.TextField(blank=True)
     metadata = models.JSONField(default=dict, blank=True)
-    occurred_at = models.DateTimeField(auto_now_add=True)
+    occurred_at = PlatformDateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["occurred_at", "id"]

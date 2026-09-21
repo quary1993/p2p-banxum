@@ -10,12 +10,12 @@ from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import IntegrityError, transaction
 from django.db.models import Model
-from django.utils import timezone
 
 from backend.apps.platform_core.domain.access import (
     actor_ref_for_user,
     user_can_access_financial_features,
 )
+from backend.apps.platform_core.domain.time import now_utc
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import (
     DomainEventCommand,
@@ -259,7 +259,7 @@ def save_smart_invest_rule(command: SaveSmartInvestRuleCommand) -> dict[str, Any
     user_model = apps.get_model("accounts_auth", "User")
     user_model.objects.select_for_update().get(pk=investor_user_id)
     rule = SmartInvestRule.objects.filter(user_id=investor_user_id).first()
-    now = timezone.now()
+    now = now_utc()
     if rule is None:
         rule = SmartInvestRule(user_id=investor_user_id)
     for field, value in criteria.items():
@@ -321,7 +321,7 @@ def deactivate_smart_invest_rule(*, actor: Model) -> dict[str, Any]:
     rule.purpose = ""
     rule.loan_kind = LoanKind.ALL
     rule.revision += 1
-    rule.deactivated_at = timezone.now()
+    rule.deactivated_at = now_utc()
     rule.save()
     SmartInvestRuleEvent.objects.create(
         rule=rule,

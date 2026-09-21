@@ -12,6 +12,7 @@ from django.test import Client
 from django.utils import timezone
 
 from backend.apps.platform_core.domain.time import now_utc
+from backend.apps.platform_core.models import AuditEvent, OutboxMessage
 from backend.apps.platform_core.models.qa import QaDevModeState
 from backend.apps.platform_core.services import qa_dev_mode
 from backend.apps.platform_core.services.qa_dev_mode import (
@@ -163,6 +164,50 @@ def test_advance_qa_dev_mode_runs_crossed_daily_jobs(
     assert len(email_calls) == 4
     assert state.last_advance_summary["advanced_days"] == 3
     assert state.last_advance_summary["failed_count"] == 0
+
+
+@pytest.mark.django_db
+def test_qa_clock_drives_api_business_date_and_new_operational_timestamps(
+    client: Client,
+    settings: Any,
+) -> None:
+    settings.QA_DEV_MODE_ALLOWED = True
+    settings.IS_PRODUCTION = False
+    admin = _user(
+        email="qa-admin-clock@example.test",
+        account_type="admin",
+        is_superuser=False,
+        is_staff=True,
+    )
+    simulated_time = datetime(2026, 9, 9, 10, 30, tzinfo=ZoneInfo("Europe/Zurich"))
+    QaDevModeState.objects.create(
+        singleton_id=1,
+        is_enabled=True,
+        entered_at=simulated_time,
+        entered_by_user_id=admin.pk,
+        current_time=simulated_time,
+        snapshot_path="/tmp/snap.json",
+        snapshot_created_at=simulated_time,
+    )
+    qa_dev_mode._cache_current_time(simulated_time)
+
+    client.force_login(admin)
+    response = client.get("/api/v1/auth/me/")
+    event = AuditEvent.objects.create(
+        actor_type="admin",
+        actor_id=str(admin.pk),
+        action="qa.clock_test",
+    )
+    message = OutboxMessage.objects.create(
+        idempotency_key="qa-clock-test",
+        topic="qa.clock_test",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["platform_business_date"] == "2026-09-09"
+    assert event.occurred_at == simulated_time
+    assert message.created_at == simulated_time
+    assert message.updated_at == simulated_time
 
 
 @pytest.mark.django_db

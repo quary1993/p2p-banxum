@@ -1165,6 +1165,7 @@ export const CurrencyScopeEnum = {
 export interface CurrentUserResponse {
   user: UserSummary;
   qa_controls_available: boolean;
+  platform_business_date: string;
 }
 
 /**
@@ -17866,7 +17867,7 @@ export const getV1AuthAdminUsersAccessCreateResponseMock = (overrideResponse: Pa
 
 export const getV1AuthMagicLinkConsumeCreateResponseMock = (overrideResponse: Partial<Extract<AuthenticatedUserResponse, object>> = {}): AuthenticatedUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
 
-export const getV1AuthMeRetrieveResponseMock = (overrideResponse: Partial<Extract<CurrentUserResponse, object>> = {}): CurrentUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, qa_controls_available: faker.datatype.boolean(), ...overrideResponse})
+export const getV1AuthMeRetrieveResponseMock = (overrideResponse: Partial<Extract<CurrentUserResponse, object>> = {}): CurrentUserResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, qa_controls_available: faker.datatype.boolean(), platform_business_date: faker.date.past().toISOString().slice(0, 10), ...overrideResponse})
 
 export const getV1AuthPhoneConfirmCreateResponseMock = (overrideResponse: Partial<Extract<PhoneVerificationConfirmResponse, object>> = {}): PhoneVerificationConfirmResponse => ({user: {id: faker.string.uuid(), email: faker.internet.email(), full_name: faker.string.alpha({length: {min: 10, max: 20}}), investor_reference: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), account_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), phone_verified: faker.datatype.boolean(), marketing_consent: faker.datatype.boolean()}, ...overrideResponse})
 

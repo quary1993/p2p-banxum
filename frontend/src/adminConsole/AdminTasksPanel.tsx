@@ -30,6 +30,7 @@ import {
   type Tone
 } from "../investorPortal/ui";
 import { adminTaskEventsFixture, adminTasksFixture } from "./adminFixtures";
+import { useAdminBusinessDate } from "./adminBusinessDate";
 import {
   useAdminBorrowerLookupData,
   useAdminDocumentTemplateVersionLookupData,
@@ -192,10 +193,6 @@ function isTerminalStatus(status: string) {
   return status === "resolved" || status === "cancelled";
 }
 
-function zurichBusinessDate() {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Zurich" });
-}
-
 function taskMatchesSearch(task: AdminTask, search: string) {
   const normalized = search.trim().toLowerCase();
   if (!normalized) return true;
@@ -232,6 +229,7 @@ function eventForPreview(
 }
 
 export function AdminTasksPanel() {
+  const today = useAdminBusinessDate();
   const [filters, setFilters] = useState<TaskFilters>({
     status: "",
     priority: "",
@@ -264,7 +262,6 @@ export function AdminTasksPanel() {
     : (eventsQuery.data ?? []);
   const openCount = baseTasks.filter((task) => !task.is_terminal).length;
   const urgentCount = baseTasks.filter((task) => task.priority === "urgent" && !task.is_terminal).length;
-  const today = zurichBusinessDate();
   const dueTodayCount = baseTasks.filter((task) => task.due_at?.slice(0, 10) === today && !task.is_terminal).length;
 
   function updatePreviewTask(taskId: string, changes: PatchedAdminTaskUpdateRequest) {

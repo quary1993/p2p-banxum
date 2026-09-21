@@ -1,9 +1,33 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from typing import Any
 
 from django.db import models
+
+from backend.apps.platform_core.domain.time import now_utc
+
+
+class PlatformDateTimeField(models.DateTimeField):  # type: ignore[type-arg]
+    """Django auto timestamps backed by the platform clock.
+
+    The platform clock is real UTC in production and can be pinned in an
+    explicitly enabled non-production QA environment. The field deconstructs
+    as Django's stock DateTimeField because its database representation is
+    identical; only runtime timestamp selection differs.
+    """
+
+    def pre_save(self, model_instance: models.Model, add: bool) -> Any:
+        if self.auto_now or (self.auto_now_add and add):
+            value = now_utc()
+            setattr(model_instance, self.attname, value)
+            return value
+        return super().pre_save(model_instance, add)
+
+    def deconstruct(self) -> tuple[str, str, Sequence[Any], dict[str, Any]]:
+        name, _path, args, kwargs = super().deconstruct()
+        return name, "django.db.models.DateTimeField", args, kwargs
 
 
 class AppendOnlyViolation(RuntimeError):
@@ -41,8 +65,8 @@ class AppendOnlyModel(models.Model):
 
 
 class TimestampedModel(models.Model):
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    created_at = PlatformDateTimeField(auto_now_add=True)
+    updated_at = PlatformDateTimeField(auto_now=True)
 
     class Meta:
         abstract = True

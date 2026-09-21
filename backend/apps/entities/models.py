@@ -4,7 +4,11 @@ import uuid
 
 from django.db import models
 
-from backend.apps.platform_core.models.base import AppendOnlyModel, TimestampedModel
+from backend.apps.platform_core.models.base import (
+    AppendOnlyModel,
+    PlatformDateTimeField,
+    TimestampedModel,
+)
 from backend.apps.platform_core.models.files import StoredFile
 
 
@@ -144,7 +148,7 @@ class BorrowerEntityEvent(AppendOnlyModel):
     note = models.TextField(blank=True)
     evidence_summary = models.TextField(blank=True)
     metadata = models.JSONField(default=dict, blank=True)
-    occurred_at = models.DateTimeField(auto_now_add=True)
+    occurred_at = PlatformDateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["occurred_at", "id"]

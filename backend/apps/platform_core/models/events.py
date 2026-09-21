@@ -2,11 +2,15 @@ from __future__ import annotations
 
 from django.db import models
 
-from backend.apps.platform_core.models.base import AppendOnlyModel, TimestampedModel
+from backend.apps.platform_core.models.base import (
+    AppendOnlyModel,
+    PlatformDateTimeField,
+    TimestampedModel,
+)
 
 
 class DomainEvent(AppendOnlyModel):
-    occurred_at = models.DateTimeField(auto_now_add=True)
+    occurred_at = PlatformDateTimeField(auto_now_add=True)
     event_type = models.CharField(max_length=128)
     aggregate_type = models.CharField(max_length=128)
     aggregate_id = models.CharField(max_length=128)

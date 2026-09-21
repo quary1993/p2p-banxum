@@ -860,12 +860,17 @@ function marketplaceCurrencySymbol(currency: string) {
   return currency;
 }
 
-function fundingDeadlineLabel(deadline: string, asOf?: string) {
+function fundingDaysRemaining(deadline: string, asOf?: string) {
   const currentKey = asOf?.slice(0, 10) || zurichDateKey(new Date());
   const deadlineTime = Date.parse(`${deadline}T00:00:00Z`);
   const currentTime = Date.parse(`${currentKey}T00:00:00Z`);
-  if (!Number.isFinite(deadlineTime) || !Number.isFinite(currentTime)) return formatDate(deadline);
-  const days = Math.max(0, Math.round((deadlineTime - currentTime) / 86_400_000));
+  if (!Number.isFinite(deadlineTime) || !Number.isFinite(currentTime)) return null;
+  return Math.max(0, Math.round((deadlineTime - currentTime) / 86_400_000));
+}
+
+function fundingDeadlineLabel(deadline: string, asOf?: string) {
+  const days = fundingDaysRemaining(deadline, asOf);
+  if (days === null) return formatDate(deadline);
   if (days === 0) return "Today";
   if (days === 1) return "1 day";
   return `${days} days`;
@@ -3357,7 +3362,7 @@ function ApproveAllocationModal({
                   const blockedNow = reason !== undefined;
                   const amount = plan.split.get(match.loan_id) ?? 0;
                   const days = match.funding_deadline
-                    ? Math.max(0, Math.ceil((new Date(`${match.funding_deadline}T00:00:00`).getTime() - Date.now()) / 86_400_000))
+                    ? fundingDaysRemaining(match.funding_deadline, balances?.as_of)
                     : null;
                   return (
                     <div className="aa-row" key={match.loan_id}>
@@ -4900,9 +4905,8 @@ function MarketplaceLoanSheet({
   const minimumBps = loan.minimum_subscription_bps ?? 5_000;
   const pct = loan.principal_minor > 0 ? Math.round((loan.committed_principal_minor / loan.principal_minor) * 100) : 0;
   const availableMinor = marketplaceAvailableMinor(loan);
-  const todayMs = Date.now();
   const daysToClose = loan.funding_deadline
-    ? Math.max(0, Math.ceil((new Date(`${loan.funding_deadline}T00:00:00`).getTime() - todayMs) / 86_400_000))
+    ? fundingDaysRemaining(loan.funding_deadline, balances?.as_of)
     : immediateClaim && typeof loan.remaining_term_days === "number"
       ? Math.max(0, loan.remaining_term_days - 30)
       : null;

@@ -74,6 +74,7 @@ class AuthenticatedUserResponseSerializer(serializers.Serializer[Any]):
 
 class CurrentUserResponseSerializer(AuthenticatedUserResponseSerializer):
     qa_controls_available = serializers.BooleanField()
+    platform_business_date = serializers.DateField()
 
 
 class MarketingConsentUpdateRequestSerializer(serializers.Serializer[Any]):

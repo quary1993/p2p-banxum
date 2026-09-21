@@ -4,7 +4,11 @@ import uuid
 
 from django.db import models
 
-from backend.apps.platform_core.models.base import AppendOnlyModel, TimestampedModel
+from backend.apps.platform_core.models.base import (
+    AppendOnlyModel,
+    PlatformDateTimeField,
+    TimestampedModel,
+)
 
 
 class ReportType(models.TextChoices):
@@ -99,7 +103,7 @@ class ReportEvent(AppendOnlyModel):
     actor_user_id = models.UUIDField()
     actor_account_type = models.CharField(max_length=64)
     metadata = models.JSONField(default=dict, blank=True)
-    occurred_at = models.DateTimeField(auto_now_add=True)
+    occurred_at = PlatformDateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["occurred_at", "id"]

@@ -4,7 +4,11 @@ import uuid
 
 from django.db import models
 
-from backend.apps.platform_core.models.base import AppendOnlyModel, TimestampedModel
+from backend.apps.platform_core.models.base import (
+    AppendOnlyModel,
+    PlatformDateTimeField,
+    TimestampedModel,
+)
 
 
 class DocumentCategory(models.TextChoices):
@@ -130,7 +134,7 @@ class DocumentAcceptanceEvidence(AppendOnlyModel, TimestampedModel):
     context_id = models.CharField(max_length=128)
     accepted_checkbox_labels = models.JSONField(default=list, blank=True)
     data_snapshot = models.JSONField(default=dict, blank=True)
-    accepted_at = models.DateTimeField(auto_now_add=True)
+    accepted_at = PlatformDateTimeField(auto_now_add=True)
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     user_agent = models.TextField(blank=True)
     idempotency_key = models.CharField(max_length=160, unique=True, null=True, blank=True)
@@ -177,7 +181,7 @@ class DocumentRenderedArtifact(AppendOnlyModel):
     content_sha256 = models.CharField(max_length=64)
     manifest = models.JSONField(default=dict, blank=True)
     metadata = models.JSONField(default=dict, blank=True)
-    rendered_at = models.DateTimeField(auto_now_add=True)
+    rendered_at = PlatformDateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["-rendered_at", "-id"]
@@ -222,7 +226,7 @@ class DocumentEvent(AppendOnlyModel):
     actor_account_type = models.CharField(max_length=64)
     note = models.TextField(blank=True)
     metadata = models.JSONField(default=dict, blank=True)
-    occurred_at = models.DateTimeField(auto_now_add=True)
+    occurred_at = PlatformDateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["occurred_at", "id"]

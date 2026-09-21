@@ -4,7 +4,11 @@ import uuid
 
 from django.db import models
 
-from backend.apps.platform_core.models.base import AppendOnlyModel, TimestampedModel
+from backend.apps.platform_core.models.base import (
+    AppendOnlyModel,
+    PlatformDateTimeField,
+    TimestampedModel,
+)
 
 
 class SecondaryMarketListingStatus(models.TextChoices):
@@ -180,7 +184,7 @@ class SecondaryMarketListingEvent(AppendOnlyModel):
     metadata = models.JSONField(default=dict, blank=True)
     idempotency_key = models.CharField(max_length=160, blank=True, default="")
     request_fingerprint = models.CharField(max_length=64, blank=True, default="")
-    occurred_at = models.DateTimeField(auto_now_add=True)
+    occurred_at = PlatformDateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["occurred_at", "id"]

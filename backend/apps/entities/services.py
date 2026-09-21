@@ -5,7 +5,6 @@ from typing import Any, cast
 
 from django.db import transaction
 from django.db.models import Model
-from django.utils import timezone
 
 from backend.apps.entities.models import (
     BorrowerDocument,
@@ -18,6 +17,7 @@ from backend.apps.entities.models import (
 )
 from backend.apps.platform_core.domain.access import actor_ref_for_user, is_admin_actor
 from backend.apps.platform_core.domain.story import StoryValidationError, validate_story
+from backend.apps.platform_core.domain.time import business_date, now_utc
 from backend.apps.platform_core.models import StoredFile
 from backend.apps.platform_core.models.files import FileScanStatus
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
@@ -105,7 +105,7 @@ def _document_type(value: str) -> BorrowerDocumentType:
 
 
 def _validate_year_founded(year_founded: int) -> int:
-    current_year = timezone.localdate().year
+    current_year = business_date(now_utc()).year
     if year_founded < 1800 or year_founded > current_year:
         raise BorrowerValidationError("Year founded must be between 1800 and the current year.")
     return year_founded

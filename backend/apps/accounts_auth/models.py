@@ -13,7 +13,11 @@ from backend.apps.accounts_auth.references import (
     is_lender_account_type,
     next_investor_reference_candidate,
 )
-from backend.apps.platform_core.models.base import AppendOnlyModel, TimestampedModel
+from backend.apps.platform_core.models.base import (
+    AppendOnlyModel,
+    PlatformDateTimeField,
+    TimestampedModel,
+)
 
 
 class AccountType(models.TextChoices):
@@ -144,7 +148,7 @@ class RegistrationTermsAcceptance(TimestampedModel):
     user = models.ForeignKey(User, on_delete=models.PROTECT, related_name="registration_terms")
     terms_version = models.CharField(max_length=64)
     terms_hash = models.CharField(max_length=128)
-    accepted_at = models.DateTimeField(auto_now_add=True)
+    accepted_at = PlatformDateTimeField(auto_now_add=True)
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     user_agent = models.TextField(blank=True)
 

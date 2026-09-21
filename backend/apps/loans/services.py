@@ -8,7 +8,6 @@ from typing import Any, cast
 from django.apps import apps
 from django.db import transaction
 from django.db.models import Model
-from django.utils import timezone
 
 from backend.apps.loans.domain.schedules import (
     ManualScheduleRow,
@@ -1341,7 +1340,7 @@ def publish_loan(command: PublishLoanCommand) -> Loan:
 
     previous_status = loan.status
     loan.status = LoanStatus.PUBLISHED
-    loan.published_at = timezone.now()
+    loan.published_at = now_utc()
     loan.pre_publication_paid_installments = paid_installments
     loan.updated_by_admin_id = command.actor.pk
     loan.save(

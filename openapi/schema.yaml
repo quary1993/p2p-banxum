@@ -6505,7 +6505,11 @@ components:
           $ref: '#/components/schemas/UserSummary'
         qa_controls_available:
           type: boolean
+        platform_business_date:
+          type: string
+          format: date
       required:
+      - platform_business_date
       - qa_controls_available
       - user
     DecisionEnum:

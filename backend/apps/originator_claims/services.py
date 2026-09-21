@@ -13,7 +13,6 @@ from django.apps import apps
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Model, Q
-from django.utils import timezone
 
 from backend.apps.originator_claims.domain.imports import (
     OriginatorImportValidationError,
@@ -1213,7 +1212,7 @@ def create_originator_loan(command: CreateOriginatorLoanCommand) -> OriginatorLo
         schedule_row_count=len(parsed.schedule_rows),
         payment_row_count=len(parsed.payment_rows),
         imported_by_admin_id=command.actor.pk,
-        imported_at=timezone.now(),
+        imported_at=now_utc(),
         validation_summary={
             "maturity_date": parsed.maturity_date.isoformat(),
             "future_schedule_rows": len(future_rows),
@@ -1664,7 +1663,7 @@ def publish_originator_loan(command: PublishOriginatorLoanCommand) -> Originator
             raise OriginatorClaimsValidationError(
                 "Funding must close before the boundary installment payment date."
             )
-    now = timezone.now()
+    now = now_utc()
     # New claims reserve investor money in escrow while the round is open.
     # Legacy claims remain immediately assignable for historical compatibility.
     loan.status = "published" if _is_par_subscription(profile) else "active"
@@ -3837,7 +3836,7 @@ def _create_originator_claim_quote_locked(
         )
     except PricingValidationError as exc:
         raise OriginatorClaimsValidationError(str(exc)) from exc
-    now = timezone.now()
+    now = now_utc()
     cash_flows = [_cash_flow_payload(flow) for flow in priced.cash_flows]
     fingerprint_payload = {
         "loan_id": str(profile.loan_id),

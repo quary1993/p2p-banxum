@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from django.db import models
 
-from backend.apps.platform_core.models.base import AppendOnlyModel
+from backend.apps.platform_core.models.base import AppendOnlyModel, PlatformDateTimeField
 
 
 class AuditEvent(AppendOnlyModel):
-    occurred_at = models.DateTimeField(auto_now_add=True)
+    occurred_at = PlatformDateTimeField(auto_now_add=True)
     actor_type = models.CharField(max_length=64)
     actor_id = models.CharField(max_length=128)
     action = models.CharField(max_length=128)

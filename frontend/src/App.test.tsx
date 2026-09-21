@@ -9,7 +9,7 @@ import {
   readReadonlyImpersonationToken,
   writeReadonlyImpersonation
 } from "./api/client/impersonation";
-import { activityFixture, balanceLotsFixture, marketplaceLoansFixture, portfolioFixture, primaryOrdersFixture, smartInvestFixture } from "./investorPortal/fixtures";
+import { activityFixture, balanceLotsFixture, balancesFixture, marketplaceLoansFixture, portfolioFixture, primaryOrdersFixture, smartInvestFixture } from "./investorPortal/fixtures";
 import { onboardingStepForUser } from "./onboarding";
 
 function renderApp(path = "/") {
@@ -717,6 +717,28 @@ test("marketplace sheet shows the v9 opportunity layout and hands off to the ord
 
   const orderDialog = screen.getByRole("dialog", { name: "Invest - Helvetia Logistik AG" });
   expect(within(orderDialog).getAllByText(/2.000\.00/).length).toBeGreaterThan(0);
+});
+
+test("marketplace closing countdown uses the platform as-of date", () => {
+  const previousAsOf = balancesFixture.as_of;
+  balancesFixture.as_of = "2026-06-17T10:00:00+02:00";
+  try {
+    renderApp();
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+    fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+      target: { value: "lukas.brunner@example.ch" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
+    fireEvent.click(screen.getByText("Helvetia Logistik AG"));
+
+    const sheet = screen.getByRole("dialog", { name: "Helvetia Logistik AG" });
+    expect(within(sheet).getByText("2 days")).toBeInTheDocument();
+    expect(within(sheet).getByText("to close")).toBeInTheDocument();
+  } finally {
+    balancesFixture.as_of = previousAsOf;
+  }
 });
 
 test("opportunity sheet calculator validates the amount and projects the investor schedule", () => {
