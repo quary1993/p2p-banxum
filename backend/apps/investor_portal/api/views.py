@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from django.db.models import Model
 from drf_spectacular.utils import extend_schema
@@ -19,6 +19,7 @@ from backend.apps.investor_portal.api.serializers import (
     InvestorDocumentDownloadRequestSerializer,
     InvestorDocumentDownloadResponseSerializer,
     InvestorDocumentsSerializer,
+    InvestorNotificationReadResponseSerializer,
     InvestorNotificationsSerializer,
     InvestorPortfolioSerializer,
     PortalLimitQuerySerializer,
@@ -29,6 +30,7 @@ from backend.apps.investor_portal.api.serializers import (
 from backend.apps.investor_portal.services import (
     InvestorDocumentDownloadCommand,
     InvestorPortalAuthorizationError,
+    InvestorPortalNotFoundError,
     InvestorPortalValidationError,
     download_investor_document,
     get_deposit_instructions,
@@ -41,6 +43,8 @@ from backend.apps.investor_portal.services import (
     get_investor_portfolio,
     get_primary_orders,
     get_secondary_market_activity,
+    mark_all_investor_notifications_read,
+    mark_investor_notification_read,
 )
 from backend.apps.platform_core.api.impersonation import (
     ReadOnlyImpersonationError,
@@ -59,6 +63,8 @@ def _error_response(exc: Exception) -> Response:
     status_code = (
         status.HTTP_403_FORBIDDEN
         if isinstance(exc, InvestorPortalAuthorizationError)
+        else status.HTTP_404_NOT_FOUND
+        if isinstance(exc, InvestorPortalNotFoundError)
         else status.HTTP_400_BAD_REQUEST
     )
     return Response({"detail": str(exc)}, status=status_code)
@@ -163,6 +169,37 @@ class InvestorNotificationsView(APIView):
                 actor=actor,
                 limit=data["limit"],
             )
+        except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
+            return _error_response(exc)
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class InvestorNotificationReadView(APIView):
+    """Marks one of the signed-in investor's own notifications as read (idempotent)."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(request=None, responses={200: InvestorNotificationReadResponseSerializer})
+    def post(self, request: Request, notification_id: str) -> Response:
+        try:
+            payload = mark_investor_notification_read(
+                actor=cast(Model, request.user),
+                notification_id=notification_id,
+            )
+        except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
+            return _error_response(exc)
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class InvestorNotificationsReadAllView(APIView):
+    """Marks every listed notification of the signed-in investor as read (idempotent)."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(request=None, responses={200: InvestorNotificationReadResponseSerializer})
+    def post(self, request: Request) -> Response:
+        try:
+            payload = mark_all_investor_notifications_read(actor=cast(Model, request.user))
         except (InvestorPortalAuthorizationError, InvestorPortalValidationError) as exc:
             return _error_response(exc)
         return Response(payload, status=status.HTTP_200_OK)

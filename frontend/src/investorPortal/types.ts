@@ -1,7 +1,8 @@
-export type DemoAccountState = "active" | "kyc_pending" | "frozen";
+export type DemoAccountState = "active" | "kyc_pending" | "frozen" | "restricted";
 
 export type RouteName =
   | "public"
+  | "publicProjects"
   | "publicFaq"
   | "login"
   | "register"
@@ -11,7 +12,9 @@ export type RouteName =
   | "smartInvest"
   | "loan"
   | "loanSchedule"
+  | "invest"
   | "portfolio"
+  | "investment"
   | "secondary"
   | "balances"
   | "fx"
@@ -62,6 +65,8 @@ export interface NotificationItem {
   body: string;
   time: string;
   unread: boolean;
+  target?: "loan" | "holding" | "portfolio" | "balances" | "secondary_market" | "fx";
+  targetId?: string;
 }
 
 export interface RecoverySplit {

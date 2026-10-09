@@ -1,0 +1,1198 @@
+/* IP of Webby-Soft SRL. */
+/* User-side skin: loans. All rules are scoped with .bxm (see banxumSkin.css). */
+
+/* ==========================================================================
+   Loan pages (design: project page). LoanPageFrame, LoanFactsCard,
+   LoanInvestAside, the main column cards and the schedule tables.
+   ========================================================================== */
+
+/* Page head: back link, 56px black tile + title, steel meta line, Invest pill */
+.bxm .lp-head {
+  align-items: flex-end;
+}
+
+.bxm .lp-head .page-head-main {
+  flex-basis: 520px;
+}
+
+.bxm .lp-head h1 {
+  font-size: 28px;
+  line-height: 1.15;
+}
+
+.bxm .lp-title {
+  align-items: center;
+  display: inline-flex;
+  gap: 16px;
+  max-width: 100%;
+}
+
+.bxm .lp-title > span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.bxm .lp-tile {
+  align-items: center;
+  background: var(--ink);
+  color: #fff;
+  display: inline-flex;
+  flex: none;
+  height: 56px;
+  justify-content: center;
+  width: 56px;
+}
+
+.bxm .lp-head .ph-sub {
+  margin-top: 12px;
+  max-width: none;
+}
+
+.bxm .lp-meta {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+}
+
+.bxm .lp-meta .lp-eyebrow {
+  color: var(--ink-3);
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0;
+  margin-right: 4px;
+  text-transform: none;
+}
+
+.bxm .lp-meta .rating {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  color: var(--ink-3);
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 600;
+  height: 22px;
+  letter-spacing: var(--bxm-tag-track);
+  line-height: 1;
+  padding: 0 8px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.bxm .lp-meta .rating::before {
+  content: "Risk\00a0";
+}
+
+.bxm .lp-meta .rating-d {
+  border-color: var(--bxm-signal);
+  color: var(--bxm-signal);
+}
+
+.bxm .lp-meta .tag {
+  height: 22px;
+  padding: 0 8px;
+}
+
+.bxm .lp-meta .copy-id-btn {
+  color: var(--ink-3);
+  height: 26px;
+}
+
+.bxm .lp-head .page-actions {
+  margin-bottom: 30px;
+}
+
+/* Facts card: three figures and the funding block, then the facts grid */
+.bxm .lp-facts-card {
+  margin-bottom: 28px;
+}
+
+.bxm .lp-figures {
+  align-items: start;
+  display: grid;
+  gap: 24px 48px;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  padding: 24px;
+}
+
+.bxm .lp-figs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 32px;
+}
+
+.bxm .lp-fig {
+  min-width: 0;
+}
+
+.bxm .lp-fig-num {
+  color: var(--ink);
+  font-size: 28px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 36px;
+  white-space: nowrap;
+}
+
+.bxm .lp-fig-num small {
+  font-size: 22px;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+
+.bxm .lp-fig-label {
+  color: var(--ink-3);
+  font-size: 14px;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+
+.bxm .lp-fig-sub {
+  color: var(--ink-4);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.bxm .lp-funding {
+  padding-top: 2px;
+}
+
+.bxm .lp-funding-row {
+  color: var(--ink-3);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 2px 12px;
+  justify-content: space-between;
+  line-height: 1.5;
+}
+
+.bxm .lp-funding-row strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.bxm .lp-funding .bar {
+  height: 4px;
+  margin: 8px 0 12px;
+}
+
+.bxm .lp-facts-wrap {
+  border-top: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.bxm .lp-facts-title {
+  padding: 18px 28px 6px;
+}
+
+.bxm .lp-page .lp-facts {
+  column-gap: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0 0 -1px;
+}
+
+.bxm .lp-page .lp-facts .kv-row {
+  align-items: baseline;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 9px 28px;
+}
+
+.bxm .lp-page .lp-facts dt,
+.bxm .lp-page .lp-facts dd {
+  border: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 0;
+}
+
+.bxm .lp-page .lp-facts dt {
+  color: var(--ink-3);
+  flex: 0 1 auto;
+  max-width: 55%;
+}
+
+.bxm .lp-page .lp-facts dd {
+  color: var(--ink);
+  flex: 1 1 auto;
+  font-weight: 400;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.bxm .lp-page .lp-facts dd .rating {
+  font-weight: 600;
+}
+
+.bxm .lp-summary {
+  border-top: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+  max-width: none;
+  padding: 14px 28px 16px;
+}
+
+/* Page switch (story / schedule) as underline tabs */
+.bxm .lp-page .lp-switch {
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  display: flex;
+  gap: 32px;
+  margin: 0 0 28px;
+  overflow-x: auto;
+  padding: 0;
+  width: auto;
+}
+
+.bxm .lp-page .lp-switch-btn {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  color: var(--ink-3);
+  flex: none;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0;
+  margin-bottom: 0;
+  padding: 16px 0;
+  position: relative;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.bxm .lp-page .lp-switch-btn::after {
+  background: var(--ink);
+  bottom: 0;
+  content: "";
+  height: 3px;
+  left: 0;
+  opacity: 0;
+  position: absolute;
+  right: 0;
+}
+
+.bxm .lp-page .lp-switch-btn:hover {
+  color: var(--ink);
+}
+
+.bxm .lp-page .lp-switch-btn.on {
+  background: none;
+  color: var(--ink);
+}
+
+.bxm .lp-page .lp-switch-btn.on::after {
+  opacity: 1;
+}
+
+/* Main column next to the invest card */
+.bxm .lp-page .loan-detail-layout {
+  gap: 28px;
+  grid-template-columns: minmax(0, 1fr) 320px;
+}
+
+.bxm .lp-main {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  min-width: 0;
+}
+
+/* Cards of the main column */
+.bxm .lp-card-head {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  justify-content: space-between;
+  padding: 16px 24px;
+}
+
+.bxm .lp-card-head h2 {
+  color: var(--ink);
+  font-size: 16.8px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.bxm .lp-card-tags {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.bxm .lp-card-tags .tag {
+  height: 22px;
+  padding: 0 8px;
+}
+
+.bxm .lp-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+}
+
+.bxm .lp-card-text {
+  color: var(--ink-3);
+  font-size: 14px;
+  line-height: 1.7;
+  margin: 0;
+  max-width: 760px;
+}
+
+.bxm .lp-card-sub {
+  border-top: 1px solid var(--line);
+}
+
+.bxm .lp-subhead {
+  padding: 18px 24px 12px;
+}
+
+.bxm .lp-card-note {
+  border-top: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 0;
+  padding: 12px 24px 16px;
+}
+
+.bxm .lp-card > .empty,
+.bxm .lp-card-sub > .empty {
+  padding: 28px 24px 36px;
+}
+
+.bxm .lp-card-body > .empty {
+  padding: 24px 0;
+}
+
+/* Key/value pairs in the cards (design "bxm-kv"): two columns, light rules */
+.bxm .lp-page .lp-kv {
+  column-gap: 32px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+
+.bxm .lp-page .lp-kv .kv-row {
+  align-items: baseline;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 10px 0;
+}
+
+.bxm .lp-page .lp-kv dt,
+.bxm .lp-page .lp-kv dd {
+  border: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  padding: 0;
+}
+
+.bxm .lp-page .lp-kv dt {
+  color: var(--ink-3);
+  flex: 0 1 auto;
+  font-weight: 400;
+  max-width: 55%;
+}
+
+.bxm .lp-page .lp-kv dd {
+  color: var(--ink);
+  flex: 1 1 auto;
+  font-weight: 500;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+/* Tables inside the loan cards: full bleed, grey header, ink totals rule */
+.bxm .lp-table {
+  border-top: 1px solid var(--line);
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.bxm .lp-subhead + .lp-table {
+  border-top: 0;
+}
+
+.bxm .lp-table table.tbl th:first-child,
+.bxm .lp-table table.tbl td:first-child {
+  padding-left: 24px;
+}
+
+.bxm .lp-table table.tbl th:last-child,
+.bxm .lp-table table.tbl td:last-child {
+  padding-right: 16px;
+}
+
+.bxm .lp-table table.tbl thead th {
+  letter-spacing: 0.08em;
+  padding-left: 8px;
+  padding-right: 8px;
+  vertical-align: bottom;
+  white-space: normal;
+}
+
+.bxm .lp-table table.tbl tbody td {
+  padding: 12px 8px;
+  white-space: nowrap;
+}
+
+.bxm .lp-table table.tbl tbody tr:last-child td,
+.bxm .iv-page table.tbl tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.bxm .lp-table table.tbl tfoot.schedule-totals th,
+.bxm .iv-page table.tbl tfoot.schedule-totals th {
+  background: #fff;
+  border-bottom: 0;
+  border-top: 1px solid var(--ink);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  padding: 12px 8px;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.bxm .lp-table table.tbl tfoot.schedule-totals th:first-child {
+  padding-left: 24px;
+}
+
+.bxm .lp-table table.tbl tfoot.schedule-totals th:last-child {
+  padding-right: 16px;
+}
+
+.bxm .lp-table .chip {
+  height: 20px;
+}
+
+/* Documents card (design: documents table) */
+.bxm .lp-docs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.bxm .lp-doc {
+  align-items: flex-start;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 12px;
+  padding: 14px 24px;
+}
+
+.bxm .lp-doc:last-child {
+  border-bottom: 0;
+}
+
+.bxm .lp-doc-icon {
+  color: var(--ink);
+  flex: none;
+  margin-top: 4px;
+}
+
+.bxm .lp-doc-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.bxm .lp-doc-name {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 14px;
+  gap: 4px 10px;
+}
+
+.bxm .lp-doc-name strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.bxm .lp-doc-desc {
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.5;
+  margin-top: 2px;
+}
+
+.bxm .lp-doc .copy-id-btn {
+  flex: none;
+}
+
+/* Invest card (design "Invest in this loan") */
+.bxm .lp-aside-card {
+  overflow: hidden;
+}
+
+.bxm .lp-aside-sec {
+  border-bottom: 1px solid var(--line);
+  padding: 20px 24px;
+}
+
+.bxm .lp-aside-sec:last-child {
+  border-bottom: 0;
+}
+
+.bxm .lp-aside-sec .empty {
+  padding: 16px 0;
+}
+
+.bxm .lp-aside-title {
+  color: var(--ink);
+  font-size: 16.8px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.4;
+  margin: 0 0 12px;
+}
+
+.bxm .lp-kv-line {
+  align-items: baseline;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  line-height: 1.5;
+  padding: 3px 0;
+}
+
+.bxm .lp-kv-k {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.bxm .lp-kv-v {
+  color: var(--ink);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.bxm .lp-aside-foot {
+  align-items: center;
+  background: var(--bxm-paper);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 24px 24px;
+  text-align: center;
+}
+
+.bxm .lp-aside-note {
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* Story card */
+.bxm .lp-story-card {
+  padding-bottom: 0;
+}
+
+.bxm .lp-story-note {
+  border-top: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 8px 0 0;
+  padding-top: 14px;
+}
+
+/* ==========================================================================
+   Story renderer (StoryView): the admin-authored borrower / originator story
+   ========================================================================== */
+
+.bxm .story {
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.7;
+  max-width: 720px;
+}
+
+.bxm .story-p {
+  margin: 0 0 14px;
+}
+
+.bxm .story > :last-child {
+  margin-bottom: 0;
+}
+
+.bxm .story-h2 {
+  color: var(--ink);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.3;
+  margin: 28px 0 10px;
+}
+
+.bxm .story-h3 {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.4;
+  margin: 24px 0 8px;
+}
+
+.bxm .story-h2:first-child,
+.bxm .story-h3:first-child {
+  margin-top: 0;
+}
+
+.bxm .story-quote {
+  border-left: 2px solid var(--ink);
+  color: var(--ink);
+  font-size: 16px;
+  font-style: normal;
+  line-height: 1.6;
+  margin: 20px 0;
+  padding: 2px 0 2px 16px;
+}
+
+.bxm .story ul.story-list {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+}
+
+.bxm .story ul.story-list li {
+  border-bottom: 1px solid var(--line);
+  margin: 0;
+  padding: 8px 0 8px 20px;
+  position: relative;
+}
+
+.bxm .story ul.story-list li::before {
+  background: var(--ink);
+  content: "";
+  height: 6px;
+  left: 0;
+  position: absolute;
+  top: 17px;
+  width: 6px;
+}
+
+.bxm .story ul.story-list li:last-child {
+  border-bottom: 0;
+}
+
+.bxm .story ol.story-list {
+  margin: 0 0 16px;
+  padding-left: 22px;
+}
+
+.bxm .story ol.story-list li {
+  margin: 0;
+  padding: 4px 0 4px 4px;
+}
+
+.bxm .story ol.story-list li::marker {
+  color: var(--ink-3);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.bxm .app .story a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.bxm .story-figure {
+  margin: 24px 0;
+}
+
+.bxm .story-img {
+  background: var(--bxm-paper);
+  border-radius: 0;
+  display: block;
+  height: auto;
+  width: 100%;
+}
+
+.bxm .story-caption {
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.5;
+  margin-top: 8px;
+  text-align: left;
+}
+
+.bxm .story-hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 24px 0;
+  width: auto;
+}
+
+/* ==========================================================================
+   Invest page (design: project > Invest). InvestPageFrame and the two flows.
+   ========================================================================== */
+
+/* Step bar: 01 AMOUNT / 02 REVIEW AND SIGN / 03 DONE */
+.bxm .iv-steps {
+  border-top: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  list-style: none;
+  margin: 0 0 32px;
+  padding: 0;
+}
+
+.bxm .iv-step {
+  border-top: 2px solid transparent;
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-label-track);
+  line-height: 1.4;
+  margin-top: -1px;
+  padding: 12px 16px 0 0;
+  text-transform: uppercase;
+}
+
+.bxm .iv-step.is-done {
+  color: var(--ink);
+}
+
+.bxm .iv-step.is-current {
+  border-top-color: var(--ink);
+  color: var(--ink);
+}
+
+.bxm .iv-step-index {
+  display: block;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 4px;
+}
+
+.bxm .iv-alerts {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+/* Form left, summary right */
+.bxm .iv-grid {
+  align-items: start;
+  display: grid;
+  gap: 28px 8%;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 4fr);
+}
+
+.bxm .iv-main {
+  min-width: 0;
+}
+
+.bxm .iv-form {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.bxm .iv-main > .iv-form + .iv-card,
+.bxm .iv-form > .iv-card {
+  margin: 0;
+}
+
+.bxm .iv-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+}
+
+.bxm .iv-card.iv-form {
+  gap: 20px;
+}
+
+.bxm .iv-label {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.3;
+  margin-bottom: 8px;
+}
+
+/* Chosen loan / paid-from tiles (design "invest-cc-chosen") */
+.bxm .iv-chosen {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  display: flex;
+  gap: 14px;
+  padding: 16px 20px;
+}
+
+.bxm .iv-chosen-icon {
+  color: var(--ink-3);
+  display: inline-flex;
+  flex: none;
+}
+
+.bxm .iv-chosen-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.bxm .iv-chosen-name {
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.bxm .iv-chosen-text {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* Amount: large pill with the currency on the right */
+.bxm .iv-amount {
+  position: relative;
+}
+
+.bxm .iv-page .iv-amount-input {
+  color: var(--ink);
+  font-size: 20px;
+  height: 60px;
+  padding: 0 84px 0 24px;
+  width: 100%;
+}
+
+.bxm .iv-amount-ccy {
+  border-left: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: 14px;
+  line-height: 1.4;
+  padding: 2px 22px;
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.bxm .iv-page .field .hint,
+.bxm .iv-page .field .err {
+  line-height: 1.5;
+}
+
+/* Summary card "Your investment" with the actions in a grey footer */
+.bxm .iv-summary {
+  overflow: hidden;
+}
+
+.bxm .iv-summary-sec {
+  padding: 16px 24px;
+}
+
+.bxm .iv-summary-sec:first-child {
+  padding-top: 20px;
+}
+
+.bxm .iv-summary-sec + .iv-summary-sec {
+  border-top: 1px solid var(--line);
+}
+
+.bxm .iv-summary-title {
+  color: var(--ink);
+  font-size: 16.8px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.4;
+  margin: 0 0 10px;
+}
+
+.bxm .iv-summary .review {
+  border: 0;
+}
+
+.bxm .iv-summary .rrow {
+  align-items: baseline;
+  background: transparent;
+  border-bottom: 0;
+  font-size: 14px;
+  gap: 16px;
+  padding: 4px 0;
+}
+
+.bxm .iv-summary .rk {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.bxm .iv-summary .rv {
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.bxm .iv-summary .copy-id-btn {
+  height: 24px;
+}
+
+.bxm .iv-summary-foot {
+  background: var(--bxm-paper);
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  padding: 24px;
+}
+
+.bxm .iv-summary-foot .btn {
+  font-size: 14px;
+  height: 40px;
+  padding: 0 20px;
+}
+
+/* Review and sign */
+.bxm .iv-sign .check + .check {
+  margin-top: -4px;
+}
+
+.bxm .iv-note {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* Quoted cash flows (originator claims) */
+.bxm .iv-flows {
+  gap: 0;
+  padding: 0;
+}
+
+.bxm .iv-card-cap {
+  padding: 16px 24px 12px;
+}
+
+.bxm .iv-flows .tbl-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.bxm .iv-flows table.tbl th:first-child,
+.bxm .iv-flows table.tbl td:first-child {
+  padding-left: 24px;
+}
+
+.bxm .iv-flows table.tbl th:last-child,
+.bxm .iv-flows table.tbl td:last-child,
+.bxm .iv-flows table.tbl tfoot.schedule-totals th:last-child {
+  padding-right: 24px;
+}
+
+.bxm .iv-flows table.tbl tfoot.schedule-totals th:first-child {
+  padding-left: 24px;
+}
+
+/* Done: the success state with a black check tile (design: done step) */
+.bxm .iv-done {
+  padding: 32px 24px;
+}
+
+.bxm .iv-done .avatar {
+  background: var(--ink) !important;
+  border: 0 !important;
+  border-radius: 0;
+  color: #fff;
+  height: 56px !important;
+  width: 56px !important;
+}
+
+.bxm .iv-done h3 {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.bxm .iv-done p {
+  color: var(--ink-3);
+  font-size: 14px;
+  line-height: 1.7;
+  margin: 0 auto;
+  max-width: 520px;
+}
+
+.bxm .iv-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+}
+
+/* ==========================================================================
+   Breakpoints
+   ========================================================================== */
+
+@media (max-width: 1199px) {
+  .bxm .lp-page .lp-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1080px) {
+  .bxm .lp-page .loan-detail-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 991px) {
+  .bxm .lp-figures {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .bxm .iv-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 767px) {
+  .bxm .lp-head .page-actions {
+    margin-bottom: 0;
+  }
+
+  .bxm .lp-tile {
+    height: 44px;
+    width: 44px;
+  }
+
+  .bxm .lp-tile svg {
+    height: 22px;
+    width: 22px;
+  }
+
+  .bxm .lp-head h1 {
+    font-size: 24px;
+  }
+
+  .bxm .lp-title {
+    gap: 12px;
+  }
+
+  .bxm .lp-figures {
+    padding: 20px;
+  }
+
+  .bxm .lp-figs {
+    display: grid;
+    gap: 16px 20px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .bxm .lp-fig:nth-child(3) {
+    grid-column: 1 / -1;
+  }
+
+  .bxm .lp-fig-num {
+    font-size: 24px;
+    line-height: 32px;
+  }
+
+  .bxm .lp-fig-num small {
+    font-size: 18px;
+  }
+
+  .bxm .lp-page .lp-facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .bxm .lp-page .lp-facts .kv-row,
+  .bxm .lp-facts-title,
+  .bxm .lp-summary {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .bxm .lp-page .lp-kv {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .bxm .lp-card-head,
+  .bxm .lp-card-body,
+  .bxm .lp-doc,
+  .bxm .lp-aside-sec {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .bxm .lp-subhead,
+  .bxm .lp-card-note {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .bxm .lp-table table.tbl th:first-child,
+  .bxm .lp-table table.tbl td:first-child,
+  .bxm .lp-table table.tbl tfoot.schedule-totals th:first-child {
+    padding-left: 20px;
+  }
+
+  .bxm .iv-step-label {
+    display: none;
+  }
+
+  .bxm .iv-step.is-current .iv-step-label {
+    display: block;
+  }
+
+  .bxm .iv-card {
+    padding: 20px;
+  }
+
+  .bxm .iv-flows {
+    padding: 0;
+  }
+
+  .bxm .iv-card-cap,
+  .bxm .iv-flows table.tbl th:first-child,
+  .bxm .iv-flows table.tbl td:first-child,
+  .bxm .iv-flows table.tbl tfoot.schedule-totals th:first-child {
+    padding-left: 20px;
+  }
+
+  .bxm .iv-summary-sec,
+  .bxm .iv-summary-foot {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .bxm .iv-summary-foot .btn {
+    flex: 1 1 auto;
+  }
+}

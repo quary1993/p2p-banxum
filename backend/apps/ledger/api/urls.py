@@ -10,6 +10,7 @@ from backend.apps.ledger.api.views import (
     InvestorSelfServicePayoutInstructionRegisterView,
     InvestorWithdrawalCancelView,
     InvestorWithdrawalFinalizeView,
+    InvestorWithdrawalHistoryView,
     InvestorWithdrawalRequestCreateView,
     LenderDepositDeclareView,
     ReconciliationSnapshotCreateView,
@@ -40,6 +41,11 @@ urlpatterns = [
         "withdrawal-requests/",
         InvestorWithdrawalRequestCreateView.as_view(),
         name="ledger-investor-withdrawal-request-create",
+    ),
+    path(
+        "admin/withdrawal-requests/history/",
+        InvestorWithdrawalHistoryView.as_view(),
+        name="ledger-investor-withdrawal-history",
     ),
     path(
         "admin/withdrawal-requests/<uuid:withdrawal_request_id>/finalize/",

@@ -77,3 +77,31 @@ class CommunicationEvent(AppendOnlyModel):
         indexes = [
             models.Index(fields=["event_type", "occurred_at"]),
         ]
+
+
+class NotificationReadReceipt(AppendOnlyModel):
+    """An investor marked one portal notification as read.
+
+    Keyed by the outbox message so the read state survives the notification moving from
+    "queued" to "delivered". One receipt per investor and message; never updated.
+    """
+
+    investor_user_id = models.UUIDField()
+    outbox_message = models.ForeignKey(
+        "platform_core.OutboxMessage",
+        on_delete=models.PROTECT,
+        related_name="notification_read_receipts",
+    )
+    read_at = PlatformDateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-read_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["investor_user_id", "outbox_message"],
+                name="unique_notification_read_receipt",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["investor_user_id", "read_at"]),
+        ]

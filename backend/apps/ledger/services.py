@@ -86,6 +86,14 @@ class LedgerValidationError(LedgerError):
     pass
 
 
+class LedgerDuplicateDepositError(LedgerValidationError):
+    """A lender deposit repeats a bank movement that was already credited."""
+
+    def __init__(self, message: str, *, duplicate_bank_operation_id: str) -> None:
+        super().__init__(message)
+        self.duplicate_bank_operation_id = duplicate_bank_operation_id
+
+
 WITHDRAWAL_DEADLINE_DAYS = 60
 BALANCE_AGEING_REMINDER_DAYS = (25, 46, 53, 58, 59, 60)
 MAX_IDEMPOTENCY_KEY_LENGTH = 160
@@ -190,6 +198,10 @@ class DeclareLenderDepositCommand:
     evidence_reference: str = ""
     notes: str = ""
     idempotency_key: str = ""
+    # Explicit admin confirmation that the investor really sent a second transfer
+    # identical to one already credited (same bank-movement key, see
+    # _matching_lender_deposits). Without it such a deposit is rejected.
+    confirm_repeat_deposit: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -1936,6 +1948,62 @@ def _register_investor_self_service_payout_instruction_after_sensitive_code(
     return instruction
 
 
+def _references_differ(new_value: str, recorded_value: str) -> bool:
+    new_reference = new_value.strip().casefold()
+    recorded_reference = recorded_value.strip().casefold()
+    return bool(new_reference and recorded_reference and new_reference != recorded_reference)
+
+
+def _matching_lender_deposits(
+    *,
+    investor_user_id: str,
+    currency: Currency,
+    amount_minor: int,
+    source_iban: str,
+    collection_account_identifier: str,
+    value_date: date,
+    bank_reference: str,
+    payment_reference: str,
+) -> list[BankOperation]:
+    """Return credited deposits that describe the same bank movement, newest first.
+
+    A bank movement is identified by investor, currency, amount, source IBAN,
+    receiving collection account and value date (the day the money arrived), so a
+    genuine repeat transfer on another day is never blocked. The booking date is
+    entry metadata and is not part of the key. When both deposits carry a bank or
+    payment reference and those differ, they are separate movements.
+    """
+
+    candidates = BankOperation.objects.filter(
+        operation_type=BankOperationType.LENDER_DEPOSIT,
+        linked_object_type="investor",
+        linked_object_id=investor_user_id,
+        currency=currency,
+        amount_minor=amount_minor,
+        payer_account_identifier=source_iban,
+        collection_account_identifier__iexact=collection_account_identifier,
+        value_date=value_date,
+    ).exclude(status=BankOperationStatus.RETURNED)
+    return [
+        cast(BankOperation, operation)
+        for operation in candidates.order_by("-confirmed_at", "-id")
+        if not _references_differ(bank_reference, str(operation.bank_reference))
+        and not _references_differ(payment_reference, str(operation.payment_reference))
+    ]
+
+
+def _duplicate_lender_deposit_message(earlier: BankOperation) -> str:
+    amount = format_amount_minor(int(earlier.amount_minor), str(earlier.currency_id))
+    recorded_at = to_business_time(earlier.confirmed_at).strftime("%Y-%m-%d %H:%M")
+    return (
+        f"Duplicate deposit: {amount} from {earlier.payer_account_identifier} with value "
+        f"date {earlier.value_date.isoformat()} was already credited to this investor "
+        f"(deposit {earlier.id}, recorded {recorded_at}). It was not credited again. "
+        "If the investor really sent a second identical transfer, confirm the repeat "
+        "deposit and submit again."
+    )
+
+
 @transaction.atomic
 def declare_lender_deposit(command: DeclareLenderDepositCommand) -> LenderDepositResult:
     _require_admin_actor(command.actor)
@@ -1962,12 +2030,48 @@ def declare_lender_deposit(command: DeclareLenderDepositCommand) -> LenderDeposi
         command.collection_account_identifier,
         "Collection account identifier",
     )
+    investor_liability_account = get_or_create_ledger_account(
+        account_type=LedgerAccountType.INVESTOR_BALANCE_LIABILITY,
+        currency=currency,
+        owner_type="investor",
+        owner_id=str(investor.pk),
+        name=f"{currency.code} investor balance liability {investor.pk}",
+    )
+    # Lock the investor's balance account so two concurrent submissions of the same
+    # bank movement cannot both pass the duplicate check below.
+    LedgerAccount.objects.select_for_update().filter(pk=investor_liability_account.pk).first()
+    existing_after_lock = _existing_lender_deposit_result(
+        idempotency_key,
+        expected_fingerprint=request_fingerprint,
+    )
+    if existing_after_lock is not None:
+        return existing_after_lock
+    matching_deposits = _matching_lender_deposits(
+        investor_user_id=str(investor.pk),
+        currency=currency,
+        amount_minor=amount_minor,
+        source_iban=source_iban,
+        collection_account_identifier=collection_account_identifier,
+        value_date=command.value_date,
+        bank_reference=command.bank_reference,
+        payment_reference=command.payment_reference,
+    )
+    if matching_deposits and not command.confirm_repeat_deposit:
+        raise LedgerDuplicateDepositError(
+            _duplicate_lender_deposit_message(matching_deposits[0]),
+            duplicate_bank_operation_id=str(matching_deposits[0].id),
+        )
+    repeat_of_bank_operation_ids = [str(operation.id) for operation in matching_deposits]
     received_at = _received_at_from_value_date(command.value_date)
     confirmed_at = now_utc()
-    bank_operation_metadata = {
+    bank_operation_metadata: dict[str, Any] = {
         "matched_investor_email": str(getattr(investor, "email", "")),
         REQUEST_FINGERPRINT_METADATA_KEY: request_fingerprint,
     }
+    if repeat_of_bank_operation_ids:
+        bank_operation_metadata["confirmed_repeat_of_bank_operation_ids"] = (
+            repeat_of_bank_operation_ids
+        )
     try:
         with transaction.atomic():
             bank_operation = BankOperation.objects.create(
@@ -2005,13 +2109,6 @@ def declare_lender_deposit(command: DeclareLenderDepositCommand) -> LenderDeposi
         account_type=LedgerAccountType.COLLECTION_CASH,
         currency=currency,
         name=f"{currency.code} collection cash",
-    )
-    investor_liability_account = get_or_create_ledger_account(
-        account_type=LedgerAccountType.INVESTOR_BALANCE_LIABILITY,
-        currency=currency,
-        owner_type="investor",
-        owner_id=str(investor.pk),
-        name=f"{currency.code} investor balance liability {investor.pk}",
     )
     journal_entry = post_journal_entry(
         PostJournalEntryCommand(
@@ -2106,6 +2203,7 @@ def declare_lender_deposit(command: DeclareLenderDepositCommand) -> LenderDeposi
                 "amount_minor": amount_minor,
                 "balance_lot_id": str(balance_lot.id),
                 "verified_payout_instruction_id": str(payout_instruction.id),
+                "confirmed_repeat_of_bank_operation_ids": repeat_of_bank_operation_ids,
             },
         )
     )

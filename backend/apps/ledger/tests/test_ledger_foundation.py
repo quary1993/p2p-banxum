@@ -38,6 +38,7 @@ from backend.apps.ledger.services import (
     ExecuteInvestorFxExchangeLedgerCommand,
     FinalizeBorrowerDisbursementCommand,
     FinalizeInvestorWithdrawalCommand,
+    LedgerDuplicateDepositError,
     LedgerValidationError,
     PostingCommand,
     PostJournalEntryCommand,
@@ -701,6 +702,231 @@ def test_lender_deposit_returns_existing_result_after_idempotency_race(
     assert result.journal_entry.id == existing.journal_entry.id
     assert result.balance_lot.id == existing.balance_lot.id
     assert BankOperation.objects.filter(idempotency_key="deposit-race").count() == 1
+
+
+def _form_deposit_command(
+    admin_user: Model,
+    investor: Model,
+    *,
+    idempotency_key: str,
+    **changes: Any,
+) -> DeclareLenderDepositCommand:
+    # The admin Lender deposit form sends no bank reference; every submission gets
+    # a fresh idempotency key, so only the bank-movement key can catch a re-entry.
+    command = replace(
+        _deposit_command(admin_user, investor, idempotency_key=idempotency_key),
+        bank_reference="",
+        payment_reference="BX-CHF-LFFJWK27G",
+        evidence_reference="",
+    )
+    return replace(command, **changes)
+
+
+def _investor_credit_minor(investor: Model) -> int:
+    return sum(
+        int(lot.original_amount_minor)
+        for lot in InvestorBalanceLot.objects.filter(investor_user_id=investor.pk)
+    )
+
+
+@pytest.mark.django_db
+def test_lender_deposit_rejects_a_repeated_bank_movement(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    first = declare_lender_deposit(
+        _form_deposit_command(admin_user, investor, idempotency_key="deposit-form-1")
+    )
+
+    # Same investor, amount, source IBAN, collection account and value date: the
+    # same bank statement line entered twice. IBAN formatting does not matter.
+    with pytest.raises(LedgerDuplicateDepositError) as raised:
+        declare_lender_deposit(
+            _form_deposit_command(
+                admin_user,
+                investor,
+                idempotency_key="deposit-form-2",
+                payer_account_identifier="ch93 0076 2011 6238 5295 7",
+                collection_account_identifier="ch00garantaledger",
+                booking_date=date(2026, 1, 2),
+            )
+        )
+    assert raised.value.duplicate_bank_operation_id == str(first.bank_operation.id)
+    message = str(raised.value)
+    assert str(first.bank_operation.id) in message
+    assert "CHF 100.00 from CH9300762011623852957 with value date 2026-01-01" in message
+    assert "It was not credited again" in message
+    assert BankOperation.objects.count() == 1
+    assert LedgerJournalEntry.objects.count() == 1
+    assert _investor_credit_minor(investor) == 100_00
+
+    # A blank reference on either side does not make it a different movement.
+    with pytest.raises(LedgerDuplicateDepositError):
+        declare_lender_deposit(
+            _form_deposit_command(
+                admin_user,
+                investor,
+                idempotency_key="deposit-form-3",
+                payment_reference="",
+            )
+        )
+    assert _investor_credit_minor(investor) == 100_00
+
+
+@pytest.mark.django_db
+def test_lender_deposit_duplicate_key_allows_different_bank_movements(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    declare_lender_deposit(
+        _form_deposit_command(admin_user, investor, idempotency_key="deposit-key-base")
+    )
+    different_movements: list[dict[str, Any]] = [
+        {"value_date": date(2026, 1, 2), "booking_date": date(2026, 1, 2)},
+        {"amount_minor": 100_01},
+        {"payer_account_identifier": "DE89370400440532013000"},
+        {"collection_account_identifier": "CH00GARANTAOTHER"},
+        {"currency": "EUR"},
+        {"payment_reference": "BX-CHF-OTHERREF"},
+    ]
+    for index, changes in enumerate(different_movements):
+        declare_lender_deposit(
+            _form_deposit_command(
+                admin_user,
+                investor,
+                idempotency_key=f"deposit-key-{index}",
+                **changes,
+            )
+        )
+
+    # Different bank transaction references prove two separate movements on the same
+    # day, but entering either one again is still caught (case-insensitive).
+    same_day = {"value_date": date(2026, 1, 5), "booking_date": date(2026, 1, 5)}
+    for index, bank_reference in enumerate(("BANK-TX-1", "BANK-TX-2")):
+        declare_lender_deposit(
+            _form_deposit_command(
+                admin_user,
+                investor,
+                idempotency_key=f"deposit-key-bank-{index}",
+                bank_reference=bank_reference,
+                **same_day,
+            )
+        )
+    assert BankOperation.objects.filter(operation_type="lender_deposit").count() == 9
+    for index, bank_reference in enumerate(("bank-tx-2", "")):
+        with pytest.raises(LedgerDuplicateDepositError):
+            declare_lender_deposit(
+                _form_deposit_command(
+                    admin_user,
+                    investor,
+                    idempotency_key=f"deposit-key-bank-again-{index}",
+                    bank_reference=bank_reference,
+                    **same_day,
+                )
+            )
+    assert BankOperation.objects.filter(operation_type="lender_deposit").count() == 9
+
+
+@pytest.mark.django_db
+def test_lender_deposit_repeat_requires_explicit_confirmation_and_is_audited(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    first = declare_lender_deposit(
+        _form_deposit_command(admin_user, investor, idempotency_key="deposit-repeat-1")
+    )
+
+    repeat = declare_lender_deposit(
+        _form_deposit_command(
+            admin_user,
+            investor,
+            idempotency_key="deposit-repeat-2",
+            confirm_repeat_deposit=True,
+        )
+    )
+    assert repeat.bank_operation.id != first.bank_operation.id
+    assert repeat.bank_operation.metadata["confirmed_repeat_of_bank_operation_ids"] == [
+        str(first.bank_operation.id)
+    ]
+    audit = AuditEvent.objects.get(
+        action="ledger.lender_deposit_declared",
+        target_id=str(repeat.bank_operation.id),
+    )
+    assert audit.metadata["confirmed_repeat_of_bank_operation_ids"] == [
+        str(first.bank_operation.id)
+    ]
+    assert _investor_credit_minor(investor) == 200_00
+
+    # Replaying the confirmed request is idempotent, not a third credit.
+    replay = declare_lender_deposit(
+        _form_deposit_command(
+            admin_user,
+            investor,
+            idempotency_key="deposit-repeat-2",
+            confirm_repeat_deposit=True,
+        )
+    )
+    assert replay.bank_operation.id == repeat.bank_operation.id
+
+    # A further unconfirmed entry names the most recent matching deposit.
+    with pytest.raises(LedgerDuplicateDepositError) as raised:
+        declare_lender_deposit(
+            _form_deposit_command(admin_user, investor, idempotency_key="deposit-repeat-3")
+        )
+    assert raised.value.duplicate_bank_operation_id == str(repeat.bank_operation.id)
+    assert _investor_credit_minor(investor) == 200_00
+
+
+@pytest.mark.django_db
+def test_lender_deposit_admin_api_reports_duplicate_and_accepts_confirmation(
+    client: Client,
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    client.force_login(cast(Any, admin_user))
+    request = {
+        "investor_user_id": str(investor.pk),
+        "amount_minor": 100_00,
+        "currency": "EUR",
+        "booking_date": "2026-01-03",
+        "value_date": "2026-01-03",
+        "collection_account_identifier": "QA-EUR-COLLECTION",
+        "payer_name": "Ledger Investor",
+        "payer_account_identifier": "DE89 3704 0044 0532 0130 00",
+        "payment_reference": "BX-EUR-LFFJWK27G",
+    }
+
+    first = client.post(
+        "/api/v1/ledger/admin/lender-deposits/",
+        data={**request, "idempotency_key": "deposit-api-dup-1"},
+        content_type="application/json",
+    )
+    assert first.status_code == 201
+    first_id = first.json()["bank_operation"]["id"]
+
+    duplicate = client.post(
+        "/api/v1/ledger/admin/lender-deposits/",
+        data={**request, "idempotency_key": "deposit-api-dup-2"},
+        content_type="application/json",
+    )
+    assert duplicate.status_code == 409
+    payload = duplicate.json()
+    assert payload["code"] == "duplicate_lender_deposit"
+    assert payload["duplicate_bank_operation_id"] == first_id
+    assert first_id in payload["detail"]
+    assert BankOperation.objects.count() == 1
+
+    confirmed = client.post(
+        "/api/v1/ledger/admin/lender-deposits/",
+        data={
+            **request,
+            "idempotency_key": "deposit-api-dup-3",
+            "confirm_repeat_deposit": True,
+        },
+        content_type="application/json",
+    )
+    assert confirmed.status_code == 201
+    assert _investor_credit_minor(investor) == 200_00
 
 
 @pytest.mark.django_db
@@ -2697,3 +2923,90 @@ def test_ledger_append_only_records_have_app_and_db_guards(
             with connection.cursor() as cursor:
                 cursor.execute(f"DELETE FROM {table} WHERE id = %s", [db_record_id])
         assert "append-only" in str(delete_error.value)
+
+
+@pytest.mark.django_db
+def test_admin_withdrawal_history_lists_closed_withdrawals_newest_first(
+    client: Client,
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    _register_verified_iban(admin_user, investor)
+    declare_lender_deposit(_deposit_command(admin_user, investor, amount_minor=300_00))
+
+    def request_withdrawal(amount_minor: int, key: str) -> InvestorWithdrawalRequest:
+        return request_investor_withdrawal(
+            RequestInvestorWithdrawalCommand(
+                actor=investor,
+                amount_minor=amount_minor,
+                currency="CHF",
+                destination_iban="CH9300762011623852957",
+                destination_account_name="Ledger Investor",
+                idempotency_key=key,
+                **_sensitive_code_payload(investor, "withdrawal"),
+            )
+        )
+
+    finalized = request_withdrawal(60_00, "history-finalized")
+    cancelled = request_withdrawal(40_00, "history-cancelled")
+    still_open = request_withdrawal(10_00, "history-open")
+    finalize_investor_withdrawal(
+        FinalizeInvestorWithdrawalCommand(
+            actor=admin_user,
+            withdrawal_request_id=str(finalized.id),
+            booking_date=date(2026, 1, 2),
+            value_date=date(2026, 1, 2),
+            collection_account_identifier="CH00GARANTALEDGER",
+            bank_reference="BANK-HISTORY-1",
+            idempotency_key="history-finalize",
+        )
+    )
+    cancel_investor_withdrawal(
+        CancelInvestorWithdrawalCommand(
+            actor=admin_user,
+            withdrawal_request_id=str(cancelled.id),
+            reason="Investor asked to stop it.",
+            idempotency_key="history-cancel",
+        )
+    )
+
+    client.force_login(cast(Any, investor))
+    assert client.get("/api/v1/ledger/admin/withdrawal-requests/history/").status_code == 403
+
+    client.force_login(cast(Any, admin_user))
+    response = client.get("/api/v1/ledger/admin/withdrawal-requests/history/")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 2
+    # Newest close first; the still-requested withdrawal stays in the live queue only.
+    assert [row["id"] for row in payload["results"]] == [str(cancelled.id), str(finalized.id)]
+    assert str(still_open.id) not in {row["id"] for row in payload["results"]}
+    cancelled_row, finalized_row = payload["results"]
+    assert cancelled_row["status"] == "cancelled"
+    assert cancelled_row["amount_minor"] == 40_00
+    assert cancelled_row["currency"] == "CHF"
+    assert cancelled_row["cancellation_reason"] == "Investor asked to stop it."
+    assert cancelled_row["closed_at"] == cancelled_row["cancelled_at"]
+    assert finalized_row["status"] == "finalized"
+    assert finalized_row["bank_reference"] == "BANK-HISTORY-1"
+    assert finalized_row["closed_at"] == finalized_row["finalized_at"]
+    assert finalized_row["investor_name"] == "Ledger Investor"
+    assert finalized_row["investor_email"] == "ledger-investor@example.test"
+    assert finalized_row["destination_iban"] == "CH9300762011623852957"
+
+    finalized_only = client.get(
+        "/api/v1/ledger/admin/withdrawal-requests/history/",
+        {"status": "finalized"},
+    ).json()
+    assert [row["id"] for row in finalized_only["results"]] == [str(finalized.id)]
+    by_investor = client.get(
+        "/api/v1/ledger/admin/withdrawal-requests/history/",
+        {"q": "ledger-investor@", "limit": "1", "offset": "1"},
+    ).json()
+    assert by_investor["count"] == 2
+    assert [row["id"] for row in by_investor["results"]] == [str(finalized.id)]
+    assert client.get(
+        "/api/v1/ledger/admin/withdrawal-requests/history/",
+        {"currency": "EUR"},
+    ).json()["count"] == 0

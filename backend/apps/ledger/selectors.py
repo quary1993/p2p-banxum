@@ -5,10 +5,15 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from django.apps import apps
+from django.db.models import CharField, F, Q
+from django.db.models.functions import Cast, Coalesce
+
 from backend.apps.ledger.models import (
     BalanceLotStatus,
     InvestorBalanceLot,
     InvestorWithdrawalRequest,
+    InvestorWithdrawalRequestStatus,
     LedgerJournalEntry,
 )
 from backend.apps.platform_core.domain.time import business_date
@@ -109,3 +114,87 @@ def balance_lot_amounts_as_of(
         elif lot_id in penalty_lots or state["penalized_amount_minor"]:
             state["status"] = BalanceLotStatus.PENALTY_MODE
     return amounts
+
+
+CLOSED_WITHDRAWAL_STATUSES = (
+    InvestorWithdrawalRequestStatus.FINALIZED,
+    InvestorWithdrawalRequestStatus.CANCELLED,
+)
+WITHDRAWAL_HISTORY_MAX_LIMIT = 200
+
+
+def list_closed_investor_withdrawals(
+    *,
+    status: str = "",
+    currency: str = "",
+    is_forced: bool | None = None,
+    query: str = "",
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """Finalized and cancelled withdrawals, newest close first, for the admin history."""
+    statuses: list[str] = [str(value) for value in CLOSED_WITHDRAWAL_STATUSES]
+    if status in statuses:
+        statuses = [status]
+    queryset = InvestorWithdrawalRequest.objects.filter(status__in=statuses)
+    if currency:
+        queryset = queryset.filter(currency_id=currency.strip().upper())
+    if is_forced is not None:
+        queryset = queryset.filter(is_forced=is_forced)
+    user_model = apps.get_model("accounts_auth", "User")
+    cleaned_query = query.strip()
+    if cleaned_query:
+        matching_users = user_model.objects.filter(
+            Q(email__icontains=cleaned_query)
+            | Q(full_name__icontains=cleaned_query)
+            | Q(investor_reference__icontains=cleaned_query)
+        ).values_list("id", flat=True)[:200]
+        compact_query = cleaned_query.replace(" ", "")
+        queryset = queryset.annotate(id_text=Cast("id", output_field=CharField())).filter(
+            Q(id_text__icontains=cleaned_query)
+            | Q(investor_user_id__in=list(matching_users))
+            | Q(destination_iban__icontains=compact_query)
+            | Q(destination_account_name__icontains=cleaned_query)
+            | Q(bank_reference__icontains=cleaned_query)
+            | Q(payment_reference__icontains=cleaned_query)
+        )
+    limit = max(1, min(limit, WITHDRAWAL_HISTORY_MAX_LIMIT))
+    offset = max(0, offset)
+    count = queryset.count()
+    page = list(
+        queryset.annotate(closed_at=Coalesce("finalized_at", "cancelled_at")).order_by(
+            F("closed_at").desc(nulls_last=True), "-requested_at", "-id"
+        )[offset : offset + limit]
+    )
+    users = {
+        str(user.pk): user
+        for user in user_model.objects.filter(
+            id__in={withdrawal.investor_user_id for withdrawal in page}
+        )
+    }
+    results = []
+    for withdrawal in page:
+        user = users.get(str(withdrawal.investor_user_id))
+        results.append(
+            {
+                "id": withdrawal.id,
+                "investor_user_id": withdrawal.investor_user_id,
+                "investor_name": str(getattr(user, "full_name", "") or ""),
+                "investor_email": str(getattr(user, "email", "") or ""),
+                "investor_reference": str(getattr(user, "investor_reference", "") or ""),
+                "status": withdrawal.status,
+                "is_forced": withdrawal.is_forced,
+                "amount_minor": withdrawal.amount_minor,
+                "currency": withdrawal.currency_id,
+                "destination_iban": withdrawal.destination_iban,
+                "destination_account_name": withdrawal.destination_account_name,
+                "requested_at": withdrawal.requested_at,
+                "closed_at": getattr(withdrawal, "closed_at", None),
+                "finalized_at": withdrawal.finalized_at,
+                "cancelled_at": withdrawal.cancelled_at,
+                "bank_reference": withdrawal.bank_reference,
+                "payment_reference": withdrawal.payment_reference,
+                "cancellation_reason": withdrawal.cancellation_reason,
+            }
+        )
+    return {"count": count, "limit": limit, "offset": offset, "results": results}

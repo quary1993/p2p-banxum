@@ -9,7 +9,8 @@ import type {
   DocumentTemplateVersion,
   KycAdminCase,
   Loan,
-  AdminSecondaryMarketListingRow
+  AdminSecondaryMarketListingRow,
+  InvestorWithdrawalHistoryRow
 } from "../api/generated/banxumApi";
 
 function queueItem(
@@ -170,6 +171,21 @@ export const adminDashboardFixture: AdminOperationsDashboard = {
         object_type: "InvestorWithdrawalRequest",
         object_id: "wd-1002",
         metadata: { investor_user_id: "inv-3021", is_forced: false }
+      }),
+      // Like the API, every requested withdrawal (forced ones included) is
+      // listed here; the forced queue below is a subset.
+      queueItem({
+        kind: "withdrawal_request",
+        id: "wd-forced-301",
+        title: "Investor withdrawal awaiting bank execution",
+        status: "requested",
+        priority: "high",
+        due_date: "2026-06-05",
+        currency: "CHF",
+        amount_minor: 3150000,
+        object_type: "InvestorWithdrawalRequest",
+        object_id: "wd-forced-301",
+        metadata: { investor_user_id: "inv-2210", is_forced: true }
       })
     ],
     forced_withdrawals_requested: [
@@ -1178,6 +1194,69 @@ export const adminUserDirectoryFixture = {
     { id: "5fb071c6-6666-4fa7-c165-visitor00006", email: "hq@banxum.example", full_name: "BANXUM HQ Superadmin", investor_reference: "", account_type: "superadmin", status: "active", phone_verified: false, is_staff: true, is_active: true, date_joined: "2026-01-05T08:00:00Z", can_impersonate_readonly: false }
   ]
 };
+
+export const adminWithdrawalHistoryFixture: InvestorWithdrawalHistoryRow[] = [
+  {
+    id: "wd-0994",
+    investor_user_id: "0d9f2a71-1111-4a52-9d10-visitor00001",
+    investor_name: "Lukas Brunner",
+    investor_email: "lukas.brunner@example.ch",
+    investor_reference: "L4F8K2Q9R",
+    status: "finalized",
+    is_forced: false,
+    amount_minor: 1250000,
+    currency: "CHF",
+    destination_iban: "CH9300762011623852957",
+    destination_account_name: "Lukas Brunner",
+    requested_at: "2026-06-02T08:12:00Z",
+    closed_at: "2026-06-03T13:40:00Z",
+    finalized_at: "2026-06-03T13:40:00Z",
+    cancelled_at: null,
+    bank_reference: "UBS-20260603-0042",
+    payment_reference: "WD-0994",
+    cancellation_reason: ""
+  },
+  {
+    id: "wd-0991",
+    investor_user_id: "1b7c3e82-2222-4b63-8e21-visitor00002",
+    investor_name: "Marie Dupont",
+    investor_email: "marie.dupont@example.fr",
+    investor_reference: "L7MPX3TDA",
+    status: "cancelled",
+    is_forced: false,
+    amount_minor: 480000,
+    currency: "EUR",
+    destination_iban: "FR7630006000011234567890189",
+    destination_account_name: "Marie Dupont",
+    requested_at: "2026-06-01T16:05:00Z",
+    closed_at: "2026-06-02T09:20:00Z",
+    finalized_at: null,
+    cancelled_at: "2026-06-02T09:20:00Z",
+    bank_reference: "",
+    payment_reference: "",
+    cancellation_reason: "Investor asked to cancel before bank execution."
+  },
+  {
+    id: "wd-forced-288",
+    investor_user_id: "3d9e5fa4-4444-4d85-af43-visitor00004",
+    investor_name: "Alpen Fonds AG (representative)",
+    investor_email: "treasury@alpenfonds.example",
+    investor_reference: "L2ZRC8VKM",
+    status: "finalized",
+    is_forced: true,
+    amount_minor: 2700000,
+    currency: "CHF",
+    destination_iban: "CH5604835012345678009",
+    destination_account_name: "Alpen Fonds AG",
+    requested_at: "2026-05-28T06:00:00Z",
+    closed_at: "2026-05-29T10:15:00Z",
+    finalized_at: "2026-05-29T10:15:00Z",
+    cancelled_at: null,
+    bank_reference: "UBS-20260529-0017",
+    payment_reference: "WD-FORCED-288",
+    cancellation_reason: ""
+  }
+];
 
 export const adminFormDefaults = {
   investorUserId: "00000000-0000-4000-8000-000000002048",

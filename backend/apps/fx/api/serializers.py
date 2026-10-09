@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any
 
-from django.utils import timezone
 from rest_framework import serializers
 
 from backend.apps.fx.models import FxExchange, FxExternalSettlement, FxQuote
@@ -13,6 +12,7 @@ from backend.apps.fx.services import (
     FxRealizedSettlementReport,
     effective_net_rate_for_quote,
 )
+from backend.apps.platform_core.domain.time import now_utc
 
 
 class FxQuotePreviewSerializer(serializers.Serializer[Any]):
@@ -69,7 +69,8 @@ class FxQuoteSerializer(serializers.Serializer[Any]):
     def get_status(self, quote: FxQuote) -> str:
         if quote.exchanges.exists():
             return "executed"
-        if timezone.now() > quote.expires_at:
+        # expires_at is on the platform clock, like the execution check.
+        if now_utc() > quote.expires_at:
             return "expired"
         return "issued"
 

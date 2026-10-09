@@ -17,6 +17,7 @@ class AdminTaskType(models.TextChoices):
     ACCOUNT_ACCESS_REVIEW = "account_access_review", "Account access review"
     BORROWER_ONBOARDING = "borrower_onboarding", "Borrower onboarding"
     LOAN_SETUP = "loan_setup", "Loan setup"
+    LOAN_RISK_REVIEW = "loan_risk_review", "Loan risk review"
     PAYMENT_RECONCILIATION = "payment_reconciliation", "Payment reconciliation"
     PAYOUT_INSTRUCTION_VERIFICATION = (
         "payout_instruction_verification",
@@ -143,6 +144,14 @@ class AdminTask(TimestampedModel):
                 ),
                 fields=["task_type", "related_object_type", "related_object_id"],
                 name="unique_originator_activation_pending_task",
+            ),
+            models.UniqueConstraint(
+                condition=models.Q(
+                    task_type=AdminTaskType.LOAN_RISK_REVIEW,
+                    related_object_type="LoanDefault",
+                ),
+                fields=["task_type", "related_object_type", "related_object_id"],
+                name="unique_loan_default_review_task",
             ),
         ]
 

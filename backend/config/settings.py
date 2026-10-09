@@ -68,6 +68,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "backend.apps.accounts_auth.middleware.SessionLifetimeMiddleware",
     "backend.apps.platform_core.middleware.RejectReadonlyImpersonationWritesMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -136,6 +137,9 @@ CSRF_COOKIE_SECURE = env.bool("CSRF_COOKIE_SECURE", default=IS_PRODUCTION)
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = env("SESSION_COOKIE_SAMESITE", default="Lax")
 CSRF_COOKIE_SAMESITE = env("CSRF_COOKIE_SAMESITE", default="Lax")
+# Absolute lifetime of an authenticated investor or admin session, counted from login.
+# Enforced server-side by accounts_auth.middleware.SessionLifetimeMiddleware.
+AUTH_SESSION_MAX_AGE_SECONDS = env.int("AUTH_SESSION_MAX_AGE_SECONDS", default=2 * 60 * 60)
 SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=IS_PRODUCTION)
 SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=31536000 if IS_PRODUCTION else 0)
 SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool(
@@ -164,6 +168,7 @@ AUTH_SENSITIVE_CODE_COOLDOWN_SECONDS = env.int(
     "AUTH_SENSITIVE_CODE_COOLDOWN_SECONDS",
     default=60,
 )
+AUTH_SENSITIVE_CODE_MAX_ATTEMPTS = env.int("AUTH_SENSITIVE_CODE_MAX_ATTEMPTS", default=3)
 PHONE_VERIFICATION_PROVIDER = env("PHONE_VERIFICATION_PROVIDER", default="mock")
 TWILIO_ACCOUNT_SID = env("TWILIO_ACCOUNT_SID", default="")
 TWILIO_AUTH_TOKEN = env("TWILIO_AUTH_TOKEN", default="")
@@ -314,6 +319,11 @@ SPECTACULAR_SETTINGS = {
         "BorrowerKybStatusEnum": "backend.apps.entities.models.BorrowerKybStatus.choices",
         "KycStatusEnum": "backend.apps.kyc_compliance.models.KycStatus.choices",
         "RepaymentTypeEnum": "backend.apps.loans.models.RepaymentType.choices",
+        "RiskRatingEnum": "backend.apps.loans.models.RiskRating.choices",
+        "PurposeEnum": "backend.apps.loans.models.LoanPurpose.choices",
+        "SmartInvestCurrencyEnum": "backend.apps.smart_invest.models.SmartInvestCurrency.choices",
+        "SmartInvestLoanKindEnum": "backend.apps.smart_invest.models.SmartInvestLoanKind.choices",
+        "SmartInvestCollateralEnum": "backend.apps.smart_invest.api.serializers.COLLATERAL_CHOICES",
     },
 }
 

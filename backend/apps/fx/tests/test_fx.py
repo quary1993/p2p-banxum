@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import threading
 import time as time_module
+import urllib.error
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
@@ -28,6 +29,7 @@ from backend.apps.fx.models import (
     FxQuote,
 )
 from backend.apps.fx.services import (
+    FX_TEMPORARILY_UNAVAILABLE_MESSAGE,
     DeclareFxExternalSettlementCommand,
     ExecuteFxQuoteCommand,
     FxAuthorizationError,
@@ -51,6 +53,7 @@ from backend.apps.platform_core.tests.factories import (
     SensitiveActionCodePayload,
     issue_sensitive_action_test_code,
 )
+from backend.apps.platform_core.tests.qa_clock import qa_clock, wall_clock
 
 
 @pytest.fixture
@@ -1223,3 +1226,210 @@ def test_mock_fx_provider_is_blocked_in_production() -> None:
 def test_mock_fx_provider_is_blocked_outside_local_test_environments() -> None:
     with pytest.raises(FxValidationError, match="Mock FX provider"):
         configured_mock_provider_rate(source_currency="CHF", target_currency="EUR")
+
+
+# The QA clock pins the platform clock (here Wednesday 9 Sept 2026) while live provider
+# rates carry real time (here Monday 14 Sept 2026), as on staging during the QA run.
+QA_CLOCK_TIME = datetime(2026, 9, 9, 15, 46, tzinfo=business_timezone())
+REAL_TIME = datetime(2026, 9, 14, 10, 0, tzinfo=business_timezone())
+
+
+def _live_rate(observed_at: datetime, rate: str = "1.050000") -> ProviderRate:
+    return ProviderRate(
+        provider="yahoo_finance",
+        rate=Decimal(rate),
+        previous_day_average_rate=Decimal(rate),
+        observed_at=observed_at,
+        provider_quote_id=f"yahoo:CHFEUR=X:{int(observed_at.timestamp())}",
+    )
+
+
+@pytest.mark.django_db
+def test_live_rate_freshness_uses_real_time_while_quote_and_ledger_use_qa_clock(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    observed_at = REAL_TIME - timedelta(seconds=30)
+    with wall_clock(REAL_TIME), qa_clock(QA_CLOCK_TIME):
+        _deposit(
+            admin_user,
+            investor,
+            amount_minor=10_000_00,
+            value_date=date(2026, 9, 1),
+            idempotency_key="fx-qa-clock-deposit",
+        )
+        preview = preview_fx_quote(
+            PreviewFxQuoteCommand(
+                actor=investor,
+                source_currency="CHF",
+                target_currency="EUR",
+                source_amount_minor=1_000_00,
+                provider_rate=_live_rate(observed_at),
+            )
+        )
+        quote = issue_fx_quote(
+            IssueFxQuoteCommand(
+                actor=investor,
+                source_currency="CHF",
+                target_currency="EUR",
+                source_amount_minor=1_000_00,
+                provider_rate=_live_rate(observed_at),
+                idempotency_key="fx-qa-clock-quote",
+            )
+        )
+        exchange = execute_fx_quote(
+            ExecuteFxQuoteCommand(
+                actor=investor,
+                quote_id=str(quote.id),
+                idempotency_key="fx-qa-clock-execute",
+                **_sensitive_code_payload(investor, "fx"),
+            )
+        )
+
+    assert preview.previewed_at == QA_CLOCK_TIME
+    assert quote.issued_at == QA_CLOCK_TIME
+    assert quote.expires_at == QA_CLOCK_TIME + timedelta(seconds=60)
+    assert quote.provider_rate_timestamp == observed_at
+    freshness = quote.sanity_metadata["checks"][0]
+    assert freshness["name"] == "freshness"
+    assert freshness["age_seconds"] == 30
+    assert freshness["checked_at"] == REAL_TIME.isoformat()
+    assert exchange.executed_at == QA_CLOCK_TIME
+
+
+@pytest.mark.django_db
+def test_live_rate_staleness_and_closed_market_reason_follow_real_time_under_qa_clock(
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+
+    def issue(observed_at: datetime, key: str) -> FxQuote:
+        return issue_fx_quote(
+            IssueFxQuoteCommand(
+                actor=investor,
+                source_currency="CHF",
+                target_currency="EUR",
+                source_amount_minor=1_000_00,
+                provider_rate=_live_rate(observed_at),
+                idempotency_key=key,
+            )
+        )
+
+    with wall_clock(REAL_TIME), qa_clock(QA_CLOCK_TIME):
+        # A rate stamped at the QA time is days old in the real world.
+        with pytest.raises(FxValidationError, match="temporary provider issue"):
+            issue(QA_CLOCK_TIME, "fx-qa-real-stale")
+
+    real_saturday = datetime(2026, 9, 12, 12, 0, tzinfo=business_timezone())
+    friday_close = datetime(2026, 9, 11, 22, 55, tzinfo=UTC)
+    with wall_clock(real_saturday), qa_clock(QA_CLOCK_TIME):
+        with pytest.raises(FxValidationError, match="unavailable on weekends"):
+            issue(friday_close, "fx-qa-real-weekend")
+
+
+@pytest.mark.django_db
+def test_mock_provider_stamps_real_time_under_qa_clock() -> None:
+    with wall_clock(REAL_TIME), qa_clock(QA_CLOCK_TIME):
+        provider_rate = configured_mock_provider_rate(source_currency="CHF", target_currency="EUR")
+
+    assert provider_rate.observed_at == REAL_TIME
+
+
+_PREVIEW_QUERY: dict[str, str | int] = {
+    "source_currency": "CHF",
+    "target_currency": "EUR",
+    "source_amount_minor": 100,
+}
+
+
+def _yahoo_payload(observed_at: datetime) -> dict[str, Any]:
+    observed_timestamp = int(observed_at.timestamp())
+    return {
+        "chart": {
+            "result": [
+                {
+                    "meta": {
+                        "symbol": "CHFEUR=X",
+                        "regularMarketPrice": 1.05,
+                        "regularMarketTime": observed_timestamp,
+                        "previousClose": 1.049,
+                    },
+                    "timestamp": [observed_timestamp],
+                    "indicators": {"quote": [{"close": [1.049, 1.05]}]},
+                }
+            ],
+            "error": None,
+        }
+    }
+
+
+@pytest.mark.django_db
+def test_fx_api_quotes_live_yahoo_rate_under_qa_clock(
+    client: Client,
+    investor: Model,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _approve_financial_access(investor)
+    observed_at = REAL_TIME - timedelta(seconds=20)
+    monkeypatch.setattr(
+        "backend.apps.fx.services.urllib.request.urlopen",
+        lambda request, timeout: _FakeYahooResponse(_yahoo_payload(observed_at)),
+    )
+    client.force_login(cast(Any, investor))
+
+    with (
+        override_settings(FX_RATE_PROVIDER="yahoo_finance"),
+        wall_clock(REAL_TIME),
+        qa_clock(QA_CLOCK_TIME),
+    ):
+        preview_response = client.get(
+            "/api/v1/fx/quote-preview/",
+            data=_PREVIEW_QUERY,
+        )
+        quote_response = client.post(
+            "/api/v1/fx/quotes/",
+            data={
+                "source_currency": "CHF",
+                "target_currency": "EUR",
+                "source_amount_minor": 1_000_00,
+                "idempotency_key": "fx-api-qa-clock-quote",
+            },
+            content_type="application/json",
+        )
+
+    assert preview_response.status_code == 200, preview_response.json()
+    assert quote_response.status_code == 201, quote_response.json()
+    payload = quote_response.json()
+    assert payload["status"] == "issued"
+    assert datetime.fromisoformat(payload["issued_at"]) == QA_CLOCK_TIME
+    assert datetime.fromisoformat(payload["provider_rate_timestamp"]) == observed_at.replace(
+        microsecond=0
+    )
+
+
+@pytest.mark.django_db
+def test_fx_api_reports_provider_network_failure_generically_and_logs_reason(
+    client: Client,
+    investor: Model,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    _approve_financial_access(investor)
+
+    def unreachable(request: Any, timeout: int) -> _FakeYahooResponse:
+        raise urllib.error.URLError("Name or service not known")
+
+    monkeypatch.setattr("backend.apps.fx.services.urllib.request.urlopen", unreachable)
+    client.force_login(cast(Any, investor))
+
+    with override_settings(FX_RATE_PROVIDER="yahoo_finance"), caplog.at_level("WARNING"):
+        response = client.get(
+            "/api/v1/fx/quote-preview/",
+            data=_PREVIEW_QUERY,
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == FX_TEMPORARILY_UNAVAILABLE_MESSAGE
+    assert "Yahoo Finance rate request failed" in caplog.text
+    assert "Name or service not known" in caplog.text

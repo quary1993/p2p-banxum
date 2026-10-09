@@ -1027,3 +1027,289 @@ def test_notifications_show_body_only_for_portal_safe_topics(investor: Model) ->
 
     assert payload["notifications"][0]["title"] == "Investor notice"
     assert payload["notifications"][0]["body"] == "Your repayment distribution has been credited."
+
+
+def _delivered_notice(
+    investor: Model,
+    *,
+    key: str,
+    topic: str = "email.investor_notice",
+    payload_metadata: dict[str, Any] | None = None,
+) -> tuple[Any, Any]:
+    outbox_model = apps.get_model("platform_core", "OutboxMessage")
+    record_model = apps.get_model("communications", "EmailDeliveryRecord")
+    email = cast(Any, investor).email
+    outbox = outbox_model.objects.create(
+        topic=topic,
+        payload={
+            "user_id": str(investor.pk),
+            "email": email,
+            "metadata": payload_metadata or {},
+        },
+        status="processed",
+        processed_at=timezone.now(),
+        idempotency_key=f"portal-notice-{key}",
+    )
+    record = record_model.objects.create(
+        outbox_message=outbox,
+        topic=topic,
+        template_key="investor.notice.v1",
+        recipient_email=email,
+        subject=f"Notice {key}",
+        body_text="Notice body.",
+        provider="mock",
+        provider_message_id=f"mock-{key}",
+        status="sent",
+        attempt_number=1,
+        sent_at=timezone.now(),
+    )
+    return outbox, record
+
+
+@pytest.mark.django_db
+def test_notifications_can_be_marked_read_one_by_one_and_all_at_once(
+    investor: Model, other_investor: Model
+) -> None:
+    _approve_financial_access(investor)
+    _approve_financial_access(other_investor)
+    first_outbox, first_record = _delivered_notice(investor, key="first")
+    _delivered_notice(investor, key="second")
+    _delivered_notice(investor, key="code", topic="email.sensitive_action_code_requested")
+    outbox_model = apps.get_model("platform_core", "OutboxMessage")
+    queued = outbox_model.objects.create(
+        topic="email.investor_notice",
+        payload={"user_id": str(investor.pk), "email": cast(Any, investor).email},
+        status="pending",
+        idempotency_key="portal-notice-queued",
+    )
+    _other_outbox, other_record = _delivered_notice(other_investor, key="other")
+    client = Client()
+    client.force_login(cast(Any, investor))
+
+    listed = client.get("/api/v1/investor/portal/notifications/").json()
+    # Sign-in and confirmation-code emails are listed but never count as unread notices.
+    assert listed["unread_count"] == 3
+    unread_by_id = {item["id"]: item["unread"] for item in listed["notifications"]}
+    assert unread_by_id[str(first_record.id)] is True
+    assert unread_by_id[str(queued.id)] is True
+
+    response = client.post(f"/api/v1/investor/portal/notifications/{first_record.id}/read/")
+    assert response.status_code == 200
+    assert response.json() == {"marked_count": 1, "unread_count": 2}
+    # Idempotent: marking it again records nothing new.
+    repeat = client.post(f"/api/v1/investor/portal/notifications/{first_record.id}/read/")
+    assert repeat.json() == {"marked_count": 0, "unread_count": 2}
+    receipt_model = apps.get_model("communications", "NotificationReadReceipt")
+    assert receipt_model.objects.filter(outbox_message=first_outbox).count() == 1
+
+    listed = client.get("/api/v1/investor/portal/notifications/").json()
+    unread_by_id = {item["id"]: item["unread"] for item in listed["notifications"]}
+    assert unread_by_id[str(first_record.id)] is False
+
+    # A queued notice is marked by its outbox id and stays read once it is delivered.
+    queued_response = client.post(f"/api/v1/investor/portal/notifications/{queued.id}/read/")
+    assert queued_response.json()["unread_count"] == 1
+
+    # Another investor's notification cannot be touched, by record id or outbox id.
+    foreign = client.post(f"/api/v1/investor/portal/notifications/{other_record.id}/read/")
+    assert foreign.status_code == 404
+    foreign_outbox = client.post(
+        f"/api/v1/investor/portal/notifications/{other_record.outbox_message_id}/read/"
+    )
+    assert foreign_outbox.status_code == 404
+    assert (
+        not receipt_model.objects.filter(investor_user_id=investor.pk)
+        .exclude(outbox_message_id__in=[first_outbox.id, queued.id])
+        .exists()
+    )
+
+    read_all = client.post("/api/v1/investor/portal/notifications/read-all/")
+    assert read_all.status_code == 200
+    assert read_all.json()["unread_count"] == 0
+    assert client.post("/api/v1/investor/portal/notifications/read-all/").json() == {
+        "marked_count": 0,
+        "unread_count": 0,
+    }
+    # The other investor's notice is still unread for them.
+    assert get_investor_notifications(actor=other_investor)["unread_count"] == 1
+
+
+@pytest.mark.django_db
+def test_notifications_expose_a_typed_navigation_target(investor: Model) -> None:
+    _approve_financial_access(investor)
+    loan_id = "11111111-1111-4111-8111-111111111111"
+    holding_id = "22222222-2222-4222-8222-222222222222"
+    _delivered_notice(
+        investor,
+        key="repayment",
+        topic="email.repayment_distribution_credited",
+        payload_metadata={"loan_id": loan_id, "holding_ids": [holding_id]},
+    )
+    _delivered_notice(
+        investor,
+        key="ageing",
+        topic="email.balance_ageing_reminder",
+        payload_metadata={"balance_lot_id": "33333333-3333-4333-8333-333333333333"},
+    )
+    _delivered_notice(
+        investor,
+        key="status",
+        topic="email.loan_status_changed",
+        payload_metadata={"loan_id": loan_id},
+    )
+    _delivered_notice(
+        investor,
+        key="unsafe",
+        topic="email.loan_risk_note_published",
+        payload_metadata={"loan_id": "../../admin"},
+    )
+
+    payload = get_investor_notifications(actor=investor)
+    targets = {
+        item["topic"]: (item["navigation_target"], item["navigation_target_id"])
+        for item in payload["notifications"]
+    }
+
+    assert targets["email.repayment_distribution_credited"] == ("holding", holding_id)
+    assert targets["email.balance_ageing_reminder"] == ("balances", "")
+    assert targets["email.loan_status_changed"] == ("loan", loan_id)
+    assert targets["email.loan_risk_note_published"] == ("none", "")
+
+
+@pytest.mark.django_db
+def test_notification_read_requires_the_investor_session(
+    investor: Model, superadmin_user: Model
+) -> None:
+    _approve_financial_access(investor)
+    _outbox, record = _delivered_notice(investor, key="session")
+    client = Client()
+    client.force_login(cast(Any, superadmin_user))
+
+    token_payload = issue_readonly_impersonation_token(
+        actor=superadmin_user,
+        target_user_id=str(investor.pk),
+    )
+
+    response = client.post(
+        f"/api/v1/investor/portal/notifications/{record.id}/read/",
+        HTTP_X_BANXUM_IMPERSONATE=token_payload["token"],
+    )
+    read_all = client.post(
+        "/api/v1/investor/portal/notifications/read-all/",
+        HTTP_X_BANXUM_IMPERSONATE=token_payload["token"],
+    )
+
+    # A read-only view never changes the investor's read state.
+    assert response.status_code == 403
+    assert read_all.status_code == 403
+    receipt_model = apps.get_model("communications", "NotificationReadReceipt")
+    assert not receipt_model.objects.exists()
+
+
+@pytest.mark.django_db
+def test_activity_labels_withdrawal_outcomes_and_shows_the_cancellation_credit(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    ledger_services = import_module("backend.apps.ledger.services")
+    factories = import_module("backend.apps.platform_core.tests.factories")
+    _declare_deposit(
+        admin_user=admin_user,
+        investor=investor,
+        amount_minor=1_000_00,
+        value_date=date(2026, 3, 1),
+        idempotency_key="portal-withdrawal-deposit",
+    )
+    ledger_services.register_investor_payout_instruction(
+        ledger_services.RegisterInvestorPayoutInstructionCommand(
+            actor=admin_user,
+            investor_user_id=str(investor.pk),
+            currency="CHF",
+            destination_iban="CH9300762011623852957",
+            destination_account_name="Portal Investor",
+        )
+    )
+
+    def request(amount_minor: int, key: str) -> Any:
+        code = factories.issue_sensitive_action_test_code(investor, "withdrawal")
+        return ledger_services.request_investor_withdrawal(
+            ledger_services.RequestInvestorWithdrawalCommand(
+                actor=investor,
+                amount_minor=amount_minor,
+                currency="CHF",
+                destination_iban="CH9300762011623852957",
+                destination_account_name="Portal Investor",
+                idempotency_key=key,
+                sensitive_action_code_id=code.code_id,
+                sensitive_action_code=code.raw_code,
+            )
+        )
+
+    cancelled = request(100_00, "portal-withdrawal-cancelled")
+    ledger_services.cancel_investor_withdrawal(
+        ledger_services.CancelInvestorWithdrawalCommand(
+            actor=admin_user,
+            withdrawal_request_id=str(cancelled.id),
+            reason="Investor asked to stop the payout.",
+            idempotency_key="portal-withdrawal-cancel",
+        )
+    )
+    finalized = request(200_00, "portal-withdrawal-finalized")
+    ledger_services.finalize_investor_withdrawal(
+        ledger_services.FinalizeInvestorWithdrawalCommand(
+            actor=admin_user,
+            withdrawal_request_id=str(finalized.id),
+            booking_date=date(2026, 3, 2),
+            value_date=date(2026, 3, 2),
+            collection_account_identifier="CHF-COLLECTION",
+            bank_reference="BANK-PORTAL-WITHDRAWAL",
+            idempotency_key="portal-withdrawal-finalize",
+        )
+    )
+    pending = request(50_00, "portal-withdrawal-pending")
+
+    entries = get_investor_activity(actor=investor, limit=50)["entries"]
+    by_id = {entry["id"]: entry for entry in entries}
+
+    assert by_id[str(cancelled.id)]["status"] == "cancelled"
+    assert by_id[str(finalized.id)]["status"] == "finalized"
+    assert by_id[str(pending.id)]["status"] == "requested"
+    reversal = by_id[f"{cancelled.id}:cancellation"]
+    assert reversal["activity_type"] == "withdrawal_cancellation"
+    assert reversal["direction"] == "in"
+    assert reversal["amount_minor"] == 100_00
+    assert reversal["status"] == "returned"
+    assert reversal["metadata"]["withdrawal_request_id"] == str(cancelled.id)
+    assert not any(
+        entry["id"] in {f"{finalized.id}:cancellation", f"{pending.id}:cancellation"}
+        for entry in entries
+    )
+
+
+@pytest.mark.django_db
+def test_balance_summary_reports_penalty_charged_apart_from_frozen_balance(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    _approve_financial_access(investor)
+    penalty_lot = _declare_deposit(
+        admin_user=admin_user,
+        investor=investor,
+        amount_minor=5_000_00,
+        value_date=date(2026, 1, 2),
+        idempotency_key="portal-penalty-split",
+    )
+    lot = cast(Any, penalty_lot)
+    lot.status = "penalty_mode"
+    lot.available_amount_minor = 4_900_00
+    lot.penalized_amount_minor = 100_00
+    lot.save(update_fields=["status", "available_amount_minor", "penalized_amount_minor"])
+
+    payload = get_investor_balances(actor=investor, as_of=_at(date(2026, 3, 5)))
+    chf = next(item for item in payload["summaries"] if item["currency"] == "CHF")
+
+    # The blocked balance excludes the penalty already taken; the penalty is reported apart.
+    assert chf["penalty_mode_minor"] == 4_900_00
+    assert chf["penalty_charged_minor"] == 100_00
+    assert payload["lots"][0]["penalized_amount_minor"] == 100_00

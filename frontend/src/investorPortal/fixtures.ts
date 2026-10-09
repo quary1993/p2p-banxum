@@ -132,7 +132,8 @@ export const portalFixture: InvestorPortalFixture = {
       title: "Balance ageing - day 57",
       body: "CHF 980.00 from a recovery distribution must be withdrawn within 3 days.",
       time: "2 days ago",
-      unread: true
+      unread: true,
+      target: "balances"
     },
     {
       id: "N2",
@@ -140,7 +141,9 @@ export const portalFixture: InvestorPortalFixture = {
       title: "Loan in default",
       body: "GA-2201 is now 64 days past due.",
       time: "3 days ago",
-      unread: true
+      unread: true,
+      target: "holding",
+      targetId: "H-2201"
     }
   ],
   recoverySplit: {
@@ -345,7 +348,9 @@ function fixtureBalanceSummary(currency: string): BalanceSummary {
     investor_user_id: investorId, currency,
     total_available_minor: sum(), investable_minor: sum("investable"),
     withdraw_only_minor: 0, overdue_minor: sum("overdue"), frozen_minor: 0,
-    penalty_mode_minor: 0, lot_count: lots.length, active_lot_count: lots.length,
+    penalty_mode_minor: 0,
+    penalty_charged_minor: lots.reduce((total, lot) => total + lot.penalized_amount_minor, 0),
+    lot_count: lots.length, active_lot_count: lots.length,
     next_investment_deadline_at: next, next_withdrawal_deadline_at: next
   };
 }
@@ -555,14 +560,12 @@ export const smartInvestFixture: SmartInvestResponse = {
     revision: 1,
     minimum_yield_bps: 850,
     maximum_term_months: 36,
-    originator_scope: "all",
-    originator_id: null,
-    collateral_scope: "secured",
-    collateral_type: "",
-    currency_scope: "all",
-    risk_rating: "",
-    purpose: "",
-    loan_kind: "all",
+    originators: [],
+    collateral: ["any_secured"],
+    currencies: [],
+    risk_ratings: [],
+    purposes: [],
+    loan_kinds: [],
     activated_at: "2026-06-05T10:00:00+02:00",
     deactivated_at: null,
     created_at: "2026-06-05T10:00:00+02:00",
@@ -1839,6 +1842,45 @@ export const activityFixture: InvestorActivity = {
       loan_id: "GA-2199",
       loan_title: "Holding transfer",
       metadata: { category: "cost" }
+    },
+    {
+      id: "W-311:cancellation",
+      activity_type: "withdrawal_cancellation",
+      occurred_at: "2026-04-22T10:05:00+02:00",
+      direction: "in",
+      title: "Withdrawal cancelled",
+      amount_minor: amount(2000),
+      currency: "CHF",
+      status: "returned",
+      loan_id: null,
+      loan_title: "",
+      metadata: { withdrawal_request_id: "W-311", is_forced: false }
+    },
+    {
+      id: "W-311",
+      activity_type: "withdrawal_request",
+      occurred_at: "2026-04-21T16:40:00+02:00",
+      direction: "out",
+      title: "Withdrawal request",
+      amount_minor: amount(2000),
+      currency: "CHF",
+      status: "cancelled",
+      loan_id: null,
+      loan_title: "",
+      metadata: { is_forced: false, finalized_at: "", cancelled_at: "2026-04-22T10:05:00+02:00" }
+    },
+    {
+      id: "W-298",
+      activity_type: "withdrawal_request",
+      occurred_at: "2026-04-08T09:12:00+02:00",
+      direction: "out",
+      title: "Withdrawal request",
+      amount_minor: amount(1500),
+      currency: "CHF",
+      status: "finalized",
+      loan_id: null,
+      loan_title: "",
+      metadata: { is_forced: false, finalized_at: "2026-04-09T11:00:00+02:00", cancelled_at: "" }
     }
   ]
 };

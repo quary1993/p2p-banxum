@@ -7,12 +7,8 @@ import { AdminApp } from "./adminConsole/AdminApp";
 import {
   ActionEnum,
   CategoryEnum,
-  CollateralScopeEnum,
-  CurrencyScopeEnum,
   DocumentKindEnum,
   InvestorDocumentDownloadRequestOutputFormatEnum,
-  LoanKindEnum,
-  OriginatorScopeEnum,
   getV1InvestorSmartInvestRetrieveQueryKey,
   useV1AuthMeRetrieve,
   useV1AuthLogoutCreate,
@@ -52,6 +48,11 @@ import {
   readReadonlyImpersonationLabel,
   readReadonlyImpersonationToken
 } from "./api/client/impersonation";
+import {
+  clearSessionExpiredNotice,
+  hasSessionExpiredNotice,
+  onSessionExpired
+} from "./api/client/sessionExpiry";
 import type {
   ActivityEntry,
   BalanceLot,
@@ -60,6 +61,8 @@ import type {
   Holding,
   InvestorDocument,
   InvestorDocumentDownloadResponse,
+  InvestorNotification,
+  InvestorNotifications,
   MarketplaceLoanDetail,
   MarketplaceLoanPreview,
   OriginatorClaimQuoteResponse,
@@ -73,7 +76,6 @@ import type {
   SmartInvestOpportunity,
   SmartInvestResponse,
   SmartInvestRule,
-  SmartInvestRuleSaveRequest,
   UserSummary
 } from "./api/generated/banxumApi";
 import {
@@ -85,6 +87,7 @@ import {
   useFxData,
   useLoanDetailData,
   useMarketplaceLoansData,
+  useNotificationReadActions,
   useNotificationsData,
   usePortfolioData,
   usePrimaryOrdersData,
@@ -95,6 +98,26 @@ import {
   isFixturePreview
 } from "./investorPortal/data";
 import { portalFixture } from "./investorPortal/fixtures";
+import {
+  hasSmartInvestCriteria,
+  mkAnyCollateral,
+  mkAnyOf,
+  mkBanxumSource,
+  mkCollateralMatches,
+  mkDefaultFilters,
+  mkEffectiveCollateral,
+  mkListSummary,
+  mkNewLending,
+  mkNoCollateral,
+  mkOptionUnion,
+  mkRefinancing,
+  mkToggle,
+  smartInvestCatalog,
+  smartInvestFiltersFromRule,
+  smartInvestRequestFromFilters,
+  type MkFilters,
+  type MkListKey
+} from "./investorPortal/smartInvestCriteria";
 import { onboardingStepForUser } from "./onboarding";
 import {
   formatDate,
@@ -108,6 +131,9 @@ import {
 import type { AppRoute, DemoAccountState, RouteName } from "./investorPortal/types";
 import { normalizeStory, storyIsEmpty } from "./investorPortal/story";
 import { StoryView } from "./investorPortal/StoryView";
+import { notificationRoute } from "./investorPortal/notifications";
+import { currencyBalanceMinor, investAmountLimitMessage, noEligibleFundsReason } from "./investorPortal/investLimits";
+import { collateralBreakdown, isUnsecuredHolding, valuedSecuredHoldings, weightedLtvPercent } from "./investorPortal/portfolioCollateral";
 import {
   Banner,
   Button,
@@ -127,7 +153,10 @@ import {
   Segmented,
   Stat,
   Tabs,
-  Tooltip
+  Tooltip,
+  PageHead,
+  UserSkin,
+  type IconName
 } from "./investorPortal/ui";
 
 const platformName = import.meta.env.VITE_PLATFORM_BRAND_NAME ?? "BANXUM";
@@ -181,6 +210,9 @@ type LoginFlowState = {
   sent: boolean;
   linkExpired: boolean;
   resendCooldownUntil: number;
+  // True while the expired-link screen asks for an address (none known yet, or
+  // "Use a different email address"); the field must stay while the user types.
+  editingEmail: boolean;
 };
 
 type RegisterFlowState = {
@@ -263,6 +295,7 @@ function removeStoredObject(key: string) {
 
 const routeNames: RouteName[] = [
   "public",
+  "publicProjects",
   "publicFaq",
   "login",
   "register",
@@ -272,7 +305,9 @@ const routeNames: RouteName[] = [
   "smartInvest",
   "loan",
   "loanSchedule",
+  "invest",
   "portfolio",
+  "investment",
   "secondary",
   "balances",
   "fx",
@@ -289,10 +324,18 @@ function readStoredRoute(): AppRoute {
     : { name: "public" };
 }
 
+// "/" restores the last in-app screen, but never another public page: the
+// public pages have their own addresses (/projects, /faq), so "/" is the home page.
+function homeOrStoredRoute(): AppRoute {
+  const stored = readStoredRoute();
+  return stored.name === "publicProjects" || stored.name === "publicFaq" ? { name: "public" } : stored;
+}
+
 function routeFromPathname(pathname: string): AppRoute | null {
   const normalized = pathname.replace(/\/+$/, "") || "/";
   const directRoutes: Record<string, RouteName> = {
     "/": "public",
+    "/projects": "publicProjects",
     "/faq": "publicFaq",
     "/help": "publicFaq",
     "/login": "login",
@@ -311,18 +354,44 @@ function routeFromPathname(pathname: string): AppRoute | null {
     "/portal/help": "faq"
   };
   if (directRoutes[normalized]) return { name: directRoutes[normalized] };
-  const loanMatch = normalized.match(/^\/marketplace\/([^/]+)(\/schedule)?$/);
+  const publicProjectMatch = normalized.match(/^\/projects\/([^/]+)$/);
+  if (publicProjectMatch) {
+    try {
+      return {
+        name: "publicProjects",
+        params: { loanId: decodeURIComponent(publicProjectMatch[1]) }
+      };
+    } catch {
+      return null;
+    }
+  }
+  const investmentMatch = normalized.match(/^\/portfolio\/([^/]+)$/);
+  if (investmentMatch) {
+    try {
+      return { name: "investment", params: { holdingId: decodeURIComponent(investmentMatch[1]) } };
+    } catch {
+      return null;
+    }
+  }
+  const loanMatch = normalized.match(/^\/marketplace\/([^/]+)(\/schedule|\/invest)?$/);
   if (!loanMatch) return null;
   try {
-    return { name: loanMatch[2] ? "loanSchedule" : "loan", params: { loanId: decodeURIComponent(loanMatch[1]) } };
+    const name: RouteName = loanMatch[2] === "/schedule" ? "loanSchedule" : loanMatch[2] === "/invest" ? "invest" : "loan";
+    return { name, params: { loanId: decodeURIComponent(loanMatch[1]) } };
   } catch {
     return null;
   }
 }
 
 function routePath(route: AppRoute) {
+  if (route.name === "publicProjects") {
+    return route.params?.loanId
+      ? `/projects/${encodeURIComponent(route.params.loanId)}`
+      : "/projects";
+  }
   const paths: Record<RouteName, string> = {
     public: "/",
+    publicProjects: "/projects",
     publicFaq: "/faq",
     login: "/login",
     register: "/register",
@@ -332,7 +401,9 @@ function routePath(route: AppRoute) {
     smartInvest: "/smart-invest",
     loan: `/marketplace/${encodeURIComponent(route.params?.loanId ?? "")}`,
     loanSchedule: `/marketplace/${encodeURIComponent(route.params?.loanId ?? "")}/schedule`,
+    invest: `/marketplace/${encodeURIComponent(route.params?.loanId ?? "")}/invest`,
     portfolio: "/portfolio",
+    investment: `/portfolio/${encodeURIComponent(route.params?.holdingId ?? "")}`,
     secondary: "/secondary-market",
     balances: "/balances",
     fx: "/fx",
@@ -448,55 +519,82 @@ function useSecondsUntil(untilMs: number) {
 
 const routeTitles: Record<RouteName, string> = {
   public: platformName,
-  publicFaq: "Help & FAQ",
+  publicProjects: "Projects",
+  publicFaq: "Help",
   login: "Log in",
   register: "Register",
   kyc: "Verification",
-  dashboard: "Dashboard",
-  market: "Investment Opportunities",
+  dashboard: "Overview",
+  market: "Primary market",
   smartInvest: "Smart Invest",
-  loan: "Investment Opportunities",
-  loanSchedule: "Investment Opportunities",
-  portfolio: "My Portfolio",
-  secondary: "Secondary Market",
-  balances: "Balances",
-  fx: "Currency Exchange",
+  loan: "Project",
+  loanSchedule: "Project schedule",
+  invest: "Invest",
+  portfolio: "My investments",
+  investment: "Investment",
+  secondary: "Secondary market",
+  balances: "Account",
+  fx: "Currency exchange",
   documents: "Documents",
   notifications: "Notifications",
-  settings: "Settings",
-  faq: "Help & FAQ"
+  settings: "Profile & Settings",
+  faq: "Help"
 };
 
-const navGroups: Array<{
+type NavBadge = "projects" | "balances" | "notifications";
+type NavLeaf = { route: RouteName; label: string; icon: IconName; badge?: NavBadge };
+type NavParent = {
+  key: string;
   label: string;
-  items: Array<{ route: RouteName; label: string; icon: Parameters<typeof Icon>[0]["name"] }>;
-}> = [
+  icon: IconName;
+  badge?: NavBadge;
+  children: Array<{ route: RouteName; label: string }>;
+};
+
+const navGroups: Array<{ label: string; items: Array<NavLeaf | NavParent> }> = [
   {
     label: "Invest",
     items: [
-      { route: "dashboard", label: "Dashboard", icon: "dashboard" },
-      { route: "market", label: "Investment Opportunities", icon: "market" },
-      { route: "smartInvest", label: "Smart Invest", icon: "trend" },
-      { route: "portfolio", label: "My Portfolio", icon: "portfolio" },
-      { route: "secondary", label: "Secondary Market", icon: "secondary" }
+      { route: "dashboard", label: "Overview", icon: "grid" },
+      {
+        key: "projects",
+        label: "Projects",
+        icon: "briefcase",
+        badge: "projects",
+        children: [
+          { route: "market", label: "Primary market" },
+          { route: "secondary", label: "Secondary market" }
+        ]
+      },
+      { route: "portfolio", label: "My investments", icon: "portfolio" },
+      { route: "smartInvest", label: "Smart Invest", icon: "refresh" }
     ]
   },
   {
-    label: "Money",
+    label: "Wallet",
     items: [
-      { route: "balances", label: "Balances", icon: "balance" },
+      { route: "balances", label: "Account", icon: "wallet", badge: "balances" },
       { route: "fx", label: "FX", icon: "swap" }
     ]
   },
   {
     label: "Account",
     items: [
+      { route: "settings", label: "Profile & Settings", icon: "user" },
       { route: "documents", label: "Documents", icon: "docs" },
-      { route: "settings", label: "Settings", icon: "settings" },
-      { route: "faq", label: "Help & FAQ", icon: "info" }
+      { route: "notifications", label: "Notifications", icon: "bell", badge: "notifications" }
     ]
   }
 ];
+
+// Pages that belong to a menu entry without being one themselves.
+const navActiveRoute: Partial<Record<RouteName, RouteName>> = {
+  loan: "market",
+  loanSchedule: "market",
+  invest: "market",
+  investment: "portfolio",
+  kyc: "settings"
+};
 
 const legalDocumentTitles: Record<string, string> = {
   registration: "Lender user agreement",
@@ -932,17 +1030,25 @@ function clearPortalSessionState(queryClient: ReturnType<typeof useQueryClient>)
 export function App() {
   const pathRoute = routeFromPathname(window.location.pathname);
   const initialRoute: AppRoute = readReadonlyImpersonationToken()
-    ? pathRoute && !["public", "publicFaq", "login", "register"].includes(pathRoute.name)
+    ? pathRoute && !["public", "publicProjects", "publicFaq", "login", "register"].includes(pathRoute.name)
       ? pathRoute
       : { name: "dashboard" }
     : pathRoute?.name === "public"
-      ? readStoredRoute()
+      ? homeOrStoredRoute()
       : pathRoute ?? readStoredRoute();
   const [route, setRoute] = useState<AppRoute>(initialRoute);
   const [demoState, setDemoState] = useState<DemoAccountState>("active");
 
   useEffect(() => {
+    if (window.location.pathname.startsWith("/admin")) return;
+    const title = routeTitles[route.name];
+    document.title = title && title !== platformName ? `${title} · ${platformName}` : platformName;
+  }, [route.name]);
+
+  useEffect(() => {
     const onPopState = () => {
+      // The admin console routes itself (adminConsole/adminRoute.ts).
+      if (window.location.pathname.startsWith("/admin")) return;
       const nextRoute = routeFromPathname(window.location.pathname) ?? { name: "public" as const };
       writeStoredObject(appRouteStorageKey, nextRoute);
       setRoute(nextRoute);
@@ -956,27 +1062,31 @@ export function App() {
   }
 
   if (window.location.pathname.startsWith("/kyc/callback")) {
-    return <KycReturnScreen setRoute={setRoute} />;
+    return <UserSkin><KycReturnScreen setRoute={setRoute} /></UserSkin>;
   }
 
   if (window.location.pathname.startsWith("/legal/")) {
-    return <LegalDocumentPage />;
+    return <UserSkin><LegalDocumentPage setRoute={setRoute} /></UserSkin>;
   }
 
   if (route.name === "public") {
-    return <PublicLanding setRoute={setRoute} />;
+    return <UserSkin><PublicLanding setRoute={setRoute} /></UserSkin>;
+  }
+
+  if (route.name === "publicProjects") {
+    return <UserSkin><PublicProjectsPage route={route} setRoute={setRoute} /></UserSkin>;
   }
 
   if (route.name === "publicFaq") {
-    return <PublicFaqPage setRoute={setRoute} />;
+    return <UserSkin><PublicFaqPage setRoute={setRoute} /></UserSkin>;
   }
 
   if (route.name === "login") {
-    return <LoginFlow setRoute={setRoute} />;
+    return <UserSkin><LoginFlow setRoute={setRoute} /></UserSkin>;
   }
 
   if (route.name === "register") {
-    return <RegisterFlow setRoute={setRoute} />;
+    return <UserSkin><RegisterFlow setRoute={setRoute} /></UserSkin>;
   }
 
   return (
@@ -989,222 +1099,1090 @@ export function App() {
   );
 }
 
-function Wordmark({ compact = false }: { compact?: boolean }) {
+function Wordmark({ compact = false, inverse = false }: { compact?: boolean; inverse?: boolean }) {
   const isBanxum = platformName.toUpperCase() === "BANXUM";
   return (
-    <div className={`investor-brand ${compact ? "compact" : ""}`}>
+    <span className={`investor-brand bxm-wordmark ${compact ? "compact" : ""} ${inverse ? "inverse" : ""}`}>
       {isBanxum ? (
-        <span className="investor-brand-art">
-          <img
-            alt={platformName}
-            src="/brand/logo-symbol.png"
-          />
-        </span>
+        <img
+          alt={platformName}
+          className="bxm-wordmark-img"
+          src={inverse ? "/brand/banxum-logo-white.svg" : "/brand/banxum-logo.svg"}
+        />
       ) : (
         <span className="investor-brand-word">
           {platformName}
         </span>
       )}
-      <span className="investor-brand-operator">by {operatorName}</span>
+    </span>
+  );
+}
+
+// The logo leads to the main page: the Overview for a signed-in investor, the
+// public home page otherwise. "Signed in" comes from the shared /auth/me query.
+function BrandHomeLink({
+  children,
+  className,
+  onNavigate,
+  setRoute
+}: {
+  children: ReactNode;
+  className?: string;
+  onNavigate?: () => void;
+  setRoute: (route: AppRoute) => void;
+}) {
+  const authMeQuery = useV1AuthMeRetrieve({
+    query: { enabled: !isFixturePreview, retry: false, refetchOnWindowFocus: false, staleTime: 60_000 }
+  });
+  const user = authMeQuery.data?.user;
+  const signedIn = Boolean(user) && !["admin", "superadmin"].includes(user?.account_type ?? "");
+  const target: RouteName = signedIn ? "dashboard" : "public";
+  return (
+    <a
+      aria-label={signedIn ? `${platformName} overview` : `${platformName} home`}
+      className={className}
+      href={routePath({ name: target })}
+      onClick={(event) => {
+        if (!isPlainLeftClick(event)) return;
+        event.preventDefault();
+        onNavigate?.();
+        goTo(setRoute, target);
+      }}
+    >
+      {children}
+    </a>
+  );
+}
+
+/* --------------------------------------------------------------------------
+   Public site (logged-out pages): shell, home, projects, FAQ and legal pages.
+   -------------------------------------------------------------------------- */
+
+type SiteNavKey = "projects" | "how" | "help";
+
+const siteHowItWorksId = "how-it-works";
+function sitePrefersReducedMotion() {
+  return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function siteScrollTo(target: Element) {
+  target.scrollIntoView({ behavior: sitePrefersReducedMotion() ? "auto" : "smooth", block: "start" });
+}
+
+function isPlainLeftClick(event: React.MouseEvent<HTMLAnchorElement>) {
+  return !event.defaultPrevented && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
+}
+
+// Opens a section of the home page, for example "How it works", from any public page.
+function goToSiteSection(setRoute: (route: AppRoute) => void, id: string) {
+  const target = document.getElementById(id);
+  if (target) {
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}#${id}`);
+    siteScrollTo(target);
+    return;
+  }
+  goTo(setRoute, "public");
+  window.history.replaceState(window.history.state, "", `/#${id}`);
+}
+
+function siteOpenLoans(loans: MarketplaceLoanPreview[]) {
+  return loans
+    .filter((loan) => isOpenMarketplaceLoan(loan))
+    .sort((left, right) => marketplaceClosingKey(left).localeCompare(marketplaceClosingKey(right)));
+}
+
+function siteYieldRange(loans: MarketplaceLoanPreview[]) {
+  if (loans.length === 0) return null;
+  const values = loans.map((loan) => marketplaceYieldBps(loan));
+  const minimum = Math.min(...values);
+  const maximum = Math.max(...values);
+  return minimum === maximum ? formatRateBps(minimum) : `${formatRateBps(minimum)} to ${formatRateBps(maximum)}`;
+}
+
+function SiteFlag({ kind, label }: { kind: "CH" | "EU"; label: string }) {
+  return (
+    <span aria-label={label} className="site-flag" role="img">
+      {kind === "CH" ? (
+        <svg height="14" viewBox="0 0 14 14" width="14">
+          <rect fill="#DA291C" height="14" width="14" />
+          <rect fill="#fff" height="8.4" width="2.4" x="5.8" y="2.8" />
+          <rect fill="#fff" height="2.4" width="8.4" x="2.8" y="5.8" />
+        </svg>
+      ) : (
+        <svg height="14" viewBox="0 0 20 14" width="20">
+          <rect fill="#003399" height="14" width="20" />
+          <circle cx="10" cy="7" fill="none" r="3.6" stroke="#ffcc00" strokeDasharray="1.2 1.6" strokeWidth="1.1" />
+        </svg>
+      )}
+    </span>
+  );
+}
+
+const siteLegalLinkLabels: Record<string, string> = {
+  // The platform terms live in the published "registration" template; publishing a new version swaps the text.
+  registration: "Terms and Conditions",
+  primary_market_investment: "Investment terms",
+  secondary_market_listing: "Seller terms",
+  secondary_market_purchase: "Buyer terms",
+  risk_disclosure: "Risk disclosure"
+};
+
+function SiteShell({
+  active,
+  children,
+  setRoute
+}: {
+  active?: SiteNavKey;
+  children: ReactNode;
+  setRoute: (route: AppRoute) => void;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [ctaVisible, setCtaVisible] = useState(false);
+  const burgerRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const update = () => setCtaVisible(window.scrollY > 520);
+    update();
+    window.addEventListener("scroll", update, { passive: true });
+    return () => window.removeEventListener("scroll", update);
+  }, []);
+
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+        burgerRef.current?.focus();
+      }
+    };
+    const onResize = () => {
+      if (window.innerWidth >= 1100) setMenuOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("resize", onResize);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [menuOpen]);
+
+  const go = (name: RouteName) => {
+    setMenuOpen(false);
+    goTo(setRoute, name);
+  };
+  const navLinks: Array<{ key: SiteNavKey; label: string; href: string; open: () => void }> = [
+    { key: "projects", label: "Projects", href: "/projects", open: () => go("publicProjects") },
+    {
+      key: "how",
+      label: "How it works",
+      href: `/#${siteHowItWorksId}`,
+      open: () => {
+        setMenuOpen(false);
+        goToSiteSection(setRoute, siteHowItWorksId);
+      }
+    },
+    { key: "help", label: "Help", href: "/faq", open: () => go("publicFaq") }
+  ];
+  const linkHandler = (open: () => void) => (event: React.MouseEvent<HTMLAnchorElement>) => {
+    if (!isPlainLeftClick(event)) return;
+    event.preventDefault();
+    open();
+  };
+  const renderNavLinks = () =>
+    navLinks.map((link) => (
+      <a
+        aria-current={active === link.key ? "page" : undefined}
+        className={active === link.key ? "active" : undefined}
+        href={link.href}
+        key={link.key}
+        onClick={linkHandler(link.open)}
+      >
+        {link.label}
+      </a>
+    ));
+  const ctaShown = ctaVisible && !menuOpen;
+
+  return (
+    <div className={`site ${menuOpen ? "site-menu-open" : ""}`}>
+      <a
+        className="site-skip"
+        href="#site-main"
+        onClick={(event) => {
+          event.preventDefault();
+          document.getElementById("site-main")?.focus();
+        }}
+      >
+        Skip to content
+      </a>
+      <header className="site-header">
+        <div className="site-wrap site-header-inner">
+          <BrandHomeLink className="site-brand" onNavigate={() => setMenuOpen(false)} setRoute={setRoute}>
+            <Wordmark />
+          </BrandHomeLink>
+          <nav aria-label="Main" className="site-nav">
+            {renderNavLinks()}
+          </nav>
+          <div className="site-header-actions">
+            <Button className="site-btn-outline site-hide-menu" onClick={() => go("login")}>
+              Log in
+            </Button>
+            <Button variant="primary" onClick={() => go("register")}>
+              Open account
+            </Button>
+            <button
+              aria-controls="site-menu"
+              aria-expanded={menuOpen}
+              aria-label="Menu"
+              className="site-burger"
+              onClick={() => setMenuOpen((open) => !open)}
+              ref={burgerRef}
+              type="button"
+            >
+              <Icon name={menuOpen ? "x" : "menu"} size={22} />
+            </button>
+          </div>
+        </div>
+      </header>
+      {menuOpen ? (
+        <div className="site-menu" id="site-menu">
+          <div className="site-wrap">
+            <nav aria-label="Menu" className="site-menu-nav">
+              {renderNavLinks()}
+            </nav>
+            <div className="site-actions">
+              <Button className="site-btn-outline" size="lg" onClick={() => go("login")}>
+                Log in
+              </Button>
+              <Button size="lg" variant="primary" onClick={() => go("register")}>
+                Open account
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      <main className="site-main" id="site-main" tabIndex={-1}>
+        {children}
+      </main>
+      <SiteFooter setRoute={setRoute} />
+      <div aria-hidden={!ctaShown} className={`site-mobile-cta ${ctaShown ? "is-visible" : ""}`} inert={!ctaShown}>
+        <Button className="site-btn-outline" size="lg" tabIndex={ctaShown ? undefined : -1} onClick={() => go("publicProjects")}>
+          Projects
+        </Button>
+        <Button size="lg" tabIndex={ctaShown ? undefined : -1} variant="primary" onClick={() => go("register")}>
+          Open account
+        </Button>
+      </div>
     </div>
+  );
+}
+
+function SiteFooter({ setRoute }: { setRoute: (route: AppRoute) => void }) {
+  const routeLink = (name: RouteName) => (event: React.MouseEvent<HTMLAnchorElement>) => {
+    if (!isPlainLeftClick(event)) return;
+    event.preventDefault();
+    goTo(setRoute, name);
+  };
+  return (
+    <footer className="site-footer">
+      <div className="site-wrap">
+        <div className="site-footer-grid">
+          <div className="site-footer-brand">
+            <BrandHomeLink setRoute={setRoute}>
+              <Wordmark inverse />
+            </BrandHomeLink>
+            <p>
+              Business loans in Switzerland and the EU/EEA, funded by individual lenders through participations in
+              loan claims. {platformName} is owned and operated by {operatorName}.
+            </p>
+          </div>
+          <div className="site-footer-col">
+            <h2>Invest</h2>
+            <ul>
+              <li><a href="/projects" onClick={routeLink("publicProjects")}>Open projects</a></li>
+              <li>
+                <a
+                  href={`/#${siteHowItWorksId}`}
+                  onClick={(event) => {
+                    if (!isPlainLeftClick(event)) return;
+                    event.preventDefault();
+                    goToSiteSection(setRoute, siteHowItWorksId);
+                  }}
+                >
+                  How it works
+                </a>
+              </li>
+              <li><a href={legalDocumentPath("risk_disclosure")}>Risk disclosure</a></li>
+            </ul>
+          </div>
+          <div className="site-footer-col">
+            <h2>Account</h2>
+            <ul>
+              <li><a href="/login" onClick={routeLink("login")}>Log in</a></li>
+              <li><a href="/register" onClick={routeLink("register")}>Open account</a></li>
+            </ul>
+          </div>
+          <div className="site-footer-col">
+            <h2>Help</h2>
+            <ul>
+              <li><a href="/faq" onClick={routeLink("publicFaq")}>Help &amp; FAQ</a></li>
+              <li><a href={`mailto:${supportEmail}`}>{supportEmail}</a></li>
+            </ul>
+          </div>
+        </div>
+        <div className="site-footer-legal">
+          <p>
+            {platformName}® is a registered trademark. The {platformName} platform is owned and operated by{" "}
+            {operatorName}, a Swiss financial company with a share capital of CHF 1,100,000.00, affiliated to VQF, a
+            self-regulatory organisation recognised by FINMA, and to FINOS, the Swiss financial ombudsman.{" "}
+            {operatorName} is not a bank: money in a {platformName} balance is not a bank deposit and is not protected
+            by the Swiss deposit insurance.
+          </p>
+          <p className="site-footer-risk">
+            Lending to companies puts your capital at risk: a borrower can pay late or not at all, and you may not be
+            able to sell your investment before it ends. Past results do not predict future results.
+          </p>
+        </div>
+        <div className="site-footer-bottom">
+          <span>© {new Date().getFullYear()} {operatorName}</span>
+          <nav aria-label="Legal documents">
+            {Object.keys(legalDocumentTitles).map((category) => (
+              <a href={legalDocumentPath(category)} key={category} title={legalDocumentTitles[category]}>
+                {siteLegalLinkLabels[category] ?? legalDocumentTitles[category]}
+              </a>
+            ))}
+          </nav>
+        </div>
+      </div>
+    </footer>
+  );
+}
+
+function SitePlayIcon({ playing }: { playing: boolean }) {
+  return playing ? (
+    <svg aria-hidden="true" height="14" viewBox="0 0 14 14" width="14">
+      <rect fill="currentColor" height="10" width="3" x="3" y="2" />
+      <rect fill="currentColor" height="10" width="3" x="8" y="2" />
+    </svg>
+  ) : (
+    <svg aria-hidden="true" height="14" viewBox="0 0 14 14" width="14">
+      <path d="M4 2l8 5-8 5z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function SiteProjectCarousel({
+  loans,
+  loading,
+  failed,
+  onOpen,
+  onRetry,
+  onSeeAll
+}: {
+  loans: MarketplaceLoanPreview[];
+  loading: boolean;
+  failed: boolean;
+  onOpen: (loan: MarketplaceLoanPreview) => void;
+  onRetry: () => void;
+  onSeeAll: () => void;
+}) {
+  const [index, setIndex] = useState(0);
+  const [playing, setPlaying] = useState(() => !sitePrefersReducedMotion() && typeof window.matchMedia === "function");
+  const [hovered, setHovered] = useState(false);
+  const count = loans.length;
+  const current = count > 0 ? loans[index % count] : null;
+  const position = count > 0 ? index % count : 0;
+
+  useEffect(() => {
+    if (!playing || hovered || count < 2) return undefined;
+    const timer = window.setInterval(() => setIndex((value) => (value + 1) % count), 6000);
+    return () => window.clearInterval(timer);
+  }, [playing, hovered, count]);
+
+  if (!current) {
+    return (
+      <div className="site-hero-card site-hero-card-empty">
+        <div className="site-hero-card-top"><span>Open loans</span></div>
+        {loading ? (
+          <p>Loading the loans open for investment.</p>
+        ) : failed ? (
+          <>
+            <p>The open loans could not be loaded right now.</p>
+            <Button className="site-btn-white" onClick={onRetry}>Try again</Button>
+          </>
+        ) : (
+          <>
+            <p>No loans are open for investment right now. New loans appear here when they open.</p>
+            <Button className="site-btn-white" onClick={onSeeAll}>See all projects</Button>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  // Public preview fields only (plan MKT-DEC-002): borrower, amount, interest, period,
+  // loan type, status, country and currency. No funding progress, deadline or minimum.
+  const step = (delta: number) => {
+    setPlaying(false);
+    setIndex((value) => (value + delta + count) % count);
+  };
+
+  return (
+    <div
+      aria-label="Loans open for investment"
+      aria-roledescription="carousel"
+      className="site-carousel"
+      onBlur={() => setHovered(false)}
+      onFocus={() => setHovered(true)}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      role="region"
+    >
+      <div aria-label={`${position + 1} of ${count}`} aria-roledescription="slide" role="group">
+        <a
+          className="site-hero-card"
+          href={`/projects/${encodeURIComponent(current.loan_id)}`}
+          onClick={(event) => {
+            if (!isPlainLeftClick(event)) return;
+            event.preventDefault();
+            onOpen(current);
+          }}
+        >
+          <div className="site-hero-card-top">
+            <span className="site-live"><i aria-hidden="true" />Funding now</span>
+            <span>{current.currency}</span>
+          </div>
+          <h2 className="site-hero-card-title">{current.title}</h2>
+          <div className="site-hero-card-place">
+            {humanizeToken(current.purpose)} · {current.currency}
+            {current.is_refinancing ? " · Refinanced" : ""}
+          </div>
+          <div className="site-hero-rate">
+            <strong>{formatRateBps(marketplaceYieldBps(current))}</strong>
+            <span>yield a year</span>
+          </div>
+          <dl className="site-hero-card-facts">
+            <div><dt>Term</dt><dd>{current.term_months} months</dd></div>
+            <div>
+              <dt>Loan amount</dt>
+              <dd>{current.currency} {formatMoneyMinor(current.principal_minor, current.currency)}</dd>
+            </div>
+            <div><dt>Status</dt><dd>Open</dd></div>
+          </dl>
+        </a>
+      </div>
+      {count > 1 ? (
+        <div className="site-carousel-nav">
+          <div className="site-carousel-dots">
+            {loans.map((loan, loanIndex) => (
+              <button
+                aria-current={loanIndex === position ? "true" : undefined}
+                aria-label={`Loan ${loanIndex + 1}: ${loan.title}`}
+                className={loanIndex === position ? "active" : undefined}
+                key={loan.loan_id}
+                onClick={() => {
+                  setPlaying(false);
+                  setIndex(loanIndex);
+                }}
+                type="button"
+              />
+            ))}
+          </div>
+          <span aria-live="polite" className="site-carousel-count">{position + 1} / {count}</span>
+          <div className="site-carousel-btns">
+            <button
+              aria-label={playing ? "Pause" : "Play"}
+              className="site-carousel-btn"
+              onClick={() => setPlaying((value) => !value)}
+              type="button"
+            >
+              <SitePlayIcon playing={playing} />
+            </button>
+            <button aria-label="Previous loan" className="site-carousel-btn" onClick={() => step(-1)} type="button">
+              <Icon name="arrowL" size={16} />
+            </button>
+            <button aria-label="Next loan" className="site-carousel-btn" onClick={() => step(1)} type="button">
+              <Icon name="arrowR" size={16} />
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SiteProjectCard({ loan, onOpen }: { loan: MarketplaceLoanPreview; onOpen: (loan: MarketplaceLoanPreview) => void }) {
+  const open = isOpenMarketplaceLoan(loan);
+  return (
+    <article className={`site-project ${open ? "is-open" : ""}`} onClick={() => onOpen(loan)}>
+      <div className="site-project-top">
+        <div className="site-project-tags">
+          <Chip status={loan.status} />
+          {loan.is_refinancing ? <RefinancedTag /> : null}
+        </div>
+        <span className="site-project-country">{loan.currency}</span>
+      </div>
+      <h3 className="site-project-title">{loan.title}</h3>
+      <div className="site-project-place">{humanizeToken(loan.purpose)}</div>
+      <div className="site-project-rate">
+        <strong>{formatRateBps(marketplaceYieldBps(loan))}</strong>
+        <span>yield a year</span>
+      </div>
+      <dl className="site-project-facts">
+        <div><dt>Amount</dt><dd><Money amountMinor={loan.principal_minor} currency={loan.currency} /></dd></div>
+        <div><dt>Term</dt><dd>{loan.term_months} months</dd></div>
+      </dl>
+      <div className="site-project-foot">
+        <CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" />
+        <button
+          aria-label={`View ${loan.title}`}
+          className="site-project-open"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpen(loan);
+          }}
+          type="button"
+        >
+          View <Icon name="chevR" size={15} />
+        </button>
+      </div>
+    </article>
   );
 }
 
 function PublicLanding({ setRoute }: { setRoute: (route: AppRoute) => void }) {
   const loansQuery = useMarketplaceLoansData();
   const loans = loansQuery.data ?? [];
-  const [previewLoanId, setPreviewLoanId] = useState<string | null>(null);
-  const previewLoan = loans.find((loan) => loan.loan_id === previewLoanId);
+  const openLoans = siteOpenLoans(loans);
+  const openPreview = (loan: MarketplaceLoanPreview) => goTo(setRoute, "publicProjects", { loanId: loan.loan_id });
+
+  useEffect(() => {
+    const id = window.location.hash.slice(1);
+    if (!id) return;
+    const target = document.getElementById(id);
+    if (target) target.scrollIntoView({ block: "start" });
+  }, []);
 
   return (
-    <div className="public">
-      <header className="public-top">
-        <Wordmark />
-        <div className="grow" />
-        <nav className="public-nav" aria-label="Public navigation">
-          <a href="/faq" onClick={(event) => { event.preventDefault(); goTo(setRoute, "publicFaq"); }}>How it works</a>
-          <a href="/faq" onClick={(event) => { event.preventDefault(); goTo(setRoute, "publicFaq"); }}>FAQ</a>
-        </nav>
-        <Button variant="ghost" onClick={() => goTo(setRoute, "login")}>
-          Log in
-        </Button>
-        <Button variant="primary" onClick={() => goTo(setRoute, "register")}>
-          Register
-        </Button>
-      </header>
-      {previewLoan ? (
-        <main className="public-body">
-          <div className="public-mobile-links" aria-label="Public links">
-            <button className="btn-link" onClick={() => goTo(setRoute, "publicFaq")} type="button">How it works</button>
-            <button className="btn-link" onClick={() => goTo(setRoute, "publicFaq")} type="button">FAQ</button>
-          </div>
-          <PublicLoanPreview
-            loan={previewLoan}
-            onBack={() => setPreviewLoanId(null)}
-            setRoute={setRoute}
-          />
-        </main>
-      ) : (
-        <>
-          <main className="public-body landing">
-            <div className="public-mobile-links" aria-label="Public links">
-              <button className="btn-link" onClick={() => goTo(setRoute, "publicFaq")} type="button">How it works</button>
-              <button className="btn-link" onClick={() => goTo(setRoute, "publicFaq")} type="button">FAQ</button>
-            </div>
-            <div className="page-head">
-              <div>
-                <h1>Open loan opportunities</h1>
-                <div className="ph-sub">
-                  Preview current primary-market loans. Borrower documents, ratings, collateral detail and
-                  investing unlock after registration and identity verification.
-                </div>
-                <p className="lede-line">
-                  Review project-specific business loans, their repayment schedules, risks, and any disclosed security before deciding whether to invest.
-                </p>
-              </div>
-            </div>
-            <div className="preview-banner">
-              <Icon className="muted" name="lock" size={17} />
-              <div className="grow muted-2" style={{ fontSize: 13 }}>
-                <b>Preview mode.</b> You are seeing limited fields. Register as an individual lender in
-                Switzerland or the EU/EEA to see full loan data and invest.
-              </div>
-              <Button size="sm" variant="primary" onClick={() => goTo(setRoute, "register")}>
-                Get started
-              </Button>
-              {isFixturePreview ? (
-                <Button size="sm" variant="ghost" onClick={() => goTo(setRoute, "dashboard")}>
-                  Open dummy portal
-                </Button>
-              ) : null}
-            </div>
-            {loansQuery.isError && loans.length === 0 ? (
-              <DataErrorCard
-                title="Could not load loan previews"
-                onRetry={() => void loansQuery.refetch()}
-              >
-                We could not reach the marketplace API. Try again, or register later when live data is available.
-              </DataErrorCard>
-            ) : loansQuery.isLoading && loans.length === 0 ? (
-              <LoadingCard title="Loading loan previews">Fetching current marketplace opportunities.</LoadingCard>
-            ) : (
-              <LoansTable loans={loans} onOpen={(loan) => setPreviewLoanId(loan.loan_id)} preview />
-            )}
-            <p className="muted" style={{ fontSize: 11.5, marginTop: 14, maxWidth: 760 }}>
-              {platformName} facilitates peer-to-peer loan claim participations operated by{" "}
-              {operatorName}. Investing involves risk of capital loss and is not a bank deposit,
-              fund unit, trading venue, or guaranteed-return product.
+    <SiteShell setRoute={setRoute}>
+      <section className="site-hero">
+        <div className="site-wrap site-hero-grid">
+          <div className="site-hero-copy">
+            <span className="site-eyebrow">
+              <SiteFlag kind="CH" label="Switzerland" />
+              Swiss-regulated financial platform · CHF and EUR
+            </span>
+            <h1 className="site-display">
+              <span>Your capital.</span> <span>Your choice.</span>
+            </h1>
+            <p className="site-lead">
+              Lend to companies in Switzerland and the EU/EEA, one project at a time. You choose each loan, see its
+              terms before you invest, and pay no platform fee to invest.
             </p>
-          </main>
-          <LandingMarketing setRoute={setRoute} />
-        </>
-      )}
-    </div>
+            <div className="site-actions">
+              <Button size="lg" variant="primary" onClick={() => goTo(setRoute, "register")}>
+                Open account
+              </Button>
+              <Button className="site-btn-outline" size="lg" onClick={() => goTo(setRoute, "publicProjects")}>
+                See open projects
+              </Button>
+            </div>
+            <div className="site-trust">
+              <span><Icon name="shield" size={15} />Regulated in Switzerland · VQF · FINOS</span>
+              <span><Icon name="checkCircle" size={15} />Audited · share capital CHF 1.1 million</span>
+            </div>
+            <p className="site-risk-line">
+              Lending to companies puts your capital at risk. Read the{" "}
+              <a href={legalDocumentPath("risk_disclosure")}>risk disclosure</a>.
+            </p>
+          </div>
+          <SiteProjectCarousel
+            failed={loansQuery.isError && loans.length === 0}
+            loading={loansQuery.isLoading && loans.length === 0}
+            loans={openLoans.slice(0, 7)}
+            onOpen={openPreview}
+            onRetry={() => void loansQuery.refetch()}
+            onSeeAll={() => goTo(setRoute, "publicProjects")}
+          />
+        </div>
+      </section>
+      <LandingMarketing
+        loansFailed={loansQuery.isError && loans.length === 0}
+        loansLoading={loansQuery.isLoading && loans.length === 0}
+        onOpenLoan={openPreview}
+        onRetry={() => void loansQuery.refetch()}
+        openLoans={openLoans}
+        setRoute={setRoute}
+      />
+    </SiteShell>
   );
 }
 
-function LandingMarketing({ setRoute }: { setRoute: (route: AppRoute) => void }) {
-  const steps = [
-    {
-      n: "01",
-      icon: "shield" as const,
-      title: "We originate and vet",
-      desc: `${operatorName} sources, underwrites and services business loans across Switzerland and the EU/EEA. Each published project carries its own risk, repayment, and security disclosures.`
-    },
-    {
-      n: "02",
-      icon: "market" as const,
-      title: "You choose and invest",
-      desc: `Browse the marketplace and buy a participation in the loan claims you pick, from CHF / EUR 1,000. Spread your capital across borrowers, sectors and currencies.`
-    },
-    {
-      n: "03",
-      icon: "trend" as const,
-      title: "You earn as they repay",
-      desc: `When borrowers pay, allocated interest and principal are credited to your balance. Repayments can be late or incomplete, and secondary-market liquidity is not guaranteed.`
-    }
-  ];
-
-  const facts: Array<{ fig: ReactNode; k: string; d: string }> = [
-    {
-      fig: <>Project-specific</>,
-      k: "Interest and repayment",
-      d: "Rates and repayment structures are disclosed for each loan. Returns are targets, not guarantees."
-    },
-    {
-      fig: <>1,000<span className="u"> +</span></>,
-      k: "Minimum per loan",
-      d: "CHF or EUR. A low entry point so you can diversify widely from the start."
-    },
-    {
-      fig: <>Scheduled</>,
-      k: "Repayment cash flow",
-      d: "Every project shows its contractual schedule and repayment type before you invest."
-    },
-    {
-      fig: <>Disclosed</>,
-      k: "Security and collateral",
-      d: "Collateral, guarantees, and unsecured exceptions are shown per project and never guarantee recovery."
-    }
-  ];
+function LandingMarketing({
+  loansFailed,
+  loansLoading,
+  onOpenLoan,
+  onRetry,
+  openLoans,
+  setRoute
+}: {
+  loansFailed: boolean;
+  loansLoading: boolean;
+  onOpenLoan: (loan: MarketplaceLoanPreview) => void;
+  onRetry: () => void;
+  openLoans: MarketplaceLoanPreview[];
+  setRoute: (route: AppRoute) => void;
+}) {
+  const openCount = openLoans.length;
+  const byCurrency = (["CHF", "EUR"] as const).map((currency) => {
+    const currencyLoans = openLoans.filter((loan) => loan.currency === currency);
+    return { currency, count: currencyLoans.length, yields: siteYieldRange(currencyLoans) };
+  });
 
   return (
     <>
-      <section className="lband surface">
-        <div className="lband-inner">
-          <div className="lband-eyebrow">What we do</div>
-          <h2 className="lband-title">Private lending, opened up to individuals</h2>
-          <p className="lband-lede">
-            {platformName} lets you invest directly in business-loan claim participations — a form of private credit
-            that was, until recently, the preserve of banks and institutional funds. We handle origination,
-            underwriting and servicing; you choose where your money goes.
-          </p>
-          <div className="steps">
-            {steps.map((step) => (
-              <div className="step" key={step.n}>
-                <div className="step-n">{step.n}</div>
-                <div className="step-icon"><Icon name={step.icon} size={18} /></div>
-                <h3>{step.title}</h3>
-                <p>{step.desc}</p>
-              </div>
-            ))}
+      <section className="site-section is-tint" id="fees">
+        <div className="site-wrap site-split is-center">
+          <div>
+            <span className="site-eyebrow">Fees</span>
+            <div className="site-zero">
+              <strong className="site-accent">0%</strong>
+              <span>platform fee when you invest</span>
+            </div>
+            <h2 className="site-h2">No fee to invest or to withdraw</h2>
+            <p className="site-lead site-gap-top">
+              Investing in a loan and withdrawing to your bank cost nothing. Fees apply only when you sell or buy on
+              the secondary market or exchange currency, and you see each one before you confirm.
+            </p>
+          </div>
+          <div className="site-box">
+            <table className="site-table site-fee-table">
+              <thead>
+                <tr><th scope="col">For investors</th><th className="is-num" scope="col">Fee</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>Investing in a loan</td><td className="is-num">None</td></tr>
+                <tr><td>Withdrawing to your bank</td><td className="is-num">None</td></tr>
+                <tr>
+                  <td>
+                    Selling early on the secondary market
+                    <span className="site-table-sub">Maker fee, paid by the seller only if the sale happens</span>
+                  </td>
+                  <td className="is-num">0.25% of the price</td>
+                </tr>
+                <tr>
+                  <td>
+                    Buying on the secondary market
+                    <span className="site-table-sub">Taker fee, paid by the buyer</span>
+                  </td>
+                  <td className="is-num">Shown before you buy</td>
+                </tr>
+                <tr>
+                  <td>
+                    Exchanging CHF and EUR
+                    <span className="site-table-sub">Conversion fee, included in the rate</span>
+                  </td>
+                  <td className="is-num">Shown before you confirm</td>
+                </tr>
+              </tbody>
+            </table>
+            <p className="site-small site-gap-top">
+              Every fee that applies to an action is shown in that flow before you confirm, together with the exact
+              amounts.
+            </p>
           </div>
         </div>
       </section>
 
-      <section className="lband dark">
-        <div className="lband-inner">
-          <div className="lband-eyebrow">Why investors choose private credit</div>
-          <h2 className="lband-title">An income-generating asset class, beyond stocks and bonds</h2>
-          <p className="lband-lede">
-            Returns come from borrowers repaying real loans — driven by contractual interest, not market
-            sentiment — which historically gives private credit low correlation to public equity markets
-            and a steady stream of cash flow.
-          </p>
-          <div className="facts">
-            {facts.map((fact) => (
-              <div className="fact" key={fact.k}>
-                <div className="fact-fig">{fact.fig}</div>
-                <div className="fact-k">{fact.k}</div>
-                <div className="fact-d">{fact.d}</div>
-              </div>
-            ))}
+      <section className="site-section">
+        <div className="site-wrap">
+          <div className="site-section-head">
+            <div>
+              <span className="site-eyebrow">Open now</span>
+              <h2 className="site-h2">Projects looking for investors</h2>
+            </div>
+            <p className="site-text">
+              Every loan shows the same key facts: borrower, purpose, amount, yield and term. Full loan data, security
+              and documents unlock after you register and verify your identity.
+            </p>
           </div>
-          <p className="dark-caveat">
-            Peer-to-peer lending carries risk: borrowers may pay late or default, collateral or guarantees
-            may be absent or may not fully cover losses, capital is at risk,
-            and an early exit on the secondary market is not guaranteed. Platform balances are not bank
-            deposits and returns are not guaranteed.
-          </p>
-          <div className="dark-cta">
-            <Button size="lg" variant="primary" onClick={() => goTo(setRoute, "register")}>
-              Create your investor account
+          {loansFailed ? (
+            <DataErrorCard title="Could not load loan previews" onRetry={onRetry}>
+              We could not reach the marketplace API. Try again, or register later when live data is available.
+            </DataErrorCard>
+          ) : loansLoading ? (
+            <LoadingCard title="Loading loan previews">Fetching current marketplace opportunities.</LoadingCard>
+          ) : openCount === 0 ? (
+            <div className="site-box site-empty-note">
+              No loans are open for investment right now. New loans appear here when they open.
+            </div>
+          ) : (
+            <div className="site-projects">
+              {openLoans.slice(0, 3).map((loan) => (
+                <SiteProjectCard key={loan.loan_id} loan={loan} onOpen={onOpenLoan} />
+              ))}
+            </div>
+          )}
+          <div className="site-more">
+            <Button className="site-btn-outline" size="lg" onClick={() => goTo(setRoute, "publicProjects")}>
+              {openCount > 1 ? `All ${openCount} open projects` : openCount === 1 ? "See the open project" : "See all projects"}
             </Button>
-            <a href="/faq" onClick={(event) => { event.preventDefault(); goTo(setRoute, "publicFaq"); }}>Read how it works →</a>
+          </div>
+        </div>
+      </section>
+
+      <section className="site-cta-band" id={siteHowItWorksId}>
+        <div className="site-wrap">
+          <span className="site-eyebrow">How you start</span>
+          <h2 className="site-display">Choose. Build. Follow.</h2>
+          <ol className="site-cta-steps">
+            <li>
+              <small>01</small>
+              <strong>Choose</strong>
+              <span>
+                Register online as an individual lender in Switzerland or the EU/EEA, confirm your phone and complete
+                an online identity check. Then choose the loans you like: borrower, rate, term and security on one
+                page.
+              </span>
+            </li>
+            <li>
+              <small>02</small>
+              <strong>Build</strong>
+              <span>
+                Add CHF or EUR to your balance by bank transfer with your personal payment reference, then invest in
+                each loan you pick, from that loan's minimum. Spread your money across borrowers, sectors and
+                currencies.
+              </span>
+            </li>
+            <li>
+              <small>03</small>
+              <strong>Follow</strong>
+              <span>
+                See every payment in your account. Principal and interest repayments are credited to your balance and
+                shown in your activity. From there you invest again or withdraw to your bank.
+              </span>
+            </li>
+          </ol>
+          <div className="site-actions">
+            <Button className="site-btn-white" size="lg" onClick={() => goTo(setRoute, "register")}>
+              Open account
+            </Button>
+            <Button className="site-btn-ghost" size="lg" onClick={() => goTo(setRoute, "publicProjects")}>
+              See the projects
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      <section className="site-section" id="regulated">
+        <div className="site-wrap">
+          <div className="site-section-head">
+            <div>
+              <span className="site-eyebrow">
+                <SiteFlag kind="CH" label="Switzerland" />
+                Regulated in Switzerland
+              </span>
+              <h2 className="site-h2">Swiss-regulated financial platform</h2>
+            </div>
+            <p className="site-text">
+              {platformName}® is a registered trademark. The platform is owned and operated by {operatorName}, a Swiss
+              financial company: supervised for its financial activities, answerable to an independent ombudsman,
+              audited every year.
+            </p>
+          </div>
+          <div className="site-cells">
+            <div>
+              <span className="site-proof-mark">VQF</span>
+              <h3 className="site-h4">Member of VQF</h3>
+              <p className="site-text">
+                The self-regulatory organisation recognised by FINMA supervises {operatorName}'s financial activities
+                and its anti-money-laundering duties.
+              </p>
+            </div>
+            <div>
+              <span className="site-proof-mark">FINOS</span>
+              <h3 className="site-h4">Affiliated to FINOS</h3>
+              <p className="site-text">The Swiss financial ombudsman. If you disagree with us, it mediates free of charge.</p>
+            </div>
+            <div>
+              <span className="site-proof-mark">Audited</span>
+              <h3 className="site-h4">Audited data</h3>
+              <p className="site-text">
+                {operatorName}'s accounts and the platform's data are audited every year by an independent auditor.
+              </p>
+            </div>
+            <div>
+              <span className="site-proof-mark">CHF 1.1m</span>
+              <h3 className="site-h4">Share capital</h3>
+              <p className="site-text">CHF 1,100,000.00 of share capital behind the company that runs {platformName}.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="site-section is-paper" id="currencies">
+        <div className="site-wrap site-split is-center">
+          <div className="site-preview" aria-label="Loans open for investment, by currency" role="region">
+            <span className="site-eyebrow">Open loans today</span>
+            <div className="site-wallets">
+              {byCurrency.map((group) => (
+                <div className="site-wallet" key={group.currency}>
+                  <div className="site-wallet-head">
+                    <SiteFlag kind={group.currency === "CHF" ? "CH" : "EU"} label={group.currency === "CHF" ? "Swiss franc" : "Euro"} />
+                    <strong>{group.currency} loans</strong>
+                  </div>
+                  <div className="site-wallet-amount">{group.count} open</div>
+                  <dl>
+                    <div><dt>Yield a year</dt><dd>{group.yields ?? "—"}</dd></div>
+                  </dl>
+                </div>
+              ))}
+            </div>
+            {openCount > 0 ? (
+              <div className="site-table-scroll">
+                <table className="site-table site-gap-top">
+                  <thead>
+                    <tr>
+                      <th scope="col">Open now</th>
+                      <th className="is-num" scope="col">Yield</th>
+                      <th className="is-num" scope="col">Term</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {openLoans.slice(0, 4).map((loan) => (
+                      <tr key={loan.loan_id}>
+                        <td>{loan.title}</td>
+                        <td className="is-num">{formatRateBps(marketplaceYieldBps(loan))}</td>
+                        <td className="is-num">{loan.term_months} months</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </div>
+          <div>
+            <span className="site-eyebrow">
+              <SiteFlag kind="CH" label="Swiss franc" />
+              <SiteFlag kind="EU" label="Euro" />
+              Multi-currency
+            </span>
+            <h2 className="site-h2">
+              <span>CHF and EUR.</span> <span>In one place.</span>
+            </h2>
+            <p className="site-lead site-gap-top">
+              One account with a CHF and a EUR balance: Swiss franc loans in francs, euro loans in euros. You invest
+              in the currency of the loan, and you can exchange between the two.
+            </p>
+            <ol className="site-numbered">
+              <li>
+                <span className="site-numbered-index">01</span>
+                <div>
+                  <h3 className="site-h4">Each loan sets its minimum</h3>
+                  <p>
+                    Every loan shows its own minimum investment. You see it on the loan page after you open your
+                    account and pass the identity check.
+                  </p>
+                </div>
+              </li>
+              <li>
+                <span className="site-numbered-index">02</span>
+                <div>
+                  <h3 className="site-h4">Exchange between CHF and EUR</h3>
+                  <p>
+                    Convert available balances in your account. The conversion fee is included in the rate and shown
+                    before you confirm. Exchanging does not restart the 60-day holding limit.
+                  </p>
+                </div>
+              </li>
+              <li>
+                <span className="site-numbered-index">03</span>
+                <div>
+                  <h3 className="site-h4">A 60-day holding limit</h3>
+                  <p>
+                    Money you add waits in your balance until you invest it. Balances earn no interest and are not bank
+                    deposits. Every amount has a 60-day holding limit, and to invest it must have enough time left to
+                    cover the loan's remaining funding period.
+                  </p>
+                </div>
+              </li>
+            </ol>
+            <Button className="site-gap-top" size="lg" variant="primary" onClick={() => goTo(setRoute, "register")}>
+              Open account
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      <section className="site-section">
+        <div className="site-wrap site-split">
+          <div>
+            <span className="site-eyebrow">Questions</span>
+            <h2 className="site-h2">Frequently asked questions</h2>
+            <p className="site-lead site-gap-top">
+              Not answered here? See{" "}
+              <a
+                href="/faq"
+                onClick={(event) => {
+                  if (!isPlainLeftClick(event)) return;
+                  event.preventDefault();
+                  goTo(setRoute, "publicFaq");
+                }}
+              >
+                all questions
+              </a>{" "}
+              or write to <a href={`mailto:${supportEmail}`}>{supportEmail}</a>.
+            </p>
+          </div>
+          <div className="site-faq">
+            <details className="site-faq-item" open>
+              <summary>Is {platformName} regulated?</summary>
+              <div className="site-faq-answer">
+                <p>
+                  Yes. {platformName}® is a registered trademark; the platform is owned and operated by {operatorName},
+                  a Swiss financial company affiliated to VQF, a self-regulatory organisation recognised by FINMA, for
+                  its financial activities, and to FINOS, the Swiss financial ombudsman. Its accounts are audited by an
+                  independent auditor and its share capital is CHF 1,100,000.00. {operatorName} is not a bank.
+                </p>
+              </div>
+            </details>
+            <details className="site-faq-item">
+              <summary>How much do I need to start?</summary>
+              <div className="site-faq-answer">
+                <p>
+                  Each loan sets its own minimum investment, and you invest in the currency of the loan. The loan shows
+                  its minimum before you invest.
+                </p>
+              </div>
+            </details>
+            <details className="site-faq-item">
+              <summary>Does {platformName} charge investors fees?</summary>
+              <div className="site-faq-answer">
+                <p>
+                  There is no platform fee to invest in a loan and no fee to withdraw to your bank. If you sell early on
+                  the secondary market, the seller pays a 0.25% maker fee, only if the sale happens; the buyer pays a
+                  taker fee. Exchanging currency has a conversion fee, included in the rate. Every fee is shown in the
+                  flow before you confirm.
+                </p>
+              </div>
+            </details>
+            <details className="site-faq-item">
+              <summary>How long can money stay uninvested?</summary>
+              <div className="site-faq-answer">
+                <p>
+                  Every incoming amount has a 60-day holding limit. To invest, it must have enough time left to cover
+                  the full remaining funding period of the loan you choose: a 30-day window needs at least 30 days of
+                  holding time left. Uninvested money must be withdrawn by the holding deadline, and exchanging
+                  currency does not restart this clock.
+                </p>
+              </div>
+            </details>
+            <details className="site-faq-item">
+              <summary>Where do repayments go?</summary>
+              <div className="site-faq-answer">
+                <p>
+                  Borrower repayments are distributed to current holders according to their outstanding principal.
+                  Principal and interest credits appear in your balance and activity history, from where you can
+                  invest again or withdraw to your bank.
+                </p>
+              </div>
+            </details>
+            <details className="site-faq-item">
+              <summary>Can I lose money?</summary>
+              <div className="site-faq-answer">
+                <p>
+                  Yes. Borrowers can pay late, pay partially, default, or become subject to recovery proceedings.
+                  Collateral, guarantees or security may not fully cover losses or may take time and cost to enforce.
+                </p>
+              </div>
+            </details>
           </div>
         </div>
       </section>
     </>
+  );
+}
+
+function PublicProjectsPage({ route, setRoute }: { route: AppRoute; setRoute: (route: AppRoute) => void }) {
+  const loansQuery = useMarketplaceLoansData();
+  const loans = loansQuery.data ?? [];
+  const previewLoanId = route.params?.loanId ?? null;
+  const previewLoan = loans.find((loan) => loan.loan_id === previewLoanId);
+  const openPreview = (loan: MarketplaceLoanPreview) => {
+    goTo(setRoute, "publicProjects", { loanId: loan.loan_id });
+  };
+
+  return (
+    <SiteShell active="projects" setRoute={setRoute}>
+      {previewLoan ? (
+        <section className="site-section no-rule site-loan-section">
+          <div className="site-wrap">
+            <PublicLoanPreview
+              loan={previewLoan}
+              onBack={() => goTo(setRoute, "publicProjects")}
+              setRoute={setRoute}
+            />
+          </div>
+        </section>
+      ) : (
+        <>
+          <section className="site-page-head">
+            <div className="site-wrap">
+              <span className="site-eyebrow">Projects</span>
+              <h1 className="site-h1">Open loan opportunities</h1>
+              <p className="site-lead">
+                Preview current primary-market loans. Borrower documents, ratings, collateral detail and investing
+                unlock after registration and identity verification.
+              </p>
+              <p className="site-text site-page-lede">
+                Review project-specific business loans, their repayment schedules, risks, and any disclosed security
+                before deciding whether to invest.
+              </p>
+            </div>
+          </section>
+          <section className="site-section no-rule site-flush-top">
+            <div className="site-wrap">
+              <div className="site-locked site-preview-note">
+                <Icon className="site-preview-note-icon" name="lock" size={18} />
+                <p>
+                  <b>Preview mode.</b> You are seeing limited fields. Register as an individual lender in Switzerland
+                  or the EU/EEA to see full loan data and invest.
+                </p>
+                <div className="site-actions">
+                  <Button variant="primary" onClick={() => goTo(setRoute, "register")}>
+                    Get started
+                  </Button>
+                  {isFixturePreview ? (
+                    <Button className="site-btn-outline" onClick={() => goTo(setRoute, "dashboard")}>
+                      Open dummy portal
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+              {loansQuery.isError && loans.length === 0 ? (
+                <DataErrorCard
+                  title="Could not load loan previews"
+                  onRetry={() => void loansQuery.refetch()}
+                >
+                  We could not reach the marketplace API. Try again, or register later when live data is available.
+                </DataErrorCard>
+              ) : loansQuery.isLoading && loans.length === 0 ? (
+                <LoadingCard title="Loading loan previews">Fetching current marketplace opportunities.</LoadingCard>
+              ) : (
+                <LoansTable loans={loans} onOpen={openPreview} preview />
+              )}
+              <p className="site-risk-line">
+                {platformName} facilitates peer-to-peer loan claim participations operated by{" "}
+                {operatorName}. Investing involves risk of capital loss and is not a bank deposit,
+                fund unit, trading venue, or guaranteed-return product.
+              </p>
+            </div>
+          </section>
+        </>
+      )}
+    </SiteShell>
   );
 }
 
@@ -1218,48 +2196,46 @@ function PublicLoanPreview({
   setRoute: (route: AppRoute) => void;
 }) {
   return (
-    <div>
-      <button className="backlink" onClick={onBack} type="button">
+    <div className="site-loan">
+      <button className="backlink site-back" onClick={onBack} type="button">
         <Icon name="arrowL" size={14} /> All loans
       </button>
-      <div className="split">
+      <div className="site-loan-tags">
+        <Chip status={loan.status} />
+        <span className="tag">{loan.currency}</span>
+        <span className="tag">{humanizeToken(loan.purpose)}</span>
+        {loan.is_refinancing ? <RefinancedTag full /> : null}
+      </div>
+      <h1 className="site-h1">{loan.title}</h1>
+      <div className="site-loan-id"><CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" /></div>
+      <div className="site-project-page">
         <div>
-          <div className="row gap-8 wrap" style={{ marginBottom: 6 }}>
-            <Chip status={loan.status} />
-            <span className="tag">{loan.currency}</span>
-            <span className="tag">{loan.purpose}</span>
-            {loan.is_refinancing ? <RefinancedTag full /> : null}
+          <div className="site-loan-facts">
+            <Stat amountMinor={loan.principal_minor} currency={loan.currency} label="Amount" />
+            <Stat label="Target interest" raw={formatRateBps(loan.interest_rate_bps)} sub="per annum" />
+            <Stat label="Term" raw={`${loan.term_months} mo`} />
+            <Stat label="Status" raw={loan.status} />
           </div>
-          <h1>{loan.title}</h1>
-          <div className="ph-sub"><CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" /></div>
-          <Card className="section" padded>
-            <div className="grid grid-4" style={{ gap: 0 }}>
-              <Stat amountMinor={loan.principal_minor} currency={loan.currency} label="Amount" />
-              <Stat label="Target interest" raw={formatRateBps(loan.interest_rate_bps)} sub="per annum" />
-              <Stat label="Term" raw={`${loan.term_months} mo`} />
-              <Stat label="Status" raw={loan.status} />
-            </div>
-          </Card>
-          <Card className="section" padded>
-            <div className="eyebrow" style={{ marginBottom: 10 }}>Full loan data</div>
+          <div className="site-locked site-loan-locked">
+            <div className="eyebrow">Full loan data</div>
             <Banner icon="lock" tone="neutral" title="Registration required">
               Complete registration, phone verification and KYC to unlock borrower disclosures,
               collateral, documents, LTV, risk rating and investment actions.
             </Banner>
-          </Card>
+          </div>
         </div>
-        <aside className="aside-sticky">
-          <Card padded>
-            <h3 style={{ fontSize: 15, marginBottom: 8 }}>Invest with {platformName}</h3>
-            <div className="col gap-8 muted-2" style={{ fontSize: 13 }}>
-              <span className="row gap-8"><Icon name="check" size={15} />Individual lenders in CH and EU/EEA</span>
-              <span className="row gap-8"><Icon name="check" size={15} />Minimum CHF/EUR 1,000 per order</span>
-              <span className="row gap-8"><Icon name="check" size={15} />Claim participation documents</span>
-            </div>
-            <Button block variant="primary" style={{ marginTop: 14 }} onClick={() => goTo(setRoute, "register")}>
+        <aside className="site-sticky">
+          <div className="site-box is-ink-rule">
+            <h2 className="site-h4">Invest with {platformName}</h2>
+            <ul className="site-checks">
+              <li>Individual lenders in CH and EU/EEA</li>
+              <li>Minimum investment set per loan</li>
+              <li>Claim participation documents</li>
+            </ul>
+            <Button block size="lg" variant="primary" onClick={() => goTo(setRoute, "register")}>
               Create account
             </Button>
-          </Card>
+          </div>
         </aside>
       </div>
     </div>
@@ -1272,7 +2248,8 @@ function LoginFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
       email: "",
       sent: false,
       linkExpired: false,
-      resendCooldownUntil: 0
+      resendCooldownUntil: 0,
+      editingEmail: false
     })
   );
   const [email, setEmail] = useState(initialLoginState.email);
@@ -1281,7 +2258,13 @@ function LoginFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
   const [resendCooldownUntil, setResendCooldownUntil] = useState(
     initialLoginState.resendCooldownUntil
   );
+  const [editingEmail, setEditingEmail] = useState(
+    initialLoginState.editingEmail || !initialLoginState.email
+  );
+  const [focusEmailField, setFocusEmailField] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(hasSessionExpiredNotice);
   const [isConsuming, setIsConsuming] = useState(false);
+  const [blockedAccountStatus, setBlockedAccountStatus] = useState<string | null>(null);
   const [error, setError] = useState("");
   const magicLinkRequest = useV1AuthMagicLinkRequestCreate();
   const resendCooldownSeconds = useSecondsUntil(resendCooldownUntil);
@@ -1291,9 +2274,10 @@ function LoginFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
       email,
       sent,
       linkExpired,
-      resendCooldownUntil
+      resendCooldownUntil,
+      editingEmail
     });
-  }, [email, linkExpired, resendCooldownUntil, sent]);
+  }, [editingEmail, email, linkExpired, resendCooldownUntil, sent]);
 
   const consumeAttemptedRef = useRef(false);
   const loginFlowMountedRef = useRef(false);
@@ -1319,6 +2303,7 @@ function LoginFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
       .then((response) => {
         if (!loginFlowMountedRef.current) return;
         removeStoredObject(loginFlowStorageKey);
+        clearSessionExpiredNotice();
         window.history.replaceState({}, "", "/");
         if (resumeOnboardingForUser(response.user, setRoute)) return;
         removeStoredObject(registerFlowStorageKey);
@@ -1326,11 +2311,17 @@ function LoginFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
       })
       .catch((mutationError: unknown) => {
         if (!loginFlowMountedRef.current) return;
-        if (mutationError instanceof ApiClientError && mutationError.status === 400) {
+        const blockedStatus = blockedAccountStatusFromError(mutationError);
+        if (blockedStatus || (mutationError instanceof ApiClientError && mutationError.status === 400)) {
           const url = new URL(window.location.href);
           url.searchParams.delete("token");
           window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
           setError("");
+          if (blockedStatus) {
+            // A valid link of a restricted or locked account: say why login is refused.
+            setBlockedAccountStatus(blockedStatus);
+            return;
+          }
           setLinkExpired(true);
           return;
         }
@@ -1345,23 +2336,26 @@ function LoginFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
     };
   }, [setRoute]);
 
+  const markLinkSent = () => {
+    setSent(true);
+    setLinkExpired(false);
+    setEditingEmail(false);
+    setResendCooldownUntil(Date.now() + 60_000);
+    clearSessionExpiredNotice();
+    setSessionExpired(false);
+  };
+
   const requestMagicLink = () => {
-    if (magicLinkRequest.isPending || resendCooldownSeconds > 0) return;
+    if (!email.includes("@") || magicLinkRequest.isPending || resendCooldownSeconds > 0) return;
     setError("");
     if (isFixturePreview) {
-      setSent(true);
-      setLinkExpired(false);
-      setResendCooldownUntil(Date.now() + 60_000);
+      markLinkSent();
       return;
     }
     magicLinkRequest.mutate(
       { data: { email } },
       {
-        onSuccess: () => {
-          setSent(true);
-          setLinkExpired(false);
-          setResendCooldownUntil(Date.now() + 60_000);
-        },
+        onSuccess: markLinkSent,
         onError: (mutationError) => {
           const waitSeconds = retryAfterSeconds(mutationError);
           if (waitSeconds) {
@@ -1381,6 +2375,16 @@ function LoginFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
     setEmail("");
     setSent(false);
     setLinkExpired(false);
+    setEditingEmail(false);
+    setResendCooldownUntil(0);
+    setError("");
+  };
+
+  // On the expired-link screen: keep the screen and ask for another address.
+  const switchToDifferentEmail = () => {
+    setEmail("");
+    setEditingEmail(true);
+    setFocusEmailField(true);
     setResendCooldownUntil(0);
     setError("");
   };
@@ -1400,98 +2404,151 @@ function LoginFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
 
   if (isConsuming) {
     return (
-      <AuthShell onClose={() => goTo(setRoute, "public")}>
+      <AuthShell onClose={() => goTo(setRoute, "public")} setRoute={setRoute}>
         <div className="auth-card"><Empty icon="clock" title="Signing you in">Verifying your one-time login link.</Empty></div>
       </AuthShell>
     );
   }
 
+  if (blockedAccountStatus) {
+    const statusWord = blockedAccountStatus === "locked" ? "locked" : "restricted";
+    return (
+      <AuthShell onClose={() => goTo(setRoute, "public")} setRoute={setRoute}>
+        <div className="auth-card">
+          <div className="auth-form">
+            <AuthStatusIcon name="lock" />
+            <div className="auth-head">
+              <h2>Your account is {statusWord}</h2>
+              <p>
+                You cannot log in while your account is {statusWord}. Please contact support at{" "}
+                <a href={`mailto:${supportEmail}`}>{supportEmail}</a> for further details.
+              </p>
+            </div>
+            <a className="btn btn-primary btn-lg btn-block" href={`mailto:${supportEmail}`}>
+              Contact support
+            </a>
+          </div>
+        </div>
+      </AuthShell>
+    );
+  }
+
   return (
-    <AuthShell onClose={() => goTo(setRoute, "public")}>
+    <AuthShell onClose={() => goTo(setRoute, "public")} setRoute={setRoute}>
       <div className="auth-card">
         {linkExpired ? (
-          <div className="col" style={{ alignItems: "center", gap: 14, textAlign: "center" }}>
-            <div className="avatar" style={{ height: 50, width: 50 }}>
-              <Icon name="clock" size={22} />
-            </div>
-            <h2 style={{ fontSize: 18 }}>Login link expired</h2>
-            <p className="muted" style={{ fontSize: 13 }}>
-              This login link has expired or is no longer valid. Request a new link to continue.
-            </p>
-            {email ? (
-              <p className="muted" style={{ fontSize: 13 }}>
-                We will send the new link to <b>{email}</b>.
+          <form className="auth-form" data-testid="login-expired-form" onSubmit={submitMagicLink}>
+            <AuthStatusIcon name="clock" />
+            <div className="auth-head">
+              <h2>Login link expired</h2>
+              <p>
+                This login link has expired or is no longer valid. Request a new link to continue.
               </p>
-            ) : (
-              <div style={{ textAlign: "left", width: "100%" }}>
-                <Field label="Email address">
-                  <input
-                    className="input"
-                    onChange={(event) => setEmail(event.target.value)}
-                    placeholder="you@example.com"
-                    type="email"
-                    value={email}
-                  />
-                </Field>
-              </div>
-            )}
+              {editingEmail ? null : (
+                <p>
+                  We will send the new link to <b>{email}</b>.
+                </p>
+              )}
+            </div>
+            {editingEmail ? (
+              <Field label="Email address">
+                <input
+                  autoFocus={focusEmailField}
+                  className="input"
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="you@example.com"
+                  type="email"
+                  value={email}
+                />
+              </Field>
+            ) : null}
             {error ? <Banner tone="bad" title="Could not send a new link">{error}</Banner> : null}
-            <Button block disabled={resendDisabled} variant="primary" onClick={requestMagicLink}>
+            <Button block disabled={resendDisabled} size="lg" type="submit" variant="primary">
               {resendLabel}
             </Button>
-            {email ? (
-              <Button variant="link" onClick={resetLoginFlow}>
-                Use a different email address
-              </Button>
-            ) : null}
-            <p className="muted" style={{ fontSize: 11.5 }}>
+            {editingEmail ? null : (
+              <div className="auth-alt">
+                <Button variant="link" onClick={switchToDifferentEmail}>
+                  Use a different email address
+                </Button>
+              </div>
+            )}
+            <p className="auth-note">
               Lost access to your email is handled through support after identity re-verification.
             </p>
-          </div>
+          </form>
         ) : !sent ? (
-          <form className="col" data-testid="login-magic-link-form" onSubmit={submitMagicLink}>
-            <h2 style={{ fontSize: 19, marginBottom: 4 }}>Log in</h2>
-            <p className="muted" style={{ fontSize: 13, marginBottom: 20 }}>
-              We will email a secure magic link. No password is required for investor access.
-            </p>
+          <form className="auth-form" data-testid="login-magic-link-form" onSubmit={submitMagicLink}>
+            <div className="auth-head">
+              <h2>Log in</h2>
+              <p>
+                We will email a secure magic link. No password is required for investor access.
+              </p>
+            </div>
+            {sessionExpired ? (
+              <Banner icon="clock" tone="warn" title="Your session has expired">
+                Please log in again to continue.
+              </Banner>
+            ) : null}
             <Field label="Email address">
               <input className="input" onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" type="email" value={email} />
             </Field>
             {error ? <Banner tone="bad" title="Could not continue">{error}</Banner> : null}
-            <Button block disabled={!email.includes("@") || magicLinkRequest.isPending} style={{ marginTop: 16 }} type="submit" variant="primary">
+            <Button block disabled={!email.includes("@") || magicLinkRequest.isPending} size="lg" type="submit" variant="primary">
               {magicLinkRequest.isPending ? "Sending..." : "Send magic link"}
             </Button>
-            <div className="hr" style={{ margin: "18px 0" }} />
-            <p className="center muted" style={{ fontSize: 12.5 }}>
+            <p className="auth-alt">
               New to {platformName}? <a href="/register" onClick={(event) => { event.preventDefault(); goTo(setRoute, "register"); }}>Register as a lender</a>
             </p>
           </form>
         ) : (
-          <div className="col" style={{ alignItems: "center", gap: 14, textAlign: "center" }}>
-            <div className="avatar" style={{ height: 50, width: 50 }}>
-              <Icon name="bell" size={22} />
+          <div className="auth-form">
+            <AuthStatusIcon name="bell" />
+            <div className="auth-head">
+              <h2>Check your inbox</h2>
+              <p>
+                We sent a magic link to <b>{email}</b>. It expires in 15 minutes.
+              </p>
             </div>
-            <h2 style={{ fontSize: 18 }}>Check your inbox</h2>
-            <p className="muted" style={{ fontSize: 13 }}>
-              We sent a magic link to <b>{email}</b>. It expires in 15 minutes.
-            </p>
             {error ? <Banner tone="bad" title="Could not send a new link">{error}</Banner> : null}
-            <Button block disabled={resendDisabled} onClick={requestMagicLink}>
-              {resendLabel}
-            </Button>
-            {isFixturePreview ? <Button block variant="primary" onClick={() => goTo(setRoute, "dashboard")}>
-              Open link in demo
-            </Button> : null}
-            <Button variant="link" onClick={resetLoginFlow}>
-              Use a different email address
-            </Button>
-            <p className="muted" style={{ fontSize: 11.5 }}>
+            <div className="auth-actions">
+              <Button block disabled={resendDisabled} size="lg" onClick={requestMagicLink}>
+                {resendLabel}
+              </Button>
+              {isFixturePreview ? <Button block size="lg" variant="primary" onClick={() => goTo(setRoute, "dashboard")}>
+                Open link in demo
+              </Button> : null}
+            </div>
+            <div className="auth-alt">
+              <Button variant="link" onClick={resetLoginFlow}>
+                Use a different email address
+              </Button>
+            </div>
+            <p className="auth-note">
               Lost access to your email is handled through support after identity re-verification.
             </p>
           </div>
         )}
       </div>
     </AuthShell>
+  );
+}
+
+// The magic-link consume API answers 403 { code: "account_restricted" | "account_locked" }
+// when a valid link belongs to an account an admin has blocked.
+function blockedAccountStatusFromError(error: unknown) {
+  if (!(error instanceof ApiClientError) || error.status !== 403) return null;
+  const code = (error.payload as { code?: unknown } | undefined)?.code;
+  if (code === "account_restricted") return "restricted";
+  if (code === "account_locked") return "locked";
+  return null;
+}
+
+function AuthStatusIcon({ name }: { name: IconName }) {
+  return (
+    <div aria-hidden="true" className="auth-status-icon">
+      <Icon name={name} size={20} />
+    </div>
   );
 }
 
@@ -1519,7 +2576,7 @@ function KycReturnScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) 
 
   if (!isFixturePreview && (authMeQuery.isPending || sessionUser)) {
     return (
-      <AuthShell onClose={() => leaveTo("public")}>
+      <AuthShell onClose={() => leaveTo("public")} setRoute={setRoute}>
         <div className="auth-card">
           <Empty icon="clock" title="Finishing identity verification">
             Returning you to your verification status.
@@ -1533,19 +2590,19 @@ function KycReturnScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) 
   // device (QR hand-off). The originating device keeps the session and picks
   // up the result automatically.
   return (
-    <AuthShell onClose={() => leaveTo("public")}>
+    <AuthShell onClose={() => leaveTo("public")} setRoute={setRoute}>
       <div className="auth-card">
-        <div className="col" style={{ alignItems: "center", gap: 14, textAlign: "center" }}>
-          <div className="avatar" style={{ height: 50, width: 50 }}>
-            <Icon name="checkCircle" size={22} />
+        <div className="auth-form">
+          <AuthStatusIcon name="checkCircle" />
+          <div className="auth-head">
+            <h2>Identity check submitted</h2>
+            <p>
+              You can close this tab and return to the device where you started
+              registration. It will continue automatically as soon as the
+              verification result arrives.
+            </p>
           </div>
-          <h2 style={{ fontSize: 18 }}>Identity check submitted</h2>
-          <p className="muted" style={{ fontSize: 13 }}>
-            You can close this tab and return to the device where you started
-            registration. It will continue automatically as soon as the
-            verification result arrives.
-          </p>
-          <p className="muted" style={{ fontSize: 11.5 }}>
+          <p className="auth-alt is-start">
             Want to continue on this device instead?{" "}
             <a href="/login" onClick={(event) => { event.preventDefault(); leaveTo("login"); }}>Log in here</a>.
           </p>
@@ -1882,58 +2939,55 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
   };
 
   return (
-    <AuthShell onClose={() => goTo(setRoute, "public")}>
-      <div className="auth-card wide">
-        <div className="auth-steps">
-          {["Account", "Email and phone", "KYC"].map((label, index) => (
-            <div aria-label={label} className={`s ${index < step ? "done" : index === step ? "cur" : ""}`} key={label} />
-          ))}
-        </div>
-        <div className="eyebrow" style={{ marginBottom: 6 }}>Step {step + 1} of 3</div>
-        {step === 0 ? (
-          <>
-            <h2 style={{ fontSize: 19, marginBottom: 4 }}>Create your lender account</h2>
-            <p className="muted" style={{ fontSize: 13, marginBottom: 18 }}>
-              Individual lenders only. Legal entities are onboarded by {operatorName} off-platform.
-            </p>
-            <div className="grid grid-2" style={{ gap: 12, marginBottom: 12 }}>
+    <RegisterShell onClose={() => goTo(setRoute, "public")} setRoute={setRoute} step={step}>
+      {step === 0 ? (
+        <>
+          <PageHead
+            description={<>Individual lenders only. Legal entities are onboarded by {operatorName} off-platform.</>}
+            eyebrow={`Step ${step + 1} of 3`}
+            title="Create your lender account"
+          />
+          <div className="card auth-onb-card">
+            <div className="auth-onb-grid">
               <Field label="First name"><input className="input" onChange={(event) => setFirstName(event.target.value)} value={firstName} /></Field>
               <Field label="Last name"><input className="input" onChange={(event) => setLastName(event.target.value)} value={lastName} /></Field>
-            </div>
-            <Field label="Email address"><input className="input" onChange={(event) => setEmail(event.target.value)} type="email" value={email} /></Field>
-            <Field hint={phoneNumber ? `Stored as ${phoneNumber}` : "Use the mobile number you will keep available for SMS verification."} label="Mobile phone number">
-              <div className="phone-number-row">
-                <select
-                  aria-label="Phone country prefix"
-                  className="select phone-prefix-select"
-                  onChange={(event) => setPhoneCountryCode(event.target.value)}
-                  value={phoneCountryCode}
-                >
+              <div className="auth-onb-span">
+                <Field label="Email address"><input className="input" onChange={(event) => setEmail(event.target.value)} type="email" value={email} /></Field>
+              </div>
+              <Field hint={phoneNumber ? `Stored as ${phoneNumber}` : "Use the mobile number you will keep available for SMS verification."} label="Mobile phone number">
+                <div className="phone-number-row">
+                  <select
+                    aria-label="Phone country prefix"
+                    className="select phone-prefix-select"
+                    onChange={(event) => setPhoneCountryCode(event.target.value)}
+                    value={phoneCountryCode}
+                  >
+                    {registrationCountries.map((country) => (
+                      <option key={`${country.iso2}-${country.callingCode}`} value={country.callingCode}>
+                        {country.iso2} {country.callingCode}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    className="input mono"
+                    inputMode="tel"
+                    onChange={(event) => setPhoneNationalNumber(event.target.value.replace(/[^\d\s().-]/g, ""))}
+                    placeholder="79 000 00 00"
+                    value={phoneNationalNumber}
+                  />
+                </div>
+              </Field>
+              <Field label="Country of residence">
+                <select className="select" onChange={(event) => setResidenceCountry(event.target.value)} value={residenceCountry}>
                   {registrationCountries.map((country) => (
-                    <option key={`${country.iso2}-${country.callingCode}`} value={country.callingCode}>
-                      {country.iso2} {country.callingCode}
+                    <option key={country.iso2} value={country.name}>
+                      {country.name}
                     </option>
                   ))}
                 </select>
-                <input
-                  className="input mono"
-                  inputMode="tel"
-                  onChange={(event) => setPhoneNationalNumber(event.target.value.replace(/[^\d\s().-]/g, ""))}
-                  placeholder="79 000 00 00"
-                  value={phoneNationalNumber}
-                />
-              </div>
-            </Field>
-            <Field label="Country of residence">
-              <select className="select" onChange={(event) => setResidenceCountry(event.target.value)} value={residenceCountry}>
-                {registrationCountries.map((country) => (
-                  <option key={country.iso2} value={country.name}>
-                    {country.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <div className="col gap-10" style={{ marginTop: 14 }}>
+              </Field>
+            </div>
+            <div className="auth-consents">
               {isFixturePreview || registrationLabels.length === 0 ? (
                 <Check checked={terms} id="register-terms" onChange={setTerms}>
                   I accept the{" "}
@@ -1968,7 +3022,7 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
               </Check>
               <Check checked={marketing} id="register-marketing" onChange={setMarketing}>I agree to optional marketing communications.</Check>
             </div>
-            <p className="muted" style={{ fontSize: 11.5, marginTop: 10 }}>
+            <p className="auth-note">
               Documents open in a new tab where you can read and download them.{" "}
               {!isFixturePreview && registrationTermsQuery.data ? (
                 <>
@@ -1992,18 +3046,23 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
               </Banner>
             ) : null}
             {error ? <Banner tone="bad" title="Could not register">{error}</Banner> : null}
-            <Button block disabled={!allRegistrationTermsAccepted || !risk || !email.includes("@") || !phoneNumber || registerMutation.isPending || (!isFixturePreview && (!registrationTermsQuery.data || !riskDisclosureQuery.data))} style={{ marginTop: 16 }} variant="primary" onClick={submitRegistration}>
-              {registerMutation.isPending ? "Creating account..." : "Continue"}
-            </Button>
-          </>
-        ) : step === 1 ? (
-          <>
-            {!hasMatchingSession ? (
-              <>
-                <h2 style={{ fontSize: 19, marginBottom: 4 }}>Confirm your email</h2>
-                <p className="muted" style={{ fontSize: 13, marginBottom: 18 }}>
-                  We need your magic-link email opened in this browser before SMS verification.
-                </p>
+            <div className="auth-onb-actions">
+              <Button disabled={!allRegistrationTermsAccepted || !risk || !email.includes("@") || !phoneNumber || registerMutation.isPending || (!isFixturePreview && (!registrationTermsQuery.data || !riskDisclosureQuery.data))} size="lg" variant="primary" onClick={submitRegistration}>
+                {registerMutation.isPending ? "Creating account..." : "Continue"}
+              </Button>
+            </div>
+          </div>
+        </>
+      ) : step === 1 ? (
+        <>
+          {!hasMatchingSession ? (
+            <>
+              <PageHead
+                description="We need your magic-link email opened in this browser before SMS verification."
+                eyebrow={`Step ${step + 1} of 3`}
+                title="Confirm your email"
+              />
+              <div className="card auth-onb-card">
                 {hasDifferentSession ? (
                   <Banner tone="warn" title="Different account signed in">
                     This browser is signed in as <b>{sessionUser?.email}</b>. Open the magic link
@@ -2019,71 +3078,90 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
                     Send a secure magic link to <b>{email}</b>, then open it in this browser.
                   </Banner>
                 )}
-                <Button
-                  block
-                  disabled={
-                    !email.includes("@") ||
-                    registrationMagicLinkMutation.isPending ||
-                    emailCooldownSeconds > 0
-                  }
-                  style={{ marginTop: 16 }}
-                  variant="primary"
-                  onClick={requestRegistrationMagicLink}
-                >
-                  {registrationMagicLinkMutation.isPending
-                    ? "Sending..."
-                    : emailCooldownSeconds > 0
-                      ? emailLoginSent
-                        ? `Resend in ${emailCooldownSeconds}s`
-                        : `Try again in ${emailCooldownSeconds}s`
-                      : emailLoginSent
-                        ? "Resend magic link"
-                        : "Send magic link"}
-                </Button>
+                <div className="auth-onb-actions">
+                  <Button
+                    disabled={
+                      !email.includes("@") ||
+                      registrationMagicLinkMutation.isPending ||
+                      emailCooldownSeconds > 0
+                    }
+                    size="lg"
+                    variant="primary"
+                    onClick={requestRegistrationMagicLink}
+                  >
+                    {registrationMagicLinkMutation.isPending
+                      ? "Sending..."
+                      : emailCooldownSeconds > 0
+                        ? emailLoginSent
+                          ? `Resend in ${emailCooldownSeconds}s`
+                          : `Try again in ${emailCooldownSeconds}s`
+                        : emailLoginSent
+                          ? "Resend magic link"
+                          : "Send magic link"}
+                  </Button>
+                </div>
                 {error ? <Banner tone="bad" title="Could not send magic link">{error}</Banner> : null}
-              </>
-            ) : (
-              <>
-                <h2 style={{ fontSize: 19, marginBottom: 4 }}>Verify your phone</h2>
-                <p className="muted" style={{ fontSize: 13, marginBottom: 18 }}>
-                  Request an SMS code for {phoneNumberLabel}. Phone verification is required before
-                  financial access.
-                </p>
-                <CodeRequestField
-                  hint={previewHint("Demo: enter any 6 digits")}
-                  label="SMS code"
-                  requestDisabled={phoneRequestDisabled}
-                  requestLabel={
-                    !isFixturePreview
-                      ? phoneRequestMutation.isPending
-                        ? "Sending..."
-                        : phoneCooldownSeconds > 0
-                          ? `Resend in ${phoneCooldownSeconds}s`
-                          : phoneChallengeId
-                            ? "Resend SMS"
-                            : "Send SMS"
-                      : undefined
-                  }
-                  value={phoneCode}
-                  onChange={setPhoneCode}
-                  onRequest={requestPhoneCode}
-                />
+              </div>
+            </>
+          ) : (
+            <>
+              <PageHead
+                description={
+                  <>
+                    Request an SMS code for {phoneNumberLabel}. Phone verification is required before
+                    financial access.
+                  </>
+                }
+                eyebrow={`Step ${step + 1} of 3`}
+                title="Verify your phone"
+              />
+              <div className="card auth-onb-card">
+                <div className="auth-code">
+                  <CodeRequestField
+                    hint={previewHint("Demo: enter any 6 digits")}
+                    label="SMS code"
+                    requestDisabled={phoneRequestDisabled}
+                    requestLabel={
+                      !isFixturePreview
+                        ? phoneRequestMutation.isPending
+                          ? "Sending..."
+                          : phoneCooldownSeconds > 0
+                            ? `Resend in ${phoneCooldownSeconds}s`
+                            : phoneChallengeId
+                              ? "Resend SMS"
+                              : "Send SMS"
+                        : undefined
+                    }
+                    value={phoneCode}
+                    onChange={setPhoneCode}
+                    onRequest={requestPhoneCode}
+                  />
+                </div>
                 {error ? <Banner tone="bad" title="Could not verify phone">{error}</Banner> : null}
-                <Button block disabled={phoneCode.length < 6 || (!isFixturePreview && !phoneChallengeId) || phoneConfirmMutation.isPending} style={{ marginTop: 16 }} variant="primary" onClick={confirmPhone}>
-                  {phoneConfirmMutation.isPending ? "Verifying..." : "Verify phone"}
-                </Button>
+                <div className="auth-onb-actions">
+                  <Button disabled={phoneCode.length < 6 || (!isFixturePreview && !phoneChallengeId) || phoneConfirmMutation.isPending} size="lg" variant="primary" onClick={confirmPhone}>
+                    {phoneConfirmMutation.isPending ? "Verifying..." : "Verify phone"}
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </>
+      ) : (
+        <>
+          <PageHead
+            description={
+              <>
+                We will redirect you to Didit for identity capture and verification. Garanta retains
+                the required compliance evidence and provider references for audit and regulatory
+                access. If you verify on another device (for example via QR code), this page
+                continues automatically once the result arrives.
               </>
-            )}
-          </>
-        ) : (
-          <>
-            <h2 style={{ fontSize: 19, marginBottom: 4 }}>Identity verification</h2>
-            <p className="muted" style={{ fontSize: 13, marginBottom: 18 }}>
-              We will redirect you to Didit for identity capture and verification. Garanta retains
-              the required compliance evidence and provider references for audit and regulatory
-              access. If you verify on another device (for example via QR code), this page
-              continues automatically once the result arrives.
-            </p>
+            }
+            eyebrow={`Step ${step + 1} of 3`}
+            title="Identity verification"
+          />
+          <div className="card auth-onb-card">
             <KycTimeline current="pending" />
             <Banner tone="neutral" title="Provider handoff">
               Didit verifies your identity and returns provider evidence/status to {operatorName}. If
@@ -2091,25 +3169,106 @@ function RegisterFlow({ setRoute }: { setRoute: (route: AppRoute) => void }) {
               compliance resolves it.
             </Banner>
             {error ? <Banner tone="bad" title="Could not start KYC">{error}</Banner> : null}
-            <Button block disabled={kycSessionMutation.isPending} style={{ marginTop: 16 }} variant="primary" onClick={startKyc}>
-              {kycSessionMutation.isPending ? "Starting Didit..." : "Start KYC"}
-            </Button>
-          </>
-        )}
-      </div>
-    </AuthShell>
+            <div className="auth-onb-actions">
+              <Button disabled={kycSessionMutation.isPending} size="lg" variant="primary" onClick={startKyc}>
+                {kycSessionMutation.isPending ? "Starting Didit..." : "Start KYC"}
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
+    </RegisterShell>
   );
 }
 
-function AuthShell({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+const registerStepLabels = ["Account", "Email and phone", "KYC"];
+
+// Registration uses the onboarding layout: a slim top bar, the numbered step
+// bar and a centred column with the step content.
+function RegisterShell({
+  step,
+  onClose,
+  setRoute,
+  children
+}: {
+  step: number;
+  onClose: () => void;
+  setRoute: (route: AppRoute) => void;
+  children: ReactNode;
+}) {
   return (
-    <div className="auth-wrap">
-      <div className="col" style={{ gap: 20, maxWidth: 560, width: "100%" }}>
-        <div className="row" style={{ justifyContent: "center" }}><Wordmark /></div>
-        {children}
-        <button className="btn-link center" onClick={onClose} style={{ alignSelf: "center", fontSize: 12.5 }} type="button">
-          Back to investment opportunities preview
+    <div className="auth-wrap auth-onb">
+      <header className="auth-onb-head">
+        <BrandHomeLink className="auth-brand-link" setRoute={setRoute}>
+          <Wordmark />
+        </BrandHomeLink>
+        <button className="auth-onb-exit" onClick={onClose} type="button">
+          <Icon name="arrowL" size={16} />
+          <span>Back to investment opportunities preview</span>
         </button>
+      </header>
+      <div className="auth-onb-body">
+        <ol aria-label="Registration steps" className="auth-stepbar">
+          {registerStepLabels.map((label, index) => (
+            <li
+              aria-current={index === step ? "step" : undefined}
+              aria-label={label}
+              className={`auth-stepbar-item ${index < step ? "is-done" : index === step ? "is-current" : ""}`}
+              key={label}
+            >
+              <span className="auth-stepbar-index">{String(index + 1).padStart(2, "0")}</span>
+              <span className="auth-stepbar-label">{label}</span>
+            </li>
+          ))}
+        </ol>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// Short public claim for the dark side panel, taken from the public landing copy.
+const authClaim =
+  "Review project-specific business loans, their repayment schedules, risks, and any disclosed security before deciding whether to invest.";
+
+// Sign-in and status screens use the split layout: a dark panel with the logo
+// and claim on wide screens, and the form panel on the right.
+function AuthShell({
+  children,
+  onClose,
+  setRoute
+}: {
+  children: React.ReactNode;
+  onClose: () => void;
+  setRoute: (route: AppRoute) => void;
+}) {
+  return (
+    <div className="auth-wrap auth-split">
+      <aside className="auth-aside">
+        <span className="auth-aside-label">Investor area</span>
+        <div className="auth-aside-brand">
+          <BrandHomeLink className="auth-brand-link" setRoute={setRoute}>
+            <Wordmark inverse />
+          </BrandHomeLink>
+          <p className="auth-claim">{authClaim}</p>
+        </div>
+      </aside>
+      <div className="auth-main">
+        <div className="auth-panel">
+          <div className="auth-mobile-brand">
+            <BrandHomeLink className="auth-brand-link" setRoute={setRoute}>
+              <Wordmark />
+            </BrandHomeLink>
+          </div>
+          {children}
+        </div>
+        <p className="auth-foot">
+          <button className="btn-link" onClick={onClose} type="button">
+            Back to investment opportunities preview
+          </button>
+          <span aria-hidden="true" className="auth-foot-sep">·</span>
+          <span>{operatorName}</span>
+        </p>
       </div>
     </div>
   );
@@ -2128,14 +3287,15 @@ function InvestorShell({
 }) {
   const queryClient = useQueryClient();
   const [navOpen, setNavOpen] = useState(false);
+  const [projectsMenuOpen, setProjectsMenuOpen] = useState(false);
   const [addFundsOpen, setAddFundsOpen] = useState(false);
-  const [investState, setInvestState] = useState<{ loan: MarketplaceLoanDetail; initialAmount?: string } | null>(null);
-  const investLoan = investState?.loan ?? null;
+  // Investing is a page (/marketplace/:loanId/invest); callers hand over the loan and an optional amount.
   const setInvestLoan = useCallback(
     (loan: MarketplaceLoanDetail | null, initialAmount?: string) => {
-      setInvestState(loan ? { loan, initialAmount } : null);
+      if (!loan) return;
+      goTo(setRoute, "invest", { loanId: loan.loan_id, ...(initialAmount ? { amount: initialAmount } : {}) });
     },
-    []
+    [setRoute]
   );
   const [readonlyImpersonation, setReadonlyImpersonation] = useState(() => ({
     active: isReadonlyImpersonationActive(),
@@ -2144,6 +3304,7 @@ function InvestorShell({
   const finishLogout = () => {
     clearPortalSessionState(queryClient);
     clearReadonlyImpersonation();
+    clearSessionExpiredNotice();
     setReadonlyImpersonation({ active: false, label: "" });
     goTo(setRoute, "public");
     setNavOpen(false);
@@ -2153,9 +3314,28 @@ function InvestorShell({
   const logoutMutation = useV1AuthLogoutCreate({
     mutation: { onSettled: finishLogout }
   });
+  // Re-checked every minute so an expired session or an account restricted by an
+  // admin is noticed even while the investor stays on one screen.
   const authMeQuery = useV1AuthMeRetrieve({
-    query: { enabled: !isFixturePreview, retry: false, staleTime: 0 }
+    query: { enabled: !isFixturePreview, retry: false, staleTime: 0, refetchInterval: 60_000 }
   });
+  // The backend ends sessions a fixed time after login; any API call then
+  // answers 401 session_expired. Leave the portal for the login screen, which
+  // explains what happened.
+  useEffect(
+    () =>
+      onSessionExpired(() => {
+        if (isReadonlyImpersonationActive()) {
+          clearReadonlyImpersonation();
+          queryClient.clear();
+          window.location.assign("/admin");
+          return;
+        }
+        clearPortalSessionState(queryClient);
+        goTo(setRoute, "login");
+      }),
+    [queryClient, setRoute]
+  );
   const sessionUser = authMeQuery.data?.user;
   const hasPortalSession = isFixturePreview || Boolean(sessionUser);
   const kycGateQuery = useV1KycStatusRetrieve({
@@ -2176,6 +3356,7 @@ function InvestorShell({
     isFixturePreview || kycGateQuery.data?.financial_access_allowed === true;
   const balances = useBalancesData(financialAccessAllowed).data ?? { summaries: [], lots: [] };
   const notifications = useNotificationsData(20, financialAccessAllowed).data;
+  const marketplaceLoans = useMarketplaceLoansData().data ?? [];
   const profile = readonlyImpersonation.active
     ? {
         initials: "RO",
@@ -2203,13 +3384,15 @@ function InvestorShell({
 
   if (!isFixturePreview && authMeQuery.isPending) {
     return (
-      <AuthShell onClose={() => goTo(setRoute, "public")}>
-        <div className="auth-card"><ScreenLoading title="Checking your session" /></div>
-      </AuthShell>
+      <UserSkin>
+        <AuthShell onClose={() => goTo(setRoute, "public")} setRoute={setRoute}>
+          <div className="auth-card"><ScreenLoading title="Checking your session" /></div>
+        </AuthShell>
+      </UserSkin>
     );
   }
   if (!isFixturePreview && (!sessionUser || authMeQuery.isError)) {
-    return <LoginFlow setRoute={setRoute} />;
+    return <UserSkin><LoginFlow setRoute={setRoute} /></UserSkin>;
   }
   if (!isFixturePreview && sessionUser && ["admin", "superadmin"].includes(sessionUser.account_type) && !readonlyImpersonation.active) {
     return <AdminApp />;
@@ -2241,8 +3424,18 @@ function InvestorShell({
             setRoute={setRoute}
           />
         );
+      case "invest":
+        return (
+          <InvestScreen
+            initialAmount={route.params?.amount}
+            loanId={route.params?.loanId ?? ""}
+            setRoute={setRoute}
+          />
+        );
       case "portfolio":
         return <PortfolioScreen setRoute={setRoute} />;
+      case "investment":
+        return <InvestmentScreen holdingId={route.params?.holdingId ?? ""} setRoute={setRoute} />;
       case "secondary":
         return <SecondaryMarketScreen demoState={demoState} initialTab={route.params?.tab} />;
       case "balances":
@@ -2252,7 +3445,7 @@ function InvestorShell({
       case "documents":
         return <DocumentsScreen />;
       case "notifications":
-        return <NotificationsScreen />;
+        return <NotificationsScreen setRoute={setRoute} />;
       case "settings":
         return <SettingsScreen setRoute={setRoute} />;
       case "kyc":
@@ -2264,8 +3457,14 @@ function InvestorShell({
     }
   })();
 
-  const gatedScreen =
-    !isFixturePreview && hasPortalSession && !financialAccessAllowed
+  const blockedAccountStatus = isFixturePreview
+    ? demoState === "restricted" ? "restricted" : null
+    : sessionUser && !readonlyImpersonation.active && blockedAccountStatuses.has(sessionUser.status)
+      ? sessionUser.status
+      : null;
+  const gatedScreen = blockedAccountStatus
+    ? <AccountBlockedScreen status={blockedAccountStatus} />
+    : !isFixturePreview && hasPortalSession && !financialAccessAllowed
       ? kycGateQuery.isPending && !kycGateQuery.data
         ? <ScreenLoading title="Verification" />
         : <KycStatusScreen setRoute={setRoute} />
@@ -2276,33 +3475,97 @@ function InvestorShell({
     ?? balances.summaries[0]?.currency
     ?? "CHF";
   const displayRouteName = !financialAccessAllowed && !isFixturePreview ? "kyc" : route.name;
-  const activeRoute = displayRouteName === "loan" || displayRouteName === "loanSchedule" ? "market" : displayRouteName;
+  const activeRoute = navActiveRoute[displayRouteName] ?? displayRouteName;
+  const addFundsDisabled = !financialAccessAllowed || demoState === "frozen" || readonlyImpersonation.active;
+  const openProjectCount = marketplaceLoans.filter((loan) => isOpenMarketplaceLoan(loan)).length;
+  const unreadCount = notifications?.unread_count ?? 0;
+  const badgeFor = (badge: NavBadge | undefined) => {
+    if (badge === "projects") return openProjectCount > 0 ? <span className="nav-count">{openProjectCount}</span> : null;
+    if (badge === "notifications") return unreadCount > 0 ? <span className="nav-count">{unreadCount}</span> : null;
+    if (badge === "balances" && (demoState === "frozen" || overdueCount > 0)) {
+      return <span className={`nav-badge ${demoState === "frozen" ? "bad" : "warn"}`}>{demoState === "frozen" ? "!" : overdueCount}</span>;
+    }
+    return null;
+  };
+  const navigate = (name: RouteName) => {
+    goTo(setRoute, name);
+    setNavOpen(false);
+  };
+  const signOut = () => {
+    if (readonlyImpersonation.active || isFixturePreview) {
+      finishLogout();
+      return;
+    }
+    logoutMutation.mutate();
+  };
+  const signOutLabel = readonlyImpersonation.active
+    ? "Exit read-only view"
+    : logoutMutation.isPending
+      ? "Signing out..."
+      : "Sign out";
 
   return (
+    <UserSkin>
     <div className="app">
       <div className={`nav-scrim ${navOpen ? "show" : ""}`} onClick={() => setNavOpen(false)} />
       <aside className={`sidebar ${navOpen ? "open" : ""}`}>
-        <div className="sidebar-brand"><Wordmark compact /></div>
+        <div className="sidebar-brand">
+          <button aria-label={`${platformName} overview`} className="sidebar-logo" onClick={() => navigate("dashboard")} type="button">
+            <Wordmark compact />
+          </button>
+          <button aria-label="Close menu" className="icon-btn sidebar-close" onClick={() => setNavOpen(false)} type="button">
+            <Icon name="arrowL" size={18} />
+          </button>
+        </div>
         <nav aria-label="Investor portal navigation" className="nav">
           {navGroups.map((group) => (
-            <div key={group.label}>
+            <div className="nav-group" key={group.label}>
               <div className="nav-group-label">{group.label}</div>
               {group.items.map((item) => {
+                if ("children" in item) {
+                  const childActive = item.children.some((child) => child.route === activeRoute);
+                  const expanded = projectsMenuOpen || childActive;
+                  return (
+                    <div className={`nav-parent ${childActive ? "is-active" : ""} ${expanded ? "is-open" : ""}`} key={item.key}>
+                      <button
+                        aria-expanded={expanded}
+                        className={`nav-link nav-toggle ${childActive ? "on" : ""}`}
+                        onClick={() => setProjectsMenuOpen((open) => (childActive ? true : !open))}
+                        type="button"
+                      >
+                        <Icon name={item.icon} size={22} strokeWidth={1.5} />
+                        <span className="nav-link-label">{item.label}</span>
+                        {badgeFor(item.badge)}
+                        <Icon className="nav-caret" name="chevR" size={16} />
+                      </button>
+                      {expanded ? (
+                        <div className="nav-sub">
+                          {item.children.map((child) => (
+                            <button
+                              className={`nav-sublink ${activeRoute === child.route ? "on" : ""}`}
+                              key={child.route}
+                              onClick={() => navigate(child.route)}
+                              type="button"
+                            >
+                              {child.label}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                }
                 const isActive = activeRoute === item.route;
-                const showBalanceBadge = item.route === "balances" && (demoState === "frozen" || overdueCount > 0);
                 return (
                   <button
                     className={`nav-link ${isActive ? "on" : ""}`}
                     key={item.route}
-                    onClick={() => {
-                      goTo(setRoute, item.route);
-                      setNavOpen(false);
-                    }}
+                    onClick={() => navigate(item.route)}
                     type="button"
                   >
-                    <Icon name={item.icon} size={17} />
+                    <Icon name={item.icon} size={22} strokeWidth={1.5} />
                     <span className="nav-link-label">{item.label}</span>
-                    {showBalanceBadge ? <span className={`nav-badge ${demoState === "frozen" ? "bad" : "warn"}`}>{demoState === "frozen" ? "!" : overdueCount}</span> : null}
+                    {badgeFor(item.badge)}
                   </button>
                 );
               })}
@@ -2310,79 +3573,76 @@ function InvestorShell({
           ))}
         </nav>
         <div className="sidebar-foot">
-          <div className="userchip" onClick={() => goTo(setRoute, "settings")}>
-            <span className="avatar">{profile.initials}</span>
-            <div className="grow" style={{ minWidth: 0 }}>
-              <div className="col-strong" style={{ fontSize: 12.5 }}>{profile.name}</div>
-              <div className="muted" style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{profile.email}</div>
-            </div>
-            <Icon className="faint" name="settings" size={15} />
-          </div>
-          <Button
-            block
-            disabled={logoutMutation.isPending}
-            icon="logout"
-            onClick={() => {
-              if (readonlyImpersonation.active) {
-                finishLogout();
-                return;
-              }
-              if (isFixturePreview) {
-                finishLogout();
-                return;
-              }
-              logoutMutation.mutate();
-            }}
-            size="sm"
-            variant="ghost"
-          >
-            {readonlyImpersonation.active ? "Exit read-only view" : logoutMutation.isPending ? "Signing out..." : "Sign out"}
-          </Button>
+          <button className={`nav-foot-link ${activeRoute === "faq" ? "on" : ""}`} onClick={() => navigate("faq")} type="button">
+            <Icon name="help" size={17} />
+            <span>Help</span>
+          </button>
+          <button className="nav-foot-link" disabled={logoutMutation.isPending} onClick={signOut} type="button">
+            <Icon name="logout" size={17} />
+            <span>{signOutLabel}</span>
+          </button>
         </div>
       </aside>
       <div className="main">
         <header aria-label="Investor account header" className="topbar">
           <button aria-label="Menu" className="icon-btn menu-btn" onClick={() => setNavOpen((open) => !open)} type="button">
-            <Icon name="menu" size={18} />
+            <Icon name="menu" size={20} />
           </button>
-          <div className="crumbs"><b>{routeTitles[displayRouteName]}</b></div>
-          <div className="bal-pills">
-            {balances.summaries.map((summary) => (
-              <div className={`bal-pill ${summary.overdue_minor > 0 || summary.penalty_mode_minor > 0 ? "flag" : ""}`} key={summary.currency}>
-                <span className="bp-ccy">{summary.currency}</span>
-                <span className="bp-amt">{formatMoneyMinor(summary.total_available_minor, summary.currency)}</span>
-              </div>
-            ))}
-          </div>
-          <Button
-            aria-label="Add Funds"
-            className="btn-green topbar-add-funds"
-            disabled={!financialAccessAllowed || demoState === "frozen" || readonlyImpersonation.active}
-            icon="plus"
-            onClick={() => setAddFundsOpen(true)}
-            size="sm"
-          >
-            Add Funds
-          </Button>
-          <button
-            aria-label="Notifications"
-            className="icon-btn"
-            onClick={() => goTo(setRoute, "notifications")}
-            type="button"
-          >
-            <Icon name="bell" size={17} />
-            {(notifications?.unread_count ?? 0) > 0 ? <span className="ping" /> : null}
+          <button aria-label={`${platformName} overview`} className="topbar-brand" onClick={() => navigate("dashboard")} type="button">
+            <Wordmark compact />
           </button>
-          {isFixturePreview ? (
-            <div className="state-switch">
-              <span>UX state</span>
-              <select className="select state-switch-select" onChange={(event) => setDemoState(event.target.value as DemoAccountState)} value={demoState}>
-                <option value="active">Active investor</option>
-                <option value="kyc_pending">KYC pending</option>
-                <option value="frozen">Day-60 freeze</option>
-              </select>
+          <div className="crumbs sr-only">{routeTitles[displayRouteName]}</div>
+          <HeaderLatestProject loans={marketplaceLoans} setRoute={setRoute} />
+          <div className="topbar-tools">
+            <div className="bal-pills">
+              {balances.summaries.map((summary) => (
+                <div className={`bal-pill ${summary.overdue_minor > 0 || summary.penalty_mode_minor > 0 ? "flag" : ""}`} key={summary.currency}>
+                  <span className="bp-ccy">{summary.currency}</span>
+                  <span className="bp-amt">{formatMoneyMinor(summary.total_available_minor, summary.currency)}</span>
+                </div>
+              ))}
             </div>
-          ) : null}
+            <Button
+              aria-label="Add Funds"
+              className="btn-green topbar-add-funds"
+              disabled={addFundsDisabled}
+              icon="plus"
+              onClick={() => setAddFundsOpen(true)}
+              size="sm"
+            >
+              Add Funds
+            </Button>
+            {isFixturePreview ? (
+              <div className="state-switch">
+                <span>UX state</span>
+                <select className="select state-switch-select" onChange={(event) => setDemoState(event.target.value as DemoAccountState)} value={demoState}>
+                  <option value="active">Active investor</option>
+                  <option value="kyc_pending">KYC pending</option>
+                  <option value="frozen">Day-60 freeze</option>
+                  <option value="restricted">Restricted account</option>
+                </select>
+              </div>
+            ) : null}
+            <HeaderUserMenu
+              addFundsDisabled={addFundsDisabled}
+              financialAccessAllowed={financialAccessAllowed}
+              onAddFunds={() => setAddFundsOpen(true)}
+              onNavigate={navigate}
+              onSignOut={signOut}
+              profile={profile}
+              readonly={readonlyImpersonation.active}
+              signOutDisabled={logoutMutation.isPending}
+              signOutLabel={signOutLabel}
+              summaries={balances.summaries}
+            />
+            <HeaderNotificationsMenu
+              notifications={notifications}
+              onOpen={(target) => {
+                goTo(setRoute, target.name, target.params);
+                setNavOpen(false);
+              }}
+            />
+          </div>
         </header>
         {isFixturePreview ? (
           <div className="fixture-preview-notice">
@@ -2402,6 +3662,14 @@ function InvestorShell({
           </div>
         ) : null}
         {gatedScreen}
+        <footer className="portal-footer">
+          <span className="portal-footer-copy">&copy; {new Date().getFullYear()} {platformName} · {operatorName}</span>
+          <nav aria-label="Legal and help" className="portal-footer-links">
+            <a href={legalDocumentPath("registration")} rel="noreferrer" target="_blank">Terms and Conditions</a>
+            <a href={legalDocumentPath("risk_disclosure")} rel="noreferrer" target="_blank">Risk disclosure</a>
+            <button onClick={() => navigate("faq")} type="button">Help</button>
+          </nav>
+        </footer>
       </div>
       {addFundsOpen ? (
         <DepositModal
@@ -2410,12 +3678,254 @@ function InvestorShell({
           onClose={() => setAddFundsOpen(false)}
         />
       ) : null}
-      {investLoan ? (
-        usesImmediateClaimAssignment(investLoan) ? (
-          <OriginatorClaimInvestModal initialAmount={investState?.initialAmount} loan={investLoan} onClose={() => setInvestLoan(null)} />
-        ) : (
-          <InvestModal initialAmount={investState?.initialAmount} loan={investLoan} onClose={() => setInvestLoan(null)} />
-        )
+    </div>
+    </UserSkin>
+  );
+}
+
+type ShellProfile = { initials: string; name: string; email: string };
+
+// Closes a header menu on an outside click or Escape.
+function useDismissableMenu() {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPointer = (event: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  return { open, setOpen, rootRef };
+}
+
+function HeaderLatestProject({ loans, setRoute }: { loans: MarketplaceLoanPreview[]; setRoute: (route: AppRoute) => void }) {
+  // The list API has no publication date, so the line shows the open loan that closes last.
+  const latest = loans
+    .filter((loan) => isOpenMarketplaceLoan(loan))
+    .reduce<MarketplaceLoanPreview | null>((current, loan) => {
+      if (!current) return loan;
+      return (loan.funding_deadline ?? "") > (current.funding_deadline ?? "") ? loan : current;
+    }, null);
+  if (!latest) return <div className="topbar-news" />;
+  const meta = [
+    formatRateBps(marketplaceYieldBps(latest)),
+    `${latest.term_months} months`,
+    latest.currency
+  ].join(" · ");
+  return (
+    <div className="topbar-news">
+      <button className="topbar-news-item" onClick={() => goTo(setRoute, "loan", { loanId: latest.loan_id })} type="button">
+        <Icon name="briefcase" size={18} strokeWidth={1.5} />
+        <span className="topbar-news-text">
+          <b>Open now: {latest.title}</b> <span>{meta}</span>
+        </span>
+        <Icon name="arrowR" size={15} />
+      </button>
+    </div>
+  );
+}
+
+function HeaderUserMenu({
+  profile,
+  summaries,
+  financialAccessAllowed,
+  readonly,
+  addFundsDisabled,
+  onAddFunds,
+  onNavigate,
+  onSignOut,
+  signOutDisabled,
+  signOutLabel
+}: {
+  profile: ShellProfile;
+  summaries: Array<{ currency: string; total_available_minor: number }>;
+  financialAccessAllowed: boolean;
+  readonly: boolean;
+  addFundsDisabled: boolean;
+  onAddFunds: () => void;
+  onNavigate: (route: RouteName) => void;
+  onSignOut: () => void;
+  signOutDisabled: boolean;
+  signOutLabel: string;
+}) {
+  const { open, setOpen, rootRef } = useDismissableMenu();
+  const status = readonly ? "Read-only view" : financialAccessAllowed ? "Verified investor" : "Verification pending";
+  const go = (route: RouteName) => {
+    setOpen(false);
+    onNavigate(route);
+  };
+  return (
+    <div className={`hdr-menu user-menu ${open ? "open" : ""}`} ref={rootRef}>
+      <button
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-label="Account menu"
+        className="user-toggle"
+        onClick={() => setOpen((value) => !value)}
+        type="button"
+      >
+        <span className="avatar">{profile.initials}</span>
+        <span className="user-toggle-info">
+          <span className="user-status">{status}</span>
+          <span className="user-name">{profile.name}<Icon name="chevD" size={14} /></span>
+        </span>
+      </button>
+      {open ? (
+        <div className="hdr-dropdown user-dropdown" role="menu">
+          <div className="hdr-dd-inner user-card">
+            <span className="avatar lg">{profile.initials}</span>
+            <span className="user-card-info">
+              <span className="user-card-name">{profile.name}</span>
+              <span className="user-card-email">{profile.email}</span>
+            </span>
+          </div>
+          {summaries.length > 0 ? (
+            <div className="hdr-dd-inner user-balance">
+              <div className="eyebrow">{platformName} account · available</div>
+              {summaries.map((summary, index) => (
+                <div className={index === 0 ? "user-balance-main" : "user-balance-sub"} key={summary.currency}>
+                  {formatMoneyMinor(summary.total_available_minor, summary.currency)} <small>{summary.currency}</small>
+                </div>
+              ))}
+              <button
+                className="user-balance-link"
+                disabled={addFundsDisabled}
+                onClick={() => {
+                  setOpen(false);
+                  onAddFunds();
+                }}
+                role="menuitem"
+                type="button"
+              >
+                Add funds <Icon name="plus" size={14} />
+              </button>
+            </div>
+          ) : null}
+          <div className="hdr-dd-inner">
+            <ul className="hdr-links">
+              <li><button onClick={() => go("settings")} role="menuitem" type="button"><Icon name="user" size={17} /><span>Profile &amp; Settings</span></button></li>
+              <li><button onClick={() => go("balances")} role="menuitem" type="button"><Icon name="wallet" size={17} /><span>Account &amp; payout IBANs</span></button></li>
+              <li><button onClick={() => go("documents")} role="menuitem" type="button"><Icon name="docs" size={17} /><span>Documents</span></button></li>
+              <li><button onClick={() => go("faq")} role="menuitem" type="button"><Icon name="help" size={17} /><span>Help</span></button></li>
+            </ul>
+          </div>
+          <div className="hdr-dd-inner">
+            <ul className="hdr-links">
+              <li>
+                <button
+                  disabled={signOutDisabled}
+                  onClick={() => {
+                    setOpen(false);
+                    onSignOut();
+                  }}
+                  role="menuitem"
+                  type="button"
+                >
+                  <Icon name="logout" size={17} />
+                  <span>{signOutLabel}</span>
+                </button>
+              </li>
+            </ul>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function HeaderNotificationsMenu({
+  notifications,
+  onOpen
+}: {
+  notifications: InvestorNotifications | undefined;
+  onOpen: (route: AppRoute) => void;
+}) {
+  const { open, setOpen, rootRef } = useDismissableMenu();
+  const readActions = useNotificationReadActions();
+  const unread = notifications?.unread_count ?? 0;
+  const items = (notifications?.notifications ?? []).slice(0, 5);
+  const openNotification = (item: InvestorNotification) => {
+    if (item.unread) void readActions.markRead(item.id).catch(() => undefined);
+    setOpen(false);
+    onOpen(notificationRoute(item));
+  };
+  return (
+    <div className={`hdr-menu notif-menu ${open ? "open" : ""}`} ref={rootRef}>
+      <button
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-label="Notifications"
+        className="icon-btn hdr-bell"
+        onClick={() => setOpen((value) => !value)}
+        type="button"
+      >
+        <Icon name="bell" size={20} strokeWidth={1.5} />
+        {unread > 0 ? <span className="ping" /> : null}
+      </button>
+      {open ? (
+        <div className="hdr-dropdown notif-dropdown" role="menu">
+          <div className="hdr-dd-head">
+            <span>Notifications{unread > 0 ? ` (${unread} new)` : ""}</span>
+            {unread > 0 ? (
+              <button className="notif-read-all" onClick={() => void readActions.markAllRead().catch(() => undefined)} role="menuitem" type="button">
+                Mark all as read
+              </button>
+            ) : null}
+          </div>
+          <div className="hdr-dd-body">
+            {items.length === 0 ? (
+              <div className="notif-empty">No notifications yet.</div>
+            ) : (
+              items.map((item) => {
+                const failed = item.status === "failed" || item.status === "dead_letter";
+                return (
+                  <div className={`notif-item ${item.unread ? "unread" : ""}`} key={item.id}>
+                    <button className="notif-open" onClick={() => openNotification(item)} role="menuitem" type="button">
+                      <span className={`notif-icon ${failed ? "late" : ""}`}><Icon name={failed ? "alert" : "bell"} size={16} /></span>
+                      <span className="notif-content">
+                        <span className={`notif-text ${failed ? "neg" : ""}`}>{item.title}</span>
+                        <span className="notif-time">{formatDateTime(item.created_at)}</span>
+                      </span>
+                    </button>
+                    {item.unread ? (
+                      <Tooltip content="Mark as read" focusable={false}>
+                        <button
+                          aria-label={`Mark "${item.title}" as read`}
+                          className="notif-mark"
+                          onClick={() => void readActions.markRead(item.id).catch(() => undefined)}
+                          role="menuitem"
+                          type="button"
+                        >
+                          <span aria-hidden="true" className="notif-dot" />
+                        </button>
+                      </Tooltip>
+                    ) : null}
+                  </div>
+                );
+              })
+            )}
+          </div>
+          <div className="hdr-dd-foot">
+            <button
+              onClick={() => {
+                setOpen(false);
+                onOpen({ name: "notifications" });
+              }}
+              type="button"
+            >
+              View all
+            </button>
+          </div>
+        </div>
       ) : null}
     </div>
   );
@@ -2547,6 +4057,19 @@ function Dashboard({
   const deskUnaffordable = (match: MarketplaceLoanPreview) =>
     !deskAffordableIds.has(match.loan_id) && !unticked[match.loan_id];
   const deskSplit = deskPlan.split;
+  // The select-all toggle covers the rows a click can tick; rows whose eligible sources cannot reach the
+  // minimum keep their blocked marker either way.
+  const deskSelectable = deskTickable.filter(
+    (match) => sumLotAvailableMinor(currentInvestableLotsForLoanCurrency(balances.lots, match)) >= match.minimum_investment_minor
+  );
+  const deskAllUnticked = deskSelectable.length > 0 && deskSelectable.every((match) => unticked[match.loan_id]);
+  const toggleDeskSelection = () => {
+    if (deskAllUnticked) {
+      setUnticked({});
+      return;
+    }
+    setUnticked((current) => ({ ...current, ...Object.fromEntries(deskSelectable.map((match) => [match.loan_id, true])) }));
+  };
   const deskItems = deskTicked
     .map((match) => ({ match, amountMinor: deskSplit.get(match.loan_id) ?? 0 }));
   const deskBatchReady = deskItems.length > 0;
@@ -2610,49 +4133,60 @@ function Dashboard({
 
   return (
     <main className="content dz-page">
-      <div className="col gap-12" style={{ marginBottom: 20 }}>
-        {demoState === "frozen" ? <FrozenBanner setRoute={setRoute} /> : null}
-        {demoState === "kyc_pending" ? <KycBanner setRoute={setRoute} /> : null}
-      </div>
-
-      {currencies.length > 1 ? (
-        <div className="dz-ccy-row">
-          <div className="seg" role="tablist">
-            {currencies.map((code) => (
-              <button aria-selected={ccy === code} className={ccy === code ? "on" : ""} key={code} onClick={() => setCcyPick(code)} role="tab" type="button">{code}</button>
-            ))}
-          </div>
+      <PageHead
+        actions={
+          <>
+            {currencies.length > 1 ? (
+              <div aria-label="Display currency" className="seg" role="tablist">
+                {currencies.map((code) => (
+                  <button aria-selected={ccy === code} className={ccy === code ? "on" : ""} key={code} onClick={() => setCcyPick(code)} role="tab" type="button">{code}</button>
+                ))}
+              </div>
+            ) : null}
+            <Button icon="briefcase" onClick={() => goTo(setRoute, "market")} variant="primary">Browse projects</Button>
+          </>
+        }
+        description={<>Your investments in {ccy} on {formatDate(dashboard.as_of)}.</>}
+        title="Money working for you"
+      />
+      {demoState === "frozen" || demoState === "kyc_pending" ? (
+        <div className="col gap-12 dz-alerts">
+          {demoState === "frozen" ? <FrozenBanner setRoute={setRoute} /> : null}
+          {demoState === "kyc_pending" ? <KycBanner setRoute={setRoute} /> : null}
         </div>
       ) : null}
 
-      <div className="dz-hero">
-        <h1>Money working for you</h1>
-        <div className="dz-date">{formatDate(dashboard.as_of)}</div>
-        <div className="dz-fig"><span className="dz-cur">{ccy === "EUR" ? "€" : ccy}</span><span className="dz-whole">{investedWhole}</span><span className="dz-cents">.{investedCents}</span></div>
-        {hasInvestments ? (
-          <>
-            <div className="dz-hero-line">invested in loans to <strong>{companies === 1 ? "1 company" : `${companies} companies`}</strong></div>
-            <div className="dz-hero-line">at <strong className="num">{formatRateBps(avgRateBps)}</strong> per year interest, on average</div>
-          </>
-        ) : (
-          <div className="dz-hero-line">nothing is invested yet — your money and the open opportunities are below</div>
-        )}
-      </div>
-
-      <div className="dz-band">
-        <div className="dz-cell">
-          <div className="dz-microlabel">Arriving in {nextMonth.label}</div>
-          <div className="dz-fig-md">{pfMoneyLabel(ccy, arriving.amountMinor)}</div>
+      <div className="dz-stats">
+        <div className="card dz-stat dz-hero">
+          <div className="dz-stat-title">Invested in loans</div>
+          <div className="dz-fig num">
+            <span className="dz-whole">{investedWhole}</span><span className="dz-cents">.{investedCents}</span>
+            <span className="dz-cur">{ccy}</span>
+          </div>
+          {hasInvestments ? (
+            <div className="dz-stat-lines">
+              <div className="dz-hero-line">invested in loans to <strong>{companies === 1 ? "1 company" : `${companies} companies`}</strong></div>
+              <div className="dz-hero-line">at <strong className="num">{formatRateBps(avgRateBps)}</strong> per year interest, on average</div>
+            </div>
+          ) : (
+            <div className="dz-stat-lines">
+              <div className="dz-hero-line">nothing is invested yet — your money and the open opportunities are below</div>
+            </div>
+          )}
+        </div>
+        <div className="card dz-stat dz-cell">
+          <div className="dz-stat-title dz-microlabel">Arriving in {nextMonth.label}</div>
+          <div className="dz-fig-md num">{pfMoneyLabel(ccy, arriving.amountMinor)}</div>
           <div className="dz-cell-sub">{portfolioQuery.isError ? "schedule temporarily unavailable" : `across ${arriving.count === 1 ? "1 payment" : `${arriving.count} payments`}`}</div>
         </div>
-        <div className="dz-cell">
-          <div className="dz-microlabel green">Interest paid to you so far</div>
-          <div className="dz-fig-md green">{pfMoneyLabel(ccy, realizedInterest)}</div>
+        <div className="card dz-stat dz-cell">
+          <div className="dz-stat-title dz-microlabel">Interest paid to you so far</div>
+          <div className="dz-fig-md green num">{pfMoneyLabel(ccy, realizedInterest)}</div>
           <div className="dz-cell-sub">{sinceLabel ? `since ${sinceLabel}` : "no distributions yet"}</div>
         </div>
-        <div className="dz-cell">
-          <div className="dz-microlabel"><span className="red">Money not working</span> — just sitting</div>
-          <div className="dz-fig-md">{pfMoneyLabel(ccy, idleMinor)}</div>
+        <div className="card dz-stat dz-cell">
+          <div className="dz-stat-title dz-microlabel"><span className="red">Money not working</span> — just sitting</div>
+          <div className="dz-fig-md num">{pfMoneyLabel(ccy, idleMinor)}</div>
           <div className="dz-cell-sub">{idlePct}% of your money, earning nothing</div>
         </div>
       </div>
@@ -2675,6 +4209,11 @@ function Dashboard({
             <div className="dz-desk-head">
               <span className="dz-desk-title">Your rule found {deskMatches.length === 1 ? "1 opportunity" : `${deskMatches.length} opportunities`}</span>
               <span className="dz-desk-sub">{pfMoneyLabel(ccy, idleMinor)} free to place · {deskTicked.length} of {deskTickable.length} ticked · nothing commits until you confirm</span>
+              {deskSelectable.length > 0 ? (
+                <Button className="dz-desk-toggle" onClick={toggleDeskSelection} size="sm" variant="ghost">
+                  {deskAllUnticked ? "Select all" : "Unselect all"}
+                </Button>
+              ) : null}
             </div>
             <div className="dz-desk-rows">
               {deskMatches.map((match) => {
@@ -2707,7 +4246,7 @@ function Dashboard({
               })}
               <div className="dz-desk-foot">
                 <span className="dz-desk-commit num">You commit {pfMoneyLabel(ccy, deskTotal)}</span>
-                <span className="dz-desk-note">{deskBatchReady ? "nothing moves without this click" : "untick opportunities until each order reaches its minimum"}</span>
+                <span className="dz-desk-note">{deskBatchReady ? "nothing moves without this click" : deskAllUnticked ? "tick the opportunities you want to invest in" : "untick opportunities until each order reaches its minimum"}</span>
                 <span style={{ flex: 1 }} />
                 <button className="si-dash-setup" disabled={!deskBatchReady} onClick={() => setBatchOpen(true)} type="button">Review &amp; confirm →</button>
               </div>
@@ -2816,25 +4355,25 @@ function Dashboard({
             <div className="dz-chart-card">
               <svg viewBox="0 0 880 326" style={{ display: "block", maxWidth: "100%" }}>
                 {[0, 1, 2, 3, 4].map((step) => (
-                  <line key={step} x1="46" y1={20 + step * 53.2} x2="790" y2={20 + step * 53.2} stroke="#DDE3E1" strokeWidth="1" />
+                  <line key={step} x1="46" y1={20 + step * 53.2} x2="790" y2={20 + step * 53.2} stroke="#e6e6e6" strokeWidth="1" />
                 ))}
                 {[0, 1, 2, 3, 4].map((step) => (
-                  <text key={step} x="38" y={24 + step * 53.2} textAnchor="end" fontSize="11" fill="#626B70">{Math.round(chartMax - (step * chartMax) / 5)}%</text>
+                  <text key={step} x="38" y={24 + step * 53.2} textAnchor="end" fontSize="11" fill="#6e6e6e">{Math.round(chartMax - (step * chartMax) / 5)}%</text>
                 ))}
-                <line x1="46" y1="286" x2="790" y2="286" stroke="#151719" strokeWidth="1" />
-                <text x="38" y="290" textAnchor="end" fontSize="11" fill="#626B70">0</text>
-                <polyline points={`46,286 283,${chartY(pctPaid)} 790,${chartY(pctA)}`} fill="none" stroke="#151719" strokeWidth="2.5" />
-                <polyline points={`283,${chartY(pctPaid)} 790,${chartY(pctB)}`} fill="none" stroke="#1E6A4B" strokeWidth="2.5" />
-                <line x1="283" y1="20" x2="283" y2="286" stroke="#C4312C" strokeWidth="1" strokeDasharray="3 3" />
-                <circle cx="46" cy="286" r="4" fill="#151719" />
-                <circle cx="283" cy={chartY(pctPaid)} r="4.5" fill="#C4312C" />
-                <circle cx="790" cy={chartY(pctA)} r="4.5" fill="#151719" />
-                <circle cx="790" cy={chartY(pctB)} r="4.5" fill="#1E6A4B" />
-                <text x="46" y="303" textAnchor="start" fontSize="11" fill="#626B70">{startLabel}</text>
-                <text x="283" y="303" textAnchor="middle" fontSize="11" fontWeight="600" fill="#C4312C">today</text>
-                <text x="790" y="303" textAnchor="end" fontSize="11" fill="#626B70">{horizonLabel}</text>
-                <text x="800" y={chartY(pctA) + 4} textAnchor="start" fontSize="13" fontWeight="700" fill="#151719">+{pctA.toFixed(1)}%</text>
-                <text x="800" y={chartY(pctB) + 4} textAnchor="start" fontSize="13" fontWeight="700" fill="#1E6A4B">+{pctB.toFixed(1)}%</text>
+                <line x1="46" y1="286" x2="790" y2="286" stroke="#0a0a0a" strokeWidth="1" />
+                <text x="38" y="290" textAnchor="end" fontSize="11" fill="#6e6e6e">0</text>
+                <polyline points={`46,286 283,${chartY(pctPaid)} 790,${chartY(pctA)}`} fill="none" stroke="#0a0a0a" strokeWidth="2.5" />
+                <polyline points={`283,${chartY(pctPaid)} 790,${chartY(pctB)}`} fill="none" stroke="#1e7a46" strokeWidth="2.5" />
+                <line x1="283" y1="20" x2="283" y2="286" stroke="#b3261e" strokeWidth="1" strokeDasharray="3 3" />
+                <circle cx="46" cy="286" r="4" fill="#0a0a0a" />
+                <circle cx="283" cy={chartY(pctPaid)} r="4.5" fill="#b3261e" />
+                <circle cx="790" cy={chartY(pctA)} r="4.5" fill="#0a0a0a" />
+                <circle cx="790" cy={chartY(pctB)} r="4.5" fill="#1e7a46" />
+                <text x="46" y="303" textAnchor="start" fontSize="11" fill="#6e6e6e">{startLabel}</text>
+                <text x="283" y="303" textAnchor="middle" fontSize="11" fontWeight="600" fill="#b3261e">today</text>
+                <text x="790" y="303" textAnchor="end" fontSize="11" fill="#6e6e6e">{horizonLabel}</text>
+                <text x="800" y={chartY(pctA) + 4} textAnchor="start" fontSize="13" fontWeight="700" fill="#0a0a0a">+{pctA.toFixed(1)}%</text>
+                <text x="800" y={chartY(pctB) + 4} textAnchor="start" fontSize="13" fontWeight="700" fill="#1e7a46">+{pctB.toFixed(1)}%</text>
               </svg>
               <div className="dz-chart-note">Marked points are calculated. The path between them is the shape of accrual, not a month-by-month forecast.</div>
             </div>
@@ -2979,9 +4518,17 @@ function allocationPlan(
     totals.set(currency, total);
     for (const match of pool) {
       if (ticked.has(match.loan_id)) continue;
+      if (marketplaceAvailableMinor(match) < match.minimum_investment_minor) {
+        blocked.set(match.loan_id,
+          `This opportunity has only ${pfMoneyLabel(currency, marketplaceAvailableMinor(match))} left, less than its minimum investment of ${pfMoneyLabel(currency, match.minimum_investment_minor)}.`
+        );
+        continue;
+      }
       if (sumLotAvailableMinor(currentInvestableLotsForLoanCurrency(lots, match)) < match.minimum_investment_minor) {
         blocked.set(match.loan_id,
-          `Your eligible ${currency} sources cannot cover this loan's remaining funding period at its minimum investment. Use newer funds or choose a shorter funding window.`
+          currencyBalanceMinor(lots, currency) < match.minimum_investment_minor
+            ? `Your ${currency} balance is below this loan's minimum investment of ${pfMoneyLabel(currency, match.minimum_investment_minor)}.`
+            : `Your eligible ${currency} sources cannot cover this loan's remaining funding period at its minimum investment. Use newer funds or choose a shorter funding window.`
         );
         continue;
       }
@@ -3282,7 +4829,7 @@ function ApproveAllocationModal({
                   </div>
                 ))}
                 <div className="si-dash-rows-foot">
-                  <span className="num" style={{ fontWeight: 600, color: "#151719" }}>You commit {allocCommitLabel(reviewTotals)}</span>
+                  <span className="num" style={{ fontWeight: 600, color: "#0a0a0a" }}>You commit {allocCommitLabel(reviewTotals)}</span>
                   <span style={{ flex: 1 }} />
                   <span>one terms acceptance and one email code cover every investment in this batch</span>
                 </div>
@@ -3458,112 +5005,39 @@ function KycBanner({ setRoute }: { setRoute: (route: AppRoute) => void }) {
   );
 }
 
-type MkFilters = {
-  q: string;
-  minRate: number | null;
-  maxTerm: number | null;
-  orig: string;
-  col: string;
-  ccy: string;
-  rating: string;
-  purpose: string;
-  kind: string;
-};
-
-const mkDefaultFilters: MkFilters = {
-  q: "",
-  minRate: null,
-  maxTerm: null,
-  orig: "all",
-  col: "all",
-  ccy: "all",
-  rating: "all",
-  purpose: "all",
-  kind: "all"
-};
-
-const mkIsUnsecured = (loan: MarketplaceLoanPreview) => /unsecured/i.test(loan.collateral_type);
+const mkIsUnsecured = (loan: MarketplaceLoanPreview) => /unsecured/i.test(loan.collateral_type) || loan.ltv_bps === null;
 const mkYieldPct = (loan: MarketplaceLoanPreview) => marketplaceYieldBps(loan) / 100;
 
+// Same semantics as the backend rule: conditions combine with AND, the values
+// ticked inside one condition with OR, and an empty list does not restrict.
 function mkMatches(loan: MarketplaceLoanPreview, filters: MkFilters, skip?: keyof MkFilters) {
   const haystack = `${loan.loan_id} ${loan.title} ${loan.originator_name ?? ""} ${loan.borrower_display_name ?? ""} ${loan.purpose} ${loan.collateral_type} ${loan.risk_rating}`.toLowerCase();
   const checks: [keyof MkFilters, boolean][] = [
     ["q", filters.q.trim() === "" || haystack.includes(filters.q.trim().toLowerCase())],
     ["minRate", filters.minRate === null || mkYieldPct(loan) >= filters.minRate - 0.001],
     ["maxTerm", filters.maxTerm === null || loan.term_months <= filters.maxTerm],
-    ["orig", filters.orig === "all" || (filters.orig === "banxum" ? !isOriginatorClaimLoan(loan) : loan.originator_id === filters.orig)],
-    [
-      "col",
-      filters.col === "all"
-        || (filters.col === "secured"
-          ? !mkIsUnsecured(loan)
-          : filters.col === "unsecured"
-            ? mkIsUnsecured(loan)
-            : loan.collateral_type === filters.col)
-    ],
-    ["ccy", filters.ccy === "all" || loan.currency === filters.ccy],
-    ["rating", filters.rating === "all" || loan.risk_rating === filters.rating],
-    ["purpose", filters.purpose === "all" || loan.purpose === filters.purpose],
-    ["kind", filters.kind === "all" || (filters.kind === "refi" ? loan.is_refinancing : !loan.is_refinancing)]
+    ["orig", mkAnyOf(filters.orig, isOriginatorClaimLoan(loan) ? loan.originator_id ?? "" : mkBanxumSource)],
+    ["col", mkCollateralMatches(filters.col, { unsecured: mkIsUnsecured(loan), collateralType: loan.collateral_type })],
+    ["ccy", mkAnyOf(filters.ccy, loan.currency)],
+    ["rating", mkAnyOf(filters.rating, loan.risk_rating)],
+    ["purpose", mkAnyOf(filters.purpose, loan.purpose)],
+    ["kind", mkAnyOf(filters.kind, loan.is_refinancing ? mkRefinancing : mkNewLending)]
   ];
   return checks.every(([key, ok]) => key === skip || ok);
 }
 
-function hasSmartInvestCriteria(filters: MkFilters) {
-  return filters.minRate !== null
-    || filters.maxTerm !== null
-    || filters.orig !== "all"
-    || filters.col !== "all"
-    || filters.ccy !== "all"
-    || filters.rating !== "all"
-    || filters.purpose !== "all"
-    || filters.kind !== "all";
+function mkCollateralLabel(value: string) {
+  if (value === mkAnyCollateral) return "With collateral (any type)";
+  if (value === mkNoCollateral) return "No collateral";
+  return humanizeToken(value);
 }
 
-function smartInvestRequestFromFilters(filters: MkFilters): SmartInvestRuleSaveRequest {
-  const specificOriginator = filters.orig !== "all" && filters.orig !== "banxum";
-  const specificCollateral = !["all", "secured", "unsecured"].includes(filters.col);
-  return {
-    minimum_yield_bps: filters.minRate === null ? null : Math.round(filters.minRate * 100),
-    maximum_term_months: filters.maxTerm,
-    originator_scope: filters.orig === "all"
-      ? OriginatorScopeEnum.all
-      : filters.orig === "banxum"
-        ? OriginatorScopeEnum.banxum
-        : OriginatorScopeEnum.specific,
-    originator_id: specificOriginator ? filters.orig : null,
-    collateral_scope: specificCollateral
-      ? CollateralScopeEnum.specific
-      : filters.col as SmartInvestRuleSaveRequest["collateral_scope"],
-    collateral_type: specificCollateral ? filters.col : "",
-    currency_scope: filters.ccy as SmartInvestRuleSaveRequest["currency_scope"],
-    risk_rating: filters.rating === "all" ? "" : filters.rating,
-    purpose: filters.purpose === "all" ? "" : filters.purpose,
-    loan_kind: filters.kind === "refi"
-      ? LoanKindEnum.refinancing
-      : filters.kind === "new"
-        ? LoanKindEnum.new
-        : LoanKindEnum.all
-  };
+function mkLoanKindLabel(value: string) {
+  return value === mkRefinancing ? "Refinancing" : "New lending";
 }
 
-function smartInvestFiltersFromRule(rule: SmartInvestRule | null | undefined): MkFilters {
-  if (!rule?.is_active) return mkDefaultFilters;
-  return {
-    q: "",
-    minRate: rule.minimum_yield_bps === null ? null : rule.minimum_yield_bps / 100,
-    maxTerm: rule.maximum_term_months,
-    orig: rule.originator_scope === OriginatorScopeEnum.specific
-      ? rule.originator_id ?? "all"
-      : rule.originator_scope,
-    col: rule.collateral_scope === CollateralScopeEnum.specific
-      ? rule.collateral_type
-      : rule.collateral_scope,
-    ccy: rule.currency_scope,
-    rating: rule.risk_rating || "all",
-    purpose: rule.purpose || "all",
-    kind: rule.loan_kind === LoanKindEnum.refinancing ? "refi" : rule.loan_kind
-  };
+function mkRatingLabel(value: string) {
+  return value === "unrated" ? "Unrated" : value;
 }
 
 function marketplaceLoanAsSmartOpportunity(loan: MarketplaceLoanPreview): SmartInvestOpportunity {
@@ -3616,14 +5090,12 @@ function previewSmartInvestResponse(
       revision: (currentRule?.revision ?? 0) + 1,
       minimum_yield_bps: request.minimum_yield_bps ?? null,
       maximum_term_months: request.maximum_term_months ?? null,
-      originator_scope: request.originator_scope ?? OriginatorScopeEnum.all,
-      originator_id: request.originator_id ?? null,
-      collateral_scope: request.collateral_scope ?? CollateralScopeEnum.all,
-      collateral_type: request.collateral_type ?? "",
-      currency_scope: request.currency_scope ?? CurrencyScopeEnum.all,
-      risk_rating: request.risk_rating ?? "",
-      purpose: request.purpose ?? "",
-      loan_kind: request.loan_kind ?? LoanKindEnum.all,
+      originators: request.originators ?? [],
+      collateral: request.collateral ?? [],
+      currencies: request.currencies ?? [],
+      risk_ratings: request.risk_ratings ?? [],
+      purposes: request.purposes ?? [],
+      loan_kinds: request.loan_kinds ?? [],
       activated_at: timestamp,
       deactivated_at: null,
       created_at: currentRule?.created_at ?? timestamp,
@@ -3655,6 +5127,27 @@ function mkSortValue(loan: MarketplaceLoanPreview, key: string): number | string
   return `${Number(isOpenMarketplaceLoan(loan)) === 1 ? "0" : "1"}${marketplaceClosingKey(loan)}`;
 }
 
+// The primary market opens in the Cards layout; the List layout is the sortable
+// table. The choice is a per-browser convenience only.
+type MkLayout = "cards" | "list";
+const mkLayoutStorageKey = "banxum:marketplace-layout:v1";
+
+function readMarketplaceLayout(): MkLayout {
+  try {
+    return window.localStorage.getItem(mkLayoutStorageKey) === "list" ? "list" : "cards";
+  } catch {
+    return "cards";
+  }
+}
+
+function writeMarketplaceLayout(layout: MkLayout) {
+  try {
+    window.localStorage.setItem(mkLayoutStorageKey, layout);
+  } catch {
+    // Storage can be unavailable (private mode); the choice then lasts for this visit.
+  }
+}
+
 function MarketplaceScreen({
   setInvestLoan,
   setRoute
@@ -3672,6 +5165,11 @@ function MarketplaceScreen({
   const loans = loansQuery.data ?? [];
   const [filters, setFilters] = useState<MkFilters>(mkDefaultFilters);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [layout, setLayout] = useState<MkLayout>(readMarketplaceLayout);
+  const pickLayout = (next: MkLayout) => {
+    setLayout(next);
+    writeMarketplaceLayout(next);
+  };
   const [viewMode, setViewMode] = useState<"focused" | "detailed">("focused");
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -3681,7 +5179,10 @@ function MarketplaceScreen({
 
   const setFlt = <K extends keyof MkFilters>(key: K, value: MkFilters[K]) => {
     setFilters((current) => ({ ...current, [key]: value }));
-    if (key === "ccy" && typeof value === "string" && value !== "all") setCapacityCurrency(value);
+  };
+  const toggleFlt = (key: MkListKey, value: string) => {
+    setFilters((current) => ({ ...current, [key]: mkToggle(current[key], value) }));
+    if (key === "ccy" && !filters.ccy.includes(value)) setCapacityCurrency(value);
   };
   const pickSort = (key: string) => {
     setSortDir(sortKey === key && sortDir === "asc" ? "desc" : "asc");
@@ -3738,43 +5239,55 @@ function MarketplaceScreen({
     new Set(openLoans.filter((loan) => !mkIsUnsecured(loan)).map((loan) => loan.collateral_type))
   ).sort();
   const currencies = Array.from(new Set(openLoans.map((loan) => loan.currency))).sort();
-  const ratings = Array.from(new Set(openLoans.map((loan) => loan.risk_rating))).sort();
+  // Rating-scale order (AAA first), not alphabetical.
+  const ratings = mkOptionUnion(
+    smartInvestCatalog.ratings.filter((rating) => openLoans.some((loan) => loan.risk_rating === rating)),
+    Array.from(new Set(openLoans.map((loan) => loan.risk_rating))).sort()
+  );
   const purposes = Array.from(new Set(openLoans.map((loan) => loan.purpose))).sort();
 
-  const chip = (group: keyof MkFilters, value: string, label: string, predicate: (loan: MarketplaceLoanPreview) => boolean) => {
+  // Multi-select toggle chips: every chip ticked in one group widens that group.
+  const anyCollateralOn = filters.col.includes(mkAnyCollateral);
+  const chip = (group: MkListKey, value: string, label: string, predicate: (loan: MarketplaceLoanPreview) => boolean) => {
     const count = openLoans.filter((loan) => predicate(loan) && mkMatches(loan, filters, group)).length;
-    const on = filters[group] === value;
-    return { group, value, label, count, on };
+    // "With collateral (any type)" already includes each collateral type: shown ticked, not clickable.
+    const implied = group === "col" && anyCollateralOn && value !== mkAnyCollateral && value !== mkNoCollateral;
+    const on = implied || filters[group].includes(value);
+    return { group, value, label, count, on, implied };
   };
   const chipButton = (item: ReturnType<typeof chip>) => (
     <button
       aria-pressed={item.on}
-      className={`fs-chip${item.on ? " on" : item.count === 0 ? " dim" : ""}`}
-      key={`${String(item.group)}-${item.value}`}
-      onClick={() => setFlt(item.group, (item.on ? "all" : item.value) as MkFilters[typeof item.group])}
+      className={`fs-chip${item.on ? " on" : item.count === 0 ? " dim" : ""}${item.implied ? " implied" : ""}`}
+      disabled={item.implied}
+      key={`${item.group}-${item.value}`}
+      onClick={() => toggleFlt(item.group, item.value)}
+      title={item.implied ? "Included in With collateral (any type)" : undefined}
       type="button"
     >
       {item.label}
       <span className="fs-chip-count">{item.count}</span>
     </button>
   );
+  const anyLabel = (selected: string[], unrestricted: string) =>
+    selected.length === 0 ? <span className="fs-group-any">{unrestricted}</span> : null;
 
   const tokens: { label: string; clear: () => void }[] = [];
   if (filters.q.trim() !== "") tokens.push({ label: `matching "${filters.q.trim()}"`, clear: () => setFlt("q", "") });
   if (filters.minRate !== null) tokens.push({ label: `${filters.minRate.toFixed(1)}% and up`, clear: () => setFlt("minRate", null) });
   if (filters.maxTerm !== null) tokens.push({ label: `up to ${filters.maxTerm} months`, clear: () => setFlt("maxTerm", null) });
-  if (filters.orig !== "all") {
-    const originatorName = originators.find((originator) => originator.id === filters.orig)?.name;
-    tokens.push({
-      label: filters.orig === "banxum" ? "from BANXUM" : `from ${originatorName ?? "selected originator"}`,
-      clear: () => setFlt("orig", "all")
-    });
+  const listToken = (key: MkListKey, value: string, label: string) => {
+    tokens.push({ label, clear: () => setFilters((current) => ({ ...current, [key]: current[key].filter((item) => item !== value) })) });
+  };
+  for (const source of filters.orig) {
+    const originatorName = originators.find((originator) => originator.id === source)?.name;
+    listToken("orig", source, source === mkBanxumSource ? "from BANXUM" : `from ${originatorName ?? "selected originator"}`);
   }
-  if (filters.col !== "all") tokens.push({ label: filters.col === "secured" ? "with collateral" : filters.col === "unsecured" ? "no collateral" : humanizeToken(filters.col).toLowerCase(), clear: () => setFlt("col", "all") });
-  if (filters.ccy !== "all") tokens.push({ label: filters.ccy, clear: () => setFlt("ccy", "all") });
-  if (filters.rating !== "all") tokens.push({ label: `rated ${filters.rating}`, clear: () => setFlt("rating", "all") });
-  if (filters.purpose !== "all") tokens.push({ label: humanizeToken(filters.purpose).toLowerCase(), clear: () => setFlt("purpose", "all") });
-  if (filters.kind !== "all") tokens.push({ label: filters.kind === "refi" ? "refinancings" : "new lending", clear: () => setFlt("kind", "all") });
+  for (const value of mkEffectiveCollateral(filters.col)) listToken("col", value, mkCollateralLabel(value).toLowerCase());
+  for (const code of filters.ccy) listToken("ccy", code, code);
+  for (const rating of filters.rating) listToken("rating", rating, `rated ${mkRatingLabel(rating)}`);
+  for (const purpose of filters.purpose) listToken("purpose", purpose, humanizeToken(purpose).toLowerCase());
+  for (const kind of filters.kind) listToken("kind", kind, kind === mkRefinancing ? "refinancings" : "new lending");
   const clearAllFilters = () => setFilters(mkDefaultFilters);
   const balanceSummaries = balancesQuery.data?.summaries ?? [];
   const activeCapacityCurrency = balanceSummaries.some((summary) => summary.currency === capacityCurrency)
@@ -3816,26 +5329,39 @@ function MarketplaceScreen({
 
   return (
     <main className="content marketplace-page">
-      <section className="marketplace-intro">
-        <div className="eyebrow">
-          {openCount} open today · From {marketplaceCurrencySymbol(minimumCurrency)} {formatMoneyMinor(minimumInvestmentMinor, minimumCurrency, 0)}
-        </div>
-        <h1>These companies want your investment</h1>
-        {hasAccountMoney ? (
-          <p>Two ways to put your money to work</p>
+      <PageHead
+        actions={
+          <div aria-label="View" className="seg mk-layout-switch" role="group">
+            <button aria-pressed={layout === "cards"} className={layout === "cards" ? "on" : ""} onClick={() => pickLayout("cards")} type="button">
+              <Icon name="grid" size={15} />
+              Cards
+            </button>
+            <button aria-pressed={layout === "list"} className={layout === "list" ? "on" : ""} onClick={() => pickLayout("list")} type="button">
+              <Icon name="list" size={15} />
+              List
+            </button>
+          </div>
+        }
+        className="marketplace-intro"
+        description={hasAccountMoney ? (
+          "Two ways to put your money to work"
         ) : (
-          <p>
+          <>
             Review each opportunity, target yield, collateral and repayment term. You decide where to
             invest; returns are not guaranteed and invested capital is at risk.
-          </p>
+          </>
         )}
-      </section>
+        eyebrow={<>{openCount} open today · From {marketplaceCurrencySymbol(minimumCurrency)} {formatMoneyMinor(minimumInvestmentMinor, minimumCurrency, 0)}</>}
+        title="These companies want your investment"
+      />
 
-      <section aria-label="Investable balance" className="marketplace-capacity">
-        <div className="marketplace-capacity-label">Available to commit</div>
-        <div className="marketplace-capacity-amount">
-          <span>{activeCapacityCurrency}</span>
-          {capacitySummary ? formatMoneyMinor(capacitySummary.investable_minor, activeCapacityCurrency) : "-"}
+      <section aria-label="Investable balance" className="card marketplace-capacity">
+        <div className="marketplace-capacity-figure">
+          <div className="marketplace-capacity-label">Available to commit</div>
+          <div className="marketplace-capacity-amount num">
+            {capacitySummary ? formatMoneyMinor(capacitySummary.investable_minor, activeCapacityCurrency) : "-"}
+            <span>{activeCapacityCurrency}</span>
+          </div>
         </div>
         <div className="marketplace-capacity-note">
           {balancesQuery.isLoading && balanceSummaries.length === 0
@@ -3844,69 +5370,76 @@ function MarketplaceScreen({
               ? "available to invest"
               : "No investable balance is currently available in this currency."}
         </div>
-        {balanceSummaries.length > 1 ? (
-          <Segmented
-            options={balanceSummaries.map((summary) => ({ value: summary.currency, label: summary.currency }))}
-            value={activeCapacityCurrency}
-            onChange={setCapacityCurrency}
-          />
-        ) : null}
-        <button
-          aria-label="Set your investing rule"
-          className={`marketplace-investing-rule ${investingRuleActive ? "active" : "inactive"}`}
-          onClick={() => goTo(setRoute, "smartInvest")}
-          type="button"
-        >
-          <span aria-hidden="true" className="marketplace-investing-rule-dot" />
-          <span className="marketplace-investing-rule-name">Investing rule</span>
-          <span className="marketplace-investing-rule-state">{investingRuleActive ? "Active" : "Not active"}</span>
-          <span aria-hidden="true" className="marketplace-investing-rule-arrow">→</span>
-        </button>
+        <div className="marketplace-capacity-tools">
+          {balanceSummaries.length > 1 ? (
+            <Segmented
+              options={balanceSummaries.map((summary) => ({ value: summary.currency, label: summary.currency }))}
+              value={activeCapacityCurrency}
+              onChange={setCapacityCurrency}
+            />
+          ) : null}
+          <button
+            aria-label="Set your investing rule"
+            className={`marketplace-investing-rule ${investingRuleActive ? "active" : "inactive"}`}
+            onClick={() => goTo(setRoute, "smartInvest")}
+            type="button"
+          >
+            <span className="marketplace-investing-rule-name">Investing rule</span>
+            <span className="marketplace-investing-rule-state">{investingRuleActive ? "Active" : "Not active"}</span>
+            <Icon className="marketplace-investing-rule-arrow" name="arrowR" size={15} />
+          </button>
+        </div>
       </section>
 
       <section className="marketplace-opportunities">
-        <div className="marketplace-section-head">
-          <div>
-            <div className="eyebrow">Primary market</div>
-            <h2>Open investment opportunities</h2>
+        <div className="card mk-toolbar">
+          <div className="marketplace-section-head">
+            <div>
+              <div className="eyebrow">Primary market</div>
+              <h2>Open investment opportunities</h2>
+            </div>
           </div>
-        </div>
 
-        {tokens.length > 0 ? (
-          <div className="fs-tokens">
-            {tokens.map((token) => (
-              <button className="fs-token" key={token.label} onClick={token.clear} type="button">
-                {token.label}
-                <span aria-hidden="true" className="fs-token-x">×</span>
+          <div className="mk-toolbar-body">
+            <div className="fs-controls">
+              <button
+                aria-controls="marketplace-filter-panel"
+                aria-expanded={panelOpen}
+                className={`fs-pill${panelOpen || tokens.length > 0 ? " on" : ""}`}
+                onClick={() => setPanelOpen((open) => !open)}
+                type="button"
+              >
+                <Icon name="filter" size={14} />
+                <span>Filter</span>
+                <span aria-hidden="true" className="fs-caret">{panelOpen ? "▲" : "▼"}</span>
               </button>
-            ))}
-            <button className="fs-clear-link" onClick={clearAllFilters} type="button">clear</button>
-          </div>
-        ) : null}
+              <SortControl activeKey={sortKey} dir={sortDir} onPick={pickSort} options={mkSortOptions} />
+              {sortKey ? (
+                <button className="fs-clear-link" onClick={() => { setSortKey(null); setSortDir("asc"); }} type="button">back to closing soonest</button>
+              ) : null}
+              <span className="fs-count"><strong>{filtered.length}</strong> of {openLoans.length} match</span>
+              <span className="fs-controls-spacer" />
+              {layout === "list" ? (
+                <Segmented
+                  options={[{ value: "focused", label: "Focused" }, { value: "detailed", label: "Detailed" }]}
+                  value={viewMode}
+                  onChange={setViewMode}
+                />
+              ) : null}
+            </div>
 
-        <div className="fs-controls">
-          <button
-            aria-controls="marketplace-filter-panel"
-            aria-expanded={panelOpen}
-            className={`fs-pill${panelOpen || tokens.length > 0 ? " on" : ""}`}
-            onClick={() => setPanelOpen((open) => !open)}
-            type="button"
-          >
-            <span>Filter</span>
-            <span aria-hidden="true" className="fs-caret">{panelOpen ? "▲" : "▼"}</span>
-          </button>
-          <SortControl activeKey={sortKey} dir={sortDir} onPick={pickSort} options={mkSortOptions} />
-          {sortKey ? (
-            <button className="fs-clear-link" onClick={() => { setSortKey(null); setSortDir("asc"); }} type="button">back to closing soonest</button>
-          ) : null}
-          <span className="fs-count"><strong>{filtered.length}</strong> of {openLoans.length} match</span>
-          <span style={{ flex: 1 }} />
-          <Segmented
-            options={[{ value: "focused", label: "Focused" }, { value: "detailed", label: "Detailed" }]}
-            value={viewMode}
-            onChange={setViewMode}
-          />
-        </div>
+            {tokens.length > 0 ? (
+              <div className="fs-tokens">
+                {tokens.map((token) => (
+                  <button className="fs-token" key={token.label} onClick={token.clear} type="button">
+                    {token.label}
+                    <span aria-hidden="true" className="fs-token-x">×</span>
+                  </button>
+                ))}
+                <button className="fs-clear-link" onClick={clearAllFilters} type="button">clear</button>
+              </div>
+            ) : null}
+          </div>
 
         {panelOpen ? (
           <div className="fs-panel" id="marketplace-filter-panel">
@@ -3935,7 +5468,7 @@ function MarketplaceScreen({
                       key={index}
                       style={{
                         height: bin.n > 0 ? `${Math.max(7, Math.round((bin.n / rateBinMax) * 100))}%` : "2px",
-                        background: bin.lo >= rateValue - 0.001 && bin.n > 0 ? "#B9C0C4" : "#EDEAE2"
+                        background: bin.lo >= rateValue - 0.001 && bin.n > 0 ? "#b5b5b5" : "#ededed"
                       }}
                     />
                   ))}
@@ -3966,7 +5499,7 @@ function MarketplaceScreen({
                       key={bin.term}
                       style={{
                         height: bin.n > 0 ? `${Math.max(7, Math.round((bin.n / termBinMax) * 100))}%` : "2px",
-                        background: bin.term <= termValue && bin.n > 0 ? "#B9C0C4" : "#EDEAE2"
+                        background: bin.term <= termValue && bin.n > 0 ? "#b5b5b5" : "#ededed"
                       }}
                     />
                   ))}
@@ -3988,28 +5521,30 @@ function MarketplaceScreen({
               <div className="fs-group">
                 <div className="fs-group-cap">
                   Originated by
-                  {filters.orig !== "all" ? <button aria-label="Clear originator filter" className="fs-group-x" onClick={() => setFlt("orig", "all")} type="button">×</button> : null}
+                  {anyLabel(filters.orig, "any source")}
+                  {filters.orig.length > 0 ? <button aria-label="Clear originator filter" className="fs-group-x" onClick={() => setFlt("orig", [])} type="button">×</button> : null}
                 </div>
                 <div className="fs-chips">
-                  {chipButton(chip("orig", "banxum", "BANXUM", (loan) => !isOriginatorClaimLoan(loan)))}
+                  {chipButton(chip("orig", mkBanxumSource, "BANXUM", (loan) => !isOriginatorClaimLoan(loan)))}
                   {originators.map((originator) => chipButton(chip("orig", originator.id, originator.name, (loan) => loan.originator_id === originator.id)))}
                 </div>
               </div>
               <div className="fs-group">
                 <div className="fs-group-cap">
                   Collateral
-                  {filters.col !== "all" ? <button aria-label="Clear collateral filter" className="fs-group-x" onClick={() => setFlt("col", "all")} type="button">×</button> : null}
+                  {anyLabel(filters.col, "with or without")}
+                  {filters.col.length > 0 ? <button aria-label="Clear collateral filter" className="fs-group-x" onClick={() => setFlt("col", [])} type="button">×</button> : null}
                 </div>
                 <div className="fs-chips">
-                  {chipButton(chip("col", "secured", "With collateral", (loan) => !mkIsUnsecured(loan)))}
-                  {chipButton(chip("col", "unsecured", "No collateral", (loan) => mkIsUnsecured(loan)))}
+                  {chipButton(chip("col", mkAnyCollateral, "With collateral (any type)", (loan) => !mkIsUnsecured(loan)))}
+                  {chipButton(chip("col", mkNoCollateral, "No collateral", (loan) => mkIsUnsecured(loan)))}
                 </div>
-                {filters.col !== "unsecured" ? (
+                {collateralKinds.length > 0 ? (
                   <div className="fs-subgroup">
-                    <span className="fs-subgroup-label">of which</span>
+                    <span className="fs-subgroup-label">or only</span>
                     <span className="fs-subgroup-body">
                       <span className="fs-chips">
-                        {collateralKinds.map((kind) => chipButton(chip("col", kind, humanizeToken(kind), (loan) => loan.collateral_type === kind)))}
+                        {collateralKinds.map((kind) => chipButton(chip("col", kind, humanizeToken(kind), (loan) => !mkIsUnsecured(loan) && loan.collateral_type === kind)))}
                       </span>
                     </span>
                   </div>
@@ -4018,7 +5553,8 @@ function MarketplaceScreen({
               <div className="fs-group">
                 <div className="fs-group-cap">
                   Currency
-                  {filters.ccy !== "all" ? <button aria-label="Clear currency filter" className="fs-group-x" onClick={() => setFlt("ccy", "all")} type="button">×</button> : null}
+                  {anyLabel(filters.ccy, "any currency")}
+                  {filters.ccy.length > 0 ? <button aria-label="Clear currency filter" className="fs-group-x" onClick={() => setFlt("ccy", [])} type="button">×</button> : null}
                 </div>
                 <div className="fs-chips">
                   {currencies.map((code) => chipButton(chip("ccy", code, code, (loan) => loan.currency === code)))}
@@ -4027,16 +5563,18 @@ function MarketplaceScreen({
               <div className="fs-group">
                 <div className="fs-group-cap">
                   Risk rating
-                  {filters.rating !== "all" ? <button aria-label="Clear rating filter" className="fs-group-x" onClick={() => setFlt("rating", "all")} type="button">×</button> : null}
+                  {anyLabel(filters.rating, "any rating")}
+                  {filters.rating.length > 0 ? <button aria-label="Clear rating filter" className="fs-group-x" onClick={() => setFlt("rating", [])} type="button">×</button> : null}
                 </div>
                 <div className="fs-chips">
-                  {ratings.map((rating) => chipButton(chip("rating", rating, rating, (loan) => loan.risk_rating === rating)))}
+                  {ratings.map((rating) => chipButton(chip("rating", rating, mkRatingLabel(rating), (loan) => loan.risk_rating === rating)))}
                 </div>
               </div>
               <div className="fs-group">
                 <div className="fs-group-cap">
                   Purpose
-                  {filters.purpose !== "all" ? <button aria-label="Clear purpose filter" className="fs-group-x" onClick={() => setFlt("purpose", "all")} type="button">×</button> : null}
+                  {anyLabel(filters.purpose, "any purpose")}
+                  {filters.purpose.length > 0 ? <button aria-label="Clear purpose filter" className="fs-group-x" onClick={() => setFlt("purpose", [])} type="button">×</button> : null}
                 </div>
                 <div className="fs-chips">
                   {purposes.map((purpose) => chipButton(chip("purpose", purpose, humanizeToken(purpose), (loan) => loan.purpose === purpose)))}
@@ -4045,14 +5583,16 @@ function MarketplaceScreen({
               <div className="fs-group">
                 <div className="fs-group-cap">
                   Loan type
-                  {filters.kind !== "all" ? <button aria-label="Clear loan type filter" className="fs-group-x" onClick={() => setFlt("kind", "all")} type="button">×</button> : null}
+                  {anyLabel(filters.kind, "any loan type")}
+                  {filters.kind.length > 0 ? <button aria-label="Clear loan type filter" className="fs-group-x" onClick={() => setFlt("kind", [])} type="button">×</button> : null}
                 </div>
                 <div className="fs-chips">
-                  {chipButton(chip("kind", "new", "New lending", (loan) => !loan.is_refinancing))}
-                  {chipButton(chip("kind", "refi", "Refinancing", (loan) => loan.is_refinancing))}
+                  {chipButton(chip("kind", mkNewLending, "New lending", (loan) => !loan.is_refinancing))}
+                  {chipButton(chip("kind", mkRefinancing, "Refinancing", (loan) => loan.is_refinancing))}
                 </div>
               </div>
             </div>
+            <p className="fs-panel-hint">Pick several options in one group to see loans that match any of them.</p>
             <div className="fs-panel-foot">
               <span className="fs-panel-note">
                 Filters never rank or score opportunities. Without a selected sort, results stay closing soonest.
@@ -4065,6 +5605,7 @@ function MarketplaceScreen({
             {smartInvestError ? <div className="fs-save-error" role="alert">{smartInvestError}</div> : null}
           </div>
         ) : null}
+        </div>
 
       {loansQuery.isError && loans.length === 0 ? (
         <DataErrorCard title="Could not load marketplace" onRetry={() => void loansQuery.refetch()}>
@@ -4073,7 +5614,7 @@ function MarketplaceScreen({
       ) : loansQuery.isLoading && loans.length === 0 ? (
         <LoadingCard title="Loading marketplace">Fetching primary-market loans.</LoadingCard>
       ) : filtered.length === 0 ? (
-        <div className="fs-empty">
+        <div className="card fs-empty">
           <div className="fs-empty-copy">
             {openLoans.length === 0
               ? "No investment opportunities are open right now. New opportunities will appear here after publication."
@@ -4084,6 +5625,12 @@ function MarketplaceScreen({
             <button className="fs-empty-rule" onClick={() => goTo(setRoute, "smartInvest")} type="button">Set a standing rule</button>
           </div>
         </div>
+      ) : layout === "cards" ? (
+        <MarketplaceOpportunityCards
+          asOf={balancesQuery.data?.as_of}
+          loans={sortedLoans}
+          onOpen={(loan) => setSheetLoanId(loan.loan_id)}
+        />
       ) : (
         <MarketplaceOpportunityList
           loans={sortedLoans}
@@ -4116,7 +5663,7 @@ function MarketplaceScreen({
       </p>
       </section>
 
-      <section aria-label="How primary-market orders work" className="marketplace-process">
+      <section aria-label="How primary-market orders work" className="card marketplace-process">
         <div>
           <span className="marketplace-process-number">01</span>
           <strong>Choose each opportunity</strong>
@@ -4159,31 +5706,90 @@ function MarketplaceScreen({
   );
 }
 
+function mkOriginatorLabel(source: string, originators: Array<{ id: string; name: string }>) {
+  if (source === mkBanxumSource) return "BANXUM direct loans";
+  return originators.find((item) => item.id === source)?.name ?? "Selected Loan Originator";
+}
+
+function smartInvestCollateralSummary(selected: string[]) {
+  const collateral = mkEffectiveCollateral(selected);
+  if (collateral.includes(mkAnyCollateral) && collateral.includes(mkNoCollateral)) return "With or without collateral";
+  return mkListSummary(collateral.map(mkCollateralLabel), "With or without collateral");
+}
+
 function smartInvestRuleSummary(filters: MkFilters, originators: Array<{ id: string; name: string }>) {
-  const originator = originators.find((item) => item.id === filters.orig)?.name;
   const rows = [
-    {
-      label: "Collateral",
-      value: filters.col === "all"
-        ? "Any collateral"
-        : filters.col === "secured"
-          ? "Collateral required"
-          : filters.col === "unsecured"
-            ? "No collateral required"
-            : humanizeToken(filters.col)
-    },
-    { label: "Currency", value: filters.ccy === "all" ? "CHF and EUR" : filters.ccy },
+    { label: "Collateral", value: smartInvestCollateralSummary(filters.col) },
+    { label: "Currency", value: mkListSummary(filters.ccy, "Any currency") },
     { label: "Minimum yield", value: filters.minRate === null ? "No minimum" : `${filters.minRate.toFixed(1)}% p.a.` },
     { label: "Maximum term", value: filters.maxTerm === null ? "Any term" : `${filters.maxTerm} months` },
     {
       label: "Source",
-      value: filters.orig === "all" ? "BANXUM and all Loan Originators" : filters.orig === "banxum" ? "BANXUM direct loans" : originator ?? "Selected Loan Originator"
+      value: mkListSummary(filters.orig.map((source) => mkOriginatorLabel(source, originators)), "BANXUM and all Loan Originators")
     },
-    { label: "Risk rating", value: filters.rating === "all" ? "Any rating" : filters.rating },
-    { label: "Purpose", value: filters.purpose === "all" ? "Any purpose" : humanizeToken(filters.purpose) },
-    { label: "Loan type", value: filters.kind === "all" ? "New lending and refinancing" : filters.kind === "refi" ? "Refinancing" : "New lending" }
+    { label: "Risk rating", value: mkListSummary(filters.rating.map(mkRatingLabel), "Any rating") },
+    { label: "Purpose", value: mkListSummary(filters.purpose.map(humanizeToken), "Any purpose") },
+    { label: "Loan type", value: mkListSummary(filters.kind.map(mkLoanKindLabel), "Any loan type") }
   ];
   return rows;
+}
+
+type SmartInvestCheckOption = { value: string; label: string };
+
+// One Smart Invest criterion as square checkboxes. Nothing ticked = no restriction.
+function SmartInvestChecks({
+  compact = false,
+  idPrefix,
+  label,
+  onToggle,
+  options,
+  selected
+}: {
+  compact?: boolean;
+  idPrefix: string;
+  label: string;
+  onToggle: (value: string) => void;
+  options: SmartInvestCheckOption[];
+  selected: string[];
+}) {
+  return (
+    <div aria-label={label} className={`si-checks${compact ? " compact" : ""}`} role="group">
+      {options.map((option) => (
+        <Check checked={selected.includes(option.value)} id={`${idPrefix}-${option.value}`} key={option.value} onChange={() => onToggle(option.value)}>
+          {option.label}
+        </Check>
+      ))}
+    </div>
+  );
+}
+
+// "With collateral (any type)" + each collateral type + "No collateral (unsecured)".
+// While "With collateral (any type)" is ticked, every type is included and shown ticked.
+function SmartInvestCollateralChecks({
+  idPrefix,
+  onToggle,
+  selected,
+  types
+}: {
+  idPrefix: string;
+  onToggle: (value: string) => void;
+  selected: string[];
+  types: string[];
+}) {
+  const anyOn = selected.includes(mkAnyCollateral);
+  return (
+    <div aria-label="Collateral" className="si-col-checks" role="group">
+      <Check checked={anyOn} id={`${idPrefix}-any`} onChange={() => onToggle(mkAnyCollateral)}>With collateral (any type)</Check>
+      <div aria-label="Collateral types" className="si-checks si-col-types" role="group">
+        {types.map((type) => (
+          <Check checked={anyOn || selected.includes(type)} disabled={anyOn} id={`${idPrefix}-${type}`} key={type} onChange={() => onToggle(type)}>
+            {humanizeToken(type)}
+          </Check>
+        ))}
+      </div>
+      <Check checked={selected.includes(mkNoCollateral)} id={`${idPrefix}-none`} onChange={() => onToggle(mkNoCollateral)}>No collateral (unsecured)</Check>
+    </div>
+  );
 }
 
 function SmartInvestMatchTable({
@@ -4238,7 +5844,7 @@ function SmartInvestMatchTable({
             </span>
             <span>
               <strong>{match.borrower_display_name || match.title}</strong>
-              <small>{match.originator_name ? `Originated by ${match.originator_name}` : match.purpose}</small>
+              <small>{match.originator_name ? `Originated by ${match.originator_name}` : humanizeToken(match.purpose)}</small>
             </span>
             <span>{formatRateBps(match.yield_bps)}</span>
             <span>{match.term_months} mo</span>
@@ -4289,12 +5895,12 @@ function SmartInvestWizard({
     }
     await onSave(filters);
   };
-  const optionCard = (on: boolean, title: string, note: string, go: () => void) => (
-    <button className={`si-wiz-option${on ? " on" : ""}`} key={title} onClick={go} type="button">
-      <strong>{title}</strong>
-      <span>{note}</span>
-    </button>
+  const collateralTypes = mkOptionUnion(
+    smartInvestCatalog.collateralTypes,
+    openLoans.filter((loan) => !mkIsUnsecured(loan)).map((loan) => loan.collateral_type),
+    filters.col.filter((value) => value !== mkAnyCollateral && value !== mkNoCollateral)
   );
+  const currencyOptions = mkOptionUnion(smartInvestCatalog.currencies, filters.ccy).map((code) => ({ value: code, label: code }));
   return (
     <div className="ls-scrim si-wiz-scrim" role="presentation">
       <button aria-label="Close Smart Invest setup" className="ls-overlay-btn" onClick={onClose} tabIndex={-1} type="button" />
@@ -4303,7 +5909,7 @@ function SmartInvestWizard({
           <div className="si-wiz-head-main">
             <div className="si-wiz-pips">
               {labels.map((label, index) => (
-                <span key={label} style={{ background: index < step ? "#151719" : index === step ? "#C4312C" : "#DDE3E1" }} />
+                <span className={index < step ? "done" : index === step ? "on" : ""} key={label} />
               ))}
             </div>
             <div className="si-wiz-label">{labels[step]}</div>
@@ -4317,25 +5923,26 @@ function SmartInvestWizard({
         <div className="si-wiz-body">
           {step === 0 ? (
             <>
-              <div className="si-wiz-cap red">Question 1 of 2 · no default</div>
-              <h3>Must an asset be pledged?</h3>
+              <div className="si-wiz-cap red">Question 1 of 2</div>
+              <h3>What must be behind the loan?</h3>
               <p>{securedCount} of the {openLoans.length} open today have something pledged — a mortgage, a charge over equipment, or assigned receivables. The rest rely on the borrower&apos;s promise alone, and collateral never guarantees complete recovery.</p>
-              <div className="si-wiz-options">
-                {optionCard(filters.col === "secured", "Required", `Only loans with a pledged asset — ${securedCount} of ${openLoans.length}.`, () => update("col", "secured"))}
-                {optionCard(filters.col === "all", "Not required", `Unsecured lending is acceptable — all ${openLoans.length}.`, () => update("col", "all"))}
-              </div>
+              <p className="si-wiz-hint">Tick every kind you accept. Nothing ticked means with or without collateral.</p>
+              <SmartInvestCollateralChecks idPrefix="si-wiz-col" onToggle={(value) => update("col", mkToggle(filters.col, value))} selected={filters.col} types={collateralTypes} />
             </>
           ) : null}
           {step === 1 ? (
             <>
-              <div className="si-wiz-cap red">Question 2 of 2 · no default</div>
-              <h3>Which currency should it use?</h3>
+              <div className="si-wiz-cap red">Question 2 of 2</div>
+              <h3>Which currencies should it use?</h3>
               <p>The rule never converts funds and never combines CHF and EUR balances. A match in a currency you hold nothing of still reaches you — adding money afterwards is your call.</p>
-              <div className="si-wiz-options">
-                {optionCard(filters.ccy === "CHF", "CHF only", "Match opportunities denominated in Swiss francs.", () => update("ccy", "CHF"))}
-                {optionCard(filters.ccy === "EUR", "EUR only", "Match opportunities denominated in euros.", () => update("ccy", "EUR"))}
-                {optionCard(filters.ccy === "all", "CHF and EUR", "Match either supported currency.", () => update("ccy", "all"))}
-              </div>
+              <p className="si-wiz-hint">Tick one or more. Nothing ticked means any currency.</p>
+              <SmartInvestChecks
+                idPrefix="si-wiz-ccy"
+                label="Currency"
+                onToggle={(value) => update("ccy", mkToggle(filters.ccy, value))}
+                options={currencyOptions}
+                selected={filters.ccy}
+              />
             </>
           ) : null}
           {step === 2 ? (
@@ -4429,8 +6036,23 @@ function SmartInvestScreen({
   const originators = Array.from(
     new Map(loans.filter((loan) => loan.originator_id && loan.originator_name).map((loan) => [loan.originator_id as string, loan.originator_name as string])).entries()
   ).map(([id, name]) => ({ id, name })).sort((left, right) => left.name.localeCompare(right.name));
-  const ratings = Array.from(new Set(loans.map((loan) => loan.risk_rating).filter(Boolean))).sort();
-  const purposes = Array.from(new Set(loans.map((loan) => loan.purpose).filter(Boolean))).sort();
+  // A rule also watches future publications, so it offers the whole catalog
+  // (plus any value seen on a loan or already in the rule), not only today's values.
+  const ratings = mkOptionUnion(smartInvestCatalog.ratings, loans.map((loan) => loan.risk_rating), filters.rating);
+  const purposes = mkOptionUnion(smartInvestCatalog.purposes, loans.map((loan) => loan.purpose), filters.purpose);
+  const currencies = mkOptionUnion(smartInvestCatalog.currencies, filters.ccy);
+  const collateralTypes = mkOptionUnion(
+    smartInvestCatalog.collateralTypes,
+    loans.filter((loan) => !mkIsUnsecured(loan)).map((loan) => loan.collateral_type),
+    filters.col.filter((value) => value !== mkAnyCollateral && value !== mkNoCollateral)
+  );
+  const sourceOptions = [
+    { value: mkBanxumSource, label: "BANXUM" },
+    ...originators.map((originator) => ({ value: originator.id, label: originator.name })),
+    ...filters.orig
+      .filter((source) => source !== mkBanxumSource && !originators.some((originator) => originator.id === source))
+      .map((source) => ({ value: source, label: "Selected Loan Originator" }))
+  ];
   const sheetPreview = sheetLoanId
     ? loans.find((loan) => loan.loan_id === sheetLoanId) ?? data?.matches.find((match) => match.loan_id === sheetLoanId) ?? null
     : null;
@@ -4476,14 +6098,12 @@ function SmartInvestScreen({
               revision: rule.revision + 1,
               minimum_yield_bps: null,
               maximum_term_months: null,
-              originator_scope: OriginatorScopeEnum.all,
-              originator_id: null,
-              collateral_scope: CollateralScopeEnum.all,
-              collateral_type: "",
-              currency_scope: CurrencyScopeEnum.all,
-              risk_rating: "",
-              purpose: "",
-              loan_kind: LoanKindEnum.all,
+              originators: [],
+              collateral: [],
+              currencies: [],
+              risk_ratings: [],
+              purposes: [],
+              loan_kinds: [],
               deactivated_at: new Date().toISOString(),
               updated_at: new Date().toISOString()
             } : null,
@@ -4506,6 +6126,10 @@ function SmartInvestScreen({
   if (!data) return <ScreenLoading title="Smart Invest" />;
   const saving = updateMutation.isPending || deactivateMutation.isPending;
   const update = <K extends keyof MkFilters>(key: K, value: MkFilters[K]) => setFilters((current) => ({ ...current, [key]: value }));
+  const toggle = (key: MkListKey, value: string) => setFilters((current) => ({ ...current, [key]: mkToggle(current[key], value) }));
+  const condMark = (selected: string[], unrestricted: string) => (
+    <span className={`si-cond-mark${selected.length > 0 ? " on" : ""}`}>{selected.length > 0 ? `${selected.length} ticked` : unrestricted}</span>
+  );
   const matchAllocByCcy = new Map<string, number>();
   for (const match of data.matches) {
     if (!matchAllocByCcy.has(match.currency)) {
@@ -4522,12 +6146,25 @@ function SmartInvestScreen({
 
   return (
     <main className="content smart-invest-page">
-      <section className="si-hero">
-        <div className={`si-state ${active ? "active" : "inactive"}`}>{active ? "Active" : "Not active"}</div>
-        <h1>It finds them. You approve them.</h1>
-        <div className="si-hero-sub">
-          <div>You decide the conditions.</div>
-          <div>Nothing is ever committed without your explicit approval.</div>
+      <PageHead
+        className="si-hero"
+        description={
+          <>
+            <p>You decide the conditions.</p>
+            <p>Nothing is ever committed without your explicit approval.</p>
+          </>
+        }
+        title="It finds them. You approve them."
+      />
+
+      <section aria-label="Smart Invest status" className={`card si-status${active ? " active" : ""}`}>
+        <div className="si-status-main">
+          <h2 className="si-status-title">
+            Smart Invest <span className={`si-state ${active ? "active" : "inactive"}`}>{active ? "Active" : "Not active"}</span>
+          </h2>
+          {active ? (
+            <p className="si-active-text">The rule is watching for opportunities that meet these conditions. When a qualifying opportunity is published we notify you with the match ready to review — nothing is committed until you do.</p>
+          ) : null}
         </div>
         {!active ? (
           <div className="si-entry">
@@ -4546,27 +6183,28 @@ function SmartInvestScreen({
             </button>
           </div>
         ) : (
-          <div className="si-active-panel">
-            <div className="si-active-main">
-              <div className="si-active-cap"><span className="si-dot" />Active</div>
-              <div className="si-active-text">The rule is watching for opportunities that meet these conditions. When a qualifying opportunity is published we notify you with the match ready to review — nothing is committed until you do.</div>
-            </div>
-            <div className="si-active-actions">
-              <button className="si-pill-outline" onClick={() => setEditorOpen(true)} type="button">Adjust the rule</button>
-              <button className="si-pill-dark" disabled={saving} onClick={() => void deactivate()} type="button">Deactivate the rule</button>
-            </div>
+          <div className="si-active-actions">
+            <button className="si-pill-outline" onClick={() => setEditorOpen(true)} type="button">Adjust the rule</button>
+            <button className="si-pill-dark" disabled={saving} onClick={() => void deactivate()} type="button">Deactivate the rule</button>
           </div>
         )}
       </section>
 
       {active || editorOpen ? (
-        <section className="si-conditions" id="rule-conditions">
-          <button className="si-cond-toggle" onClick={() => setEditorOpen((open) => !open || !active)} type="button">
+        <section className="card si-conditions" id="rule-conditions">
+          <button aria-expanded={editorOpen} className="si-cond-toggle" onClick={() => setEditorOpen((open) => !open || !active)} type="button">
             <h2>See your rule</h2>
             <span className="si-cond-summary">{smartInvestRuleSummary(editorOpen ? filters : smartInvestFiltersFromRule(rule), originators).slice(0, 3).map((row) => row.value).join(" · ")}</span>
-            <span style={{ flex: 1 }} />
+            <span className="si-cond-spacer" />
             <span className={`si-cond-cta${editorOpen ? " on" : ""}`}>{editorOpen ? "Close" : "Open"} <span aria-hidden="true">{editorOpen ? "▴" : "▾"}</span></span>
           </button>
+          {!editorOpen && active ? (
+            <dl className="si-rule-kv">
+              {smartInvestRuleSummary(smartInvestFiltersFromRule(rule), originators).map((row) => (
+                <div key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>
+              ))}
+            </dl>
+          ) : null}
           {editorOpen ? (
             <>
               <p className="si-cond-intro">Change any of them and the count below moves with it, against the {loans.filter(isOpenMarketplaceLoan).length} opportunities actually open right now.</p>
@@ -4585,63 +6223,36 @@ function SmartInvestScreen({
                   <div className="si-cond-ends"><span>6 mo</span><span>120 mo — any</span></div>
                   <div className="si-cond-note">The longer the term, the longer your capital is committed at today&apos;s rate rather than tomorrow&apos;s.</div>
                 </div>
-                <div className="si-cond-card">
-                  <div className="si-cond-head"><span className="si-cond-cap">An asset must be pledged</span><span className={`si-cond-mark${filters.col !== "all" ? " on" : ""}`}>{filters.col === "all" ? "Either" : "Set"}</span></div>
-                  <div className="si-cond-pills">
-                    <button className={filters.col === "secured" ? "on" : ""} onClick={() => update("col", "secured")} type="button">Required</button>
-                    <button className={filters.col === "unsecured" ? "on" : ""} onClick={() => update("col", "unsecured")} type="button">Unsecured only</button>
-                    <button className={filters.col === "all" ? "on" : ""} onClick={() => update("col", "all")} type="button">Either</button>
-                  </div>
-                  <div className="si-cond-note">Collateral can reduce loss severity, but it does not guarantee repayment or complete recovery.</div>
+                <div className="si-cond-card wide">
+                  <div className="si-cond-head"><span className="si-cond-cap">Collateral</span>{condMark(filters.col, "With or without")}</div>
+                  <SmartInvestCollateralChecks idPrefix="si-ed-col" onToggle={(value) => toggle("col", value)} selected={filters.col} types={collateralTypes} />
+                  <div className="si-cond-note">With collateral (any type) includes every collateral type, also ones added later. Collateral can reduce loss severity, but it does not guarantee repayment or complete recovery.</div>
                 </div>
                 <div className="si-cond-card">
-                  <div className="si-cond-head"><span className="si-cond-cap">Which currency</span><span className={`si-cond-mark${filters.ccy !== "all" ? " on" : ""}`}>{filters.ccy === "all" ? "Both" : filters.ccy}</span></div>
-                  <div className="si-cond-pills">
-                    <button className={filters.ccy === "CHF" ? "on" : ""} onClick={() => update("ccy", "CHF")} type="button">CHF only</button>
-                    <button className={filters.ccy === "EUR" ? "on" : ""} onClick={() => update("ccy", "EUR")} type="button">EUR only</button>
-                    <button className={filters.ccy === "all" ? "on" : ""} onClick={() => update("ccy", "all")} type="button">CHF and EUR</button>
-                  </div>
+                  <div className="si-cond-head"><span className="si-cond-cap">Which currency</span>{condMark(filters.ccy, "Any currency")}</div>
+                  <SmartInvestChecks idPrefix="si-ed-ccy" label="Currency" onToggle={(value) => toggle("ccy", value)} options={currencies.map((code) => ({ value: code, label: code }))} selected={filters.ccy} />
                   <div className="si-cond-note">The rule never converts funds and never combines CHF and EUR balances.</div>
                 </div>
                 <div className="si-cond-card">
-                  <div className="si-cond-cap si-cond-cap-gap">Originated by</div>
-                  <div className="fs-chips">
-                    <button className={`fs-chip${filters.orig === "all" ? " on" : ""}`} onClick={() => update("orig", "all")} type="button">Anyone</button>
-                    <button className={`fs-chip${filters.orig === "banxum" ? " on" : ""}`} onClick={() => update("orig", "banxum")} type="button">Banxum</button>
-                    {originators.map((originator) => (
-                      <button className={`fs-chip${filters.orig === originator.id ? " on" : ""}`} key={originator.id} onClick={() => update("orig", originator.id)} type="button">{originator.name}</button>
-                    ))}
-                  </div>
-                  <div className="si-cond-note">Direct loans are written by Banxum. Purchased claims come from a named originator that keeps a slice beside you.</div>
+                  <div className="si-cond-head"><span className="si-cond-cap">Loan type</span>{condMark(filters.kind, "Any loan type")}</div>
+                  <SmartInvestChecks idPrefix="si-ed-kind" label="Loan type" onToggle={(value) => toggle("kind", value)} options={smartInvestCatalog.loanKinds.map((kind) => ({ value: kind, label: mkLoanKindLabel(kind) }))} selected={filters.kind} />
                 </div>
-                <div className="si-cond-card">
-                  <div className="si-cond-cap si-cond-cap-gap">Risk rating</div>
-                  <div className="fs-chips">
-                    <button className={`fs-chip${filters.rating === "all" ? " on" : ""}`} onClick={() => update("rating", "all")} type="button">Any</button>
-                    {ratings.map((rating) => (
-                      <button className={`fs-chip${filters.rating === rating ? " on" : ""}`} key={rating} onClick={() => update("rating", rating)} type="button">{rating}</button>
-                    ))}
-                  </div>
+                <div className="si-cond-card wide">
+                  <div className="si-cond-head"><span className="si-cond-cap">Risk rating</span>{condMark(filters.rating, "Any rating")}</div>
+                  <SmartInvestChecks compact idPrefix="si-ed-rating" label="Risk rating" onToggle={(value) => toggle("rating", value)} options={ratings.map((rating) => ({ value: rating, label: mkRatingLabel(rating) }))} selected={filters.rating} />
                   <div className="si-cond-note">The rating is arithmetic, not advice. The same facts sit on every loan&apos;s own page.</div>
                 </div>
                 <div className="si-cond-card">
-                  <div className="si-cond-cap si-cond-cap-gap">Purpose</div>
-                  <div className="fs-chips">
-                    <button className={`fs-chip${filters.purpose === "all" ? " on" : ""}`} onClick={() => update("purpose", "all")} type="button">Any</button>
-                    {purposes.map((purpose) => (
-                      <button className={`fs-chip${filters.purpose === purpose ? " on" : ""}`} key={purpose} onClick={() => update("purpose", purpose)} type="button">{humanizeToken(purpose)}</button>
-                    ))}
-                  </div>
+                  <div className="si-cond-head"><span className="si-cond-cap">Originated by</span>{condMark(filters.orig, "Any source")}</div>
+                  <SmartInvestChecks idPrefix="si-ed-orig" label="Originated by" onToggle={(value) => toggle("orig", value)} options={sourceOptions} selected={filters.orig} />
+                  <div className="si-cond-note">Direct loans are written by BANXUM. Purchased claims come from a named originator that keeps a slice beside you.</div>
                 </div>
                 <div className="si-cond-card">
-                  <div className="si-cond-head"><span className="si-cond-cap">Loan type</span><span className={`si-cond-mark${filters.kind !== "all" ? " on" : ""}`}>{filters.kind === "all" ? "Either" : "Set"}</span></div>
-                  <div className="si-cond-pills">
-                    <button className={filters.kind === "new" ? "on" : ""} onClick={() => update("kind", "new")} type="button">New lending</button>
-                    <button className={filters.kind === "refi" ? "on" : ""} onClick={() => update("kind", "refi")} type="button">Refinancing</button>
-                    <button className={filters.kind === "all" ? "on" : ""} onClick={() => update("kind", "all")} type="button">Either</button>
-                  </div>
+                  <div className="si-cond-head"><span className="si-cond-cap">Purpose</span>{condMark(filters.purpose, "Any purpose")}</div>
+                  <SmartInvestChecks idPrefix="si-ed-purpose" label="Purpose" onToggle={(value) => toggle("purpose", value)} options={purposes.map((purpose) => ({ value: purpose, label: humanizeToken(purpose) }))} selected={filters.purpose} />
                 </div>
               </div>
+              <p className="si-cond-intro si-cond-hint">Within one condition, tick as many options as you like: a loan qualifies if it matches any of them. Nothing ticked means no restriction.</p>
               <div className="si-tally">
                 <div className="si-tally-cap">What that rule does with today&apos;s {loans.filter(isOpenMarketplaceLoan).length}</div>
                 <div className="si-tally-row">
@@ -4661,26 +6272,28 @@ function SmartInvestScreen({
 
       {active ? (
         <section className="smart-invest-matches">
-          <div className="smart-invest-section-title"><div><div className="eyebrow">Matched by your rule</div><h2>{data.match_count} open {data.match_count === 1 ? "opportunity" : "opportunities"}</h2></div><button onClick={() => goTo(setRoute, "market")} type="button">Open full marketplace</button></div>
-          <SmartInvestMatchTable
-            matches={data.matches}
-            onOpen={(match) => setSheetLoanId(match.loan_id)}
-            onToggle={(loanId, nextUnticked) => setMatchUnticked((current) => ({ ...current, [loanId]: nextUnticked }))}
-            plan={matchPlan}
-          />
-          {matchPlan.ticked.size > 0 || data.matches.length > 0 ? (
-            <div className="aa-foot-row page">
-              <span className="aa-selected">{matchPlan.ticked.size} selected</span>
-              <span className="aa-foot-dots" />
-              <span className="aa-committing">committing</span>
-              <span className="aa-commit-total num">{allocCommitLabel(matchPlan.totals)}</span>
-              <button className="si-dash-setup" disabled={matchPlan.ticked.size === 0} onClick={() => setApproveOpen(true)} type="button">Review &amp; confirm →</button>
-            </div>
-          ) : null}
+          <div className="smart-invest-section-title"><div><div className="eyebrow">Matched by your rule</div><h2>{data.match_count} open {data.match_count === 1 ? "opportunity" : "opportunities"}</h2></div><button className="btn" onClick={() => goTo(setRoute, "market")} type="button">Open full marketplace</button></div>
+          <div className="card si-matches-card">
+            <SmartInvestMatchTable
+              matches={data.matches}
+              onOpen={(match) => setSheetLoanId(match.loan_id)}
+              onToggle={(loanId, nextUnticked) => setMatchUnticked((current) => ({ ...current, [loanId]: nextUnticked }))}
+              plan={matchPlan}
+            />
+            {matchPlan.ticked.size > 0 || data.matches.length > 0 ? (
+              <div className="aa-foot-row page">
+                <span className="aa-selected">{matchPlan.ticked.size} selected</span>
+                <span className="aa-foot-dots" />
+                <span className="aa-committing">committing</span>
+                <span className="aa-commit-total num">{allocCommitLabel(matchPlan.totals)}</span>
+                <button className="si-dash-setup" disabled={matchPlan.ticked.size === 0} onClick={() => setApproveOpen(true)} type="button">Review &amp; confirm →</button>
+              </div>
+            ) : null}
+          </div>
         </section>
       ) : null}
 
-      <section className="smart-invest-limitations">
+      <section className="card smart-invest-limitations">
         <h2>What the rule will not do</h2>
         <div>
           <p><b>01</b><strong>It does not judge a borrower.</strong> A yield above your floor is not a sign of quality. The rule matches disclosed fields only.</p>
@@ -4912,6 +6525,10 @@ function MarketplaceLoanSheet({
       : null;
   const investableMinor = sumLotAvailableMinor(currentInvestableLotsForLoanCurrency(balances?.lots, loan));
   const commitableMinor = Math.min(investableMinor, availableMinor);
+  const funds = { balanceMinor: currencyBalanceMinor(balances?.lots, ccy), eligibleMinor: investableMinor };
+  const fundsBlock = noEligibleFundsReason(ccy, funds);
+  const limitMessage = (value: number) =>
+    investAmountLimitMessage({ amountMinor: value, capacityMinor: availableMinor, currency: ccy, funds, money: (minor) => pfMoneyLabel(ccy, minor) });
   const minInvestMinor = loan.minimum_investment_minor;
   const parsed = amountText === null ? null : parseMoneyInputToMinorUnits(amountText, ccy);
   const amountMinor = amountText === null ? Math.max(Math.min(commitableMinor, availableMinor), 0) : (parsed?.amountMinor ?? 0);
@@ -4953,9 +6570,9 @@ function MarketplaceLoanSheet({
   ];
 
   return (
-    <div className="ls-scrim">
+    <div className="ls-scrim os-scrim">
       <button aria-label="Dismiss" className="ls-overlay-btn" onClick={onClose} tabIndex={-1} type="button" />
-      <div aria-label={loan.title} aria-modal="true" className="ls-modal" role="dialog">
+      <div aria-label={loan.title} aria-modal="true" className="ls-modal os-sheet" role="dialog">
         <div className="ls-scroll" style={{ opacity: stepOpen ? 0.5 : 1 }}>
           <div className="os-head">
             <div className="os-head-main">
@@ -4965,9 +6582,9 @@ function MarketplaceLoanSheet({
             <div className="os-stats">
               <div className="os-stat"><div className="os-stat-val">{formatRateBps(yieldBps)}</div><div className="os-stat-cap">{subscriptionClaim ? "nominal investor rate" : "a year"}</div></div>
               <div className="os-stat"><div className="os-stat-val">{loan.term_months} mo</div><div className="os-stat-cap">{subscriptionClaim ? "remaining schedule" : pfPaysLabel(repaymentType)}</div></div>
-              <div className="os-stat"><div className="os-stat-val" style={hasAsset ? undefined : { color: "#C4312C" }}>{hasAsset ? formatRateBps(ltvBps ?? 0) : "none"}</div><div className="os-stat-cap">{hasAsset ? "of valuation" : "no asset"}</div></div>
+              <div className="os-stat"><div className="os-stat-val" style={hasAsset ? undefined : { color: "#b3261e" }}>{hasAsset ? formatRateBps(ltvBps ?? 0) : "none"}</div><div className="os-stat-cap">{hasAsset ? "of valuation" : "no asset"}</div></div>
               {daysToClose !== null ? (
-                <div className="os-stat"><div className="os-stat-val" style={daysToClose <= 7 ? { color: "#C4312C" } : undefined}>{daysToClose} {daysToClose === 1 ? "day" : "days"}</div><div className="os-stat-cap">to close</div></div>
+                <div className="os-stat"><div className="os-stat-val" style={daysToClose <= 7 ? { color: "#b3261e" } : undefined}>{daysToClose} {daysToClose === 1 ? "day" : "days"}</div><div className="os-stat-cap">to close</div></div>
               ) : null}
             </div>
             <button aria-label="Close" className="ls-x" onClick={onClose} type="button">×</button>
@@ -5039,9 +6656,9 @@ function MarketplaceLoanSheet({
               <div className="os-card">
                 <div className="os-card-head"><span className="os-cap">Subscription window</span><span className="os-over">{loan.funding_deadline ? `closes ${formatDate(loan.funding_deadline)}` : ""}</span></div>
                 <div className="os-window">
-                  <div className="os-window-fill" style={{ width: `${Math.min(100, pct)}%`, background: metMinimum ? "#1E6A4B" : "#151719" }} />
+                  <div className="os-window-fill" style={{ width: `${Math.min(100, pct)}%`, background: metMinimum ? "#1e7a46" : "#0a0a0a" }} />
                   <div className="os-window-min" style={{ left: `${Math.min(100, minPct)}%` }} />
-                  <div className="os-window-knob" style={{ left: `${Math.min(100, pct)}%`, borderColor: metMinimum ? "#1E6A4B" : "#151719" }} />
+                  <div className="os-window-knob" style={{ left: `${Math.min(100, pct)}%`, borderColor: metMinimum ? "#1e7a46" : "#0a0a0a" }} />
                 </div>
                 <div className="os-window-line"><span className="os-window-sub"><strong>{pct}%</strong> subscribed · {pfMoneyLabel(ccy, availableMinor)} available</span><span className="ls-spacer" /><span className="os-window-sub">minimum {minPct}%</span></div>
                 {openLoan ? (
@@ -5061,7 +6678,7 @@ function MarketplaceLoanSheet({
             ) : subscriptionClaim ? (
               <div className="os-card">
                 <div className="os-card-head"><span className="os-cap">Funding round</span><span className="os-over">{loan.funding_deadline ? `closes ${formatDate(loan.funding_deadline)}` : ""}</span></div>
-                <div className="os-window plain"><div className="os-window-fill" style={{ width: `${Math.min(100, pct)}%`, background: "#1E6A4B" }} /></div>
+                <div className="os-window plain"><div className="os-window-fill" style={{ width: `${Math.min(100, pct)}%`, background: "#1e7a46" }} /></div>
                 <div className="os-window-line"><span className="os-window-sub"><strong>{pct}%</strong> reserved · {pfMoneyLabel(ccy, availableMinor)} available at par</span></div>
                 <div className="os-strip met">
                   <span className="os-strip-lead">Reserved, then activated</span>
@@ -5071,7 +6688,7 @@ function MarketplaceLoanSheet({
             ) : (
               <div className="os-card">
                 <div className="os-cap os-cap-gap">Availability</div>
-                <div className="os-window plain"><div className="os-window-fill" style={{ width: `${Math.min(100, pct)}%`, background: "#151719" }} /></div>
+                <div className="os-window plain"><div className="os-window-fill" style={{ width: `${Math.min(100, pct)}%`, background: "#0a0a0a" }} /></div>
                 <div className="os-window-line"><span className="os-window-sub"><strong>{pct}%</strong> taken by other investors · {pfMoneyLabel(ccy, availableMinor)} available</span></div>
               </div>
             )}
@@ -5109,12 +6726,9 @@ function MarketplaceLoanSheet({
                             setCalcError(`The minimum in any one loan is ${pfMoneyLabel(ccy, minInvestMinor)}.`);
                             return;
                           }
-                          if (value > availableMinor) {
-                            setCalcError(`Only ${pfMoneyLabel(ccy, availableMinor)} is available in this opportunity.`);
-                            return;
-                          }
-                          if (value > investableMinor) {
-                            setCalcError(`Only ${pfMoneyLabel(ccy, investableMinor)} is not lent — today's maximum here.`);
+                          const overLimit = limitMessage(value);
+                          if (overLimit) {
+                            setCalcError(overLimit);
                             return;
                           }
                           const projection = investorScheduleProjection(detail, value);
@@ -5186,6 +6800,14 @@ function MarketplaceLoanSheet({
             <div className="os-bar-col">
               <div className="os-wallet-cap">You can commit</div>
               <div className="os-bar-row"><span className="os-bar-val">{pfMoneyLabel(ccy, commitableMinor)}</span><span className="os-bar-sub">{pfMoneyLabel(ccy, investableMinor)} not lent</span></div>
+              {openLoan && fundsBlock ? (
+                <div className="os-bar-reason">
+                  <span>{fundsBlock.title}</span>
+                  <Tooltip content={fundsBlock.detail} label={fundsBlock.detail}>
+                    <span aria-hidden="true" className="os-bar-reason-i">i</span>
+                  </Tooltip>
+                </div>
+              ) : null}
             </div>
             <div className="os-bar-col split">
               <div className="os-wallet-cap green">You would earn</div>
@@ -5198,7 +6820,7 @@ function MarketplaceLoanSheet({
                   <button className="os-meet-btn" onClick={goSchedule} type="button">Loan schedule →</button>
                 </div>
               ) : null}
-              <button className="ls-sell-btn" disabled={!openLoan || !detail || commitableMinor <= 0} onClick={() => setStepOpen(true)} title={!openLoan ? "This opportunity is not open to new investment." : commitableMinor <= 0 ? "No investable balance is available in this currency." : undefined} type="button">Invest now</button>
+              <button className="ls-sell-btn" disabled={!openLoan || !detail || commitableMinor <= 0} onClick={() => setStepOpen(true)} title={!openLoan ? "This opportunity is not open to new investment." : commitableMinor <= 0 && fundsBlock ? `${fundsBlock.title} ${fundsBlock.detail}` : undefined} type="button">Invest now</button>
             </div>
           </div>
         ) : (
@@ -5215,7 +6837,7 @@ function MarketplaceLoanSheet({
                     <button className="os-chip" key={preset.label} onClick={() => setAmountText(formatMoneyMinor(preset.minor, ccy).replace(/[^\d.]/g, ""))} type="button">{preset.label}</button>
                   ))}
                 </div>
-                {overCash ? <div className="os-step-note">Only {pfMoneyLabel(ccy, investableMinor)} is not lent — today's maximum here.</div> : null}
+                {overCash ? <div className="os-step-note">{limitMessage(amountMinor)}</div> : null}
                 {underMin && amountMinor > 0 ? <div className="os-step-note">The minimum in any one loan is {pfMoneyLabel(ccy, minInvestMinor)}.</div> : null}
               </div>
               <div className="os-step-mid">
@@ -5237,6 +6859,124 @@ function MarketplaceLoanSheet({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// What the listing says about when an opportunity closes (or matures), shared by
+// the List rows and the Cards so both layouts read the same.
+function marketplaceClosingInfo(loan: MarketplaceLoanPreview, asOf?: string) {
+  const originatorClaim = isOriginatorClaimLoan(loan);
+  const subscriptionClaim = usesOriginatorSubscription(loan);
+  const label = subscriptionClaim || !originatorClaim ? "Closes in" : "Maturity";
+  const value = subscriptionClaim
+    ? loan.funding_deadline
+      ? fundingDeadlineLabel(loan.funding_deadline, asOf)
+      : "See details"
+    : originatorClaim
+      ? loan.remaining_term_days === null
+        ? "See details"
+        : `${loan.remaining_term_days} days`
+      : loan.funding_deadline
+        ? fundingDeadlineLabel(loan.funding_deadline, asOf)
+        : "-";
+  const note = subscriptionClaim
+    ? loan.funding_deadline
+      ? formatDate(loan.funding_deadline)
+      : "Funding deadline unavailable"
+    : originatorClaim
+      ? loan.maturity_date
+        ? `Matures ${formatDate(loan.maturity_date)}`
+        : "Open while performing"
+      : loan.funding_deadline
+        ? formatDate(loan.funding_deadline)
+        : "No deadline";
+  return { label, value, note };
+}
+
+function marketplaceFundedWord(loan: MarketplaceLoanPreview) {
+  return usesOriginatorSubscription(loan) ? "reserved" : isOriginatorClaimLoan(loan) ? "claim sold" : "funded";
+}
+
+function MarketplaceOpportunityCards({
+  loans,
+  onOpen,
+  asOf
+}: {
+  loans: MarketplaceLoanPreview[];
+  onOpen: (loan: MarketplaceLoanPreview) => void;
+  asOf?: string;
+}) {
+  return (
+    <div className="mk-cards">
+      {loans.map((loan) => {
+        const fundedPercent = fundingPercent(loan);
+        const originatorClaim = isOriginatorClaimLoan(loan);
+        const availableMinor = marketplaceAvailableMinor(loan);
+        const closing = marketplaceClosingInfo(loan, asOf);
+        const principalDecimals = loan.principal_minor % 100 === 0 ? 0 : 2;
+        return (
+          <article className="card mk-card" key={loan.loan_id}>
+            <div className="mk-card-head">
+              <span aria-hidden="true" className="mk-card-tile">
+                <Icon name={originatorClaim ? "doc" : "briefcase"} size={20} />
+              </span>
+              <div className="mk-card-info">
+                <h3 className="mk-card-title">
+                  <button onClick={() => onOpen(loan)} type="button">{loan.title}</button>
+                </h3>
+                <div className="mk-card-sub">
+                  {originatorClaim && loan.originator_name ? `${loan.originator_name} · ${humanizeToken(loan.purpose)}` : humanizeToken(loan.purpose)}
+                </div>
+              </div>
+              <span className="mk-card-copy">
+                <CopyIdButton ariaLabel="Copy loan ID" iconOnly id={loan.loan_id} label="Copy loan ID" />
+              </span>
+            </div>
+            <div className="mk-card-tags">
+              {isOpenMarketplaceLoan(loan) ? <Chip status="open" /> : <Chip status={loan.status} />}
+              {loan.is_refinancing ? <RefinancedTag /> : null}
+              <span className="tag">Risk {loan.risk_rating}</span>
+            </div>
+            <dl className="mk-card-figures">
+              <div><dt>Interest p.a.</dt><dd className="num">{formatRateBps(marketplaceYieldBps(loan))}</dd></div>
+              <div><dt>Term</dt><dd className="num">{loan.term_months} mo</dd></div>
+              <div>
+                <dt>Amount</dt>
+                <dd className="num"><span className="mk-card-ccy">{loan.currency}</span> {formatMoneyMinor(loan.principal_minor, loan.currency, principalDecimals)}</dd>
+              </div>
+            </dl>
+            <div className="mk-card-progress">
+              <div className="mk-card-row">
+                <span><strong className="num">{loan.currency} {formatMoneyMinor(loan.committed_principal_minor, loan.currency)}</strong> {marketplaceFundedWord(loan)}</span>
+                <strong className="num">{fundedPercent}%</strong>
+              </div>
+              <Progress percent={fundedPercent} />
+              <div className="mk-card-row">
+                <span>Available to invest <strong className="num">{loan.currency} {formatMoneyMinor(availableMinor, loan.currency)}</strong></span>
+                <span className="num">Min. {loan.currency} {formatMoneyMinor(loan.minimum_investment_minor, loan.currency)}</span>
+              </div>
+            </div>
+            <div className="mk-card-foot">
+              <span className="mk-card-when">
+                <Icon name="clock" size={15} />
+                <span>
+                  {closing.label === "Closes in" && closing.value === "Today" ? (
+                    <strong>Closes today</strong>
+                  ) : (
+                    <>
+                      <span className="mk-card-when-label">{closing.label}</span>{" "}
+                      <strong>{closing.value}</strong>
+                    </>
+                  )}{" "}
+                  <span className="mk-card-when-note">· {closing.note}</span>
+                </span>
+              </span>
+              <button aria-label={`Invest in ${loan.title}`} className="btn btn-sm btn-primary mk-card-go" onClick={() => onOpen(loan)} type="button">Invest</button>
+            </div>
+          </article>
+        );
+      })}
     </div>
   );
 }
@@ -5274,6 +7014,7 @@ function MarketplaceOpportunityList({
         const originatorClaim = isOriginatorClaimLoan(loan);
         const subscriptionClaim = usesOriginatorSubscription(loan);
         const availableMinor = marketplaceAvailableMinor(loan);
+        const closing = marketplaceClosingInfo(loan, asOf);
         return (
           <article className="marketplace-opportunity" key={loan.loan_id} onClick={() => onOpen(loan)}>
             <button
@@ -5293,8 +7034,8 @@ function MarketplaceOpportunityList({
                 </strong>
                 <span>
                   {originatorClaim && loan.originator_name
-                    ? `${loan.originator_name} · ${loan.purpose}`
-                    : loan.purpose}
+                    ? `${loan.originator_name} · ${humanizeToken(loan.purpose)}`
+                    : humanizeToken(loan.purpose)}
                   {loan.is_refinancing ? <> <RefinancedTag /></> : null}
                 </span>
               </div>
@@ -5327,33 +7068,9 @@ function MarketplaceOpportunityList({
                 <small>{loan.currency} {formatMoneyMinor(loan.committed_principal_minor, loan.currency)} of {formatMoneyMinor(loan.principal_minor, loan.currency)} {subscriptionClaim ? "reserved" : "principal"}</small>
               </div>
               <div className="marketplace-opportunity-deadline">
-                <span className="marketplace-mobile-label">{subscriptionClaim || !originatorClaim ? "Closes in" : "Maturity"}</span>
-                <strong>
-                  {subscriptionClaim
-                    ? loan.funding_deadline
-                      ? fundingDeadlineLabel(loan.funding_deadline, asOf)
-                      : "See details"
-                    : originatorClaim
-                    ? loan.remaining_term_days === null
-                      ? "See details"
-                      : `${loan.remaining_term_days} days`
-                    : loan.funding_deadline
-                      ? fundingDeadlineLabel(loan.funding_deadline, asOf)
-                      : "-"}
-                </strong>
-                <small>
-                  {subscriptionClaim
-                    ? loan.funding_deadline
-                      ? formatDate(loan.funding_deadline)
-                      : "Funding deadline unavailable"
-                    : originatorClaim
-                    ? loan.maturity_date
-                      ? `Matures ${formatDate(loan.maturity_date)}`
-                      : "Open while performing"
-                    : loan.funding_deadline
-                      ? formatDate(loan.funding_deadline)
-                      : "No deadline"}
-                </small>
+                <span className="marketplace-mobile-label">{closing.label}</span>
+                <strong>{closing.value}</strong>
+                <small>{closing.note}</small>
                 <Icon className="marketplace-row-arrow" name="chevR" size={16} />
               </div>
             </div>
@@ -5396,18 +7113,29 @@ function loanClosesRow(loan: MarketplaceLoanDetail): [string, string] {
   return ["Maturity", loan.maturity_date ? formatDate(loan.maturity_date) : "Not available"];
 }
 
-/** The key facts shared by both loan pages: name, counterparty, rate, LTV, amount and the like. */
+/** Whether the current viewer can start an order on this loan from the loan pages. */
+function loanInvestBlocked(demoState: DemoAccountState) {
+  return demoState !== "active" || isReadonlyImpersonationActive();
+}
+
+function loanDaysLeftLabel(days: number) {
+  return days === 1 ? "1 day left" : `${days} days left`;
+}
+
+/**
+ * The key facts shared by both loan pages (design: project facts card). Three big figures and the
+ * funding progress on top, then the loan facts as a key/value grid.
+ */
 function LoanFactsCard({ loan }: { loan: MarketplaceLoanDetail }) {
   const originatorClaim = isOriginatorClaimLoan(loan);
   const subscriptionClaim = usesOriginatorSubscription(loan);
   const disclosure = borrowerDisclosureForLoan(loan);
   const availableMinor = marketplaceAvailableMinor(loan);
-  const financialsCurrency = disclosure.financials_currency || loan.currency;
+  const asOf = useBalancesData().data?.as_of;
   const [closesLabel, closesValue] = loanClosesRow(loan);
   const borrowerName = originatorClaim
     ? loan.borrower_display_name || disclosure.legal_name || "Undisclosed final borrower"
     : disclosure.legal_name || loan.title;
-  const documents = disclosure.documents ?? [];
   const rows: Array<[string, ReactNode, boolean?]> = [
     ["Borrower", borrowerName],
     ...(originatorClaim && loan.originator_name ? [["Loan originator", loan.originator_name] as [string, ReactNode]] : []),
@@ -5417,19 +7145,90 @@ function LoanFactsCard({ loan }: { loan: MarketplaceLoanDetail }) {
     [subscriptionClaim ? "Nominal investor interest rate" : "Investor yield", `${formatRateBps(marketplaceYieldBps(loan))} p.a.`, true],
     ...(originatorClaim ? [["Borrower coupon", `${formatRateBps(loan.underlying_interest_rate_bps)} p.a.`, true] as [string, ReactNode, boolean]] : []),
     ["Loan-to-value", loan.ltv_bps !== null ? `${(loan.ltv_bps / 100).toFixed(1)}%` : "Not shown (no collateral value)", true],
-    ["Collateral", loan.collateral_value_minor > 0 ? `${loan.collateral_type} · ${loan.currency} ${formatMoneyMinor(loan.collateral_value_minor, loan.currency)}` : loan.collateral_type],
+    ["Collateral", loan.collateral_value_minor > 0 ? `${humanizeToken(loan.collateral_type)} · ${loan.currency} ${formatMoneyMinor(loan.collateral_value_minor, loan.currency)}` : humanizeToken(loan.collateral_type)],
     ["Collateral / backing", loan.collateral_description],
     ...(subscriptionClaim ? [
       ["Investor interest participation", formatRateBps(loan.investor_interest_participation_bps ?? 0), true] as [string, ReactNode, boolean],
       ["Investor penalty participation", formatRateBps(loan.investor_penalty_participation_bps ?? 0), true] as [string, ReactNode, boolean],
       ["Boundary installment due", loan.entitlement_start_date ? formatDate(loan.entitlement_start_date) : "Not available"] as [string, ReactNode]
     ] : []),
-    ["Purpose", loan.purpose_description || loan.purpose],
+    ["Purpose", loan.purpose_description || humanizeToken(loan.purpose)],
     ["Risk rating", <Rating key="rating" value={loan.risk_rating} />],
     ["Repayment type", formatEnumLabel(loan.repayment_type)],
     ["Minimum investment", `${loan.currency} ${formatMoneyMinor(loan.minimum_investment_minor, loan.currency)}`, true],
     ["Available now", `${loan.currency} ${formatMoneyMinor(availableMinor, loan.currency)}`, true],
-    [closesLabel, closesValue],
+    [closesLabel, closesValue]
+  ];
+  const percent = fundingPercent(loan);
+  const daysLeft = closesLabel === "Closes" && loan.funding_deadline && isOpenMarketplaceLoan(loan)
+    ? fundingDaysRemaining(loan.funding_deadline, asOf)
+    : null;
+  const [termValue, termUnit] = loan.remaining_term_days === null
+    ? [loan.term_months, "mo"]
+    : [loan.remaining_term_days, "days"];
+
+  return (
+    <Card className="lp-facts-card">
+      <div className="lp-figures">
+        <div className="lp-figs">
+          <div className="lp-fig">
+            <div className="lp-fig-num">{formatRateBps(marketplaceYieldBps(loan))}</div>
+            <div className="lp-fig-label">Yield</div>
+            <div className="lp-fig-sub">{subscriptionClaim ? "nominal rate after boundary" : originatorClaim ? "effective annual · ACT/365" : "nominal annual rate"}</div>
+          </div>
+          <div className="lp-fig">
+            <div className="lp-fig-num">{termValue} <small>{termUnit}</small></div>
+            <div className="lp-fig-label">Term</div>
+            <div className="lp-fig-sub">{formatEnumLabel(loan.repayment_type)}</div>
+          </div>
+          <div className="lp-fig">
+            <div className="lp-fig-num">{formatMoneyMinor(loan.principal_minor, loan.currency)} <small>{loan.currency}</small></div>
+            <div className="lp-fig-label">{originatorClaim ? "Current principal" : "Amount"}</div>
+          </div>
+        </div>
+        <div className="lp-funding">
+          <div className="lp-funding-row">
+            <span><strong>{loan.currency} {formatMoneyMinor(loan.committed_principal_minor, loan.currency)}</strong> {subscriptionClaim ? "reserved" : originatorClaim ? "claim principal sold" : "allocated"}</span>
+            <span className="lp-funding-pct">{subscriptionClaim ? "Reserved" : originatorClaim ? "Claim sold" : "Funded"} <strong>{percent}%</strong></span>
+          </div>
+          <Progress percent={percent} />
+          <div className="lp-funding-row">
+            <span>{closesLabel === "Closes" ? `Closes ${closesValue}` : `Matures ${closesValue}`}</span>
+            {daysLeft !== null ? <span>{loanDaysLeftLabel(daysLeft)}</span> : null}
+          </div>
+        </div>
+      </div>
+      <div className="lp-facts-wrap">
+        <div className="eyebrow lp-facts-title">Key facts</div>
+        <dl className="kv lp-facts">
+          {rows.map(([label, value, mono]) =>
+            value !== undefined && value !== "" ? <KeyValueRow key={label} label={label} mono={mono} value={value} /> : null
+          )}
+        </dl>
+      </div>
+      {loan.investor_summary ? <p className="lp-summary">{loan.investor_summary}</p> : null}
+    </Card>
+  );
+}
+
+/** Card of the loan pages' main column: a head with a title (and optional tags) above the content. */
+function LoanCard({ title, tags, className = "", children }: { title: string; tags?: ReactNode; className?: string; children: ReactNode }) {
+  return (
+    <Card className={`lp-card ${className}`}>
+      <div className="lp-card-head">
+        <h2>{title}</h2>
+        {tags ? <div className="lp-card-tags">{tags}</div> : null}
+      </div>
+      {children}
+    </Card>
+  );
+}
+
+/** Admin-entered borrower disclosure (design: "Borrower" card). Absent optional fields stay hidden. */
+function LoanBorrowerCard({ loan }: { loan: MarketplaceLoanDetail }) {
+  const disclosure = borrowerDisclosureForLoan(loan);
+  const financialsCurrency = disclosure.financials_currency || loan.currency;
+  const rows: Array<[string, ReactNode, boolean?]> = [
     ...(disclosure.country ? [["Country", disclosure.country] as [string, ReactNode]] : []),
     ...(disclosure.year_founded ? [["Year founded", String(disclosure.year_founded)] as [string, ReactNode]] : []),
     ...(disclosure.business_classification ? [["Business", disclosure.business_classification] as [string, ReactNode]] : []),
@@ -5438,44 +7237,47 @@ function LoanFactsCard({ loan }: { loan: MarketplaceLoanDetail }) {
     ...(disclosure.assets_minor !== undefined ? [["Assets", disclosureMoney(disclosure.assets_minor, financialsCurrency), true] as [string, ReactNode, boolean]] : []),
     ...(disclosure.liabilities_minor !== undefined ? [["Liabilities", disclosureMoney(disclosure.liabilities_minor, financialsCurrency), true] as [string, ReactNode, boolean]] : []),
     ...(disclosure.revenue_last_year_minor !== undefined ? [["Revenue last year", disclosureMoney(disclosure.revenue_last_year_minor, financialsCurrency), true] as [string, ReactNode, boolean]] : []),
-    ...(disclosure.profit_last_year_minor !== undefined ? [["Profit last year", disclosureMoney(disclosure.profit_last_year_minor, financialsCurrency), true] as [string, ReactNode, boolean]] : []),
-    ...(documents.length > 0
-      ? [["Documents", <div className="col gap-8" key="documents">{documents.map((document, index) => <div key={document.id ?? index}>
-          <strong>{document.display_name || "Borrower document"}</strong>
-          {document.description ? <div>{document.description}</div> : null}
-          {document.document_type ? <span className="tag">{humanizeToken(document.document_type)}</span> : null}
-          {document.id ? <CopyIdButton ariaLabel="Copy document ID" id={document.id} /> : null}
-        </div>)}</div>] as [string, ReactNode]]
-      : [])
+    ...(disclosure.profit_last_year_minor !== undefined ? [["Profit last year", disclosureMoney(disclosure.profit_last_year_minor, financialsCurrency), true] as [string, ReactNode, boolean]] : [])
   ];
-
+  const visible = rows.filter(([, value]) => value !== undefined && value !== "");
+  if (visible.length === 0) return null;
   return (
-    <Card padded>
-      <div className="lp-stats">
-        <Stat amountMinor={loan.principal_minor} currency={loan.currency} label={originatorClaim ? "Current principal" : "Amount"} />
-        <Stat label="Yield" raw={formatRateBps(marketplaceYieldBps(loan))} sub={subscriptionClaim ? "nominal rate after boundary" : originatorClaim ? "effective annual · ACT/365" : "nominal annual rate"} />
-        <Stat label="Term" raw={loan.remaining_term_days === null ? `${loan.term_months} mo` : `${loan.remaining_term_days} days`} sub={formatEnumLabel(loan.repayment_type)} />
-        <Stat label={subscriptionClaim ? "Reserved" : originatorClaim ? "Claim sold" : "Funded"} raw={`${fundingPercent(loan)}%`} sub={`${loan.currency} ${formatMoneyMinor(loan.committed_principal_minor, loan.currency)}`} />
+    <LoanCard title="Borrower details">
+      <div className="lp-card-body">
+        <dl className="kv lp-kv">
+          {visible.map(([label, value, mono]) => <KeyValueRow key={label} label={label} mono={mono} value={value} />)}
+        </dl>
       </div>
-      <div style={{ marginTop: 14 }}>
-        <Progress percent={fundingPercent(loan)} />
-        <div className="row spread muted" style={{ fontSize: 12, marginTop: 6 }}>
-          <span>{loan.currency} {formatMoneyMinor(loan.committed_principal_minor, loan.currency)} {subscriptionClaim ? "reserved" : originatorClaim ? "claim principal sold" : "allocated"}</span>
-          <span>{closesLabel === "Closes" ? `Closes ${closesValue}` : `Matures ${closesValue}`}</span>
-        </div>
-      </div>
-      <div className="hr" style={{ margin: "16px 0" }} />
-      <div className="eyebrow" style={{ marginBottom: 6 }}>Key facts</div>
-      <dl className="kv lp-facts">
-        {rows.map(([label, value, mono]) =>
-          value !== undefined && value !== "" ? <KeyValueRow key={label} label={label} mono={mono} value={value} /> : null
-        )}
-      </dl>
-      {loan.investor_summary ? <p className="muted-2 lp-summary">{loan.investor_summary}</p> : null}
-    </Card>
+    </LoanCard>
   );
 }
 
+/** Borrower documents disclosed by the admin (design: "Documents" card). */
+function LoanDocumentsCard({ loan }: { loan: MarketplaceLoanDetail }) {
+  const documents = borrowerDisclosureForLoan(loan).documents ?? [];
+  if (documents.length === 0) return null;
+  return (
+    <LoanCard title="Documents">
+      <ul className="lp-docs">
+        {documents.map((document, index) => (
+          <li className="lp-doc" key={document.id ?? index}>
+            <Icon className="lp-doc-icon" name="doc" size={16} />
+            <div className="lp-doc-main">
+              <div className="lp-doc-name">
+                <strong>{document.display_name || "Borrower document"}</strong>
+                {document.document_type ? <span className="tag">{humanizeToken(document.document_type)}</span> : null}
+              </div>
+              {document.description ? <div className="lp-doc-desc">{document.description}</div> : null}
+            </div>
+            {document.id ? <CopyIdButton ariaLabel="Copy document ID" id={document.id} /> : null}
+          </li>
+        ))}
+      </ul>
+    </LoanCard>
+  );
+}
+
+/** Design "Invest in this loan" card: key/value rows, then a grey footer with the note and the action. */
 function LoanInvestAside({
   loan,
   demoState,
@@ -5485,51 +7287,74 @@ function LoanInvestAside({
   demoState: DemoAccountState;
   setInvestLoan: (loan: MarketplaceLoanDetail) => void;
 }) {
-  const blocked = demoState !== "active";
+  const blocked = loanInvestBlocked(demoState);
   const originatorClaim = isOriginatorClaimLoan(loan);
   const subscriptionClaim = usesOriginatorSubscription(loan);
   const openForInvestment = isOpenMarketplaceLoan(loan);
   const availableMinor = marketplaceAvailableMinor(loan);
   const [closesLabel, closesValue] = loanClosesRow(loan);
+  const balances = useBalancesData(!blocked).data;
+  // Say up front when the investor's own funds cannot be used here (none, or too old for this funding window).
+  const fundsBlock = balances
+    ? noEligibleFundsReason(loan.currency, {
+        balanceMinor: currencyBalanceMinor(balances.lots, loan.currency),
+        eligibleMinor: sumLotAvailableMinor(currentInvestableLotsForLoanCurrency(balances.lots, loan))
+      })
+    : null;
   return (
-    <aside className="aside-sticky">
-      <Card padded>
+    <aside className="aside-sticky lp-aside">
+      <Card className="lp-aside-card">
         {!openForInvestment ? (
-          <Empty icon="checkCircle" title="Not open for investment">
-            {originatorClaim
-              ? "This originator claim is sold, on hold, repaid, late, defaulted, or within 30 days of maturity."
-              : "This loan is closed to new orders."}
-          </Empty>
+          <div className="lp-aside-sec">
+            <Empty icon="checkCircle" title="Not open for investment">
+              {originatorClaim
+                ? "This originator claim is sold, on hold, repaid, late, defaulted, or within 30 days of maturity."
+                : "This loan is closed to new orders."}
+            </Empty>
+          </div>
         ) : (
           <>
-            <div className="eyebrow" style={{ marginBottom: 8 }}>{subscriptionClaim ? "Subscribe at par" : originatorClaim ? "Buy this loan claim" : "Invest in this loan"}</div>
-            {originatorClaim && loan.originator_name ? <KeyValue label="Loan originator" value={loan.originator_name} /> : null}
-            {originatorClaim && (loan.skin_in_the_game_bps ?? 0) > 0 ? <KeyValue label="Skin in the game" value={`${formatRateBps(loan.skin_in_the_game_bps ?? 0)} kept by the originator`} /> : null}
-            <KeyValue label="Yield" value={`${formatRateBps(marketplaceYieldBps(loan))} p.a.`} />
-            {originatorClaim ? <KeyValue label="Borrower coupon" value={`${formatRateBps(loan.underlying_interest_rate_bps)} p.a.`} /> : null}
-            <KeyValue label="Minimum investment" value={`${loan.currency} ${formatMoneyMinor(loan.minimum_investment_minor, loan.currency)}`} />
-            <KeyValue label="Available now" value={`${loan.currency} ${formatMoneyMinor(availableMinor, loan.currency)}`} />
-            <KeyValue label={closesLabel} value={closesValue} />
-            {blocked || isReadonlyImpersonationActive() ? (
-              <Banner tone={demoState === "frozen" ? "bad" : "warn"} title={demoState === "frozen" ? "Financial actions frozen" : "Investing not yet available"}>
-                {isReadonlyImpersonationActive()
-                  ? "Read-only impersonation cannot place orders."
-                  : demoState === "frozen"
-                    ? "Provide a usable payout IBAN to unlock investing."
-                    : "Complete KYC verification to unlock investing."}
-              </Banner>
-            ) : (
-              <Button block icon="trend" variant="primary" onClick={() => setInvestLoan(loan)}>
-                {usesImmediateClaimAssignment(loan) ? "Review claim purchase" : "Invest now"}
-              </Button>
-            )}
-            <p className="muted" style={{ fontSize: 11, lineHeight: 1.5, marginTop: 10 }}>
-              {subscriptionClaim
-                ? "The order reserves balance at par and becomes a holding automatically at funding close. No interest accrues during funding; the boundary installment belongs entirely to the LO."
-                : originatorClaim
-                ? "BANXUM generates an executable quote from the remaining borrower cash flows. A confirmed purchase assigns the legal claim immediately."
-                : "Orders are intents and do not reserve capacity until funds are allocated and validated."}
-            </p>
+            <div className="lp-aside-sec">
+              <h2 className="lp-aside-title">{subscriptionClaim ? "Subscribe at par" : originatorClaim ? "Buy this loan claim" : "Invest in this loan"}</h2>
+              <div className="lp-aside-list">
+                {originatorClaim && loan.originator_name ? <KeyValue label="Loan originator" value={loan.originator_name} /> : null}
+                {originatorClaim && (loan.skin_in_the_game_bps ?? 0) > 0 ? <KeyValue label="Skin in the game" value={`${formatRateBps(loan.skin_in_the_game_bps ?? 0)} kept by the originator`} /> : null}
+                <KeyValue label="Yield" value={`${formatRateBps(marketplaceYieldBps(loan))} p.a.`} />
+                {originatorClaim ? <KeyValue label="Borrower coupon" value={`${formatRateBps(loan.underlying_interest_rate_bps)} p.a.`} /> : null}
+                <KeyValue label="Minimum investment" value={`${loan.currency} ${formatMoneyMinor(loan.minimum_investment_minor, loan.currency)}`} />
+                <KeyValue label="Available now" value={`${loan.currency} ${formatMoneyMinor(availableMinor, loan.currency)}`} />
+                <KeyValue label={closesLabel} value={closesValue} />
+              </div>
+            </div>
+            {blocked ? (
+              <div className="lp-aside-sec">
+                <Banner tone={demoState === "frozen" ? "bad" : "warn"} title={demoState === "frozen" ? "Financial actions frozen" : "Investing not yet available"}>
+                  {isReadonlyImpersonationActive()
+                    ? "Read-only impersonation cannot place orders."
+                    : demoState === "frozen"
+                      ? "Provide a usable payout IBAN to unlock investing."
+                      : "Complete KYC verification to unlock investing."}
+                </Banner>
+              </div>
+            ) : fundsBlock ? (
+              <div className="lp-aside-sec">
+                <Banner tone="warn" title={fundsBlock.title}>{fundsBlock.detail}</Banner>
+              </div>
+            ) : null}
+            <div className="lp-aside-foot">
+              <p className="lp-aside-note">
+                {subscriptionClaim
+                  ? "The order reserves balance at par and becomes a holding automatically at funding close. No interest accrues during funding; the boundary installment belongs entirely to the LO."
+                  : originatorClaim
+                  ? "BANXUM generates an executable quote from the remaining borrower cash flows. A confirmed purchase assigns the legal claim immediately."
+                  : "Orders are intents and do not reserve capacity until funds are allocated and validated."}
+              </p>
+              {blocked ? null : (
+                <Button icon="trend" size="lg" variant="primary" onClick={() => setInvestLoan(loan)}>
+                  {usesImmediateClaimAssignment(loan) ? "Review claim purchase" : "Invest now"}
+                </Button>
+              )}
+            </div>
           </>
         )}
       </Card>
@@ -5537,7 +7362,10 @@ function LoanInvestAside({
   );
 }
 
-/** Shared frame of the two loan pages: header, page switcher, facts, main content and the invest aside. */
+/**
+ * Shared frame of the two loan pages (design: project page): page head with the tile, tags and the
+ * Invest pill, the facts card, the page switch, then the main column next to the invest card.
+ */
 function LoanPageFrame({
   loanId,
   page,
@@ -5565,31 +7393,42 @@ function LoanPageFrame({
   }
   if (!loan) return <ScreenLoading title="Loan detail" />;
   const originatorClaim = isOriginatorClaimLoan(loan);
+  const canInvest = isOpenMarketplaceLoan(loan) && !loanInvestBlocked(demoState);
 
   return (
-    <main className="content">
-      <button className="backlink" onClick={() => goTo(setRoute, "market")} type="button"><Icon name="arrowL" size={14} /> Investment Opportunities</button>
-      <div className="page-head">
-        <div>
-          <div className="row gap-8 wrap" style={{ marginBottom: 5 }}>
+    <main className="content lp-page">
+      <PageHead
+        actions={canInvest ? <Button icon="trend" variant="primary" onClick={() => setInvestLoan(loan)}>Invest</Button> : undefined}
+        back={{ label: "Primary market", onClick: () => goTo(setRoute, "market") }}
+        className="lp-head"
+        description={
+          <span className="lp-meta">
+            <span className="lp-eyebrow">{title(loan)}</span>
             <Chip status={loan.status} />
             <Rating value={loan.risk_rating} />
             <span className="tag">{loan.currency}</span>
             {loan.is_refinancing ? <RefinancedTag full /> : null}
             {originatorClaim ? <span className="tag">Originator claim</span> : null}
-          </div>
-          <h1>{loan.title}</h1>
-          <div className="ph-sub"><span className="lp-eyebrow">{title(loan)}</span> <CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" /></div>
-        </div>
-        <nav aria-label="Loan pages" className="lp-switch">
-          <button aria-current={page === "story" ? "page" : undefined} className={`lp-switch-btn ${page === "story" ? "on" : ""}`} onClick={() => goTo(setRoute, "loan", { loanId: loan.loan_id })} type="button">{loanCounterpartyLabel(loan)}</button>
-          <button aria-current={page === "schedule" ? "page" : undefined} className={`lp-switch-btn ${page === "schedule" ? "on" : ""}`} onClick={() => goTo(setRoute, "loanSchedule", { loanId: loan.loan_id })} type="button">Loan schedule & payments</button>
-        </nav>
-      </div>
+            <CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" />
+          </span>
+        }
+        title={
+          <span className="lp-title">
+            <span aria-hidden="true" className="lp-tile"><Icon name="building" size={26} strokeWidth={1.5} /></span>
+            <span>{loan.title}</span>
+          </span>
+        }
+      />
+      <LoanFactsCard loan={loan} />
+      <nav aria-label="Loan pages" className="lp-switch">
+        <button aria-current={page === "story" ? "page" : undefined} className={`lp-switch-btn ${page === "story" ? "on" : ""}`} onClick={() => goTo(setRoute, "loan", { loanId: loan.loan_id })} type="button">{loanCounterpartyLabel(loan)}</button>
+        <button aria-current={page === "schedule" ? "page" : undefined} className={`lp-switch-btn ${page === "schedule" ? "on" : ""}`} onClick={() => goTo(setRoute, "loanSchedule", { loanId: loan.loan_id })} type="button">Loan schedule & payments</button>
+      </nav>
       <div className="split loan-detail-layout">
-        <div>
-          <LoanFactsCard loan={loan} />
-          <div style={{ marginTop: 16 }}>{children(loan)}</div>
+        <div className="lp-main">
+          {children(loan)}
+          <LoanBorrowerCard loan={loan} />
+          <LoanDocumentsCard loan={loan} />
         </div>
         <LoanInvestAside demoState={demoState} loan={loan} setInvestLoan={setInvestLoan} />
       </div>
@@ -5616,21 +7455,22 @@ function LoanDetailScreen({
         const subject = loanStorySubjectName(loan);
         const originatorClaim = isOriginatorClaimLoan(loan);
         return (
-          <Card className="lp-story-card" padded>
-            <div className="eyebrow" style={{ marginBottom: 6 }}>{originatorClaim ? "About the loan originator" : "About the borrower"}</div>
-            {storyIsEmpty(story) ? (
-              <Empty icon="doc" title={`No story published yet for ${subject}`}>
-                {originatorClaim
-                  ? "BANXUM has not published a profile of this loan originator yet."
-                  : "BANXUM has not published a profile of this borrower yet."}
-              </Empty>
-            ) : (
-              <StoryView story={story} />
-            )}
-            {!storyIsEmpty(story) ? <p className="muted lp-story-note">
-              Published by BANXUM from {originatorClaim ? "the loan originator's" : "the borrower's"} material. Investment terms and risk disclosures apply; repayments are not guaranteed.
-            </p> : null}
-          </Card>
+          <LoanCard className="lp-story-card" title={originatorClaim ? "About the loan originator" : "About the borrower"}>
+            <div className="lp-card-body">
+              {storyIsEmpty(story) ? (
+                <Empty icon="doc" title={`No story published yet for ${subject}`}>
+                  {originatorClaim
+                    ? "BANXUM has not published a profile of this loan originator yet."
+                    : "BANXUM has not published a profile of this borrower yet."}
+                </Empty>
+              ) : (
+                <StoryView story={story} />
+              )}
+              {!storyIsEmpty(story) ? <p className="lp-story-note">
+                Published by BANXUM from {originatorClaim ? "the loan originator's" : "the borrower's"} material. Investment terms and risk disclosures apply; repayments are not guaranteed.
+              </p> : null}
+            </div>
+          </LoanCard>
         );
       }}
     </LoanPageFrame>
@@ -5650,17 +7490,15 @@ function DirectLoanScheduleSection({ loan }: { loan: MarketplaceLoanDetail }) {
     { principal: 0, interest: 0, total: 0 }
   );
   return (
-    <Card className="section" padded>
-      <div className="row gap-8 wrap" style={{ marginBottom: 6 }}>
-        <div className="eyebrow">Contracted repayment schedule</div>
-        <span className="tag">Version {loan.schedule_version}</span>
+    <LoanCard tags={<span className="tag">Version {loan.schedule_version}</span>} title="Contracted repayment schedule">
+      <div className="lp-card-body">
+        <p className="lp-card-text">
+          The borrower's full schedule on the published principal, {formatEnumLabel(loan.repayment_type).toLowerCase()} at {formatRateBps(loan.interest_rate_bps)} p.a.
+          {loan.first_payment_date ? ` First payment ${formatDate(loan.first_payment_date)}.` : ""} {isOpenMarketplaceLoan(loan) ? "If the campaign closes at its minimum, the loan is made on the smaller principal and this schedule is regenerated." : "Recorded payments are followed by the remaining schedule."} Your share follows your share of the principal.
+        </p>
       </div>
-      <p className="muted" style={{ fontSize: 12, lineHeight: 1.5, maxWidth: 760 }}>
-        The borrower's full schedule on the published principal, {formatEnumLabel(loan.repayment_type).toLowerCase()} at {formatRateBps(loan.interest_rate_bps)} p.a.
-        {loan.first_payment_date ? ` First payment ${formatDate(loan.first_payment_date)}.` : ""} {isOpenMarketplaceLoan(loan) ? "If the campaign closes at its minimum, the loan is made on the smaller principal and this schedule is regenerated." : "Recorded payments are followed by the remaining schedule."} Your share follows your share of the principal.
-      </p>
       {schedule.length > 0 ? (
-        <div className="tbl-wrap" style={{ marginTop: 12 }}>
+        <div className="tbl-wrap lp-table">
           <table className="tbl">
             <thead><tr><th>Installment / payment</th><th>Date</th><th className="num">Principal</th><th className="num">Interest</th><th className="num">Total</th><th className="num">Outstanding after</th><th>Status</th></tr></thead>
             <tbody>
@@ -5691,13 +7529,17 @@ function DirectLoanScheduleSection({ loan }: { loan: MarketplaceLoanDetail }) {
       ) : (
         <Empty icon="doc" title="Schedule not available yet">The contracted schedule appears once the loan is published with its installments.</Empty>
       )}
-      {!hasPayments ? <><div className="eyebrow" style={{ margin: "16px 0 8px" }}>Payment history</div>
-      <Empty icon="checkCircle" title="No borrower payments yet">
-        {isOpenMarketplaceLoan(loan)
-          ? "This loan is still funding. Borrower payments are listed here once the first installment is collected."
-          : "No borrower payments have been recorded for this loan."}
-      </Empty></> : null}
-    </Card>
+      {!hasPayments ? (
+        <div className="lp-card-sub">
+          <div className="eyebrow lp-subhead">Payment history</div>
+          <Empty icon="checkCircle" title="No borrower payments yet">
+            {isOpenMarketplaceLoan(loan)
+              ? "This loan is still funding. Borrower payments are listed here once the first installment is collected."
+              : "No borrower payments have been recorded for this loan."}
+          </Empty>
+        </div>
+      ) : null}
+    </LoanCard>
   );
 }
 
@@ -5783,39 +7625,37 @@ function OriginatorClaimLoanSection({ loan }: { loan: MarketplaceLoanDetail }) {
   );
 
   return (
-    <Card className="section" padded>
-      <div className="row gap-8 wrap" style={{ marginBottom: 6 }}>
-        <div className="eyebrow">Loan-originator evidence</div>
-        <span className="tag">Revision {loan.schedule_revision ?? loan.schedule_version}</span>
+    <LoanCard tags={<span className="tag">Revision {loan.schedule_revision ?? loan.schedule_version}</span>} title="Loan-originator evidence">
+      <div className="lp-card-body">
+        <p className="lp-card-text">
+          {subscriptionClaim
+            ? "The Loan Originator retains the unsold principal. Your order reserves cash at par during funding and activates automatically at funding close. The first post-funding installment belongs entirely to the LO. You participate in subsequent payments under the declared interest and penalty percentages."
+            : "The Loan Originator owns the unsold claim. A legacy purchase assigns part of the final-borrower claim immediately. The yield shown by BANXUM is the effective annual ACT/365 yield priced from the remaining cash flows; it is distinct from the borrower coupon."}
+        </p>
+        <dl className="kv lp-kv">
+          <KeyValueRow label={subscriptionClaim ? "Nominal investor interest rate" : "Target investor yield"} mono value={`${formatRateBps(loan.yield_bps)} p.a.`} />
+          <KeyValueRow label="Underlying borrower coupon" mono value={`${formatRateBps(loan.underlying_interest_rate_bps)} p.a.`} />
+          {subscriptionClaim ? <KeyValueRow label="Investor interest participation" mono value={formatRateBps(loan.investor_interest_participation_bps ?? 0)} /> : null}
+          {subscriptionClaim ? <KeyValueRow label="Investor penalty participation" mono value={formatRateBps(loan.investor_penalty_participation_bps ?? 0)} /> : null}
+          {subscriptionClaim && loan.funding_deadline ? <KeyValueRow label="Funding deadline" value={formatDate(loan.funding_deadline)} /> : null}
+          {subscriptionClaim && loan.entitlement_start_date ? <KeyValueRow label="Boundary installment due" value={formatDate(loan.entitlement_start_date)} /> : null}
+          <KeyValueRow label={subscriptionClaim ? "Post-boundary principal" : "Current outstanding principal"} mono value={`${loan.currency} ${formatMoneyMinor(loan.principal_minor, loan.currency)}`} />
+          <KeyValueRow label={subscriptionClaim ? "Available at par" : "Available claim principal"} mono value={`${loan.currency} ${formatMoneyMinor(loan.remaining_capacity_minor, loan.currency)}`} />
+          {loan.maturity_date ? <KeyValueRow label="Maturity" value={formatDate(loan.maturity_date)} /> : null}
+          {!subscriptionClaim && loan.pricing_as_of_date ? <KeyValueRow label="Pricing data as of" value={formatDate(loan.pricing_as_of_date)} /> : null}
+        </dl>
+        {subscriptionClaim ? (
+          <Banner tone="info" title="No funding-period interest">
+            The boundary installment is excluded from investor entitlement. For subsequent installments, principal
+            follows the imported loan schedule; interest and penalties are distributed using the declared
+            participation percentages. Unsold rights remain with the Loan Originator.
+          </Banner>
+        ) : null}
       </div>
-      <p className="muted" style={{ fontSize: 12, lineHeight: 1.5, maxWidth: 760 }}>
-        {subscriptionClaim
-          ? "The Loan Originator retains the unsold principal. Your order reserves cash at par during funding and activates automatically at funding close. The first post-funding installment belongs entirely to the LO. You participate in subsequent payments under the declared interest and penalty percentages."
-          : "The Loan Originator owns the unsold claim. A legacy purchase assigns part of the final-borrower claim immediately. The yield shown by BANXUM is the effective annual ACT/365 yield priced from the remaining cash flows; it is distinct from the borrower coupon."}
-      </p>
-      <dl className="kv" style={{ marginTop: 10 }}>
-        <KeyValueRow label={subscriptionClaim ? "Nominal investor interest rate" : "Target investor yield"} mono value={`${formatRateBps(loan.yield_bps)} p.a.`} />
-        <KeyValueRow label="Underlying borrower coupon" mono value={`${formatRateBps(loan.underlying_interest_rate_bps)} p.a.`} />
-        {subscriptionClaim ? <KeyValueRow label="Investor interest participation" mono value={formatRateBps(loan.investor_interest_participation_bps ?? 0)} /> : null}
-        {subscriptionClaim ? <KeyValueRow label="Investor penalty participation" mono value={formatRateBps(loan.investor_penalty_participation_bps ?? 0)} /> : null}
-        {subscriptionClaim && loan.funding_deadline ? <KeyValueRow label="Funding deadline" value={formatDate(loan.funding_deadline)} /> : null}
-        {subscriptionClaim && loan.entitlement_start_date ? <KeyValueRow label="Boundary installment due" value={formatDate(loan.entitlement_start_date)} /> : null}
-        <KeyValueRow label={subscriptionClaim ? "Post-boundary principal" : "Current outstanding principal"} mono value={`${loan.currency} ${formatMoneyMinor(loan.principal_minor, loan.currency)}`} />
-        <KeyValueRow label={subscriptionClaim ? "Available at par" : "Available claim principal"} mono value={`${loan.currency} ${formatMoneyMinor(loan.remaining_capacity_minor, loan.currency)}`} />
-        {loan.maturity_date ? <KeyValueRow label="Maturity" value={formatDate(loan.maturity_date)} /> : null}
-        {!subscriptionClaim && loan.pricing_as_of_date ? <KeyValueRow label="Pricing data as of" value={formatDate(loan.pricing_as_of_date)} /> : null}
-      </dl>
-      {subscriptionClaim ? (
-        <Banner tone="info" title="No funding-period interest">
-          The boundary installment is excluded from investor entitlement. For subsequent installments, principal
-          follows the imported loan schedule; interest and penalties are distributed using the declared
-          participation percentages. Unsold rights remain with the Loan Originator.
-        </Banner>
-      ) : null}
       {schedule.length > 0 ? (
-        <>
-          <div className="eyebrow" style={{ margin: "16px 0 8px" }}>Current full loan schedule</div>
-          <div className="tbl-wrap">
+        <div className="lp-card-sub">
+          <div className="eyebrow lp-subhead">Current full loan schedule</div>
+          <div className="tbl-wrap lp-table">
             <table className="tbl">
               <thead><tr><th className="num">#</th><th>Accrual starts</th><th>Due</th><th className="num">Opening principal</th><th className="num">Principal</th><th className="num">Interest</th><th className="num">Penalty</th><th className="num">Total</th><th className="num">Outstanding after</th></tr></thead>
               <tbody>
@@ -5836,12 +7676,12 @@ function OriginatorClaimLoanSection({ loan }: { loan: MarketplaceLoanDetail }) {
               <tfoot className="schedule-totals"><tr><th colSpan={4}>Totals</th><th className="num">{formatMoneyMinor(scheduleTotals.principal, loan.currency)}</th><th className="num">{formatMoneyMinor(scheduleTotals.interest, loan.currency)}</th><th className="num">{formatMoneyMinor(scheduleTotals.penalty, loan.currency)}</th><th className="num">{formatMoneyMinor(scheduleTotals.amount, loan.currency)}</th><th className="num">-</th></tr></tfoot>
             </table>
           </div>
-        </>
+        </div>
       ) : null}
       {payments.length > 0 ? (
-        <>
-          <div className="eyebrow" style={{ margin: "16px 0 8px" }}>Historical borrower payments</div>
-          <div className="tbl-wrap">
+        <div className="lp-card-sub">
+          <div className="eyebrow lp-subhead">Historical borrower payments</div>
+          <div className="tbl-wrap lp-table">
             <table className="tbl">
               <thead><tr><th>Value date</th><th>Type</th><th>Reference</th><th className="num">Principal</th><th className="num">Interest</th><th className="num">Penalty</th><th className="num">Total</th><th className="num">Principal after</th></tr></thead>
               <tbody>
@@ -5854,9 +7694,9 @@ function OriginatorClaimLoanSection({ loan }: { loan: MarketplaceLoanDetail }) {
               <tfoot className="schedule-totals"><tr><th colSpan={3}>Totals</th><th className="num">{formatMoneyMinor(paymentTotals.principal, loan.currency)}</th><th className="num">{formatMoneyMinor(paymentTotals.interest, loan.currency)}</th><th className="num">{formatMoneyMinor(paymentTotals.penalty, loan.currency)}</th><th className="num">{formatMoneyMinor(paymentTotals.amount, loan.currency)}</th><th className="num">-</th></tr></tfoot>
             </table>
           </div>
-        </>
+        </div>
       ) : null}
-    </Card>
+    </LoanCard>
   );
 }
 
@@ -5873,28 +7713,26 @@ function OriginalLoanSection({ loan }: { loan: MarketplaceLoanDetail }) {
     { principal: 0, interest: 0, total: 0, paid: 0 }
   );
   return (
-    <Card className="section" padded>
-      <div className="row gap-8 wrap" style={{ marginBottom: 6 }}>
-        <div className="eyebrow">Original loan</div>
-        <RefinancedTag full />
+    <LoanCard tags={<RefinancedTag full />} title="Original loan">
+      <div className="lp-card-body">
+        <p className="lp-card-text">
+          This loan refinances an existing loan of the borrower. The original loan data and repayment
+          schedule below are informational only and show the loan being refinanced; investors fund the
+          new loan whose terms are shown above.
+        </p>
+        <dl className="kv lp-kv">
+          <KeyValueRow label="Original principal" mono value={`${loan.currency} ${formatMoneyMinor(loan.original_principal_minor, loan.currency)}`} />
+          {loan.original_interest_rate_bps !== null ? <KeyValueRow label="Original interest rate" mono value={`${formatRateBps(loan.original_interest_rate_bps)} p.a.`} /> : null}
+          {loan.original_term_months !== null ? <KeyValueRow label="Original term" value={`${loan.original_term_months} mo`} /> : null}
+          {loan.original_repayment_type ? <KeyValueRow label="Original repayment type" value={formatEnumLabel(loan.original_repayment_type)} /> : null}
+          {loan.original_interest_only_months ? <KeyValueRow label="Original interest-only period" value={`${loan.original_interest_only_months} mo`} /> : null}
+          {loan.original_loan_start_date ? <KeyValueRow label="Original loan start date" value={formatDate(loan.original_loan_start_date)} /> : null}
+        </dl>
       </div>
-      <p className="muted" style={{ fontSize: 12, lineHeight: 1.5, maxWidth: 680 }}>
-        This loan refinances an existing loan of the borrower. The original loan data and repayment
-        schedule below are informational only and show the loan being refinanced; investors fund the
-        new loan whose terms are shown above.
-      </p>
-      <dl className="kv" style={{ marginTop: 10 }}>
-        <KeyValueRow label="Original principal" mono value={`${loan.currency} ${formatMoneyMinor(loan.original_principal_minor, loan.currency)}`} />
-        {loan.original_interest_rate_bps !== null ? <KeyValueRow label="Original interest rate" mono value={`${formatRateBps(loan.original_interest_rate_bps)} p.a.`} /> : null}
-        {loan.original_term_months !== null ? <KeyValueRow label="Original term" value={`${loan.original_term_months} mo`} /> : null}
-        {loan.original_repayment_type ? <KeyValueRow label="Original repayment type" value={formatEnumLabel(loan.original_repayment_type)} /> : null}
-        {loan.original_interest_only_months ? <KeyValueRow label="Original interest-only period" value={`${loan.original_interest_only_months} mo`} /> : null}
-        {loan.original_loan_start_date ? <KeyValueRow label="Original loan start date" value={formatDate(loan.original_loan_start_date)} /> : null}
-      </dl>
       {schedule.length > 0 ? (
-        <>
-          <div className="eyebrow" style={{ margin: "16px 0 8px" }}>Original loan repayment schedule</div>
-          <div className="tbl-wrap">
+        <div className="lp-card-sub">
+          <div className="eyebrow lp-subhead">Original loan repayment schedule</div>
+          <div className="tbl-wrap lp-table">
             <table className="tbl">
               <thead>
                 <tr>
@@ -5932,13 +7770,13 @@ function OriginalLoanSection({ loan }: { loan: MarketplaceLoanDetail }) {
               </tfoot>
             </table>
           </div>
-          <p className="muted" style={{ fontSize: 11.5, lineHeight: 1.5, marginTop: 10 }}>
+          <p className="lp-card-note">
             Installments marked Paid were settled by the borrower before this loan was published. The
             financed amount can be lower than the remaining outstanding of the original schedule.
           </p>
-        </>
+        </div>
       ) : null}
-    </Card>
+    </LoanCard>
   );
 }
 
@@ -5951,6 +7789,17 @@ function LoansTable({ loans, onOpen, preview = false }: { loans: MarketplaceLoan
             ? "There are no published loan previews right now. Check again later or register to receive marketplace updates."
             : "There are no loans in this view right now."}
         </Empty>
+      </div>
+    );
+  }
+
+  if (preview) {
+    // Public preview: design project cards with the same fields and actions as the table.
+    return (
+      <div className="site-projects loans-preview-grid">
+        {loans.map((loan) => (
+          <SiteProjectCard key={loan.loan_id} loan={loan} onOpen={onOpen} />
+        ))}
       </div>
     );
   }
@@ -5982,7 +7831,7 @@ function LoansTable({ loans, onOpen, preview = false }: { loans: MarketplaceLoan
                     title={loan.is_refinancing ? <span className="row gap-6 wrap">{loan.title}<RefinancedTag /></span> : loan.title}
                   />
                 </td>
-                <td>{loan.purpose}</td>
+                <td>{humanizeToken(loan.purpose)}</td>
                 <td className="num"><Money amountMinor={loan.principal_minor} currency={loan.currency} /></td>
                 <td className="num col-strong">{formatRateBps(marketplaceYieldBps(loan))}</td>
                 <td className="num">{loan.term_months} mo</td>
@@ -6004,96 +7853,166 @@ function BalancesScreen({ demoState }: { demoState: DemoAccountState }) {
   const balances = balancesQuery.data;
   const [currency, setCurrency] = useState<"CHF" | "EUR">("CHF");
   const [modal, setModal] = useState<"deposit" | "withdraw" | "iban" | null>(null);
+  // The account cards open the deposit and withdrawal dialogs for their own
+  // currency; the page actions keep using the selected currency.
+  const [modalCurrency, setModalCurrency] = useState<string>("CHF");
+  const pageDescription = "Funds are non-interest-bearing and subject to a 60-day holding limit.";
   if (balancesQuery.isError && !balances) {
     return (
-      <ScreenError title="Balances" onRetry={() => void balancesQuery.refetch()}>
+      <ScreenError title="Account" onRetry={() => void balancesQuery.refetch()}>
         We could not load balance lots and payout instructions. Retry once the API connection is restored.
       </ScreenError>
     );
   }
-  if (!balances) return <ScreenLoading title="Balances" />;
+  if (!balances) return <ScreenLoading title="Account" />;
 
   const summary = balances.summaries.find((item) => item.currency === currency) ?? balances.summaries[0];
   const lots = balances.lots.filter((lot) => lot.currency === currency);
   const frozen = demoState === "frozen";
+  const readonly = isReadonlyImpersonationActive();
   if (!summary) {
     return (
-      <main className="content">
-        <div className="page-head"><div><h1>Balances</h1><div className="ph-sub">Funds are non-interest-bearing and subject to a 60-day holding limit.</div></div></div>
+      <main className="content acct-page acct-balances">
+        <PageHead description={pageDescription} title="Account" />
         <Card><Empty icon="balance" title="No balances yet">Deposits, repayments, recoveries, FX proceeds, and sale proceeds will appear here after reconciliation.</Empty></Card>
       </main>
     );
   }
+  const openModal = (kind: "deposit" | "withdraw" | "iban", forCurrency: string = currency) => {
+    setModalCurrency(forCurrency);
+    setModal(kind);
+  };
+  const modalSummary = balances.summaries.find((item) => item.currency === modalCurrency) ?? summary;
 
   return (
-    <main className="content">
-      <div className="page-head">
-        <div>
-          <h1>Balances</h1>
-          <div className="ph-sub">Funds are non-interest-bearing and subject to a 60-day holding limit.</div>
-        </div>
-        <Segmented options={[{ value: "CHF", label: "CHF" }, { value: "EUR", label: "EUR" }]} value={currency} onChange={setCurrency} />
-      </div>
-      {frozen ? <div style={{ marginBottom: 18 }}><FrozenBanner setRoute={() => setModal("iban")} /></div> : null}
-      {isReadonlyImpersonationActive() ? (
-        <div style={{ marginBottom: 18 }}>
-          <Banner icon="lock" tone="info" title="Read-only view">
-            Deposits, withdrawals and payout-IBAN changes are disabled during superadmin read-only impersonation.
-          </Banner>
+    <main className="content acct-page acct-balances">
+      <PageHead
+        actions={
+          <>
+            <Segmented options={[{ value: "CHF", label: "CHF" }, { value: "EUR", label: "EUR" }]} value={currency} onChange={setCurrency} />
+            <Button className="btn-green" disabled={frozen || readonly} icon="plus" variant="primary" onClick={() => openModal("deposit")}>Add Funds</Button>
+            <Button disabled={readonly} icon="download" onClick={() => openModal("withdraw")}>Withdraw</Button>
+            <Button disabled={readonly} icon="balance" variant="ghost" onClick={() => openModal("iban")}>Payout IBANs</Button>
+          </>
+        }
+        description={pageDescription}
+        title="Account"
+      />
+      {frozen || readonly ? (
+        <div className="col gap-12 acct-alerts">
+          {frozen ? <FrozenBanner setRoute={() => openModal("iban")} /> : null}
+          {readonly ? (
+            <Banner icon="lock" tone="info" title="Read-only view">
+              Deposits, withdrawals and payout-IBAN changes are disabled during superadmin read-only impersonation.
+            </Banner>
+          ) : null}
         </div>
       ) : null}
-      <div className="grid grid-4" style={{ marginBottom: 16 }}>
-        <BucketTile label="Potentially investable" value={summary.investable_minor} currency={currency} tone="ok" sub="Depends on the loan funding window" />
-        <BucketTile label="Withdraw-only" value={summary.withdraw_only_minor} currency={currency} tone="warn" sub="Investment window closed" />
-        <BucketTile label="Overdue" value={summary.overdue_minor} currency={currency} tone="warn" sub="Withdraw before day 60" />
-        <BucketTile label="Penalty/frozen" value={frozen ? summary.overdue_minor : summary.penalty_mode_minor + summary.frozen_minor} currency={currency} tone={frozen ? "bad" : "neutral"} sub={frozen ? "IBAN required" : "None"} />
+
+      <div className="acct-ccy-grid">
+        {balances.summaries.map((item) => {
+          const ccy = item.currency;
+          const nextDeadline = item.next_withdrawal_deadline_at;
+          return (
+            <section className="card acct-ccy" key={ccy}>
+              <h2 className="acct-ccy-title">{ccy} account</h2>
+              <div className="acct-ccy-amount num">{ccy} {formatMoneyMinor(item.total_available_minor, ccy)}</div>
+              <ul className="acct-ccy-list">
+                <BucketTile label="Potentially investable" value={item.investable_minor} currency={ccy} tone="ok" sub="Depends on the loan funding window" />
+                <BucketTile label="Withdraw-only" value={item.withdraw_only_minor} currency={ccy} tone="warn" sub="Investment window closed" />
+                <BucketTile label="Overdue" value={item.overdue_minor} currency={ccy} tone="warn" sub="Withdraw before day 60" />
+                {/* Blocked balance only. Penalties already charged are no longer in the balance; they are listed in the lots view. */}
+                <BucketTile
+                  label="Frozen"
+                  value={frozen ? item.overdue_minor : item.penalty_mode_minor + item.frozen_minor}
+                  currency={ccy}
+                  tone={frozen || item.penalty_mode_minor + item.frozen_minor > 0 ? "bad" : "neutral"}
+                  sub={frozen ? "IBAN required" : item.penalty_mode_minor + item.frozen_minor > 0 ? "Blocked until withdrawn" : "None"}
+                />
+                <li className="acct-ccy-row total">
+                  <span className="acct-ccy-label">On the account</span>
+                  <span className="acct-ccy-value num">{formatMoneyMinor(item.total_available_minor, ccy)}</span>
+                </li>
+              </ul>
+              <div className="acct-ccy-cta">
+                <Button block className="btn-green" disabled={frozen || readonly} size="lg" variant="primary" onClick={() => openModal("deposit", ccy)}>Add {ccy}</Button>
+                <Button block className="acct-ccy-withdraw" disabled={readonly} variant="ghost" onClick={() => openModal("withdraw", ccy)}>Withdraw to IBAN</Button>
+                <p className="acct-ccy-note">
+                  {nextDeadline ? <>Earliest holding deadline: <strong>{formatDate(nextDeadline)}</strong></> : "No holding deadline running."}
+                </p>
+              </div>
+            </section>
+          );
+        })}
       </div>
-      <div className="row gap-8 wrap" style={{ marginBottom: 20 }}>
-        <Button className="btn-green" disabled={frozen || isReadonlyImpersonationActive()} icon="plus" variant="primary" onClick={() => setModal("deposit")}>Add Funds</Button>
-        <Button disabled={isReadonlyImpersonationActive()} icon="download" onClick={() => setModal("withdraw")}>Withdraw</Button>
-        <Button disabled={isReadonlyImpersonationActive()} icon="balance" variant="ghost" onClick={() => setModal("iban")}>Payout IBANs</Button>
-      </div>
-      <Card className="banner-neutral" padded>
-        <div className="row gap-12" style={{ alignItems: "flex-start" }}>
-          <Icon name="info" size={18} />
-          <p className="muted-2" style={{ fontSize: 12.5, lineHeight: 1.6 }}>
-            Every incoming amount has a 60-day holding limit. To invest, that amount must have
-            enough time left to cover the loan's remaining funding period. Shorter periods can use
-            older funds. Eligible lots are consumed oldest-first. FX conversion does not reset this limit.
-          </p>
+
+      <section className="card acct-lots-card">
+        <div className="card-head">
+          <h2>{currency} balance lots</h2>
+          <span className="acct-card-meta">{lots.length} lots - FIFO consumption</span>
         </div>
-      </Card>
-      <section className="section">
-        <div className="section-head"><h2>{currency} balance lots</h2><span className="muted" style={{ fontSize: 12 }}>{lots.length} lots - FIFO consumption</span></div>
+        {summary.penalty_charged_minor > 0 ? (
+          <div className="acct-penalty-line">
+            <span>Penalty charged</span>
+            <span className="acct-penalty-value num">{currency} {formatMoneyMinor(summary.penalty_charged_minor, currency)}</span>
+            <span className="acct-penalty-note">
+              Balance-ageing penalty for funds held past day 60, taken from the lots below. It is already deducted and not part of any balance shown.
+            </span>
+          </div>
+        ) : null}
         <BalanceLotsTable lots={lots} frozen={frozen} />
       </section>
-      <section className="grid grid-2 section">
-        <Card padded>
-          <div className="eyebrow" style={{ marginBottom: 10 }}>Payout IBANs</div>
-          {balances.payout_instructions.map((instruction) => (
-            <div className="row spread" key={instruction.id} style={{ borderBottom: "1px solid var(--line)", padding: "10px 0" }}>
-              <div><div className="col-strong">{instruction.destination_account_name}</div><div className="mono muted" style={{ fontSize: 12 }}>{instruction.destination_iban}</div></div>
-              <div className="row gap-8"><span className="tag">{instruction.currency}</span><Chip status="verified" /></div>
-            </div>
-          ))}
-          <Button icon="plus" size="sm" style={{ marginTop: 12 }} variant="ghost" onClick={() => setModal("iban")}>Add or update IBAN</Button>
-        </Card>
-        <Card><Empty icon="clock" title="No pending withdrawals">Withdrawal requests in progress will appear here.</Empty></Card>
+
+      <div className="acct-two">
+        <section className="card acct-iban-card">
+          <div className="card-head">
+            <h2>Payout IBANs</h2>
+            <Button disabled={readonly} icon="plus" size="sm" onClick={() => openModal("iban")}>Add or update IBAN</Button>
+          </div>
+          <div className="acct-rows">
+            {balances.payout_instructions.map((instruction) => (
+              <div className="acct-row" key={instruction.id}>
+                <div className="acct-row-text">
+                  <div className="acct-row-title">{instruction.destination_account_name}</div>
+                  <div className="acct-iban num">{instruction.destination_iban}</div>
+                </div>
+                <div className="acct-row-actions"><span className="tag">{instruction.currency}</span><Chip status="verified" /></div>
+              </div>
+            ))}
+          </div>
+        </section>
+        <section className="card acct-pending-card">
+          <div className="card-head"><h2>Pending withdrawals</h2></div>
+          <Empty icon="clock" title="No pending withdrawals">Withdrawal requests in progress will appear here.</Empty>
+        </section>
+      </div>
+
+      <section className="card acct-rules">
+        <div className="card-head"><h2>Rules for your money</h2></div>
+        <ul className="acct-rules-list">
+          <li>Every incoming amount has a 60-day holding limit.</li>
+          <li>To invest, that amount must have enough time left to cover the loan's remaining funding period. Shorter periods can use older funds.</li>
+          <li>Eligible lots are consumed oldest-first.</li>
+          <li>FX conversion does not reset this limit.</li>
+        </ul>
       </section>
-      {modal === "deposit" ? <DepositModal currency={currency} onClose={() => setModal(null)} /> : null}
-      {modal === "withdraw" ? <WithdrawModal currency={currency} maxMinor={summary.total_available_minor - summary.penalty_mode_minor} payoutInstructions={balances.payout_instructions.filter((instruction) => instruction.currency === currency)} onClose={() => setModal(null)} /> : null}
+      {modal === "deposit" ? <DepositModal currency={modalCurrency} onClose={() => setModal(null)} /> : null}
+      {modal === "withdraw" ? <WithdrawModal currency={modalCurrency} maxMinor={modalSummary.total_available_minor - modalSummary.penalty_mode_minor} payoutInstructions={balances.payout_instructions.filter((instruction) => instruction.currency === modalCurrency)} onClose={() => setModal(null)} /> : null}
       {modal === "iban" ? <PayoutIbanModal onClose={() => setModal(null)} /> : null}
     </main>
   );
 }
 
+// One line of a currency account card (design "nk-iv-wg2-list").
 function BucketTile({ label, value, currency, tone, sub }: { label: string; value: number; currency: string; tone: "ok" | "warn" | "bad" | "neutral"; sub: string }) {
   return (
-    <Card padded>
-      <div className="stat-label">{label}</div>
-      <div className="stat-value" style={{ fontSize: 19 }}><span className="ccy">{currency}</span>{formatMoneyMinor(value, currency)}</div>
-      <div className={`stat-sub ${tone === "bad" ? "neg" : ""}`}>{sub}</div>
-    </Card>
+    <li className={`acct-ccy-row tone-${tone}`}>
+      <span className="acct-ccy-label">
+        {label}
+        <span className={`acct-ccy-sub${tone === "bad" ? " neg" : ""}`}>{sub}</span>
+      </span>
+      <span className="acct-ccy-value num">{formatMoneyMinor(value, currency)}</span>
+    </li>
   );
 }
 
@@ -6101,12 +8020,13 @@ function BalanceLotsTable({ lots, frozen }: { lots: BalanceLot[]; frozen: boolea
   if (lots.length === 0) {
     return <div className="portal-table-empty"><Empty icon="balance" title="No balance lots">Incoming deposits, repayments, recoveries, FX proceeds, or sale proceeds will appear here.</Empty></div>;
   }
+  const showPenalty = lots.some((lot) => lot.penalized_amount_minor > 0);
 
   return (
     <div className="portal-data-surface">
       <div className="tbl-wrap">
         <table className="tbl portal-data-table balance-lots-table">
-          <thead><tr><th>Lot</th><th>Source</th><th>Received</th><th className="num">Remaining</th><th>Age/deadline</th><th>Status</th></tr></thead>
+          <thead><tr><th>Lot</th><th>Source</th><th>Received</th><th className="num">Remaining</th>{showPenalty ? <th className="num">Penalty charged</th> : null}<th>Age/deadline</th><th>Status</th></tr></thead>
           <tbody>
             {lots.map((lot) => {
               const penalty = frozen && lot.bucket === "overdue";
@@ -6114,11 +8034,14 @@ function BalanceLotsTable({ lots, frozen }: { lots: BalanceLot[]; frozen: boolea
                 <tr className={penalty ? "lot-penalty" : lot.bucket === "overdue" ? "lot-overdue" : ""} key={lot.id}>
                   <td><CopyIdButton ariaLabel="Copy lot ID" id={lot.id} label="Copy lot ID" /></td>
                   <td><div>{sourceLabel(lot.source_type)}</div>{lot.source_type === "fx_proceeds" ? <div className="sub">Deadline inherited from source lot</div> : null}</td>
-                  <td className="mono muted" style={{ fontSize: 12 }}>{formatDate(lot.received_at)}</td>
-                  <td className="num col-strong">{formatMoneyMinor(lot.available_amount_minor, lot.currency)}</td>
-                  <td style={{ minWidth: 150 }}>
+                  <td className="lot-received">{formatDate(lot.received_at)}</td>
+                  <td className="num lot-remaining">{formatMoneyMinor(lot.available_amount_minor, lot.currency)}</td>
+                  {showPenalty ? (
+                    <td className={`num lot-penalty-charged${lot.penalized_amount_minor > 0 ? " has-penalty" : ""}`}>{lot.penalized_amount_minor > 0 ? formatMoneyMinor(lot.penalized_amount_minor, lot.currency) : "-"}</td>
+                  ) : null}
+                  <td className="lot-deadline">
                     <DeadlineMeter daysUntilWithdrawal={lot.days_until_withdrawal_deadline} />
-                    <div className="row spread muted" style={{ fontSize: 10.5, marginTop: 4 }}>
+                    <div className="lot-deadline-meta">
                       <span>{lot.days_until_withdrawal_deadline > 0 ? `${lot.days_until_withdrawal_deadline}d holding time left` : "Holding deadline reached"}</span>
                       <span>{lot.days_until_withdrawal_deadline}d to withdraw</span>
                     </div>
@@ -6177,7 +8100,7 @@ function DepositModal({
   }
   return (
     <Modal footer={<Button variant="primary" onClick={onClose}>Done</Button>} onClose={onClose} title={`Add Funds · ${selectedCurrency}`}>
-      <div className="col gap-16">
+      <div className="col gap-16 acct-modal deposit-modal">
         {allowCurrencySelection && payload.instructions.length > 1 ? (
           <Field label="Currency">
             <select aria-label="Currency" className="select" onChange={(event) => setCurrency(event.target.value)} value={selectedCurrency}>
@@ -6192,28 +8115,31 @@ function DepositModal({
             ? "Matching depends on amount, currency, sender name/IBAN and the reference below."
             : "This deposit account is not fully configured yet. Do not send funds until Garanta confirms the live bank details."}
         </Banner>
-        <dl className="kv">
-          <KeyValueRow label="Account holder" value={instruction.account_holder_name || "Pending configuration"} />
-          <KeyValueRow label="Bank" value={instruction.bank_name || "Pending configuration"} />
-          <KeyValueRow label="IBAN" mono value={instruction.iban} />
-          {instruction.qr_iban ? <KeyValueRow label="QR IBAN" mono value={instruction.qr_iban} /> : null}
-          <KeyValueRow label="BIC/SWIFT" mono value={instruction.bic} />
+        <dl className="acct-copy-list">
+          <DepositDetailRow copyLabel="Copy account holder" copyValue={instruction.account_holder_name} label="Account holder" value={instruction.account_holder_name || "Pending configuration"} />
+          <DepositDetailRow label="Bank" value={instruction.bank_name || "Pending configuration"} />
+          <DepositDetailRow copyLabel="Copy IBAN" copyValue={instruction.iban} label="IBAN" value={instruction.iban} />
+          {instruction.qr_iban ? <DepositDetailRow copyLabel="Copy QR IBAN" copyValue={instruction.qr_iban} label="QR IBAN" value={instruction.qr_iban} /> : null}
+          <DepositDetailRow copyLabel="Copy BIC/SWIFT" copyValue={instruction.bic} label="BIC/SWIFT" value={instruction.bic} />
         </dl>
         {instruction.qr_bill_payload ? (
           <div className="qr-instruction-panel">
             <QrBillImage payload={instruction.qr_bill_payload} />
             <div>
-              <div className="eyebrow" style={{ marginBottom: 6 }}>Swiss QR-bill code</div>
-              <p className="muted" style={{ fontSize: 11.5, margin: 0 }}>
+              <div className="eyebrow">Swiss QR-bill code</div>
+              <p className="qr-instruction-copy">
                 Scan this code only for {selectedCurrency} transfers. If your bank app does not carry the
                 BANXUM payment reference automatically, enter the reference below unchanged.
               </p>
             </div>
           </div>
         ) : null}
-        <div>
-          <div className="eyebrow" style={{ marginBottom: 6 }}>Payment reference - required</div>
-          <div className="codeblock"><span>{instruction.payment_reference}</span><CopyIdButton ariaLabel="Copy payment reference" id={instruction.payment_reference} label="Copy" /></div>
+        <div className="deposit-reference">
+          <div className="acct-copy is-key">
+            <div className="acct-copy-label">Payment reference - required</div>
+            <div className="acct-copy-value num">{instruction.payment_reference}</div>
+            <div className="acct-copy-action"><CopyIdButton ariaLabel="Copy payment reference" id={instruction.payment_reference} label="Copy" /></div>
+          </div>
           <div className="deposit-reference-guidance">
             <Icon name="info" size={16} />
             <span>
@@ -6222,11 +8148,24 @@ function DepositModal({
               BANXUM account.
             </span>
           </div>
-          <p className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>The bank value date starts the new balance lot's 60-day holding period.</p>
-          <p className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>{payload.reference_rule}</p>
+          <p className="acct-modal-note">The bank value date starts the new balance lot's 60-day holding period.</p>
+          <p className="acct-modal-note">{payload.reference_rule}</p>
         </div>
       </div>
     </Modal>
+  );
+}
+
+// A label/value row with an optional copy button (design "How to add funds").
+function DepositDetailRow({ label, value, copyValue, copyLabel }: { label: string; value: ReactNode; copyValue?: string | null; copyLabel?: string }) {
+  return (
+    <div className="acct-copy">
+      <dt className="acct-copy-label">{label}</dt>
+      <dd className="acct-copy-value num">{value}</dd>
+      {copyValue ? (
+        <dd className="acct-copy-action"><CopyIdButton ariaLabel={copyLabel ?? `Copy ${label}`} iconOnly id={copyValue} label={copyLabel ?? `Copy ${label}`} /></dd>
+      ) : null}
+    </div>
   );
 }
 
@@ -6240,8 +8179,8 @@ function QrBillImage({ payload }: { payload: string }) {
       margin: 1,
       width: 220,
       color: {
-        dark: "#1b211d",
-        light: "#fffefb"
+        dark: "#0a0a0a",
+        light: "#ffffff"
       }
     })
       .then((nextSrc) => {
@@ -6324,10 +8263,10 @@ function WithdrawModal({ currency, maxMinor, payoutInstructions, onClose }: { cu
   return (
     <Modal footer={footer} onClose={onClose} title={`Withdraw ${currency}`}>
       {step === "form" ? (
-        <div className="col gap-16">
-          <div className="row spread"><span className="muted">Withdrawable balance</span><span className="mono col-strong">{currency} {formatMoneyMinor(maxMinor, currency)}</span></div>
+        <div className="col gap-16 acct-modal">
+          <div className="acct-modal-figure"><span className="acct-modal-figure-label">Withdrawable balance</span><span className="acct-modal-figure-value num">{currency} {formatMoneyMinor(maxMinor, currency)}</span></div>
           <Field error={amountError} label="Amount to withdraw">
-            <div className="input-affix"><span className="prefix">{currency}</span><input className="input mono" inputMode="decimal" onChange={(event) => setAmount(event.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" style={{ paddingLeft: 44 }} value={amount} /></div>
+            <div className="input-affix"><span className="prefix">{currency}</span><input className="input mono" inputMode="decimal" onChange={(event) => setAmount(event.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" style={{ paddingLeft: 60 }} value={amount} /></div>
           </Field>
           <Field error={!selectedInstruction?.is_verified_usable ? "Add and verify a payout IBAN before withdrawing." : undefined} label="Payout IBAN">
             <select className="select" onChange={(event) => setSelectedInstructionId(event.target.value)} value={selectedInstructionId}>
@@ -6342,7 +8281,7 @@ function WithdrawModal({ currency, maxMinor, payoutInstructions, onClose }: { cu
           <Banner tone="neutral" title="Operational timing">Withdrawals are processed by Garanta and usually arrive within 1-3 business days.</Banner>
         </div>
       ) : step === "confirm" ? (
-        <div className="col gap-16">
+        <div className="col gap-16 acct-modal">
           <Review rows={[{ label: "Amount", value: `${currency} ${formatMoneyMinor(amountMinor, currency)}` }, { label: "Fee", value: "None" }, { label: "You will receive", value: `${currency} ${formatMoneyMinor(amountMinor, currency)}`, total: true }]} />
           <Banner icon="lock" tone="info" title="Confirm a sensitive action">Enter the 6-digit email confirmation code.</Banner>
           <CodeRequestField
@@ -6354,7 +8293,7 @@ function WithdrawModal({ currency, maxMinor, payoutInstructions, onClose }: { cu
             onChange={setCode}
             onRequest={codeRequest.requestCode}
           />
-          {codeRequest.expiresAt ? <p className="muted" style={{ fontSize: 11.5 }}>Code expires {formatDateTime(codeRequest.expiresAt)}.</p> : null}
+          {codeRequest.expiresAt ? <p className="acct-modal-note">Code expires {formatDateTime(codeRequest.expiresAt)}.</p> : null}
           {codeRequest.error || error ? <Banner tone="bad" title="Could not submit withdrawal">{codeRequest.error || error}</Banner> : null}
         </div>
       ) : (
@@ -6583,23 +8522,25 @@ function FxScreen({ demoState }: { demoState: DemoAccountState }) {
   if (!balances) return <ScreenLoading title="Currency & FX" />;
 
   return (
-    <main className="content fx-page">
-      <div className="page-head">
-        <div>
-          <h1>Currency exchange</h1>
-          <div className="ph-sub">Convert available CHF and EUR balances. The executable rate and fee are shown before confirmation.</div>
+    <main className="content fx-page acct-page">
+      <PageHead
+        description="Convert available CHF and EUR balances. The executable rate and fee are shown before confirmation."
+        title="Currency exchange"
+      />
+      {frozen || readonly || fxClosedForWeekend ? (
+        <div className="col gap-12 acct-alerts">
+          {frozen ? <Banner icon="lock" tone="bad" title="FX is frozen">Provide a usable payout IBAN to unlock currency exchange.</Banner> : null}
+          {readonly ? <Banner icon="lock" tone="info" title="Read-only view">FX quote and execution are disabled during superadmin read-only impersonation.</Banner> : null}
+          {fxClosedForWeekend ? (
+            <Banner icon="clock" tone="warn" title="FX unavailable on weekends">
+              Live FX market rates are not published on weekends, so BANXUM cannot issue executable FX quotes now. Currency exchange resumes after markets reopen.
+            </Banner>
+          ) : null}
         </div>
-      </div>
-      {frozen ? <Banner icon="lock" tone="bad" title="FX is frozen">Provide a usable payout IBAN to unlock currency exchange.</Banner> : null}
-      {readonly ? <Banner icon="lock" tone="info" title="Read-only view">FX quote and execution are disabled during superadmin read-only impersonation.</Banner> : null}
-      {fxClosedForWeekend ? (
-        <Banner icon="clock" tone="warn" title="FX unavailable on weekends">
-          Live FX market rates are not published on weekends, so BANXUM cannot issue executable FX quotes now. Currency exchange resumes after markets reopen.
-        </Banner>
       ) : null}
 
       <div className="fx-desk">
-        <section aria-label="Currency converter" className="fx-card">
+        <section aria-label="Currency converter" className="card fx-card">
           <div className="fx-panel">
             <div className="fx-panel-head">
               <span className="fx-cap">You send</span>
@@ -6686,8 +8627,8 @@ function FxScreen({ demoState }: { demoState: DemoAccountState }) {
         </section>
 
         <aside className="fx-rail">
-          <section className="fx-rail-card">
-            <div className="fx-cap fx-rail-cap">Your balances</div>
+          <section className="card fx-rail-card">
+            <div className="card-head"><h2 className="fx-cap fx-rail-cap">Your balances</h2></div>
             <div className="fx-balance-list">
               {(["CHF", "EUR"] as const).map((currency) => {
                 const balance = balances.summaries.find((summary) => summary.currency === currency)?.total_available_minor ?? 0;
@@ -6702,8 +8643,8 @@ function FxScreen({ demoState }: { demoState: DemoAccountState }) {
             </div>
             <div className="fx-rail-foot">Money must be in a loan's currency before it can be lent. Convert it here first when it is not.</div>
           </section>
-          <section className="fx-rail-card">
-            <div className="fx-cap fx-rail-cap">Rates, net of fees</div>
+          <section className="card fx-rail-card">
+            <div className="card-head"><h2 className="fx-cap fx-rail-cap">Rates, net of fees</h2></div>
             <div className="fx-rate-list">
               {nominalRates.map(({ source, target, nominal }) => (
                 <div className="fx-rate-row" key={source}>
@@ -6724,51 +8665,59 @@ function FxScreen({ demoState }: { demoState: DemoAccountState }) {
         </aside>
       </div>
 
-      {displayedError ? <Banner tone="bad" title={fxAvailabilityTitle(displayedError)}>{displayedError}</Banner> : null}
+      {displayedError ? <div className="fx-error"><Banner tone="bad" title={fxAvailabilityTitle(displayedError)}>{displayedError}</Banner></div> : null}
 
-      <h2 className="sect">Your conversions</h2>
-      <p className="sect-sub">Every rate below is the rate you received, net of fees.</p>
-      {fxQuery.isError && !fx ? (
-        <DataErrorCard title="Could not load conversion history" onRetry={() => void fxQuery.refetch()}>
-          The converter remains available, but historical FX activity could not be loaded.
-        </DataErrorCard>
-      ) : !fx ? (
-        <LoadingCard title="Loading conversion history">Loading executed currency exchanges.</LoadingCard>
-      ) : fx.exchanges.length === 0 ? (
-        <div className="fx-history-empty"><Empty icon="swap" title="No conversions yet">Completed CHF/EUR conversions will appear here.</Empty></div>
-      ) : (
-        <div aria-label="Your conversions" className="rule-top fx-history" role="table">
-          <div className="fx-history-row head" role="row">
-            <span role="columnheader">Date</span>
-            <span role="columnheader">Converted</span>
-            <span role="columnheader">Rate, net of fees</span>
-            <span role="columnheader">Received</span>
+      <section className="card fx-history-card">
+        <div className="card-head">
+          <div>
+            <h2 className="sect">Your conversions</h2>
+            <p className="sect-sub">Every rate below is the rate you received, net of fees.</p>
           </div>
-          {fx.exchanges.map((exchange) => (
-            <div className="fx-history-row" key={exchange.id} role="row">
-              <span className="num fx-h-date" role="cell">{formatDate(exchange.executed_at)}{exchange.archived_at ? <span className="qa-history-note">Before QA reset</span> : null}</span>
-              <span className="num fx-h-converted" role="cell">{fxMoneyLabel(exchange.source_currency, exchange.source_amount_minor)}</span>
-              <span className="num fx-h-rate" role="cell">1 {exchange.source_currency} = {fxRateLabel(exchange.effective_net_rate)} {exchange.target_currency}</span>
-              <strong className="num fx-h-received" role="cell">{fxMoneyLabel(exchange.target_currency, exchange.target_amount_minor)}</strong>
-            </div>
-          ))}
         </div>
-      )}
+        {fxQuery.isError && !fx ? (
+          <DataErrorCard title="Could not load conversion history" onRetry={() => void fxQuery.refetch()}>
+            The converter remains available, but historical FX activity could not be loaded.
+          </DataErrorCard>
+        ) : !fx ? (
+          <LoadingCard title="Loading conversion history">Loading executed currency exchanges.</LoadingCard>
+        ) : fx.exchanges.length === 0 ? (
+          <div className="fx-history-empty"><Empty icon="swap" title="No conversions yet">Completed CHF/EUR conversions will appear here.</Empty></div>
+        ) : (
+          <div aria-label="Your conversions" className="fx-history" role="table">
+            <div className="fx-history-row head" role="row">
+              <span role="columnheader">Date</span>
+              <span role="columnheader">Converted</span>
+              <span role="columnheader">Rate, net of fees</span>
+              <span role="columnheader">Received</span>
+            </div>
+            {fx.exchanges.map((exchange) => (
+              <div className="fx-history-row" key={exchange.id} role="row">
+                <span className="num fx-h-date" role="cell">{formatDate(exchange.executed_at)}{exchange.archived_at ? <span className="qa-history-note">Before QA reset</span> : null}</span>
+                <span className="num fx-h-converted" role="cell">{fxMoneyLabel(exchange.source_currency, exchange.source_amount_minor)}</span>
+                <span className="num fx-h-rate" role="cell">1 {exchange.source_currency} = {fxRateLabel(exchange.effective_net_rate)} {exchange.target_currency}</span>
+                <strong className="num fx-h-received" role="cell">{fxMoneyLabel(exchange.target_currency, exchange.target_amount_minor)}</strong>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
-      <div className="band band-2 fx-band">
-        <div className="cell">
-          <div className="microlabel">Your FX terms</div>
+      <div className="fx-band">
+        <section className="card fx-terms-card">
+          <div className="card-head"><h2 className="microlabel">Your FX terms</h2></div>
           <div className="kv fx-kv">
             <div className="kv-row"><span className="k">Conversion fee, in the rate</span><span className="leader" /><span className="v">{preview ? formatRateBps(preview.platform_fee_bps) : nominalRates[0].nominal ? formatRateBps(nominalRates[0].nominal.platform_fee_bps) : "Shown with each rate"}</span></div>
             <div className="kv-row"><span className="k">Daily limit</span><span className="leader" /><span className="v">CHF 100,000 equivalent</span></div>
             <div className="kv-row"><span className="k">Executable quote lock</span><span className="leader" /><span className="v">60 seconds</span></div>
           </div>
-        </div>
-        <div className="cell">
-          <div className="microlabel red">How to avoid all of this</div>
-          <div className="fx-advice">Hold an account in the currency you invest in at your own bank. Fund it once, never convert again.</div>
-          <div className="fx-advice-sub">We earn less when you do this. It is still the right advice.</div>
-        </div>
+        </section>
+        <section className="card fx-advice-card">
+          <div className="card-head"><h2 className="microlabel">How to avoid all of this</h2></div>
+          <div className="fx-advice-body">
+            <div className="fx-advice">Hold an account in the currency you invest in at your own bank. Fund it once, never convert again.</div>
+            <div className="fx-advice-sub">We earn less when you do this. It is still the right advice.</div>
+          </div>
+        </section>
       </div>
 
       {quoteOpen && preview ? (
@@ -6835,7 +8784,7 @@ function FxConfirmModal({ from, to, sourceMinor, targetMinor, feeMinor, rate, qu
   }
   return (
     <Modal footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!ack || code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || executeMutation.isPending} variant="primary" onClick={executeFx}>{executeMutation.isPending ? "Executing..." : "Confirm exchange"}</Button></>} onClose={onClose} title="Confirm currency exchange">
-      <div className="col gap-16">
+      <div className="col gap-16 acct-modal">
         <Banner icon="clock" tone="info" title="Executable quote locked">This quote is fixed for 60 seconds for confirmation.</Banner>
         <Review rows={[
           { label: "You exchange", value: `${from} ${formatMoneyMinor(sourceMinor, from)}` },
@@ -6852,7 +8801,7 @@ function FxConfirmModal({ from, to, sourceMinor, targetMinor, feeMinor, rate, qu
           onChange={setCode}
           onRequest={codeRequest.requestCode}
         />
-        {quote?.expires_at ? <p className="muted" style={{ fontSize: 11.5 }}>Quote expires {formatDateTime(quote.expires_at)}.</p> : null}
+        {quote?.expires_at ? <p className="acct-modal-note">Quote expires {formatDateTime(quote.expires_at)}.</p> : null}
         <Banner tone="warn" title="Inherited ageing deadline">The target balance inherits the earliest consumed source-lot deadline. It does not start a fresh 60-day holding period.</Banner>
         <Check checked={ack} id="fx-ack" onChange={setAck}>I accept the currency-exchange terms and understand the rate, fee and inherited deadline.</Check>
         {codeRequest.error || error ? <Banner tone="bad" title="Could not execute FX">{codeRequest.error || error}</Banner> : null}
@@ -6870,7 +8819,6 @@ function PortfolioScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) 
   const orders = ordersQuery.data;
   const [tab, setTab] = useState<"holdings" | "activity" | "orders">("holdings");
   const [currency, setCurrency] = useState<string | null>(null);
-  const [detail, setDetail] = useState<Holding | null>(null);
   if ((portfolioQuery.isError && !portfolio) || (activityQuery.isError && !activity) || (ordersQuery.isError && !orders)) {
     return (
       <ScreenError
@@ -6895,14 +8843,24 @@ function PortfolioScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) 
 
   return (
     <main className="content pf-page">
-      <h1 className="sr-only">Portfolio</h1>
-      <div className="pf-hero">
-        <div className="eyebrow">{scoped.length} {scoped.length === 1 ? "loan" : "loans"} · {pfMoneyLabel(scopedCurrency, totalMinor)} lent</div>
-        <h2>Everything you own.</h2>
-        <p className="pf-lede">Largest first, because the largest is the one that matters most if it goes wrong. Click any loan for the split, the collateral and the schedule.</p>
-      </div>
+      <PageHead
+        actions={currencies.length > 1 ? (
+          <div aria-label="Portfolio currency" className="seg">
+            {currencies.map((code) => (
+              <button className={code === scopedCurrency ? "on" : ""} key={code} onClick={() => setCurrency(code)} type="button">{code}</button>
+            ))}
+          </div>
+        ) : undefined}
+        className="pf-head"
+        description="Largest first, because the largest is the one that matters most if it goes wrong. Click any loan for the split, the collateral and the schedule."
+        eyebrow={<>{scoped.length} {scoped.length === 1 ? "loan" : "loans"} · {pfMoneyLabel(scopedCurrency, totalMinor)} lent</>}
+        title="Everything you own."
+      />
+      {scoped.length > 0 ? (
+        <PfPortfolioWidgets currency={scopedCurrency} holdings={scoped} totalMinor={totalMinor} />
+      ) : null}
       <div className="pf-tabs-row">
-        <nav aria-label="Portfolio sections" className="mtabs" role="tablist">
+        <nav aria-label="Portfolio sections" className="tabs pf-tabs" role="tablist">
           <button aria-selected={tab === "holdings"} className={tab === "holdings" ? "on" : ""} onClick={() => setTab("holdings")} role="tab" type="button">My loans</button>
           <button aria-selected={tab === "activity"} className={tab === "activity" ? "on" : ""} onClick={() => setTab("activity")} role="tab" type="button">Activity</button>
           <span className="pf-tab-item">
@@ -6910,15 +8868,8 @@ function PortfolioScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) 
             <PrimaryOrdersInfo orders={openOrders} />
           </span>
         </nav>
-        {currencies.length > 1 ? (
-          <div aria-label="Portfolio currency" className="seg">
-            {currencies.map((code) => (
-              <button className={code === scopedCurrency ? "on" : ""} key={code} onClick={() => setCurrency(code)} type="button">{code}</button>
-            ))}
-          </div>
-        ) : null}
       </div>
-      <div>
+      <div className="pf-tab-panel">
         {tab === "holdings" ? (
           scoped.length === 0 ? (
             openOrders.length > 0 ? (
@@ -6933,16 +8884,25 @@ function PortfolioScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) 
               </PortfolioEmptyState>
             )
           ) : (
-            <PfMyLoans currency={scopedCurrency} holdings={scoped} onOpen={setDetail} totalMinor={totalMinor} />
+            <PfMyLoans
+              currency={scopedCurrency}
+              holdings={scoped}
+              onOpen={(holding) => goTo(setRoute, "investment", { holdingId: holding.id })}
+              totalMinor={totalMinor}
+            />
           )
         ) : null}
         {tab === "activity" ? <ActivityTable entries={activity.entries} /> : null}
         {tab === "orders" ? <OrdersTable onBrowse={() => goTo(setRoute, "market")} orders={orders.orders} /> : null}
       </div>
       {scoped.length > 0 ? (
-        <PfPortfolioWidgets currency={scopedCurrency} holdings={scoped} setRoute={setRoute} totalMinor={totalMinor} />
+        <div className="pf-howlink">
+          <button onClick={() => goTo(setRoute, "faq")} type="button">
+            <span className="pf-howlink-i">i</span>
+            <span className="pf-howlink-text">How BANXUM loans work</span>
+          </button>
+        </div>
       ) : null}
-      {detail ? <HoldingDetail holding={detail} onClose={() => setDetail(null)} setRoute={setRoute} /> : null}
     </main>
   );
 }
@@ -7041,6 +9001,28 @@ function PortfolioEmptyState({ action, children, icon, title }: { action?: React
   );
 }
 
+// Design "project tile": a small black square with a white line icon, picked
+// from the collateral type (or purpose) the loan already carries.
+function pfTileIcon(...hints: string[]): IconName {
+  const text = hints.join(" ").toLowerCase().replaceAll("_", " ");
+  if (/real estate|property|immobil|hospitality|hotel/.test(text)) return "home";
+  if (/receivable|invoice|factoring/.test(text)) return "doc";
+  if (/solar|energy/.test(text)) return "trend";
+  if (/equipment|machinery|tooling|vessel|capex/.test(text)) return "settings";
+  if (/land|agricult/.test(text)) return "pin";
+  if (/inventory|logistic|cargo|warehouse/.test(text)) return "briefcase";
+  if (/unsecured|bridge|software/.test(text)) return "chart";
+  return "building";
+}
+
+function PfTile({ hints }: { hints: string[] }) {
+  return (
+    <span aria-hidden="true" className="inv-tile">
+      <Icon name={pfTileIcon(...hints)} size={18} />
+    </span>
+  );
+}
+
 /* ---- Portfolio redesign (website_redesign/portfolio.html port) ---- */
 
 function pfActiveHoldings(holdings: Holding[]) {
@@ -7104,8 +9086,13 @@ function pfIsLate(holding: Holding) {
   return holding.loan.loan_status === "late" || holding.loan.loan_status === "defaulted";
 }
 
+// Keyed off the pledged collateral value, not the recorded type: a value of 0 means nothing is pledged.
 function pfIsUnsecured(holding: Holding) {
-  return holding.loan.collateral_type === "unsecured_exception";
+  return isUnsecuredHolding(holding);
+}
+
+function pfHoldingCollateralLabel(holding: Holding) {
+  return pfIsUnsecured(holding) ? pfCollateralShortLabels.unsecured_exception : pfCollateralLabel(holding.loan.collateral_type);
 }
 
 function pfShortDate(iso: string) {
@@ -7152,7 +9139,7 @@ function pfPayments(holdings: Holding[]): PfPayment[] {
         late: pfIsLate(holding),
         final: row.installment_number === holding.loan.term_months,
         balanceAfter: Math.max(0, remainingTotal - consumed),
-        collateral: pfCollateralLabel(holding.loan.collateral_type),
+        collateral: pfHoldingCollateralLabel(holding),
         ltvBps: holding.loan.ltv_bps
       });
     }
@@ -7185,12 +9172,7 @@ function pfAxes(holdings: Holding[], currency: string, totalMinor: number): PfAx
 
   const secured = holdings.filter((holding) => !pfIsUnsecured(holding));
   const securedMinor = secured.reduce((sum, holding) => sum + holding.current_principal_minor, 0);
-  const valuedSecured = secured.filter((holding) => holding.loan.ltv_bps !== null);
-  const valuedSecuredMinor = valuedSecured.reduce((sum, holding) => sum + holding.current_principal_minor, 0);
-  const weightedLtvBps = valuedSecuredMinor > 0
-    ? valuedSecured.reduce((sum, holding) => sum + (holding.loan.ltv_bps ?? 0) * holding.current_principal_minor, 0) / valuedSecuredMinor
-    : 0;
-  const coverPct = weightedLtvBps / 100;
+  const coverPct = weightedLtvPercent(holdings) ?? 0;
 
   const byCollateral = new Map<string, number>();
   for (const holding of holdings) {
@@ -7257,25 +9239,17 @@ function pfHexVertex(index: number, cx: number, cy: number, radius: number, scor
 }
 
 function pfRingSegments(holdings: Holding[]) {
-  const byType = new Map<string, number>();
-  let unsecured = 0;
-  for (const holding of holdings) {
-    if (pfIsUnsecured(holding)) {
-      unsecured += holding.current_principal_minor;
-    } else {
-      const key = pfCollateralLabel(holding.loan.collateral_type);
-      byType.set(key, (byType.get(key) ?? 0) + holding.current_principal_minor);
-    }
-  }
-  const sorted = Array.from(byType.entries()).sort((a, b) => b[1] - a[1]);
-  const palette = ["#151719", "#4a5257", "#8b939a"];
+  const breakdown = collateralBreakdown(holdings, (holding) => pfCollateralLabel(holding.loan.collateral_type));
+  const sorted = breakdown.secured;
+  const unsecured = breakdown.unsecuredMinor;
+  const palette = ["#0a0a0a", "#4a4a4a", "#8a8a8a"];
   const segments: { label: string; amount: number; color: string; bad?: boolean }[] = [];
   sorted.slice(0, 3).forEach(([label, amount], index) => {
     segments.push({ label: humanizeToken(label), amount, color: palette[index] });
   });
   const otherMinor = sorted.slice(3).reduce((sum, [, amount]) => sum + amount, 0);
-  if (otherMinor > 0) segments.push({ label: "Other assets", amount: otherMinor, color: "#c6c3ba" });
-  if (unsecured > 0) segments.push({ label: "No asset pledged", amount: unsecured, color: "#c4312c", bad: true });
+  if (otherMinor > 0) segments.push({ label: "Other assets", amount: otherMinor, color: "#c8c8c8" });
+  if (unsecured > 0) segments.push({ label: "No asset pledged", amount: unsecured, color: "#b3261e", bad: true });
   return segments;
 }
 
@@ -7294,8 +9268,8 @@ function PfRing({ segments, total, radius, stroke, size, center }: { segments: {
       </g>
       {center ? (
         <>
-          <text fill="#151719" fontFamily="Instrument Sans, Arial, sans-serif" fontSize={center.title.length > 11 ? "12.5" : "17"} fontWeight="600" letterSpacing="-0.3" textAnchor="middle" x={size / 2} y={size / 2 - 3}>{center.title}</text>
-          <text fill="#626b70" fontFamily="Instrument Sans, Arial, sans-serif" fontSize="9.5" fontWeight="600" letterSpacing=".02em" textAnchor="middle" x={size / 2} y={size / 2 + 12}>{center.sub}</text>
+          <text fill="#0a0a0a" fontFamily="Archivo, Helvetica, Arial, sans-serif" fontSize={center.title.length > 11 ? "12.5" : "17"} fontWeight="600" letterSpacing="-0.3" textAnchor="middle" x={size / 2} y={size / 2 - 3}>{center.title}</text>
+          <text fill="#6e6e6e" fontFamily="Archivo, Helvetica, Arial, sans-serif" fontSize="9.5" fontWeight="600" letterSpacing=".02em" textAnchor="middle" x={size / 2} y={size / 2 + 12}>{center.sub}</text>
         </>
       ) : null}
     </svg>
@@ -7422,7 +9396,7 @@ function pfSortValue(holding: Holding, key: string): number | string {
   if (key === "rate") return holding.loan.interest_rate_bps;
   if (key === "term") return holding.loan.term_months;
   if (key === "pays") return pfPaysOrder(holding.loan.repayment_type);
-  if (key === "col") return pfCollateralLabel(holding.loan.collateral_type);
+  if (key === "col") return pfHoldingCollateralLabel(holding);
   if (key === "next") return pfNextPayment(holding)?.due_date ?? "9999-12-31";
   return holding.current_principal_minor;
 }
@@ -7457,25 +9431,27 @@ function PfMyLoans({ currency, holdings, onOpen, totalMinor }: { currency: strin
   const [totalWhole, totalCents = "00"] = formatMoneyMinor(totalMinor, currency).split(".");
 
   return (
-    <div className="pf-loans">
+    <div className="pf-loans card">
       <div className="pf-sect-row">
-        <div style={{ flex: 1 }}>
+        <div className="pf-sect-title">
           <h2 className="sect">My loans</h2>
           <p className="pf-sect-note">The rule under each amount is that loan's share of everything you have lent. Click any column heading to sort, or open the loan for the split, the collateral and the full schedule.</p>
         </div>
-        {sortKey ? (
-          <button className="fs-clear-link" onClick={() => { setSortKey(null); setDir("asc"); }} type="button">back to largest first</button>
-        ) : null}
-        <SortControl
-          activeKey={sortKey}
-          dir={dir}
-          onPick={pick}
-          options={view === "detailed" ? pfSortOptionsDetailed : pfSortOptionsFocused}
-          small
-        />
-        <div className="seg" role="tablist">
-          <button aria-selected={view === "focused"} className={view === "focused" ? "on" : ""} onClick={() => selectView("focused")} role="tab" type="button">Focused</button>
-          <button aria-selected={view === "detailed"} className={view === "detailed" ? "on" : ""} onClick={() => selectView("detailed")} role="tab" type="button">Detailed</button>
+        <div className="pf-sect-tools">
+          {sortKey ? (
+            <button className="fs-clear-link" onClick={() => { setSortKey(null); setDir("asc"); }} type="button">back to largest first</button>
+          ) : null}
+          <SortControl
+            activeKey={sortKey}
+            dir={dir}
+            onPick={pick}
+            options={view === "detailed" ? pfSortOptionsDetailed : pfSortOptionsFocused}
+            small
+          />
+          <div className="seg" role="tablist">
+            <button aria-selected={view === "focused"} className={view === "focused" ? "on" : ""} onClick={() => selectView("focused")} role="tab" type="button">Focused</button>
+            <button aria-selected={view === "detailed"} className={view === "detailed" ? "on" : ""} onClick={() => selectView("detailed")} role="tab" type="button">Detailed</button>
+          </div>
         </div>
       </div>
 
@@ -7489,6 +9465,7 @@ function PfMyLoans({ currency, holdings, onOpen, totalMinor }: { currency: strin
           <FsTh activeKey={sortKey} className="detail-col pf-col-next" dir={dir} label="Next payment" onPick={pick} sortKey="next" />
           <FsTh activeKey={sortKey} className="pf-col-share" dir={dir} label="Share" onPick={pick} sortKey="share" />
           <FsTh activeKey={sortKey} className="pf-col-amount" dir={dir} label="Amount" onPick={pick} sortKey="amount" />
+          <span aria-hidden="true" className="pf-col-chev" />
         </div>
         <div className="pf-tbody">
           {sorted.map((holding) => {
@@ -7500,15 +9477,24 @@ function PfMyLoans({ currency, holdings, onOpen, totalMinor }: { currency: strin
             return (
               <button className="pf-row" key={holding.id} onClick={() => onOpen(holding)} type="button">
                 <span className="pf-company">
-                  <span className={`pf-company-name${late ? " late" : ""}`}>{holding.loan.borrower_name || holding.loan.loan_title}</span>
-                  {late ? <span className="pf-tag late">late</span> : null}
-                  {listing ? <span className="pf-tag">{listingStatusLabel(listing.status)}</span> : null}
-                  <span className="pf-company-sub">{holding.loan.loan_title}</span>
+                  <PfTile hints={[holding.loan.collateral_type, holding.loan.purpose]} />
+                  <span className="pf-company-text">
+                    <span className="pf-company-line">
+                      <span className={`pf-company-name${late ? " late" : ""}`}>{holding.loan.borrower_name || holding.loan.loan_title}</span>
+                      {late ? (
+                        holding.loan.loan_status === "defaulted"
+                          ? <span className="pf-tag late default">default</span>
+                          : <span className="pf-tag late">late</span>
+                      ) : null}
+                      {listing ? <span className="pf-tag">{listingStatusLabel(listing.status)}</span> : null}
+                    </span>
+                    <span className="pf-company-sub">{holding.loan.loan_title}</span>
+                  </span>
                 </span>
                 <span className="detail-col num pf-col-rate strong">{formatRateBps(holding.loan.interest_rate_bps)}</span>
                 <span className="detail-col num pf-col-term mut">{holding.loan.term_months} mo</span>
                 <span className="detail-col pf-col-pays mut">{pfPaysLabel(holding.loan.repayment_type)}</span>
-                <span className="detail-col pf-col-collateral mut">{pfCollateralLabel(holding.loan.collateral_type)}</span>
+                <span className="detail-col pf-col-collateral mut">{pfHoldingCollateralLabel(holding)}</span>
                 <span className={`detail-col num pf-col-next${late ? " late" : " mut"}`}>
                   {late && holding.loan.days_past_due > 0
                     ? <>{holding.loan.days_past_due} days late{next ? <> · <b>{formatMoneyMinor(next.projected_total_minor, currency)}</b></> : null}</>
@@ -7521,6 +9507,7 @@ function PfMyLoans({ currency, holdings, onOpen, totalMinor }: { currency: strin
                   <span className={`num pf-amount${late ? " late" : ""}`}>{pfWholeLabel(currency, holding.current_principal_minor)}</span>
                   <span className="pf-share-track"><span className={late ? "late" : ""} style={{ marginLeft: `${(100 - widthPct).toFixed(1)}%`, width: `${widthPct.toFixed(1)}%` }} /></span>
                 </span>
+                <span aria-hidden="true" className="pf-col-chev"><Icon name="chevR" size={16} /></span>
               </button>
             );
           })}
@@ -7531,26 +9518,22 @@ function PfMyLoans({ currency, holdings, onOpen, totalMinor }: { currency: strin
           <span className="pf-tfoot-ccy">{currency === "EUR" ? "€" : currency}</span>
           <span className="num pf-tfoot-total">{totalWhole}</span>
           <span className="num pf-tfoot-cents">.{totalCents}</span>
+          <span aria-hidden="true" className="pf-col-chev" />
         </div>
       </div>
     </div>
   );
 }
 
-function PfPortfolioWidgets({ currency, holdings, setRoute, totalMinor }: { currency: string; holdings: Holding[]; setRoute: (route: AppRoute) => void; totalMinor: number }) {
+function PfPortfolioWidgets({ currency, holdings, totalMinor }: { currency: string; holdings: Holding[]; totalMinor: number }) {
   const [openPanel, setOpenPanel] = useState<"cal" | "hex" | "col" | "risk" | null>(null);
   const payments = pfPayments(holdings);
   const axes = pfAxes(holdings, currency, totalMinor);
   const lowestAxis = axes.reduce((low, axis) => (axis.score < low.score ? axis : low), axes[0]);
   const segments = pfRingSegments(holdings);
   const largestSegment = segments[0];
-  const secured = holdings.filter((holding) => !pfIsUnsecured(holding));
-  const valuedSecured = secured.filter((holding) => holding.loan.ltv_bps !== null);
-  const securedLtvs = valuedSecured.map((holding) => (holding.loan.ltv_bps ?? 0) / 100);
-  const valuedSecuredMinor = valuedSecured.reduce((sum, holding) => sum + holding.current_principal_minor, 0);
-  const weightedLtv = valuedSecuredMinor > 0
-    ? valuedSecured.reduce((sum, holding) => sum + ((holding.loan.ltv_bps ?? 0) / 100) * holding.current_principal_minor, 0) / valuedSecuredMinor
-    : null;
+  const securedLtvs = valuedSecuredHoldings(holdings).map((holding) => (holding.loan.ltv_bps ?? 0) / 100);
+  const weightedLtv = weightedLtvPercent(holdings);
   const defaultInterestBps = holdings.map((holding) => holding.loan.default_penalty_interest_bps);
   const configuredDefaultInterestBps = defaultInterestBps.filter((value) => value > 0);
   const defaultInterestLabel = pfDefaultInterestLabel(defaultInterestBps);
@@ -7572,7 +9555,7 @@ function PfPortfolioWidgets({ currency, holdings, setRoute, totalMinor }: { curr
 
           <div className="pf-widget-card second">
             <PfCard
-              foot={<><span className="big" style={{ color: lowestAxis.score < 50 ? "#c4312c" : "#151719" }}>{lowestAxis.score}</span><span className="note">is the lowest of the six · <span style={{ color: "#151719", fontWeight: 600 }}>{lowestAxis.label.toLowerCase()}</span></span></>}
+              foot={<><span className="big" style={{ color: lowestAxis.score < 50 ? "#b3261e" : "#0a0a0a" }}>{lowestAxis.score}</span><span className="note">is the lowest of the six · <span style={{ color: "#0a0a0a", fontWeight: 600 }}>{lowestAxis.label.toLowerCase()}</span></span></>}
               lab="Spread of portfolio"
               onToggle={() => toggle("hex")}
               open={openPanel === "hex"}
@@ -7580,12 +9563,12 @@ function PfPortfolioWidgets({ currency, holdings, setRoute, totalMinor }: { curr
             >
               <span style={{ display: "flex", justifyContent: "center", marginBottom: 10, width: "100%" }}>
                 <svg height="102" shapeRendering="geometricPrecision" style={{ display: "block" }} viewBox="0 0 44 40" width="112">
-                  <polygon fill="none" points="22,2 37.59,11 37.59,29 22,38 6.41,29 6.41,11" stroke="#dde3e1" strokeWidth=".8" />
-                  <polygon fill="rgba(21,23,25,.12)" points={pfHexPoints(axes.map((axis) => axis.score), 22, 20, 18)} stroke="#151719" strokeWidth="1" />
+                  <polygon fill="none" points="22,2 37.59,11 37.59,29 22,38 6.41,29 6.41,11" stroke="#e6e6e6" strokeWidth=".8" />
+                  <polygon fill="rgba(21,23,25,.12)" points={pfHexPoints(axes.map((axis) => axis.score), 22, 20, 18)} stroke="#0a0a0a" strokeWidth="1" />
                   {(() => {
                     const index = axes.indexOf(lowestAxis);
                     const vertex = pfHexVertex(index, 22, 20, 18, lowestAxis.score);
-                    return <circle cx={vertex.x.toFixed(2)} cy={vertex.y.toFixed(2)} fill="#c4312c" r="1.5" />;
+                    return <circle cx={vertex.x.toFixed(2)} cy={vertex.y.toFixed(2)} fill="#b3261e" r="1.5" />;
                   })()}
                 </svg>
               </span>
@@ -7608,9 +9591,9 @@ function PfPortfolioWidgets({ currency, holdings, setRoute, totalMinor }: { curr
                 <span style={{ display: "flex", flex: 1, flexDirection: "column", fontSize: 11.5, gap: 6, minWidth: 0 }}>
                   {segments.map((segment) => (
                     <span key={segment.label} style={{ alignItems: "center", display: "flex", gap: 8 }}>
-                      <span style={{ background: segment.color, borderRadius: 2, flex: "none", height: 9, width: 9 }} />
-                      <span style={{ color: segment.bad ? "#c4312c" : "#292d30", flex: 1 }}>{segment.label}</span>
-                      <span className="num" style={{ color: segment.bad ? "#c4312c" : undefined, fontWeight: 600 }}>{totalMinor > 0 ? `${((segment.amount / totalMinor) * 100).toFixed(1)}%` : "-"}</span>
+                      <span style={{ background: segment.color, flex: "none", height: 9, width: 9 }} />
+                      <span style={{ color: segment.bad ? "#b3261e" : "#2a2a2a", flex: 1 }}>{segment.label}</span>
+                      <span className="num" style={{ color: segment.bad ? "#b3261e" : undefined, fontWeight: 600 }}>{totalMinor > 0 ? `${((segment.amount / totalMinor) * 100).toFixed(1)}%` : "-"}</span>
                     </span>
                   ))}
                 </span>
@@ -7629,19 +9612,19 @@ function PfPortfolioWidgets({ currency, holdings, setRoute, totalMinor }: { curr
             >
               <span style={{ alignItems: "center", display: "flex", gap: 22, marginBottom: 20, width: "100%" }}>
                 <span style={{ alignItems: "flex-end", display: "flex", flex: "none", gap: 9, height: 104, width: 104 }}>
-                  <span style={{ border: "1.5px solid #c2bfb5", borderRadius: 3, display: "flex", flex: 1, flexDirection: "column", height: 104, justifyContent: "flex-end", overflow: "hidden" }}>
-                    <span style={{ background: "#151719", display: "block", height: `${weightedLtv === null ? 0 : weightedLtv.toFixed(1)}%` }} />
+                  <span style={{ border: "1.5px solid #c8c8c8", display: "flex", flex: 1, flexDirection: "column", height: 104, justifyContent: "flex-end", overflow: "hidden" }}>
+                    <span style={{ background: "#0a0a0a", display: "block", height: `${weightedLtv === null ? 0 : weightedLtv.toFixed(1)}%` }} />
                   </span>
-                  <span style={{ color: "#626b70", display: "flex", flex: "none", flexDirection: "column", fontSize: 10, height: 104, justifyContent: "space-between", padding: "1px 0" }}>
+                  <span style={{ color: "#6e6e6e", display: "flex", flex: "none", flexDirection: "column", fontSize: 10, height: 104, justifyContent: "space-between", padding: "1px 0" }}>
                     <span>valuation</span>
-                    <span style={{ color: "#151719", fontWeight: 600 }}>lent</span>
+                    <span style={{ color: "#0a0a0a", fontWeight: 600 }}>lent</span>
                   </span>
                 </span>
                 <span style={{ display: "flex", flex: 1, flexDirection: "column", fontSize: 11.5, gap: 7, minWidth: 0 }}>
-                  <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#292d30", flex: 1 }}>Weighted LTV</span><span className="num" style={{ fontWeight: 600 }}>{weightedLtv === null ? "—" : `${weightedLtv.toFixed(1)}%`}</span></span>
-                  <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#292d30", flex: 1 }}>Range per project</span><span className="num" style={{ fontWeight: 600 }}>{securedLtvs.length > 0 ? `${Math.min(...securedLtvs).toFixed(0)} – ${Math.max(...securedLtvs).toFixed(0)}%` : "—"}</span></span>
-                  <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#292d30", flex: 1 }}>Nothing pledged</span><span className="num" style={{ color: unsecuredHoldings.length > 0 ? "#c4312c" : undefined, fontWeight: 600 }}>{unsecuredHoldings.length} of {holdings.length}</span></span>
-                  <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#292d30", flex: 1 }}>In arrears now</span><span className="num" style={{ color: lateHoldings.length > 0 ? "#c4312c" : undefined, fontWeight: 600 }}>{lateHoldings.length} of {holdings.length}</span></span>
+                  <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#2a2a2a", flex: 1 }}>Weighted LTV</span><span className="num" style={{ fontWeight: 600 }}>{weightedLtv === null ? "—" : `${weightedLtv.toFixed(1)}%`}</span></span>
+                  <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#2a2a2a", flex: 1 }}>Range per project</span><span className="num" style={{ fontWeight: 600 }}>{securedLtvs.length > 0 ? `${Math.min(...securedLtvs).toFixed(0)} – ${Math.max(...securedLtvs).toFixed(0)}%` : "—"}</span></span>
+                  <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#2a2a2a", flex: 1 }}>Nothing pledged</span><span className="num" style={{ color: unsecuredHoldings.length > 0 ? "#b3261e" : undefined, fontWeight: 600 }}>{unsecuredHoldings.length} of {holdings.length}</span></span>
+                  <span style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ color: "#2a2a2a", flex: 1 }}>In arrears now</span><span className="num" style={{ color: lateHoldings.length > 0 ? "#b3261e" : undefined, fontWeight: 600 }}>{lateHoldings.length} of {holdings.length}</span></span>
                 </span>
               </span>
             </PfCard>
@@ -7662,12 +9645,6 @@ function PfPortfolioWidgets({ currency, holdings, setRoute, totalMinor }: { curr
         </div>
       </div>
 
-      <div className="pf-howlink">
-        <button onClick={() => goTo(setRoute, "faq")} type="button">
-          <span className="pf-howlink-i">i</span>
-          <span className="pf-howlink-text">How BANXUM loans work</span>
-        </button>
-      </div>
     </section>
   );
 }
@@ -7682,7 +9659,7 @@ function PfCalendarCard({ currency, open, onToggle, payments }: { currency: stri
   const upcoming = payments.find((payment) => payment.date.getTime() >= new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime());
   return (
     <PfCard
-      foot={<><span className="big">{paymentDays.size}</span><span className="note">payment dates in {monthLabel} · next is {upcoming ? <span style={{ color: "#151719", fontWeight: 600 }}>{pfShortDate(upcoming.iso)}, {pfMoneyLabel(currency, upcoming.amt)}</span> : "—"}</span></>}
+      foot={<><span className="big">{paymentDays.size}</span><span className="note">payment dates in {monthLabel} · next is {upcoming ? <span style={{ color: "#0a0a0a", fontWeight: 600 }}>{pfShortDate(upcoming.iso)}, {pfMoneyLabel(currency, upcoming.amt)}</span> : "—"}</span></>}
       lab="Earnings calendar"
       onToggle={onToggle}
       open={open}
@@ -7692,7 +9669,7 @@ function PfCalendarCard({ currency, open, onToggle, payments }: { currency: stri
         {Array.from({ length: 35 }, (_, cell) => {
           const day = cell - offset + 1;
           const has = day >= 1 && paymentDays.has(day);
-          return <span key={cell} style={{ background: has ? "#151719" : "#dde3e1", borderRadius: 2, height: 9 }} />;
+          return <span key={cell} style={{ background: has ? "#0a0a0a" : "#e6e6e6", height: 9 }} />;
         })}
       </span>
     </PfCard>
@@ -7752,9 +9729,9 @@ function PfCalendarPanel({ currency, payments }: { currency: string; payments: P
           <button className="cal-nav" disabled={monthIndex === 11} onClick={() => selectMonth(monthIndex + 1)} type="button">›</button>
           <span className="cal-meta">{month.rows.length} payments · {pfMoneyLabel(currency, month.total)}</span>
           <span className="grow" />
-          <span className="cal-legend"><span style={{ background: "#1e6a4b", borderRadius: 2, height: 9, width: 9 }} />payday</span>
-          <span className="cal-legend"><span style={{ background: "#151719", height: 2, width: 9 }} />final payment</span>
-          <span className="cal-legend"><span style={{ background: "#c4312c", borderRadius: 2, height: 9, width: 9 }} />late</span>
+          <span className="cal-legend"><span style={{ background: "#1e7a46", height: 9, width: 9 }} />payday</span>
+          <span className="cal-legend"><span style={{ background: "#0a0a0a", height: 2, width: 9 }} />final payment</span>
+          <span className="cal-legend"><span style={{ background: "#b3261e", height: 9, width: 9 }} />late</span>
         </div>
         <div className="cal-dows"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div>
         <div className="cal-grid">
@@ -7803,18 +9780,18 @@ function PfCalendarPanel({ currency, payments }: { currency: string; payments: P
                 <div key={index}>
                   {selectedGroup.length > 1 ? (
                     <div style={{ alignItems: "baseline", display: "flex", marginBottom: 12 }}>
-                      <span style={{ color: row.late ? "#c4312c" : "#151719", fontSize: 16, fontWeight: 600, letterSpacing: "-0.02em" }}>{row.name}</span>
+                      <span style={{ color: row.late ? "#b3261e" : "#0a0a0a", fontSize: 16, fontWeight: 600, letterSpacing: "-0.02em" }}>{row.name}</span>
                       <span className="grow" />
                       <span className="num" style={{ fontSize: 16, fontWeight: 600 }}>{pfMoneyLabel(currency, row.amt)}</span>
                     </div>
                   ) : null}
                   <div style={{ display: "flex", flexDirection: "column", fontSize: 13.5, marginBottom: 12 }}>
-                    <div className="pf-cal-kv"><span style={{ color: "#1e6a4b" }}>Interest — what you earn</span><span className="leader" /><span className="num" style={{ color: "#1e6a4b", fontWeight: 600 }}>{formatMoneyMinor(row.int, currency)}</span></div>
+                    <div className="pf-cal-kv"><span style={{ color: "#1e7a46" }}>Interest — what you earn</span><span className="leader" /><span className="num" style={{ color: "#1e7a46", fontWeight: 600 }}>{formatMoneyMinor(row.int, currency)}</span></div>
                     <div className="pf-cal-kv"><span>Your money coming back</span><span className="leader" /><span className="num" style={{ fontWeight: 600 }}>{formatMoneyMinor(row.pri, currency)}</span></div>
                     <div className="pf-cal-kv"><span>Still outstanding</span><span className="leader" /><span className="num" style={{ fontWeight: 600 }}>{formatMoneyMinor(row.balanceAfter, currency)}</span></div>
                     <div className="pf-cal-kv"><span>Installment</span><span className="leader" /><span className="num" style={{ fontWeight: 600 }}>{row.n} of {row.term}</span></div>
                   </div>
-                  <div style={{ color: "#626b70", fontSize: 13, lineHeight: 1.55 }}>
+                  <div style={{ color: "#6e6e6e", fontSize: 13, lineHeight: 1.55 }}>
                     Secured by {row.collateral === "unsecured" ? "no pledged asset" : row.collateral}.
                     {row.ltvBps !== null ? ` Lent against an independent valuation · ${(row.ltvBps / 100).toFixed(0)}% of the valuation.` : ""}
                   </div>
@@ -7824,7 +9801,7 @@ function PfCalendarPanel({ currency, payments }: { currency: string; payments: P
           </div>
         ) : (
           <div className="cal-footnote">
-            <span style={{ color: "#626b70", fontSize: 13.5 }}>Bars are scaled within the month, so the longest one is that month's largest payment.</span>
+            <span style={{ color: "#6e6e6e", fontSize: 13.5 }}>Bars are scaled within the month, so the longest one is that month's largest payment.</span>
             <span className="grow" />
             <span style={{ fontSize: 13.5, fontWeight: 600, marginRight: 16 }}>{month.full} in total</span>
             <span className="num" style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.03em" }}>{pfMoneyLabel(currency, month.total)}</span>
@@ -7859,25 +9836,25 @@ function PfHexPanel({ axes }: { axes: PfAxis[] }) {
       <div className="panel-block" style={{ marginBottom: 26 }}>
         <div className="pf-hex-layout">
           <svg height="310" style={{ display: "block", flex: "none", maxWidth: "100%" }} viewBox="0 0 440 310" width="440">
-            <polygon fill="#f5f3ed" points={gridPoints(radius)} stroke="#c2bfb5" strokeWidth="1" />
-            <polygon fill="none" points={gridPoints(radius * 0.75)} stroke="#dde3e1" strokeWidth="1" />
-            <polygon fill="none" points={gridPoints(radius * 0.5)} stroke="#dde3e1" strokeWidth="1" />
-            <polygon fill="none" points={gridPoints(radius * 0.25)} stroke="#dde3e1" strokeWidth="1" />
+            <polygon fill="#ffffff" points={gridPoints(radius)} stroke="#c8c8c8" strokeWidth="1" />
+            <polygon fill="none" points={gridPoints(radius * 0.75)} stroke="#e6e6e6" strokeWidth="1" />
+            <polygon fill="none" points={gridPoints(radius * 0.5)} stroke="#e6e6e6" strokeWidth="1" />
+            <polygon fill="none" points={gridPoints(radius * 0.25)} stroke="#e6e6e6" strokeWidth="1" />
             {Array.from({ length: 6 }, (_, index) => {
               const angle = -Math.PI / 2 + (index * Math.PI) / 3;
-              return <line key={index} stroke="#dde3e1" strokeWidth="1" x1={cx} x2={(cx + radius * Math.cos(angle)).toFixed(2)} y1={cy} y2={(cy + radius * Math.sin(angle)).toFixed(2)} />;
+              return <line key={index} stroke="#e6e6e6" strokeWidth="1" x1={cx} x2={(cx + radius * Math.cos(angle)).toFixed(2)} y1={cy} y2={(cy + radius * Math.sin(angle)).toFixed(2)} />;
             })}
-            <polygon fill="rgba(21,23,25,0.12)" points={pfHexPoints(axes.map((axis) => axis.score), cx, cy, radius)} stroke="#151719" strokeWidth="2" />
+            <polygon fill="rgba(21,23,25,0.12)" points={pfHexPoints(axes.map((axis) => axis.score), cx, cy, radius)} stroke="#0a0a0a" strokeWidth="2" />
             {axes.map((axis, index) => {
               const vertex = pfHexVertex(index, cx, cy, radius, axis.score);
-              return <circle cx={vertex.x.toFixed(2)} cy={vertex.y.toFixed(2)} fill={axis === lowest ? "#c4312c" : "#151719"} key={axis.label} r="4" />;
+              return <circle cx={vertex.x.toFixed(2)} cy={vertex.y.toFixed(2)} fill={axis === lowest ? "#b3261e" : "#0a0a0a"} key={axis.label} r="4" />;
             })}
             {axes.map((axis, index) => {
               const anchor = labelAnchors[index];
               return (
                 <g key={axis.label}>
-                  <text fill="#151719" fontFamily="Instrument Sans, Arial, sans-serif" fontSize="12" fontWeight="600" textAnchor={anchor.anchor} x={anchor.x} y={anchor.y}>{axis.label}</text>
-                  <text fill={axis === lowest ? "#c4312c" : "#151719"} fontFamily="Instrument Sans, Arial, sans-serif" fontSize="13" fontWeight="700" textAnchor={anchor.anchor} x={anchor.x} y={anchor.y + 16}>{axis.score}</text>
+                  <text fill="#0a0a0a" fontFamily="Archivo, Helvetica, Arial, sans-serif" fontSize="12" fontWeight="600" textAnchor={anchor.anchor} x={anchor.x} y={anchor.y}>{axis.label}</text>
+                  <text fill={axis === lowest ? "#b3261e" : "#0a0a0a"} fontFamily="Archivo, Helvetica, Arial, sans-serif" fontSize="13" fontWeight="700" textAnchor={anchor.anchor} x={anchor.x} y={anchor.y + 16}>{axis.score}</text>
                 </g>
               );
             })}
@@ -7886,19 +9863,19 @@ function PfHexPanel({ axes }: { axes: PfAxis[] }) {
             <div className="microlabel" style={{ marginBottom: 14 }}>What each number is, and what its ends mean</div>
             <div style={{ display: "flex", flexDirection: "column", fontSize: 13 }}>
               {axes.map((axis, index) => (
-                <div key={axis.label} style={{ borderBottom: index === axes.length - 1 ? "1px solid #e4e1d8" : undefined, borderTop: "1px solid #e4e1d8", padding: "9px 0" }}>
+                <div key={axis.label} style={{ borderBottom: index === axes.length - 1 ? "1px solid #e6e6e6" : undefined, borderTop: "1px solid #e6e6e6", padding: "9px 0" }}>
                   <div style={{ alignItems: "baseline", display: "flex" }}>
-                    <span style={{ color: axis === lowest ? "#c4312c" : undefined, fontWeight: 600 }}>{axis.label}</span>
+                    <span style={{ color: axis === lowest ? "#b3261e" : undefined, fontWeight: 600 }}>{axis.label}</span>
                     <span className="leader" style={{ margin: "0 8px 4px" }} />
-                    <span className="num" style={{ color: axis === lowest ? "#c4312c" : undefined, fontWeight: 700 }}>{axis.score}</span>
+                    <span className="num" style={{ color: axis === lowest ? "#b3261e" : undefined, fontWeight: 700 }}>{axis.score}</span>
                   </div>
-                  <div style={{ color: "#626b70", lineHeight: 1.5, marginTop: 3 }}>{axis.sentence}</div>
+                  <div style={{ color: "#6e6e6e", lineHeight: 1.5, marginTop: 3 }}>{axis.sentence}</div>
                 </div>
               ))}
             </div>
           </div>
         </div>
-        <div className="serif-note" style={{ borderTop: "1px solid #dde3e1", marginTop: 26, maxWidth: 820, paddingTop: 20 }}>
+        <div className="serif-note" style={{ borderTop: "1px solid #e6e6e6", marginTop: 26, maxWidth: 820, paddingTop: 20 }}>
           <span style={{ fontSize: 17 }}>None of this knows whether a borrower will pay, whether a valuation is right, or what the franc does. A full hexagon is not a safe portfolio — it is a well-spread one.</span>
         </div>
       </div>
@@ -7922,14 +9899,14 @@ function PfCollateralPanel({ currency, holdingCount, segments, totalMinor }: { c
       </div>
       <div className="panel-block" style={{ marginBottom: 26, padding: "26px 30px 24px" }}>
         {view === "bar" ? (
-          <div style={{ borderRadius: 3, display: "flex", height: 34, marginBottom: 12, overflow: "hidden" }}>
+          <div style={{ display: "flex", height: 34, marginBottom: 12, overflow: "hidden" }}>
             {segments.map((segment) => {
               const pct = totalMinor > 0 ? (segment.amount / totalMinor) * 100 : 0;
               return (
                 <div key={segment.label} style={{ alignItems: "center", background: segment.color, display: "flex", padding: pct > 12 ? "0 14px" : "0 6px", width: `${pct.toFixed(1)}%` }}>
-                  {pct > 18 ? <span style={{ color: "#f5f3ed", fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap" }}>{segment.label}</span> : null}
+                  {pct > 18 ? <span style={{ color: "#ffffff", fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap" }}>{segment.label}</span> : null}
                   <span className="grow" />
-                  {pct > 10 ? <span className="num" style={{ color: "#f5f3ed", fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap" }}>{pfWholeLabel(currency, segment.amount)}</span> : null}
+                  {pct > 10 ? <span className="num" style={{ color: "#ffffff", fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap" }}>{pfWholeLabel(currency, segment.amount)}</span> : null}
                 </div>
               );
             })}
@@ -7939,12 +9916,12 @@ function PfCollateralPanel({ currency, holdingCount, segments, totalMinor }: { c
             <PfRing center={{ title: pfWholeLabel(currency, totalMinor), sub: `${holdingCount} loans` }} radius={60} segments={segments} size={200} stroke={34} total={totalMinor} />
             <div style={{ display: "flex", flex: 1, flexDirection: "column", fontSize: 13.5 }}>
               {segments.map((segment, index) => (
-                <div key={segment.label} style={{ alignItems: "baseline", borderBottom: index === segments.length - 1 ? "1px solid #e4e1d8" : undefined, borderTop: "1px solid #e4e1d8", display: "flex", gap: 12, padding: "8px 0" }}>
-                  <span style={{ background: segment.color, borderRadius: 2, flex: "none", height: 11, width: 11 }} />
-                  <span style={{ color: segment.bad ? "#c4312c" : undefined, fontWeight: 500 }}>{segment.label}</span>
+                <div key={segment.label} style={{ alignItems: "baseline", borderBottom: index === segments.length - 1 ? "1px solid #e6e6e6" : undefined, borderTop: "1px solid #e6e6e6", display: "flex", gap: 12, padding: "8px 0" }}>
+                  <span style={{ background: segment.color, flex: "none", height: 11, width: 11 }} />
+                  <span style={{ color: segment.bad ? "#b3261e" : undefined, fontWeight: 500 }}>{segment.label}</span>
                   <span className="leader" style={{ margin: "0 6px 4px" }} />
-                  <span className="num" style={{ color: "#626b70", marginRight: 14 }}>{totalMinor > 0 ? `${((segment.amount / totalMinor) * 100).toFixed(1)}%` : "-"}</span>
-                  <span className="num" style={{ color: segment.bad ? "#c4312c" : undefined, fontWeight: 600 }}>{pfWholeLabel(currency, segment.amount)}</span>
+                  <span className="num" style={{ color: "#6e6e6e", marginRight: 14 }}>{totalMinor > 0 ? `${((segment.amount / totalMinor) * 100).toFixed(1)}%` : "-"}</span>
+                  <span className="num" style={{ color: segment.bad ? "#b3261e" : undefined, fontWeight: 600 }}>{pfWholeLabel(currency, segment.amount)}</span>
                 </div>
               ))}
             </div>
@@ -7968,31 +9945,31 @@ function PfProtectionPanel({ currency, defaultInterestBps, holdingCount, lateCou
           <div style={{ paddingRight: 6 }}>
             <div className="pf-risk-cap">The first is disclosed collateral cover</div>
             <div className="pf-risk-copy">For loans with a disclosed loan-to-value ratio, BANXUM shows how much was lent relative to the stated collateral valuation. A lower LTV means more valuation headroom, but valuations and enforcement proceeds can change and may not cover the loan.</div>
-            <div style={{ alignItems: "baseline", color: "#626b70", display: "flex", fontSize: 11.5, marginBottom: 6 }}><span>Disclosed collateral valuation</span><span className="grow" /><span className="num" style={{ color: "#151719", fontWeight: 600 }}>100%</span></div>
-            <div style={{ border: "1.5px solid #c2bfb5", borderRadius: 3, height: 34, overflow: "hidden", position: "relative" }}>
-              <div style={{ background: "#151719", bottom: 0, left: 0, position: "absolute", top: 0, width: `${weightedLtv === null ? 0 : weightedLtv.toFixed(1)}%` }} />
-              <div style={{ alignItems: "center", bottom: 0, display: "flex", justifyContent: "center", left: `${weightedLtv === null ? 0 : weightedLtv.toFixed(1)}%`, position: "absolute", right: 0, top: 0 }}><span style={{ color: "#626b70", fontSize: 11, fontWeight: 600 }}>headroom</span></div>
+            <div style={{ alignItems: "baseline", color: "#6e6e6e", display: "flex", fontSize: 11.5, marginBottom: 6 }}><span>Disclosed collateral valuation</span><span className="grow" /><span className="num" style={{ color: "#0a0a0a", fontWeight: 600 }}>100%</span></div>
+            <div style={{ border: "1.5px solid #c8c8c8", height: 34, overflow: "hidden", position: "relative" }}>
+              <div style={{ background: "#0a0a0a", bottom: 0, left: 0, position: "absolute", top: 0, width: `${weightedLtv === null ? 0 : weightedLtv.toFixed(1)}%` }} />
+              <div style={{ alignItems: "center", bottom: 0, display: "flex", justifyContent: "center", left: `${weightedLtv === null ? 0 : weightedLtv.toFixed(1)}%`, position: "absolute", right: 0, top: 0 }}><span style={{ color: "#6e6e6e", fontSize: 11, fontWeight: 600 }}>headroom</span></div>
             </div>
-            <div style={{ alignItems: "baseline", display: "flex", fontSize: 11.5, marginTop: 6 }}><span style={{ color: "#151719", fontWeight: 600 }}>Weighted LTV {ltvLabel}</span><span className="grow" /><span style={{ color: "#626b70" }}>{weightedLtv === null ? "" : `${(100 - weightedLtv).toFixed(1)}% valuation headroom`}</span></div>
-            <div style={{ color: "#626b70", fontSize: 12.5, lineHeight: 1.5, marginTop: 14 }}>Weighted only across secured holdings with a disclosed LTV. Per-project disclosed LTV ranges from {securedLtvs.length > 0 ? `${Math.min(...securedLtvs).toFixed(0)}% to ${Math.max(...securedLtvs).toFixed(0)}%` : "not available"}.</div>
+            <div style={{ alignItems: "baseline", display: "flex", fontSize: 11.5, marginTop: 6 }}><span style={{ color: "#0a0a0a", fontWeight: 600 }}>Weighted LTV {ltvLabel}</span><span className="grow" /><span style={{ color: "#6e6e6e" }}>{weightedLtv === null ? "" : `${(100 - weightedLtv).toFixed(1)}% valuation headroom`}</span></div>
+            <div style={{ color: "#6e6e6e", fontSize: 12.5, lineHeight: 1.5, marginTop: 14 }}>Weighted only across secured holdings with a disclosed LTV. Per-project disclosed LTV ranges from {securedLtvs.length > 0 ? `${Math.min(...securedLtvs).toFixed(0)}% to ${Math.max(...securedLtvs).toFixed(0)}%` : "not available"}.</div>
           </div>
-          <div style={{ borderLeft: "1px solid #e4e1d8", paddingLeft: 6 }}>
+          <div style={{ borderLeft: "1px solid #e6e6e6", paddingLeft: 6 }}>
             <div className="pf-risk-cap">The second is the recovery contract</div>
             <div className="pf-risk-copy">Every borrower payment follows the same non-overridable order. Garanta legal costs and the approved recovery fee are satisfied first, then penalties, contractual interest and finally principal. Recovery timing or proceeds are never guaranteed.</div>
-            <div style={{ alignItems: "baseline", color: "#626b70", display: "flex", fontSize: 11.5, marginBottom: 6 }}><span>Universal borrower-payment and recovery order</span></div>
-            <div style={{ border: "1.5px solid #c2bfb5", borderRadius: 3, display: "flex", height: 34, overflow: "hidden" }}>
-              <div style={{ alignItems: "center", background: "#151719", display: "flex", justifyContent: "center", width: "25%" }}><span style={{ color: "#f5f3ed", fontSize: 10.5, fontWeight: 600 }}>1</span></div>
-              <div style={{ alignItems: "center", background: "#4a5257", display: "flex", justifyContent: "center", width: "25%" }}><span style={{ color: "#f5f3ed", fontSize: 10.5, fontWeight: 600 }}>2</span></div>
-              <div style={{ alignItems: "center", background: "#9ca5a8", display: "flex", justifyContent: "center", width: "25%" }}><span style={{ color: "#151719", fontSize: 10.5, fontWeight: 600 }}>3</span></div>
-              <div style={{ alignItems: "center", background: "#dde3e1", display: "flex", justifyContent: "center", width: "25%" }}><span style={{ color: "#626b70", fontSize: 10.5, fontWeight: 600 }}>4</span></div>
+            <div style={{ alignItems: "baseline", color: "#6e6e6e", display: "flex", fontSize: 11.5, marginBottom: 6 }}><span>Universal borrower-payment and recovery order</span></div>
+            <div style={{ border: "1.5px solid #c8c8c8", display: "flex", height: 34, overflow: "hidden" }}>
+              <div style={{ alignItems: "center", background: "#0a0a0a", display: "flex", justifyContent: "center", width: "25%" }}><span style={{ color: "#ffffff", fontSize: 10.5, fontWeight: 600 }}>1</span></div>
+              <div style={{ alignItems: "center", background: "#4a4a4a", display: "flex", justifyContent: "center", width: "25%" }}><span style={{ color: "#ffffff", fontSize: 10.5, fontWeight: 600 }}>2</span></div>
+              <div style={{ alignItems: "center", background: "#a5a5a5", display: "flex", justifyContent: "center", width: "25%" }}><span style={{ color: "#0a0a0a", fontSize: 10.5, fontWeight: 600 }}>3</span></div>
+              <div style={{ alignItems: "center", background: "#e6e6e6", display: "flex", justifyContent: "center", width: "25%" }}><span style={{ color: "#6e6e6e", fontSize: 10.5, fontWeight: 600 }}>4</span></div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", fontSize: 11.5, gap: 5, marginTop: 9 }}>
-              <div style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ background: "#151719", borderRadius: 2, flex: "none", height: 9, width: 9 }} /><span style={{ color: "#292d30", flex: 1 }}>Garanta legal costs and recovery fee</span></div>
-              <div style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ background: "#4a5257", borderRadius: 2, flex: "none", height: 9, width: 9 }} /><span style={{ color: "#292d30", flex: 1 }}>Penalty and default interest</span></div>
-              <div style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ background: "#9ca5a8", borderRadius: 2, flex: "none", height: 9, width: 9 }} /><span style={{ color: "#292d30", flex: 1 }}>Contractual interest</span></div>
-              <div style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ background: "#dde3e1", border: "1px solid #c2bfb5", borderRadius: 2, flex: "none", height: 9, width: 9 }} /><span style={{ color: "#292d30", flex: 1 }}>Principal</span></div>
+              <div style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ background: "#0a0a0a", flex: "none", height: 9, width: 9 }} /><span style={{ color: "#2a2a2a", flex: 1 }}>Garanta legal costs and recovery fee</span></div>
+              <div style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ background: "#4a4a4a", flex: "none", height: 9, width: 9 }} /><span style={{ color: "#2a2a2a", flex: 1 }}>Penalty and default interest</span></div>
+              <div style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ background: "#a5a5a5", flex: "none", height: 9, width: 9 }} /><span style={{ color: "#2a2a2a", flex: 1 }}>Contractual interest</span></div>
+              <div style={{ alignItems: "baseline", display: "flex", gap: 8 }}><span style={{ background: "#e6e6e6", border: "1px solid #c8c8c8", flex: "none", height: 9, width: 9 }} /><span style={{ color: "#2a2a2a", flex: 1 }}>Principal</span></div>
             </div>
-            <div style={{ color: "#626b70", fontSize: 12.5, lineHeight: 1.5, marginTop: 14 }}>Widths show sequence only, not expected amounts. Principal is never paid while an earlier tier remains due. Configured default interest across these loans is {defaultInterestLabel}.</div>
+            <div style={{ color: "#6e6e6e", fontSize: 12.5, lineHeight: 1.5, marginTop: 14 }}>Widths show sequence only, not expected amounts. Principal is never paid while an earlier tier remains due. Configured default interest across these loans is {defaultInterestLabel}.</div>
           </div>
         </div>
         <div className="pf-risk-kvs">
@@ -8001,9 +9978,9 @@ function PfProtectionPanel({ currency, defaultInterestBps, holdingCount, lateCou
           <div className="kv-row"><span className="k">Weighted LTV across disclosed secured holdings</span><span className="leader" /><span className="v">{weightedLtv === null ? "—" : `${weightedLtv.toFixed(1)}% of valuation`}</span></div>
           <div className="kv-row"><span className="k">Loans with no asset pledged</span><span className="leader" /><span className="v">{unsecuredCount} of {holdingCount}{unsecuredCount > 0 ? ` · ${pfWholeLabel(currency, unsecuredMinor)}` : ""}</span></div>
           <div className="kv-row"><span className="k">Recovery timing</span><span className="leader" /><span className="v">Project-specific; not guaranteed</span></div>
-          <div className="kv-row"><span className="k">In arrears right now</span><span className="leader" /><span className="v" style={{ color: lateCount > 0 ? "#c4312c" : undefined }}>{lateCount} of {holdingCount}{lateCount > 0 ? ` · ${pfWholeLabel(currency, lateMinor)}` : ""}</span></div>
+          <div className="kv-row"><span className="k">In arrears right now</span><span className="leader" /><span className="v" style={{ color: lateCount > 0 ? "#b3261e" : undefined }}>{lateCount} of {holdingCount}{lateCount > 0 ? ` · ${pfWholeLabel(currency, lateMinor)}` : ""}</span></div>
         </div>
-        <div style={{ color: "#626b70", fontSize: 13, lineHeight: 1.55, maxWidth: 820 }}>Open any loan above to review its disclosed collateral, LTV, agreement terms, public risk notes and repayment schedule. These figures describe current records, not guaranteed recovery value.</div>
+        <div style={{ color: "#6e6e6e", fontSize: 13, lineHeight: 1.55, maxWidth: 820 }}>Open any loan above to review its disclosed collateral, LTV, agreement terms, public risk notes and repayment schedule. These figures describe current records, not guaranteed recovery value.</div>
       </div>
     </div>
   );
@@ -8013,6 +9990,7 @@ function activityCategory(entry: ActivityEntry) {
   if (entry.activity_type === "primary_order") return "order";
   if (entry.activity_type === "fx_exchange") return "fx";
   if (entry.activity_type === "withdrawal_request") return "withdrawal";
+  if (entry.activity_type === "withdrawal_cancellation") return "withdrawal reversal";
   if (entry.activity_type === "repayment_distribution") return "income";
   if (entry.activity_type === "recovery_distribution") return "recovery";
   if (entry.activity_type === "secondary_listing") return "listing";
@@ -8061,7 +10039,11 @@ function ActivityTable({ entries, dense = false }: { entries: ActivityEntry[]; d
               return (
                 <tr key={entry.id}>
                   <td className="mono muted" style={{ fontSize: 12 }}>{formatDateTime(entry.occurred_at)}</td>
-                  <td className="col-strong">{entry.title}{entry.archived_at ? <span className="qa-history-note">Before QA reset</span> : null}</td>
+                  <td className="col-strong">
+                    {entry.title}
+                    <ActivityStatusTag entry={entry} />
+                    {entry.archived_at ? <span className="qa-history-note">Before QA reset</span> : null}
+                  </td>
                   <td className="sub mono">{entry.loan_title || humanizeToken(entry.activity_type) || "-"}</td>
                   <td><ActivityTag category={category} /></td>
                   <td className="num"><ActivityAmount entry={entry} /></td>
@@ -8076,8 +10058,27 @@ function ActivityTable({ entries, dense = false }: { entries: ActivityEntry[]; d
   );
 }
 
+const withdrawalActivityStatus: Record<string, { label: string; tone: "ok" | "warn" | "bad" | "neutral"; tooltip: string }> = {
+  requested: { label: "Pending", tone: "warn", tooltip: "Requested and waiting for bank execution. The amount is already set aside from your balance." },
+  finalized: { label: "Finalized", tone: "ok", tooltip: "Paid out to your verified IBAN." },
+  cancelled: { label: "Cancelled", tone: "bad", tooltip: "Not paid out. The amount was returned to your balance (see the matching reversal line)." },
+  returned: { label: "Returned to balance", tone: "ok", tooltip: "The cancelled withdrawal amount is available in your balance again." }
+};
+
+// Withdrawals show their outcome next to the title, so a cancelled request is not mistaken for a payout.
+function ActivityStatusTag({ entry }: { entry: ActivityEntry }) {
+  if (entry.activity_type !== "withdrawal_request" && entry.activity_type !== "withdrawal_cancellation") return null;
+  const status = withdrawalActivityStatus[entry.status];
+  if (!status) return null;
+  return (
+    <span className="activity-status-tag">
+      <Chip tone={status.tone} tooltip={status.tooltip}>{status.label}</Chip>
+    </span>
+  );
+}
+
 function ActivityTag({ category }: { category: string }) {
-  const tone = category === "income" || category === "deposit" || category === "sale" || category === "recovery" ? "ok" : category === "cost" || category === "withdrawal" || category === "purchase" ? "bad" : category === "status" || category === "order" || category === "listing" ? "warn" : "neutral";
+  const tone = category === "income" || category === "deposit" || category === "sale" || category === "recovery" || category === "withdrawal reversal" ? "ok" : category === "cost" || category === "withdrawal" || category === "purchase" ? "bad" : category === "status" || category === "order" || category === "listing" ? "warn" : "neutral";
   return <Chip dot={false} tone={tone}>{category}</Chip>;
 }
 
@@ -8306,7 +10307,7 @@ function LoanSchedulePanels({
   );
 }
 
-function HoldingDetail({ holding, onClose, setRoute }: { holding: Holding; onClose: () => void; setRoute: (route: AppRoute) => void }) {
+function HoldingDetail({ holding, setRoute }: { holding: Holding; setRoute: (route: AppRoute) => void }) {
   const loan = holding.loan;
   const currency = holding.currency;
   const listingAction = secondaryListingAction(loan.loan_status);
@@ -8410,55 +10411,119 @@ function HoldingDetail({ holding, onClose, setRoute }: { holding: Holding; onClo
       </button>
     );
   };
+  const listingCopy = hasOpenListing
+    ? "This position already has an open secondary-market listing."
+    : listingAction.allowed
+      ? "You can offer the full current claim on the secondary market."
+      : listingAction.hint;
   return (
-    <Modal
-      xwide
-      footer={<>
-        <span className="holding-v9-footer-copy">
-          {hasOpenListing
-            ? "This position already has an open secondary-market listing."
-            : listingAction.allowed
-              ? "You can offer the full current claim on the secondary market."
-              : listingAction.hint}
-        </span>
-        <Button variant="ghost" onClick={() => setScheduleOpen((open) => !open)}>
-          {scheduleOpen ? "Hide schedule" : "View schedule"}
-        </Button>
-        <Tooltip
-          content={!canOpenSecondaryAction ? listingAction.hint : ""}
-          label={!canOpenSecondaryAction ? `${listingAction.label}. ${listingAction.hint}` : undefined}
-        >
-          <Button disabled={!canOpenSecondaryAction} icon="secondary" variant="primary" onClick={() => { onClose(); goTo(setRoute, "secondary", { tab: "sell" }); }}>
-            {hasOpenListing ? "Manage secondary listing" : listingAction.label}
+    <main className="content pf-page inv-page">
+      <PageHead
+        actions={
+          <Button icon="calendar" onClick={() => setScheduleOpen((open) => !open)}>
+            {scheduleOpen ? "Hide schedule" : "View schedule"}
           </Button>
-        </Tooltip>
-      </>}
-      onClose={onClose}
-      title={loan.loan_title}
-    >
-      <article className="holding-v9">
-        <header className="holding-v9-intro">
-          <div className="eyebrow">{humanizeToken(loan.purpose)} · yours since {formatDate(holding.assignment_effective_at)}</div>
-          <div className="holding-v9-heading-row">
-            <div>
-              <h2>{loan.borrower_name}</h2>
-              <p>{formatRateBps(loan.yield_bps)} annual yield · {humanizeToken(loan.repayment_type)} · {loan.term_months} months</p>
-            </div>
-            <div className="row gap-8 wrap">
+        }
+        back={{ label: "My investments", onClick: () => goTo(setRoute, "portfolio") }}
+        className="inv-head"
+        description={
+          <div className="inv-head-sub">
+            <h2 className="inv-borrower">{loan.borrower_name}</h2>
+            <div className="inv-head-tags">
               <Chip status={loan.loan_status} tone={statusTone(loan.loan_status)} />
               {holding.open_secondary_listing ? <Chip status={listingStatusLabel(holding.open_secondary_listing.status)} tone={holding.open_secondary_listing.status === "active" ? "ok" : "warn"} tooltip={listingStatusTooltip(holding.open_secondary_listing.status, loan.loan_status)} /> : null}
-              <Rating value={loan.risk_rating} />
               <Country code={loan.borrower_country} />
               <CopyIdButton ariaLabel="Copy loan ID" iconOnly id={loan.loan_id} label="Copy loan ID" />
             </div>
           </div>
-        </header>
+        }
+        title={loan.loan_title}
+      />
 
-        <section className="holding-v9-progress">
-          <button aria-expanded={timelineOpen} className="holding-v9-progress-toggle" onClick={() => setTimelineOpen((open) => !open)} type="button">
-            <span><strong>{paidRows.length} of {timelineRows.length}</strong> scheduled borrower payments recorded</span>
-            <span>{timelineOpen ? "Hide timeline" : "Open timeline"}</span>
-          </button>
+      {impaired ? (
+        <section className="banner banner-bad inv-alert">
+          <Icon className="b-ico" name="alert" size={18} />
+          <div className="grow">
+            <div className="inv-alert-lead"><strong>{humanizeToken(loan.loan_status)}</strong>{loan.days_past_due > 0 ? ` · ${loan.days_past_due} days past due` : ""}</div>
+            <p>
+              {loan.default_penalty_interest_bps > 0
+                ? `The loan terms specify a ${formatRateBps(loan.default_penalty_interest_bps)} annual default-interest rate. Any amount shown as received is based on recorded servicing or recovery evidence; BANXUM does not estimate accrued default interest from days past due.`
+                : "No non-zero default-interest rate is configured for this loan. Review recorded servicing and recovery evidence for amounts actually credited."}
+            </p>
+          </div>
+        </section>
+      ) : null}
+
+      <article className="card inv-figures">
+        <section className="inv-figures-top" aria-label="Position summary">
+          <div className="inv-fig-group">
+            <div className="inv-fig"><span>Interest received</span><strong><Money amountMinor={earnedInterestMinor} currency={currency} /></strong><small>contractual and recorded recovery interest</small></div>
+            <span aria-hidden="true" className="inv-fig-plus"><Icon name="plus" size={18} /></span>
+            <div className="inv-fig"><span>Projected still to earn</span><strong><Money amountMinor={projectedInterestMinor} currency={currency} /></strong><small>across {projectedRows.length} remaining payments</small></div>
+          </div>
+          <div className="inv-fig-group">
+            <div className="inv-fig"><span>Capital returned</span><strong><Money amountMinor={capitalReturnedMinor} currency={currency} /></strong><small>{capitalReturnedPercent.toFixed(1)}% of your original claim</small></div>
+            <div className="inv-fig"><span>Still owed to you</span><strong><Money amountMinor={holding.current_principal_minor} currency={currency} /></strong><small>current outstanding principal</small></div>
+          </div>
+        </section>
+        <div className="inv-lifetime">
+          Of the <strong><Money amountMinor={lifetimeInterestMinor} currency={currency} /></strong> of contractual and recorded recovery interest represented here, <strong>{receivedInterestPercent.toFixed(1)}%</strong> has been received. Future interest is projected, not guaranteed.
+        </div>
+        <dl className="inv-facts">
+          <div><dt>Purpose</dt><dd>{humanizeToken(loan.purpose)}</dd></div>
+          <div><dt>Annual yield</dt><dd>{formatRateBps(loan.yield_bps)}</dd></div>
+          <div><dt>Term</dt><dd>{loan.term_months} months</dd></div>
+          <div><dt>Yours since</dt><dd>{formatDate(holding.assignment_effective_at)}</dd></div>
+          <div><dt>Repayment</dt><dd>{humanizeToken(loan.repayment_type)}</dd></div>
+          <div><dt>Risk rating</dt><dd><Rating value={loan.risk_rating} /></dd></div>
+        </dl>
+      </article>
+
+      <section className="card inv-card inv-sell">
+        <div className="card-head"><h3 className="card-title">Secondary market</h3></div>
+        <div className="inv-sell-body">
+          <p className="inv-sell-copy">{listingCopy}</p>
+          <Tooltip
+            content={!canOpenSecondaryAction ? listingAction.hint : ""}
+            label={!canOpenSecondaryAction ? `${listingAction.label}. ${listingAction.hint}` : undefined}
+          >
+            <Button disabled={!canOpenSecondaryAction} icon="secondary" variant="primary" onClick={() => goTo(setRoute, "secondary", { tab: "sell" })}>
+              {hasOpenListing ? "Manage secondary listing" : listingAction.label}
+            </Button>
+          </Tooltip>
+        </div>
+      </section>
+
+      {scheduleOpen ? (
+        <section className="card inv-card inv-schedule">
+          <div className="card-head"><div><h3 className="card-title">Your future schedule</h3><div className="inv-card-sub">Current projection, schedule version {loan.schedule_version}.</div></div></div>
+          {projectedRows.length === 0 ? (
+            <Empty icon="clock" title="No contractual projection available">
+              {impaired ? "This position is in an impaired state. Review recorded recoveries rather than relying on the former contractual schedule." : "There are no remaining projected payments for this claim."}
+            </Empty>
+          ) : (
+            <div className="tbl-wrap">
+              <table className="tbl holding-v9-schedule-table">
+                <thead><tr><th>Due</th><th>Status</th><th className="num">Interest</th><th className="num">Capital</th><th className="num">Payment</th><th className="num">Owed after</th></tr></thead>
+                <tbody>
+                  {projectedRows.map((row, index) => {
+                    const owedAfter = Math.max(0, holding.current_principal_minor - projectedRows.slice(0, index + 1).reduce((sum, item) => sum + item.projected_principal_minor, 0));
+                    return <tr className="clickable" key={row.loan_installment_id} onClick={() => setSelectedPaymentKey(`projection:${row.loan_installment_id}`)}><td>{formatDate(row.due_date)}</td><td><Chip dot={false} tone={row.status === "overdue" ? "bad" : row.status === "due" ? "warn" : "neutral"}>{humanizeToken(row.status)}</Chip></td><td className="num pos"><Money amountMinor={row.projected_interest_minor} currency={currency} /></td><td className="num"><Money amountMinor={row.projected_principal_minor} currency={currency} /></td><td className="num col-strong"><Money amountMinor={row.projected_total_minor} currency={currency} /></td><td className="num"><Money amountMinor={owedAfter} currency={currency} /></td></tr>;
+                  })}
+                </tbody>
+                <tfoot className="schedule-totals"><tr><th colSpan={2}>Totals</th><th className="num"><Money amountMinor={futureTotals.interest} currency={currency} /></th><th className="num"><Money amountMinor={futureTotals.principal} currency={currency} /></th><th className="num"><Money amountMinor={futureTotals.total} currency={currency} /></th><th className="num">-</th></tr></tfoot>
+              </table>
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      <section className="card inv-card inv-progress">
+        <button aria-expanded={timelineOpen} className="holding-v9-progress-toggle" onClick={() => setTimelineOpen((open) => !open)} type="button">
+          <span><strong>{paidRows.length} of {timelineRows.length}</strong> scheduled borrower payments recorded</span>
+          <span className="inv-link">{timelineOpen ? "Hide timeline" : "Open timeline"}</span>
+        </button>
+        <div className="inv-progress-body">
           <div aria-label={`${progressPercent.toFixed(0)}% of scheduled payments recorded`} className="holding-v9-progress-bar" role="img">
             <span style={{ width: `${Math.max(0, Math.min(100, progressPercent))}%` }} />
           </div>
@@ -8481,35 +10546,16 @@ function HoldingDetail({ holding, onClose, setRoute }: { holding: Holding; onClo
               </div>
             )
           ) : null}
-        </section>
-
-        <section className="holding-v9-stats" aria-label="Position summary">
-          <div><span>Interest received</span><strong><Money amountMinor={earnedInterestMinor} currency={currency} /></strong><small>contractual and recorded recovery interest</small></div>
-          <div><span>Projected still to earn</span><strong><Money amountMinor={projectedInterestMinor} currency={currency} /></strong><small>across {projectedRows.length} remaining payments</small></div>
-          <div><span>Capital returned</span><strong><Money amountMinor={capitalReturnedMinor} currency={currency} /></strong><small>{capitalReturnedPercent.toFixed(1)}% of your original claim</small></div>
-          <div><span>Still owed to you</span><strong><Money amountMinor={holding.current_principal_minor} currency={currency} /></strong><small>current outstanding principal</small></div>
-        </section>
-        <div className="holding-v9-lifetime">
-          Of the <strong><Money amountMinor={lifetimeInterestMinor} currency={currency} /></strong> of contractual and recorded recovery interest represented here, <strong>{receivedInterestPercent.toFixed(1)}%</strong> has been received. Future interest is projected, not guaranteed.
         </div>
+      </section>
 
-        {impaired ? (
-          <section className="holding-v9-impaired">
-            <div><strong>{humanizeToken(loan.loan_status)}</strong>{loan.days_past_due > 0 ? ` · ${loan.days_past_due} days past due` : ""}</div>
-            <p>
-              {loan.default_penalty_interest_bps > 0
-                ? `The loan terms specify a ${formatRateBps(loan.default_penalty_interest_bps)} annual default-interest rate. Any amount shown as received is based on recorded servicing or recovery evidence; BANXUM does not estimate accrued default interest from days past due.`
-                : "No non-zero default-interest rate is configured for this loan. Review recorded servicing and recovery evidence for amounts actually credited."}
-            </p>
-          </section>
-        ) : null}
-
-        <section className="holding-v9-detail-grid">
-          <div className="holding-v9-payment-detail">
-            <div className="holding-v9-section-head">
-              <div><span>Selected payment</span><strong>{selectedDate ? formatDate(selectedDate) : "Unavailable"}</strong></div>
-              <Chip dot={false} tone={selectedStatus === "overdue" ? "bad" : selectedStatus === "due" ? "warn" : selectedStatus === "paid" ? "ok" : "neutral"}>{humanizeToken(selectedStatus)}</Chip>
-            </div>
+      <section className="inv-detail-grid">
+        <div className="card inv-card inv-payment">
+          <div className="card-head inv-payment-head">
+            <div><h3 className="card-title">Selected payment</h3><strong>{selectedDate ? formatDate(selectedDate) : "Unavailable"}</strong></div>
+            <Chip dot={false} tone={selectedStatus === "overdue" ? "bad" : selectedStatus === "due" ? "warn" : selectedStatus === "paid" ? "ok" : "neutral"}>{humanizeToken(selectedStatus)}</Chip>
+          </div>
+          <div className="inv-card-body">
             {selectedProjection || selectedLoanRow ? (
               <>
                 <div className="holding-v9-selected-total"><Money amountMinor={selectedTotalMinor} currency={currency} /></div>
@@ -8527,8 +10573,10 @@ function HoldingDetail({ holding, onClose, setRoute }: { holding: Holding; onClo
               </>
             ) : <Empty icon="clock" title="No payment selected">Open the timeline or schedule to inspect a payment.</Empty>}
           </div>
-          <div className="holding-v9-collateral">
-            <div className="eyebrow">Collateral</div>
+        </div>
+        <div className="card inv-card inv-collateral">
+          <div className="card-head"><h3 className="card-title">Collateral</h3></div>
+          <div className="inv-card-body">
             <p className="holding-v9-collateral-copy">{collateralDescription}</p>
             {ltvPercent !== null && collateralValueMinor > 0 ? (
               <>
@@ -8545,11 +10593,13 @@ function HoldingDetail({ holding, onClose, setRoute }: { holding: Holding; onClo
               </div>
             ) : null}
           </div>
-        </section>
+        </div>
+      </section>
 
-        {recoveryTotalMinor > 0 ? (
-          <section className="holding-v9-recovery">
-            <div className="section-head"><div><h3>Recovery credited to date</h3><div className="ph-sub">Recorded distributions only; no uncollected amounts are estimated.</div></div></div>
+      {recoveryTotalMinor > 0 ? (
+        <section className="card inv-card inv-recovery">
+          <div className="card-head"><div><h3 className="card-title">Recovery credited to date</h3><div className="inv-card-sub">Recorded distributions only; no uncollected amounts are estimated.</div></div></div>
+          <div className="inv-card-body">
             <Review rows={[
               { label: "Principal recovered", value: <Money amountMinor={holding.recovered_principal_minor} currency={currency} /> },
               { label: "Contractual interest recovered", value: <Money amountMinor={holding.recovered_contractual_interest_minor} currency={currency} /> },
@@ -8558,36 +10608,46 @@ function HoldingDetail({ holding, onClose, setRoute }: { holding: Holding; onClo
               { label: "Other recoveries", value: <Money amountMinor={holding.recovered_other_costs_minor} currency={currency} /> },
               { label: "Total credited recovery", value: <Money amountMinor={recoveryTotalMinor} currency={currency} />, total: true }
             ]} />
-          </section>
-        ) : null}
-        {holding.latest_public_note ? <section className="holding-v9-public-note"><div className="eyebrow">Latest public note from Garanta</div><p>{holding.latest_public_note.title}</p><small>{formatDate(holding.latest_public_note.occurred_at)}</small></section> : null}
-
-        {scheduleOpen ? (
-          <section className="holding-v9-future-schedule">
-            <div className="section-head"><div><h3>Your future schedule</h3><div className="ph-sub">Current projection, schedule version {loan.schedule_version}.</div></div></div>
-            {projectedRows.length === 0 ? (
-              <Empty icon="clock" title="No contractual projection available">
-                {impaired ? "This position is in an impaired state. Review recorded recoveries rather than relying on the former contractual schedule." : "There are no remaining projected payments for this claim."}
-              </Empty>
-            ) : (
-              <div className="tbl-wrap">
-                <table className="tbl holding-v9-schedule-table">
-                  <thead><tr><th>Due</th><th>Status</th><th className="num">Interest</th><th className="num">Capital</th><th className="num">Payment</th><th className="num">Owed after</th></tr></thead>
-                  <tbody>
-                    {projectedRows.map((row, index) => {
-                      const owedAfter = Math.max(0, holding.current_principal_minor - projectedRows.slice(0, index + 1).reduce((sum, item) => sum + item.projected_principal_minor, 0));
-                      return <tr className="clickable" key={row.loan_installment_id} onClick={() => setSelectedPaymentKey(`projection:${row.loan_installment_id}`)}><td>{formatDate(row.due_date)}</td><td><Chip dot={false} tone={row.status === "overdue" ? "bad" : row.status === "due" ? "warn" : "neutral"}>{humanizeToken(row.status)}</Chip></td><td className="num pos"><Money amountMinor={row.projected_interest_minor} currency={currency} /></td><td className="num"><Money amountMinor={row.projected_principal_minor} currency={currency} /></td><td className="num col-strong"><Money amountMinor={row.projected_total_minor} currency={currency} /></td><td className="num"><Money amountMinor={owedAfter} currency={currency} /></td></tr>;
-                    })}
-                  </tbody>
-                  <tfoot className="schedule-totals"><tr><th colSpan={2}>Totals</th><th className="num"><Money amountMinor={futureTotals.interest} currency={currency} /></th><th className="num"><Money amountMinor={futureTotals.principal} currency={currency} /></th><th className="num"><Money amountMinor={futureTotals.total} currency={currency} /></th><th className="num">-</th></tr></tfoot>
-                </table>
-              </div>
-            )}
-          </section>
-        ) : null}
-      </article>
-    </Modal>
+          </div>
+        </section>
+      ) : null}
+      {holding.latest_public_note ? (
+        <section className="card inv-card inv-note">
+          <div className="card-head"><h3 className="card-title">Latest public note from Garanta</h3></div>
+          <div className="inv-card-body"><p>{holding.latest_public_note.title}</p><small>{formatDate(holding.latest_public_note.occurred_at)}</small></div>
+        </section>
+      ) : null}
+    </main>
   );
+}
+
+// Holding detail as a page (design: "My investments" > investment). Route: /portfolio/:holdingId.
+function InvestmentScreen({ holdingId, setRoute }: { holdingId: string; setRoute: (route: AppRoute) => void }) {
+  const portfolioQuery = usePortfolioData(true);
+  const portfolio = portfolioQuery.data;
+  if (portfolioQuery.isError && !portfolio) {
+    return (
+      <ScreenError title="Investment" onRetry={() => void portfolioQuery.refetch()}>
+        We could not load this investment. Retry once the API connection is restored.
+      </ScreenError>
+    );
+  }
+  if (!portfolio) return <ScreenLoading title="Investment" />;
+  const holding = portfolio.holdings.find((candidate) => candidate.id === holdingId);
+  if (!holding) {
+    return (
+      <main className="content pf-page inv-page">
+        <PageHead back={{ label: "My investments", onClick: () => goTo(setRoute, "portfolio") }} title="Investment not found" />
+        <Card className="inv-missing">
+          <Empty icon="portfolio" title="We could not find this investment">
+            It is not in your portfolio. It may have been sold, or the link may be wrong.
+          </Empty>
+          <div className="pf-empty-action"><Button size="sm" onClick={() => goTo(setRoute, "portfolio")}>Back to My investments</Button></div>
+        </Card>
+      </main>
+    );
+  }
+  return <HoldingDetail holding={holding} key={holding.id} setRoute={setRoute} />;
 }
 
 function SecondaryMarketScreen({ demoState, initialTab }: { demoState: DemoAccountState; initialTab?: string }) {
@@ -8625,19 +10685,19 @@ function SecondaryMarketScreen({ demoState, initialTab }: { demoState: DemoAccou
 
   return (
     <main className="content sm-page">
-      <h1 className="sr-only">Secondary market</h1>
-      {frozen ? <Banner icon="lock" tone="bad" title="Secondary-market actions are frozen">Provide a usable payout IBAN to unlock buying and listing.</Banner> : null}
-      <div className="sm-hero">
-        <div className="eyebrow">{listingsLoading ? "Loading listings" : `${listings.length} ${listings.length === 1 ? "listing" : "listings"} · sold by other investors`}</div>
-        <h2>Loans other people want out of.</h2>
-        <p className="sm-lede">Someone else lent this money and wants it back before the schedule ends. You take over their position, their collateral and their remaining term. Counterparties stay anonymous.</p>
-      </div>
-      <nav aria-label="Secondary market sections" className="mtabs" role="tablist">
+      <PageHead
+        className="sm-head"
+        description="Someone else lent this money and wants it back before the schedule ends. You take over their position, their collateral and their remaining term. Counterparties stay anonymous."
+        eyebrow={listingsLoading ? "Loading listings" : `${listings.length} ${listings.length === 1 ? "listing" : "listings"} · sold by other investors`}
+        title="Loans other people want out of."
+      />
+      {frozen ? <div className="sm-alerts"><Banner icon="lock" tone="bad" title="Secondary-market actions are frozen">Provide a usable payout IBAN to unlock buying and listing.</Banner></div> : null}
+      <nav aria-label="Secondary market sections" className="tabs sm-tabs" role="tablist">
         <button aria-selected={tab === "browse"} className={tab === "browse" ? "on" : ""} onClick={() => setTab("browse")} role="tab" type="button">For sale now</button>
         <button aria-selected={tab === "sell"} className={tab === "sell" ? "on" : ""} onClick={() => setTab("sell")} role="tab" type="button">Sell a holding</button>
         <button aria-selected={tab === "activity"} className={tab === "activity" ? "on" : ""} onClick={() => setTab("activity")} role="tab" type="button">Secondary market activity</button>
       </nav>
-      <div>
+      <div className="sm-tab-panel">
         {tab === "browse" ? (
           listingsLoading ? (
             <LoadingCard title="Loading secondary listings">Fetching current buyer-safe prices and loan context.</LoadingCard>
@@ -8720,93 +10780,114 @@ function SmForSale({
 }) {
   return (
     <div className="sm-forsale">
-      <h2 className="sect">For sale now</h2>
-      <p className="sect-sub" style={{ maxWidth: 680 }}>A discount raises what you earn; a premium lowers it. The interest rate on the loan itself never changes — only what you paid for it.</p>
-      {listings.length === 0 ? (
-        <div className="sm-empty"><Empty icon="secondary" title="No active secondary listings">There are no buyer-visible holdings listed right now.</Empty></div>
-      ) : (
-        <div className="rule-top sm-table">
-          <div className="sm-thead">
-            <span className="sm-col-loan">Loan</span>
-            <span className="sm-col-outstanding">Outstanding</span>
-            <span className="sm-col-asking">Asking</span>
-            <span className="sm-col-discount">Discount</span>
-            <span className="sm-col-left">Left to run</span>
-            <span className="sm-col-cost">Buyer cost</span>
-            <span className="sm-col-cta" />
+      <section className="card sm-card">
+        <div className="card-head sm-card-head">
+          <div>
+            <h2 className="sect">For sale now</h2>
+            <p className="sect-sub">A discount raises what you earn; a premium lowers it. The interest rate on the loan itself never changes — only what you paid for it.</p>
           </div>
-          {listings.map((listing) => {
-            const discount = smDiscountLabel(listing.discount_premium_bps);
-            return (
-              <button
-                className="sm-row"
-                key={listing.id}
-                onClick={() => onBuy(listing)}
-                type="button"
-              >
-                <span className="sm-col-loan">
-                  <span className="sm-loan-title">{listing.loan_title}</span>
-                  <span className="num sm-loan-sub">
-                    {humanizeToken(listing.collateral_type)} · {formatRateBps(listing.interest_rate_bps)} coupon
-                    {listing.risk_acknowledgement_required ? <span className="sm-nonstandard"> · non-standard</span> : null}
+        </div>
+        {listings.length === 0 ? (
+          <div className="sm-empty"><Empty icon="secondary" title="No active secondary listings">There are no buyer-visible holdings listed right now.</Empty></div>
+        ) : (
+          <div className="sm-table">
+            <div className="sm-thead">
+              <span className="sm-col-loan">Loan</span>
+              <span className="sm-col-outstanding">Outstanding</span>
+              <span className="sm-col-asking">Asking</span>
+              <span className="sm-col-discount">Discount</span>
+              <span className="sm-col-left">Left to run</span>
+              <span className="sm-col-cost">Buyer cost</span>
+              <span className="sm-col-cta" />
+            </div>
+            {listings.map((listing) => {
+              const discount = smDiscountLabel(listing.discount_premium_bps);
+              return (
+                <button
+                  className="sm-row"
+                  key={listing.id}
+                  onClick={() => onBuy(listing)}
+                  type="button"
+                >
+                  <span className="sm-col-loan">
+                    <PfTile hints={[listing.collateral_type, listing.loan_title]} />
+                    <span className="sm-loan-text">
+                      <span className="sm-loan-title">{listing.loan_title}</span>
+                      <span className="num sm-loan-sub">
+                        {humanizeToken(listing.collateral_type)} · {formatRateBps(listing.interest_rate_bps)} coupon
+                        {listing.risk_acknowledgement_required ? <span className="sm-nonstandard"> · non-standard</span> : null}
+                      </span>
+                    </span>
                   </span>
-                </span>
-                <span className="num sm-col-outstanding">{pfMoneyLabel(listing.currency, listing.current_principal_minor)}</span>
-                <span className="num sm-col-asking">{pfMoneyLabel(listing.currency, listing.transfer_price_minor)}</span>
-                <span className={`num sm-col-discount ${discount.tone}`}>{discount.text}</span>
-                <span className="num sm-col-left">{listing.remaining_term_months} mo</span>
-                <span className="num sm-col-cost">{pfMoneyLabel(listing.currency, listing.buyer_total_cost_minor)}</span>
-                <span className="sm-col-cta">details</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
+                  <span className="num sm-col-outstanding" data-label="Outstanding">{pfMoneyLabel(listing.currency, listing.current_principal_minor)}</span>
+                  <span className="num sm-col-asking" data-label="Asking">{pfMoneyLabel(listing.currency, listing.transfer_price_minor)}</span>
+                  <span className={`num sm-col-discount ${discount.tone}`} data-label="Discount">{discount.text}</span>
+                  <span className="num sm-col-left" data-label="Left to run">{listing.remaining_term_months} mo</span>
+                  <span className="num sm-col-cost" data-label="Buyer cost">{pfMoneyLabel(listing.currency, listing.buyer_total_cost_minor)}</span>
+                  <span className="sm-col-cta"><span className="sm-buy-pill">Buy</span></span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
-      <h2 className="sect">Why do loans sell at a premium or a discount?</h2>
-      <p className="sect-sub" style={{ maxWidth: 680 }}>The seller keeps one premium or discount percentage. Actual buyer cost also includes accrued interest and the disclosed taker fee.</p>
-      <div className="band band-3 sm-band">
-        <div className="cell">
-          <div className="microlabel" style={{ color: "#1e6a4b", marginBottom: 14 }}>At a discount</div>
-          <div className="num sm-band-price" style={{ color: "#1e6a4b" }}>Below 100% of principal</div>
-          <div className="sm-band-yield" style={{ color: "#1e6a4b" }}>lower transfer price</div>
-          <div className="sm-band-copy">The seller wants out early — a long wait left, or collateral that resells slowly. The full amount is still owed, so the gap is yours.</div>
+      <section className="card sm-card sm-explainer">
+        <div className="card-head sm-card-head">
+          <div>
+            <h2 className="sect">Why do loans sell at a premium or a discount?</h2>
+            <p className="sect-sub">The seller keeps one premium or discount percentage. Actual buyer cost also includes accrued interest and the disclosed taker fee.</p>
+          </div>
         </div>
-        <div className="cell">
-          <div className="microlabel" style={{ marginBottom: 14 }}>At par</div>
-          <div className="num sm-band-price">100% of principal</div>
-          <div className="sm-band-yield">same transfer price</div>
-          <div className="sm-band-copy">You step in at the holding's current outstanding principal. Accrued interest and the buyer fee still form part of total cost.</div>
+        <div className="band band-3 sm-band">
+          <div className="cell">
+            <div className="microlabel">At a discount</div>
+            <div className="num sm-band-price">Below 100% of principal</div>
+            <div className="sm-band-yield">lower transfer price</div>
+            <div className="sm-band-copy">The seller wants out early — a long wait left, or collateral that resells slowly. The full amount is still owed, so the gap is yours.</div>
+          </div>
+          <div className="cell">
+            <div className="microlabel">At par</div>
+            <div className="num sm-band-price">100% of principal</div>
+            <div className="sm-band-yield">same transfer price</div>
+            <div className="sm-band-copy">You step in at the holding's current outstanding principal. Accrued interest and the buyer fee still form part of total cost.</div>
+          </div>
+          <div className="cell">
+            <div className="microlabel">At a premium</div>
+            <div className="num sm-band-price">Above 100% of principal</div>
+            <div className="sm-band-yield">higher transfer price</div>
+            <div className="sm-band-copy">The rate beats anything open today, so the seller charges for access. You take a lower yield to lock it in.</div>
+          </div>
         </div>
-        <div className="cell">
-          <div className="microlabel" style={{ marginBottom: 14 }}>At a premium</div>
-          <div className="num sm-band-price">Above 100% of principal</div>
-          <div className="sm-band-yield">higher transfer price</div>
-          <div className="sm-band-copy">The rate beats anything open today, so the seller charges for access. You take a lower yield to lock it in.</div>
-        </div>
-      </div>
+      </section>
 
-      <h2 className="sect">Selling your own</h2>
-      <p className="sm-sell-note">
-        {totalPositions > 0 ? (
-          <>
-            <span style={{ color: "#151719", fontWeight: 600 }}>{immediatelyListableCount} of your {totalPositions} {totalPositions === 1 ? "holding" : "holdings"}</span> can be listed immediately.
-            {approvalRequiredCount > 0 ? ` ${approvalRequiredCount} non-performing ${approvalRequiredCount === 1 ? "holding can" : "holdings can"} be submitted for Garanta approval.` : ""}
-            {pendingDisbursementCount > 0 ? ` ${pendingDisbursementCount} ${pendingDisbursementCount === 1 ? "holding becomes" : "holdings become"} available after borrower disbursement.` : ""}{" "}
-          </>
-        ) : null}
-        You set the asking price; BANXUM's maker fee comes out of what you receive, and nothing is charged if it does not sell.
-      </p>
-      <div className="sm-caution-card">
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="microlabel" style={{ color: "#c4312c", marginBottom: 11 }}>Caution</div>
-          <div className="sm-caution-copy">This is not a withdrawal button. There is no guaranteed buyer and no guaranteed price. If nobody wants your loan at a price you accept, you hold it to the end of its term.</div>
+      <section className="card sm-card sm-selling">
+        <div className="card-head sm-card-head">
+          <div>
+            <h2 className="sect">Selling your own</h2>
+            <p className="sm-sell-note">
+              {totalPositions > 0 ? (
+                <>
+                  <span className="sm-sell-count">{immediatelyListableCount} of your {totalPositions} {totalPositions === 1 ? "holding" : "holdings"}</span> can be listed immediately.
+                  {approvalRequiredCount > 0 ? ` ${approvalRequiredCount} non-performing ${approvalRequiredCount === 1 ? "holding can" : "holdings can"} be submitted for Garanta approval.` : ""}
+                  {pendingDisbursementCount > 0 ? ` ${pendingDisbursementCount} ${pendingDisbursementCount === 1 ? "holding becomes" : "holdings become"} available after borrower disbursement.` : ""}{" "}
+                </>
+              ) : null}
+              You set the asking price; BANXUM's maker fee comes out of what you receive, and nothing is charged if it does not sell.
+            </p>
+          </div>
         </div>
-        <div style={{ flex: "none" }}>
-          <button className="sm-choose-btn" onClick={onChooseLoan} type="button">Choose a loan to sell</button>
+        <div className="sm-selling-body">
+          <div className="banner banner-warn sm-caution-card">
+            <Icon className="b-ico" name="alert" size={18} />
+            <div className="grow">
+              <p className="sm-caution-copy"><strong className="sm-caution-lead">Caution</strong> This is not a withdrawal button. There is no guaranteed buyer and no guaranteed price. If nobody wants your loan at a price you accept, you hold it to the end of its term.</p>
+            </div>
+            <button className="btn sm-choose-btn" onClick={onChooseLoan} type="button">Choose a loan to sell</button>
+          </div>
+          <p className="sm-anon-note">Buyer views never expose seller identity, seller net proceeds, maker fee, document evidence IDs, or admin fields.</p>
         </div>
-      </div>
-      <p className="sm-anon-note">Buyer views never expose seller identity, seller net proceeds, maker fee, document evidence IDs, or admin fields.</p>
+      </section>
     </div>
   );
 }
@@ -8888,7 +10969,7 @@ function SellableHoldingsTable({
             const listingAction = secondaryListingAction(holding.loan.loan_status);
             return (
               <tr key={holding.id}>
-                <td><EntityReference id={holding.loan.loan_id} idLabel="Copy loan ID" meta={holding.loan.borrower_name} title={holding.loan.loan_title} /></td>
+                <td><div className="sm-holding-cell"><PfTile hints={[holding.loan.collateral_type, holding.loan.purpose]} /><EntityReference id={holding.loan.loan_id} idLabel="Copy loan ID" meta={holding.loan.borrower_name} title={holding.loan.loan_title} /></div></td>
                 <td><Chip status={holding.loan.loan_status} tone={statusTone(holding.loan.loan_status)} /></td>
                 <td>{listing ? <Chip status={listingStatusLabel(listing.status)} tone={listing.status === "active" ? "ok" : "warn"} tooltip={listingStatusTooltip(listing.status, holding.loan.loan_status)} /> : <span className="muted">Not listed</span>}</td>
                 <td className="num"><Money amountMinor={holding.current_principal_minor} currency={holding.currency} /></td>
@@ -9416,8 +11497,8 @@ function DocumentsScreen() {
   const documents = documentsQuery.data;
   if (documentsQuery.isError && !documents) {
     return (
-      <main className="content">
-        <div className="page-head"><div><h1>Documents</h1><div className="ph-sub">Accepted terms, transaction evidence, statements and tax information. Self-scoped to your account.</div></div></div>
+      <main className="content acct-page acct-documents">
+        <PageHead description="Accepted terms, transaction evidence, statements and tax information. Self-scoped to your account." title="Documents" />
         <DataErrorCard title="Could not load documents" onRetry={() => void documentsQuery.refetch()}>
           We could not load your self-service document list.
         </DataErrorCard>
@@ -9456,51 +11537,59 @@ function DocumentsScreen() {
     );
   };
   return (
-    <main className="content">
-      <div className="page-head"><div><h1>Documents</h1><div className="ph-sub">Accepted document history, transaction evidence, statements and tax information. Self-scoped to your account.</div></div></div>
-      <Banner tone="neutral" title="Informational only">{documents.disclaimer}</Banner>
-      {error ? <div style={{ marginTop: 12 }}><Banner tone="bad" title="Download failed">{error}</Banner></div> : null}
-      <div className="toolbar" style={{ marginTop: 16 }}>
-        {types.map((item) => <button className={`fchip ${type === item ? "on" : ""}`} key={item} onClick={() => setType(item)} type="button">{item}</button>)}
+    <main className="content acct-page acct-documents">
+      <PageHead description="Accepted document history, transaction evidence, statements and tax information. Self-scoped to your account." title="Documents" />
+      <div className="col gap-12 acct-alerts">
+        <Banner tone="neutral" title="Informational only">{documents.disclaimer}</Banner>
+        {error ? <Banner tone="bad" title="Download failed">{error}</Banner> : null}
+      </div>
+      <div className="doc-filter-bar">
+        <div aria-label="Document type" className="tabs doc-type-tabs" role="group">
+          {types.map((item) => <button aria-pressed={type === item} className={type === item ? "on" : ""} key={item} onClick={() => setType(item)} type="button">{item}</button>)}
+        </div>
         <span className="results-count">{rows.length} documents</span>
       </div>
-      {rows.length === 0 ? (
-        <div className="portal-table-empty">
-          <Empty icon="doc" title="No documents match this filter">
-            Choose another document type, or return later after accepting terms or generating a statement.
-          </Empty>
-        </div>
-      ) : (
-        <div className="portal-data-surface">
-          <div className="tbl-wrap">
-            <table className="tbl portal-data-table documents-data-table"><thead><tr><th>Document</th><th>Type</th><th>Version</th><th>Context</th><th>Date</th><th className="num">Artifact</th><th /></tr></thead>
-            <tbody>{rows.map((document) => (
-              <tr key={document.id}>
-                <td className="row gap-8">
-                  <Icon className="muted" name="doc" size={16} />
-                  <span>
-                    <span className="col-strong">{document.title}</span>
-                    {document.template_title ? <div className="sub">{document.template_title}</div> : null}
-                  </span>
-                </td>
-                <td><Chip dot={false} tone={document.document_type === "Risk" ? "warn" : document.document_type === "Tax" ? "accent" : "neutral"}>{document.document_type}</Chip></td>
-                <td className="mono muted">{document.version}</td>
-                <td className="sub">{document.context_label}</td>
-                <td className="mono muted">{formatDate(document.date)}</td>
-                <td className="num muted">{document.generated_on_request ? "On request" : document.content_hash ? "Evidence" : "-"}</td>
-                <td className="right">
-                  <div className="row gap-6" style={{ justifyContent: "flex-end" }}>
-                    {document.output_formats.includes("csv") ? <Button disabled={downloadMutation.isPending} size="sm" variant="ghost" onClick={() => downloadDocument(document, "csv")}>CSV</Button> : null}
-                    {document.output_formats.includes("zip") ? <Button disabled={downloadMutation.isPending} size="sm" variant="ghost" onClick={() => downloadDocument(document, "zip")}>ZIP</Button> : null}
-                    <Button disabled={downloadMutation.isPending} icon="download" size="sm" variant="ghost" onClick={() => downloadDocument(document, "pdf")}>PDF</Button>
-                  </div>
-                </td>
-              </tr>
-            ))}</tbody>
-            </table>
+      <section className="card acct-table-card">
+        {rows.length === 0 ? (
+          <div className="portal-table-empty">
+            <Empty icon="doc" title="No documents match this filter">
+              Choose another document type, or return later after accepting terms or generating a statement.
+            </Empty>
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="portal-data-surface">
+            <div className="tbl-wrap">
+              <table className="tbl portal-data-table documents-data-table"><thead><tr><th>Document</th><th>Type</th><th>Version</th><th>Context</th><th>Date</th><th className="num">Artifact</th><th /></tr></thead>
+              <tbody>{rows.map((document) => (
+                <tr key={document.id}>
+                  <td>
+                    <div className="doc-title-cell">
+                      <Icon className="doc-title-icon" name="doc" size={16} />
+                      <span>
+                        <span className="doc-title">{document.title}</span>
+                        {document.template_title ? <span className="sub">{document.template_title}</span> : null}
+                      </span>
+                    </div>
+                  </td>
+                  <td><Chip dot={false} tone={document.document_type === "Risk" ? "warn" : "neutral"}>{document.document_type}</Chip></td>
+                  <td className="doc-muted">{document.version}</td>
+                  <td className="doc-muted">{document.context_label}</td>
+                  <td className="doc-muted doc-date">{formatDate(document.date)}</td>
+                  <td className="num doc-muted">{document.generated_on_request ? "On request" : document.content_hash ? "Evidence" : "-"}</td>
+                  <td className="right">
+                    <div className="doc-downloads">
+                      {document.output_formats.includes("csv") ? <Button disabled={downloadMutation.isPending} size="sm" onClick={() => downloadDocument(document, "csv")}>CSV</Button> : null}
+                      {document.output_formats.includes("zip") ? <Button disabled={downloadMutation.isPending} size="sm" onClick={() => downloadDocument(document, "zip")}>ZIP</Button> : null}
+                      <Button disabled={downloadMutation.isPending} icon="download" size="sm" onClick={() => downloadDocument(document, "pdf")}>PDF</Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}</tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </section>
     </main>
   );
 }
@@ -9521,8 +11610,9 @@ function downloadPortalArtifact(artifact: InvestorDocumentDownloadResponse) {
   window.URL.revokeObjectURL(url);
 }
 
-function NotificationsScreen() {
+function NotificationsScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) {
   const notificationsQuery = useNotificationsData(100);
+  const readActions = useNotificationReadActions();
   const payload = notificationsQuery.data;
   if (notificationsQuery.isError && !payload) {
     return (
@@ -9532,15 +11622,25 @@ function NotificationsScreen() {
     );
   }
   if (!payload) return <ScreenLoading title="Notifications" />;
+  const openNotification = (notification: InvestorNotification) => {
+    if (notification.unread) void readActions.markRead(notification.id).catch(() => undefined);
+    const target = notificationRoute(notification);
+    if (target.name !== "notifications") goTo(setRoute, target.name, target.params);
+  };
   return (
-    <main className="content">
-      <div className="page-head">
-        <div>
-          <h1>Notifications</h1>
-          <div className="ph-sub">Email delivery status, operational notices, and investor messages.</div>
-        </div>
-        {payload.unread_count > 0 ? <Chip tone="warn">{payload.unread_count} unread</Chip> : <Chip tone="ok">Up to date</Chip>}
-      </div>
+    <main className="content acct-page acct-notifications">
+      <PageHead
+        actions={
+          <>
+            {payload.unread_count > 0 ? <Chip tone="warn">{payload.unread_count} unread</Chip> : <Chip tone="ok">Up to date</Chip>}
+            <Button disabled={payload.unread_count === 0} icon="check" onClick={() => void readActions.markAllRead().catch(() => undefined)} size="sm">
+              Mark all as read
+            </Button>
+          </>
+        }
+        description="Email delivery status, operational notices, and investor messages. Open a notice to go to the loan, holding or balance it is about."
+        title="Notifications"
+      />
       <Card>
         {payload.notifications.length === 0 ? (
           <Empty icon="bell" title="No notifications yet">
@@ -9548,24 +11648,39 @@ function NotificationsScreen() {
           </Empty>
         ) : (
           <div className="notice-list">
-            {payload.notifications.map((notification) => (
-              <div className="notice-row" key={notification.id}>
-                <div className="row gap-12" style={{ alignItems: "flex-start" }}>
-                  <Icon className={notification.status === "failed" || notification.status === "dead_letter" ? "neg" : "muted"} name="bell" size={17} />
-                  <div className="grow">
-                    <div className="row spread gap-12">
-                      <div className="col-strong">{notification.title}</div>
-                      <Chip status={notification.status} />
-                    </div>
-                    <p className="muted-2" style={{ fontSize: 12.5, lineHeight: 1.55, marginTop: 6 }}>{notification.body}</p>
-                    <div className="row gap-8 wrap muted mono" style={{ fontSize: 11, marginTop: 8 }}>
+            {payload.notifications.map((notification) => {
+              const failed = notification.status === "failed" || notification.status === "dead_letter";
+              const hasTarget = notificationRoute(notification).name !== "notifications";
+              return (
+                <div className={`notice-row${failed ? " is-failed" : ""}${notification.unread ? " is-unread" : ""}`} key={notification.id}>
+                  <span className="notice-icon"><Icon className={failed ? "neg" : "muted"} name="bell" size={17} /></span>
+                  <div className="notice-content">
+                    {hasTarget ? (
+                      <button className="notice-title notice-open" onClick={() => openNotification(notification)} type="button">
+                        {notification.title}
+                        <Icon name="arrowR" size={14} />
+                      </button>
+                    ) : (
+                      <div className="notice-title">{notification.title}</div>
+                    )}
+                    <p className="notice-body">{notification.body}</p>
+                    <div className="notice-meta">
                       <span>{formatDateTime(notification.created_at)}</span>
                       <span>{notification.topic}</span>
                     </div>
                   </div>
+                  <div className="notice-status">
+                    {notification.unread ? <Chip dot tone="info">Unread</Chip> : null}
+                    <Chip status={notification.status} />
+                    {notification.unread ? (
+                      <Button aria-label={`Mark "${notification.title}" as read`} onClick={() => void readActions.markRead(notification.id).catch(() => undefined)} size="sm" variant="ghost">
+                        Mark as read
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </Card>
@@ -9580,8 +11695,11 @@ function kycChipTone(status: string) {
   return "bad" as const;
 }
 
+type SettingsSection = "profile" | "verification" | "payout" | "communication" | "support";
+
 function SettingsScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) {
   const queryClient = useQueryClient();
+  const [section, setSection] = useState<SettingsSection>("profile");
   const [marketing, setMarketing] = useState(false);
   const [marketingError, setMarketingError] = useState("");
   const [showPayoutModal, setShowPayoutModal] = useState(false);
@@ -9629,39 +11747,187 @@ function SettingsScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) {
       }
     );
   };
+  const readonly = isReadonlyImpersonationActive();
+  const initials = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || fixtureProfile.initials;
+  const summaries = balances.data?.summaries ?? [];
+  const identityRows = [
+    name ? { label: "Name", value: name } : null,
+    country ? { label: "Country", value: country } : null,
+    memberSince ? { label: "Member since", value: formatDate(memberSince) } : null
+  ].filter((row): row is { label: string; value: string } => row !== null);
+  const sections: Array<{ key: SettingsSection; label: string; icon: IconName; description: string }> = [
+    { key: "profile", label: "Profile", icon: "user", description: "The details of your investor account." },
+    { key: "verification", label: "Verification", icon: "shield", description: "Identity and phone checks for your account." },
+    { key: "payout", label: "Payout accounts", icon: "building", description: "Bank accounts in your name for withdrawals and forced returns." },
+    { key: "communication", label: "Communication", icon: "mail", description: "Choose the optional emails you receive." },
+    { key: "support", label: "Support & account", icon: "help", description: "Answers to common questions and how to reach support." }
+  ];
+  const current = sections.find((item) => item.key === section) ?? sections[0];
+
   return (
-    <main className="content narrow">
-      <div className="page-head"><div><h1>Settings</h1><div className="ph-sub">Profile, verification, payout accounts and preferences.</div></div></div>
-      <div className="col gap-16">
-        <Card><div className="card-head"><h3>Profile</h3></div><div className="card-pad"><dl className="kv">{name ? <KeyValueRow label="Name" value={name} /> : null}{email ? <KeyValueRow label="Email" mono value={email} /> : null}{country ? <KeyValueRow label="Country" value={country} /> : null}{memberSince ? <KeyValueRow label="Member since" mono value={formatDate(memberSince)} /> : null}</dl><p className="muted" style={{ fontSize: 11.5, marginTop: 12 }}>Name or email changes are handled through support after identity re-verification.</p></div></Card>
-        <Card><div className="card-head"><h3>Verification</h3></div><div className="card-pad col gap-12"><div className="row spread"><span className="row gap-8"><Icon className="muted" name="shield" size={16} />Identity (KYC/AML)</span>{kycStatus ? <Chip tone={kycChipTone(kycStatus)}>{humanizeToken(kycStatus)}</Chip> : <span className="muted">-</span>}</div><div className="hr" /><div className="row spread"><span className="row gap-8"><Icon className="muted" name="phone" size={16} />{phone ? `Phone ${phone}` : "Phone"}</span>{phoneVerified === undefined ? <span className="muted">-</span> : <Chip status={phoneVerified ? "verified" : "pending"} tone={phoneVerified ? "ok" : "neutral"} />}</div></div></Card>
-        <Card>
-          <div className="card-head"><h3>Payout accounts</h3><Button disabled={isReadonlyImpersonationActive()} size="sm" variant="ghost" onClick={() => setShowPayoutModal(true)}>Add/update IBAN</Button></div>
-          <div className="card-pad col gap-12">
-            {balances.isError && !isFixturePreview ? <Banner tone="bad" title="Could not load payout accounts">Retry after signing in or when the API connection is restored.</Banner> : null}
-            {payoutInstructions.length === 0 ? (
-              <p className="muted" style={{ fontSize: 12 }}>No payout IBAN is on file yet. Add one so Garanta can review it for withdrawals and forced-return handling.</p>
-            ) : payoutInstructions.map((instruction) => (
-              <div className="row spread wrap" key={instruction.id}>
-                <span>
-                  <div className="col-strong mono">{instruction.destination_iban}</div>
-                  <div className="sub">{instruction.currency} · {instruction.destination_account_name}</div>
-                </span>
-                <Chip tone={instruction.is_verified_usable ? "ok" : "warn"}>
-                  {instruction.is_verified_usable ? "Verified usable" : "Pending Garanta verification"}
-                </Chip>
-              </div>
-            ))}
-            <Banner tone="info" title="Verification required">Submitting a new payout IBAN does not make it usable automatically. Garanta must verify the account before it can be used for withdrawals or forced returns.</Banner>
+    <main className="content acct-page acct-settings">
+      <PageHead description="Profile, verification, payout accounts and preferences." title="Profile & Settings" />
+      <div className="card acct-settings-card">
+        <aside className="acct-settings-aside">
+          <div className="acct-settings-user">
+            <span aria-hidden="true" className="acct-settings-avatar">{initials}</span>
+            <div className="acct-settings-who">
+              {name ? <div className="acct-settings-name">{name}</div> : null}
+              {email ? <div className="acct-settings-email">{email}</div> : null}
+            </div>
           </div>
-        </Card>
-        <Card><div className="card-head"><h3>Communication</h3></div><div className="card-pad col gap-10"><label className="row spread" style={{ cursor: isReadonlyImpersonationActive() ? "not-allowed" : "pointer" }}><span><div className="col-strong">Product updates and newsletter</div><div className="muted" style={{ fontSize: 12 }}>Transactional emails are mandatory.</div></span><input checked={marketing} disabled={isReadonlyImpersonationActive() || marketingMutation.isPending} onChange={(event) => changeMarketingConsent(event.target.checked)} type="checkbox" /></label>{marketingError ? <Banner tone="bad" title="Could not update preference">{marketingError}</Banner> : null}</div></Card>
-        <Card><div className="card-head"><h3>Support & account</h3></div><div className="card-pad col gap-12"><div className="row spread"><span className="row gap-8"><Icon className="muted" name="info" size={16} />Help & FAQ</span><Button size="sm" variant="ghost" onClick={() => goTo(setRoute, "faq")}>Open</Button></div><div className="hr" /><div className="row spread"><span>Email support</span><a className="mono" href={`mailto:${supportEmail}`}>{supportEmail}</a></div></div></Card>
+          {summaries.length > 0 ? (
+            <div className="acct-settings-balance">
+              <div className="bxm-label">Account balance</div>
+              {summaries.map((item, index) => (
+                <div className={index === 0 ? "acct-settings-balance-main num" : "acct-settings-balance-sub num"} key={item.currency}>
+                  {formatMoneyMinor(item.total_available_minor, item.currency)} <span className="acct-settings-ccy">{item.currency}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          <nav aria-label="Settings sections" className="acct-settings-menu">
+            {sections.map((item) => (
+              <button
+                aria-current={section === item.key ? "true" : undefined}
+                className={section === item.key ? "on" : ""}
+                key={item.key}
+                onClick={() => {
+                  setSection(item.key);
+                  // On narrow screens the section opens below the menu; bring it into view.
+                  if (window.matchMedia?.("(max-width: 991px)").matches) {
+                    document.getElementById("acct-settings-title")?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+                  }
+                }}
+                type="button"
+              >
+                <Icon className="acct-settings-menu-icon" name={item.icon} size={17} />
+                <span>{item.label}</span>
+                <Icon className="acct-settings-menu-chev" name="chevR" size={15} />
+              </button>
+            ))}
+          </nav>
+        </aside>
+
+        <section aria-labelledby="acct-settings-title" className="acct-settings-main">
+          <div className="acct-settings-head">
+            <div>
+              <h2 id="acct-settings-title">{current.label}</h2>
+              <p>{current.description}</p>
+            </div>
+            {section === "payout" ? (
+              <Button disabled={readonly} size="sm" onClick={() => setShowPayoutModal(true)}>Add/update IBAN</Button>
+            ) : null}
+          </div>
+
+          {section === "profile" ? (
+            <>
+              {identityRows.length > 0 ? (
+                <div className="acct-data-group">
+                  <div className="acct-data-head">Identity</div>
+                  <dl className="acct-data-list">
+                    {identityRows.map((row) => (
+                      <div className="acct-data-item" key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>
+                    ))}
+                  </dl>
+                </div>
+              ) : null}
+              {email ? (
+                <div className="acct-data-group">
+                  <div className="acct-data-head">Contact</div>
+                  <dl className="acct-data-list">
+                    <div className="acct-data-item"><dt>Email</dt><dd>{email}</dd></div>
+                  </dl>
+                </div>
+              ) : null}
+              <p className="acct-settings-note">Name or email changes are handled through support after identity re-verification.</p>
+            </>
+          ) : null}
+
+          {section === "verification" ? (
+            <div className="acct-box">
+              <div className="acct-row">
+                <div className="acct-row-text"><Icon className="acct-row-icon" name="shield" size={16} /><span className="acct-row-title">Identity (KYC/AML)</span></div>
+                <div className="acct-row-actions">{kycStatus ? <Chip tone={kycChipTone(kycStatus)}>{humanizeToken(kycStatus)}</Chip> : <span className="muted">-</span>}</div>
+              </div>
+              <div className="acct-row">
+                <div className="acct-row-text"><Icon className="acct-row-icon" name="phone" size={16} /><span className="acct-row-title">{phone ? `Phone ${phone}` : "Phone"}</span></div>
+                <div className="acct-row-actions">{phoneVerified === undefined ? <span className="muted">-</span> : <Chip status={phoneVerified ? "verified" : "pending"} tone={phoneVerified ? "ok" : "neutral"} />}</div>
+              </div>
+            </div>
+          ) : null}
+
+          {section === "payout" ? (
+            <div className="col gap-16">
+              {balances.isError && !isFixturePreview ? <Banner tone="bad" title="Could not load payout accounts">Retry after signing in or when the API connection is restored.</Banner> : null}
+              {payoutInstructions.length === 0 ? (
+                <p className="acct-settings-note">No payout IBAN is on file yet. Add one so Garanta can review it for withdrawals and forced-return handling.</p>
+              ) : (
+                <div className="acct-box">
+                  {payoutInstructions.map((instruction) => (
+                    <div className="acct-row" key={instruction.id}>
+                      <div className="acct-row-text">
+                        <span>
+                          <span className="acct-iban num">{instruction.destination_iban}</span>
+                          <span className="acct-row-sub">{instruction.currency} · {instruction.destination_account_name}</span>
+                        </span>
+                      </div>
+                      <div className="acct-row-actions">
+                        <Chip tone={instruction.is_verified_usable ? "ok" : "warn"}>
+                          {instruction.is_verified_usable ? "Verified usable" : "Pending Garanta verification"}
+                        </Chip>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <Banner tone="info" title="Verification required">Submitting a new payout IBAN does not make it usable automatically. Garanta must verify the account before it can be used for withdrawals or forced returns.</Banner>
+            </div>
+          ) : null}
+
+          {section === "communication" ? (
+            <div className="col gap-16">
+              <div className="acct-box">
+                <label className="acct-row acct-toggle-row" style={{ cursor: readonly ? "not-allowed" : "pointer" }}>
+                  <span className="acct-row-text">
+                    <span>
+                      <span className="acct-row-title">Product updates and newsletter</span>
+                      <span className="acct-row-sub">Transactional emails are mandatory.</span>
+                    </span>
+                  </span>
+                  <span className="acct-row-actions">
+                    <input checked={marketing} className="acct-checkbox" disabled={readonly || marketingMutation.isPending} onChange={(event) => changeMarketingConsent(event.target.checked)} type="checkbox" />
+                  </span>
+                </label>
+              </div>
+              {marketingError ? <Banner tone="bad" title="Could not update preference">{marketingError}</Banner> : null}
+            </div>
+          ) : null}
+
+          {section === "support" ? (
+            <div className="acct-box">
+              <div className="acct-row">
+                <div className="acct-row-text"><Icon className="acct-row-icon" name="info" size={16} /><span className="acct-row-title">Help & FAQ</span></div>
+                <div className="acct-row-actions"><Button size="sm" onClick={() => goTo(setRoute, "faq")}>Open</Button></div>
+              </div>
+              <div className="acct-row">
+                <div className="acct-row-text"><Icon className="acct-row-icon" name="mail" size={16} /><span className="acct-row-title">Email support</span></div>
+                <div className="acct-row-actions"><a className="acct-mail" href={`mailto:${supportEmail}`}>{supportEmail}</a></div>
+              </div>
+            </div>
+          ) : null}
+        </section>
       </div>
       {showPayoutModal ? <PayoutIbanModal onClose={() => setShowPayoutModal(false)} /> : null}
     </main>
   );
 }
+
 
 function PayoutIbanModal({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient();
@@ -9718,7 +11984,7 @@ function PayoutIbanModal({ onClose }: { onClose: () => void }) {
 
   return (
     <Modal footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!canSubmit || mutation.isPending} variant="primary" onClick={submit}>{mutation.isPending ? "Submitting..." : "Submit for verification"}</Button></>} onClose={onClose} title="Add/update payout IBAN">
-      <div className="col gap-16">
+      <div className="col gap-16 acct-modal">
         <Banner tone="warn" title="Adding payout details">A newly submitted IBAN is added to your existing payout accounts and remains unavailable until Garanta verifies it. Existing verified IBANs stay usable. The 60-day balance deadline is not extended.</Banner>
         <Field label="Currency">
           <select className="select" value={currency} onChange={(event) => setCurrency(event.target.value)}>
@@ -9741,10 +12007,41 @@ function PayoutIbanModal({ onClose }: { onClose: () => void }) {
           onChange={setCode}
           onRequest={codeRequest.requestCode}
         />
-        {codeRequest.expiresAt ? <p className="muted" style={{ fontSize: 11.5 }}>Code expires {formatDateTime(codeRequest.expiresAt)}.</p> : null}
+        {codeRequest.expiresAt ? <p className="acct-modal-note">Code expires {formatDateTime(codeRequest.expiresAt)}.</p> : null}
         {codeRequest.error || error ? <Banner tone="bad" title="Could not submit payout IBAN">{codeRequest.error || error}</Banner> : null}
       </div>
     </Modal>
+  );
+}
+
+// Account statuses that block login and financial access (set by an admin).
+const blockedAccountStatuses = new Set(["restricted", "locked", "closed"]);
+
+function AccountBlockedScreen({ status }: { status: string }) {
+  const statusWord = status === "locked" ? "locked" : status === "closed" ? "closed" : "restricted";
+  const supportLink = <a href={`mailto:${supportEmail}`}>{supportEmail}</a>;
+  return (
+    <main className="content narrow acct-page acct-blocked">
+      <PageHead description="Your balances, investments and loans are not available right now." title="Account access" />
+      <section aria-label="Account status" className="card acct-blocked-card">
+        <Banner icon="lock" tone="bad" title={`Your account is ${statusWord}`}>
+          {statusWord === "closed" ? (
+            <>This account has been closed. If you have questions, contact support at {supportLink}.</>
+          ) : (
+            <>
+              You cannot view or move money while your account is {statusWord}. Please contact support at{" "}
+              {supportLink} for further details.
+            </>
+          )}
+        </Banner>
+        <div className="acct-blocked-actions">
+          <a className="btn btn-primary" href={`mailto:${supportEmail}`}>
+            <Icon name="mail" size={15} />
+            Contact support
+          </a>
+        </div>
+      </section>
+    </main>
   );
 }
 
@@ -9810,24 +12107,33 @@ function KycStatusScreen({ setRoute }: { setRoute: (route: AppRoute) => void }) 
   }
 
   return (
-    <main className="content narrow">
-      <div className="page-head"><div><h1>Verification</h1><div className="ph-sub">KYC provider handoff and Garanta compliance status.</div></div></div>
-      <Card padded>
-        <KycTimeline current={isApproved ? "approved" : kycStatus === "not_started" ? "pending" : "manual_review"} />
-        {statusQuery.isError && !isFixturePreview ? <Banner tone="bad" title="Could not load KYC status">Retry after signing in or when the API connection is restored.</Banner> : null}
-        <Banner tone={isApproved ? "ok" : "info"} title={bannerTitle}>
-          {bannerMessage}
-        </Banner>
-        {canStartKyc ? (
-          <Button disabled={sessionMutation.isPending} style={{ marginTop: 16 }} variant="ghost" onClick={startKyc}>
-            {sessionMutation.isPending ? "Starting Didit..." : "Start Didit verification"}
-          </Button>
+    <main className="content narrow acct-page acct-kyc">
+      <PageHead description="KYC provider handoff and Garanta compliance status." title="Verification" />
+      <section aria-labelledby="acct-kyc-status" className="card acct-kyc-card">
+        <h2 className="bxm-label acct-group-label" id="acct-kyc-status">Status</h2>
+        <div className="acct-box acct-kyc-steps">
+          <KycTimeline current={isApproved ? "approved" : kycStatus === "not_started" ? "pending" : "manual_review"} />
+        </div>
+        <div className="col gap-12 acct-kyc-notes">
+          {statusQuery.isError && !isFixturePreview ? <Banner tone="bad" title="Could not load KYC status">Retry after signing in or when the API connection is restored.</Banner> : null}
+          <Banner tone={isApproved ? "ok" : "info"} title={bannerTitle}>
+            {bannerMessage}
+          </Banner>
+        </div>
+        {canStartKyc || statusQuery.data?.financial_access_allowed || isFixturePreview ? (
+          <div className="acct-kyc-actions">
+            {canStartKyc ? (
+              <Button disabled={sessionMutation.isPending} onClick={startKyc}>
+                {sessionMutation.isPending ? "Starting Didit..." : "Start Didit verification"}
+              </Button>
+            ) : null}
+            {statusQuery.data?.financial_access_allowed || isFixturePreview ? (
+              <Button variant="primary" onClick={() => goTo(setRoute, "dashboard")}>Back to dashboard</Button>
+            ) : null}
+          </div>
         ) : null}
-        {error ? <Banner tone="bad" title="Could not start KYC">{error}</Banner> : null}
-        {statusQuery.data?.financial_access_allowed || isFixturePreview ? (
-          <Button style={{ marginTop: 16 }} variant="primary" onClick={() => goTo(setRoute, "dashboard")}>Back to dashboard</Button>
-        ) : null}
-      </Card>
+        {error ? <div className="acct-kyc-error"><Banner tone="bad" title="Could not start KYC">{error}</Banner></div> : null}
+      </section>
     </main>
   );
 }
@@ -10124,114 +12430,188 @@ const faqSections: FaqSection[] = [
   }
 ];
 
-function FaqContent() {
+function FaqContent({ variant = "portal", footer }: { variant?: "portal" | "site"; footer?: ReactNode }) {
   const [open, setOpen] = useState("0-0");
-  return (
-    <>
-      <div className="page-head">
-        <div>
-          <h1>Help & FAQ</h1>
-          <div className="ph-sub">
-            Plain-English answers on onboarding, balances, orders, risk, FX, documents and the secondary market.
+  const site = variant === "site";
+  const title = "Help & FAQ";
+  const description = "Plain-English answers on onboarding, balances, orders, risk, FX, documents and the secondary market.";
+  const sectionId = (index: number) => `faq-topic-${index + 1}`;
+
+  const intro = (
+    <div className="faq-intro">
+      <div>
+        <div className="eyebrow">Before investing</div>
+        <h2>Know the operating rules before moving money</h2>
+        <p>
+          {platformName} is built for peer-to-peer business lending. These answers summarize the user-facing
+          flow; the legally binding wording is the document version you accept in the platform.
+        </p>
+      </div>
+    </div>
+  );
+
+  const support = (
+    <div className="faq-support">
+      <div className="faq-support-title">Need help?</div>
+      <a href={`mailto:${supportEmail}`}>{supportEmail}</a>
+    </div>
+  );
+
+  const sections = (
+    <div className="faq-sections">
+      {faqSections.map((section, sectionIndex) => (
+        <section aria-labelledby={`${sectionId(sectionIndex)}-title`} className="faq-section" id={sectionId(sectionIndex)} key={section.title}>
+          <div className="faq-section-head">
+            <h2 id={`${sectionId(sectionIndex)}-title`}>{section.title}</h2>
+            <p>{section.summary}</p>
           </div>
-        </div>
-      </div>
-      <div className="faq-intro">
-        <div>
-          <div className="eyebrow">Before investing</div>
-          <h2>Know the operating rules before moving money</h2>
-          <p>
-            {platformName} is built for peer-to-peer business lending. These answers summarize the user-facing
-            flow; the legally binding wording is the document version you accept in the platform.
-          </p>
-        </div>
-        <div className="faq-support">
-          <div className="muted">Need help?</div>
-          <a className="mono" href={`mailto:${supportEmail}`}>{supportEmail}</a>
-        </div>
-      </div>
-      <div className="faq-sections">
-        {faqSections.map((section, sectionIndex) => (
-          <Card key={section.title}>
-            <div className="faq-section-head">
-              <div>
-                <h2>{section.title}</h2>
-                <p>{section.summary}</p>
-              </div>
-            </div>
+          <div className="faq-rows">
             {section.items.map((item, itemIndex) => {
               const key = `${sectionIndex}-${itemIndex}`;
               const isOpen = open === key;
+              const answerId = `faq-answer-${key}`;
               return (
-                <div className="faq-row" key={item.question}>
+                <div className={`faq-row ${isOpen ? "open" : ""}`} key={item.question}>
                   <button
+                    aria-controls={isOpen ? answerId : undefined}
+                    aria-expanded={isOpen}
                     className="faq-q"
                     onClick={() => setOpen(isOpen ? "" : key)}
                     type="button"
                   >
                     <span>{item.question}</span>
-                    <Icon className="muted" name={isOpen ? "chevD" : "chevR"} size={16} />
+                    <Icon className="faq-q-icon" name={isOpen ? "minus" : "plus"} size={18} />
                   </button>
-                  {isOpen ? <div className="faq-a">{item.answer}</div> : null}
+                  {isOpen ? <div className="faq-a" id={answerId}>{item.answer}</div> : null}
                 </div>
               );
             })}
-          </Card>
-        ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+
+  const risk = (
+    <Banner tone="warn" title="Risk warning">
+      Investing through {platformName} involves risk of capital loss, borrower default, late payment,
+      illiquidity, enforcement cost and no guaranteed return.
+    </Banner>
+  );
+
+  if (!site) {
+    return (
+      <div className="faq-v-portal">
+        <PageHead description={description} title={title} />
+        <div className="faq-layout">
+          <div className="faq-main">
+            {intro}
+            {sections}
+            {risk}
+          </div>
+          <aside className="faq-aside">{support}</aside>
+        </div>
+        {footer}
       </div>
-      <Banner tone="warn" title="Risk warning">
-        Investing through {platformName} involves risk of capital loss, borrower default, late payment,
-        illiquidity, enforcement cost and no guaranteed return.
-      </Banner>
-    </>
+    );
+  }
+
+  return (
+    <div className="faq-v-site">
+      <section className="site-page-head">
+        <div className="site-wrap">
+          <span className="site-eyebrow">Help</span>
+          <h1 className="site-h1">{title}</h1>
+          <p className="site-lead">{description}</p>
+        </div>
+      </section>
+      <section className="site-section no-rule site-flush-top">
+        <div className="site-wrap site-sidebar-layout">
+          <nav aria-label="Topics" className="site-side-nav">
+            <ul>
+              {faqSections.map((section, sectionIndex) => (
+                <li key={section.title}>
+                  <a
+                    href={`#${sectionId(sectionIndex)}`}
+                    onClick={(event) => {
+                      const target = document.getElementById(sectionId(sectionIndex));
+                      if (!target) return;
+                      event.preventDefault();
+                      siteScrollTo(target);
+                    }}
+                  >
+                    {section.title}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+          <div className="faq-main">
+            {intro}
+            {sections}
+            {risk}
+            <div className="site-box is-ink-rule faq-still">
+              <h2 className="site-h4">Need help?</h2>
+              <p className="site-text">
+                Write to <a href={`mailto:${supportEmail}`}>{supportEmail}</a>.
+              </p>
+              {footer}
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
   );
 }
 
 function PublicFaqPage({ setRoute }: { setRoute: (route: AppRoute) => void }) {
   return (
-    <div className="public">
-      <header className="public-top">
-        <Wordmark />
-        <div className="grow" />
-        <nav className="public-nav" aria-label="Public navigation">
-          <a href="/" onClick={(event) => { event.preventDefault(); goTo(setRoute, "public"); }}>Investment opportunities preview</a>
-          <span aria-current="page">FAQ</span>
-        </nav>
-        <Button variant="ghost" onClick={() => goTo(setRoute, "login")}>
-          Log in
-        </Button>
-        <Button variant="primary" onClick={() => goTo(setRoute, "register")}>
-          Register
-        </Button>
-      </header>
-      <main className="public-body public-faq">
-        <div className="public-mobile-links" aria-label="Public links">
-          <button className="btn-link" onClick={() => goTo(setRoute, "public")} type="button">
-            Investment opportunities preview
-          </button>
-          <button className="btn-link" onClick={() => goTo(setRoute, "register")} type="button">
-            Register
-          </button>
-        </div>
-        <FaqContent />
-        <div className="faq-cta">
-          <Button variant="ghost" onClick={() => goTo(setRoute, "public")}>Back to marketplace</Button>
-          <Button variant="primary" onClick={() => goTo(setRoute, "register")}>Create lender account</Button>
-        </div>
-      </main>
-    </div>
+    <SiteShell active="help" setRoute={setRoute}>
+      <FaqContent
+        footer={
+          <div className="faq-cta">
+            <Button className="site-btn-outline" onClick={() => goTo(setRoute, "publicProjects")}>Back to marketplace</Button>
+            <Button variant="primary" onClick={() => goTo(setRoute, "register")}>Create lender account</Button>
+          </div>
+        }
+        variant="site"
+      />
+    </SiteShell>
   );
 }
 
+// Portal Help page (design "help"): FaqContent is shared with the public FAQ,
+// so it is wrapped here and left unchanged. Its own page head repeats this
+// page head and is hidden inside the wrapper (see skin/account.css).
 function FaqScreen() {
   return (
-    <main className="content narrow">
-      <FaqContent />
+    <main className="content acct-page portal-help">
+      <PageHead
+        description="Plain-English answers on onboarding, balances, orders, risk, FX, documents and the secondary market."
+        title="Help"
+      />
+      <div className="portal-help-grid">
+        <section aria-labelledby="portal-help-questions" className="card portal-help-faq">
+          <div className="card-head"><h2 id="portal-help-questions">Questions</h2></div>
+          <div className="portal-help-faq-body">
+            <FaqContent />
+          </div>
+        </section>
+        <aside className="portal-help-aside">
+          <section aria-labelledby="portal-help-contact" className="card portal-help-contact">
+            <div className="card-head"><h2 id="portal-help-contact">Contact us</h2></div>
+            <dl className="portal-help-kv">
+              <div><dt>Email</dt><dd><a href={`mailto:${supportEmail}`}>{supportEmail}</a></dd></div>
+              <div><dt>Operator</dt><dd>{operatorName}</dd></div>
+            </dl>
+          </section>
+        </aside>
+      </div>
     </main>
   );
 }
 
-function LegalDocumentPage() {
+function LegalDocumentPage({ setRoute }: { setRoute: (route: AppRoute) => void }) {
   const category = window.location.pathname
     .replace(/^\/legal\//, "")
     .replace(/\/+$/, "")
@@ -10270,82 +12650,266 @@ function LegalDocumentPage() {
     }
   };
 
+  const documentNav = (
+    <nav aria-label="Legal documents" className="site-side-nav">
+      <ul>
+        {Object.keys(legalDocumentTitles).map((item) => (
+          <li key={item}>
+            <a
+              aria-current={item === category ? "page" : undefined}
+              className={item === category ? "active" : undefined}
+              href={legalDocumentPath(item)}
+            >
+              {legalDocumentTitles[item]}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+
   return (
-    <div className="public">
-      <header className="public-top">
-        <Wordmark />
-        <div className="grow" />
-        <Button variant="ghost" onClick={() => window.location.assign("/")}>Open {platformName}</Button>
-      </header>
-      <main className="public-body legal-doc">
-        {!known ? (
-          <Card padded>
-            <Empty icon="doc" title="Document not found">
-              This document address is not recognized. Open {platformName} and use the links in each flow.
-            </Empty>
-          </Card>
-        ) : (
-          <>
-            <div className="page-head">
-              <div>
-                <h1>{title}</h1>
-                <div className="ph-sub">
-                  The exact server-published version you accept in the platform. Values in brackets are
-                  filled with your transaction data at acceptance time.
-                </div>
+    <SiteShell setRoute={setRoute}>
+      <div className="legal-doc">
+        <section className="site-page-head">
+          <div className="site-wrap">
+            <span className="site-eyebrow">Legal</span>
+            <h1 className="site-h1">{known ? title : "Legal documents"}</h1>
+            {known ? (
+              <p className="site-lead">
+                The exact server-published version you accept in the platform. Values in brackets are
+                filled with your transaction data at acceptance time.
+              </p>
+            ) : null}
+          </div>
+        </section>
+        <section className="site-section no-rule site-flush-top">
+          <div className="site-wrap site-sidebar-layout">
+            {documentNav}
+            {!known ? (
+              <div className="site-box">
+                <Empty icon="doc" title="Document not found">
+                  This document address is not recognized. Open {platformName} and use the links in each flow.
+                </Empty>
               </div>
-              <Button disabled={downloading || isFixturePreview} icon="doc" variant="primary" onClick={download}>
-                {downloading ? "Preparing PDF..." : "Download PDF"}
-              </Button>
-            </div>
-            {downloadError ? <Banner tone="bad" title="Download failed">{downloadError}</Banner> : null}
-            <Card padded>
-              {isFixturePreview ? (
-                <p className="muted">Preview mode: live document content loads from the published server template.</p>
-              ) : templateQuery.isLoading ? (
-                <p className="muted">Loading the current published document...</p>
-              ) : doc ? (
-                <>
-                  <div className="legal-doc-meta">
-                    <Chip status={`v${doc.version_number}`} tone="info" />
-                    <span className="muted mono">hash {doc.content_hash.slice(0, 16)}</span>
-                    {doc.published_at ? (
-                      <span className="muted">published {formatDate(doc.published_at)}</span>
-                    ) : null}
-                  </div>
-                  <div className="legal-document-preview legal-doc-body">{renderLegalBody(doc.body)}</div>
-                  {Array.isArray(doc.checkbox_labels) && doc.checkbox_labels.length > 0 ? (
-                    <div className="legal-doc-acks">
-                      <h5>You will be asked to confirm</h5>
-                      <ul>
-                        {(doc.checkbox_labels as string[]).map((label) => (
-                          <li key={label}>{label}</li>
-                        ))}
-                      </ul>
+            ) : (
+              <div className="site-prose">
+                <div className="site-doc-meta">
+                  {doc ? (
+                    <div className="legal-doc-meta">
+                      <Chip status={`v${doc.version_number}`} tone="info" />
+                      <span>hash {doc.content_hash.slice(0, 16)}</span>
+                      {doc.published_at ? <span>published {formatDate(doc.published_at)}</span> : null}
                     </div>
-                  ) : null}
-                </>
-              ) : (
-                <Banner tone="bad" title="Document unavailable">
-                  The current published document could not be loaded. Retry, or contact {supportEmail}.
-                </Banner>
-              )}
-            </Card>
-          </>
-        )}
-      </main>
+                  ) : <span />}
+                  <Button disabled={downloading || isFixturePreview} icon="doc" variant="primary" onClick={download}>
+                    {downloading ? "Preparing PDF..." : "Download PDF"}
+                  </Button>
+                </div>
+                {downloadError ? <Banner tone="bad" title="Download failed">{downloadError}</Banner> : null}
+                {isFixturePreview ? (
+                  <p className="site-callout">Preview mode: live document content loads from the published server template.</p>
+                ) : templateQuery.isLoading ? (
+                  <p className="site-callout">Loading the current published document...</p>
+                ) : doc ? (
+                  <>
+                    <div className="legal-document-preview legal-doc-body">{renderLegalBody(doc.body)}</div>
+                    {Array.isArray(doc.checkbox_labels) && doc.checkbox_labels.length > 0 ? (
+                      <div className="legal-doc-acks">
+                        <h2>You will be asked to confirm</h2>
+                        <ul>
+                          {(doc.checkbox_labels as string[]).map((label) => (
+                            <li key={label}>{label}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                  </>
+                ) : templateQuery.error instanceof ApiClientError && templateQuery.error.status === 404 ? (
+                  <Banner icon="doc" tone="info" title="Not yet published">
+                    The current version of this document is being prepared and will appear on this page once it is
+                    published. Questions in the meantime: {supportEmail}.
+                  </Banner>
+                ) : (
+                  <Banner tone="bad" title="Document unavailable">
+                    The current published document could not be loaded. Retry, or contact {supportEmail}.
+                  </Banner>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
+    </SiteShell>
+  );
+}
+
+type InvestStep = "amount" | "review" | "confirm" | "done";
+
+const investStepLabels = ["Amount", "Review and sign", "Done"];
+
+/** Numbered step bar of the invest page. Review and the email confirmation both belong to step 02. */
+function InvestStepBar({ step }: { step: InvestStep }) {
+  const current = step === "amount" ? 0 : step === "done" ? 2 : 1;
+  return (
+    <ol aria-label="Investment steps" className="iv-steps">
+      {investStepLabels.map((label, index) => (
+        <li
+          aria-current={index === current ? "step" : undefined}
+          className={`iv-step${index < current ? " is-done" : ""}${index === current ? " is-current" : ""}`}
+          key={label}
+        >
+          <span className="iv-step-index">{String(index + 1).padStart(2, "0")}</span>
+          <span className="iv-step-label">{label}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/**
+ * Page frame of the invest flow (design: project > Invest): page head, step bar, alerts, the form on
+ * the left and the "Your investment" summary card with the actions in its grey footer on the right.
+ */
+function InvestPageFrame({
+  loan,
+  title,
+  step,
+  onBack,
+  alerts,
+  summary,
+  footer,
+  children
+}: {
+  loan: MarketplaceLoanDetail;
+  title: string;
+  step: InvestStep;
+  onBack: () => void;
+  alerts?: ReactNode;
+  summary: Array<ComponentProps<typeof Review>["rows"]>;
+  footer?: ReactNode;
+  children: ReactNode;
+}) {
+  const counterparty = isOriginatorClaimLoan(loan) ? loan.originator_name : borrowerDisclosureForLoan(loan).legal_name;
+  return (
+    <main className="content iv-page">
+      <PageHead
+        back={{ label: loan.title, onClick: onBack }}
+        description={counterparty && counterparty !== loan.title ? `${loan.title} · ${counterparty}` : loan.title}
+        title={title}
+      />
+      <InvestStepBar step={step} />
+      {alerts ? <div className="iv-alerts">{alerts}</div> : null}
+      <div className="iv-grid">
+        <div className="iv-main">{children}</div>
+        <aside className="card iv-summary">
+          {summary.filter((rows) => rows.length > 0).map((rows, index) => (
+            <div className="iv-summary-sec" key={index}>
+              {index === 0 ? <h2 className="iv-summary-title">Your investment</h2> : null}
+              <Review rows={rows} />
+            </div>
+          ))}
+          {footer ? <div className="iv-summary-foot">{footer}</div> : null}
+        </aside>
+      </div>
+    </main>
+  );
+}
+
+/** The loan being invested in (design: chosen project tile at the top of the amount form). */
+function InvestLoanChip({ loan }: { loan: MarketplaceLoanDetail }) {
+  const term = loan.remaining_term_days === null ? `${loan.term_months} mo` : `${loan.remaining_term_days} days`;
+  return (
+    <div className="iv-chosen">
+      <span aria-hidden="true" className="iv-chosen-icon"><Icon name="building" size={26} strokeWidth={1.4} /></span>
+      <span className="iv-chosen-info">
+        <span className="iv-chosen-name">{loan.title}</span>
+        <span className="iv-chosen-text">
+          {formatRateBps(marketplaceYieldBps(loan))} p.a. · {term} · {loan.currency} {formatMoneyMinor(marketplaceAvailableMinor(loan), loan.currency)} available now
+        </span>
+      </span>
     </div>
   );
 }
 
-function OriginatorClaimInvestModal({ loan, onClose, initialAmount }: { loan: MarketplaceLoanDetail; onClose: () => void; initialAmount?: string }) {
+/** Large pill amount input with the currency on the right (design: invest amount field). */
+function InvestAmountInput({ currency, label, value, onChange }: { currency: string; label: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <div className="iv-amount">
+      <input
+        aria-label={label}
+        className="input mono iv-amount-input"
+        inputMode="decimal"
+        onChange={(event) => onChange(event.target.value.replace(/[^0-9.]/g, ""))}
+        placeholder="0.00"
+        value={value}
+      />
+      <span aria-hidden="true" className="iv-amount-ccy">{currency}</span>
+    </div>
+  );
+}
+
+/** Where the money comes from (design: "Paid from" block). */
+function InvestPaidFrom({ currency, investableBalanceMinor }: { currency: string; investableBalanceMinor: number }) {
+  return (
+    <div className="iv-field">
+      <div className="iv-label">Paid from</div>
+      <div className="iv-chosen">
+        <span aria-hidden="true" className="iv-chosen-icon"><Icon name="wallet" size={26} strokeWidth={1.4} /></span>
+        <span className="iv-chosen-info">
+          <span className="iv-chosen-name">Investable {currency} balance</span>
+          <span className="iv-chosen-text mono">{currency} {formatMoneyMinor(investableBalanceMinor, currency)}</span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** Success state of the invest page with the ways onward. */
+function InvestDone({
+  title,
+  children,
+  onBackToLoan,
+  setRoute
+}: {
+  title: string;
+  children: ReactNode;
+  onBackToLoan: () => void;
+  setRoute: (route: AppRoute) => void;
+}) {
+  return (
+    <div className="card iv-card iv-done">
+      <SuccessState title={title}>{children}</SuccessState>
+      <div className="iv-actions">
+        <Button variant="primary" onClick={() => goTo(setRoute, "portfolio")}>My investments</Button>
+        <Button onClick={onBackToLoan}>Back to the loan</Button>
+        <Button onClick={() => goTo(setRoute, "market")}>Primary market</Button>
+      </div>
+    </div>
+  );
+}
+
+/** Legacy originator-claim purchase (immediate assignment): amount, executable quote, email code, done. */
+function OriginatorClaimInvestFlow({
+  loan,
+  onClose,
+  initialAmount,
+  setRoute
+}: {
+  loan: MarketplaceLoanDetail;
+  onClose: () => void;
+  initialAmount?: string;
+  setRoute: (route: AppRoute) => void;
+}) {
   const queryClient = useQueryClient();
   const balances = useBalancesData().data;
   const investableLots = currentInvestableLotsForLoanCurrency(balances?.lots, loan);
   const investableBalanceMinor = sumLotAvailableMinor(investableLots);
   const maxInvest = Math.min(investableBalanceMinor, loan.fillable_amount_minor);
+  const funds = { balanceMinor: currencyBalanceMinor(balances?.lots, loan.currency), eligibleMinor: investableBalanceMinor };
+  const fundsBlock = noEligibleFundsReason(loan.currency, funds);
   const [amount, setAmount] = useState(initialAmount ?? "");
-  const [step, setStep] = useState<"amount" | "review" | "confirm" | "done">("amount");
+  const [step, setStep] = useState<InvestStep>("amount");
   const [ack1, setAck1] = useState(false);
   const [ack2, setAck2] = useState(false);
   const [code, setCode] = useState("");
@@ -10368,9 +12932,13 @@ function OriginatorClaimInvestModal({ loan, onClose, initialAmount }: { loan: Ma
   const amountError = parsedAmount.error
     ?? (amountMinor > 0 && amountMinor < loan.minimum_investment_minor
       ? `Minimum investment is ${loan.currency} ${formatMoneyMinor(loan.minimum_investment_minor, loan.currency)}.`
-      : amountMinor > maxInvest
-        ? "Exceeds investable balance or the executable amount currently available."
-        : undefined);
+      : investAmountLimitMessage({
+          amountMinor,
+          capacityMinor: loan.fillable_amount_minor,
+          currency: loan.currency,
+          funds,
+          money: (minor) => `${loan.currency} ${formatMoneyMinor(minor, loan.currency)}`
+        }) ?? undefined);
 
   const requestQuote = async () => {
     setError("");
@@ -10475,81 +13043,146 @@ function OriginatorClaimInvestModal({ loan, onClose, initialAmount }: { loan: Ma
 
   const busy = quoteMutation.isPending || acceptanceMutation.isPending || purchaseMutation.isPending;
   const footer = step === "done"
-    ? <Button variant="primary" onClick={onClose}>Done</Button>
+    ? null
     : step === "confirm"
-      ? <><Button variant="ghost" onClick={() => setStep("review")}>Back</Button><Button disabled={code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || busy} variant="primary" onClick={() => void confirmPurchase()}>{busy ? "Purchasing..." : "Purchase claim"}</Button></>
+      ? <><Button onClick={() => setStep("review")}>Back</Button><Button disabled={code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || busy} variant="primary" onClick={() => void confirmPurchase()}>{busy ? "Purchasing..." : "Purchase claim"}</Button></>
       : step === "review"
-        ? <><Button variant="ghost" onClick={() => { setQuote(null); setStep("amount"); }}>Reprice</Button><Button disabled={!ack1 || !ack2 || !quote} variant="primary" onClick={() => setStep("confirm")}>Continue</Button></>
-        : <><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={amountMinor <= 0 || Boolean(amountError) || quoteMutation.isPending} variant="primary" onClick={() => void requestQuote()}>{quoteMutation.isPending ? "Pricing..." : "Get executable quote"}</Button></>;
+        ? <><Button onClick={() => { setQuote(null); setStep("amount"); }}>Reprice</Button><Button disabled={!ack1 || !ack2 || !quote} variant="primary" onClick={() => setStep("confirm")}>Continue</Button></>
+        : <><Button onClick={onClose}>Cancel</Button><Button disabled={amountMinor <= 0 || Boolean(amountError) || quoteMutation.isPending} variant="primary" onClick={() => void requestQuote()}>{quoteMutation.isPending ? "Pricing..." : "Get executable quote"}</Button></>;
+
+  const amountRows = [
+    { label: "Investor yield", value: `${formatRateBps(loan.yield_bps)} effective annual · ACT/365` },
+    { label: "Underlying borrower coupon", value: `${formatRateBps(loan.underlying_interest_rate_bps)} p.a.` },
+    { label: "Maturity", value: loan.maturity_date ? formatDate(loan.maturity_date) : "Not available" },
+    { label: "Available claim principal", value: `${loan.currency} ${formatMoneyMinor(loan.remaining_capacity_minor, loan.currency)}` }
+  ];
+  // Summary card: the claim details first, then the amounts (design: overview, then amount rows).
+  const quoteRows = quote ? [
+    [
+      { label: "Loan", value: loan.title },
+      { label: "Loan originator", value: loan.originator_name || "Loan originator" },
+      { label: "Target yield", value: `${formatRateBps(quote.target_yield_bps)} effective annual · ACT/365` },
+      { label: "Entitlement starts", value: formatDateTime(quote.entitlement_start_at) }
+    ],
+    [
+      { label: "Cash consideration", value: `${quote.currency} ${formatMoneyMinor(quote.executable_cash_minor, quote.currency)}` },
+      { label: "Legal principal assigned", value: `${quote.currency} ${formatMoneyMinor(quote.assigned_principal_minor, quote.currency)}` },
+      { label: quote.premium_discount_minor >= 0 ? "Premium" : "Discount", value: `${quote.currency} ${formatMoneyMinor(Math.abs(quote.premium_discount_minor), quote.currency)}` }
+    ]
+  ] : [];
+  const confirmRows = quote ? [
+    [
+      { label: "Yield", value: formatRateBps(quote.target_yield_bps) },
+      { label: "Quote expires", value: formatDateTime(quote.expires_at) }
+    ],
+    [
+      { label: "Cash consideration", value: `${quote.currency} ${formatMoneyMinor(quote.executable_cash_minor, quote.currency)}` },
+      { label: "Principal assigned", value: `${quote.currency} ${formatMoneyMinor(quote.assigned_principal_minor, quote.currency)}` }
+    ]
+  ] : [];
+  const summaryRows = step === "amount" || !quote ? [amountRows] : step === "confirm" ? confirmRows : quoteRows;
 
   return (
-    <Modal footer={footer} onClose={onClose} title={step === "done" ? "Claim purchased" : `Buy claim - ${loan.title}`} wide>
+    <InvestPageFrame
+      alerts={step === "amount" && fundsBlock
+        ? <Banner tone="bad" title={fundsBlock.title}>{fundsBlock.detail}</Banner>
+        : undefined}
+      footer={footer}
+      loan={loan}
+      onBack={onClose}
+      step={step}
+      summary={summaryRows}
+      title="Buy claim"
+    >
       {step === "amount" ? (
-        <div className="col gap-16">
+        <div className="iv-form">
           <Banner tone="info" title="Immediate legal assignment">
             This is an existing final-borrower loan sold by {loan.originator_name || "the loan originator"}.
             BANXUM prices the remaining cash flows to the displayed yield and assigns the purchased claim immediately.
           </Banner>
-          <div className="row spread"><span className="muted">Investable {loan.currency} balance</span><span className="mono col-strong">{loan.currency} {formatMoneyMinor(investableBalanceMinor, loan.currency)}</span></div>
-          {investableBalanceMinor === 0 ? <Banner tone="bad" title="No eligible balance for this loan">Use funds whose holding time covers this loan's remaining funding period, or choose a shorter funding window.</Banner> : null}
+          <InvestLoanChip loan={loan} />
           <Field error={amountError} hint={`Minimum ${loan.currency} ${formatMoneyMinor(loan.minimum_investment_minor, loan.currency)} · up to ${loan.currency} ${formatMoneyMinor(maxInvest, loan.currency)}`} label="Cash amount to invest">
-            <div className="input-affix"><span className="prefix">{loan.currency}</span><input className="input mono" inputMode="decimal" onChange={(event) => setAmount(event.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" style={{ paddingLeft: 44 }} value={amount} /></div>
+            <InvestAmountInput currency={loan.currency} label="Cash amount to invest" value={amount} onChange={setAmount} />
           </Field>
-          <Review rows={[
-            { label: "Investor yield", value: `${formatRateBps(loan.yield_bps)} effective annual · ACT/365` },
-            { label: "Underlying borrower coupon", value: `${formatRateBps(loan.underlying_interest_rate_bps)} p.a.` },
-            { label: "Maturity", value: loan.maturity_date ? formatDate(loan.maturity_date) : "Not available" },
-            { label: "Available claim principal", value: `${loan.currency} ${formatMoneyMinor(loan.remaining_capacity_minor, loan.currency)}` }
-          ]} />
+          <InvestPaidFrom currency={loan.currency} investableBalanceMinor={investableBalanceMinor} />
           {error ? <Banner tone="bad" title="Could not price this claim">{error}</Banner> : null}
         </div>
       ) : step === "review" && quote ? (
-        <div className="col gap-16">
+        <div className="iv-form">
           <Banner tone="neutral" title="Executable for five minutes">
             The cash price changes as time passes or the borrower repays. This quote expires {formatDateTime(quote.expires_at)}.
           </Banner>
-          <Review rows={[
-            { label: "Loan", value: loan.title },
-            { label: "Loan originator", value: loan.originator_name || "Loan originator" },
-            { label: "Cash consideration", value: `${quote.currency} ${formatMoneyMinor(quote.executable_cash_minor, quote.currency)}` },
-            { label: "Legal principal assigned", value: `${quote.currency} ${formatMoneyMinor(quote.assigned_principal_minor, quote.currency)}` },
-            { label: quote.premium_discount_minor >= 0 ? "Premium" : "Discount", value: `${quote.currency} ${formatMoneyMinor(Math.abs(quote.premium_discount_minor), quote.currency)}` },
-            { label: "Target yield", value: `${formatRateBps(quote.target_yield_bps)} effective annual · ACT/365` },
-            { label: "Entitlement starts", value: formatDateTime(quote.entitlement_start_at) }
-          ]} />
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 8 }}>Your quoted cash flows</div>
+          <div className="card iv-card iv-flows">
+            <div className="eyebrow iv-card-cap">Your quoted cash flows</div>
             <div className="tbl-wrap">
               <table className="tbl"><thead><tr><th className="num">#</th><th>Due date</th><th className="num">Principal</th><th className="num">Interest</th><th className="num">Total</th></tr></thead><tbody>{quote.cash_flows.map((flow) => <tr key={`${flow.installment_number}-${flow.due_date}`}><td className="num muted">{flow.installment_number}</td><td>{formatDate(flow.due_date)}</td><td className="num">{formatMoneyMinor(flow.principal_minor, quote.currency)}</td><td className="num">{formatMoneyMinor(flow.interest_minor, quote.currency)}</td><td className="num col-strong">{formatMoneyMinor(flow.total_minor, quote.currency)}</td></tr>)}</tbody><tfoot className="schedule-totals"><tr><th colSpan={2}>Totals</th><th className="num">{formatMoneyMinor(quote.cash_flows.reduce((sum, row) => sum + row.principal_minor, 0), quote.currency)}</th><th className="num">{formatMoneyMinor(quote.cash_flows.reduce((sum, row) => sum + row.interest_minor, 0), quote.currency)}</th><th className="num">{formatMoneyMinor(quote.cash_flows.reduce((sum, row) => sum + row.total_minor, 0), quote.currency)}</th></tr></tfoot></table>
             </div>
           </div>
-          <Check checked={ack1} id="originator-claim-ack-1" onChange={setAck1}>I accept the <LegalDocLink category="primary_market_investment">primary-market investment terms and claim assignment</LegalDocLink>.</Check>
-          <Check checked={ack2} id="originator-claim-ack-2" onChange={setAck2}>I acknowledge the <LegalDocLink category="risk_disclosure">risk disclosure</LegalDocLink>, originator servicing structure and possible capital loss.</Check>
-          {!isFixturePreview && termsQuery.isError ? <Banner tone="bad" title="Investment terms unavailable">The current server-published investment terms could not be loaded.</Banner> : null}
+          <div className="card iv-card iv-sign">
+            <Check checked={ack1} id="originator-claim-ack-1" onChange={setAck1}>I accept the <LegalDocLink category="primary_market_investment">primary-market investment terms and claim assignment</LegalDocLink>.</Check>
+            <Check checked={ack2} id="originator-claim-ack-2" onChange={setAck2}>I acknowledge the <LegalDocLink category="risk_disclosure">risk disclosure</LegalDocLink>, originator servicing structure and possible capital loss.</Check>
+            {!isFixturePreview && termsQuery.isError ? <Banner tone="bad" title="Investment terms unavailable">The current server-published investment terms could not be loaded.</Banner> : null}
+          </div>
         </div>
       ) : step === "confirm" && quote ? (
-        <div className="col gap-16">
+        <div className="card iv-card iv-form">
           <Banner icon="lock" tone="info" title="Confirm this claim purchase">Enter the 6-digit email confirmation code. A successful confirmation immediately assigns the claim and adds it to your portfolio.</Banner>
-          <Review rows={[{ label: "Cash consideration", value: `${quote.currency} ${formatMoneyMinor(quote.executable_cash_minor, quote.currency)}` }, { label: "Principal assigned", value: `${quote.currency} ${formatMoneyMinor(quote.assigned_principal_minor, quote.currency)}` }, { label: "Yield", value: formatRateBps(quote.target_yield_bps) }, { label: "Quote expires", value: formatDateTime(quote.expires_at) }]} />
           <CodeRequestField hint={previewHint("Demo: any 6 digits")} label="Email confirmation code" requestDisabled={emailCodeRequestDisabled(codeRequest)} requestLabel={emailCodeRequestLabel(codeRequest)} value={code} onChange={setCode} onRequest={codeRequest.requestCode} />
           {codeRequest.error || error ? <Banner tone="bad" title="Could not purchase claim">{codeRequest.error || error}</Banner> : null}
         </div>
       ) : (
-        <SuccessState title="Claim purchased">The assigned final-borrower claim is now in your portfolio. Its immutable acceptance evidence is available in Documents.</SuccessState>
+        <InvestDone setRoute={setRoute} title="Claim purchased" onBackToLoan={onClose}>
+          The assigned final-borrower claim is now in your portfolio. Its immutable acceptance evidence is available in Documents.
+        </InvestDone>
       )}
-    </Modal>
+    </InvestPageFrame>
   );
 }
 
-function InvestModal({ loan, onClose, initialAmount }: { loan: MarketplaceLoanDetail; onClose: () => void; initialAmount?: string }) {
+// Invest flow as a page (design: project > Invest). Route: /marketplace/:loanId/invest.
+function InvestScreen({ loanId, initialAmount, setRoute }: { loanId: string; initialAmount?: string; setRoute: (route: AppRoute) => void }) {
+  const loanQuery = useLoanDetailData(loanId);
+  const loan = loanQuery.data;
+  if (loanQuery.isError && !loan) {
+    return (
+      <ScreenError title="Invest" onRetry={() => void loanQuery.refetch()}>
+        We could not load this loan detail. Return to the marketplace or retry after the API is reachable.
+      </ScreenError>
+    );
+  }
+  if (!loan) return <ScreenLoading title="Invest" />;
+  const backToLoan = () => goTo(setRoute, "loan", { loanId: loan.loan_id });
+  // A new loan or a new handed-over amount starts a fresh flow (new idempotency keys).
+  const flowKey = `${loan.loan_id}:${initialAmount ?? ""}`;
+  return usesImmediateClaimAssignment(loan) ? (
+    <OriginatorClaimInvestFlow initialAmount={initialAmount} key={flowKey} loan={loan} onClose={backToLoan} setRoute={setRoute} />
+  ) : (
+    <InvestFlow initialAmount={initialAmount} key={flowKey} loan={loan} onClose={backToLoan} setRoute={setRoute} />
+  );
+}
+
+/** Primary-market order (direct loans and Loan Originator subscriptions): amount, review, email code, done. */
+function InvestFlow({
+  loan,
+  onClose,
+  initialAmount,
+  setRoute
+}: {
+  loan: MarketplaceLoanDetail;
+  onClose: () => void;
+  initialAmount?: string;
+  setRoute: (route: AppRoute) => void;
+}) {
   const queryClient = useQueryClient();
   const subscriptionClaim = usesOriginatorSubscription(loan);
   const balances = useBalancesData().data;
   const investableLots = currentInvestableLotsForLoanCurrency(balances?.lots, loan);
   const investableBalanceMinor = sumLotAvailableMinor(investableLots);
   const maxInvest = Math.min(investableBalanceMinor, loan.remaining_capacity_minor);
+  const funds = { balanceMinor: currencyBalanceMinor(balances?.lots, loan.currency), eligibleMinor: investableBalanceMinor };
+  const fundsBlock = noEligibleFundsReason(loan.currency, funds);
   const [amount, setAmount] = useState(initialAmount ?? "");
-  const [step, setStep] = useState<"amount" | "review" | "confirm" | "done">(initialAmount ? "review" : "amount");
+  const [step, setStep] = useState<InvestStep>(initialAmount ? "review" : "amount");
   const [ack1, setAck1] = useState(false);
   const [ack2, setAck2] = useState(false);
   const [code, setCode] = useState("");
@@ -10574,89 +13207,124 @@ function InvestModal({ loan, onClose, initialAmount }: { loan: MarketplaceLoanDe
     parsedAmount.error ??
     (amountMinor > 0 && amountMinor < loan.minimum_investment_minor
       ? `Minimum order is ${loan.currency} ${formatMoneyMinor(loan.minimum_investment_minor, loan.currency)}.`
-      : amountMinor > maxInvest
-        ? "Exceeds investable balance or remaining capacity."
-        : undefined);
+      : investAmountLimitMessage({
+          amountMinor,
+          capacityMinor: loan.remaining_capacity_minor,
+          currency: loan.currency,
+          funds,
+          money: (minor) => `${loan.currency} ${formatMoneyMinor(minor, loan.currency)}`
+        }) ?? undefined);
+  const submitting = orderMutation.isPending || acceptanceMutation.isPending || allocateMutation.isPending;
+
+  const confirmOrder = async () => {
+    setError("");
+    if (isFixturePreview) {
+      setStep("done");
+      return;
+    }
+    const labels = templateLabels(termsQuery.data);
+    if (!termsQuery.data || labels.length === 0) {
+      setError("Current investment terms are not available. Retry after the document template is published.");
+      return;
+    }
+    if (!codeRequest.codeId) {
+      setError("Request an email code before confirming the order.");
+      return;
+    }
+    try {
+      const order = orderId
+        ? { id: orderId }
+        : await orderMutation.mutateAsync({
+            data: {
+              loan_id: loan.loan_id,
+              amount_minor: amountMinor,
+              idempotency_key: orderKey
+            }
+          });
+      const createdOrderId = order.id;
+      setOrderId(createdOrderId);
+      const acceptance = acceptanceId
+        ? { id: acceptanceId }
+        : await acceptanceMutation.mutateAsync({
+            data: {
+              category: CategoryEnum.primary_market_investment,
+              expected_template_version_id: termsQuery.data.id,
+              accepted_checkbox_labels: labels,
+              context_type: "primary_order",
+              context_id: createdOrderId,
+              data_snapshot: {
+                loan_id: loan.loan_id,
+                amount_minor: amountMinor,
+                currency: loan.currency
+              },
+              idempotency_key: acceptanceKey
+            }
+          });
+      setAcceptanceId(acceptance.id);
+      await allocateMutation.mutateAsync({
+        orderId: createdOrderId,
+        data: {
+          document_acceptance_id: acceptance.id,
+          idempotency_key: allocationKey,
+          sensitive_action_code_id: codeRequest.codeId,
+          sensitive_action_code: code
+        }
+      });
+      void queryClient.invalidateQueries();
+      setStep("done");
+    } catch (mutationError) {
+      setError(apiErrorMessage(mutationError));
+    }
+  };
+
   const footer = step === "done"
-    ? <Button variant="primary" onClick={onClose}>Done</Button>
+    ? null
     : step === "confirm"
-      ? <><Button variant="ghost" onClick={() => setStep("review")}>Back</Button><Button disabled={code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || orderMutation.isPending || acceptanceMutation.isPending || allocateMutation.isPending} variant="primary" onClick={async () => {
-          setError("");
-          if (isFixturePreview) {
-            setStep("done");
-            return;
-          }
-          const labels = templateLabels(termsQuery.data);
-          if (!termsQuery.data || labels.length === 0) {
-            setError("Current investment terms are not available. Retry after the document template is published.");
-            return;
-          }
-          if (!codeRequest.codeId) {
-            setError("Request an email code before confirming the order.");
-            return;
-          }
-          try {
-            const order = orderId
-              ? { id: orderId }
-              : await orderMutation.mutateAsync({
-                  data: {
-                    loan_id: loan.loan_id,
-                    amount_minor: amountMinor,
-                    idempotency_key: orderKey
-                  }
-                });
-            const createdOrderId = order.id;
-            setOrderId(createdOrderId);
-            const acceptance = acceptanceId
-              ? { id: acceptanceId }
-              : await acceptanceMutation.mutateAsync({
-                  data: {
-                    category: CategoryEnum.primary_market_investment,
-                    expected_template_version_id: termsQuery.data.id,
-                    accepted_checkbox_labels: labels,
-                    context_type: "primary_order",
-                    context_id: createdOrderId,
-                    data_snapshot: {
-                      loan_id: loan.loan_id,
-                      amount_minor: amountMinor,
-                      currency: loan.currency
-                    },
-                    idempotency_key: acceptanceKey
-                  }
-                });
-            setAcceptanceId(acceptance.id);
-            await allocateMutation.mutateAsync({
-              orderId: createdOrderId,
-              data: {
-                document_acceptance_id: acceptance.id,
-                idempotency_key: allocationKey,
-                sensitive_action_code_id: codeRequest.codeId,
-                sensitive_action_code: code
-              }
-            });
-            void queryClient.invalidateQueries();
-            setStep("done");
-          } catch (mutationError) {
-            setError(apiErrorMessage(mutationError));
-          }
-        }}>{orderMutation.isPending || acceptanceMutation.isPending || allocateMutation.isPending ? "Submitting..." : "Confirm order"}</Button></>
+      ? <><Button onClick={() => setStep("review")}>Back</Button><Button disabled={code.length < 6 || (!isFixturePreview && !codeRequest.codeId) || submitting} variant="primary" onClick={() => void confirmOrder()}>{submitting ? "Submitting..." : "Confirm order"}</Button></>
       : step === "review"
-        ? <><Button variant="ghost" onClick={() => setStep("amount")}>Back</Button><Button disabled={!ack1 || !ack2} variant="primary" onClick={() => setStep("confirm")}>Continue</Button></>
-        : <><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={amountMinor < loan.minimum_investment_minor || Boolean(amountError)} variant="primary" onClick={() => setStep("review")}>Review order</Button></>;
+        ? <><Button onClick={() => setStep("amount")}>Back</Button><Button disabled={!ack1 || !ack2} variant="primary" onClick={() => setStep("confirm")}>Continue</Button></>
+        : <><Button onClick={onClose}>Cancel</Button><Button disabled={amountMinor < loan.minimum_investment_minor || Boolean(amountError)} variant="primary" onClick={() => setStep("review")}>Review order</Button></>;
+
+  // Summary card: the loan terms first, then the amounts (design: overview, then amount and fees).
+  const orderRows = [
+    [
+      { label: "Loan", value: <span className="entity-inline"><span>{loan.title}</span><CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" /></span> },
+      ...(subscriptionClaim && loan.originator_name ? [{ label: "Loan Originator", value: loan.originator_name }] : []),
+      { label: subscriptionClaim ? "Nominal investor interest rate" : "Yield", value: `${formatRateBps(marketplaceYieldBps(loan))} p.a.` },
+      ...(subscriptionClaim ? [
+        { label: "Underlying borrower coupon", value: `${formatRateBps(loan.underlying_interest_rate_bps)} p.a.` },
+        { label: "Interest participation", value: formatRateBps(loan.investor_interest_participation_bps ?? 0) },
+        { label: "Penalty participation", value: formatRateBps(loan.investor_penalty_participation_bps ?? 0) },
+        { label: "Funding closes", value: loan.funding_deadline ? formatDate(loan.funding_deadline) : "Not available" },
+        { label: "Boundary installment", value: loan.entitlement_start_date ? formatDate(loan.entitlement_start_date) : "Not available" }
+      ] : [])
+    ],
+    [
+      { label: "Order amount", value: `${loan.currency} ${formatMoneyMinor(amountMinor, loan.currency)}` },
+      { label: subscriptionClaim ? "Principal acquired at funding close" : "Investment amount", value: `${loan.currency} ${formatMoneyMinor(amountMinor, loan.currency)}` },
+      { label: "Platform fee", value: "None" }
+    ]
+  ];
 
   return (
-    <Modal footer={footer} onClose={onClose} title={step === "done" ? "Order placed" : `Invest - ${loan.title}`}>
+    <InvestPageFrame
+      alerts={step === "amount" && fundsBlock ? (
+        <Banner tone="bad" title={fundsBlock.title}>{fundsBlock.detail}</Banner>
+      ) : undefined}
+      footer={footer}
+      loan={loan}
+      onBack={onClose}
+      step={step}
+      summary={orderRows}
+      title="Invest"
+    >
       {step === "amount" ? (
-        <div className="col gap-16">
-          <div className="row spread"><span className="muted">Investable {loan.currency} balance</span><span className="mono col-strong">{loan.currency} {formatMoneyMinor(investableBalanceMinor, loan.currency)}</span></div>
-          {investableBalanceMinor === 0 ? (
-            <Banner tone="bad" title="No investable balance">
-              Use funds whose holding time covers this loan's remaining funding period, or choose a shorter funding window.
-            </Banner>
-          ) : null}
+        <div className="iv-form">
+          <InvestLoanChip loan={loan} />
           <Field error={amountError} hint={`Between ${loan.currency} ${formatMoneyMinor(loan.minimum_investment_minor, loan.currency)} and ${formatMoneyMinor(maxInvest, loan.currency)}`} label="Investment amount">
-            <div className="input-affix"><span className="prefix">{loan.currency}</span><input className="input mono" inputMode="decimal" onChange={(event) => setAmount(event.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" style={{ paddingLeft: 44 }} value={amount} /></div>
+            <InvestAmountInput currency={loan.currency} label="Investment amount" value={amount} onChange={setAmount} />
           </Field>
+          <InvestPaidFrom currency={loan.currency} investableBalanceMinor={investableBalanceMinor} />
           <Banner tone="neutral" title={subscriptionClaim ? "Subscription at par" : "Allocation"}>
             {subscriptionClaim
               ? `Every ${loan.currency} 1.00 buys ${loan.currency} 1.00 of post-boundary principal when funding closes. Holdings activate automatically. No interest accrues during funding, and the boundary installment belongs entirely to the Loan Originator.`
@@ -10664,22 +13332,7 @@ function InvestModal({ loan, onClose, initialAmount }: { loan: MarketplaceLoanDe
           </Banner>
         </div>
       ) : step === "review" ? (
-        <div className="col gap-16">
-          <Review rows={[
-            { label: "Loan", value: <span className="entity-inline"><span>{loan.title}</span><CopyIdButton ariaLabel="Copy loan ID" id={loan.loan_id} label="Copy loan ID" /></span> },
-            ...(subscriptionClaim && loan.originator_name ? [{ label: "Loan Originator", value: loan.originator_name }] : []),
-            { label: "Order amount", value: `${loan.currency} ${formatMoneyMinor(amountMinor, loan.currency)}` },
-            { label: subscriptionClaim ? "Principal acquired at funding close" : "Investment amount", value: `${loan.currency} ${formatMoneyMinor(amountMinor, loan.currency)}` },
-            { label: subscriptionClaim ? "Nominal investor interest rate" : "Yield", value: `${formatRateBps(marketplaceYieldBps(loan))} p.a.` },
-            ...(subscriptionClaim ? [
-              { label: "Underlying borrower coupon", value: `${formatRateBps(loan.underlying_interest_rate_bps)} p.a.` },
-              { label: "Interest participation", value: formatRateBps(loan.investor_interest_participation_bps ?? 0) },
-              { label: "Penalty participation", value: formatRateBps(loan.investor_penalty_participation_bps ?? 0) },
-              { label: "Funding closes", value: loan.funding_deadline ? formatDate(loan.funding_deadline) : "Not available" },
-              { label: "Boundary installment", value: loan.entitlement_start_date ? formatDate(loan.entitlement_start_date) : "Not available" }
-            ] : []),
-            { label: "Platform fee", value: "None" }
-          ]} />
+        <div className="card iv-card iv-sign">
           <Check checked={ack1} id="invest-ack-1" onChange={setAck1}>
             I accept the{" "}
             <LegalDocLink category="primary_market_investment">
@@ -10691,7 +13344,7 @@ function InvestModal({ loan, onClose, initialAmount }: { loan: MarketplaceLoanDe
             I acknowledge the <LegalDocLink category="risk_disclosure">risk disclosure</LegalDocLink> and
             possible capital loss.
           </Check>
-          <p className="muted" style={{ fontSize: 11.5 }}>
+          <p className="iv-note">
             Documents open in a new tab where you can read and download them.{" "}
             {!isFixturePreview && termsQuery.data
               ? `Your acceptance is recorded against ${termsQuery.data.title} v${termsQuery.data.version_number}, timestamp, order amount and loan context.`
@@ -10704,10 +13357,10 @@ function InvestModal({ loan, onClose, initialAmount }: { loan: MarketplaceLoanDe
           ) : null}
         </div>
       ) : step === "confirm" ? (
-        <div className="col gap-16">
+        <div className="card iv-card iv-form">
           <Banner icon="lock" tone="info" title="Confirm a sensitive action">Enter the 6-digit email confirmation code.</Banner>
           {!isFixturePreview && termsQuery.isError ? <Banner tone="bad" title="Investment terms unavailable">The current server-published investment terms could not be loaded.</Banner> : null}
-          {!isFixturePreview && termsQuery.data ? <p className="muted" style={{ fontSize: 11.5 }}>Accepting {termsQuery.data.title} v{termsQuery.data.version_number}.</p> : null}
+          {!isFixturePreview && termsQuery.data ? <p className="iv-note">Accepting {termsQuery.data.title} v{termsQuery.data.version_number}.</p> : null}
           <CodeRequestField
             hint={previewHint("Demo: any 6 digits")}
             label="Email confirmation code"
@@ -10717,22 +13370,22 @@ function InvestModal({ loan, onClose, initialAmount }: { loan: MarketplaceLoanDe
             onChange={setCode}
             onRequest={codeRequest.requestCode}
           />
-          {codeRequest.expiresAt ? <p className="muted" style={{ fontSize: 11.5 }}>Code expires {formatDateTime(codeRequest.expiresAt)}.</p> : null}
+          {codeRequest.expiresAt ? <p className="iv-note">Code expires {formatDateTime(codeRequest.expiresAt)}.</p> : null}
           {codeRequest.error || error ? <Banner tone="bad" title="Could not place order">{codeRequest.error || error}</Banner> : null}
         </div>
       ) : (
-        <SuccessState title="Order placed">
+        <InvestDone setRoute={setRoute} title="Order placed" onBackToLoan={onClose}>
           {subscriptionClaim
             ? "Your balance is reserved for the Loan Originator funding round and becomes an active holding automatically at funding close. The boundary installment belongs entirely to the LO. Reservations are returned if the round is cancelled before close."
             : "Your order is pending allocation. Investment evidence will be added to Documents when generated."}
-        </SuccessState>
+        </InvestDone>
       )}
-    </Modal>
+    </InvestPageFrame>
   );
 }
 
 function KeyValue({ label, value }: { label: string; value: string }) {
-  return <div className="row spread" style={{ fontSize: 13, gap: 12, marginBottom: 8 }}><span className="muted">{label}</span><span className="mono col-strong right">{value}</span></div>;
+  return <div className="lp-kv-line"><span className="lp-kv-k">{label}</span><span className="lp-kv-v">{value}</span></div>;
 }
 
 function KeyValueRow({ label, value, mono = false }: { label: string; value: ReactNode; mono?: boolean }) {

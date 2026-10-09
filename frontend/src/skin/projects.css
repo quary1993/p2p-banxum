@@ -1,0 +1,3135 @@
+/* IP of Webby-Soft SRL. */
+/* User-side skin: projects. All rules are scoped with .bxm (see banxumSkin.css). */
+
+/* ==========================================================================
+   Primary market: page head, balance band, toolbar card
+   ========================================================================== */
+
+.bxm .marketplace-page {
+  margin: 0;
+  max-width: none;
+}
+
+/* The old centred hero is now the design page head. */
+.bxm .page-head.marketplace-intro {
+  margin: 0 0 28px;
+  max-width: none;
+  text-align: left;
+}
+
+.bxm .marketplace-intro .eyebrow {
+  letter-spacing: var(--bxm-label-track);
+  margin-bottom: 10px;
+}
+
+.bxm .marketplace-intro h1 {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  margin: 0;
+}
+
+.bxm .mk-layout-switch button svg {
+  flex: none;
+}
+
+/* "Available to commit": a compact bordered row. */
+.bxm .marketplace-capacity {
+  align-items: center;
+  border-radius: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 28px;
+  margin-bottom: 28px;
+  min-height: 0;
+  padding: 18px 24px;
+}
+
+.bxm .marketplace-capacity-figure {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bxm .marketplace-capacity-label {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-label-track);
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.bxm .marketplace-capacity-amount {
+  align-items: baseline;
+  color: var(--ink);
+  display: flex;
+  font-size: 24px;
+  font-weight: 400;
+  gap: 6px;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.bxm .marketplace-capacity-amount span {
+  color: var(--ink-3);
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.bxm .marketplace-capacity-note {
+  align-self: flex-end;
+  color: var(--ink-3);
+  flex: 1 1 200px;
+  font-size: 13px;
+  line-height: 1.5;
+  padding-bottom: 3px;
+}
+
+.bxm .marketplace-capacity-tools {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.bxm .marketplace-capacity .seg {
+  border: 1px solid var(--line);
+}
+
+.bxm .marketplace-investing-rule {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: var(--font-sans);
+  gap: 10px;
+  height: 36px;
+  min-height: 0;
+  padding: 0 14px 0 18px;
+}
+
+.bxm .marketplace-investing-rule:hover,
+.bxm .marketplace-investing-rule.active:hover {
+  background: var(--bxm-paper);
+  border-color: var(--line);
+}
+
+.bxm .marketplace-investing-rule.active {
+  background: #fff;
+  border-color: var(--line);
+}
+
+.bxm .marketplace-investing-rule-name {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.bxm .marketplace-investing-rule-state,
+.bxm .marketplace-investing-rule.active .marketplace-investing-rule-state {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  color: var(--ink-3);
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 600;
+  height: 20px;
+  letter-spacing: var(--bxm-tag-track);
+  line-height: 1;
+  padding: 0 7px;
+  text-transform: uppercase;
+}
+
+.bxm .marketplace-investing-rule.active .marketplace-investing-rule-state {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+
+.bxm .marketplace-investing-rule-arrow {
+  color: var(--ink-3);
+  margin-left: 0;
+}
+
+/* Toolbar card: section title, filter / sort controls, active filter tokens. */
+.bxm .mk-toolbar {
+  margin-bottom: 28px;
+}
+
+.bxm .mk-toolbar .marketplace-section-head {
+  align-items: flex-start;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  justify-content: space-between;
+  margin: 0;
+  padding: 16px 24px;
+}
+
+.bxm .mk-toolbar .marketplace-section-head .eyebrow {
+  margin-bottom: 6px;
+}
+
+.bxm .mk-toolbar .marketplace-section-head h2 {
+  color: var(--ink);
+  font-size: 16.8px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+  margin: 0;
+}
+
+.bxm .mk-toolbar-body {
+  padding: 16px 24px;
+}
+
+.bxm .fs-controls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0;
+}
+
+.bxm .fs-controls-spacer {
+  flex: 1 1 0;
+}
+
+.bxm .fs-count {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.bxm .fs-count strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* Pill buttons used by Filter and Sort (marketplace and portfolio). */
+.bxm .fs-pill {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  gap: 8px;
+  height: 36px;
+  letter-spacing: 0.02em;
+  padding: 0 16px;
+  white-space: nowrap;
+}
+
+.bxm .fs-pill:hover {
+  background: var(--bxm-paper);
+  border-color: var(--line);
+}
+
+.bxm .fs-pill.on,
+.bxm .fs-pill.on:hover {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+
+.bxm .fs-pill.small {
+  font-size: 12px;
+  height: 30px;
+  padding: 0 14px;
+}
+
+.bxm .fs-pill .fs-caret,
+.bxm .fs-pill .fs-arrows {
+  font-size: 9px;
+  opacity: 0.75;
+}
+
+.bxm .fs-pill .fs-arrows {
+  font-size: 12px;
+}
+
+/* Sort menu: a square dropdown panel with the DashLite shadow. */
+.bxm .fs-sort-wrap {
+  position: relative;
+}
+
+.bxm .fs-menu {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  box-shadow: 0 3px 12px 1px rgba(10, 10, 10, 0.15);
+  min-width: 220px;
+  padding: 6px 0;
+  top: calc(100% + 6px);
+  z-index: 44;
+}
+
+/* On the primary market the Sort pill sits on the left, so its menu opens rightwards. */
+.bxm .marketplace-page .fs-menu {
+  left: 0;
+  right: auto;
+}
+
+.bxm .fs-menu-cap {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-label-track);
+  padding: 8px 18px 6px;
+  text-transform: uppercase;
+}
+
+.bxm .fs-menu-item {
+  align-items: center;
+  border-radius: 0;
+  color: var(--ink-2);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  gap: 12px;
+  padding: 8px 18px;
+}
+
+.bxm .fs-menu-item:hover {
+  background: var(--bxm-paper);
+  color: var(--ink);
+}
+
+.bxm .fs-menu-item.on {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.bxm .fs-menu-item .fs-menu-arrow {
+  color: var(--ink);
+}
+
+/* Sortable column header (marketplace list; the portfolio adds its own size). */
+.bxm .fs-th {
+  border-radius: 0;
+  color: inherit;
+}
+
+.bxm .fs-th:hover {
+  color: var(--ink);
+}
+
+.bxm .fs-th .fs-th-label {
+  border-bottom: 1px dotted #b5b5b5;
+  padding-bottom: 1px;
+}
+
+.bxm .fs-th.on {
+  color: var(--ink);
+}
+
+.bxm .fs-th.on .fs-th-label {
+  border-bottom: 1px solid var(--ink);
+}
+
+.bxm .fs-th .fs-th-arrow {
+  color: var(--ink);
+  font-size: 11px;
+}
+
+/* Active filters as small removable pills. */
+.bxm .marketplace-page .fs-tokens {
+  justify-content: flex-start;
+  margin: 14px 0 0;
+}
+
+.bxm .fs-token {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  gap: 8px;
+  height: 30px;
+  padding: 0 8px 0 14px;
+}
+
+.bxm .fs-token:hover {
+  background: var(--bxm-paper);
+}
+
+.bxm .fs-token .fs-token-x {
+  background: var(--ink);
+  color: #fff;
+  font-size: 11px;
+  height: 16px;
+  width: 16px;
+}
+
+.bxm .marketplace-page .fs-clear-link,
+.bxm .smart-invest-page .fs-clear-link,
+.bxm .si-wiz .fs-clear-link {
+  border: 0;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.bxm .marketplace-page .fs-clear-link:hover,
+.bxm .smart-invest-page .fs-clear-link:hover,
+.bxm .si-wiz .fs-clear-link:hover {
+  color: var(--ink-3);
+}
+
+/* Filter panel: part of the toolbar card, below a rule. */
+.bxm .fs-panel {
+  background: #fff;
+  border: 0;
+  border-radius: 0;
+  border-top: 1px solid var(--line);
+  box-shadow: none;
+  margin: 0;
+  padding: 24px;
+}
+
+.bxm .fs-group-cap {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-label-track);
+  line-height: 1.2;
+}
+
+.bxm .fs-group-x {
+  background: var(--bxm-paper);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  height: 18px;
+  width: 18px;
+}
+
+.bxm .fs-group-x:hover {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+
+.bxm .fs-search-row {
+  margin-bottom: 24px;
+}
+
+.bxm .fs-search-input {
+  background: #fff;
+  border: 1px solid #8a8a8a;
+  border-radius: 999px;
+  color: var(--ink-2);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  height: 40px;
+  margin-top: 10px;
+  max-width: 560px;
+  padding: 0 18px;
+}
+
+.bxm .fs-search-input:focus {
+  border-color: var(--ink);
+  outline: none;
+}
+
+.bxm .fs-sliders {
+  gap: 40px;
+  margin-bottom: 24px;
+}
+
+.bxm .fs-slider-val {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.bxm .fs-hist span {
+  border-radius: 0;
+}
+
+.bxm .fs-range {
+  accent-color: var(--ink);
+}
+
+.bxm .fs-range-ends {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.bxm .fs-groups {
+  border-top: 1px solid var(--line);
+  gap: 22px;
+  padding-top: 24px;
+}
+
+.bxm .fs-group .fs-group-cap {
+  margin-bottom: 10px;
+}
+
+.bxm .fs-chips {
+  gap: 8px;
+}
+
+.bxm .fs-chip {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  gap: 8px;
+  height: 32px;
+  padding: 0 14px;
+}
+
+.bxm .fs-chip:hover {
+  border-color: var(--ink);
+}
+
+.bxm .fs-chip.dim {
+  color: var(--ink-4);
+}
+
+.bxm .fs-chip.on {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+  font-weight: 600;
+}
+
+.bxm .fs-chip .fs-chip-count {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.bxm .fs-chip.on .fs-chip-count {
+  color: #b5b5b5;
+}
+
+.bxm .fs-subgroup {
+  border-left: 1px solid var(--line);
+}
+
+.bxm .fs-subgroup-label {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+/* Multi-select filter groups: a muted "any ..." note while nothing is ticked. */
+.bxm .fs-group-any {
+  color: var(--ink-4);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
+  margin-left: 8px;
+  text-transform: none;
+}
+
+/* A collateral type included by "Any collateral": shown ticked, not clickable. */
+.bxm .fs-chip.implied,
+.bxm .fs-chip.implied:hover {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.bxm .fs-panel-hint {
+  color: var(--ink-3);
+  font-size: 13px;
+  margin: 20px 0 0;
+}
+
+.bxm .fs-panel-foot {
+  border-top: 1px solid var(--line);
+  gap: 12px 16px;
+  margin-top: 24px;
+  padding-top: 20px;
+}
+
+.bxm .fs-panel-note {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.bxm .fs-save-rule,
+.bxm .fs-done,
+.bxm .fs-empty-clear,
+.bxm .fs-empty-rule {
+  align-items: center;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  height: 36px;
+  justify-content: center;
+  letter-spacing: 0.02em;
+  padding: 0 18px;
+  white-space: nowrap;
+}
+
+.bxm .fs-save-rule,
+.bxm .fs-empty-rule {
+  background: #fff;
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+
+.bxm .fs-save-rule:hover,
+.bxm .fs-empty-rule:hover {
+  background: var(--bxm-paper);
+}
+
+.bxm .fs-save-rule:disabled {
+  color: var(--ink-4);
+}
+
+.bxm .fs-done,
+.bxm .fs-empty-clear {
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  color: #fff;
+}
+
+.bxm .fs-done:hover,
+.bxm .fs-empty-clear:hover {
+  background: var(--bxm-graphite);
+}
+
+/* Inline errors: the design alert with a red left rule. */
+.bxm .fs-save-error,
+.bxm .smart-inline-error {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--bxm-signal);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.55;
+  margin-top: 16px;
+  padding: 12px 16px;
+}
+
+/* Empty result */
+.bxm .fs-empty {
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.bxm .fs-empty-copy {
+  color: var(--ink-3);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-style: normal;
+  line-height: 1.6;
+  margin: 0 auto 20px;
+  max-width: 520px;
+}
+
+.bxm .fs-empty-actions {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+/* ==========================================================================
+   Primary market: Cards layout (design "project" cards)
+   ========================================================================== */
+
+.bxm .mk-cards {
+  display: grid;
+  gap: 28px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 768px) {
+  .bxm .mk-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1600px) {
+  .bxm .mk-cards {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.bxm .mk-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 24px;
+}
+
+.bxm .mk-card-head {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.bxm .mk-card-tile {
+  align-items: center;
+  background: var(--ink);
+  color: #fff;
+  display: flex;
+  flex: none;
+  height: 40px;
+  justify-content: center;
+  width: 40px;
+}
+
+.bxm .mk-card-info {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.bxm .mk-card-title {
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.35;
+  margin: 1px 0 2px;
+}
+
+.bxm .mk-card-title button {
+  background: none;
+  border: 0;
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  letter-spacing: inherit;
+  padding: 0;
+  text-align: left;
+}
+
+.bxm .mk-card-title button:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.bxm .mk-card-sub {
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.bxm .mk-card-copy {
+  flex: none;
+  margin: -4px -8px 0 0;
+}
+
+.bxm .mk-card-copy .copy-id-btn.icon-only {
+  color: var(--ink-3);
+  height: 30px;
+  justify-content: center;
+  padding: 0;
+  width: 30px;
+}
+
+.bxm .mk-card-copy .copy-id-btn.icon-only:hover {
+  color: var(--ink);
+}
+
+.bxm .mk-card-tags {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+
+.bxm .mk-card-tags .tag {
+  height: 22px;
+  padding: 0 8px;
+}
+
+.bxm .mk-card-figures {
+  border-bottom: 1px solid var(--line);
+  border-top: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0 0 16px;
+}
+
+.bxm .mk-card-figures > div {
+  min-width: 0;
+  padding: 12px 0;
+}
+
+.bxm .mk-card-figures > div + div {
+  border-left: 1px solid var(--line);
+  padding-left: 14px;
+}
+
+.bxm .mk-card-figures dt {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.3;
+  margin-bottom: 4px;
+}
+
+.bxm .mk-card-figures dd {
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.bxm .mk-card-ccy {
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.bxm .mk-card-progress {
+  margin-top: auto;
+}
+
+.bxm .mk-card-row {
+  color: var(--ink-3);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 4px 12px;
+  justify-content: space-between;
+  line-height: 1.5;
+}
+
+.bxm .mk-card-row strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.bxm .mk-card-progress .bar {
+  height: 3px;
+  margin: 6px 0 10px;
+}
+
+.bxm .mk-card-foot {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  justify-content: space-between;
+  margin-top: 16px;
+}
+
+.bxm .mk-card-when {
+  align-items: flex-start;
+  color: var(--ink-3);
+  display: inline-flex;
+  flex: 1 1 180px;
+  font-size: 13px;
+  gap: 8px;
+  line-height: 1.45;
+  min-width: 0;
+}
+
+.bxm .mk-card-when svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.bxm .mk-card-when strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.bxm .mk-card-go {
+  flex: none;
+  margin-left: auto;
+}
+
+/* ==========================================================================
+   Primary market: List layout (the sortable table, Focused / Detailed)
+   ========================================================================== */
+
+.bxm .marketplace-list {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-top: 1px solid var(--line);
+}
+
+.bxm .marketplace-list-head {
+  background: var(--bxm-paper);
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-tag-track);
+  padding: 12px 16px;
+}
+
+.bxm .marketplace-opportunity:last-child {
+  border-bottom: 0;
+}
+
+.bxm .marketplace-opportunity:hover {
+  background: #fafafa;
+}
+
+.bxm .marketplace-opportunity-hit:focus-visible {
+  border-radius: 0;
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
+}
+
+.bxm .marketplace-opportunity-main {
+  min-height: 73px;
+  padding: 14px 16px;
+}
+
+.bxm .marketplace-opportunity-name > strong {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.bxm .marketplace-opportunity-name > span {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.bxm .marketplace-opportunity-rating strong,
+.bxm .marketplace-opportunity-rate strong,
+.bxm .marketplace-opportunity-term strong,
+.bxm .marketplace-opportunity-collateral strong,
+.bxm .marketplace-opportunity-deadline strong {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.bxm .marketplace-opportunity-rate small,
+.bxm .marketplace-opportunity-term small,
+.bxm .marketplace-opportunity-collateral small,
+.bxm .marketplace-opportunity-funding small,
+.bxm .marketplace-opportunity-deadline small {
+  color: var(--ink-3);
+  font-size: 11px;
+}
+
+.bxm .marketplace-funding-value strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.bxm .marketplace-funding-value span {
+  color: var(--ink-3);
+  font-size: 11px;
+}
+
+.bxm .marketplace-opportunity-funding .bar {
+  height: 3px;
+  margin-top: 6px;
+}
+
+.bxm .marketplace-row-arrow {
+  color: var(--ink-3);
+}
+
+.bxm .marketplace-opportunity-details {
+  background: #fafafa;
+  border-top: 1px solid var(--line);
+  padding: 0 16px;
+}
+
+.bxm .marketplace-opportunity-details > div + div {
+  border-left: 1px solid var(--line);
+}
+
+.bxm .marketplace-opportunity-details span {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.bxm .marketplace-opportunity-details strong {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.bxm .marketplace-mobile-label {
+  letter-spacing: var(--bxm-tag-track);
+}
+
+.bxm .marketplace-copy-id .copy-id-btn.icon-only {
+  height: 24px;
+  padding: 0 4px;
+}
+
+.bxm .marketplace-footnote {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.6;
+  margin-top: 16px;
+  max-width: 90ch;
+}
+
+/* ==========================================================================
+   Primary market: process explainer band and order guide
+   ========================================================================== */
+
+.bxm .marketplace-process {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  margin: 28px 0 0;
+}
+
+.bxm .marketplace-process > div {
+  padding: 24px;
+}
+
+.bxm .marketplace-process > div + div {
+  border-left: 1px solid var(--line);
+}
+
+.bxm .marketplace-process-number {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  margin-bottom: 10px;
+}
+
+.bxm .marketplace-process strong {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  margin-bottom: 6px;
+}
+
+.bxm .marketplace-process p {
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.bxm .marketplace-process-help {
+  align-items: center;
+  align-self: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  gap: 6px;
+  height: 36px;
+  letter-spacing: 0.02em;
+  margin: 0 24px;
+  padding: 0 14px 0 18px;
+}
+
+.bxm .marketplace-process-help:hover {
+  background: var(--bxm-paper);
+  color: var(--ink);
+}
+
+.bxm .marketplace-order-guide > div {
+  border-bottom: 1px solid var(--line);
+}
+
+.bxm .marketplace-order-guide > div:nth-child(odd) {
+  border-right: 1px solid var(--line);
+}
+
+.bxm .marketplace-order-guide span {
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+  height: 24px;
+  width: 24px;
+}
+
+.bxm .marketplace-order-guide p {
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* ==========================================================================
+   Opportunity sheet: a square drawer from the right
+   ========================================================================== */
+
+.bxm .ls-overlay-btn {
+  backdrop-filter: none;
+  background: rgba(10, 10, 10, 0.4);
+}
+
+.bxm .ls-scrim.os-scrim {
+  align-items: stretch;
+  justify-content: flex-end;
+  padding: 0;
+}
+
+.bxm .ls-modal.os-sheet {
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  box-shadow: 0 0 1px 0 rgba(10, 10, 10, 0.2), 0 8px 15.52px 0.48px rgba(10, 10, 10, 0.15);
+  height: 100dvh;
+  max-height: 100dvh;
+  max-width: 880px;
+}
+
+.bxm .ls-x {
+  border-radius: 999px;
+  color: var(--ink);
+  font-size: 26px;
+  height: 36px;
+  width: 36px;
+}
+
+.bxm .ls-x:hover,
+.bxm .ls-x:focus-visible {
+  background: var(--bxm-paper);
+  color: var(--ink);
+}
+
+.bxm .os-head {
+  border-bottom: 1px solid var(--line);
+  gap: 0 16px;
+  padding: 24px 24px 0;
+}
+
+.bxm .os-name {
+  color: var(--ink);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  margin-bottom: 6px;
+}
+
+.bxm .os-origin {
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.bxm .os-head .ls-x {
+  margin: -6px -8px 0 0;
+  order: 2;
+}
+
+.bxm .os-stats {
+  border-top: 1px solid var(--line);
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  margin: 20px 0 0;
+  order: 3;
+  padding: 0;
+  width: 100%;
+}
+
+.bxm .os-stat {
+  min-width: 0;
+  padding: 14px 0 16px;
+  text-align: left;
+}
+
+.bxm .os-stat + .os-stat {
+  border-left: 1px solid var(--line);
+  margin-left: 0;
+  padding-left: 16px;
+}
+
+.bxm .os-stat-val {
+  color: var(--ink);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  margin-bottom: 2px;
+}
+
+.bxm .os-stat-cap {
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.bxm .os-body {
+  background: #fff;
+  gap: 16px;
+  padding: 24px;
+}
+
+.bxm .os-grid2 {
+  gap: 16px;
+}
+
+.bxm .os-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  padding: 20px 24px;
+}
+
+.bxm .os-cap {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-label-track);
+  line-height: 1.3;
+  margin-bottom: 10px;
+}
+
+.bxm .os-card-head {
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-bottom: 14px;
+}
+
+.bxm .os-over {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.bxm .os-text {
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+/* Key/value rows (design "bxm-kv"). */
+.bxm .os-kv {
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+  gap: 16px;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding: 10px 0 0;
+}
+
+.bxm .os-kv-lbl {
+  color: var(--ink-3);
+  white-space: normal;
+}
+
+.bxm .os-kv-dots {
+  display: none;
+}
+
+.bxm .os-kv-val {
+  color: var(--ink);
+  font-weight: 500;
+  text-align: right;
+}
+
+.bxm .os-ltv-bar {
+  background: var(--line);
+  height: 3px;
+}
+
+.bxm .os-trio-val {
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.bxm .os-none {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--bxm-signal);
+  padding: 12px 16px;
+}
+
+.bxm .os-none-word {
+  color: var(--bxm-signal);
+  font-size: 15px;
+}
+
+.bxm .os-none-text {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.bxm .os-wallet-col.last {
+  border-left: 1px solid var(--line);
+}
+
+.bxm .os-wallet-cap {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-label-track);
+  line-height: 1.3;
+}
+
+.bxm .os-wallet-cap.green {
+  color: var(--bxm-success);
+}
+
+.bxm .os-wallet-cap.red {
+  color: var(--bxm-signal);
+}
+
+.bxm .os-wallet-val {
+  color: var(--ink);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.bxm .os-wallet-sub {
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+/* Funding progress: square 4px track, square marker. */
+.bxm .os-window {
+  background: var(--line);
+  border-radius: 0;
+  height: 4px;
+  margin: 6px 0 12px;
+}
+
+.bxm .os-window-fill {
+  border-radius: 0;
+}
+
+.bxm .os-window-min {
+  background: var(--ink-3);
+  border-radius: 0;
+  bottom: -5px;
+  top: -5px;
+  width: 1px;
+}
+
+.bxm .os-window-knob {
+  border-radius: 0;
+  border-width: 2px;
+  box-shadow: none;
+  height: 10px;
+  margin-left: -5px;
+  top: -3px;
+  width: 10px;
+}
+
+.bxm .os-window-line {
+  font-size: 13px;
+}
+
+.bxm .os-window-sub {
+  color: var(--ink-3);
+}
+
+.bxm .os-strip {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--ink);
+  font-size: 13px;
+  margin-top: 12px;
+  padding: 12px 16px;
+}
+
+.bxm .os-strip.met {
+  background: #fff;
+  border-left-color: var(--bxm-success);
+}
+
+.bxm .os-strip.short {
+  background: #fff;
+  border-left-color: var(--ink);
+}
+
+.bxm .os-strip-text {
+  color: var(--ink-2);
+}
+
+/* Schedule calculator */
+.bxm .os-calc {
+  padding: 0;
+}
+
+.bxm .os-calc-toggle {
+  align-items: baseline;
+  border-radius: 0;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 18px 24px;
+}
+
+.bxm .os-calc-toggle:hover {
+  background: #fafafa;
+}
+
+.bxm .os-calc-hint {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.bxm .os-calc-body {
+  border-top: 1px solid var(--line);
+  padding: 4px 24px 24px;
+}
+
+.bxm .os-calc-row {
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.bxm .os-calc-result {
+  border: 1px solid var(--line);
+  margin-top: 16px;
+}
+
+.bxm .os-calc-result .ls-th,
+.bxm .os-calc-result .ls-tr {
+  padding: 10px 16px;
+}
+
+.bxm .os-calc-result .ls-th {
+  background: var(--bxm-paper);
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-tag-track);
+  text-transform: uppercase;
+}
+
+.bxm .os-calc-result .ls-tr {
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.bxm .os-calc-result .os-calc-total {
+  background: #fafafa;
+  border-bottom: 1px solid var(--line);
+  border-top: 0;
+  font-weight: 600;
+  margin-top: 0;
+}
+
+.bxm .os-calc-total .ls-td-int {
+  color: var(--bxm-success);
+}
+
+.bxm .os-calc-result .ls-sched-note {
+  color: var(--ink-3);
+  font-size: 12px;
+  margin: 0;
+  padding: 12px 16px;
+}
+
+/* Amount boxes: pill inputs. */
+.bxm .os-amt-box {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #8a8a8a;
+  border-radius: 999px;
+  gap: 8px;
+  height: 48px;
+  margin-bottom: 12px;
+  padding: 0 20px;
+}
+
+.bxm .os-amt-box:focus-within {
+  border-color: var(--ink);
+}
+
+.bxm .os-amt-box.os-amt-box-sm {
+  height: 40px;
+  margin-bottom: 0;
+  padding: 0 18px;
+}
+
+.bxm .os-amt-ccy {
+  color: var(--ink-3);
+  font-size: 14px;
+}
+
+.bxm .os-amt-input {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.bxm .os-amt-input.os-amt-input-sm {
+  font-size: 15px;
+}
+
+.bxm .os-chip {
+  align-items: center;
+  border: 1px solid var(--line);
+  display: inline-flex;
+  height: 30px;
+  justify-content: center;
+  padding: 0;
+}
+
+.bxm .os-chip:hover {
+  background: var(--bxm-paper);
+  border-color: var(--line);
+}
+
+.bxm .os-step-note {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.bxm .os-calc-error {
+  color: var(--bxm-signal);
+}
+
+/* Footer bar and the inline amount step */
+.bxm .os-invest-bar {
+  background: #fff;
+  border-top: 1px solid var(--line);
+  gap: 14px 20px;
+  padding: 16px 24px;
+}
+
+.bxm .os-bar-col.split {
+  border-left: 1px solid var(--line);
+}
+
+.bxm .os-bar-val {
+  color: var(--ink);
+  font-size: 20px;
+  letter-spacing: -0.02em;
+}
+
+.bxm .os-bar-val.green {
+  color: var(--bxm-success);
+}
+
+.bxm .os-bar-sub {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+/* Why nothing can be committed here (no balance, or a balance too old for this funding window). */
+.bxm .os-bar-reason {
+  color: var(--bxm-signal);
+  font-size: 12px;
+  line-height: 1.4;
+  margin-top: 6px;
+  max-width: 420px;
+}
+
+.bxm .os-bar-reason > span + span {
+  margin-left: 6px;
+  vertical-align: -2px;
+}
+
+.bxm .os-bar-reason-i {
+  align-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  cursor: help;
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 600;
+  height: 15px;
+  justify-content: center;
+  width: 15px;
+}
+
+.bxm .os-meet-btn {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 600;
+  height: 36px;
+  justify-content: center;
+  letter-spacing: 0.02em;
+  padding: 0 16px;
+}
+
+.bxm .os-meet-btn:hover {
+  background: var(--bxm-paper);
+}
+
+.bxm .ls-sell-btn,
+.bxm .os-confirm {
+  align-items: center;
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: 999px;
+  color: #fff;
+  display: inline-flex;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 600;
+  height: 44px;
+  justify-content: center;
+  letter-spacing: 0.02em;
+  padding: 0 24px;
+}
+
+.bxm .ls-sell-btn:hover:not(:disabled),
+.bxm .os-confirm:hover:not(:disabled) {
+  background: var(--bxm-graphite);
+  border-color: var(--bxm-graphite);
+}
+
+.bxm .ls-sell-btn:disabled,
+.bxm .os-confirm:disabled {
+  background: #b5b5b5;
+  border-color: #b5b5b5;
+  color: #fff;
+}
+
+.bxm .os-confirm {
+  margin-bottom: 8px;
+  width: 100%;
+}
+
+.bxm .os-cancel {
+  color: var(--ink);
+  font-size: 13px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.bxm .os-cancel:hover {
+  color: var(--ink-3);
+}
+
+.bxm .os-step {
+  background: #fff;
+  border-top: 1px solid var(--ink);
+  padding: 20px 24px 24px;
+}
+
+.bxm .os-step-head {
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.bxm .os-step-grid {
+  flex-wrap: wrap;
+  gap: 24px;
+}
+
+.bxm .os-step-amount {
+  width: 280px;
+}
+
+.bxm .os-step-mid {
+  flex: 1 1 200px;
+}
+
+.bxm .os-step-mid .os-kv {
+  border-top: 0;
+  border-bottom: 1px solid var(--line);
+  margin: 0;
+  padding: 10px 0;
+}
+
+.bxm .os-commit-val {
+  color: var(--ink);
+  font-size: 22px;
+  letter-spacing: -0.02em;
+}
+
+.bxm .os-commit-sub {
+  color: var(--ink-3);
+}
+
+/* ==========================================================================
+   Smart Invest
+   ========================================================================== */
+
+.bxm .smart-invest-page {
+  margin: 0;
+  max-width: none;
+}
+
+.bxm .page-head.si-hero {
+  margin: 0 0 28px;
+  text-align: left;
+}
+
+.bxm .si-hero h1 {
+  font-size: 28px;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  margin: 0;
+}
+
+/* Rule status card (design "Auto-invest ON"). */
+.bxm .si-status {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px 32px;
+  margin-bottom: 28px;
+  padding: 24px;
+}
+
+.bxm .si-status-main {
+  flex: 1 1 420px;
+  min-width: 0;
+}
+
+.bxm .si-status-title {
+  align-items: center;
+  color: var(--ink);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 15px;
+  font-weight: 500;
+  gap: 10px;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+  margin: 0;
+}
+
+.bxm .si-state {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  color: var(--ink-3);
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 600;
+  height: 22px;
+  letter-spacing: var(--bxm-tag-track);
+  line-height: 1;
+  margin: 0;
+  padding: 0 8px;
+  text-transform: uppercase;
+}
+
+.bxm .si-state.active {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+
+.bxm .si-state.inactive {
+  color: var(--ink-3);
+}
+
+.bxm .si-active-text {
+  color: var(--ink-3);
+  font-size: 14px;
+  line-height: 1.7;
+  margin-top: 8px;
+  max-width: 82ch;
+}
+
+.bxm .si-active-actions {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+/* Pills (outline = light border, dark = black). */
+.bxm .si-pill-outline,
+.bxm .si-pill-dark {
+  align-items: center;
+  border-radius: 999px;
+  display: inline-flex;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  height: 36px;
+  justify-content: center;
+  letter-spacing: 0.02em;
+  padding: 0 18px;
+}
+
+.bxm .si-pill-outline {
+  background: #fff;
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+
+.bxm .si-pill-outline:hover:not(:disabled) {
+  background: var(--bxm-paper);
+}
+
+.bxm .si-pill-outline:disabled {
+  border-color: var(--line);
+  color: var(--ink-4);
+}
+
+.bxm .si-pill-dark {
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  color: #fff;
+}
+
+.bxm .si-pill-dark:hover:not(:disabled) {
+  background: var(--bxm-graphite);
+  border-color: var(--bxm-graphite);
+}
+
+.bxm .si-pill-dark:disabled {
+  background: #b5b5b5;
+  border-color: #b5b5b5;
+  color: #fff;
+}
+
+/* Entry choices when no rule is running. */
+.bxm .si-entry {
+  flex: 1 1 100%;
+  justify-content: flex-start;
+  margin: 0;
+}
+
+.bxm .si-start {
+  border: 1px solid var(--ink);
+  border-radius: 0;
+}
+
+.bxm .si-start:hover {
+  box-shadow: 0 3px 12px 1px rgba(10, 10, 10, 0.15);
+}
+
+.bxm .si-pips i {
+  border-radius: 0;
+}
+
+.bxm .si-start-cap {
+  color: var(--ink-3);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-tag-track);
+}
+
+.bxm .si-start-title,
+.bxm .si-manual-title {
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
+
+.bxm .si-start-sub,
+.bxm .si-manual-sub {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.bxm .si-start-rail {
+  background: var(--bxm-paper);
+  border-left: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.bxm .si-manual {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 0;
+}
+
+.bxm .si-manual:hover {
+  border-color: var(--ink);
+}
+
+/* Rule card: head toggles the editor; key/value rows below. */
+.bxm .si-conditions {
+  margin-bottom: 28px;
+}
+
+.bxm .si-cond-toggle {
+  align-items: center;
+  background: #fff;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  box-shadow: none;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  padding: 16px 24px;
+}
+
+.bxm .si-cond-toggle:hover {
+  background: #fafafa;
+  border-color: var(--line);
+  box-shadow: none;
+}
+
+.bxm .si-cond-toggle h2 {
+  color: var(--ink);
+  font-size: 16.8px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+}
+
+.bxm .si-cond-summary {
+  color: var(--ink-3);
+  font-size: 13px;
+  min-width: 0;
+}
+
+.bxm .si-cond-spacer {
+  flex: 1 1 0;
+}
+
+.bxm .si-cond-cta {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 600;
+  gap: 6px;
+  height: 30px;
+  letter-spacing: 0.02em;
+  padding: 0 14px;
+}
+
+.bxm .si-cond-cta.on {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+
+.bxm .si-rule-kv {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 0;
+  padding: 4px 24px 12px;
+}
+
+@media (min-width: 768px) {
+  .bxm .si-rule-kv {
+    column-gap: 40px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.bxm .si-rule-kv > div {
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 11px 0;
+}
+
+.bxm .si-rule-kv dt {
+  color: var(--ink-3);
+  font-weight: 400;
+}
+
+.bxm .si-rule-kv dd {
+  color: var(--ink);
+  font-weight: 500;
+  margin: 0;
+  text-align: right;
+}
+
+.bxm .si-conditions > .smart-inline-error {
+  margin: 16px 24px 24px;
+}
+
+/* The condition editor inside the rule card. */
+.bxm .si-cond-intro {
+  color: var(--ink-3);
+  font-size: 14px;
+  margin: 20px 24px;
+}
+
+.bxm .si-cond-grid {
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: 0;
+  gap: 1px;
+  margin: 0 24px 24px;
+}
+
+.bxm .si-cond-card {
+  background: #fff;
+  padding: 24px;
+}
+
+.bxm .si-cond-cap {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-label-track);
+}
+
+.bxm .si-cond-mark {
+  color: var(--ink-3);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-tag-track);
+}
+
+.bxm .si-cond-mark.on {
+  color: var(--ink);
+}
+
+.bxm .si-cond-val {
+  color: var(--ink);
+  font-size: 24px;
+  letter-spacing: -0.02em;
+  margin: 10px 0 14px;
+}
+
+.bxm .si-cond-ends {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.bxm .si-cond-note {
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.bxm .si-cond-pills {
+  flex-wrap: wrap;
+}
+
+.bxm .si-cond-pills button {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  display: inline-flex;
+  font-size: 12px;
+  height: 32px;
+  justify-content: center;
+  letter-spacing: 0.02em;
+  min-width: 96px;
+  padding: 0 14px;
+}
+
+.bxm .si-cond-pills button:hover {
+  border-color: var(--ink);
+}
+
+.bxm .si-cond-pills button.on {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+
+/* Multi-select criteria (rule editor and wizard): square checkboxes in a grid.
+   Nothing ticked means the condition does not restrict the rule. */
+.bxm .si-cond-card.wide {
+  grid-column: 1 / -1;
+}
+
+.bxm .si-cond-head .si-cond-mark {
+  text-transform: none;
+}
+
+.bxm .si-checks {
+  display: grid;
+  gap: 10px 18px;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  margin: 4px 0 14px;
+}
+
+.bxm .si-checks.compact {
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+}
+
+.bxm .si-checks .ctext,
+.bxm .si-col-checks .ctext {
+  font-size: 13.5px;
+  line-height: 1.35;
+}
+
+.bxm .si-col-checks {
+  display: grid;
+  gap: 12px;
+  margin: 4px 0 14px;
+}
+
+.bxm .si-col-checks .si-col-types {
+  border-left: 1px solid var(--line);
+  margin: 0 0 0 8px;
+  padding-left: 18px;
+}
+
+.bxm .si-cond-hint {
+  margin-top: -8px;
+}
+
+.bxm .si-wiz-body p.si-wiz-hint {
+  color: var(--ink);
+  font-size: 13.5px;
+  margin: -8px 0 16px;
+}
+
+.bxm .si-tally {
+  border-top: 1px solid var(--line);
+  padding: 24px;
+}
+
+.bxm .si-tally-cap {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-label-track);
+  margin-bottom: 12px;
+}
+
+.bxm .si-tally-row {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.bxm .si-tally-n {
+  font-size: 30px;
+  letter-spacing: -0.03em;
+}
+
+.bxm .si-tally-of {
+  color: var(--ink-3);
+  font-size: 14px;
+}
+
+.bxm .si-tally-row .si-pill-dark {
+  margin-left: 0;
+}
+
+.bxm .si-tally-note {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+/* Matches: block title, then the table and its total in one card. */
+.bxm .smart-invest-matches {
+  border-top: 0;
+  margin-bottom: 28px;
+  padding-top: 0;
+}
+
+.bxm .smart-invest-section-title {
+  align-items: flex-end;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  margin-bottom: 16px;
+}
+
+.bxm .smart-invest-section-title .eyebrow {
+  margin-bottom: 6px;
+}
+
+.bxm .smart-invest-section-title h2 {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.bxm .smart-invest-section-title > button.btn {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 13px;
+  padding: 0 18px;
+}
+
+.bxm .si-matches-card {
+  overflow: hidden;
+}
+
+.bxm .smart-invest-match-table {
+  border-bottom: 0;
+}
+
+.bxm .smart-invest-match-head {
+  background: var(--bxm-paper);
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-tag-track);
+  padding: 12px 16px;
+}
+
+.bxm .smart-invest-match-row {
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 14px;
+  min-height: 64px;
+  padding: 14px 16px;
+}
+
+.bxm .smart-invest-match-row:hover {
+  background: #fafafa;
+}
+
+.bxm .smart-invest-match-row:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
+}
+
+.bxm .smart-invest-match-row strong {
+  font-weight: 600;
+}
+
+/* Company name with its sub line below (design "sub-text"). */
+.bxm .smart-invest-match-row > span:nth-child(2) {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.bxm .smart-invest-match-row small {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.bxm .smart-invest-match-row > span:last-child {
+  color: var(--ink-3);
+}
+
+.bxm .smart-invest-empty {
+  padding: 40px 24px;
+}
+
+.bxm .smart-invest-empty > div {
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-style: normal;
+  font-weight: 500;
+}
+
+.bxm .smart-invest-empty p {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.bxm .aa-foot-row.page {
+  align-items: center;
+  background: #fff;
+  border: 0;
+  border-radius: 0;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin: 0;
+  padding: 16px 24px;
+}
+
+.bxm .aa-foot-row.page .si-dash-setup {
+  align-items: center;
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: 999px;
+  color: #fff;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 600;
+  height: 36px;
+  letter-spacing: 0.02em;
+  margin-left: 12px;
+  padding: 0 18px;
+}
+
+.bxm .aa-foot-row.page .si-dash-setup:hover:not(:disabled) {
+  background: var(--bxm-graphite);
+}
+
+.bxm .aa-foot-row.page .si-dash-setup:disabled {
+  background: #b5b5b5;
+  border-color: #b5b5b5;
+  cursor: not-allowed;
+}
+
+/* Selected / committing totals, shared by the matches card and the dialog. */
+.bxm .aa-selected {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.bxm .aa-foot-dots {
+  border-bottom: 1px dotted #c8c8c8;
+  margin: 0 4px 5px;
+}
+
+.bxm .aa-committing {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.bxm .aa-commit-total {
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+/* "What the rule will not do": a card with four numbered items. */
+.bxm .smart-invest-limitations {
+  margin-top: 0;
+}
+
+.bxm .smart-invest-limitations h2 {
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 16.8px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+  margin: 0;
+  padding: 16px 24px;
+}
+
+.bxm .smart-invest-limitations > div {
+  gap: 20px 40px;
+  padding: 24px;
+}
+
+.bxm .smart-invest-limitations p {
+  color: var(--ink-3);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.bxm .smart-invest-limitations p b {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  margin-right: 10px;
+}
+
+.bxm .smart-invest-limitations p strong {
+  color: var(--ink);
+  font-weight: 600;
+  margin-right: 5px;
+}
+
+/* ==========================================================================
+   Smart Invest setup wizard: square modal
+   ========================================================================== */
+
+.bxm .si-wiz {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  box-shadow: 0 0 1px 0 rgba(10, 10, 10, 0.2), 0 8px 15.52px 0.48px rgba(10, 10, 10, 0.15);
+  width: 780px;
+}
+
+.bxm .si-wiz-head {
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+  gap: 20px;
+  padding: 20px 24px;
+}
+
+.bxm .si-wiz-pips {
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.bxm .si-wiz-pips span {
+  background: var(--line);
+  border-radius: 0;
+}
+
+.bxm .si-wiz-pips span.done,
+.bxm .si-wiz-pips span.on {
+  background: var(--ink);
+}
+
+.bxm .si-wiz-label,
+.bxm .si-wiz-count-cap {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-label-track);
+}
+
+.bxm .si-wiz-count-n {
+  font-size: 24px;
+  letter-spacing: -0.02em;
+}
+
+.bxm .si-wiz-count-of {
+  color: var(--ink-3);
+}
+
+.bxm .si-wiz-body {
+  padding: 28px 24px 24px;
+}
+
+.bxm .si-wiz-cap {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-label-track);
+  margin-bottom: 12px;
+}
+
+.bxm .si-wiz-cap.red {
+  color: var(--ink);
+}
+
+.bxm .si-wiz-cap.green {
+  color: var(--bxm-success);
+}
+
+.bxm .si-wiz-body h3 {
+  font-size: 22px;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  margin-bottom: 10px;
+}
+
+.bxm .si-wiz-body p {
+  color: var(--ink-3);
+  font-size: 14px;
+  line-height: 1.7;
+  margin-bottom: 20px;
+}
+
+.bxm .si-wiz-options {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.bxm .si-wiz-option {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  flex: 1 1 200px;
+  padding: 18px 20px;
+}
+
+.bxm .si-wiz-option:hover {
+  border-color: var(--ink);
+}
+
+.bxm .si-wiz-option.on {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.bxm .si-wiz-option strong {
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
+
+.bxm .si-wiz-option span {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.bxm .si-wiz-option.on span {
+  color: #b5b5b5;
+}
+
+.bxm .si-wiz-value {
+  font-size: 28px;
+  letter-spacing: -0.03em;
+}
+
+.bxm .si-wiz-value-note,
+.bxm .si-wiz-ends {
+  color: var(--ink-3);
+}
+
+.bxm .si-wiz-summary {
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+
+.bxm .si-wiz-summary-row {
+  align-items: center;
+  border-top: 1px solid var(--line);
+  padding: 11px 0;
+}
+
+.bxm .si-wiz-summary-dots {
+  border-bottom: 0;
+}
+
+.bxm .si-wiz-summary-row strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.bxm .si-wiz-outcome {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--ink);
+  color: var(--ink);
+  font-size: 13px;
+  padding: 14px 16px;
+}
+
+.bxm .si-wiz-foot {
+  background: #fff;
+  border-top: 1px solid var(--line);
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  padding: 16px 24px;
+}
+
+.bxm .si-wiz-foot .si-pill-outline,
+.bxm .si-wiz-foot .si-pill-dark {
+  font-size: 13px;
+  padding: 0 18px;
+}
+
+/* ==========================================================================
+   Approve this allocation: square modal with design table rows
+   ========================================================================== */
+
+.bxm .ls-modal.aa-modal {
+  border: 1px solid var(--line);
+  border-radius: 0;
+  box-shadow: 0 0 1px 0 rgba(10, 10, 10, 0.2), 0 8px 15.52px 0.48px rgba(10, 10, 10, 0.15);
+  width: 760px;
+}
+
+.bxm .aa-body,
+.bxm .aa-done {
+  padding: 24px;
+}
+
+.bxm .aa-eyebrow {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-label-track);
+  margin-bottom: 10px;
+}
+
+.bxm .aa-title {
+  color: var(--ink);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  margin: 0 0 12px;
+}
+
+.bxm .aa-intro {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: var(--ink-3);
+  font-size: 14px;
+  line-height: 1.7;
+  margin-bottom: 20px;
+  padding: 0;
+}
+
+.bxm .aa-list-head {
+  align-items: center;
+  background: var(--bxm-paper);
+  border: 1px solid var(--line);
+  border-radius: 0;
+  gap: 14px;
+  padding: 10px 16px;
+}
+
+.bxm .aa-list-cap {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-tag-track);
+}
+
+.bxm .aa-link {
+  border: 0;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.bxm .aa-link:hover {
+  color: var(--ink-3);
+}
+
+.bxm .aa-alloc-row {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-top: 0;
+  gap: 10px 12px;
+  padding: 12px 16px;
+}
+
+.bxm .aa-alloc-cap {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-label-track);
+}
+
+.bxm .aa-alloc-box {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #8a8a8a;
+  border-radius: 999px;
+  height: 40px;
+  padding: 0 18px;
+}
+
+.bxm .aa-alloc-box:focus-within {
+  border-color: var(--ink);
+}
+
+.bxm .aa-alloc-cur {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.bxm .aa-alloc-input {
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+
+.bxm .aa-chip {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  display: inline-flex;
+  font-size: 12px;
+  height: 30px;
+  letter-spacing: 0.02em;
+  padding: 0 14px;
+}
+
+.bxm .aa-chip:hover {
+  background: var(--bxm-paper);
+  border-color: var(--line);
+}
+
+.bxm .aa-chip.add,
+.bxm .aa-chip.add:hover {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+
+.bxm .aa-alloc-error {
+  color: var(--bxm-signal);
+  font-size: 12px;
+}
+
+.bxm .aa-rows {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  border-top: 0;
+  padding: 0 16px;
+}
+
+.bxm .aa-row {
+  border-top: 1px solid var(--line);
+  gap: 14px;
+  min-height: 64px;
+  padding: 12px 0;
+}
+
+.bxm .aa-row:first-child {
+  border-top: 0;
+}
+
+.bxm .aa-row-name {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.bxm .aa-row-meta {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.bxm .aa-row-amt {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.bxm .aa-info {
+  border: 1px solid var(--ink-3);
+  color: var(--ink-3);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-style: normal;
+  height: 18px;
+  width: 18px;
+}
+
+.bxm .aa-info:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.bxm .aa-modal .aa-foot-row {
+  align-items: center;
+  background: var(--bxm-paper);
+  border: 1px solid var(--line);
+  border-radius: 0;
+  border-top: 0;
+  margin-top: 0;
+  padding: 14px 16px;
+}
+
+.bxm .aa-actions {
+  background: #fff;
+  border-top: 1px solid var(--line);
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 16px 24px;
+}
+
+.bxm .aa-confirm,
+.bxm .aa-cancel {
+  align-items: center;
+  border-radius: 999px;
+  display: inline-flex;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 600;
+  height: 40px;
+  justify-content: center;
+  letter-spacing: 0.02em;
+  padding: 0 22px;
+}
+
+.bxm .aa-confirm {
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  color: #fff;
+}
+
+.bxm .aa-confirm:hover:not(:disabled) {
+  background: var(--bxm-graphite);
+  border-color: var(--bxm-graphite);
+}
+
+.bxm .aa-confirm:disabled {
+  background: #b5b5b5;
+  border-color: #b5b5b5;
+  color: #fff;
+  cursor: not-allowed;
+}
+
+.bxm .aa-cancel {
+  background: #fff;
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+
+.bxm .aa-cancel:hover:not(:disabled) {
+  background: var(--bxm-paper);
+}
+
+.bxm .aa-done-text {
+  color: var(--ink-3);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+/* Review step: the batch as table rows. */
+.bxm .aa-review-rows {
+  border: 1px solid var(--line);
+  margin-bottom: 16px;
+  padding: 0 16px;
+}
+
+.bxm .aa-modal .si-dash-row {
+  align-items: baseline;
+  border-radius: 0;
+  border-top: 1px solid var(--line);
+  flex-wrap: wrap;
+  font-size: 14px;
+  gap: 4px 10px;
+  margin: 0;
+  padding: 12px 0;
+}
+
+.bxm .aa-modal .si-dash-row:first-child {
+  border-top: 0;
+}
+
+.bxm .aa-modal .si-dash-row:hover {
+  background: transparent;
+}
+
+.bxm .aa-modal .si-dash-row-name {
+  font-weight: 600;
+}
+
+.bxm .aa-modal .si-dash-row-meta {
+  color: var(--ink-3);
+  font-size: 12px;
+  white-space: normal;
+}
+
+.bxm .aa-modal .si-dash-row-amt {
+  font-weight: 600;
+}
+
+.bxm .aa-modal .si-dash-rows-foot {
+  border-top: 1px solid var(--ink);
+  color: var(--ink-3);
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 4px 12px;
+  padding: 12px 0;
+}
+
+.bxm .aa-body .banner,
+.bxm .aa-body .check {
+  margin-bottom: 16px;
+}
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media (max-width: 1180px) {
+  .bxm .marketplace-capacity {
+    border-radius: 0;
+    padding: 18px 24px;
+  }
+}
+
+@media (max-width: 980px) {
+  .bxm .marketplace-process {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .bxm .marketplace-process-help {
+    border-radius: 0;
+    border-width: 1px 0 0;
+    grid-column: 1 / -1;
+    height: 48px;
+    justify-content: center;
+    margin: 0;
+  }
+}
+
+@media (max-width: 860px) {
+  .bxm .marketplace-process {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .bxm .marketplace-process > div + div {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .bxm .os-wallet-col.last {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    margin-top: 12px;
+    padding: 12px 0 0;
+  }
+
+  .bxm .smart-invest-match-table {
+    overflow-x: auto;
+  }
+
+  /* These stack vertically below 860px, so a flex basis would become a height. */
+  .bxm .os-step-mid,
+  .bxm .si-wiz-option {
+    flex: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .bxm .marketplace-capacity {
+    gap: 12px 16px;
+    padding: 16px;
+  }
+
+  .bxm .marketplace-capacity-note {
+    align-self: auto;
+    flex-basis: 100%;
+    padding-bottom: 0;
+  }
+
+  .bxm .marketplace-capacity-tools {
+    margin-left: 0;
+  }
+
+  .bxm .marketplace-investing-rule {
+    margin-left: 0;
+  }
+
+  .bxm .mk-toolbar .marketplace-section-head,
+  .bxm .mk-toolbar-body {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .bxm .fs-panel {
+    padding: 20px 16px;
+  }
+
+  .bxm .fs-controls-spacer {
+    display: none;
+  }
+
+  .bxm .mk-cards {
+    gap: 16px;
+  }
+
+  .bxm .mk-card {
+    padding: 20px 16px;
+  }
+
+  .bxm .mk-card-figures > div + div {
+    padding-left: 10px;
+  }
+
+  .bxm .mk-card-figures dd {
+    font-size: 15px;
+  }
+
+  .bxm .marketplace-list {
+    border-left: 0;
+    border-right: 0;
+  }
+
+  .bxm .marketplace-opportunity-main {
+    padding: 16px 4px;
+  }
+
+  .bxm .marketplace-opportunity-details {
+    padding: 0;
+  }
+
+  .bxm .marketplace-opportunity-details > div + div {
+    border-left: 0;
+  }
+
+  .bxm .marketplace-opportunity-details > div:nth-child(even) {
+    border-left: 1px solid var(--line);
+  }
+
+  .bxm .marketplace-opportunity-details > div {
+    padding: 12px 16px;
+  }
+
+  .bxm .marketplace-list-head {
+    display: none;
+  }
+
+  .bxm .os-head {
+    padding: 18px 16px 0;
+  }
+
+  .bxm .os-stats {
+    grid-auto-flow: row;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .bxm .os-stat + .os-stat {
+    border-left: 0;
+    padding-left: 0;
+  }
+
+  .bxm .os-stat:nth-child(even) {
+    border-left: 1px solid var(--line);
+    padding-left: 14px;
+  }
+
+  .bxm .os-stat:nth-child(n + 3) {
+    border-top: 1px solid var(--line);
+  }
+
+  .bxm .os-body {
+    padding: 16px;
+  }
+
+  .bxm .os-card {
+    padding: 16px;
+  }
+
+  .bxm .os-calc-toggle {
+    padding: 16px;
+  }
+
+  .bxm .os-calc-body {
+    padding: 4px 16px 16px;
+  }
+
+  .bxm .os-invest-bar,
+  .bxm .os-step {
+    padding: 14px 16px 16px;
+  }
+
+  .bxm .os-step-amount {
+    width: 100%;
+  }
+
+  .bxm .ls-sell-btn {
+    width: 100%;
+  }
+
+  .bxm .os-bar-links {
+    flex-direction: row;
+  }
+
+  .bxm .os-bar-links .os-meet-btn {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 0 10px;
+    width: auto;
+  }
+
+  .bxm .si-wiz-label {
+    letter-spacing: var(--bxm-tag-track);
+  }
+
+  /* Wizard head on a phone: progress and close on one row, the live count below. */
+  .bxm .si-wiz-head {
+    flex-wrap: wrap;
+    row-gap: 12px;
+  }
+
+  .bxm .si-wiz-head-main {
+    flex: 1 1 calc(100% - 64px);
+  }
+
+  .bxm .si-wiz-head .ls-x {
+    order: 1;
+  }
+
+  .bxm .si-wiz-count {
+    align-items: baseline;
+    display: flex;
+    flex: 1 1 100%;
+    gap: 12px;
+    order: 2;
+    text-align: left;
+  }
+
+  .bxm .si-wiz-count-cap {
+    margin-bottom: 0;
+  }
+
+  .bxm .si-status {
+    padding: 20px 16px;
+  }
+
+  .bxm .si-cond-toggle {
+    padding: 14px 16px;
+  }
+
+  .bxm .si-rule-kv {
+    padding: 4px 16px 12px;
+  }
+
+  .bxm .si-cond-intro {
+    margin: 16px;
+  }
+
+  .bxm .si-cond-grid {
+    margin: 0 16px 16px;
+  }
+
+  .bxm .si-cond-card,
+  .bxm .si-tally {
+    padding: 20px 16px;
+  }
+
+  .bxm .aa-foot-row.page {
+    padding: 14px 16px;
+  }
+
+  .bxm .aa-foot-row.page .si-dash-setup {
+    justify-content: center;
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .bxm .smart-invest-limitations h2 {
+    padding: 14px 16px;
+  }
+
+  .bxm .smart-invest-limitations > div {
+    padding: 16px;
+  }
+
+  .bxm .si-wiz-scrim {
+    padding: 0;
+  }
+
+  .bxm .si-wiz {
+    border: 0;
+    height: 100dvh;
+    max-height: 100dvh;
+  }
+
+  .bxm .si-wiz-head,
+  .bxm .si-wiz-body,
+  .bxm .si-wiz-foot {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .bxm .ls-modal.aa-modal {
+    border: 0;
+  }
+
+  .bxm .aa-body,
+  .bxm .aa-done {
+    padding: 20px 16px;
+  }
+
+  .bxm .aa-actions {
+    padding: 14px 16px;
+  }
+}

@@ -23,6 +23,7 @@ from backend.apps.communications.models import (
     CommunicationEventType,
     EmailDeliveryRecord,
     EmailDeliveryStatus,
+    NotificationReadReceipt,
 )
 from backend.apps.platform_core.domain.actors import ActorRef
 from backend.apps.platform_core.domain.time import now_utc
@@ -1101,3 +1102,40 @@ def dispatch_email_outbox_message_now(message_id: int) -> bool:
     """
     provider = _email_provider()
     return _dispatch_one_email_message(message_id, provider=provider, now=timezone.now())
+
+
+def read_notification_message_ids(
+    *, investor_user_id: str, outbox_message_ids: list[int]
+) -> set[int]:
+    """Outbox messages among ``outbox_message_ids`` the investor has marked as read."""
+    if not outbox_message_ids:
+        return set()
+    return set(
+        NotificationReadReceipt.objects.filter(
+            investor_user_id=investor_user_id,
+            outbox_message_id__in=outbox_message_ids,
+        ).values_list("outbox_message_id", flat=True)
+    )
+
+
+@transaction.atomic
+def mark_notifications_read(*, investor_user_id: str, outbox_message_ids: list[int]) -> int:
+    """Record read receipts for the given messages; already-read messages are left as they are.
+
+    The caller must only pass messages addressed to this investor. Returns the number of
+    newly recorded receipts, so repeating a call is a no-op.
+    """
+    wanted = set(outbox_message_ids)
+    already_read = read_notification_message_ids(
+        investor_user_id=investor_user_id,
+        outbox_message_ids=list(wanted),
+    )
+    new_ids = sorted(wanted - already_read)
+    NotificationReadReceipt.objects.bulk_create(
+        [
+            NotificationReadReceipt(investor_user_id=investor_user_id, outbox_message_id=message_id)
+            for message_id in new_ids
+        ],
+        ignore_conflicts=True,
+    )
+    return len(new_ids)

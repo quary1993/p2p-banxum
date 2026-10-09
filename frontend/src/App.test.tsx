@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { expect, test } from "vitest";
 
@@ -9,7 +9,8 @@ import {
   readReadonlyImpersonationToken,
   writeReadonlyImpersonation
 } from "./api/client/impersonation";
-import { activityFixture, balanceLotsFixture, balancesFixture, marketplaceLoansFixture, portfolioFixture, primaryOrdersFixture, smartInvestFixture } from "./investorPortal/fixtures";
+import { hasSessionExpiredNotice, reportSessionExpired } from "./api/client/sessionExpiry";
+import { activityFixture, balanceLotsFixture, balancesFixture, loanDetailsFixture, marketplaceLoansFixture, portfolioFixture, primaryOrdersFixture, smartInvestFixture } from "./investorPortal/fixtures";
 import { onboardingStepForUser } from "./onboarding";
 
 function renderApp(path = "/") {
@@ -23,22 +24,83 @@ function renderApp(path = "/") {
   );
 }
 
-test("renders the BANXUM public investor preview", () => {
-  renderApp();
+// The sidebar uses the design names. "Primary market" and "Secondary market" sit
+// under the "Projects" entry, which opens on click.
+function clickNav(label: string | RegExp) {
+  const nav = screen.getByRole("navigation", { name: "Investor portal navigation" });
+  if (!within(nav).queryByRole("button", { name: label })) {
+    fireEvent.click(within(nav).getByRole("button", { name: /^Projects/ }));
+  }
+  fireEvent.click(within(nav).getByRole("button", { name: label }));
+}
 
-  expect(screen.getByRole("img", { name: "BANXUM" })).toBeInTheDocument();
-  expect(screen.getByText("by Garanta Finanzgruppe AG")).toBeInTheDocument();
+test("renders the BANXUM public investor preview", () => {
+  renderApp("/projects");
+
+  const header = screen.getByRole("banner");
+  expect(within(header).getByRole("img", { name: "BANXUM" })).toBeInTheDocument();
+  const footer = screen.getByRole("contentinfo");
+  expect(within(footer).getByText(/BANXUM is owned and operated by Garanta Finanzgruppe AG\./)).toBeInTheDocument();
+  expect(within(footer).getByText(`© ${new Date().getFullYear()} Garanta Finanzgruppe AG`)).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "Open loan opportunities" })).toBeInTheDocument();
   expect(screen.getByText("Preview mode.")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Register" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Get started" })).toBeInTheDocument();
+  expect(within(header).getByRole("button", { name: "Open account" })).toBeInTheDocument();
+  expect(within(header).getByRole("link", { name: "Projects" })).toHaveAttribute("aria-current", "page");
+
+  fireEvent.click(screen.getByRole("button", { name: "View Rhône Vignobles SA" }));
+  expect(window.location.pathname).toBe("/projects/GA-2399");
+  expect(screen.getByRole("heading", { name: "Rhône Vignobles SA" })).toBeInTheDocument();
+  expect(screen.getByText("Registration required")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "All loans" }));
+  expect(window.location.pathname).toBe("/projects");
+  expect(screen.getByRole("heading", { name: "Open loan opportunities" })).toBeInTheDocument();
+});
+
+test("public project URLs restore the selected loan", () => {
+  renderApp("/projects/GA-2399");
+
+  expect(window.location.pathname).toBe("/projects/GA-2399");
+  expect(screen.getByRole("heading", { name: "Rhône Vignobles SA" })).toBeInTheDocument();
+  expect(screen.getByText("Registration required")).toBeInTheDocument();
+});
+
+test("page titles follow public routes and reset after sign out", () => {
+  const projects = renderApp("/projects");
+  expect(document.title).toBe("Projects · BANXUM");
+  projects.unmount();
+
+  renderApp("/smart-invest");
+  expect(document.title).toBe("Smart Invest · BANXUM");
+  fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+  expect(window.location.pathname).toBe("/");
+  expect(document.title).toBe("BANXUM");
+});
+
+test("public home page shows live open loans and links to the projects page", () => {
+  renderApp();
+
+  expect(screen.getByRole("heading", { name: "Your capital. Your choice." })).toBeInTheDocument();
+  const carousel = screen.getByRole("region", { name: "Loans open for investment" });
+  expect(within(carousel).getByText("Funding now")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Projects looking for investors" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Choose. Build. Follow." }).closest("section")).toHaveAttribute("id", "how-it-works");
+  expect(screen.getAllByText(/60-day holding limit/).length).toBeGreaterThan(0);
+  expect(screen.queryByText(/50 days/)).not.toBeInTheDocument();
+  expect(screen.getByText(/Lending to companies puts your capital at risk: a borrower can pay late/)).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: /^All \d+ open projects$/ }));
+  expect(window.location.pathname).toBe("/projects");
+  expect(screen.getByRole("heading", { name: "Open loan opportunities" })).toBeInTheDocument();
 });
 
 test("renders the FAQ for logged-out visitors", () => {
   renderApp("/faq");
 
   expect(screen.getByRole("heading", { name: "Help & FAQ" })).toBeInTheDocument();
-  expect(screen.getByText("How BANXUM works")).toBeInTheDocument();
-  expect(screen.getByText("Account and verification")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "How BANXUM works" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Account and verification" })).toBeInTheDocument();
+  expect(within(screen.getByRole("navigation", { name: "Topics" })).getByRole("link", { name: "How BANXUM works" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Create lender account" })).toBeInTheDocument();
 });
 
@@ -52,7 +114,7 @@ test("portfolio labels preserved pre-reset activity without replacing its detail
     fireEvent.change(screen.getByPlaceholderText("you@example.com"), { target: { value: "lukas.brunner@example.ch" } });
     fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
     fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-    fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+    clickNav("My investments");
     fireEvent.click(screen.getByRole("tab", { name: "Activity" }));
     expect(screen.getByText("Before QA reset")).toBeInTheDocument();
     expect(screen.getByText(entry.title)).toBeInTheDocument();
@@ -74,7 +136,7 @@ test("direct registration and login URLs render the requested public flow", () =
 test("client navigation writes a stable URL and browser history restores the screen", () => {
   renderApp("/");
 
-  fireEvent.click(screen.getByRole("button", { name: "Register" }));
+  fireEvent.click(within(screen.getByRole("banner")).getByRole("button", { name: "Open account" }));
   expect(window.location.pathname).toBe("/register");
   expect(screen.getByRole("heading", { name: "Create your lender account" })).toBeInTheDocument();
 
@@ -124,15 +186,19 @@ test("fixture-backed authenticated portal is visibly marked as preview data", ()
   expect(screen.getByText(/not real account data/i)).toBeInTheDocument();
 
   const portalNav = screen.getByRole("navigation", { name: "Investor portal navigation" });
-  const opportunitiesLink = within(portalNav).getByRole("button", { name: "Investment Opportunities" });
+  expect(within(portalNav).getByRole("button", { name: "Overview" })).toHaveClass("nav-link", "on");
+  const projectsToggle = within(portalNav).getByRole("button", { name: /^Projects/ });
+  expect(projectsToggle).toHaveAttribute("aria-expanded", "false");
+  expect(within(portalNav).queryByRole("button", { name: "Primary market" })).not.toBeInTheDocument();
+  fireEvent.click(projectsToggle);
+  expect(within(portalNav).getByRole("button", { name: "Primary market" })).toHaveClass("nav-sublink");
+  expect(within(portalNav).getByRole("button", { name: "Secondary market" })).toHaveClass("nav-sublink");
   const smartInvestLink = within(portalNav).getByRole("button", { name: "Smart Invest" });
-  expect(opportunitiesLink).toBeInTheDocument();
-  expect(smartInvestLink).toBeInTheDocument();
-  expect(opportunitiesLink.nextElementSibling).toBe(smartInvestLink);
   expect(smartInvestLink).toHaveClass("nav-link");
-  expect(smartInvestLink).not.toHaveClass("nav-link-sub");
-  expect(within(portalNav).getByRole("button", { name: "My Portfolio" })).toBeInTheDocument();
-  expect(within(portalNav).queryByRole("button", { name: "Notifications" })).not.toBeInTheDocument();
+  expect(smartInvestLink).not.toHaveClass("nav-sublink");
+  expect(within(portalNav).getByRole("button", { name: "My investments" })).toBeInTheDocument();
+  expect(within(portalNav).getByRole("button", { name: /^Account/ })).toBeInTheDocument();
+  expect(within(portalNav).getByRole("button", { name: /^Notifications/ })).toBeInTheDocument();
 
   const topbar = screen.getByRole("banner", { name: "Investor account header" });
   expect(within(topbar).getByRole("button", { name: "Notifications" })).toBeInTheDocument();
@@ -392,6 +458,7 @@ test("balance ageing reminders appear in notifications instead of a persistent d
 
   const topbar = screen.getByRole("banner", { name: "Investor account header" });
   fireEvent.click(within(topbar).getByRole("button", { name: "Notifications" }));
+  fireEvent.click(within(topbar).getByRole("button", { name: "View all" }));
 
   expect(screen.getByRole("heading", { name: "Notifications" })).toBeInTheDocument();
   expect(screen.getByText("Balance ageing - day 57")).toBeInTheDocument();
@@ -441,10 +508,19 @@ test("Smart Invest uses the five approved wizard steps and never implies automat
   expect(within(wizard).getByText("Would qualify today")).toBeInTheDocument();
   expect(within(wizard).queryByRole("heading", { name: /originator cap/i })).not.toBeInTheDocument();
   expect(within(wizard).queryByRole("heading", { name: /repayment/i })).not.toBeInTheDocument();
-  fireEvent.click(within(wizard).getByRole("button", { name: /^Required/ }));
+  // Every criterion is a multi-select; no combined "Either"/"Both" options remain.
+  expect(within(wizard).queryByRole("button", { name: /Not required|Either|Both/ })).not.toBeInTheDocument();
+  fireEvent.click(within(wizard).getByRole("checkbox", { name: "With collateral (any type)" }));
+  // "With collateral (any type)" includes every collateral type: shown ticked and locked.
+  expect(within(wizard).getByRole("checkbox", { name: "Real estate" })).toBeChecked();
+  expect(within(wizard).getByRole("checkbox", { name: "Real estate" })).toBeDisabled();
+  fireEvent.click(within(wizard).getByRole("checkbox", { name: "No collateral (unsecured)" }));
+  fireEvent.click(within(wizard).getByRole("checkbox", { name: "No collateral (unsecured)" }));
   fireEvent.click(within(wizard).getByRole("button", { name: "Continue" }));
   expect(within(wizard).getByText("Step 2 of 5 · which currency it uses")).toBeInTheDocument();
-  fireEvent.click(within(wizard).getByRole("button", { name: /CHF only/ }));
+  expect(within(wizard).queryByRole("button", { name: /CHF only|EUR only|CHF and EUR/ })).not.toBeInTheDocument();
+  expect(within(wizard).getAllByRole("checkbox").map((box) => box.getAttribute("id"))).toEqual(["si-wiz-ccy-CHF", "si-wiz-ccy-EUR"]);
+  fireEvent.click(within(wizard).getByRole("checkbox", { name: "CHF" }));
   fireEvent.click(within(wizard).getByRole("button", { name: "Continue" }));
   expect(within(wizard).getByText("Your rule already works · everything from here is optional")).toBeInTheDocument();
   fireEvent.click(within(wizard).getByRole("button", { name: "Continue" }));
@@ -452,7 +528,7 @@ test("Smart Invest uses the five approved wizard steps and never implies automat
   expect(within(wizard).getByRole("button", { name: "Finish now, skip the rest" })).toBeInTheDocument();
   fireEvent.click(within(wizard).getByRole("button", { name: "Continue" }));
   expect(within(wizard).getByText("Step 5 of 5 · review")).toBeInTheDocument();
-  expect(within(wizard).getByText("Collateral required")).toBeInTheDocument();
+  expect(within(wizard).getByText("With collateral (any type)")).toBeInTheDocument();
   expect(within(wizard).getByText("CHF")).toBeInTheDocument();
   expect(within(wizard).getByText("No minimum")).toBeInTheDocument();
   expect(within(wizard).getByText("Any term")).toBeInTheDocument();
@@ -470,7 +546,7 @@ test("Marketplace filters can be saved as the active Smart Invest rule", async (
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
+  clickNav("Primary market");
   fireEvent.click(screen.getByRole("button", { name: /Filter/ }));
 
   const panel = document.getElementById("marketplace-filter-panel");
@@ -493,17 +569,17 @@ test("investor data tables use the shared editorial table surface", () => {
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
 
-  fireEvent.click(screen.getByRole("button", { name: /^Balances/ }));
+  clickNav(/^Account/);
   expect(screen.getByRole("table")).toHaveClass("portal-data-table", "balance-lots-table");
 
-  fireEvent.click(screen.getByRole("button", { name: "Secondary Market" }));
+  clickNav("Secondary market");
   fireEvent.click(screen.getByRole("tab", { name: "Sell a holding" }));
   expect(screen.getByRole("table")).toHaveClass("portal-data-table", "secondary-sell-table");
 
   fireEvent.click(screen.getByRole("tab", { name: "Secondary market activity" }));
   expect(screen.getByRole("table")).toHaveClass("portal-data-table", "secondary-activity-table");
 
-  fireEvent.click(screen.getByRole("button", { name: "Documents" }));
+  clickNav("Documents");
   expect(screen.getByRole("table")).toHaveClass("portal-data-table", "documents-data-table");
 });
 
@@ -569,6 +645,111 @@ test("expired login links offer a cooldown-aware resend and a different-email es
   expect(screen.getByPlaceholderText("you@example.com")).toHaveValue("");
 });
 
+test("expired login link keeps the email field while typing and sends only on submit", () => {
+  window.localStorage.setItem(
+    "banxum:login-flow:v1",
+    JSON.stringify({ email: "", sent: false, linkExpired: true, resendCooldownUntil: 0 })
+  );
+
+  renderApp("/login");
+
+  expect(screen.getByRole("heading", { name: "Login link expired" })).toBeInTheDocument();
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), { target: { value: "c" } });
+
+  // The first keystroke neither replaces the field nor sends anything.
+  expect(screen.getByPlaceholderText("you@example.com")).toHaveValue("c");
+  expect(screen.queryByText(/We will send the new link to/)).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Send a new magic link" })).toBeDisabled();
+
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), { target: { value: "claire@example.test" } });
+  expect(screen.getByRole("heading", { name: "Login link expired" })).toBeInTheDocument();
+
+  fireEvent.submit(screen.getByTestId("login-expired-form"));
+
+  expect(screen.getByRole("heading", { name: "Check your inbox" })).toBeInTheDocument();
+  expect(screen.getByText("claire@example.test")).toBeInTheDocument();
+});
+
+test("expired login link switches to a different address without sending early", () => {
+  window.localStorage.setItem(
+    "banxum:login-flow:v1",
+    JSON.stringify({ email: "investor@example.test", sent: true, linkExpired: true, resendCooldownUntil: 0 })
+  );
+
+  renderApp("/login?token=expired-token");
+
+  expect(screen.getByText("investor@example.test")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Use a different email address" }));
+
+  expect(screen.getByRole("heading", { name: "Login link expired" })).toBeInTheDocument();
+  const field = screen.getByPlaceholderText("you@example.com");
+  expect(field).toHaveValue("");
+  expect(field).toHaveFocus();
+  fireEvent.change(field, { target: { value: "n" } });
+  expect(screen.getByPlaceholderText("you@example.com")).toHaveValue("n");
+  expect(screen.queryByText(/We will send the new link to/)).not.toBeInTheDocument();
+
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), { target: { value: "new@example.test" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send a new magic link" }));
+
+  expect(screen.getByRole("heading", { name: "Check your inbox" })).toBeInTheDocument();
+  expect(screen.getByText("new@example.test")).toBeInTheDocument();
+});
+
+test("an expired session returns to the login screen with an explanation", () => {
+  renderApp("/dashboard");
+  expect(screen.getByRole("heading", { name: "Money working for you" })).toBeInTheDocument();
+
+  act(() => reportSessionExpired());
+
+  expect(window.location.pathname).toBe("/login");
+  expect(screen.getByRole("heading", { name: "Log in" })).toBeInTheDocument();
+  expect(screen.getByText("Your session has expired")).toBeInTheDocument();
+
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), { target: { value: "lukas.brunner@example.ch" } });
+  fireEvent.submit(screen.getByTestId("login-magic-link-form"));
+
+  expect(screen.getByRole("heading", { name: "Check your inbox" })).toBeInTheDocument();
+  expect(hasSessionExpiredNotice()).toBe(false);
+});
+
+test("a restricted account is told why its data is unavailable", () => {
+  renderApp("/dashboard");
+
+  fireEvent.change(screen.getByDisplayValue("Active investor"), { target: { value: "restricted" } });
+
+  expect(screen.getByRole("heading", { name: "Account access" })).toBeInTheDocument();
+  expect(screen.getByText("Your account is restricted")).toBeInTheDocument();
+  expect(screen.getByText(/You cannot view or move money while your account is restricted/)).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Contact support" })).toHaveAttribute("href", "mailto:support@banxum.com");
+
+  clickNav("My investments");
+  expect(screen.getByText("Your account is restricted")).toBeInTheDocument();
+});
+
+test("logos on public, sign-in and registration screens lead back to the home page", () => {
+  const projects = renderApp("/projects");
+  fireEvent.click(within(screen.getByRole("banner")).getByRole("link", { name: "BANXUM home" }));
+  expect(window.location.pathname).toBe("/");
+  expect(screen.getByRole("heading", { name: "Your capital. Your choice." })).toBeInTheDocument();
+  expect(within(screen.getByRole("contentinfo")).getByRole("link", { name: "BANXUM home" })).toHaveAttribute("href", "/");
+  projects.unmount();
+
+  const login = renderApp("/login");
+  const loginLogos = screen.getAllByRole("link", { name: "BANXUM home" });
+  expect(loginLogos).toHaveLength(2);
+  loginLogos.forEach((logo) => expect(logo).toHaveAttribute("href", "/"));
+  fireEvent.click(loginLogos[1]);
+  expect(window.location.pathname).toBe("/");
+  expect(screen.getByRole("heading", { name: "Your capital. Your choice." })).toBeInTheDocument();
+  login.unmount();
+
+  renderApp("/register");
+  fireEvent.click(screen.getByRole("link", { name: "BANXUM home" }));
+  expect(window.location.pathname).toBe("/");
+  expect(screen.getByRole("heading", { name: "Your capital. Your choice." })).toBeInTheDocument();
+});
+
 test("published primary-market loans appear in dashboard and marketplace open views", () => {
   renderApp();
 
@@ -581,13 +762,22 @@ test("published primary-market loans appear in dashboard and marketplace open vi
 
   expect(screen.getByText(/closes within 7 days/)).toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
+  clickNav("Primary market");
 
   expect(
     screen.getByText((_, element) => element?.className === "fs-count" && element.textContent === "5 of 5 match")
   ).toBeInTheDocument();
   expect(screen.getByText("Helvetia Logistik AG")).toBeInTheDocument();
-  // Chips were replaced by a dedicated rating column and an icon-only copy button.
+  // The page opens in the Cards layout; each card keeps the copy-ID control and its
+  // Invest button opens the same opportunity sheet as a list row.
+  expect(screen.getByRole("button", { name: "Cards" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getAllByRole("button", { name: "Copy loan ID" }).length).toBeGreaterThan(0);
+  fireEvent.click(screen.getByRole("button", { name: "Invest in Helvetia Logistik AG" }));
+  expect(screen.getByRole("dialog", { name: "Helvetia Logistik AG" })).toBeInTheDocument();
+  fireEvent.click(within(screen.getByRole("dialog", { name: "Helvetia Logistik AG" })).getByRole("button", { name: "Close" }));
+
+  // The List layout keeps the dedicated rating column and the icon-only copy button.
+  fireEvent.click(screen.getByRole("button", { name: "List" }));
   expect(screen.getByRole("button", { name: "Sort by Rating" })).toBeInTheDocument();
   expect(screen.getAllByRole("button", { name: "Copy loan ID" }).length).toBeGreaterThan(0);
 });
@@ -601,13 +791,15 @@ test("marketplace redesign preserves live filters, detail mode, and order guidan
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
+  clickNav("Primary market");
 
   expect(screen.getByRole("heading", { name: "These companies want your investment" })).toBeInTheDocument();
   expect(screen.getByText("Two ways to put your money to work")).toBeInTheDocument();
   expect(screen.getByText(/From CHF 500/i)).toBeInTheDocument();
   expect(screen.getByText("Available to commit")).toBeInTheDocument();
   expect(screen.getByText("available to invest")).toBeInTheDocument();
+  // The collateral margin column lives in the List layout, which the page remembers.
+  fireEvent.click(screen.getByRole("button", { name: "List" }));
   expect(screen.getAllByText("58.0%").length).toBeGreaterThan(0);
   expect(
     screen.getByText((_, element) => element?.className === "fs-count" && element.textContent === "5 of 5 match")
@@ -615,7 +807,7 @@ test("marketplace redesign preserves live filters, detail mode, and order guidan
 
   fireEvent.click(screen.getByRole("button", { name: "Set your investing rule" }));
   expect(screen.getByRole("heading", { name: "It finds them. You approve them." })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
+  clickNav("Primary market");
 
   fireEvent.click(screen.getByRole("tab", { name: "Detailed" }));
   expect(screen.getAllByText("Loan amount")).toHaveLength(4);
@@ -643,7 +835,7 @@ test("marketplace filters combine chips, sliders and tokens with live counts", (
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
+  clickNav("Primary market");
 
   fireEvent.click(screen.getByRole("button", { name: /^Filter/ }));
   expect(screen.getByRole("button", { name: /^Filter/ })).toHaveAttribute("aria-expanded", "true");
@@ -680,6 +872,88 @@ test("marketplace filters combine chips, sliders and tokens with live counts", (
   ).toBeInTheDocument();
 });
 
+test("marketplace filter groups are multi-select without combined Either/Both chips", () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  clickNav("Primary market");
+  fireEvent.click(screen.getByRole("button", { name: /^Filter/ }));
+  const panel = document.getElementById("marketplace-filter-panel") as HTMLElement;
+  const count = (text: string) =>
+    within(panel.parentElement as HTMLElement).getByText((_, element) => element?.className === "fs-count" && element.textContent === text);
+
+  expect(within(panel).queryByRole("button", { name: /Either|Both/ })).not.toBeInTheDocument();
+  // The old single-select "With collateral" chip is gone; "With collateral (any type)" is one multi-select option.
+  expect(within(panel).queryByRole("button", { name: /^With collateral\s*\d*$/ })).not.toBeInTheDocument();
+  expect(within(panel).getByText("any rating")).toBeInTheDocument();
+
+  // Rating A together with B.
+  fireEvent.click(within(panel).getByRole("button", { name: /^A\s/ }));
+  fireEvent.click(within(panel).getByRole("button", { name: /^B\s/ }));
+  expect(within(panel).getByRole("button", { name: /^A\s/ })).toHaveAttribute("aria-pressed", "true");
+  expect(within(panel).getByRole("button", { name: /^B\s/ })).toHaveAttribute("aria-pressed", "true");
+  expect(within(panel).queryByText("any rating")).not.toBeInTheDocument();
+  expect(count("4 of 5 match")).toBeInTheDocument();
+
+  // CHF together with EUR keeps both currencies.
+  fireEvent.click(within(panel).getByRole("button", { name: /^CHF\s/ }));
+  fireEvent.click(within(panel).getByRole("button", { name: /^EUR\s/ }));
+  expect(count("4 of 5 match")).toBeInTheDocument();
+
+  // "With collateral (any type)" includes every collateral type.
+  fireEvent.click(within(panel).getByRole("button", { name: /^With collateral \(any type\)/ }));
+  const typeChip = within(panel).getByRole("button", { name: /^Commercial real estate/ });
+  expect(typeChip).toHaveAttribute("aria-pressed", "true");
+  expect(typeChip).toBeDisabled();
+
+  // Each ticked value has its own removable token.
+  fireEvent.click(screen.getByRole("button", { name: "rated A" }));
+  expect(screen.getByRole("button", { name: "rated B" })).toBeInTheDocument();
+  expect(count("3 of 5 match")).toBeInTheDocument();
+});
+
+test("Smart Invest rule editor saves several values per condition", async () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  fireEvent.click(screen.getByRole("button", { name: "Smart Invest" }));
+  fireEvent.click(screen.getByRole("button", { name: "Adjust the rule" }));
+
+  const editor = document.getElementById("rule-conditions") as HTMLElement;
+  // Checkbox ids keep this test fast; the accessible names are covered by the wizard test.
+  const box = (id: string) => document.getElementById(id) as HTMLInputElement;
+  for (const combined of ["Either", "Both", "Any", "Anyone", "CHF and EUR", "Unsecured only"]) {
+    expect(within(editor).queryByText(combined, { selector: "button" })).not.toBeInTheDocument();
+  }
+  // The saved fixture rule asks for any collateral: every type is included.
+  expect(box("si-ed-col-any")).toBeChecked();
+  expect(box("si-ed-col-real_estate")).toBeChecked();
+  expect(box("si-ed-col-real_estate")).toBeDisabled();
+  // The whole rating scale is offered, not only today's ratings (A, B, C).
+  expect(box("si-ed-rating-A-").closest("label")).toHaveTextContent("A-");
+  fireEvent.click(box("si-ed-rating-A"));
+  fireEvent.click(box("si-ed-rating-A-"));
+  fireEvent.click(box("si-ed-ccy-CHF"));
+  fireEvent.click(box("si-ed-ccy-EUR"));
+  expect(box("si-ed-rating-A")).toBeChecked();
+  fireEvent.click(within(editor).getByText("Save the rule", { selector: "button" }));
+
+  const rule = await screen.findByText("Risk rating", { selector: "dt" });
+  expect(rule.nextElementSibling).toHaveTextContent("A, A-");
+  expect(screen.getByText("Currency", { selector: "dt" }).nextElementSibling).toHaveTextContent("CHF, EUR");
+  expect(screen.getByText("Collateral", { selector: "dt" }).nextElementSibling).toHaveTextContent("With collateral (any type)");
+});
+
 test("marketplace sheet shows the v9 opportunity layout and hands off to the order flow", () => {
   renderApp();
 
@@ -689,7 +963,7 @@ test("marketplace sheet shows the v9 opportunity layout and hands off to the ord
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
+  clickNav("Primary market");
   fireEvent.click(screen.getByText("Helvetia Logistik AG"));
 
   const sheet = screen.getByRole("dialog", { name: "Helvetia Logistik AG" });
@@ -715,8 +989,13 @@ test("marketplace sheet shows the v9 opportunity layout and hands off to the ord
   fireEvent.change(within(sheet).getByLabelText("Amount to invest"), { target: { value: "2000" } });
   fireEvent.click(within(sheet).getByRole("button", { name: "Review Order" }));
 
-  const orderDialog = screen.getByRole("dialog", { name: "Invest - Helvetia Logistik AG" });
-  expect(within(orderDialog).getAllByText(/2.000\.00/).length).toBeGreaterThan(0);
+  // The order continues on the invest page, at the review step with the handed-over amount.
+  expect(window.location.pathname).toBe("/marketplace/GA-2401/invest");
+  expect(screen.queryByRole("dialog", { name: "Helvetia Logistik AG" })).not.toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 1, name: "Invest" })).toBeInTheDocument();
+  const orderPage = screen.getByRole("main");
+  expect(within(orderPage).getByText("Review and sign").closest("li")).toHaveAttribute("aria-current", "step");
+  expect(within(orderPage).getAllByText(/2.000\.00/).length).toBeGreaterThan(0);
 });
 
 test("marketplace closing countdown uses the platform as-of date", () => {
@@ -730,7 +1009,7 @@ test("marketplace closing countdown uses the platform as-of date", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
     fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-    fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
+    clickNav("Primary market");
     fireEvent.click(screen.getByText("Helvetia Logistik AG"));
 
     const sheet = screen.getByRole("dialog", { name: "Helvetia Logistik AG" });
@@ -750,7 +1029,7 @@ test("opportunity sheet calculator validates the amount and projects the investo
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
+  clickNav("Primary market");
 
   // Direct loan: proportional share of the contracted schedule.
   fireEvent.click(screen.getByText("Helvetia Logistik AG"));
@@ -762,7 +1041,8 @@ test("opportunity sheet calculator validates the amount and projects the investo
   expect(within(sheet).getByRole("alert")).toHaveTextContent(/minimum in any one loan is CHF 1.000\.00/);
   fireEvent.change(within(sheet).getByLabelText("Amount to calculate"), { target: { value: "50000" } });
   fireEvent.click(within(sheet).getByRole("button", { name: "Calculate" }));
-  expect(within(sheet).getByRole("alert")).toHaveTextContent(/is not lent/);
+  // Part of the fixture's CHF balance is past its holding limit, so the eligible part is the limit.
+  expect(within(sheet).getByRole("alert")).toHaveTextContent(/of your CHF balance has enough holding time left for this loan's funding period/);
   fireEvent.change(within(sheet).getByLabelText("Amount to calculate"), { target: { value: "2000" } });
   fireEvent.click(within(sheet).getByRole("button", { name: "Calculate" }));
   expect(within(sheet).getByText("24 payments")).toBeInTheDocument();
@@ -793,12 +1073,17 @@ test("marketplace sorts from the header and the sort menu", () => {
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
+  clickNav("Primary market");
 
   const loanTitles = () =>
     Array.from(document.querySelectorAll(".marketplace-opportunity-name strong")).map(
       (node) => node.textContent
     );
+  const cardTitles = () =>
+    Array.from(document.querySelectorAll(".mk-card-title button")).map((node) => node.textContent);
+
+  // Sortable column headers belong to the List layout.
+  fireEvent.click(screen.getByRole("button", { name: "List" }));
 
   // Header click sorts by yield ascending, second click flips to descending.
   fireEvent.click(screen.getByRole("button", { name: "Sort by Yield" }));
@@ -811,6 +1096,10 @@ test("marketplace sorts from the header and the sort menu", () => {
   fireEvent.click(screen.getByRole("button", { name: "Sort" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Term" }));
   expect(loanTitles()[0]).toBe("Swiss SME equipment claim");
+
+  // The same sort applies to the Cards layout.
+  fireEvent.click(screen.getByRole("button", { name: "Cards" }));
+  expect(cardTitles()[0]).toBe("Swiss SME equipment claim");
 
   fireEvent.click(screen.getByRole("button", { name: "back to closing soonest" }));
   expect(screen.queryByRole("button", { name: "back to closing soonest" })).not.toBeInTheDocument();
@@ -825,7 +1114,7 @@ test("portfolio loans sort from the header and the sort menu", () => {
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  clickNav("My investments");
 
   const rowNames = () =>
     Array.from(document.querySelectorAll(".pf-row .pf-company-name")).map((node) => node.textContent);
@@ -870,7 +1159,7 @@ test("loan-specific funding windows block an otherwise positive balance in the o
     });
     fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
     fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-    fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
+    clickNav("Primary market");
     fireEvent.click(screen.getByText(loan.title));
     const sheet = screen.getByRole("dialog", { name: loan.title });
     expect(within(sheet).getByRole("button", { name: "Invest now" })).toBeDisabled();
@@ -888,7 +1177,7 @@ test("originator subscription validates the minimum and stages a par reservation
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
+  clickNav("Primary market");
   fireEvent.click(screen.getByText("Swiss SME equipment claim"));
 
   const claimSheet = screen.getByRole("dialog", { name: "Swiss SME equipment claim" });
@@ -907,10 +1196,12 @@ test("originator subscription validates the minimum and stages a par reservation
 
   fireEvent.change(amountInput, { target: { value: "1000" } });
   fireEvent.click(reviewButton);
-  const orderDialog = screen.getByRole("dialog", { name: "Invest - Swiss SME equipment claim" });
-  expect(within(orderDialog).getByText(/Principal acquired at funding close/)).toBeInTheDocument();
-  expect(within(orderDialog).getByText(/Boundary installment/)).toBeInTheDocument();
-  expect(within(orderDialog).queryByText(/Executable for five minutes/)).not.toBeInTheDocument();
+  expect(window.location.pathname).toBe("/marketplace/LO-2601/invest");
+  expect(screen.getByRole("heading", { level: 1, name: "Invest" })).toBeInTheDocument();
+  const orderPage = screen.getByRole("main");
+  expect(within(orderPage).getByText(/Principal acquired at funding close/)).toBeInTheDocument();
+  expect(within(orderPage).getByText(/Boundary installment/)).toBeInTheDocument();
+  expect(within(orderPage).queryByText(/Executable for five minutes/)).not.toBeInTheDocument();
 });
 
 test("FX redesign uses CHF/EUR preview data and net-rate conversion history", () => {
@@ -922,7 +1213,7 @@ test("FX redesign uses CHF/EUR preview data and net-rate conversion history", ()
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "FX" }));
+  clickNav("FX");
 
   expect(screen.getByRole("heading", { name: "Currency exchange" })).toBeInTheDocument();
   expect(
@@ -957,7 +1248,7 @@ test("refinanced marketplace loan shows badge and informational original loan sc
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
+  clickNav("Primary market");
 
   // Listing row of the refinancing loan carries the short tag.
   expect(screen.getAllByText("Refinanced").length).toBeGreaterThan(0);
@@ -998,7 +1289,7 @@ test("meet the borrower page shows key facts plus the admin story, safely render
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
+  clickNav("Primary market");
   fireEvent.click(screen.getByText("Helvetia Logistik AG"));
   const sheet = screen.getByRole("dialog", { name: "Helvetia Logistik AG" });
   fireEvent.click(within(sheet).getByRole("button", { name: "Meet the borrower →" }));
@@ -1029,7 +1320,7 @@ test("meet the borrower page shows key facts plus the admin story, safely render
   expect(screen.getByRole("button", { name: /Invest now/ })).toBeInTheDocument();
 
   // A borrower without a story shows an honest empty state instead of filler.
-  fireEvent.click(within(screen.getByRole("navigation", { name: "Investor portal navigation" })).getByRole("button", { name: "Investment Opportunities" }));
+  clickNav("Primary market");
   fireEvent.click(screen.getByText("Rhône Vignobles SA"));
   fireEvent.click(within(screen.getByRole("dialog", { name: "Rhône Vignobles SA" })).getByRole("button", { name: "Meet the borrower →" }));
   expect(screen.getByText("No story published yet for Rhône Vignobles SA")).toBeInTheDocument();
@@ -1044,7 +1335,7 @@ test("originator loans lead to the originator story and a schedule page with pay
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "Investment Opportunities" }));
+  clickNav("Primary market");
   fireEvent.click(screen.getByText("Swiss SME equipment claim"));
   const sheet = screen.getByRole("dialog", { name: "Swiss SME equipment claim" });
   expect(within(sheet).queryByRole("button", { name: /credit file/ })).not.toBeInTheDocument();
@@ -1064,6 +1355,115 @@ test("originator loans lead to the originator story and a schedule page with pay
   expect(screen.getByText("Historical borrower payments")).toBeInTheDocument();
   expect(screen.getByText("LO-2601-PAY-001")).toBeInTheDocument();
   expect(screen.queryByText("Alpine Credit Partners AG", { selector: "h2" })).not.toBeInTheDocument();
+});
+
+test("investing from the loan page runs on the invest page: amount, terms, email code and success", () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  clickNav("Primary market");
+  fireEvent.click(screen.getByText("Helvetia Logistik AG"));
+  fireEvent.click(within(screen.getByRole("dialog", { name: "Helvetia Logistik AG" })).getByRole("button", { name: "Meet the borrower →" }));
+
+  // The invest card of the loan page opens the invest page, not a dialog.
+  fireEvent.click(screen.getByRole("button", { name: /Invest now/ }));
+  expect(window.location.pathname).toBe("/marketplace/GA-2401/invest");
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  const page = screen.getByRole("main");
+  expect(within(page).getByRole("heading", { level: 1, name: "Invest" })).toBeInTheDocument();
+  expect(within(page).getByText("Amount").closest("li")).toHaveAttribute("aria-current", "step");
+
+  // Amount validation keeps the order from moving on below the minimum.
+  const amount = within(page).getByRole("textbox", { name: "Investment amount" });
+  fireEvent.change(amount, { target: { value: "500" } });
+  expect(within(page).getByText(/Minimum order is CHF 1.000\.00\./)).toBeInTheDocument();
+  expect(within(page).getByRole("button", { name: "Review order" })).toBeDisabled();
+  fireEvent.change(amount, { target: { value: "2000" } });
+  fireEvent.click(within(page).getByRole("button", { name: "Review order" }));
+
+  // Both terms checkboxes are required before the email code step.
+  expect(within(page).getByText("Review and sign").closest("li")).toHaveAttribute("aria-current", "step");
+  const continueButton = within(page).getByRole("button", { name: "Continue" });
+  expect(continueButton).toBeDisabled();
+  fireEvent.click(within(page).getByRole("checkbox", { name: /primary-market investment terms/i }));
+  expect(continueButton).toBeDisabled();
+  fireEvent.click(within(page).getByRole("checkbox", { name: /risk disclosure/i }));
+  fireEvent.click(continueButton);
+
+  // A 6-digit email code confirms the order.
+  const confirmButton = within(page).getByRole("button", { name: "Confirm order" });
+  expect(confirmButton).toBeDisabled();
+  fireEvent.change(within(page).getByLabelText("Email confirmation code"), { target: { value: "123456" } });
+  fireEvent.click(confirmButton);
+
+  // The success state stays on the page and offers the ways onward.
+  expect(within(page).getByRole("heading", { name: "Order placed" })).toBeInTheDocument();
+  expect(within(page).getByText("Done").closest("li")).toHaveAttribute("aria-current", "step");
+  expect(within(page).getByRole("button", { name: "My investments" })).toBeInTheDocument();
+  expect(within(page).getByRole("button", { name: "Primary market" })).toBeInTheDocument();
+  fireEvent.click(within(page).getByRole("button", { name: "Back to the loan" }));
+  expect(window.location.pathname).toBe("/marketplace/GA-2401");
+});
+
+test("immediate originator claim purchases run on the invest page: quote, terms, email code and success", () => {
+  const detail = loanDetailsFixture.find((loan) => loan.loan_id === "LO-2601")!;
+  const preview = marketplaceLoansFixture.find((loan) => loan.loan_id === "LO-2601")!;
+  const originalFlows = [detail.investment_flow, preview.investment_flow];
+  detail.investment_flow = "immediate_claim_assignment";
+  preview.investment_flow = "immediate_claim_assignment";
+  try {
+    renderApp();
+
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+    fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+      target: { value: "lukas.brunner@example.ch" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+    clickNav("Primary market");
+    fireEvent.click(screen.getByText("Swiss SME equipment claim"));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Swiss SME equipment claim" })).getByRole("button", { name: "Meet the originator →" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Review claim purchase" }));
+    expect(window.location.pathname).toBe("/marketplace/LO-2601/invest");
+    const page = screen.getByRole("main");
+    expect(within(page).getByRole("heading", { level: 1, name: "Buy claim" })).toBeInTheDocument();
+    expect(within(page).getByText("Swiss SME equipment claim · Alpine Credit Partners AG")).toBeInTheDocument();
+    expect(within(page).getByText("Immediate legal assignment")).toBeInTheDocument();
+
+    const amount = within(page).getByRole("textbox", { name: "Cash amount to invest" });
+    fireEvent.change(amount, { target: { value: "100" } });
+    expect(within(page).getByText(/Minimum investment is CHF 500\.00\./)).toBeInTheDocument();
+    expect(within(page).getByRole("button", { name: "Get executable quote" })).toBeDisabled();
+    fireEvent.change(amount, { target: { value: "1000" } });
+    fireEvent.click(within(page).getByRole("button", { name: "Get executable quote" }));
+
+    expect(within(page).getByText("Executable for five minutes")).toBeInTheDocument();
+    expect(within(page).getByText("Your quoted cash flows")).toBeInTheDocument();
+    expect(within(page).getByText("Cash consideration")).toBeInTheDocument();
+    const continueButton = within(page).getByRole("button", { name: "Continue" });
+    expect(continueButton).toBeDisabled();
+    fireEvent.click(within(page).getByRole("checkbox", { name: /claim assignment/i }));
+    fireEvent.click(within(page).getByRole("checkbox", { name: /risk disclosure/i }));
+    fireEvent.click(continueButton);
+
+    const purchaseButton = within(page).getByRole("button", { name: "Purchase claim" });
+    expect(purchaseButton).toBeDisabled();
+    fireEvent.change(within(page).getByLabelText("Email confirmation code"), { target: { value: "123456" } });
+    fireEvent.click(purchaseButton);
+
+    expect(within(page).getByRole("heading", { name: "Claim purchased" })).toBeInTheDocument();
+    fireEvent.click(within(page).getByRole("button", { name: "My investments" }));
+    expect(window.location.pathname).toBe("/portfolio");
+  } finally {
+    detail.investment_flow = originalFlows[0];
+    preview.investment_flow = originalFlows[1];
+  }
 });
 
 test("portfolio explains allocated orders that are not holdings yet", () => {
@@ -1108,7 +1508,7 @@ test("portfolio explains allocated orders that are not holdings yet", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
     fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-    fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+    clickNav("My investments");
 
     expect(screen.queryByText("Primary orders awaiting funding close")).not.toBeInTheDocument();
     const ordersInfo = screen.getByRole("button", { name: "About primary orders" });
@@ -1162,7 +1562,7 @@ test("primary-order status chips explain released and never-invested outcomes", 
     });
     fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
     fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-    fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+    clickNav("My investments");
     fireEvent.click(screen.getByRole("tab", { name: "Orders" }));
 
     const released = screen.getByLabelText(/Balance released.*previously reserved/i);
@@ -1189,7 +1589,7 @@ test("secondary market redesign shows for-sale table, explainer band and selling
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "Secondary Market" }));
+  clickNav("Secondary market");
 
   expect(screen.getByRole("heading", { name: "Loans other people want out of." })).toBeInTheDocument();
   expect(screen.getByRole("tab", { name: "For sale now" })).toHaveAttribute("aria-selected", "true");
@@ -1225,7 +1625,7 @@ test("portfolio redesign shows hero, tabs, loans table views and widgets", () =>
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  clickNav("My investments");
 
   // Hero + three tabs (Exposure is gone), CHF is the default currency scope.
   expect(screen.getByRole("heading", { name: "Everything you own." })).toBeInTheDocument();
@@ -1253,7 +1653,7 @@ test("portfolio redesign shows hero, tabs, loans table views and widgets", () =>
   expect(widgetPairs[0].querySelectorAll(".card471")).toHaveLength(2);
   expect(widgetPairs[1].querySelectorAll(".card471")).toHaveLength(2);
 
-  // Portfolio insights stay below the selected tab instead of belonging only to My loans.
+  // Portfolio insights stay on the page for every tab instead of belonging only to My loans.
   fireEvent.click(screen.getByRole("tab", { name: "Activity" }));
   expect(screen.getByRole("heading", { name: "Activity" })).toBeInTheDocument();
   expect(screen.getByText("Earnings calendar")).toBeInTheDocument();
@@ -1310,7 +1710,7 @@ test("portfolio activity and order empty states retain meaningful holding insigh
     });
     fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
     fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-    fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+    clickNav("My investments");
 
     fireEvent.click(screen.getByRole("tab", { name: "Activity" }));
     expect(screen.getByText("No activity yet")).toBeInTheDocument();
@@ -1326,7 +1726,14 @@ test("portfolio activity and order empty states retain meaningful holding insigh
   }
 });
 
-test("holding details open in the v9 position modal with factual projections and collateral", () => {
+// A holding opens as its own page (/portfolio/:holdingId), the design's investment page.
+function openHoldingPage(loanTitle: string) {
+  fireEvent.click(screen.getByText(loanTitle));
+  expect(screen.getByRole("heading", { level: 1, name: loanTitle })).toBeInTheDocument();
+  return screen.getByRole("main");
+}
+
+test("holding details open on the investment page with factual projections and collateral", () => {
   renderApp();
 
   fireEvent.click(screen.getByRole("button", { name: "Log in" }));
@@ -1335,26 +1742,40 @@ test("holding details open in the v9 position modal with factual projections and
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
-  fireEvent.click(screen.getByText("Engadin Alpine refinancing"));
+  clickNav("My investments");
 
-  const dialog = screen.getByRole("dialog", { name: "Engadin Alpine refinancing" });
-  expect(dialog).toHaveClass("xwide");
-  expect(within(dialog).getByRole("heading", { name: "Engadin Hospitality AG" })).toBeInTheDocument();
-  expect(within(dialog).getByText("Interest received")).toBeInTheDocument();
-  expect(within(dialog).getByText("Projected still to earn")).toBeInTheDocument();
-  expect(within(dialog).getByText("Collateral")).toBeInTheDocument();
-  expect(within(dialog).getByText("Registered real-estate security supporting the borrower obligation.")).toBeInTheDocument();
-  expect(within(dialog).getByText("61.0% LTV")).toBeInTheDocument();
-  expect(within(dialog).getByText(/Historical rows show the borrower payment recorded for the full loan|deterministic projected share/)).toBeInTheDocument();
+  const page = openHoldingPage("Engadin Alpine refinancing");
+  expect(window.location.pathname).toBe("/portfolio/H-2310");
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(within(page).getByRole("heading", { name: "Engadin Hospitality AG" })).toBeInTheDocument();
+  expect(within(page).getByText("Interest received")).toBeInTheDocument();
+  expect(within(page).getByText("Projected still to earn")).toBeInTheDocument();
+  expect(within(page).getByText("Collateral")).toBeInTheDocument();
+  expect(within(page).getByText("Registered real-estate security supporting the borrower obligation.")).toBeInTheDocument();
+  expect(within(page).getByText("61.0% LTV")).toBeInTheDocument();
+  expect(within(page).getByText(/Historical rows show the borrower payment recorded for the full loan|deterministic projected share/)).toBeInTheDocument();
 
-  fireEvent.click(within(dialog).getByRole("button", { name: /Open timeline/ }));
-  expect(within(dialog).getByRole("group", { name: "Borrower payment timeline" })).toBeInTheDocument();
+  fireEvent.click(within(page).getByRole("button", { name: /Open timeline/ }));
+  expect(within(page).getByRole("group", { name: "Borrower payment timeline" })).toBeInTheDocument();
 
-  fireEvent.click(within(dialog).getByRole("button", { name: "View schedule" }));
-  expect(within(dialog).getByRole("heading", { name: "Your future schedule" })).toBeInTheDocument();
-  expect(within(dialog).getByRole("columnheader", { name: "Owed after" })).toBeInTheDocument();
-  expect(within(dialog).getByRole("row", { name: /Totals/ })).toBeInTheDocument();
+  fireEvent.click(within(page).getByRole("button", { name: "View schedule" }));
+  expect(within(page).getByRole("heading", { name: "Your future schedule" })).toBeInTheDocument();
+  expect(within(page).getByRole("columnheader", { name: "Owed after" })).toBeInTheDocument();
+  expect(within(page).getByRole("row", { name: /Totals/ })).toBeInTheDocument();
+
+  // The back link returns to the list.
+  fireEvent.click(within(page).getByRole("button", { name: "My investments" }));
+  expect(window.location.pathname).toBe("/portfolio");
+  expect(screen.getByRole("heading", { name: "Everything you own." })).toBeInTheDocument();
+});
+
+test("an unknown holding link shows a not-found investment page", () => {
+  renderApp("/portfolio/H-UNKNOWN");
+
+  expect(screen.getByRole("heading", { level: 1, name: "Investment not found" })).toBeInTheDocument();
+  expect(screen.getByText("We could not find this investment")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Back to My investments" }));
+  expect(window.location.pathname).toBe("/portfolio");
 });
 
 test("originator claim holdings disclose the retained claim without implying protection", () => {
@@ -1366,17 +1787,16 @@ test("originator claim holdings disclose the retained claim without implying pro
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  clickNav("My investments");
   fireEvent.click(screen.getByRole("button", { name: "EUR" }));
-  fireEvent.click(screen.getByText("Nord Trans Cargo working capital"));
 
-  const dialog = screen.getByRole("dialog", { name: "Nord Trans Cargo working capital" });
+  const page = openHoldingPage("Nord Trans Cargo working capital");
   expect(
-    within(dialog).getByText(
+    within(page).getByText(
       /Nord Capital Finance must retain at least 15\.0% of the loan's current outstanding principal/
     )
   ).toBeInTheDocument();
-  expect(within(dialog).queryByText(/loses alongside you/i)).not.toBeInTheDocument();
+  expect(within(page).queryByText(/loses alongside you/i)).not.toBeInTheDocument();
 });
 
 test("impaired holding details do not estimate default interest from days past due", () => {
@@ -1391,14 +1811,13 @@ test("impaired holding details do not estimate default interest from days past d
     fireEvent.change(screen.getByPlaceholderText("you@example.com"), { target: { value: "lukas.brunner@example.ch" } });
     fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
     fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-    fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
-    fireEvent.click(screen.getByText("Engadin Alpine refinancing"));
+    clickNav("My investments");
 
-    const dialog = screen.getByRole("dialog", { name: "Engadin Alpine refinancing" });
-    expect(within(dialog).getByText(/18 days past due/)).toBeInTheDocument();
-    expect(within(dialog).getByText(/12\.0% annual default-interest rate/)).toBeInTheDocument();
-    expect(within(dialog).getByText(/does not estimate accrued default interest from days past due/)).toBeInTheDocument();
-    expect(within(dialog).queryByText(/a day at today/i)).not.toBeInTheDocument();
+    const page = openHoldingPage("Engadin Alpine refinancing");
+    expect(within(page).getByText(/18 days past due/)).toBeInTheDocument();
+    expect(within(page).getByText(/12\.0% annual default-interest rate/)).toBeInTheDocument();
+    expect(within(page).getByText(/does not estimate accrued default interest from days past due/)).toBeInTheDocument();
+    expect(within(page).queryByText(/a day at today/i)).not.toBeInTheDocument();
   } finally {
     holding.loan.loan_status = originalStatus;
     holding.loan.days_past_due = originalDaysPastDue;
@@ -1420,19 +1839,18 @@ test("funded holdings explain that secondary listing starts after disbursement",
     });
     fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
     fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-    fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
-    fireEvent.click(screen.getByText("Engadin Alpine refinancing"));
+    clickNav("My investments");
 
-    const dialog = screen.getByRole("dialog", { name: "Engadin Alpine refinancing" });
+    const page = openHoldingPage("Engadin Alpine refinancing");
     expect(
-      within(dialog).getByText(/Funding has closed, but the borrower payout is still pending/)
+      within(page).getByText(/Funding has closed, but the borrower payout is still pending/)
     ).toBeInTheDocument();
     expect(
-      within(dialog).getByRole("button", { name: "List on secondary market" })
+      within(page).getByRole("button", { name: "List on secondary market" })
     ).toBeDisabled();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
-    fireEvent.click(screen.getByRole("button", { name: "Secondary Market" }));
+    fireEvent.click(within(page).getByRole("button", { name: "My investments" }));
+    clickNav("Secondary market");
     fireEvent.click(screen.getByRole("tab", { name: "Sell a holding" }));
 
     const hint = screen.getByText("Available after disbursement");
@@ -1458,11 +1876,10 @@ test("portfolio listing action opens the sell tab and separates review from emai
     });
     fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
     fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-    fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
-    fireEvent.click(screen.getByText("Engadin Alpine refinancing"));
+    clickNav("My investments");
 
-    const holdingDialog = screen.getByRole("dialog", { name: "Engadin Alpine refinancing" });
-    fireEvent.click(within(holdingDialog).getByRole("button", { name: "List on secondary market" }));
+    const page = openHoldingPage("Engadin Alpine refinancing");
+    fireEvent.click(within(page).getByRole("button", { name: "List on secondary market" }));
 
     expect(screen.getByRole("tab", { name: "Sell a holding" })).toHaveAttribute("aria-selected", "true");
     fireEvent.click(screen.getAllByRole("button", { name: "List" })[0]);
@@ -1493,12 +1910,12 @@ test("listed holdings expose edit and cancel controls plus filtered secondary ac
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  clickNav("My investments");
 
   expect(screen.getByText("Listed")).toBeInTheDocument();
-  fireEvent.click(screen.getByText("Engadin Alpine refinancing"));
-  expect(within(screen.getByRole("dialog", { name: "Engadin Alpine refinancing" })).getByRole("button", { name: "Manage secondary listing" })).toBeInTheDocument();
-  fireEvent.click(within(screen.getByRole("dialog", { name: "Engadin Alpine refinancing" })).getByRole("button", { name: "Manage secondary listing" }));
+  const page = openHoldingPage("Engadin Alpine refinancing");
+  expect(within(page).getByRole("button", { name: "Manage secondary listing" })).toBeInTheDocument();
+  fireEvent.click(within(page).getByRole("button", { name: "Manage secondary listing" }));
 
   expect(screen.getByRole("tab", { name: "Sell a holding" })).toHaveAttribute("aria-selected", "true");
   expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
@@ -1543,7 +1960,7 @@ test("secondary purchase review loads buyer-safe schedules and waits for a manua
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: "Secondary Market" }));
+  clickNav("Secondary market");
   fireEvent.click(screen.getByText("Loan A - Manufacturing - CH"));
 
   const dialog = screen.getByRole("dialog", { name: "Buy Loan A - Manufacturing - CH" });
@@ -1568,7 +1985,7 @@ test("a frozen investor can inspect a secondary listing but cannot request a cod
   fireEvent.change(screen.getByDisplayValue("Active investor"), {
     target: { value: "frozen" }
   });
-  fireEvent.click(screen.getByRole("button", { name: "Secondary Market" }));
+  clickNav("Secondary market");
   fireEvent.click(screen.getByText("Loan A - Manufacturing - CH"));
 
   const dialog = screen.getByRole("dialog", { name: "Buy Loan A - Manufacturing - CH" });
@@ -1601,7 +2018,7 @@ test("day-60 frozen state keeps read-only access visible and blocks money action
 test("registration KYC handoff reflects Didit plus Garanta evidence retention", () => {
   renderApp();
 
-  fireEvent.click(screen.getByRole("button", { name: "Register" }));
+  fireEvent.click(within(screen.getByRole("banner")).getByRole("button", { name: "Open account" }));
   // Checkbox labels embed new-tab document links, so the text spans elements.
   fireEvent.click(
     screen.getByLabelText((label) => label.includes("I accept the") && label.includes("platform terms"))
@@ -1750,7 +2167,7 @@ test("deposit instructions explain how to use the required payment reference", (
   });
   fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
   fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
-  fireEvent.click(screen.getByRole("button", { name: /^Balances/ }));
+  clickNav(/^Account/);
   fireEvent.click(within(screen.getByRole("main")).getByRole("button", { name: "Add Funds" }));
 
   expect(screen.getByText("Payment reference - required")).toBeInTheDocument();
@@ -1758,11 +2175,72 @@ test("deposit instructions explain how to use the required payment reference", (
   expect(screen.getByText(/may delay allocation of the funds/i)).toBeInTheDocument();
 });
 
+test("account page shows one card per currency whose actions open that currency", () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  clickNav(/^Account/);
+
+  const main = screen.getByRole("main");
+  expect(within(main).getByRole("heading", { name: "Account", level: 1 })).toBeInTheDocument();
+  expect(within(main).getByRole("heading", { name: "CHF account" })).toBeInTheDocument();
+  expect(within(main).getByRole("heading", { name: "EUR account" })).toBeInTheDocument();
+  expect(within(main).getByRole("heading", { name: "CHF balance lots" })).toBeInTheDocument();
+  expect(within(main).getByRole("heading", { name: "Rules for your money" })).toBeInTheDocument();
+
+  fireEvent.click(within(main).getByRole("button", { name: "Add EUR" }));
+  expect(screen.getByRole("dialog", { name: "Add Funds · EUR" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
+  fireEvent.click(within(main).getAllByRole("button", { name: "Withdraw to IBAN" })[1]);
+  expect(screen.getByRole("dialog", { name: "Withdraw EUR" })).toBeInTheDocument();
+});
+
+test("profile and settings keep every section reachable from the side menu", () => {
+  renderApp();
+
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+  clickNav("Profile & Settings");
+
+  expect(screen.getByRole("heading", { name: "Profile & Settings", level: 1 })).toBeInTheDocument();
+  const menu = screen.getByRole("navigation", { name: "Settings sections" });
+  expect(within(menu).getByRole("button", { name: "Profile" })).toHaveAttribute("aria-current", "true");
+  expect(screen.getByText("Lukas Brunner", { selector: "dd" })).toBeInTheDocument();
+
+  fireEvent.click(within(menu).getByRole("button", { name: "Verification" }));
+  expect(screen.getByText("Identity (KYC/AML)")).toBeInTheDocument();
+
+  fireEvent.click(within(menu).getByRole("button", { name: "Payout accounts" }));
+  expect(screen.getByRole("heading", { name: "Payout accounts", level: 2 })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Add/update IBAN" }));
+  expect(screen.getByRole("dialog", { name: "Add/update payout IBAN" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+  fireEvent.click(within(menu).getByRole("button", { name: "Communication" }));
+  expect(screen.getByRole("checkbox")).not.toBeChecked();
+  expect(screen.getByText("Product updates and newsletter")).toBeInTheDocument();
+
+  fireEvent.click(within(menu).getByRole("button", { name: "Support & account" }));
+  expect(screen.getByRole("link", { name: "support@banxum.com" })).toHaveAttribute("href", "mailto:support@banxum.com");
+  fireEvent.click(screen.getByRole("button", { name: "Open" }));
+  expect(screen.getByRole("heading", { name: "Help", level: 1 })).toBeInTheDocument();
+});
+
 test("withdrawal dashboard drawer contains the executable withdrawal form", () => {
   renderApp("/admin");
 
   fireEvent.click(screen.getByRole("button", { name: /^Withdrawals:/i }));
-  const withdrawalTitle = screen.getByText("Investor withdrawal awaiting bank execution");
+  const withdrawalTitle = screen.getAllByText("Investor withdrawal awaiting bank execution")[0];
   fireEvent.click(withdrawalTitle.closest("tr") as HTMLElement);
 
   expect(screen.getByRole("heading", { name: "Execute or cancel withdrawal" })).toBeInTheDocument();
@@ -1776,7 +2254,8 @@ test("finance ops pending table resolves a withdrawal into the prefilled executi
 
   fireEvent.click(screen.getByRole("button", { name: "Finance ops" }));
   const resolveButtons = screen.getAllByRole("button", { name: "Resolve" });
-  // Both the requested and the forced withdrawal queue rows must be resolvable.
+  // Both the requested and the forced withdrawal must be resolvable, and the
+  // forced one (returned in both withdrawal queues) is listed only once.
   expect(resolveButtons.length).toBe(2);
   // The second row is the forced withdrawal; resolving it must prefill the
   // execution form with that withdrawal id (not the preview default).
@@ -1819,4 +2298,249 @@ test("loan manage modal exposes repayment declaration and refinancing publish re
   fireEvent.click(screen.getByRole("button", { name: "Continue to loan schedule" }));
   expect(screen.getByText("Repayment schedule review")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Publish loan after schedule review" })).toBeInTheDocument();
+});
+
+test("borrower repayment asks for the payer account before recording", () => {
+  renderApp("/admin");
+
+  fireEvent.click(screen.getByRole("button", { name: "Loans" }));
+  const lateLoanRow = screen.getAllByText("Basel Riverside refurbishment")[0].closest("tr");
+  fireEvent.click(within(lateLoanRow as HTMLElement).getByRole("button", { name: "Manage" }));
+  fireEvent.click(screen.getByRole("button", { name: /Record borrower repayment/ }));
+
+  const payerAccount = screen.getByLabelText("Payer account");
+  expect(payerAccount).toBeRequired();
+  fireEvent.click(screen.getByRole("button", { name: "Record repayment" }));
+  expect(
+    screen.getByText("Enter the account the borrower paid from (IBAN or account number).")
+  ).toBeInTheDocument();
+  expect(payerAccount).toHaveAttribute("aria-invalid", "true");
+  expect(screen.queryByText("Preview action recorded")).not.toBeInTheDocument();
+
+  fireEvent.change(payerAccount, { target: { value: "CH93 0076 2011 6238 5295 7" } });
+  expect(screen.queryByText(/Enter the account the borrower paid from/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Record repayment" }));
+  expect(screen.getByText("Preview action recorded")).toBeInTheDocument();
+});
+
+function loginDemo() {
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
+    target: { value: "lukas.brunner@example.ch" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send magic link" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open link in demo" }));
+}
+
+test("public and portal footers link the platform Terms and Conditions", () => {
+  const site = renderApp("/projects");
+  const siteLink = within(screen.getByRole("contentinfo")).getByRole("link", { name: "Terms and Conditions" });
+  expect(siteLink).toHaveAttribute("href", "/legal/registration");
+  site.unmount();
+
+  renderApp();
+  loginDemo();
+  const portalLinks = screen.getByRole("navigation", { name: "Legal and help" });
+  expect(within(portalLinks).getByRole("link", { name: "Terms and Conditions" })).toHaveAttribute("href", "/legal/registration");
+});
+
+test("Add Funds offers a copy icon for the IBAN and QR IBAN in CHF and EUR", () => {
+  renderApp();
+  loginDemo();
+
+  fireEvent.click(within(screen.getByRole("banner", { name: "Investor account header" })).getByRole("button", { name: "Add Funds" }));
+  const chf = screen.getByRole("dialog", { name: "Add Funds · CHF" });
+  expect(within(chf).getByRole("button", { name: "Copy IBAN" })).toBeInTheDocument();
+  expect(within(chf).getByRole("button", { name: "Copy QR IBAN" })).toBeInTheDocument();
+  expect(within(chf).getByRole("button", { name: "Copy payment reference" })).toBeInTheDocument();
+
+  fireEvent.change(within(chf).getByLabelText("Currency"), { target: { value: "EUR" } });
+  const eur = screen.getByRole("dialog", { name: "Add Funds · EUR" });
+  expect(within(eur).getByRole("button", { name: "Copy IBAN" })).toBeInTheDocument();
+});
+
+test("Smart Invest matches show the purpose as a readable label under the name", () => {
+  const match = smartInvestFixture.matches[0];
+  const previous = { purpose: match.purpose, originator_name: match.originator_name };
+  match.purpose = "bridge_financing";
+  match.originator_name = null;
+  try {
+    renderApp();
+    loginDemo();
+    fireEvent.click(screen.getByRole("button", { name: "Smart Invest" }));
+
+    const table = screen.getByRole("table", { name: "Smart Invest matches" });
+    expect(within(table).getByText("Bridge financing")).toBeInTheDocument();
+    expect(within(table).queryByText(/bridge_financing/)).not.toBeInTheDocument();
+  } finally {
+    match.purpose = previous.purpose;
+    match.originator_name = previous.originator_name;
+  }
+});
+
+test("rule desk toggle unselects every match and reselects them all", () => {
+  const rhone = marketplaceLoansFixture.find((loan) => loan.loan_id === "GA-2399");
+  const leman = marketplaceLoansFixture.find((loan) => loan.loan_id === "GA-2390");
+  const extra = [rhone, leman].map((loan) => ({ ...smartInvestFixture.matches[0], ...loan }) as (typeof smartInvestFixture.matches)[number]);
+  smartInvestFixture.matches = [...smartInvestFixture.matches, ...extra];
+  smartInvestFixture.match_count = smartInvestFixture.matches.length;
+  try {
+    renderApp();
+    loginDemo();
+
+    // Everything starts ticked.
+    expect(screen.getByRole("button", { name: "Untick Rhône Vignobles SA" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Untick Léman BioTech SA" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Unselect all" }));
+    expect(screen.getByRole("button", { name: "Tick Rhône Vignobles SA" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Tick Léman BioTech SA" })).toBeInTheDocument();
+    expect(screen.getByText(/0 of 2 ticked/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review & confirm →" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Select all" }));
+    expect(screen.getByRole("button", { name: "Untick Rhône Vignobles SA" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Untick Léman BioTech SA" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Unselect all" })).toBeInTheDocument();
+  } finally {
+    smartInvestFixture.matches = smartInvestFixture.matches.filter((match) => !extra.includes(match));
+    smartInvestFixture.match_count = smartInvestFixture.matches.length;
+  }
+});
+
+test("notifications open their target, can be marked read one by one or all at once", async () => {
+  renderApp();
+  loginDemo();
+  const topbar = screen.getByRole("banner", { name: "Investor account header" });
+  const nav = screen.getByRole("navigation", { name: "Investor portal navigation" });
+  expect(within(nav).getByRole("button", { name: /^Notifications\s*2$/ })).toBeInTheDocument();
+
+  fireEvent.click(within(topbar).getByRole("button", { name: "Notifications" }));
+  expect(within(topbar).getByText("Notifications (2 new)")).toBeInTheDocument();
+  fireEvent.click(within(topbar).getByRole("menuitem", { name: 'Mark "Balance ageing - day 57" as read' }));
+  expect(await within(topbar).findByText("Notifications (1 new)")).toBeInTheDocument();
+  expect(within(nav).getByRole("button", { name: /^Notifications\s*1$/ })).toBeInTheDocument();
+
+  // Opening a notification marks it read and goes to the holding it is about.
+  fireEvent.click(within(topbar).getByRole("menuitem", { name: /^Loan in default/ }));
+  expect(window.location.pathname).toBe("/portfolio/H-2201");
+  expect(await within(nav).findByRole("button", { name: /^Notifications$/ })).toBeInTheDocument();
+
+  fireEvent.click(within(nav).getByRole("button", { name: /^Notifications/ }));
+  expect(screen.getByText("Up to date")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /^Mark ".*" as read$/ })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Mark all as read" })).toBeDisabled();
+});
+
+test("the Notifications page marks all as read and opens a notice's page", async () => {
+  renderApp();
+  loginDemo();
+  clickNav(/^Notifications/);
+
+  expect(screen.getByText("2 unread")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: 'Mark "Loan in default" as read' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Mark all as read" }));
+  expect(await screen.findByText("Up to date")).toBeInTheDocument();
+  expect(screen.queryByText("Unread")).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Balance ageing - day 57" }));
+  expect(window.location.pathname).toBe("/balances");
+});
+
+test("Invest now explains when the balance is too old for the funding window", () => {
+  const chfLots = balanceLotsFixture.filter((lot) => lot.currency === "CHF");
+  const previous = chfLots.map((lot) => lot.bucket);
+  chfLots.forEach((lot) => {
+    lot.bucket = "overdue";
+  });
+  try {
+    renderApp();
+    loginDemo();
+    clickNav("Primary market");
+    fireEvent.click(screen.getByText("Helvetia Logistik AG"));
+
+    const sheet = screen.getByRole("dialog", { name: "Helvetia Logistik AG" });
+    const investNow = within(sheet).getByRole("button", { name: "Invest now" });
+    expect(investNow).toBeDisabled();
+    expect(investNow.getAttribute("title")).toMatch(/does not have enough holding time left for this loan's funding period\. Every incoming amount has a 60-day holding limit/);
+    expect(investNow.getAttribute("title")).not.toMatch(/No investable balance is available/);
+    expect(within(sheet).getByText("Your CHF balance does not have enough holding time left for this loan's funding period.")).toBeInTheDocument();
+  } finally {
+    chfLots.forEach((lot, index) => {
+      lot.bucket = previous[index];
+    });
+  }
+});
+
+test("an amount just over the remaining capacity names the capacity, not the wallet", () => {
+  const preview = marketplaceLoansFixture.find((loan) => loan.loan_id === "GA-2390");
+  const detail = loanDetailsFixture.find((loan) => loan.loan_id === "GA-2390");
+  expect(preview).toBeDefined();
+  expect(detail).toBeDefined();
+  const previous = [preview!.remaining_capacity_minor, preview!.fillable_amount_minor, detail!.remaining_capacity_minor, detail!.fillable_amount_minor];
+  preview!.remaining_capacity_minor = 5_000_00;
+  preview!.fillable_amount_minor = 5_000_00;
+  detail!.remaining_capacity_minor = 5_000_00;
+  detail!.fillable_amount_minor = 5_000_00;
+  try {
+    renderApp();
+    loginDemo();
+    clickNav("Primary market");
+    fireEvent.click(screen.getByText("Léman BioTech SA"));
+    const sheet = screen.getByRole("dialog", { name: "Léman BioTech SA" });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Invest now" }));
+    fireEvent.change(within(sheet).getByLabelText("Amount to invest"), { target: { value: "5001" } });
+    expect(within(sheet).getByText(/This opportunity has only CHF 5.000\.00 left, so that is the most you can invest here\./)).toBeInTheDocument();
+    expect(within(sheet).queryByText(/is not lent/)).not.toBeInTheDocument();
+    expect(within(sheet).getByRole("button", { name: "Review Order" })).toBeDisabled();
+    fireEvent.click(within(sheet).getByRole("button", { name: "Close" }));
+
+    // The invest page names the same limit.
+    window.history.pushState({}, "", "/marketplace/GA-2390/invest");
+    fireEvent(window, new PopStateEvent("popstate"));
+    fireEvent.change(screen.getByLabelText("Investment amount"), { target: { value: "5001" } });
+    expect(screen.getByText(/This opportunity has only CHF 5.000\.00 left/)).toBeInTheDocument();
+  } finally {
+    [preview!.remaining_capacity_minor, preview!.fillable_amount_minor, detail!.remaining_capacity_minor, detail!.fillable_amount_minor] = previous;
+  }
+});
+
+test("activity labels each withdrawal outcome and shows the cancellation credit", () => {
+  renderApp();
+  loginDemo();
+  clickNav("My investments");
+  fireEvent.click(screen.getByRole("tab", { name: "Activity" }));
+
+  const cancelledRow = screen.getByText("Cancelled").closest("tr") as HTMLElement;
+  expect(within(cancelledRow).getAllByText("Withdrawal request").length).toBeGreaterThan(0);
+  const finalizedRow = screen.getByText("Finalized").closest("tr") as HTMLElement;
+  expect(within(finalizedRow).getAllByText("Withdrawal request").length).toBeGreaterThan(0);
+  const reversalRow = screen.getByText("Returned to balance").closest("tr") as HTMLElement;
+  expect(within(reversalRow).getByText("Withdrawal cancelled")).toBeInTheDocument();
+  expect(within(reversalRow).getByText("withdrawal reversal")).toBeInTheDocument();
+  expect(within(reversalRow).getByText(/\+2.000\.00/)).toBeInTheDocument();
+});
+
+test("Account shows the frozen balance apart from the penalty charged on the lots", () => {
+  const overdueLot = balanceLotsFixture.find((lot) => lot.currency === "CHF" && lot.bucket === "overdue");
+  const chf = balancesFixture.summaries.find((summary) => summary.currency === "CHF");
+  expect(overdueLot).toBeDefined();
+  expect(chf).toBeDefined();
+  overdueLot!.penalized_amount_minor = 49_00;
+  chf!.penalty_charged_minor = 49_00;
+  try {
+    renderApp();
+    loginDemo();
+    clickNav(/^Account/);
+
+    expect(screen.queryByText("Penalty/frozen")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Frozen").length).toBe(2);
+    const lots = screen.getByRole("heading", { name: "CHF balance lots" }).closest("section") as HTMLElement;
+    expect(within(lots).getByText("Penalty charged", { selector: "span" })).toBeInTheDocument();
+    expect(within(lots).getByRole("columnheader", { name: "Penalty charged" })).toBeInTheDocument();
+    expect(within(lots).getAllByText(/49\.00/).length).toBeGreaterThanOrEqual(2);
+  } finally {
+    overdueLot!.penalized_amount_minor = 0;
+    chf!.penalty_charged_minor = 0;
+  }
 });

@@ -31,6 +31,7 @@ import {
 } from "../investorPortal/ui";
 import { adminTaskEventsFixture, adminTasksFixture } from "./adminFixtures";
 import { useAdminBusinessDate } from "./adminBusinessDate";
+import { useAdminParam, useAdminSegments } from "./adminRoute";
 import {
   useAdminBorrowerLookupData,
   useAdminDocumentTemplateVersionLookupData,
@@ -39,6 +40,7 @@ import {
   useAdminLoanLookupData,
   useAdminPrimaryOrderLookupData,
   useAdminSecondaryListingLookupData,
+  taskTypeLabel,
   useAdminTaskEventsData,
   useAdminTasksData,
   useAdminUserLookupData,
@@ -70,6 +72,10 @@ type TaskFilters = {
   taskType: "" | AdminTaskTypeEnum;
   search: string;
 };
+
+function enumParam<T extends string>(value: string, options: readonly T[]): "" | T {
+  return (options as readonly string[]).includes(value) ? (value as T) : "";
+}
 
 function labelize(value: string | null | undefined) {
   if (!value) return "-";
@@ -230,15 +236,22 @@ function eventForPreview(
 
 export function AdminTasksPanel() {
   const today = useAdminBusinessDate();
-  const [filters, setFilters] = useState<TaskFilters>({
-    status: "",
-    priority: "",
-    taskType: "",
-    search: ""
-  });
+  // Filters and the open task live in the URL (/admin/tasks/<taskId>?status=...).
+  const [statusParam, setStatusParam] = useAdminParam("status");
+  const [priorityParam, setPriorityParam] = useAdminParam("priority");
+  const [typeParam, setTypeParam] = useAdminParam("type");
+  const [searchParam, setSearchParam] = useAdminParam("q");
+  const filters: TaskFilters = {
+    status: enumParam(statusParam, taskStatusOptions),
+    priority: enumParam(priorityParam, taskPriorityOptions),
+    taskType: enumParam(typeParam, taskTypeOptions),
+    search: searchParam
+  };
+  const [segments, setSegments] = useAdminSegments("tasks");
+  const selectedTaskId = segments[0] ?? null;
+  const setSelectedTaskId = (taskId: string | null) => setSegments(taskId ? [taskId] : []);
   const [previewTasks, setPreviewTasks] = useState(adminTasksFixture);
   const [previewEvents, setPreviewEvents] = useState(adminTaskEventsFixture);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
   const params: V1AdminOpsTasksListParams = useMemo(() => {
@@ -363,7 +376,8 @@ export function AdminTasksPanel() {
         <div className="admin-task-filters">
           <Field label="Status">
             <select
-              onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value as TaskFilters["status"] }))}
+              aria-label="Status"
+              onChange={(event) => setStatusParam(event.target.value)}
               value={filters.status}
             >
               <option value="">All statuses</option>
@@ -374,7 +388,8 @@ export function AdminTasksPanel() {
           </Field>
           <Field label="Priority">
             <select
-              onChange={(event) => setFilters((current) => ({ ...current, priority: event.target.value as TaskFilters["priority"] }))}
+              aria-label="Priority"
+              onChange={(event) => setPriorityParam(event.target.value)}
               value={filters.priority}
             >
               <option value="">All priorities</option>
@@ -385,18 +400,20 @@ export function AdminTasksPanel() {
           </Field>
           <Field label="Type">
             <select
-              onChange={(event) => setFilters((current) => ({ ...current, taskType: event.target.value as TaskFilters["taskType"] }))}
+              aria-label="Type"
+              onChange={(event) => setTypeParam(event.target.value)}
               value={filters.taskType}
             >
               <option value="">All types</option>
               {taskTypeOptions.map((taskType) => (
-                <option key={taskType} value={taskType}>{labelize(taskType)}</option>
+                <option key={taskType} value={taskType}>{taskTypeLabel(taskType)}</option>
               ))}
             </select>
           </Field>
           <Field label="Search">
             <input
-              onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))}
+              aria-label="Search"
+              onChange={(event) => setSearchParam(event.target.value)}
               placeholder="Title, notes, object id"
               value={filters.search}
             />
@@ -434,7 +451,7 @@ export function AdminTasksPanel() {
                     <td>
                       <button className="admin-row-button" type="button">
                         <strong>{task.title}</strong>
-                        <span>{labelize(task.task_type)}</span>
+                        <span>{taskTypeLabel(task.task_type)}</span>
                       </button>
                     </td>
                     <td><Chip status={task.status} tone={statusTone(task.status)}>{labelize(task.status)}</Chip></td>
@@ -567,7 +584,7 @@ function CreateTaskModal({
           <Field label="Type">
             <select onChange={(event) => setTaskType(event.target.value as AdminTaskTypeEnum)} value={taskType}>
               {taskTypeOptions.map((option) => (
-                <option key={option} value={option}>{labelize(option)}</option>
+                <option key={option} value={option}>{taskTypeLabel(option)}</option>
               ))}
             </select>
           </Field>
@@ -629,6 +646,16 @@ function CreateTaskModal({
   );
 }
 
+type TaskDraft = {
+  title: string;
+  task_type: AdminTaskTypeEnum;
+  priority: AdminTaskPriorityEnum;
+  status: AdminTaskStatusEnum;
+  due_at: string;
+  notes: string;
+  completion_note: string;
+};
+
 function TaskDetailDrawer({
   task,
   events,
@@ -647,7 +674,9 @@ function TaskDetailDrawer({
   refetchTasks: () => void;
 }) {
   const updateTask = useV1AdminOpsTasksPartialUpdate();
-  const [draft, setDraft] = useState({
+  // Resolving only closes the task; it never performs the underlying action.
+  const [pendingResolve, setPendingResolve] = useState<Partial<TaskDraft> | null>(null);
+  const [draft, setDraft] = useState<TaskDraft>({
     title: task.title,
     task_type: task.task_type as AdminTaskTypeEnum,
     priority: task.priority as AdminTaskPriorityEnum,
@@ -669,9 +698,13 @@ function TaskDetailDrawer({
     });
   }, [task]);
 
-  function submitUpdate(event?: FormEvent, override?: Partial<typeof draft>) {
+  function submitUpdate(event?: FormEvent, override?: Partial<TaskDraft>, resolveConfirmed = false) {
     event?.preventDefault();
     const next = { ...draft, ...override };
+    if (next.status === "resolved" && task.status !== "resolved" && !resolveConfirmed) {
+      setPendingResolve(override ?? {});
+      return;
+    }
     const payload: PatchedAdminTaskUpdateRequest = {
       title: next.title,
       task_type: next.task_type,
@@ -700,8 +733,15 @@ function TaskDetailDrawer({
   }
 
   function quickStatus(status: AdminTaskStatusEnum) {
-    setDraft((current) => ({ ...current, status }));
+    if (status !== "resolved") setDraft((current) => ({ ...current, status }));
     submitUpdate(undefined, { status });
+  }
+
+  function confirmResolve() {
+    const override = { ...pendingResolve, status: "resolved" as AdminTaskStatusEnum };
+    setPendingResolve(null);
+    setDraft((current) => ({ ...current, ...override }));
+    submitUpdate(undefined, override, true);
   }
 
   return (
@@ -733,7 +773,7 @@ function TaskDetailDrawer({
 
         <div className="grid grid-2">
           <Field label="Status">
-            <select onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value as AdminTaskStatusEnum }))} value={draft.status}>
+            <select aria-label="Status" onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value as AdminTaskStatusEnum }))} value={draft.status}>
               {taskStatusOptions.map((status) => (
                 <option key={status} value={status}>{labelize(status)}</option>
               ))}
@@ -752,7 +792,7 @@ function TaskDetailDrawer({
           <Field label="Type">
             <select onChange={(event) => setDraft((current) => ({ ...current, task_type: event.target.value as AdminTaskTypeEnum }))} value={draft.task_type}>
               {taskTypeOptions.map((taskType) => (
-                <option key={taskType} value={taskType}>{labelize(taskType)}</option>
+                <option key={taskType} value={taskType}>{taskTypeLabel(taskType)}</option>
               ))}
             </select>
           </Field>
@@ -784,6 +824,23 @@ function TaskDetailDrawer({
           <Banner tone="bad" title="Could not update task">
             {errorMessage(updateTask.error)}
           </Banner>
+        ) : null}
+
+        {pendingResolve ? (
+          <Modal onClose={() => setPendingResolve(null)} title="Resolve this task?">
+            <div className="admin-confirm-body">
+              <Banner tone="warn" title="This only marks the task as done">
+                Resolving records that the task was checked and closes it. It does not do the work
+                itself: it will not verify an IBAN, execute a payment or change any other record.
+                Complete that action in its own screen first (for example Finance ops &rsaquo; IBAN
+                verification).
+              </Banner>
+              <div className="modal-foot inline-foot">
+                <Button onClick={() => setPendingResolve(null)}>Back</Button>
+                <Button onClick={confirmResolve} variant="primary">Mark as resolved</Button>
+              </div>
+            </div>
+          </Modal>
         ) : null}
 
         <div className="admin-action-row">

@@ -68,6 +68,14 @@ class InvalidOrExpiredTokenError(AccountsAuthError):
     pass
 
 
+class AccountLoginBlockedError(InvalidOrExpiredTokenError):
+    """A valid login link belongs to an account whose status blocks login."""
+
+    def __init__(self, message: str, *, account_status: str) -> None:
+        super().__init__(message)
+        self.account_status = account_status
+
+
 class InvalidOrExpiredCodeError(AccountsAuthError):
     pass
 
@@ -125,6 +133,9 @@ MAGIC_LINK_ACCOUNT_TYPES = frozenset(
     }
 )
 INVESTOR_SENSITIVE_ACTION_ACCOUNT_TYPES = MAGIC_LINK_ACCOUNT_TYPES
+# Login-blocking statuses whose owner is told why (by email, never in the request
+# response, so the login form does not reveal whether an account exists).
+LOGIN_BLOCKED_NOTICE_STATUSES = frozenset({AccountStatus.RESTRICTED, AccountStatus.LOCKED})
 TWILIO_VERIFY_PROVIDER = "twilio_verify"
 LOCAL_PHONE_VERIFICATION_PROVIDERS = {"mock", "local"}
 
@@ -387,7 +398,8 @@ class SensitiveActionCodeCommand:
     ip_address: str | None = None
     user_agent: str = ""
     ttl: timedelta = timedelta(minutes=10)
-    max_attempts: int = 3
+    # None uses settings.AUTH_SENSITIVE_CODE_MAX_ATTEMPTS (default 3).
+    max_attempts: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -618,10 +630,74 @@ def update_marketing_consent(command: UpdateMarketingConsentCommand) -> User:
     return user
 
 
+def _support_email() -> str:
+    return str(getattr(settings, "SUPPORT_EMAIL", "") or "support@banxum.com")
+
+
+def _account_status_word(status: str) -> str:
+    return "locked" if status == AccountStatus.LOCKED else "restricted"
+
+
 @transaction.atomic
+def _enqueue_login_blocked_notice(user: User) -> None:
+    status_word = _account_status_word(str(user.status))
+    brand = settings.PLATFORM_BRAND_NAME
+    # One notice per account and hour is enough; repeated requests reuse it.
+    hour_bucket = timezone.now().strftime("%Y%m%d%H")
+    outbox_message = enqueue_outbox_message(
+        OutboxCommand(
+            idempotency_key=f"login-blocked-notice:{user.id}:{hour_bucket}",
+            topic="email.account_login_blocked",
+            payload={
+                "user_id": str(user.id),
+                "email": user.email,
+                "subject": f"Your {brand} account is {status_word}",
+                "headline": f"Your {brand} account is {status_word}",
+                "notice_label": "Account notice",
+                "status_label": "Important",
+                "status_tone": "danger",
+                "body_text": (
+                    f"We received a request to log in to your {brand} account. Your account "
+                    f"is currently {status_word}, so we did not send a login link.\n\n"
+                    f"Please contact support at {_support_email()} for further details."
+                ),
+                "template_key": "accounts.login_blocked.v1",
+                "metadata": {"account_status": str(user.status)},
+            },
+        )
+    )
+    _dispatch_auth_email_after_commit(outbox_message.id)
+    record_audit_event(
+        AuditCommand(
+            actor=actor_for_user(user),
+            action="auth.login_blocked_notice_requested",
+            target_type="User",
+            target_id=str(user.id),
+            metadata={"account_status": str(user.status)},
+        )
+    )
+
+
 def issue_magic_link(command: MagicLinkRequestCommand) -> MagicLinkIssueResult:
     email = normalize_email(command.email)
     user = User.objects.filter(email=email).first()
+    if (
+        user is not None
+        and user.is_active
+        and user.account_type in MAGIC_LINK_ACCOUNT_TYPES
+        and user.status in LOGIN_BLOCKED_NOTICE_STATUSES
+    ):
+        # Tell the owner why no link arrives. The caller still gets the generic error.
+        _enqueue_login_blocked_notice(user)
+        raise InvalidOrExpiredTokenError("Account cannot receive a login link.")
+    return _issue_magic_link_for_user(command, user)
+
+
+@transaction.atomic
+def _issue_magic_link_for_user(
+    command: MagicLinkRequestCommand,
+    user: User | None,
+) -> MagicLinkIssueResult:
     if (
         user is None
         or not user.can_login
@@ -688,7 +764,20 @@ def consume_magic_link(command: MagicLinkConsumeCommand) -> User:
                 actor=actor_for_user(token.user),
                 metadata={"reason": "account_cannot_login"},
             )
-            failure = InvalidOrExpiredTokenError("Account cannot log in.")
+            if (
+                token.user.is_active
+                and token.user.account_type in MAGIC_LINK_ACCOUNT_TYPES
+                and token.user.status in LOGIN_BLOCKED_NOTICE_STATUSES
+            ):
+                # Holding a valid link proves inbox ownership, so the reason can be shown.
+                status_word = _account_status_word(str(token.user.status))
+                failure = AccountLoginBlockedError(
+                    f"Your account is {status_word}. Please contact support at "
+                    f"{_support_email()} for further details.",
+                    account_status=str(token.user.status),
+                )
+            else:
+                failure = InvalidOrExpiredTokenError("Account cannot log in.")
         else:
             token.used_at = now
             token.consumed_ip = command.ip_address
@@ -722,7 +811,12 @@ def issue_sensitive_action_code(
             raise InvalidOrExpiredCodeError("Account cannot receive an admin-login code.")
     elif command.user.account_type not in INVESTOR_SENSITIVE_ACTION_ACCOUNT_TYPES:
         raise InvalidOrExpiredCodeError("Account cannot receive this sensitive-action code.")
-    if command.max_attempts <= 0:
+    max_attempts = (
+        command.max_attempts
+        if command.max_attempts is not None
+        else int(settings.AUTH_SENSITIVE_CODE_MAX_ATTEMPTS)
+    )
+    if max_attempts <= 0:
         raise AccountsAuthError("max_attempts must be positive.")
 
     now = timezone.now()
@@ -758,7 +852,7 @@ def issue_sensitive_action_code(
         code_digest=digest_secret(raw_code),
         encrypted_code=encrypt_delivery_secret(raw_code),
         expires_at=now + command.ttl,
-        max_attempts=command.max_attempts,
+        max_attempts=max_attempts,
         requested_ip=command.ip_address,
         requested_user_agent=command.user_agent,
     )

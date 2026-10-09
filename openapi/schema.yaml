@@ -689,6 +689,7 @@ paths:
           - account_access_review
           - borrower_onboarding
           - loan_setup
+          - loan_risk_review
           - payment_reconciliation
           - payout_instruction_verification
           - fx_settlement
@@ -705,6 +706,7 @@ paths:
           * `account_access_review` - Account access review
           * `borrower_onboarding` - Borrower onboarding
           * `loan_setup` - Loan setup
+          * `loan_risk_review` - Loan risk review
           * `payment_reconciliation` - Payment reconciliation
           * `payout_instruction_verification` - Payout instruction verification
           * `fx_settlement` - FX settlement
@@ -2125,6 +2127,44 @@ paths:
               schema:
                 $ref: '#/components/schemas/InvestorNotifications'
           description: ''
+  /api/v1/investor/portal/notifications/{notification_id}/read/:
+    post:
+      operationId: v1_investor_portal_notifications_read_create
+      description: Marks one of the signed-in investor's own notifications as read
+        (idempotent).
+      parameters:
+      - in: path
+        name: notification_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorNotificationReadResponse'
+          description: ''
+  /api/v1/investor/portal/notifications/read-all/:
+    post:
+      operationId: v1_investor_portal_notifications_read_all_create
+      description: Marks every listed notification of the signed-in investor as read
+        (idempotent).
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorNotificationReadResponse'
+          description: ''
   /api/v1/investor/portal/portfolio/:
     get:
       operationId: v1_investor_portal_portfolio_retrieve
@@ -2552,6 +2592,61 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/InvestorWithdrawalFinalizeResponse'
+          description: ''
+  /api/v1/ledger/admin/withdrawal-requests/history/:
+    get:
+      operationId: v1_ledger_admin_withdrawal_requests_history_retrieve
+      description: Read-only admin history of finalized and cancelled investor withdrawals.
+      parameters:
+      - in: query
+        name: currency
+        schema:
+          type: string
+          maxLength: 3
+      - in: query
+        name: is_forced
+        schema:
+          type: boolean
+          nullable: true
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+      - in: query
+        name: offset
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+      - in: query
+        name: q
+        schema:
+          type: string
+          maxLength: 128
+      - in: query
+        name: status
+        schema:
+          enum:
+          - finalized
+          - cancelled
+          - ''
+          type: string
+        description: |-
+          * `finalized` - Finalized
+          * `cancelled` - Cancelled
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestorWithdrawalHistoryResponse'
           description: ''
   /api/v1/ledger/payout-instructions/:
     post:
@@ -5097,6 +5192,7 @@ components:
       - account_access_review
       - borrower_onboarding
       - loan_setup
+      - loan_risk_review
       - payment_reconciliation
       - payout_instruction_verification
       - fx_settlement
@@ -5112,6 +5208,7 @@ components:
         * `account_access_review` - Account access review
         * `borrower_onboarding` - Borrower onboarding
         * `loan_setup` - Loan setup
+        * `loan_risk_review` - Loan risk review
         * `payment_reconciliation` - Payment reconciliation
         * `payout_instruction_verification` - Payout instruction verification
         * `fx_settlement` - FX settlement
@@ -5547,6 +5644,7 @@ components:
           type: integer
         penalized_amount_minor:
           type: integer
+          description: Balance-ageing penalty charged on this lot so far.
         requires_withdrawal:
           type: boolean
         blocks_financial_actions:
@@ -5633,6 +5731,11 @@ components:
           type: integer
         penalty_mode_minor:
           type: integer
+          description: 'Remaining balance of lots in penalty mode: blocked until withdrawn.'
+        penalty_charged_minor:
+          type: integer
+          description: Balance-ageing penalties charged so far on this currency's
+            lots; already deducted and not included in any balance figure.
         lot_count:
           type: integer
         active_lot_count:
@@ -5656,6 +5759,7 @@ components:
       - next_investment_deadline_at
       - next_withdrawal_deadline_at
       - overdue_minor
+      - penalty_charged_minor
       - penalty_mode_minor
       - total_available_minor
       - withdraw_only_minor
@@ -6416,6 +6520,7 @@ components:
       - booking_date
       - idempotency_key
       - loan_id
+      - payer_account_identifier
       - payer_name
       - value_date
     BorrowerRepaymentRecordResponse:
@@ -6444,18 +6549,6 @@ components:
         * `secondary_market_purchase` - Secondary-market purchase
         * `secondary_market_listing` - Secondary-market listing
         * `risk_disclosure` - Risk disclosure
-    CollateralScopeEnum:
-      enum:
-      - all
-      - secured
-      - unsecured
-      - specific
-      type: string
-      description: |-
-        * `all` - Any collateral
-        * `secured` - With collateral
-        * `unsecured` - Without collateral
-        * `specific` - Specific collateral type
     CollateralTypeEnum:
       enum:
       - real_estate
@@ -6488,16 +6581,6 @@ components:
         * `mixed_collateral` - Mixed collateral
         * `unsecured_exception` - Unsecured exception
         * `other` - Other
-    CurrencyScopeEnum:
-      enum:
-      - all
-      - CHF
-      - EUR
-      type: string
-      description: |-
-        * `all` - CHF and EUR
-        * `CHF` - CHF
-        * `EUR` - EUR
     CurrentUserResponse:
       type: object
       properties:
@@ -8030,18 +8113,49 @@ components:
           nullable: true
         unread:
           type: boolean
+        navigation_target:
+          allOf:
+          - $ref: '#/components/schemas/NavigationTargetEnum'
+          description: |-
+            Portal page the notification opens; none opens the Notifications page.
+
+            * `none` - none
+            * `loan` - loan
+            * `holding` - holding
+            * `portfolio` - portfolio
+            * `balances` - balances
+            * `secondary_market` - secondary_market
+            * `fx` - fx
+        navigation_target_id:
+          type: string
+          description: Loan or holding UUID for the loan and holding targets; blank
+            otherwise.
         metadata: {}
       required:
       - body
       - created_at
       - id
       - metadata
+      - navigation_target
+      - navigation_target_id
       - notification_source
       - sent_at
       - status
       - title
       - topic
       - unread
+    InvestorNotificationReadResponse:
+      type: object
+      properties:
+        marked_count:
+          type: integer
+          description: Notifications newly marked as read by this request (0 when
+            already read).
+        unread_count:
+          type: integer
+      required:
+      - marked_count
+      - unread_count
     InvestorNotifications:
       type: object
       properties:
@@ -8358,6 +8472,91 @@ components:
       - bank_operation
       - journal_entry
       - withdrawal_request
+    InvestorWithdrawalHistoryResponse:
+      type: object
+      properties:
+        count:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvestorWithdrawalHistoryRow'
+      required:
+      - count
+      - limit
+      - offset
+      - results
+    InvestorWithdrawalHistoryRow:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        investor_user_id:
+          type: string
+          format: uuid
+        investor_name:
+          type: string
+        investor_email:
+          type: string
+        investor_reference:
+          type: string
+        status:
+          type: string
+        is_forced:
+          type: boolean
+        amount_minor:
+          type: integer
+        currency:
+          type: string
+        destination_iban:
+          type: string
+        destination_account_name:
+          type: string
+        requested_at:
+          type: string
+          format: date-time
+        closed_at:
+          type: string
+          format: date-time
+          nullable: true
+        finalized_at:
+          type: string
+          format: date-time
+          nullable: true
+        cancelled_at:
+          type: string
+          format: date-time
+          nullable: true
+        bank_reference:
+          type: string
+        payment_reference:
+          type: string
+        cancellation_reason:
+          type: string
+      required:
+      - amount_minor
+      - bank_reference
+      - cancellation_reason
+      - cancelled_at
+      - closed_at
+      - currency
+      - destination_account_name
+      - destination_iban
+      - finalized_at
+      - id
+      - investor_email
+      - investor_name
+      - investor_reference
+      - investor_user_id
+      - is_forced
+      - payment_reference
+      - requested_at
+      - status
     InvestorWithdrawalRequest:
       type: object
       properties:
@@ -8921,6 +9120,11 @@ components:
           maxLength: 255
         notes:
           type: string
+        confirm_repeat_deposit:
+          type: boolean
+          default: false
+          description: Set only after a duplicate-deposit rejection, when the investor
+            really sent a second identical transfer.
         idempotency_key:
           type: string
           maxLength: 160
@@ -9368,16 +9572,6 @@ components:
       - schedule_version
       - status
       - total_minor
-    LoanKindEnum:
-      enum:
-      - all
-      - new
-      - refinancing
-      type: string
-      description: |-
-        * `all` - New lending and refinancing
-        * `new` - New lending
-        * `refinancing` - Refinancing
     LoanOriginator:
       type: object
       properties:
@@ -9689,7 +9883,6 @@ components:
           maxLength: 160
       required:
       - booking_date
-      - collection_account_identifier
       - gross_recovered_minor
       - idempotency_key
       - loan_id
@@ -9781,6 +9974,9 @@ components:
         idempotency_key:
           type: string
           maxLength: 160
+        email_affected_investors:
+          type: boolean
+          default: false
       required:
       - body
       - idempotency_key
@@ -10522,6 +10718,24 @@ components:
       required:
       - email_login_sent
       - user
+    NavigationTargetEnum:
+      enum:
+      - none
+      - loan
+      - holding
+      - portfolio
+      - balances
+      - secondary_market
+      - fx
+      type: string
+      description: |-
+        * `none` - none
+        * `loan` - loan
+        * `holding` - holding
+        * `portfolio` - portfolio
+        * `balances` - balances
+        * `secondary_market` - secondary_market
+        * `fx` - fx
     NewStatusEnum:
       enum:
       - active
@@ -11289,16 +11503,6 @@ components:
       - projected_investor_minor
       - projected_originator_minor
       - total_minor
-    OriginatorScopeEnum:
-      enum:
-      - all
-      - banxum
-      - specific
-      type: string
-      description: |-
-        * `all` - All sources
-        * `banxum` - BANXUM direct lending
-        * `specific` - Specific Loan Originator
     OriginatorSettlementQueueRow:
       type: object
       properties:
@@ -14398,6 +14602,56 @@ components:
       - code_id
       - expires_at
       - status
+    SmartInvestCollateralEnum:
+      enum:
+      - any_secured
+      - real_estate
+      - corporate_guarantee
+      - personal_guarantee
+      - receivables
+      - invoices
+      - equipment
+      - inventory
+      - securities_pledge
+      - cash_collateral
+      - share_pledge
+      - asset_backed
+      - mixed_collateral
+      - other
+      - unsecured
+      type: string
+      description: |-
+        * `any_secured` - With collateral (any type)
+        * `real_estate` - Real estate
+        * `corporate_guarantee` - Corporate guarantee
+        * `personal_guarantee` - Personal guarantee
+        * `receivables` - Receivables
+        * `invoices` - Invoices
+        * `equipment` - Equipment
+        * `inventory` - Inventory
+        * `securities_pledge` - Securities pledge
+        * `cash_collateral` - Cash collateral
+        * `share_pledge` - Share pledge
+        * `asset_backed` - Asset backed
+        * `mixed_collateral` - Mixed collateral
+        * `other` - Other
+        * `unsecured` - No collateral (unsecured)
+    SmartInvestCurrencyEnum:
+      enum:
+      - CHF
+      - EUR
+      type: string
+      description: |-
+        * `CHF` - CHF
+        * `EUR` - EUR
+    SmartInvestLoanKindEnum:
+      enum:
+      - new
+      - refinancing
+      type: string
+      description: |-
+        * `new` - New lending
+        * `refinancing` - Refinancing
     SmartInvestOpportunity:
       type: object
       properties:
@@ -14539,24 +14793,35 @@ components:
         maximum_term_months:
           type: integer
           nullable: true
-        originator_scope:
-          $ref: '#/components/schemas/OriginatorScopeEnum'
-        originator_id:
-          type: string
-          format: uuid
-          nullable: true
-        collateral_scope:
-          $ref: '#/components/schemas/CollateralScopeEnum'
-        collateral_type:
-          type: string
-        currency_scope:
-          $ref: '#/components/schemas/CurrencyScopeEnum'
-        risk_rating:
-          type: string
-        purpose:
-          type: string
-        loan_kind:
-          $ref: '#/components/schemas/LoanKindEnum'
+        originators:
+          type: array
+          items:
+            type: string
+          description: '"banxum" for BANXUM direct loans and/or Loan Originator ids.
+            Empty means any source.'
+        collateral:
+          type: array
+          items:
+            $ref: '#/components/schemas/SmartInvestCollateralEnum'
+          description: '"any_secured" matches every secured loan, including collateral
+            types added later; "unsecured" matches loans without collateral. Empty
+            means no collateral condition.'
+        currencies:
+          type: array
+          items:
+            $ref: '#/components/schemas/SmartInvestCurrencyEnum'
+        risk_ratings:
+          type: array
+          items:
+            $ref: '#/components/schemas/RiskRatingEnum'
+        purposes:
+          type: array
+          items:
+            $ref: '#/components/schemas/PurposeEnum'
+        loan_kinds:
+          type: array
+          items:
+            $ref: '#/components/schemas/SmartInvestLoanKindEnum'
         activated_at:
           type: string
           format: date-time
@@ -14573,21 +14838,19 @@ components:
           format: date-time
       required:
       - activated_at
-      - collateral_scope
-      - collateral_type
+      - collateral
       - created_at
-      - currency_scope
+      - currencies
       - deactivated_at
       - id
       - is_active
-      - loan_kind
+      - loan_kinds
       - maximum_term_months
       - minimum_yield_bps
-      - originator_id
-      - originator_scope
-      - purpose
+      - originators
+      - purposes
       - revision
-      - risk_rating
+      - risk_ratings
       - updated_at
     SmartInvestRuleSaveRequest:
       type: object
@@ -14602,35 +14865,42 @@ components:
           maximum: 1200
           minimum: 1
           nullable: true
-        originator_scope:
-          allOf:
-          - $ref: '#/components/schemas/OriginatorScopeEnum'
-          default: all
-        originator_id:
-          type: string
-          format: uuid
-          nullable: true
-        collateral_scope:
-          allOf:
-          - $ref: '#/components/schemas/CollateralScopeEnum'
-          default: all
-        collateral_type:
-          type: string
-          maxLength: 64
-        currency_scope:
-          allOf:
-          - $ref: '#/components/schemas/CurrencyScopeEnum'
-          default: all
-        risk_rating:
-          type: string
-          maxLength: 32
-        purpose:
-          type: string
-          maxLength: 64
-        loan_kind:
-          allOf:
-          - $ref: '#/components/schemas/LoanKindEnum'
-          default: all
+        originators:
+          type: array
+          items:
+            type: string
+            maxLength: 64
+          description: '"banxum" for BANXUM direct loans and/or Loan Originator ids.
+            Empty means any source.'
+          maxItems: 100
+        collateral:
+          type: array
+          items:
+            $ref: '#/components/schemas/SmartInvestCollateralEnum'
+          description: '"any_secured" matches every secured loan, including collateral
+            types added later; "unsecured" matches loans without collateral. Empty
+            means no collateral condition.'
+          maxItems: 100
+        currencies:
+          type: array
+          items:
+            $ref: '#/components/schemas/SmartInvestCurrencyEnum'
+          maxItems: 100
+        risk_ratings:
+          type: array
+          items:
+            $ref: '#/components/schemas/RiskRatingEnum'
+          maxItems: 100
+        purposes:
+          type: array
+          items:
+            $ref: '#/components/schemas/PurposeEnum'
+          maxItems: 100
+        loan_kinds:
+          type: array
+          items:
+            $ref: '#/components/schemas/SmartInvestLoanKindEnum'
+          maxItems: 100
     Status828Enum:
       enum:
       - active

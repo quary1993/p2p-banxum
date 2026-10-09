@@ -16,10 +16,19 @@ from backend.apps.servicing.models import (
     LoanWriteOffEvent,
 )
 
+AMOUNT_ABOVE_ZERO_MESSAGES: dict[str, Any] = {"min_value": "Amount must be greater than zero."}
+PAYER_ACCOUNT_REQUIRED_MESSAGES: dict[str, Any] = {
+    "required": "Payer account is required.",
+    "blank": "Payer account is required.",
+}
+
 
 class BorrowerRepaymentRecordRequestSerializer(serializers.Serializer[Any]):
     loan_id = serializers.UUIDField()
-    amount_minor = serializers.IntegerField(min_value=1)
+    amount_minor = serializers.IntegerField(
+        min_value=1,
+        error_messages=AMOUNT_ABOVE_ZERO_MESSAGES,
+    )
     booking_date = serializers.DateField()
     value_date = serializers.DateField()
     collection_account_identifier = serializers.CharField(
@@ -28,10 +37,10 @@ class BorrowerRepaymentRecordRequestSerializer(serializers.Serializer[Any]):
         max_length=128,
     )
     payer_name = serializers.CharField(max_length=255)
+    # The account the borrower paid from is the bank evidence for the receipt.
     payer_account_identifier = serializers.CharField(
-        required=False,
-        allow_blank=True,
         max_length=128,
+        error_messages=PAYER_ACCOUNT_REQUIRED_MESSAGES,
     )
     bank_reference = serializers.CharField(required=False, allow_blank=True, max_length=160)
     payment_reference = serializers.CharField(required=False, allow_blank=True, max_length=160)
@@ -48,7 +57,10 @@ class BorrowerRepaymentRecordRequestSerializer(serializers.Serializer[Any]):
 
 class BorrowerRepaymentAdvancePreviewRequestSerializer(serializers.Serializer[Any]):
     loan_id = serializers.UUIDField()
-    amount_minor = serializers.IntegerField(min_value=1)
+    amount_minor = serializers.IntegerField(
+        min_value=1,
+        error_messages=AMOUNT_ABOVE_ZERO_MESSAGES,
+    )
     borrower_repayment_bank_date = serializers.DateField()
 
 
@@ -163,6 +175,7 @@ class LoanRiskNoteCreateRequestSerializer(serializers.Serializer[Any]):
     evidence_reference = serializers.CharField(required=False, allow_blank=True, max_length=255)
     metadata = serializers.JSONField(required=False)
     idempotency_key = serializers.CharField(max_length=160)
+    email_affected_investors = serializers.BooleanField(required=False, default=False)
 
 
 class LoanRiskNoteListQuerySerializer(serializers.Serializer[Any]):
@@ -258,7 +271,13 @@ class LoanRecoveryPaymentRecordRequestSerializer(serializers.Serializer[Any]):
     penalties_due_minor = serializers.IntegerField(required=False, min_value=0, default=0)
     booking_date = serializers.DateField()
     value_date = serializers.DateField()
-    collection_account_identifier = serializers.CharField(max_length=128)
+    # Optional: blank books the receipt to the configured collection account for
+    # the loan currency, the same rule as regular borrower repayments.
+    collection_account_identifier = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=128,
+    )
     payer_name = serializers.CharField(max_length=255)
     payer_account_identifier = serializers.CharField(
         required=False,

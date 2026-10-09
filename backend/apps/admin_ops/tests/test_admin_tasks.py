@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Any, cast
 
 import pytest
-from django.db import DatabaseError, connection, transaction
+from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.db.models import Model
 from django.test import Client
 from django.utils import timezone
@@ -20,12 +20,14 @@ from backend.apps.admin_ops.services import (
     AdminTaskAuthorizationError,
     AdminTaskValidationError,
     CreateAdminTaskCommand,
+    EnsureLoanDefaultReviewTaskCommand,
     UpdateAdminTaskCommand,
     create_admin_task,
+    ensure_loan_default_review_task,
     update_admin_task,
 )
 from backend.apps.admin_ops.tests.factories import create_user
-from backend.apps.platform_core.models import AuditEvent, DomainEvent
+from backend.apps.platform_core.models import AuditEvent, DomainEvent, OutboxMessage
 from backend.apps.platform_core.models.base import AppendOnlyViolation
 
 
@@ -306,3 +308,80 @@ def test_task_update_rejects_empty_change(admin_user: Model) -> None:
         update_admin_task(UpdateAdminTaskCommand(actor=admin_user, task_id=str(task.id)))
 
     assert AdminTask.objects.get(id=task.id).status == AdminTaskStatus.OPEN
+
+
+def _loan_default_command(
+    actor: Model,
+    *,
+    loan_id: str = "6f1c1a52-6a39-4d1e-8f43-0a8d1f6f9e10",
+    as_of_date: date = date(2026, 11, 27),
+) -> EnsureLoanDefaultReviewTaskCommand:
+    return EnsureLoanDefaultReviewTaskCommand(
+        actor=actor,
+        loan_id=loan_id,
+        loan_title="QA Direct Reprice Test",
+        product_type="direct",
+        currency="CHF",
+        as_of_date=as_of_date,
+        days_past_due=16,
+        outstanding_minor=1_366_67,
+        triggering_due_date=date(2026, 11, 11),
+    )
+
+
+@pytest.mark.django_db
+def test_loan_default_review_task_is_single_per_loan_and_reopens_when_closed(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    alerts = OutboxMessage.objects.filter(topic="email.loan_defaulted")
+
+    with pytest.raises(AdminTaskAuthorizationError):
+        ensure_loan_default_review_task(_loan_default_command(investor))
+
+    task = ensure_loan_default_review_task(_loan_default_command(admin_user))
+    assert task.task_type == AdminTaskType.LOAN_RISK_REVIEW
+    assert task.related_object_type == "LoanDefault"
+    assert task.status == AdminTaskStatus.OPEN
+    assert "Overdue installment outstanding: CHF 1'366.67" in task.notes
+    assert alerts.count() == 1
+
+    # Calling again while the task is open changes nothing and sends no new alert.
+    again = ensure_loan_default_review_task(_loan_default_command(admin_user))
+    assert again.id == task.id
+    assert AdminTask.objects.filter(task_type=AdminTaskType.LOAN_RISK_REVIEW).count() == 1
+    assert AdminTaskEvent.objects.filter(task=task).count() == 1
+    assert alerts.count() == 1
+
+    # The database refuses a second default-review task for the same loan.
+    with pytest.raises(IntegrityError), transaction.atomic():
+        AdminTask.objects.create(
+            task_type=AdminTaskType.LOAN_RISK_REVIEW,
+            title="Duplicate",
+            created_by=cast(Any, admin_user),
+            related_object_type="LoanDefault",
+            related_object_id=task.related_object_id,
+        )
+
+    # A resolved task is reopened (not duplicated) if the loan defaults again.
+    update_admin_task(
+        UpdateAdminTaskCommand(
+            actor=admin_user,
+            task_id=str(task.id),
+            status=AdminTaskStatus.RESOLVED,
+            completion_note="Recovery plan agreed.",
+        )
+    )
+    reopened = ensure_loan_default_review_task(
+        _loan_default_command(admin_user, as_of_date=date(2027, 1, 20))
+    )
+    assert reopened.id == task.id
+    assert reopened.status == AdminTaskStatus.OPEN
+    assert reopened.completed_at is None
+    assert alerts.count() == 2
+
+    # A different loan gets its own task.
+    other = ensure_loan_default_review_task(
+        _loan_default_command(admin_user, loan_id="0b6c3a1e-58d7-4f0f-9a43-2f5d4c7e8a91")
+    )
+    assert other.id != task.id

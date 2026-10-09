@@ -1,0 +1,1747 @@
+/* IP of Webby-Soft SRL. */
+/* User-side skin: account. All rules are scoped with .bxm (see banxumSkin.css). */
+
+/* ==========================================================================
+   Wallet and account pages: Account (balances), FX, Documents,
+   Notifications, Profile & Settings, Verification, portal Help, and the
+   deposit / withdrawal / payout IBAN / FX dialogs.
+   ========================================================================== */
+
+/* Shared pieces ------------------------------------------------------------ */
+
+.bxm .acct-page .acct-alerts {
+  margin-bottom: 28px;
+}
+
+.bxm .acct-page .card-head h2 {
+  color: var(--ink);
+  font-size: 16.8px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+  margin: 0;
+}
+
+.bxm .acct-card-meta {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.bxm .acct-page h2.bxm-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-label-track);
+  line-height: 1.2;
+}
+
+.bxm .acct-group-label {
+  margin: 0 0 12px;
+}
+
+/* A bordered list of rows (design "card-inner-group" with rows). */
+.bxm .acct-box {
+  background: #fff;
+  border: 1px solid var(--line);
+}
+
+.bxm .acct-row {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  justify-content: space-between;
+  padding: 18px 20px;
+}
+
+.bxm .acct-row:last-child {
+  border-bottom: 0;
+}
+
+.bxm .acct-row-text {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  min-width: 0;
+}
+
+.bxm .acct-row-icon {
+  color: var(--ink-3);
+  flex: none;
+}
+
+.bxm .acct-row-title {
+  color: var(--ink);
+  display: block;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.4;
+}
+
+.bxm .acct-row-sub {
+  color: var(--ink-3);
+  display: block;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.bxm .acct-row-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.bxm .acct-iban {
+  color: var(--ink);
+  display: block;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  overflow-wrap: anywhere;
+}
+
+.bxm .acct-page .card .portal-table-empty {
+  border: 0;
+}
+
+/* Account (balances) -------------------------------------------------------- */
+
+.bxm .acct-ccy-grid {
+  display: grid;
+  gap: 28px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 28px;
+}
+
+.bxm .acct-ccy {
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+}
+
+.bxm .acct-ccy-title {
+  color: var(--ink-3);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.45;
+  margin: 0 0 12px;
+}
+
+.bxm .acct-ccy-amount {
+  border-bottom: 2px solid var(--ink);
+  color: var(--ink);
+  font-size: 30px;
+  font-weight: 400;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  margin-bottom: 16px;
+  padding-bottom: 20px;
+}
+
+.bxm .acct-ccy-list {
+  list-style: none;
+  margin: 0 0 32px;
+  padding: 0;
+}
+
+.bxm .acct-ccy-row {
+  align-items: baseline;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 6px 0;
+}
+
+.bxm .acct-ccy-label {
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.45;
+  min-width: 0;
+}
+
+.bxm .acct-ccy-sub {
+  color: var(--ink-3);
+  display: block;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.bxm .acct-ccy-sub.neg {
+  color: var(--bxm-signal);
+  font-weight: 500;
+}
+
+.bxm .acct-ccy-value {
+  color: var(--ink);
+  flex: none;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.bxm .acct-ccy-row.total {
+  border-top: 1px solid var(--line);
+  margin-top: 6px;
+  padding-top: 10px;
+}
+
+.bxm .acct-ccy-row.total .acct-ccy-label,
+.bxm .acct-ccy-row.total .acct-ccy-value {
+  font-weight: 700;
+}
+
+.bxm .acct-ccy-cta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: auto;
+  text-align: center;
+}
+
+.bxm .acct-ccy-cta .btn-lg {
+  height: 44px;
+}
+
+.bxm .acct-ccy-withdraw {
+  font-size: 13px;
+}
+
+.bxm .acct-ccy-withdraw:hover:not(:disabled) {
+  background: transparent;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.bxm .acct-ccy-note {
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 12px 0 0;
+}
+
+.bxm .acct-ccy-note strong {
+  font-weight: 600;
+}
+
+.bxm .acct-lots-card {
+  margin-bottom: 28px;
+}
+
+.bxm .acct-lots-card .tbl-wrap {
+  overflow-x: auto;
+}
+
+.bxm .balance-lots-table .lot-received {
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.bxm .balance-lots-table .lot-remaining {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.bxm .balance-lots-table .lot-deadline {
+  min-width: 190px;
+}
+
+.bxm .balance-lots-table .lot-penalty-charged {
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.bxm .balance-lots-table .lot-penalty-charged.has-penalty {
+  color: var(--bxm-signal);
+  font-weight: 600;
+}
+
+/* Penalty charged on this currency's lots, shown apart from the frozen balance. */
+.bxm .acct-penalty-line {
+  align-items: baseline;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 13px;
+  gap: 4px 12px;
+  padding: 12px 24px;
+}
+
+.bxm .acct-penalty-value {
+  color: var(--bxm-signal);
+  font-weight: 600;
+}
+
+.bxm .acct-penalty-note {
+  color: var(--ink-3);
+  flex-basis: 100%;
+  font-size: 12px;
+}
+
+.bxm .lot-deadline-meta {
+  color: var(--ink-3);
+  display: flex;
+  font-size: 11px;
+  gap: 8px;
+  justify-content: space-between;
+  line-height: 1.4;
+  margin-top: 6px;
+  white-space: nowrap;
+}
+
+.bxm .balance-lots-table .sub {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.bxm .balance-lots-table tr.lot-overdue td,
+.bxm .balance-lots-table tr.lot-penalty td {
+  background: #fff;
+}
+
+.bxm .balance-lots-table tr.lot-overdue td:first-child,
+.bxm .balance-lots-table tr.lot-penalty td:first-child {
+  box-shadow: inset 2px 0 0 var(--bxm-signal);
+}
+
+.bxm .balance-lots-table tr.lot-penalty td {
+  background: var(--bad-bg);
+}
+
+.bxm .acct-two {
+  display: grid;
+  gap: 28px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 28px;
+}
+
+.bxm .acct-iban-card .acct-row {
+  padding: 16px 24px;
+}
+
+.bxm .acct-row-text .acct-row-title + .acct-iban {
+  margin-top: 2px;
+}
+
+.bxm .acct-iban-card .acct-row-text {
+  display: block;
+}
+
+.bxm .acct-pending-card .empty {
+  padding: 36px 24px;
+}
+
+.bxm .acct-rules-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px 24px 12px;
+}
+
+.bxm .acct-rules-list li {
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.6;
+  padding: 9px 0 9px 20px;
+  position: relative;
+}
+
+.bxm .acct-rules-list li::before {
+  background: var(--ink);
+  content: "";
+  height: 6px;
+  left: 0;
+  position: absolute;
+  top: 18px;
+  width: 6px;
+}
+
+.bxm .acct-rules-list li:last-child {
+  border-bottom: 0;
+}
+
+/* Dialogs: deposit, withdrawal, payout IBAN, FX confirmation ----------------- */
+
+.bxm .acct-modal-note {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.bxm .acct-modal-figure {
+  align-items: baseline;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  justify-content: space-between;
+  padding: 0 0 14px;
+}
+
+.bxm .acct-modal .input-affix .prefix {
+  color: var(--ink-3);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  left: 18px;
+}
+
+.bxm .acct-modal-figure-label {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.bxm .acct-modal-figure-value {
+  color: var(--ink);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+/* Label above value, copy button at the right (design "bxm-copy"). */
+.bxm .acct-copy-list {
+  margin: 0;
+}
+
+.bxm .acct-copy {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  column-gap: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 10px 0;
+}
+
+.bxm .acct-copy-label {
+  color: var(--ink-3);
+  font-size: 12px;
+  grid-column: 1;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.bxm .acct-copy-value {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  grid-column: 1;
+  line-height: 1.5;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.bxm .acct-copy-action {
+  align-self: center;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  margin: 0;
+}
+
+.bxm .acct-copy .copy-id-btn {
+  color: var(--ink);
+}
+
+.bxm .acct-copy .copy-id-btn.icon-only {
+  border-radius: 999px;
+  height: 32px;
+  padding: 0;
+  width: 32px;
+}
+
+.bxm .acct-copy.is-key {
+  border: 1px solid var(--ink);
+  padding: 12px 16px;
+}
+
+.bxm .acct-copy.is-key .acct-copy-label {
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-label-track);
+  text-transform: uppercase;
+}
+
+.bxm .acct-copy.is-key .acct-copy-value {
+  font-size: 18px;
+  letter-spacing: 0.03em;
+  margin-top: 4px;
+}
+
+.bxm .acct-copy.is-key .copy-id-btn {
+  background: #fff;
+  border-color: var(--line);
+  font-size: 12px;
+  height: 30px;
+  padding: 0 14px;
+}
+
+.bxm .deposit-modal .qr-instruction-panel {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  gap: 20px;
+  padding: 16px;
+}
+
+.bxm .deposit-modal .qr-instruction-image,
+.bxm .deposit-modal .qr-instruction-placeholder {
+  border-color: var(--line);
+  border-radius: 0;
+}
+
+.bxm .qr-instruction-copy {
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 6px 0 0;
+}
+
+.bxm .deposit-modal .deposit-reference-guidance {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--ink);
+  border-radius: 0;
+  color: var(--ink);
+  font-size: 13px;
+  gap: 10px;
+  line-height: 1.6;
+  margin-top: 12px;
+  padding: 12px 14px;
+}
+
+.bxm .deposit-modal .deposit-reference-guidance svg {
+  margin-top: 3px;
+}
+
+.bxm .deposit-reference .acct-modal-note {
+  margin-top: 10px;
+}
+
+/* FX ------------------------------------------------------------------------ */
+
+.bxm .app .fx-page {
+  max-width: none;
+}
+
+.bxm .fx-desk {
+  align-items: flex-start;
+  gap: 28px;
+  margin-bottom: 28px;
+}
+
+.bxm .fx-card {
+  border: 1px solid var(--line);
+  border-radius: 0;
+}
+
+.bxm .fx-panel,
+.bxm .fx-panel.receive {
+  padding: 24px;
+}
+
+.bxm .fx-panel-head {
+  margin-bottom: 14px;
+}
+
+.bxm .fx-cap {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-label-track);
+  text-transform: uppercase;
+}
+
+.bxm .fx-balance-note {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.bxm .fx-big-input,
+.bxm .fx-big-output {
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 30px;
+  font-weight: 400;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+
+.bxm .fx-big-input::placeholder,
+.bxm .fx-big-input:disabled {
+  color: var(--ink-4);
+}
+
+.bxm .fx-pill {
+  background: #fff;
+  border: 1px solid var(--line);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  height: 40px;
+  letter-spacing: 0.02em;
+  padding: 0 14px;
+}
+
+.bxm .fx-pill:hover:not(:disabled) {
+  border-color: var(--ink);
+}
+
+.bxm .fx-flag-box {
+  border-radius: 0;
+}
+
+.bxm .fx-field-error {
+  color: var(--bxm-signal);
+  font-weight: 500;
+}
+
+.bxm .fx-swap {
+  background: #fff;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  left: 24px;
+}
+
+.bxm .fx-rate-line,
+.bxm .fx-cta-line {
+  background: #fff;
+  padding: 16px 24px;
+}
+
+.bxm .fx-note {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.bxm .fx-page .leader {
+  border-bottom-color: #c8c8c8;
+}
+
+.bxm .fx-rate-value {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.bxm .fx-cta-copy {
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.bxm .fx-convert-btn {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 600;
+  height: 44px;
+  letter-spacing: 0.02em;
+  padding: 0 28px;
+}
+
+.bxm .fx-convert-btn:hover:not(:disabled) {
+  background: var(--bxm-graphite);
+  border-color: var(--bxm-graphite);
+}
+
+.bxm .fx-convert-btn:disabled {
+  background: #b5b5b5;
+  border-color: #b5b5b5;
+  color: #fff;
+  opacity: 1;
+}
+
+.bxm .fx-rail {
+  gap: 28px;
+  width: 320px;
+}
+
+.bxm .fx-rail-card {
+  border-radius: 0;
+  padding: 0;
+}
+
+.bxm .acct-page .fx-rail-card .card-head .fx-cap,
+.bxm .acct-page .fx-band .card-head .microlabel {
+  color: var(--ink);
+  font-size: 16.8px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+  margin: 0;
+  text-transform: none;
+}
+
+.bxm .fx-balance-list,
+.bxm .fx-rate-list {
+  display: block;
+  padding: 4px 24px;
+}
+
+.bxm .fx-balance-row,
+.bxm .fx-rate-row {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  font-size: 14px;
+  gap: 12px;
+  padding: 12px 0;
+}
+
+.bxm .fx-balance-row:last-child,
+.bxm .fx-rate-row:last-child {
+  border-bottom: 0;
+}
+
+.bxm .fx-balance-code {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.bxm .fx-balance-amount,
+.bxm .fx-rate-row strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.bxm .fx-rate-unit {
+  color: var(--ink);
+}
+
+.bxm .fx-rail-foot {
+  border-top: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 0;
+  padding: 12px 24px 16px;
+}
+
+.bxm .fx-error {
+  margin-bottom: 28px;
+}
+
+.bxm .fx-history-card {
+  margin-bottom: 28px;
+}
+
+.bxm .acct-page .fx-history-card .card-head .sect {
+  color: var(--ink);
+  font-size: 16.8px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+  margin: 0;
+}
+
+.bxm .fx-history-card .sect-sub {
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 2px 0 0;
+  max-width: none;
+}
+
+.bxm .fx-history-card .card {
+  border: 0;
+}
+
+.bxm .fx-history {
+  margin: 0;
+  overflow-x: auto;
+}
+
+.bxm .fx-history-row {
+  align-items: baseline;
+  font-size: 14px;
+  gap: 16px;
+  min-width: 560px;
+  padding: 14px 24px;
+}
+
+.bxm .fx-history-row.head {
+  background: var(--bxm-paper);
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-tag-track);
+  padding: 10px 24px;
+}
+
+.bxm .fx-history-row:last-child {
+  border-bottom: 0;
+}
+
+.bxm .fx-history-row > :nth-child(1) {
+  width: 110px;
+}
+
+.bxm .fx-history-row > :nth-child(3) {
+  width: 170px;
+}
+
+.bxm .fx-history-row > :nth-child(4) {
+  width: 130px;
+}
+
+.bxm .fx-h-received {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.bxm .fx-history-empty {
+  background: #fff;
+  border: 0;
+  margin: 0;
+}
+
+.bxm .fx-band {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  display: grid;
+  gap: 28px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.bxm .fx-terms-card .fx-kv {
+  padding: 4px 24px 12px;
+}
+
+.bxm .fx-kv .kv-row {
+  border-bottom: 1px solid var(--line);
+  border-top: 0;
+  font-size: 14px;
+  padding: 12px 0;
+}
+
+.bxm .fx-kv .kv-row:last-child {
+  border-bottom: 0;
+}
+
+.bxm .fx-advice-body {
+  padding: 20px 24px 24px;
+}
+
+.bxm .fx-advice {
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.bxm .fx-advice-sub {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+/* Documents ----------------------------------------------------------------- */
+
+.bxm .doc-filter-bar {
+  align-items: flex-end;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 24px;
+  justify-content: space-between;
+}
+
+.bxm .doc-filter-bar .tabs {
+  border-bottom: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.bxm .doc-filter-bar .results-count {
+  color: var(--ink-3);
+  font-size: 13px;
+  margin-left: auto;
+  padding: 16px 0;
+}
+
+.bxm .acct-documents .acct-table-card {
+  border-top: 0;
+}
+
+.bxm .documents-data-table .doc-title-cell {
+  align-items: flex-start;
+  display: flex;
+  gap: 10px;
+  min-width: 220px;
+}
+
+.bxm .doc-title-icon {
+  color: var(--ink-3);
+  flex: none;
+  margin-top: 3px;
+}
+
+.bxm .doc-title {
+  color: var(--ink);
+  display: block;
+  font-weight: 500;
+}
+
+.bxm .documents-data-table .sub {
+  color: var(--ink-3);
+  display: block;
+  font-size: 12px;
+}
+
+.bxm .documents-data-table .doc-muted {
+  color: var(--ink-3);
+}
+
+.bxm .documents-data-table .doc-date {
+  white-space: nowrap;
+}
+
+.bxm .doc-downloads {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+/* Notifications ------------------------------------------------------------- */
+
+.bxm .acct-notifications .notice-list {
+  display: block;
+}
+
+.bxm .acct-notifications .notice-row {
+  align-items: flex-start;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 14px;
+  padding: 20px 24px;
+}
+
+.bxm .acct-notifications .notice-row:last-child {
+  border-bottom: 0;
+}
+
+.bxm .notice-icon {
+  align-items: center;
+  background: var(--bxm-paper);
+  border: 1px solid var(--bxm-paper);
+  border-radius: 50%;
+  display: inline-flex;
+  flex: none;
+  height: 36px;
+  justify-content: center;
+  width: 36px;
+}
+
+.bxm .notice-icon .muted {
+  color: var(--ink);
+}
+
+.bxm .notice-row.is-failed .notice-icon {
+  background: #fff;
+  border-color: var(--bxm-signal);
+}
+
+.bxm .notice-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.bxm .notice-title {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.bxm .notice-body {
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 2px 0 0;
+}
+
+.bxm .notice-meta {
+  color: var(--ink-3);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 11px;
+  gap: 2px 12px;
+  margin-top: 6px;
+}
+
+.bxm .notice-status {
+  align-items: center;
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.bxm .acct-notifications .notice-row.is-unread {
+  background: #fcfcfc;
+  box-shadow: inset 3px 0 0 var(--ink);
+}
+
+/* A notice that leads somewhere: its title opens the loan, holding or balance. */
+.bxm .notice-open {
+  align-items: center;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  display: inline-flex;
+  font-family: var(--font-sans);
+  gap: 6px;
+  padding: 0;
+  text-align: left;
+}
+
+.bxm .notice-open:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.bxm .notice-open:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* Profile & Settings (design "bxm-settings" card with "card-aside") ---------- */
+
+.bxm .acct-settings-card {
+  align-items: stretch;
+  display: flex;
+}
+
+.bxm .acct-settings-aside {
+  border-right: 1px solid var(--line);
+  flex: 0 0 300px;
+  min-width: 0;
+}
+
+.bxm .acct-settings-user {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 16px;
+  padding: 24px;
+}
+
+.bxm .acct-settings-avatar {
+  align-items: center;
+  background: var(--ink);
+  border-radius: 50%;
+  color: #fff;
+  display: inline-flex;
+  flex: none;
+  font-size: 13px;
+  font-weight: 600;
+  height: 40px;
+  justify-content: center;
+  letter-spacing: 0.02em;
+  width: 40px;
+}
+
+.bxm .acct-settings-who {
+  min-width: 0;
+}
+
+.bxm .acct-settings-name {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.bxm .acct-settings-email {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.bxm .acct-settings-balance {
+  border-bottom: 1px solid var(--line);
+  padding: 20px 24px 22px;
+}
+
+.bxm .acct-settings-balance .bxm-label {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.bxm .acct-settings-balance-main {
+  color: var(--ink);
+  font-size: 24px;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  padding-bottom: 6px;
+}
+
+.bxm .acct-settings-balance-main .acct-settings-ccy {
+  font-size: 16px;
+}
+
+.bxm .acct-settings-balance-sub {
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.bxm .acct-settings-balance-sub .acct-settings-ccy {
+  color: var(--ink);
+}
+
+.bxm .acct-settings-menu {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 0;
+}
+
+.bxm .acct-settings-menu button {
+  align-items: center;
+  background: none;
+  border: 0;
+  border-left: 2px solid transparent;
+  color: var(--ink);
+  cursor: pointer;
+  display: flex;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  gap: 12px;
+  line-height: 1.4;
+  padding: 16px 24px 16px 22px;
+  text-align: left;
+  width: 100%;
+}
+
+.bxm .acct-settings-menu button:hover {
+  background: #fafafa;
+}
+
+.bxm .acct-settings-menu button.on {
+  background: var(--bxm-paper);
+  border-left-color: var(--ink);
+  font-weight: 600;
+}
+
+.bxm .acct-settings-menu button > span {
+  flex: 1;
+}
+
+.bxm .acct-settings-menu-icon,
+.bxm .acct-settings-menu-chev {
+  color: var(--ink-3);
+  flex: none;
+}
+
+.bxm .acct-settings-menu button.on .acct-settings-menu-icon,
+.bxm .acct-settings-menu button.on .acct-settings-menu-chev {
+  color: var(--ink);
+}
+
+.bxm .acct-settings-main {
+  flex: 1;
+  min-width: 0;
+  padding: 40px;
+}
+
+.bxm .acct-settings-head {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  justify-content: space-between;
+  margin-bottom: 32px;
+}
+
+.bxm .acct-settings-head h2 {
+  scroll-margin-top: 72px;
+  color: var(--ink);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.bxm .acct-settings-head p {
+  color: var(--ink-3);
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 6px 0 0;
+}
+
+.bxm .acct-data-group + .acct-data-group {
+  margin-top: 32px;
+}
+
+.bxm .acct-data-head {
+  background: var(--bxm-paper);
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-label-track);
+  line-height: 1.2;
+  margin-bottom: 4px;
+  padding: 9px 20px;
+  text-transform: uppercase;
+}
+
+.bxm .acct-data-list {
+  margin: 0;
+}
+
+.bxm .acct-data-item {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 16px;
+  padding: 18px 20px;
+}
+
+.bxm .acct-data-item:last-child {
+  border-bottom: 0;
+}
+
+.bxm .acct-data-item dt {
+  color: var(--ink-3);
+  flex: 0 0 40%;
+  margin: 0;
+}
+
+.bxm .acct-data-item dd {
+  color: var(--ink);
+  font-size: 15px;
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.bxm .acct-settings-note {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 16px 0 0;
+}
+
+.bxm .col > .acct-settings-note {
+  margin: 0;
+}
+
+.bxm .acct-toggle-row {
+  flex-wrap: nowrap;
+}
+
+.bxm .acct-checkbox {
+  accent-color: var(--ink);
+  cursor: inherit;
+  flex: none;
+  height: 18px;
+  margin: 0;
+  width: 18px;
+}
+
+.bxm .app a.acct-mail {
+  font-weight: 500;
+}
+
+/* Restricted, locked or closed account --------------------------------------- */
+
+.bxm .acct-blocked-card {
+  padding: 32px;
+}
+
+.bxm .acct-blocked-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+/* Verification (KYC status and gate) ---------------------------------------- */
+
+.bxm .acct-kyc-card {
+  padding: 32px;
+}
+
+.bxm .acct-kyc-steps {
+  padding: 24px;
+}
+
+.bxm .acct-kyc-notes {
+  margin-top: 24px;
+}
+
+.bxm .acct-kyc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.bxm .acct-kyc-error {
+  margin-top: 16px;
+}
+
+.bxm .acct-kyc .tl-item {
+  gap: 14px;
+}
+
+.bxm .acct-kyc .tl-node {
+  background: #fff;
+  border: 1px solid var(--ink-4);
+  border-radius: 0;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 600;
+  height: 26px;
+  width: 26px;
+}
+
+.bxm .acct-kyc .tl-node.done {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+
+.bxm .acct-kyc .tl-node.cur {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.bxm .acct-kyc .tl-line,
+.bxm .acct-kyc .tl-line.done {
+  background: var(--line);
+  min-height: 16px;
+  width: 1px;
+}
+
+.bxm .acct-kyc .tl-content {
+  padding: 2px 0 20px;
+}
+
+.bxm .acct-kyc .tl-item:last-child .tl-content {
+  padding-bottom: 0;
+}
+
+.bxm .acct-kyc .tl-title {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.5;
+}
+
+.bxm .acct-kyc .tl-desc {
+  color: var(--ink-3);
+  font-size: 14px;
+  line-height: 1.6;
+  margin-top: 2px;
+}
+
+/* Portal Help (design "help") ----------------------------------------------- */
+
+.bxm .portal-help-grid {
+  align-items: start;
+  display: grid;
+  gap: 28px;
+  grid-template-columns: minmax(0, 1fr) 320px;
+}
+
+/* FaqContent repeats the page head; the PageHead above replaces it here. */
+.bxm .portal-help-faq-body .page-head {
+  display: none;
+}
+
+.bxm .portal-help-faq-body .faq-intro {
+  background: #fff;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  margin: 0;
+  padding: 20px 24px;
+}
+
+.bxm .portal-help-faq-body .faq-intro h2 {
+  font-size: 16.8px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  margin: 8px 0 6px;
+}
+
+.bxm .portal-help-faq-body .faq-intro p {
+  color: var(--ink-3);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.bxm .portal-help-faq-body .faq-support {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  font-size: 13px;
+  padding: 12px 16px;
+}
+
+.bxm .portal-help-faq-body .faq-sections {
+  display: block;
+  margin: 0;
+}
+
+.bxm .portal-help-faq-body .faq-sections > .card {
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+}
+
+.bxm .portal-help-faq-body .faq-section-head {
+  background: var(--bxm-paper);
+  border-bottom: 1px solid var(--line);
+  padding: 14px 24px;
+}
+
+.bxm .portal-help-faq-body .faq-section-head h2 {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin: 0 0 2px;
+}
+
+.bxm .portal-help-faq-body .faq-section-head p {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.bxm .portal-help-faq-body .faq-row {
+  border-bottom: 1px solid var(--line);
+}
+
+.bxm .portal-help-faq-body .faq-row:last-child {
+  border-bottom: 0;
+}
+
+.bxm .portal-help-faq-body .faq-q {
+  font-family: var(--font-sans);
+  padding: 14px 24px;
+}
+
+.bxm .portal-help-faq-body .faq-q:hover {
+  background: #fafafa;
+}
+
+.bxm .portal-help-faq-body .faq-q span {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.bxm .portal-help-faq-body .faq-q svg {
+  color: var(--ink);
+  flex: none;
+}
+
+.bxm .portal-help-faq-body .faq-a {
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.7;
+  padding: 4px 24px 20px;
+}
+
+.bxm .portal-help-faq-body > .banner {
+  border-width: 0 0 0 2px;
+  margin: 0;
+}
+
+.bxm .portal-help-aside {
+  position: sticky;
+  top: 80px;
+}
+
+.bxm .portal-help-kv {
+  margin: 0;
+  padding: 8px 24px 16px;
+}
+
+.bxm .portal-help-kv > div {
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  justify-content: space-between;
+  padding: 12px 0;
+}
+
+.bxm .portal-help-kv > div:last-child {
+  border-bottom: 0;
+}
+
+.bxm .portal-help-kv dt {
+  color: var(--ink-3);
+}
+
+.bxm .portal-help-kv dd {
+  color: var(--ink);
+  font-weight: 500;
+  margin: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+/* Responsive ------------------------------------------------------------------ */
+
+@media (max-width: 1200px) {
+  .bxm .fx-desk {
+    flex-direction: column;
+  }
+
+  .bxm .fx-card {
+    width: 100%;
+  }
+
+  .bxm .fx-rail {
+    flex-direction: row;
+    width: 100%;
+  }
+
+  .bxm .fx-rail-card {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .bxm .portal-help-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .bxm .portal-help-aside {
+    position: static;
+  }
+}
+
+@media (max-width: 991px) {
+  .bxm .acct-settings-card {
+    flex-direction: column;
+  }
+
+  .bxm .acct-settings-aside {
+    border-bottom: 1px solid var(--line);
+    border-right: 0;
+    flex: none;
+  }
+
+  .bxm .acct-settings-main {
+    padding: 28px 24px;
+  }
+
+  .bxm .acct-two,
+  .bxm .fx-band {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 860px) {
+  .bxm .acct-ccy-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .bxm .fx-rail {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 560px) {
+  .bxm .acct-page .acct-alerts,
+  .bxm .acct-ccy-grid,
+  .bxm .acct-lots-card,
+  .bxm .acct-two,
+  .bxm .fx-desk,
+  .bxm .fx-error,
+  .bxm .fx-history-card {
+    margin-bottom: 20px;
+  }
+
+  .bxm .acct-ccy-grid,
+  .bxm .acct-two,
+  .bxm .fx-band,
+  .bxm .fx-desk,
+  .bxm .fx-rail,
+  .bxm .portal-help-grid {
+    gap: 20px;
+  }
+
+  .bxm .acct-page .card-head {
+    padding: 14px 16px;
+  }
+
+  .bxm .acct-ccy,
+  .bxm .acct-kyc-card,
+  .bxm .acct-blocked-card {
+    padding: 20px 16px;
+  }
+
+  .bxm .acct-ccy-amount {
+    font-size: 26px;
+  }
+
+  .bxm .acct-iban-card .acct-row,
+  .bxm .acct-row {
+    padding: 14px 16px;
+  }
+
+  .bxm .acct-rules-list {
+    padding: 4px 16px 8px;
+  }
+
+  .bxm .acct-kyc-steps {
+    padding: 18px 16px;
+  }
+
+  .bxm .fx-panel,
+  .bxm .fx-panel.receive {
+    padding: 20px 16px;
+  }
+
+  .bxm .fx-swap {
+    left: 16px;
+  }
+
+  .bxm .fx-rate-line,
+  .bxm .fx-cta-line {
+    padding: 14px 16px;
+  }
+
+  .bxm .fx-cta-line {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .bxm .fx-balance-list,
+  .bxm .fx-rate-list,
+  .bxm .fx-terms-card .fx-kv {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .bxm .fx-rail-foot,
+  .bxm .fx-advice-body {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .bxm .fx-history-row,
+  .bxm .fx-history-row.head {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  /* Two lines per conversion: date and amount received, then the amount
+     converted and the rate. The header row follows the same grid. */
+  .bxm .fx-history-row {
+    display: grid;
+    gap: 2px 12px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    min-width: 0;
+  }
+
+  .bxm .fx-history-row > :nth-child(n) {
+    text-align: left;
+    width: auto;
+  }
+
+  .bxm .fx-history-row > :nth-child(1) {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .bxm .fx-history-row > :nth-child(4) {
+    grid-column: 2;
+    grid-row: 1;
+    text-align: right;
+  }
+
+  .bxm .fx-history-row > :nth-child(2) {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .bxm .fx-history-row > :nth-child(3) {
+    grid-column: 2;
+    grid-row: 2;
+    text-align: right;
+  }
+
+  .bxm .doc-filter-bar .results-count {
+    padding: 4px 0 12px;
+  }
+
+  .bxm .acct-notifications .notice-row {
+    flex-wrap: wrap;
+    padding: 16px;
+  }
+
+  .bxm .acct-notifications .notice-content {
+    flex-basis: calc(100% - 50px);
+  }
+
+  .bxm .acct-notifications .notice-status {
+    justify-content: flex-start;
+    margin-left: 50px;
+  }
+
+  .bxm .acct-settings-user,
+  .bxm .acct-settings-balance {
+    padding: 18px 16px;
+  }
+
+  .bxm .acct-settings-menu {
+    padding: 4px 0;
+  }
+
+  .bxm .acct-settings-menu button {
+    padding: 13px 16px 13px 14px;
+  }
+
+  .bxm .acct-settings-main {
+    padding: 24px 16px;
+  }
+
+  .bxm .acct-settings-head {
+    margin-bottom: 24px;
+  }
+
+  .bxm .acct-data-head {
+    padding: 8px 12px;
+  }
+
+  .bxm .acct-data-item {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+    padding: 14px 12px;
+  }
+
+  .bxm .acct-data-item dt {
+    flex: none;
+    font-size: 13px;
+  }
+
+  .bxm .portal-help-faq-body .faq-intro {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 18px 16px;
+  }
+
+  .bxm .portal-help-faq-body .faq-section-head,
+  .bxm .portal-help-faq-body .faq-q {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .bxm .portal-help-faq-body .faq-a {
+    padding: 4px 16px 18px;
+  }
+
+  .bxm .portal-help-kv {
+    padding: 4px 16px 12px;
+  }
+}

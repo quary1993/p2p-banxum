@@ -98,6 +98,8 @@ SMS is used only for phone confirmation at launch. Phone verification uses Twili
 
 The investor portal includes an in-app notification center backed by transactional email outbox and delivery evidence. Balance-ageing reminders belong in that notification center rather than as a persistent dashboard warning. Blocking account states, such as a day-60 freeze caused by a missing usable payout IBAN, remain visible as contextual banners because they directly change which actions are available.
 
+Notification read state (QA 2026-10): each notice is unread until the investor opens it or marks it read; "mark all as read" covers the listed notices. Read state is an append-only receipt per investor and outbox message (`communications.NotificationReadReceipt`), so a notice stays read after it moves from queued to delivered. Sign-in link and confirmation-code emails are listed for delivery transparency but never count as unread. Each notice carries a typed navigation target (loan, holding, portfolio, balances, secondary market, FX, or none) derived from its own message metadata; the portal opens that page and still authorizes it as usual.
+
 The launch email provider is Twilio Email API. The sender domain for the current private-test deployment is `nxnarena.com`; the final production domain remains a go-live configuration decision.
 
 Rationale:

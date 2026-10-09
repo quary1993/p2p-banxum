@@ -10,7 +10,13 @@ from django.apps import apps
 from django.test import Client
 from django.test.utils import override_settings
 
-from backend.apps.accounts_auth.models import AccountStatus, AccountType, SensitiveAction, User
+from backend.apps.accounts_auth.models import (
+    AccountStatus,
+    AccountType,
+    SensitiveAction,
+    SensitiveActionCode,
+    User,
+)
 from backend.apps.accounts_auth.services import (
     InvalidOrExpiredCodeError,
     SensitiveActionCodeCommand,
@@ -145,6 +151,56 @@ def test_sensitive_action_code_enforces_max_attempts(investor: User) -> None:
                 raw_code=result.raw_code,
             )
         )
+
+
+@pytest.mark.django_db
+def test_requested_sensitive_action_code_locks_after_three_wrong_attempts(
+    client: Client,
+    investor: User,
+) -> None:
+    client.force_login(investor)
+    response = client.post(
+        "/api/v1/auth/sensitive-action-code/request/",
+        data={"action": SensitiveAction.WITHDRAWAL},
+        content_type="application/json",
+    )
+    assert response.status_code == 202
+    code_record = SensitiveActionCode.objects.get(id=response.json()["code_id"])
+    raw_code = delivery_secret_for_sensitive_action_code(code_record)
+    wrong_code = "000000" if raw_code != "000000" else "111111"
+
+    def attempt(value: str) -> None:
+        consume_sensitive_action_code(
+            SensitiveActionCodeConsumeCommand(
+                code_id=str(code_record.id),
+                raw_code=value,
+                expected_user=investor,
+                expected_action=SensitiveAction.WITHDRAWAL,
+            )
+        )
+
+    assert code_record.max_attempts == 3
+    for _ in range(2):
+        with pytest.raises(InvalidOrExpiredCodeError):
+            attempt(wrong_code)
+    with pytest.raises(TooManyCodeAttemptsError):
+        attempt(wrong_code)
+    # The limit holds even for the right code once three attempts were used.
+    with pytest.raises(TooManyCodeAttemptsError):
+        attempt(raw_code)
+    code_record.refresh_from_db()
+    assert code_record.attempts == 3
+    assert code_record.consumed_at is None
+
+
+@pytest.mark.django_db
+@override_settings(AUTH_SENSITIVE_CODE_MAX_ATTEMPTS=5)
+def test_sensitive_action_code_attempt_limit_follows_setting(investor: User) -> None:
+    result = issue_sensitive_action_code(
+        SensitiveActionCodeCommand(user=investor, action=SensitiveAction.FX)
+    )
+
+    assert result.code_record.max_attempts == 5
 
 
 @pytest.mark.django_db

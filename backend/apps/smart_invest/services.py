@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from importlib import import_module
 from typing import Any, cast
@@ -24,10 +26,10 @@ from backend.apps.platform_core.services.events import (
     record_domain_event,
 )
 from backend.apps.smart_invest.models import (
-    CollateralScope,
-    CurrencyScope,
-    LoanKind,
-    OriginatorScope,
+    SMART_INVEST_BANXUM_SOURCE,
+    SmartInvestCollateralOption,
+    SmartInvestCurrency,
+    SmartInvestLoanKind,
     SmartInvestMatchNotification,
     SmartInvestRule,
     SmartInvestRuleEvent,
@@ -48,14 +50,13 @@ class SaveSmartInvestRuleCommand:
     actor: Model
     minimum_yield_bps: int | None = None
     maximum_term_months: int | None = None
-    originator_scope: str = OriginatorScope.ALL
-    originator_id: str | None = None
-    collateral_scope: str = CollateralScope.ALL
-    collateral_type: str = ""
-    currency_scope: str = CurrencyScope.ALL
-    risk_rating: str = ""
-    purpose: str = ""
-    loan_kind: str = LoanKind.ALL
+    # Every list criterion is multi-select; an empty list does not restrict.
+    originators: Sequence[str] = ()
+    collateral: Sequence[str] = ()
+    currencies: Sequence[str] = ()
+    risk_ratings: Sequence[str] = ()
+    purposes: Sequence[str] = ()
+    loan_kinds: Sequence[str] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,8 +83,94 @@ def _require_financial_access(actor: Model) -> str:
     return str(actor.pk)
 
 
-def _clean_optional(value: str) -> str:
-    return value.strip()
+# The loan catalog's own collateral type for unsecured lending; Smart Invest
+# offers it as the "unsecured" choice instead of a separate collateral type.
+_UNSECURED_COLLATERAL_TYPE = "unsecured_exception"
+_LIST_CRITERIA = (
+    "originators",
+    "collateral",
+    "currencies",
+    "risk_ratings",
+    "purposes",
+    "loan_kinds",
+)
+
+
+def loan_field_choices(field_name: str) -> list[tuple[str, str]]:
+    """Reuse the loan catalog choices without a domain-module import dependency."""
+    loan_model = apps.get_model("loans", "Loan")
+    field = cast(Any, loan_model)._meta.get_field(field_name)
+    return [(str(value), str(label)) for value, label in field.choices]
+
+
+def collateral_choices() -> list[tuple[str, str]]:
+    """Collateral options: any collateral, each loan collateral type, or none."""
+    any_secured = SmartInvestCollateralOption.ANY_SECURED
+    unsecured = SmartInvestCollateralOption.UNSECURED
+    return [
+        (str(any_secured.value), str(any_secured.label)),
+        *(
+            (value, label)
+            for value, label in loan_field_choices("collateral_type")
+            if value != _UNSECURED_COLLATERAL_TYPE
+        ),
+        (str(unsecured.value), str(unsecured.label)),
+    ]
+
+
+def _choice_values(choices: Sequence[tuple[str, str]]) -> list[str]:
+    return [value for value, _label in choices]
+
+
+def _validated_choices(values: Sequence[str], allowed: Sequence[str], label: str) -> list[str]:
+    """De-duplicate a multi-select list and return it in the catalog order."""
+    selected: set[str] = set()
+    for raw in values:
+        value = str(raw).strip()
+        if value not in allowed:
+            raise SmartInvestValidationError(f"{label} {value!r} is not a valid choice.")
+        selected.add(value)
+    return [value for value in allowed if value in selected]
+
+
+def _validated_collateral(values: Sequence[str]) -> list[str]:
+    collateral = _validated_choices(values, _choice_values(collateral_choices()), "Collateral")
+    if SmartInvestCollateralOption.ANY_SECURED in collateral:
+        # "Any collateral" already covers every collateral type, including new ones.
+        collateral = [
+            value
+            for value in collateral
+            if value
+            in (SmartInvestCollateralOption.ANY_SECURED, SmartInvestCollateralOption.UNSECURED)
+        ]
+    return collateral
+
+
+def _validated_originators(values: Sequence[str]) -> list[str]:
+    include_banxum = False
+    originator_ids: set[str] = set()
+    for raw in values:
+        value = str(raw).strip()
+        if value == SMART_INVEST_BANXUM_SOURCE:
+            include_banxum = True
+            continue
+        try:
+            originator_ids.add(str(uuid.UUID(value)))
+        except ValueError as exc:
+            raise SmartInvestValidationError(f"Loan Originator {value!r} is not valid.") from exc
+    if originator_ids:
+        originator_model = apps.get_model("originator_claims", "LoanOriginator")
+        known = {
+            str(pk)
+            for pk in originator_model.objects.filter(id__in=originator_ids).values_list(
+                "id", flat=True
+            )
+        }
+        unknown = sorted(originator_ids - known)
+        if unknown:
+            raise SmartInvestValidationError(f"Loan Originator {unknown[0]!r} does not exist.")
+    banxum = [SMART_INVEST_BANXUM_SOURCE] if include_banxum else []
+    return banxum + sorted(originator_ids)
 
 
 def _validated_criteria(command: SaveSmartInvestRuleCommand) -> dict[str, Any]:
@@ -95,37 +182,26 @@ def _validated_criteria(command: SaveSmartInvestRuleCommand) -> dict[str, Any]:
         minimum_yield_bps = None
     if maximum_term_months is not None and maximum_term_months < 1:
         raise SmartInvestValidationError("Maximum term must be at least one month.")
-    if command.originator_scope not in OriginatorScope.values:
-        raise SmartInvestValidationError("Originator scope is invalid.")
-    if command.collateral_scope not in CollateralScope.values:
-        raise SmartInvestValidationError("Collateral scope is invalid.")
-    if command.currency_scope not in CurrencyScope.values:
-        raise SmartInvestValidationError("Currency scope is invalid.")
-    if command.loan_kind not in LoanKind.values:
-        raise SmartInvestValidationError("Loan type is invalid.")
-
-    originator_id = command.originator_id or None
-    collateral_type = _clean_optional(command.collateral_type)
-    if command.originator_scope == OriginatorScope.SPECIFIC and not originator_id:
-        raise SmartInvestValidationError("Select a Loan Originator for this rule.")
-    if command.originator_scope != OriginatorScope.SPECIFIC:
-        originator_id = None
-    if command.collateral_scope == CollateralScope.SPECIFIC and not collateral_type:
-        raise SmartInvestValidationError("Select a collateral type for this rule.")
-    if command.collateral_scope != CollateralScope.SPECIFIC:
-        collateral_type = ""
 
     criteria = {
         "minimum_yield_bps": minimum_yield_bps,
         "maximum_term_months": maximum_term_months,
-        "originator_scope": command.originator_scope,
-        "originator_id": originator_id,
-        "collateral_scope": command.collateral_scope,
-        "collateral_type": collateral_type,
-        "currency_scope": command.currency_scope,
-        "risk_rating": _clean_optional(command.risk_rating),
-        "purpose": _clean_optional(command.purpose),
-        "loan_kind": command.loan_kind,
+        "originators": _validated_originators(command.originators),
+        "collateral": _validated_collateral(command.collateral),
+        "currencies": _validated_choices(
+            command.currencies, SmartInvestCurrency.values, "Currency"
+        ),
+        "risk_ratings": _validated_choices(
+            command.risk_ratings,
+            _choice_values(loan_field_choices("risk_rating")),
+            "Risk rating",
+        ),
+        "purposes": _validated_choices(
+            command.purposes, _choice_values(loan_field_choices("purpose")), "Purpose"
+        ),
+        "loan_kinds": _validated_choices(
+            command.loan_kinds, SmartInvestLoanKind.values, "Loan type"
+        ),
     }
     if not _has_effective_criterion(criteria):
         raise SmartInvestValidationError(
@@ -134,17 +210,27 @@ def _validated_criteria(command: SaveSmartInvestRuleCommand) -> dict[str, Any]:
     return criteria
 
 
+def _restricts(selected: Sequence[str], every_option: Sequence[str] | None = None) -> bool:
+    """A list restricts matching unless it is empty or ticks every possible option."""
+    if not selected:
+        return False
+    return every_option is None or not set(every_option).issubset(selected)
+
+
 def _has_effective_criterion(criteria: dict[str, Any]) -> bool:
     return any(
         (
             criteria["minimum_yield_bps"] is not None,
             criteria["maximum_term_months"] is not None,
-            criteria["originator_scope"] != OriginatorScope.ALL,
-            criteria["collateral_scope"] != CollateralScope.ALL,
-            criteria["currency_scope"] != CurrencyScope.ALL,
-            bool(criteria["risk_rating"]),
-            bool(criteria["purpose"]),
-            criteria["loan_kind"] != LoanKind.ALL,
+            _restricts(criteria["originators"]),
+            _restricts(
+                criteria["collateral"],
+                SmartInvestCollateralOption.values,
+            ),
+            _restricts(criteria["currencies"], SmartInvestCurrency.values),
+            _restricts(criteria["risk_ratings"], _choice_values(loan_field_choices("risk_rating"))),
+            _restricts(criteria["purposes"], _choice_values(loan_field_choices("purpose"))),
+            _restricts(criteria["loan_kinds"], SmartInvestLoanKind.values),
         )
     )
 
@@ -153,14 +239,7 @@ def _criteria_snapshot(rule: SmartInvestRule) -> dict[str, Any]:
     return {
         "minimum_yield_bps": rule.minimum_yield_bps,
         "maximum_term_months": rule.maximum_term_months,
-        "originator_scope": rule.originator_scope,
-        "originator_id": str(rule.originator_id) if rule.originator_id else None,
-        "collateral_scope": rule.collateral_scope,
-        "collateral_type": rule.collateral_type,
-        "currency_scope": rule.currency_scope,
-        "risk_rating": rule.risk_rating,
-        "purpose": rule.purpose,
-        "loan_kind": rule.loan_kind,
+        **{field: [str(value) for value in getattr(rule, field) or []] for field in _LIST_CRITERIA},
     }
 
 
@@ -179,13 +258,18 @@ def _rule_payload(rule: SmartInvestRule | None) -> dict[str, Any] | None:
     }
 
 
+def _opportunity_is_unsecured(opportunity: dict[str, Any]) -> bool:
+    collateral_type = str(opportunity.get("collateral_type") or "")
+    return collateral_type == _UNSECURED_COLLATERAL_TYPE or opportunity.get("ltv_bps") is None
+
+
 def opportunity_matches_criteria(opportunity: dict[str, Any], criteria: dict[str, Any]) -> bool:
+    """One matching rule for the matches list and for new-publication alerts.
+
+    Conditions combine with AND; the values ticked inside one list combine with OR.
+    """
     yield_bps = int(opportunity.get("yield_bps") or 0)
     term_months = int(opportunity.get("term_months") or 0)
-    collateral_type = str(opportunity.get("collateral_type") or "")
-    ltv_bps = opportunity.get("ltv_bps")
-    product_type = str(opportunity.get("product_type") or "direct")
-    is_unsecured = collateral_type == "unsecured_exception" or ltv_bps is None
 
     if criteria["minimum_yield_bps"] is not None and yield_bps < int(criteria["minimum_yield_bps"]):
         return False
@@ -193,36 +277,43 @@ def opportunity_matches_criteria(opportunity: dict[str, Any], criteria: dict[str
         criteria["maximum_term_months"]
     ):
         return False
-    if criteria["originator_scope"] == OriginatorScope.BANXUM and product_type != "direct":
-        return False
-    if criteria["originator_scope"] == OriginatorScope.SPECIFIC and str(
-        opportunity.get("originator_id") or ""
-    ) != str(criteria["originator_id"] or ""):
-        return False
-    if criteria["collateral_scope"] == CollateralScope.SECURED and is_unsecured:
-        return False
-    if criteria["collateral_scope"] == CollateralScope.UNSECURED and not is_unsecured:
-        return False
-    if criteria["collateral_scope"] == CollateralScope.SPECIFIC and collateral_type != str(
-        criteria["collateral_type"]
-    ):
-        return False
-    if criteria["currency_scope"] != CurrencyScope.ALL and str(opportunity.get("currency")) != str(
-        criteria["currency_scope"]
-    ):
-        return False
-    if criteria["risk_rating"] and str(opportunity.get("risk_rating")) != str(
-        criteria["risk_rating"]
-    ):
-        return False
-    if criteria["purpose"] and str(opportunity.get("purpose")) != str(criteria["purpose"]):
-        return False
-    if criteria["loan_kind"] == LoanKind.REFINANCING and not bool(
-        opportunity.get("is_refinancing")
-    ):
-        return False
-    if criteria["loan_kind"] == LoanKind.NEW and bool(opportunity.get("is_refinancing")):
-        return False
+
+    originators = set(criteria.get("originators") or [])
+    if originators:
+        if str(opportunity.get("product_type") or "direct") == "direct":
+            source_matches = SMART_INVEST_BANXUM_SOURCE in originators
+        else:
+            source_matches = str(opportunity.get("originator_id") or "") in originators
+        if not source_matches:
+            return False
+
+    collateral = set(criteria.get("collateral") or [])
+    if collateral:
+        if _opportunity_is_unsecured(opportunity):
+            collateral_matches = SmartInvestCollateralOption.UNSECURED in collateral
+        else:
+            collateral_matches = (
+                SmartInvestCollateralOption.ANY_SECURED in collateral
+                or str(opportunity.get("collateral_type") or "") in collateral
+            )
+        if not collateral_matches:
+            return False
+
+    single_value_lists = (
+        ("currencies", str(opportunity.get("currency") or "")),
+        ("risk_ratings", str(opportunity.get("risk_rating") or "")),
+        ("purposes", str(opportunity.get("purpose") or "")),
+        (
+            "loan_kinds",
+            SmartInvestLoanKind.REFINANCING
+            if bool(opportunity.get("is_refinancing"))
+            else SmartInvestLoanKind.NEW,
+        ),
+    )
+    for field, value in single_value_lists:
+        selected = criteria.get(field) or []
+        if selected and value not in selected:
+            return False
     return True
 
 
@@ -312,14 +403,8 @@ def deactivate_smart_invest_rule(*, actor: Model) -> dict[str, Any]:
     rule.is_active = False
     rule.minimum_yield_bps = None
     rule.maximum_term_months = None
-    rule.originator_scope = OriginatorScope.ALL
-    rule.originator_id = None
-    rule.collateral_scope = CollateralScope.ALL
-    rule.collateral_type = ""
-    rule.currency_scope = CurrencyScope.ALL
-    rule.risk_rating = ""
-    rule.purpose = ""
-    rule.loan_kind = LoanKind.ALL
+    for field in _LIST_CRITERIA:
+        setattr(rule, field, [])
     rule.revision += 1
     rule.deactivated_at = now_utc()
     rule.save()

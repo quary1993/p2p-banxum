@@ -12,6 +12,7 @@ from backend.apps.ledger.models import (
     InvestorBalanceLot,
     InvestorPayoutInstruction,
     InvestorWithdrawalRequest,
+    InvestorWithdrawalRequestStatus,
     LedgerJournalEntry,
     ReconciliationSnapshot,
 )
@@ -174,6 +175,14 @@ class LenderDepositDeclareRequestSerializer(serializers.Serializer[Any]):
     payment_reference = serializers.CharField(required=False, allow_blank=True, max_length=160)
     evidence_reference = serializers.CharField(required=False, allow_blank=True, max_length=255)
     notes = serializers.CharField(required=False, allow_blank=True)
+    confirm_repeat_deposit = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Set only after a duplicate-deposit rejection, when the investor really sent "
+            "a second identical transfer."
+        ),
+    )
     idempotency_key = serializers.CharField(max_length=160)
 
 
@@ -243,6 +252,50 @@ class InvestorWithdrawalRequestCreateRequestSerializer(serializers.Serializer[An
 class InvestorWithdrawalRequestCreateResponseSerializer(serializers.Serializer[Any]):
     withdrawal_request = InvestorWithdrawalRequestSerializer()
     balance_summary = InvestorBalanceSummarySerializer()
+
+
+class InvestorWithdrawalHistoryQuerySerializer(serializers.Serializer[Any]):
+    status = serializers.ChoiceField(
+        choices=[
+            (InvestorWithdrawalRequestStatus.FINALIZED.value, "Finalized"),
+            (InvestorWithdrawalRequestStatus.CANCELLED.value, "Cancelled"),
+        ],
+        required=False,
+        allow_blank=True,
+    )
+    currency = serializers.CharField(required=False, allow_blank=True, max_length=3)
+    is_forced = serializers.BooleanField(required=False, allow_null=True, default=None)
+    q = serializers.CharField(required=False, allow_blank=True, max_length=128)
+    limit = serializers.IntegerField(required=False, min_value=1, max_value=200, default=50)
+    offset = serializers.IntegerField(required=False, min_value=0, default=0)
+
+
+class InvestorWithdrawalHistoryRowSerializer(serializers.Serializer[Any]):
+    id = serializers.UUIDField()
+    investor_user_id = serializers.UUIDField()
+    investor_name = serializers.CharField(allow_blank=True)
+    investor_email = serializers.CharField(allow_blank=True)
+    investor_reference = serializers.CharField(allow_blank=True)
+    status = serializers.CharField()
+    is_forced = serializers.BooleanField()
+    amount_minor = serializers.IntegerField()
+    currency = serializers.CharField()
+    destination_iban = serializers.CharField()
+    destination_account_name = serializers.CharField(allow_blank=True)
+    requested_at = serializers.DateTimeField()
+    closed_at = serializers.DateTimeField(allow_null=True)
+    finalized_at = serializers.DateTimeField(allow_null=True)
+    cancelled_at = serializers.DateTimeField(allow_null=True)
+    bank_reference = serializers.CharField(allow_blank=True)
+    payment_reference = serializers.CharField(allow_blank=True)
+    cancellation_reason = serializers.CharField(allow_blank=True)
+
+
+class InvestorWithdrawalHistoryResponseSerializer(serializers.Serializer[Any]):
+    count = serializers.IntegerField()
+    limit = serializers.IntegerField()
+    offset = serializers.IntegerField()
+    results = InvestorWithdrawalHistoryRowSerializer(many=True)
 
 
 class InvestorWithdrawalFinalizeRequestSerializer(serializers.Serializer[Any]):

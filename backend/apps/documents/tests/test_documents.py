@@ -3,6 +3,8 @@ from __future__ import annotations
 import base64
 import datetime as dt
 import html
+import io
+from types import SimpleNamespace
 from typing import Any, cast
 from zipfile import ZipFile
 
@@ -14,7 +16,9 @@ from django.db import DatabaseError, connection, transaction
 from django.db.models import Model
 from django.test import Client
 from django.utils import timezone
+from pypdf import PdfReader
 
+from backend.apps.documents import services as documents_services
 from backend.apps.documents.legal_import import (
     extract_lender_user_agreement_template,
     extract_project_investment_confirmation_template,
@@ -1333,3 +1337,111 @@ def test_current_template_preview_artifact_api() -> None:
         {"category": "registration"},
     )
     assert missing.status_code == 404
+
+
+def _pdf_text(pdf_bytes: bytes) -> str:
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    text = " ".join(" ".join(page.extract_text() for page in reader.pages).split())
+    # The base-14 fonts map the ASCII apostrophe used in amounts to a typographic quote.
+    return text.replace("\u2019", "'")
+
+
+@pytest.mark.django_db
+def test_direct_investment_agreement_pdf_states_loan_amount_and_key_terms(
+    superadmin_user: Model,
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    # QA row 92: agreement PDFs only showed "Accepted by" and "Evidence".
+    _approve_financial_access(investor)
+    order = _create_primary_order_context(investor=investor, admin_user=admin_user)
+    version = create_document_template_version(
+        _template_command(
+            superadmin_user,
+            title="QA investment terms",
+            body="Synthetic QA agreement for {{user.full_name}}.",
+        )
+    )
+    acceptance = accept_document_terms(
+        AcceptDocumentTermsCommand(
+            actor=investor,
+            category=DocumentCategory.PRIMARY_MARKET_INVESTMENT,
+            expected_template_version_id=str(version.id),
+            accepted_checkbox_labels=list(cast(list[str], version.checkbox_labels)),
+            context_type="primary_order",
+            context_id=str(cast(Any, order).id),
+            idempotency_key="accept-direct-agreement-summary",
+        )
+    )
+
+    artifact = render_document_acceptance_artifact(
+        RenderDocumentAcceptanceArtifactCommand(
+            actor=investor,
+            acceptance_id=str(acceptance.id),
+            output_format="pdf",
+        )
+    )
+    text = _pdf_text(base64.b64decode(artifact.content.encode("ascii")))
+
+    loan_reference = f"LOAN-{str(cast(Any, order).loan_id)[:8].upper()}"
+    assert "Direct loan investment agreement - accepted document evidence package" in text
+    assert "Transaction Direct loan investment" in text
+    assert f"Loan Server Owned Project ({loan_reference})" in text
+    assert "Amount invested CHF 2'500.00" in text
+    assert "Interest rate 9.50% p.a." in text
+    assert "Term 12 months, maturity " in text
+    assert f"Repayment {acceptance.data_snapshot['loan']['repayment_type']}" in text
+    assert "Borrower Server Owned Borrower AG" in text
+    assert f"Agreement no. PIO-{str(cast(Any, order).id)[:8].upper()}" in text
+    assert "Loan Originator" not in text
+    assert (
+        documents_services.acceptance_history_item(acceptance)["document_type"]
+        == "Investment agreement"
+    )
+    # The acceptance evidence stays in the document.
+    assert "Accepted by" in text
+    assert str(acceptance.id) in text
+
+
+def test_investment_summary_marks_legacy_lo_quote_purchases_as_lo_claims() -> None:
+    acceptance = SimpleNamespace(
+        category=DocumentCategory.PRIMARY_MARKET_INVESTMENT,
+        context_type="originator_claim_quote",
+        data_snapshot={
+            "order": {
+                "agreement_no": "LOQ-1234ABCD",
+                "currency": "EUR",
+                "allocated_amount_minor": 400_000,
+                "assigned_principal_minor": 395_000,
+                "target_yield_percent": "8.40",
+            },
+            "loan": {
+                "title": "QA LO Main",
+                "agreement_no": "LOAN-ABCD1234",
+                "interest_rate_percent": "12.00",
+                "maturity_date": "2026-11-19",
+                "repayment_type": "Equal installments",
+            },
+            "borrower": {"legal_name": "European Manufacturing SME #A1"},
+            "originator": {"legal_name": "QA Test Originator AG"},
+        },
+    )
+
+    summary = documents_services._investment_summary(cast(Any, acceptance))
+
+    assert summary is not None
+    transaction_type, items = summary
+    assert transaction_type == "Loan Originator claim purchase"
+    assert dict(items) == {
+        "Transaction": "Loan Originator claim purchase",
+        "Loan": "QA LO Main (LOAN-ABCD1234)",
+        "Amount invested": "EUR 4'000.00",
+        "Claim principal": "EUR 3'950.00",
+        "Target yield": "8.40% p.a.",
+        "Borrower rate": "12.00% p.a.",
+        "Term": "maturity 2026-11-19",
+        "Repayment": "Equal installments",
+        "Borrower": "European Manufacturing SME #A1",
+        "Loan Originator": "QA Test Originator AG",
+        "Agreement no.": "LOQ-1234ABCD",
+    }

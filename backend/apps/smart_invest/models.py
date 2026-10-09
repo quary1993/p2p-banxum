@@ -11,30 +11,26 @@ from backend.apps.platform_core.models.base import (
     TimestampedModel,
 )
 
-
-class OriginatorScope(models.TextChoices):
-    ALL = "all", "All sources"
-    BANXUM = "banxum", "BANXUM direct lending"
-    SPECIFIC = "specific", "Specific Loan Originator"
+# Smart Invest criteria are multi-select lists. An empty list never restricts
+# matching; a non-empty list matches an opportunity carrying any listed value.
+SMART_INVEST_BANXUM_SOURCE = "banxum"
 
 
-class CollateralScope(models.TextChoices):
-    ALL = "all", "Any collateral"
-    SECURED = "secured", "With collateral"
-    UNSECURED = "unsecured", "Without collateral"
-    SPECIFIC = "specific", "Specific collateral type"
-
-
-class CurrencyScope(models.TextChoices):
-    ALL = "all", "CHF and EUR"
+class SmartInvestCurrency(models.TextChoices):
     CHF = "CHF", "CHF"
     EUR = "EUR", "EUR"
 
 
-class LoanKind(models.TextChoices):
-    ALL = "all", "New lending and refinancing"
+class SmartInvestLoanKind(models.TextChoices):
     NEW = "new", "New lending"
     REFINANCING = "refinancing", "Refinancing"
+
+
+class SmartInvestCollateralOption(models.TextChoices):
+    """Collateral tokens beside the loan catalog's own collateral types."""
+
+    ANY_SECURED = "any_secured", "With collateral (any type)"
+    UNSECURED = "unsecured", "No collateral (unsecured)"
 
 
 class SmartInvestRuleEventType(models.TextChoices):
@@ -52,30 +48,14 @@ class SmartInvestRule(TimestampedModel):
     is_active = models.BooleanField(default=False)
     minimum_yield_bps = models.PositiveIntegerField(null=True, blank=True)
     maximum_term_months = models.PositiveIntegerField(null=True, blank=True)
-    originator_scope = models.CharField(
-        max_length=16,
-        choices=OriginatorScope.choices,
-        default=OriginatorScope.ALL,
-    )
-    originator_id = models.UUIDField(null=True, blank=True)
-    collateral_scope = models.CharField(
-        max_length=16,
-        choices=CollateralScope.choices,
-        default=CollateralScope.ALL,
-    )
-    collateral_type = models.CharField(max_length=64, blank=True)
-    currency_scope = models.CharField(
-        max_length=8,
-        choices=CurrencyScope.choices,
-        default=CurrencyScope.ALL,
-    )
-    risk_rating = models.CharField(max_length=32, blank=True)
-    purpose = models.CharField(max_length=64, blank=True)
-    loan_kind = models.CharField(
-        max_length=16,
-        choices=LoanKind.choices,
-        default=LoanKind.ALL,
-    )
+    # "banxum" for BANXUM direct loans and/or Loan Originator ids.
+    originators = models.JSONField(default=list, blank=True)
+    # "any_secured", "unsecured" and/or loan collateral types.
+    collateral = models.JSONField(default=list, blank=True)
+    currencies = models.JSONField(default=list, blank=True)
+    risk_ratings = models.JSONField(default=list, blank=True)
+    purposes = models.JSONField(default=list, blank=True)
+    loan_kinds = models.JSONField(default=list, blank=True)
     revision = models.PositiveIntegerField(default=0)
     activated_at = models.DateTimeField(null=True, blank=True)
     deactivated_at = models.DateTimeField(null=True, blank=True)

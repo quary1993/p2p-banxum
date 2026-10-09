@@ -735,17 +735,28 @@ def update_loan_originator(command: UpdateLoanOriginatorCommand) -> LoanOriginat
         raise OriginatorClaimsValidationError("Invalid Loan Originator status.")
     if "investor_story" in changes:
         changes["investor_story"] = _clean_story(changes["investor_story"])
+    # Like borrower edits, only fields whose stored value really changes are
+    # written, and a save that changes nothing is rejected.
+    changed: dict[str, Any] = {}
     for field_name, value in changes.items():
         if isinstance(value, str):
             value = value.strip()
+        current = getattr(originator, field_name)
+        if field_name == "investor_story":
+            current = _story_payload(current)
+        if value != current:
+            changed[field_name] = value
+    if not changed:
+        raise OriginatorClaimsValidationError("No Loan Originator changes were provided.")
+    for field_name, value in changed.items():
         setattr(originator, field_name, value)
     originator.updated_by_admin_id = command.actor.pk
-    originator.save(update_fields=[*changes, "updated_by_admin_id", "updated_at"])
+    originator.save(update_fields=[*changed, "updated_by_admin_id", "updated_at"])
     _record_event(
         actor=command.actor,
         event_type=OriginatorClaimEventType.ORIGINATOR_UPDATED,
         originator=originator,
-        metadata={"changed_fields": sorted(changes)},
+        metadata={"changed_fields": sorted(changed)},
     )
     return originator
 
@@ -5473,6 +5484,38 @@ def sync_originator_settlement_tasks(
     return tasks
 
 
+def _open_originator_loan_default_review_task(
+    *,
+    actor: Model,
+    loan: Any,
+    profile: OriginatorLoanProfile,
+    as_of_date: date,
+    days_past_due: int,
+) -> None:
+    loan_import = profile.current_import
+    first_outstanding = (
+        loan_import.schedule_rows.filter(due_date__gt=loan_import.as_of_date)
+        .order_by("due_date", "installment_number", "id")
+        .first()
+        if loan_import is not None
+        else None
+    )
+    admin_ops = import_module("backend.apps.admin_ops.services")
+    admin_ops.ensure_loan_default_review_task(
+        admin_ops.EnsureLoanDefaultReviewTaskCommand(
+            actor=actor,
+            loan_id=str(loan.id),
+            loan_title=str(loan.title),
+            product_type=str(loan.product_type),
+            currency=str(loan.currency_id),
+            as_of_date=as_of_date,
+            days_past_due=days_past_due,
+            outstanding_minor=int(first_outstanding.total_minor) if first_outstanding else 0,
+            triggering_due_date=first_outstanding.due_date if first_outstanding else None,
+        )
+    )
+
+
 @transaction.atomic
 def _scan_originator_profile_lifecycle(
     *,
@@ -5542,6 +5585,14 @@ def _scan_originator_profile_lifecycle(
                 source_type="originator_servicing_status_scan",
                 source_id=(f"{profile.loan_id}:{new_loan_status}:{as_of_date.isoformat()}"),
             )
+            if new_loan_status == "defaulted":
+                _open_originator_loan_default_review_task(
+                    actor=actor,
+                    loan=loan,
+                    profile=profile,
+                    as_of_date=as_of_date,
+                    days_past_due=days_past_due,
+                )
 
     # Subscription opportunities leave the marketplace at their funding close and
     # remain ACTIVE only as servicing records. Historical v1 rows retain the old

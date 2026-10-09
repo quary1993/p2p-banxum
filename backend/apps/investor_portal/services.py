@@ -7,6 +7,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from importlib import import_module
 from typing import Any, cast
+from uuid import UUID
 
 from django.apps import apps
 from django.db.models import Model, Q, Sum
@@ -43,6 +44,10 @@ class InvestorPortalAuthorizationError(RuntimeError):
 
 
 class InvestorPortalValidationError(RuntimeError):
+    pass
+
+
+class InvestorPortalNotFoundError(InvestorPortalValidationError):
     pass
 
 
@@ -177,6 +182,7 @@ def _empty_balance_summary(*, investor_user_id: str, currency: str) -> dict[str,
         "overdue_minor": 0,
         "frozen_minor": 0,
         "penalty_mode_minor": 0,
+        "penalty_charged_minor": 0,
         "lot_count": 0,
         "active_lot_count": 0,
         "next_investment_deadline_at": None,
@@ -204,6 +210,8 @@ def _balance_summaries(
             _empty_balance_summary(investor_user_id=investor_user_id, currency=currency),
         )
         summary["lot_count"] += 1
+        # Ageing penalties already taken from the lot; they are no longer part of any balance.
+        summary["penalty_charged_minor"] += int(lot.penalized_amount_minor)
         available = int(lot.available_amount_minor)
         if available <= 0:
             continue
@@ -520,9 +528,101 @@ def _notification_body(*, topic: str, record: Any | None = None, outbox: Any | N
     return "Notification delivery status update."
 
 
-def get_investor_notifications(*, actor: Model, limit: int | None = None) -> dict[str, Any]:
-    investor_user_id = _require_financial_access(actor)
-    limit_value = _bounded_limit(limit)
+# Emails the investor triggered for themselves (sign-in links, confirmation codes) are listed for
+# delivery transparency but never count as unread notices.
+SELF_TRIGGERED_EMAIL_TOPICS = frozenset(
+    {"email.magic_link_requested", "email.sensitive_action_code_requested"}
+)
+NOTIFICATION_UNREAD_WINDOW = 250
+
+# Where a notification leads in the portal. Only these kinds and UUID identifiers taken from the
+# investor's own message are exposed; the portal still authorizes every page it opens.
+NOTIFICATION_TARGET_NONE = "none"
+NOTIFICATION_TARGET_LOAN = "loan"
+NOTIFICATION_TARGET_HOLDING = "holding"
+NOTIFICATION_TARGET_PORTFOLIO = "portfolio"
+NOTIFICATION_TARGET_BALANCES = "balances"
+NOTIFICATION_TARGET_SECONDARY_MARKET = "secondary_market"
+NOTIFICATION_TARGET_FX = "fx"
+NOTIFICATION_TARGET_TYPES = (
+    NOTIFICATION_TARGET_NONE,
+    NOTIFICATION_TARGET_LOAN,
+    NOTIFICATION_TARGET_HOLDING,
+    NOTIFICATION_TARGET_PORTFOLIO,
+    NOTIFICATION_TARGET_BALANCES,
+    NOTIFICATION_TARGET_SECONDARY_MARKET,
+    NOTIFICATION_TARGET_FX,
+)
+_PORTFOLIO_NOTIFICATION_TOPICS = frozenset(
+    {
+        "email.primary_investment_confirmation",
+        "email.originator_claim_purchase_confirmation",
+        "email.originator_claim_repayment_credited",
+        "email.originator_subscription_activated",
+        "email.originator_subscription_activation_overdue",
+        "email.originator_subscription_cancelled",
+        "email.loan_funding_close_failed",
+        "email.originator_funding_close_failed",
+    }
+)
+_BALANCE_NOTIFICATION_TOPICS = frozenset(
+    {"email.balance_ageing_reminder", "email.deposit_reconciled", "email.withdrawal_status"}
+)
+
+
+def _communications_services() -> Any:
+    return import_module("backend.apps.communications.services")
+
+
+def _uuid_text(value: Any) -> str:
+    if value in (None, ""):
+        return ""
+    try:
+        return str(UUID(str(value)))
+    except (TypeError, ValueError):
+        return ""
+
+
+def _notification_target(*, topic: str, payload: Any) -> dict[str, str]:
+    payload_dict = payload if isinstance(payload, dict) else {}
+    metadata = payload_dict.get("metadata")
+    metadata_dict = metadata if isinstance(metadata, dict) else {}
+
+    def field(name: str) -> str:
+        return _uuid_text(metadata_dict.get(name) or payload_dict.get(name))
+
+    def target(kind: str, target_id: str = "") -> dict[str, str]:
+        return {"navigation_target": kind, "navigation_target_id": target_id}
+
+    if topic == "email.secondary_market_purchase_confirmation" and field("buyer_holding_id"):
+        return target(NOTIFICATION_TARGET_HOLDING, field("buyer_holding_id"))
+    if topic.startswith("email.secondary_market_"):
+        return target(NOTIFICATION_TARGET_SECONDARY_MARKET)
+    if topic in {"email.repayment_distribution_credited", "email.recovery_distribution_credited"}:
+        holding_ids = metadata_dict.get("holding_ids")
+        first_holding = (
+            _uuid_text(holding_ids[0]) if isinstance(holding_ids, list) and holding_ids else ""
+        )
+        if first_holding:
+            return target(NOTIFICATION_TARGET_HOLDING, first_holding)
+        return target(NOTIFICATION_TARGET_PORTFOLIO)
+    if topic in _BALANCE_NOTIFICATION_TOPICS:
+        return target(NOTIFICATION_TARGET_BALANCES)
+    if topic == "email.fx_exchange_confirmation":
+        return target(NOTIFICATION_TARGET_FX)
+    if topic in _PORTFOLIO_NOTIFICATION_TOPICS:
+        return target(NOTIFICATION_TARGET_PORTFOLIO)
+    if field("loan_id"):
+        return target(NOTIFICATION_TARGET_LOAN, field("loan_id"))
+    return target(NOTIFICATION_TARGET_NONE)
+
+
+def _investor_notification_entries(actor: Model, *, window: int) -> list[dict[str, Any]]:
+    """Newest-first notifications of the investor, one per outbox message.
+
+    Each entry carries its ``outbox_message_id``; read receipts are keyed by it.
+    """
+    investor_user_id = str(actor.pk)
     email = str(getattr(actor, "email", "")).strip().lower()
     delivery_model = _model("communications", "EmailDeliveryRecord")
     outbox_model = _model("platform_core", "OutboxMessage")
@@ -530,20 +630,22 @@ def get_investor_notifications(*, actor: Model, limit: int | None = None) -> dic
     for record in (
         delivery_model.objects.filter(recipient_email=email, topic__startswith="email.")
         .select_related("outbox_message")
-        .order_by("-created_at", "-id")[: limit_value * 3]
+        .defer("body_html")
+        .order_by("-created_at", "-id")[: window * 3]
     ):
         key = str(record.outbox_message_id)
         if key not in latest_records:
             latest_records[key] = record
-        if len(latest_records) >= limit_value:
+        if len(latest_records) >= window:
             break
 
-    notifications: list[dict[str, Any]] = []
+    entries: list[dict[str, Any]] = []
     for record in latest_records.values():
         topic = str(record.topic)
-        notifications.append(
+        entries.append(
             {
                 "id": str(record.id),
+                "outbox_message_id": int(record.outbox_message_id),
                 "notification_source": "email_delivery",
                 "topic": topic,
                 "status": str(record.status),
@@ -551,7 +653,7 @@ def get_investor_notifications(*, actor: Model, limit: int | None = None) -> dic
                 "body": _notification_body(topic=topic, record=record),
                 "created_at": record.created_at,
                 "sent_at": record.sent_at,
-                "unread": False,
+                **_notification_target(topic=topic, payload=record.outbox_message.payload),
                 "metadata": {
                     "outbox_message_id": str(record.outbox_message_id),
                     "attempt_number": int(record.attempt_number),
@@ -564,21 +666,16 @@ def get_investor_notifications(*, actor: Model, limit: int | None = None) -> dic
 
     known_outbox_ids = {str(record.outbox_message_id) for record in latest_records.values()}
     pending_outboxes = (
-        outbox_model.objects.filter(topic__startswith="email.")
-        .filter(
-            Q(payload__user_id=investor_user_id)
-            | Q(payload__email=email)
-            | Q(payload__recipient_email=email)
-            | Q(payload__to_email=email)
-        )
+        _investor_outbox_queryset(outbox_model, investor_user_id=investor_user_id, email=email)
         .exclude(id__in=known_outbox_ids)
-        .order_by("-created_at", "-id")[:limit_value]
+        .order_by("-created_at", "-id")[:window]
     )
     for outbox in pending_outboxes:
         topic = str(outbox.topic)
-        notifications.append(
+        entries.append(
             {
                 "id": str(outbox.id),
+                "outbox_message_id": int(outbox.id),
                 "notification_source": "email_outbox",
                 "topic": topic,
                 "status": str(outbox.status),
@@ -586,7 +683,7 @@ def get_investor_notifications(*, actor: Model, limit: int | None = None) -> dic
                 "body": _notification_body(topic=topic, outbox=outbox),
                 "created_at": outbox.created_at,
                 "sent_at": outbox.processed_at,
-                "unread": str(outbox.status) in {"pending", "dead_letter"},
+                **_notification_target(topic=topic, payload=outbox.payload),
                 "metadata": {
                     "attempts": int(outbox.attempts),
                     "next_attempt_at": (
@@ -597,10 +694,138 @@ def get_investor_notifications(*, actor: Model, limit: int | None = None) -> dic
             }
         )
 
-    notifications.sort(key=lambda item: item["created_at"], reverse=True)
+    entries.sort(key=lambda item: item["created_at"], reverse=True)
+    return entries[:window]
+
+
+def _investor_outbox_queryset(outbox_model: Any, *, investor_user_id: str, email: str) -> Any:
+    return outbox_model.objects.filter(topic__startswith="email.").filter(
+        Q(payload__user_id=investor_user_id)
+        | Q(payload__email=email)
+        | Q(payload__recipient_email=email)
+        | Q(payload__to_email=email)
+    )
+
+
+def _investor_notification_index(actor: Model, *, window: int) -> list[tuple[int, str]]:
+    """Lightweight (outbox message id, topic) list of the investor's newest notifications."""
+    email = str(getattr(actor, "email", "")).strip().lower()
+    delivery_model = _model("communications", "EmailDeliveryRecord")
+    outbox_model = _model("platform_core", "OutboxMessage")
+    rows: dict[int, tuple[Any, str]] = {}
+    for outbox_message_id, topic, created_at in (
+        delivery_model.objects.filter(recipient_email=email, topic__startswith="email.")
+        .order_by("-created_at", "-id")
+        .values_list("outbox_message_id", "topic", "created_at")[: window * 3]
+    ):
+        if outbox_message_id not in rows:
+            rows[int(outbox_message_id)] = (created_at, str(topic))
+        if len(rows) >= window:
+            break
+    for outbox_id, topic, created_at in (
+        _investor_outbox_queryset(outbox_model, investor_user_id=str(actor.pk), email=email)
+        .exclude(id__in=list(rows))
+        .order_by("-created_at", "-id")
+        .values_list("id", "topic", "created_at")[:window]
+    ):
+        rows[int(outbox_id)] = (created_at, str(topic))
+    ordered = sorted(rows.items(), key=lambda item: item[1][0], reverse=True)[:window]
+    return [(message_id, topic) for message_id, (_created_at, topic) in ordered]
+
+
+def _unread_message_ids(*, investor_user_id: str, index: list[tuple[int, str]]) -> set[int]:
+    read_ids = _communications_services().read_notification_message_ids(
+        investor_user_id=investor_user_id,
+        outbox_message_ids=[message_id for message_id, _topic in index],
+    )
     return {
-        "notifications": notifications[:limit_value],
-        "unread_count": sum(1 for item in notifications[:limit_value] if item["unread"]),
+        message_id
+        for message_id, topic in index
+        if message_id not in read_ids and topic not in SELF_TRIGGERED_EMAIL_TOPICS
+    }
+
+
+def _unread_notification_count(actor: Model, *, investor_user_id: str) -> int:
+    index = _investor_notification_index(actor, window=NOTIFICATION_UNREAD_WINDOW)
+    return len(_unread_message_ids(investor_user_id=investor_user_id, index=index))
+
+
+def get_investor_notifications(*, actor: Model, limit: int | None = None) -> dict[str, Any]:
+    investor_user_id = _require_financial_access(actor)
+    limit_value = _bounded_limit(limit)
+    entries = _investor_notification_entries(actor, window=limit_value)
+    unread_ids = _unread_message_ids(
+        investor_user_id=investor_user_id,
+        index=[(entry["outbox_message_id"], entry["topic"]) for entry in entries],
+    )
+    notifications = [
+        {
+            **{key: value for key, value in entry.items() if key != "outbox_message_id"},
+            "unread": entry["outbox_message_id"] in unread_ids,
+        }
+        for entry in entries
+    ]
+    return {
+        "notifications": notifications,
+        # Counted over a fixed window, so the header list and the Notifications page agree.
+        "unread_count": _unread_notification_count(actor, investor_user_id=investor_user_id),
+    }
+
+
+def _notification_outbox_id_for_actor(*, actor: Model, notification_id: str) -> int:
+    email = str(getattr(actor, "email", "")).strip().lower()
+    delivery_model = _model("communications", "EmailDeliveryRecord")
+    outbox_model = _model("platform_core", "OutboxMessage")
+    record_id = _uuid_text(notification_id)
+    if record_id:
+        record = (
+            delivery_model.objects.filter(
+                id=record_id, recipient_email=email, topic__startswith="email."
+            )
+            .only("outbox_message_id")
+            .first()
+        )
+        if record is not None:
+            return int(record.outbox_message_id)
+    elif notification_id.isdigit():
+        outbox = (
+            _investor_outbox_queryset(outbox_model, investor_user_id=str(actor.pk), email=email)
+            .filter(id=int(notification_id))
+            .only("id")
+            .first()
+        )
+        if outbox is not None:
+            return int(outbox.id)
+    raise InvestorPortalNotFoundError("Notification not found.")
+
+
+def mark_investor_notification_read(*, actor: Model, notification_id: str) -> dict[str, Any]:
+    """Mark one of the investor's own notifications as read. Repeating it changes nothing."""
+    investor_user_id = _require_financial_access(actor)
+    outbox_message_id = _notification_outbox_id_for_actor(
+        actor=actor, notification_id=str(notification_id).strip()
+    )
+    marked = _communications_services().mark_notifications_read(
+        investor_user_id=investor_user_id,
+        outbox_message_ids=[outbox_message_id],
+    )
+    return {
+        "marked_count": int(marked),
+        "unread_count": _unread_notification_count(actor, investor_user_id=investor_user_id),
+    }
+
+
+def mark_all_investor_notifications_read(*, actor: Model) -> dict[str, Any]:
+    """Mark every notification currently listed for the investor as read."""
+    investor_user_id = _require_financial_access(actor)
+    index = _investor_notification_index(actor, window=NOTIFICATION_UNREAD_WINDOW)
+    marked = _communications_services().mark_notifications_read(
+        investor_user_id=investor_user_id,
+        outbox_message_ids=[message_id for message_id, _topic in index],
+    )
+    return {
+        "marked_count": int(marked),
+        "unread_count": _unread_notification_count(actor, investor_user_id=investor_user_id),
     }
 
 
@@ -1223,6 +1448,7 @@ def _investor_activity_entries(
         .select_related("currency")
         .order_by("-requested_at")[:limit_value]
     ):
+        withdrawal_status = str(withdrawal.status)
         entries.append(
             _activity(
                 activity_id=str(withdrawal.pk),
@@ -1232,10 +1458,38 @@ def _investor_activity_entries(
                 title="Withdrawal request",
                 amount_minor=int(withdrawal.amount_minor),
                 currency=_currency_code(withdrawal.currency),
-                status=str(withdrawal.status),
-                metadata={"is_forced": bool(withdrawal.is_forced)},
+                # requested (pending bank execution), finalized (paid out) or cancelled.
+                status=withdrawal_status,
+                metadata={
+                    "is_forced": bool(withdrawal.is_forced),
+                    "finalized_at": (
+                        withdrawal.finalized_at.isoformat() if withdrawal.finalized_at else ""
+                    ),
+                    "cancelled_at": (
+                        withdrawal.cancelled_at.isoformat() if withdrawal.cancelled_at else ""
+                    ),
+                },
             )
         )
+        if withdrawal_status == "cancelled" and withdrawal.cancelled_at is not None:
+            # The cancellation reverses the request journal entry and restores the reserved
+            # lots; show that credit as its own line instead of leaving it implied.
+            entries.append(
+                _activity(
+                    activity_id=f"{withdrawal.pk}:cancellation",
+                    activity_type="withdrawal_cancellation",
+                    occurred_at=withdrawal.cancelled_at,
+                    direction="in",
+                    title="Withdrawal cancelled",
+                    amount_minor=int(withdrawal.amount_minor),
+                    currency=_currency_code(withdrawal.currency),
+                    status="returned",
+                    metadata={
+                        "withdrawal_request_id": str(withdrawal.pk),
+                        "is_forced": bool(withdrawal.is_forced),
+                    },
+                )
+            )
     for order in (
         order_model.objects.filter(investor_user_id=investor_user_id)
         .select_related("currency", "loan")

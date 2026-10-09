@@ -15,6 +15,11 @@ import {
 } from "../api/generated/banxumApi";
 import { clearReadonlyImpersonation } from "../api/client/impersonation";
 import { ApiClientError } from "../api/client/httpClient";
+import {
+  clearSessionExpiredNotice,
+  hasSessionExpiredNotice,
+  onSessionExpired
+} from "../api/client/sessionExpiry";
 import { isFixturePreview } from "../investorPortal/data";
 import { formatDate, formatDateTime } from "../investorPortal/format";
 import {
@@ -42,7 +47,8 @@ import {
 } from "./AdminModulePanels";
 import { AdminBusinessDateProvider } from "./AdminBusinessDateProvider";
 import { AdminTasksPanel } from "./AdminTasksPanel";
-import { isWithdrawalQueueItem, useAdminOperationsDashboardData } from "./data";
+import { adminHref, navigateAdmin, openAdminSection, useAdminLocation, useAdminParam, type AdminSection } from "./adminRoute";
+import { isWithdrawalQueueItem, uniqueQueueItems, useAdminOperationsDashboardData } from "./data";
 
 const platformName = import.meta.env.VITE_PLATFORM_BRAND_NAME ?? "BANXUM";
 const operatorName = import.meta.env.VITE_LEGAL_OPERATOR_NAME ?? "Garanta Finanzgruppe AG";
@@ -205,7 +211,7 @@ const queueDefinitions: Array<{
   }
 ];
 
-const navItems: Array<{ id: string; label: string; icon: Parameters<typeof Icon>[0]["name"] }> = [
+const navItems: Array<{ id: AdminSection; label: string; icon: Parameters<typeof Icon>[0]["name"] }> = [
   { id: "dashboard", label: "Daily dashboard", icon: "dashboard" },
   { id: "tasks", label: "Tasks", icon: "checkCircle" },
   { id: "users", label: "Users", icon: "portfolio" },
@@ -266,7 +272,8 @@ function queueCount(queues: AdminDashboardQueues | undefined, key: QueueKey) {
 
 function allQueueItems(queues: AdminDashboardQueues | undefined) {
   if (!queues) return [];
-  return queueDefinitions.flatMap((definition) => queues[definition.key]);
+  // Forced withdrawals are also listed under "withdrawals_requested"; count each item once.
+  return uniqueQueueItems(queueDefinitions.flatMap((definition) => queues[definition.key]));
 }
 
 function dueLabel(item: AdminDashboardQueueItem) {
@@ -308,8 +315,19 @@ export function AdminApp() {
   const finishLogout = () => {
     queryClient.clear();
     clearReadonlyImpersonation();
+    clearSessionExpiredNotice();
     setLocalAuthState(isFixturePreview ? "authenticated" : "signed_out");
   };
+  // An API call answered 401 session_expired: back to the login screen, which says why.
+  useEffect(
+    () =>
+      onSessionExpired(() => {
+        queryClient.clear();
+        clearReadonlyImpersonation();
+        setLocalAuthState("signed_out");
+      }),
+    [queryClient]
+  );
   const logoutMutation = useV1AuthLogoutCreate({
     mutation: { onSettled: finishLogout }
   });
@@ -318,6 +336,8 @@ export function AdminApp() {
       enabled: !isFixturePreview && localAuthState !== "signed_out",
       retry: false,
       refetchOnWindowFocus: false,
+      // Notices an expired session within a minute, even on an idle screen.
+      refetchInterval: 60_000,
       staleTime: 30_000
     }
   });
@@ -365,11 +385,12 @@ export function AdminApp() {
     <AdminBusinessDateProvider businessDate={platformBusinessDate}>
       <AdminShell
         qaControlsAvailable={isFixturePreview || sessionQuery.data?.qa_controls_available === true}
+        qaControlsKnown={isFixturePreview || sessionQuery.data !== undefined}
         restoredTarget={restoredTarget}
         onQaRestored={(target) => {
           queryClient.clear();
           clearReadonlyImpersonation();
-          window.location.assign(`/admin?qa_restored=${target}`);
+          window.location.assign(adminHref("qa", [], { qa_restored: target }));
         }}
         onQaClockChange={setQaBusinessDate}
         isLoggingOut={logoutMutation.isPending}
@@ -393,6 +414,7 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
   const [code, setCode] = useState("");
   const [codeId, setCodeId] = useState<string | null>(initialLoginFlowState.codeId);
   const [expiresAt, setExpiresAt] = useState<string | null>(initialLoginFlowState.expiresAt);
+  const [showSessionExpired] = useState(hasSessionExpiredNotice);
   const startLogin = useV1AuthAdminLoginStartCreate();
   const confirmLogin = useV1AuthAdminLoginConfirmCreate();
 
@@ -433,6 +455,7 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
       {
         onSuccess: () => {
           clearAdminLoginFlowState();
+          clearSessionExpiredNotice();
           onAuthenticated();
         }
       }
@@ -462,6 +485,11 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
             Internal operational access for finance, compliance and marketplace administration.
           </p>
         </div>
+        {showSessionExpired ? (
+          <Banner tone="warn" title="Session expired">
+            Your session has expired. Please sign in again.
+          </Banner>
+        ) : null}
         {isFixturePreview ? (
           <Banner tone="info" title="Preview admin data">
             This preview uses dummy operations data and does not call the backend.
@@ -540,6 +568,7 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => void }) {
 
 function AdminShell({
   qaControlsAvailable,
+  qaControlsKnown,
   restoredTarget,
   onQaRestored,
   onQaClockChange,
@@ -547,20 +576,30 @@ function AdminShell({
   onLogout
 }: {
   qaControlsAvailable: boolean;
+  qaControlsKnown: boolean;
   restoredTarget: "seed" | "snapshot" | null;
   onQaRestored: (target: "seed" | "snapshot") => void;
   onQaClockChange: (businessDate: string) => void;
   isLoggingOut: boolean;
   onLogout: () => void;
 }) {
-  const [selectedNav, setSelectedNav] = useState(restoredTarget && qaControlsAvailable ? "qa" : "dashboard");
+  // The open section lives in the URL (/admin/<section>/...), so a reload or
+  // Back/Forward keeps the admin on the same screen.
+  const selectedNav = useAdminLocation().section;
   const visibleNavItems = navItems.filter((item) => item.id !== "qa" || qaControlsAvailable);
 
   useEffect(() => {
-    if (!qaControlsAvailable && selectedNav === "qa") {
-      setSelectedNav("dashboard");
+    if (restoredTarget && selectedNav === "dashboard" && qaControlsAvailable) {
+      navigateAdmin(adminHref("qa"), { replace: true });
     }
-  }, [qaControlsAvailable, selectedNav]);
+  }, [qaControlsAvailable, restoredTarget, selectedNav]);
+
+  useEffect(() => {
+    // Wait for the session before leaving /admin/qa, so a reload does not lose the route.
+    if (qaControlsKnown && !qaControlsAvailable && selectedNav === "qa") {
+      navigateAdmin(adminHref("dashboard"), { replace: true });
+    }
+  }, [qaControlsAvailable, qaControlsKnown, selectedNav]);
 
   return (
     <div className="admin-app">
@@ -578,7 +617,7 @@ function AdminShell({
               aria-current={selectedNav === item.id ? "page" : undefined}
               className={selectedNav === item.id ? "active" : ""}
               key={item.id}
-              onClick={() => setSelectedNav(item.id)}
+              onClick={() => openAdminSection(item.id)}
               type="button"
             >
               <Icon name={item.icon} size={16} />
@@ -628,7 +667,10 @@ function AdminShell({
 function AdminDashboard() {
   const dashboardQuery = useAdminOperationsDashboardData();
   const dashboard = dashboardQuery.data;
-  const [selectedQueue, setSelectedQueue] = useState<QueueKey>("admin_tasks");
+  const [queueParam, setSelectedQueue] = useAdminParam("queue", "admin_tasks");
+  const selectedQueue: QueueKey = queueDefinitions.some((definition) => definition.key === queueParam)
+    ? (queueParam as QueueKey)
+    : "admin_tasks";
   const [selectedItem, setSelectedItem] = useState<AdminDashboardQueueItem | null>(null);
   const [syncNotice, setSyncNotice] = useState("");
   const reconciliationTaskSync = useV1AdminOpsReconciliationBreakTasksSyncCreate();
@@ -639,10 +681,10 @@ function AdminDashboard() {
   const urgentItems = allItems.filter((item) => priorityTone(item.priority) === "bad");
   const highItems = allItems.filter((item) => ["urgent", "critical", "high"].includes(item.priority));
   const overdueItems = allItems.filter((item) => itemIsOverdue(item, dashboard?.as_of_date ?? "1970-01-01"));
+  // "forced_withdrawals_requested" is a subset of "withdrawals_requested".
   const moneyOps = [
     "bank_operations_pending",
     "withdrawals_requested",
-    "forced_withdrawals_requested",
     "fx_settlement_deltas",
     "reconciliation_breaks"
   ].reduce((sum, key) => sum + queueCount(dashboard?.queues, key as QueueKey), 0);
@@ -869,7 +911,8 @@ function AdminDashboard() {
                       <td><Money amountMinor={summary.frozen_available_minor} currency={summary.currency} /></td>
                       <td><Money amountMinor={summary.penalty_mode_available_minor} currency={summary.currency} /></td>
                       <td>
-                        <Money amountMinor={summary.pending_withdrawal_minor + summary.forced_withdrawal_minor} currency={summary.currency} />
+                        {/* pending_withdrawal_minor already includes forced withdrawals. */}
+                        <Money amountMinor={summary.pending_withdrawal_minor} currency={summary.currency} />
                       </td>
                       <td><Money amountMinor={summary.pending_bank_operation_minor} currency={summary.currency} /></td>
                       <td>

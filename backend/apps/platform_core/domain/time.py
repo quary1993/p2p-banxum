@@ -33,6 +33,21 @@ def _qa_dev_mode_time_override() -> datetime | None:
         return None
 
 
+def to_wall_clock(value: datetime) -> datetime:
+    """Map a platform-clock instant onto the real wall clock.
+
+    Returns ``value`` unchanged unless an enabled QA clock override pins the
+    platform clock; then the override's offset from real time is removed. Use it
+    only where a platform instant is compared with real-world external data, such
+    as the timestamp of a live market rate. Business dates, deadlines and stored
+    timestamps keep using the platform clock.
+    """
+    override = _qa_dev_mode_time_override()
+    if override is None:
+        return value
+    return value + (timezone.now() - override)
+
+
 def business_timezone() -> ZoneInfo:
     return ZoneInfo(settings.TIME_ZONE)
 

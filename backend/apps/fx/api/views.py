@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, cast
 
 from django.db.models import Model
@@ -34,6 +35,7 @@ from backend.apps.fx.services import (
     DeclareFxExternalSettlementCommand,
     ExecuteFxQuoteCommand,
     FxAuthorizationError,
+    FxProviderRateUnavailableError,
     FxValidationError,
     IssueFxQuoteCommand,
     PreviewFxQuoteCommand,
@@ -47,10 +49,17 @@ from backend.apps.fx.services import (
 )
 from backend.apps.platform_core.api.request_meta import client_ip, user_agent
 
+logger = logging.getLogger(__name__)
+
 
 def _safe_fx_error_message(exc: Exception) -> str:
     message = str(exc)
+    # Investors get a generic message; the log keeps the provider reason for operators.
+    if isinstance(exc, FxProviderRateUnavailableError):
+        logger.warning("FX provider rate rejected: %s", exc.detail)
+        return message
     if message.startswith("Yahoo Finance ") or message.startswith("FX provider rate "):
+        logger.warning("FX provider rate unavailable: %s (cause: %r)", message, exc.__cause__)
         return FX_TEMPORARILY_UNAVAILABLE_MESSAGE
     return message
 

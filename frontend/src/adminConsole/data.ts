@@ -19,7 +19,9 @@ import {
   useV1FxAdminRealizedSettlementReportRetrieve,
   useV1KycAdminManualReviewsList,
   useV1LedgerAdminInvestorBalanceSummaryRetrieve,
+  useV1LedgerAdminWithdrawalRequestsHistoryRetrieve,
   useV1LoansAdminLoansList,
+  useV1LoansAdminLoansRetrieve,
   useV1ServicingAdminRiskNotesList,
   type AdminLookupResult,
   type V1AdminOpsAuditEventsListParams,
@@ -40,6 +42,7 @@ import {
   type V1FxAdminDeltaReportRetrieveParams,
   type V1FxAdminRealizedSettlementReportRetrieveParams,
   type V1LedgerAdminInvestorBalanceSummaryRetrieveParams,
+  type V1LedgerAdminWithdrawalRequestsHistoryRetrieveParams,
   type V1LoansAdminLoansListParams,
   type V1ServicingAdminRiskNotesListParams,
   useV1MarketplaceSecondaryAdminListingsList,
@@ -56,7 +59,8 @@ import {
   adminTaskEventsFixture,
   adminTasksFixture,
   adminUserDirectoryFixture,
-  adminSecondaryListingsFixture
+  adminSecondaryListingsFixture,
+  adminWithdrawalHistoryFixture
 } from "./adminFixtures";
 
 const adminQueryDefaults = {
@@ -87,6 +91,28 @@ export function isWithdrawalQueueItem(item: {
   return (
     item.object_type === "InvestorWithdrawalRequest" || item.kind === "withdrawal_request"
   );
+}
+
+/** Display name of an admin task type. Payout-IBAN checks are called "IBAN verification". */
+export function taskTypeLabel(taskType: string) {
+  if (taskType === "payout_instruction_verification") return "IBAN Verification";
+  return taskType.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+/**
+ * Dashboard queues overlap: a forced withdrawal is returned both in
+ * "withdrawals_requested" (every requested withdrawal) and in
+ * "forced_withdrawals_requested" (the forced subset). Lists and counts that
+ * merge queues must show each record once.
+ */
+export function uniqueQueueItems<T extends { kind: string; id: string }>(items: T[]): T[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = `${item.kind}:${item.id}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function lookupEnabled(params: { q?: string; iban?: string } | undefined, enabled = true) {
@@ -132,13 +158,19 @@ export function useAdminSecondaryListingsData(params: V1MarketplaceSecondaryAdmi
   });
 }
 
-export function useAdminUsersDirectoryData(params: V1AdminOpsUsersRetrieveParams = { limit: 25, offset: 0 }) {
+export function useAdminUsersDirectoryData(
+  params: V1AdminOpsUsersRetrieveParams = { limit: 25, offset: 0 },
+  enabled = true
+) {
   return useV1AdminOpsUsersRetrieve(params, {
-    query: adminPreviewQuery({
-      ...adminUserDirectoryFixture,
-      limit: params.limit ?? 25,
-      offset: params.offset ?? 0
-    })
+    query: {
+      ...adminPreviewQuery({
+        ...adminUserDirectoryFixture,
+        limit: params.limit ?? 25,
+        offset: params.offset ?? 0
+      }),
+      enabled: !isFixturePreview && enabled
+    }
   });
 }
 
@@ -254,6 +286,16 @@ export function useLoansData(params: V1LoansAdminLoansListParams = { limit: 100 
   });
 }
 
+/** One loan by id, for a Manage link that points outside the current list filters. */
+export function useAdminLoanData(loanId: string, enabled: boolean) {
+  return useV1LoansAdminLoansRetrieve(loanId || "preview-no-loan", {
+    query: {
+      ...adminPreviewQuery(loansFixture.find((loan) => loan.id === loanId)),
+      enabled: !isFixturePreview && enabled && Boolean(loanId)
+    }
+  });
+}
+
 export function useDocumentTemplateVersionsData(params: V1DocumentsAdminTemplatesVersionsListParams) {
   const fixture = documentVersionsFixture.filter((version) => {
     if (version.template.category !== params.category) return false;
@@ -301,6 +343,24 @@ export function useInvestorBalanceSummaryData(
       }),
       enabled: !isFixturePreview && enabled
     }
+  });
+}
+
+export function useAdminWithdrawalHistoryData(params: V1LedgerAdminWithdrawalRequestsHistoryRetrieveParams) {
+  const limit = params.limit ?? 50;
+  const offset = params.offset ?? 0;
+  const search = (params.q ?? "").trim().toLowerCase();
+  const rows = adminWithdrawalHistoryFixture.filter((row) => {
+    if (params.status && row.status !== params.status) return false;
+    if (params.currency && row.currency !== params.currency) return false;
+    if (search) {
+      return [row.id, row.investor_name, row.investor_email, row.investor_reference, row.destination_iban]
+        .some((value) => value.toLowerCase().includes(search));
+    }
+    return true;
+  });
+  return useV1LedgerAdminWithdrawalRequestsHistoryRetrieve(params, {
+    query: adminPreviewQuery({ count: rows.length, limit, offset, results: rows.slice(offset, offset + limit) })
   });
 }
 

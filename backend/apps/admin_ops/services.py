@@ -6,6 +6,7 @@ from importlib import import_module
 from typing import Any, cast
 
 from django.apps import apps
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Model, Sum
@@ -21,9 +22,15 @@ from backend.apps.admin_ops.models import (
 )
 from backend.apps.platform_core.domain.access import actor_ref_for_user, is_admin_actor
 from backend.apps.platform_core.domain.actors import ActorRef
+from backend.apps.platform_core.domain.money import format_amount_minor
 from backend.apps.platform_core.domain.time import business_date, now_utc
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
-from backend.apps.platform_core.services.events import DomainEventCommand, record_domain_event
+from backend.apps.platform_core.services.events import (
+    DomainEventCommand,
+    OutboxCommand,
+    enqueue_outbox_message,
+    record_domain_event,
+)
 
 
 class AdminOpsError(ValueError):
@@ -383,6 +390,19 @@ class EnsureLoanFundingCloseFailureTaskCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class EnsureLoanDefaultReviewTaskCommand:
+    actor: Model
+    loan_id: str
+    loan_title: str
+    product_type: str
+    currency: str
+    as_of_date: date
+    days_past_due: int
+    outstanding_minor: int
+    triggering_due_date: date | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class EnsureOriginatorActivationTaskCommand:
     requested_by: Model
     loan_id: str
@@ -635,6 +655,150 @@ def resolve_loan_funding_close_failure_task(
             completion_note=completion_note,
         )
     )
+
+
+LOAN_DEFAULT_REVIEW_RELATED_OBJECT_TYPE = "LoanDefault"
+
+
+def _loan_default_review_notes(command: EnsureLoanDefaultReviewTaskCommand) -> str:
+    is_originator_loan = command.product_type == "originator_claim"
+    outstanding = format_amount_minor(command.outstanding_minor, command.currency)
+    lines = [
+        f"Loan ID: {command.loan_id}",
+        f"Product: {'Loan Originator claim' if is_originator_loan else 'Direct loan'}",
+        f"Defaulted on: {command.as_of_date.isoformat()}",
+        f"Days past due: {command.days_past_due}",
+        f"Overdue installment outstanding: {outstanding}",
+    ]
+    if command.triggering_due_date is not None:
+        lines.append(f"Missed installment due date: {command.triggering_due_date.isoformat()}")
+    if is_originator_loan:
+        next_steps = (
+            "Follow up with the Loan Originator and record its receipts through the Loan "
+            "Originator servicing workflow."
+        )
+    else:
+        next_steps = (
+            "Start offline recovery follow-up. Record recovered funds with Loans > Manage > "
+            "Record a recovery payment."
+        )
+    return "\n".join(
+        [
+            "The loan moved to Defaulted after the day-16 servicing check. Review the risk "
+            "position and decide on investor communication (public note and/or email).",
+            next_steps,
+            "",
+            *lines,
+        ]
+    )
+
+
+def _enqueue_loan_default_alert_email(
+    command: EnsureLoanDefaultReviewTaskCommand,
+    *,
+    task: AdminTask,
+    loan_title: str,
+) -> None:
+    operations_email = str(
+        getattr(settings, "OPERATIONS_ALERT_EMAIL", "") or "hq@banxum.com"
+    ).strip()
+    brand = str(getattr(settings, "PLATFORM_BRAND_NAME", "") or "BANXUM")
+    outstanding = format_amount_minor(command.outstanding_minor, command.currency)
+    enqueue_outbox_message(
+        OutboxCommand(
+            idempotency_key=(
+                f"email:loan-defaulted:{command.loan_id}:{command.as_of_date.isoformat()}"
+            ),
+            topic="email.loan_defaulted",
+            payload={
+                "email": operations_email,
+                "subject": f"{brand} loan defaulted: {loan_title}",
+                "notice_label": "Operations alert",
+                "headline": "A loan has defaulted",
+                "status_label": "Review needed",
+                "status_tone": "danger",
+                "body_text": (
+                    f"Loan {loan_title} ({command.loan_id}) moved to Defaulted on "
+                    f"{command.as_of_date.isoformat()}, {command.days_past_due} days after a "
+                    f"missed installment ({outstanding} outstanding).\n\n"
+                    "A loan risk review task was opened in the admin console. Review the "
+                    "position and decide on investor communication."
+                ),
+                "template_key": "ops.loan_defaulted.v1",
+                "data_rows": [
+                    ["Loan", loan_title],
+                    ["Loan ID", command.loan_id],
+                    ["Days past due", str(command.days_past_due)],
+                    ["Outstanding", outstanding],
+                    ["Admin task", str(task.id)],
+                ],
+                "metadata": {
+                    "loan_id": command.loan_id,
+                    "product_type": command.product_type,
+                    "currency": command.currency,
+                    "as_of_date": command.as_of_date.isoformat(),
+                    "days_past_due": command.days_past_due,
+                    "outstanding_minor": command.outstanding_minor,
+                    "admin_task_id": str(task.id),
+                },
+            },
+        )
+    )
+
+
+@transaction.atomic
+def ensure_loan_default_review_task(command: EnsureLoanDefaultReviewTaskCommand) -> AdminTask:
+    """Open the single risk-review task for a loan that has just defaulted.
+
+    Servicing calls this where a loan moves to ``defaulted``. It is idempotent per
+    loan: an open task is returned unchanged, a closed one is reopened, and the
+    operations alert email is queued only when a task is created or reopened.
+    """
+
+    _require_admin_actor(command.actor)
+    loan_title = _clean_required(command.loan_title, "Loan title")
+    title = f"Loan defaulted: {loan_title}"[:255]
+    notes = _loan_default_review_notes(command)
+    task_filter = {
+        "task_type": AdminTaskType.LOAN_RISK_REVIEW,
+        "related_object_type": LOAN_DEFAULT_REVIEW_RELATED_OBJECT_TYPE,
+        "related_object_id": command.loan_id,
+    }
+    existing = AdminTask.objects.select_for_update().filter(**task_filter).first()
+    if existing is not None and existing.status not in TERMINAL_ADMIN_TASK_STATUSES:
+        return existing
+    if existing is None:
+        try:
+            with transaction.atomic():
+                task = create_admin_task(
+                    CreateAdminTaskCommand(
+                        actor=command.actor,
+                        task_type=AdminTaskType.LOAN_RISK_REVIEW,
+                        title=title,
+                        priority=AdminTaskPriority.HIGH,
+                        due_at=now_utc(),
+                        notes=notes,
+                        related_object_type=LOAN_DEFAULT_REVIEW_RELATED_OBJECT_TYPE,
+                        related_object_id=command.loan_id,
+                    )
+                )
+        except IntegrityError:
+            # A concurrent scan opened the task first; it owns the alert email.
+            return AdminTask.objects.get(**task_filter)
+    else:
+        task = update_admin_task(
+            UpdateAdminTaskCommand(
+                actor=command.actor,
+                task_id=str(existing.id),
+                title=title,
+                priority=AdminTaskPriority.HIGH,
+                status=AdminTaskStatus.OPEN,
+                due_at=now_utc(),
+                notes=notes,
+            )
+        )
+    _enqueue_loan_default_alert_email(command, task=task, loan_title=loan_title)
+    return task
 
 
 @transaction.atomic

@@ -4,11 +4,21 @@ from typing import Any
 
 from rest_framework import serializers
 
-from backend.apps.smart_invest.models import (
-    CollateralScope,
-    CurrencyScope,
-    LoanKind,
-    OriginatorScope,
+from backend.apps.smart_invest.models import SmartInvestCurrency, SmartInvestLoanKind
+from backend.apps.smart_invest.services import collateral_choices, loan_field_choices
+
+COLLATERAL_CHOICES = collateral_choices()
+RISK_RATING_CHOICES = loan_field_choices("risk_rating")
+LOAN_PURPOSE_CHOICES = loan_field_choices("purpose")
+# Bounds a request; duplicates are accepted and de-duplicated by the service.
+MAX_CHOICES = 100
+
+ORIGINATORS_HELP = (
+    '"banxum" for BANXUM direct loans and/or Loan Originator ids. Empty means any source.'
+)
+COLLATERAL_HELP = (
+    '"any_secured" matches every secured loan, including collateral types added later; '
+    '"unsecured" matches loans without collateral. Empty means no collateral condition.'
 )
 
 
@@ -18,14 +28,18 @@ class SmartInvestRuleSerializer(serializers.Serializer[Any]):
     revision = serializers.IntegerField()
     minimum_yield_bps = serializers.IntegerField(allow_null=True)
     maximum_term_months = serializers.IntegerField(allow_null=True)
-    originator_scope = serializers.ChoiceField(choices=OriginatorScope.choices)
-    originator_id = serializers.UUIDField(allow_null=True)
-    collateral_scope = serializers.ChoiceField(choices=CollateralScope.choices)
-    collateral_type = serializers.CharField(allow_blank=True)
-    currency_scope = serializers.ChoiceField(choices=CurrencyScope.choices)
-    risk_rating = serializers.CharField(allow_blank=True)
-    purpose = serializers.CharField(allow_blank=True)
-    loan_kind = serializers.ChoiceField(choices=LoanKind.choices)
+    originators = serializers.ListField(child=serializers.CharField(), help_text=ORIGINATORS_HELP)
+    collateral = serializers.ListField(
+        child=serializers.ChoiceField(choices=COLLATERAL_CHOICES), help_text=COLLATERAL_HELP
+    )
+    currencies = serializers.ListField(
+        child=serializers.ChoiceField(choices=SmartInvestCurrency.choices)
+    )
+    risk_ratings = serializers.ListField(child=serializers.ChoiceField(choices=RISK_RATING_CHOICES))
+    purposes = serializers.ListField(child=serializers.ChoiceField(choices=LOAN_PURPOSE_CHOICES))
+    loan_kinds = serializers.ListField(
+        child=serializers.ChoiceField(choices=SmartInvestLoanKind.choices)
+    )
     activated_at = serializers.DateTimeField(allow_null=True)
     deactivated_at = serializers.DateTimeField(allow_null=True)
     created_at = serializers.DateTimeField()
@@ -39,21 +53,44 @@ class SmartInvestRuleSaveRequestSerializer(serializers.Serializer[Any]):
     maximum_term_months = serializers.IntegerField(
         required=False, allow_null=True, min_value=1, max_value=1_200
     )
-    originator_scope = serializers.ChoiceField(
-        choices=OriginatorScope.choices, required=False, default=OriginatorScope.ALL
+    # Every list is multi-select: an empty or omitted list does not restrict matching.
+    originators = serializers.ListField(
+        child=serializers.CharField(max_length=64),
+        required=False,
+        default=list,
+        max_length=MAX_CHOICES,
+        help_text=ORIGINATORS_HELP,
     )
-    originator_id = serializers.UUIDField(required=False, allow_null=True)
-    collateral_scope = serializers.ChoiceField(
-        choices=CollateralScope.choices, required=False, default=CollateralScope.ALL
+    collateral = serializers.ListField(
+        child=serializers.ChoiceField(choices=COLLATERAL_CHOICES),
+        required=False,
+        default=list,
+        max_length=MAX_CHOICES,
+        help_text=COLLATERAL_HELP,
     )
-    collateral_type = serializers.CharField(required=False, allow_blank=True, max_length=64)
-    currency_scope = serializers.ChoiceField(
-        choices=CurrencyScope.choices, required=False, default=CurrencyScope.ALL
+    currencies = serializers.ListField(
+        child=serializers.ChoiceField(choices=SmartInvestCurrency.choices),
+        required=False,
+        default=list,
+        max_length=MAX_CHOICES,
     )
-    risk_rating = serializers.CharField(required=False, allow_blank=True, max_length=32)
-    purpose = serializers.CharField(required=False, allow_blank=True, max_length=64)
-    loan_kind = serializers.ChoiceField(
-        choices=LoanKind.choices, required=False, default=LoanKind.ALL
+    risk_ratings = serializers.ListField(
+        child=serializers.ChoiceField(choices=RISK_RATING_CHOICES),
+        required=False,
+        default=list,
+        max_length=MAX_CHOICES,
+    )
+    purposes = serializers.ListField(
+        child=serializers.ChoiceField(choices=LOAN_PURPOSE_CHOICES),
+        required=False,
+        default=list,
+        max_length=MAX_CHOICES,
+    )
+    loan_kinds = serializers.ListField(
+        child=serializers.ChoiceField(choices=SmartInvestLoanKind.choices),
+        required=False,
+        default=list,
+        max_length=MAX_CHOICES,
     )
 
 

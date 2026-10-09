@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import csv
 import io
 import uuid
@@ -75,10 +76,11 @@ from backend.apps.originator_claims.services import (
     scan_originator_opportunity_lifecycle,
     sync_originator_settlement_tasks,
 )
-from backend.apps.platform_core.domain.time import business_date
+from backend.apps.platform_core.domain.time import business_date, business_timezone
 from backend.apps.platform_core.models import Currency, OutboxMessage
 from backend.apps.platform_core.models.base import AppendOnlyViolation
 from backend.apps.platform_core.tests.factories import issue_sensitive_action_test_code
+from backend.apps.platform_core.tests.qa_clock import qa_clock, wall_clock
 
 EXAMPLES_DIR = Path(__file__).resolve().parents[4] / "imports_examples"
 
@@ -1018,6 +1020,7 @@ def test_investor_purchase_is_immediate_balanced_and_creates_entitlements(
     investor: Model,
 ) -> None:
     _approve_financial_access(investor)
+    today = business_date(timezone.now())
     originator = create_loan_originator(
         CreateLoanOriginatorCommand(
             actor=admin_user,
@@ -1052,9 +1055,13 @@ def test_investor_purchase_is_immediate_balanced_and_creates_entitlements(
             collateral_value_minor=1_500_000,
             collateral_description="Assigned receivables",
             risk_rating="BBB",
-            csv_content=_csv(),
+            csv_content=_dated_two_period_csv(
+                today=today,
+                include_payment=False,
+                final_due_days=90,
+            ),
             source_filename="originator_equal_installments.csv",
-            as_of_date=date(2026, 9, 1),
+            as_of_date=today,
             borrower_snapshot={
                 "borrower_legal_name": "Confidential Purchase Borrower AG",
                 "borrower_display_name": "Swiss SME borrower",
@@ -1065,11 +1072,10 @@ def test_investor_purchase_is_immediate_balanced_and_creates_entitlements(
         PublishOriginatorLoanCommand(
             actor=admin_user,
             loan_id=str(result.loan.id),
-            as_of_date=date(2026, 9, 1),
+            as_of_date=today,
         )
     )
     ledger = import_module("backend.apps.ledger.services")
-    today = business_date(timezone.now())
     ledger.declare_lender_deposit(
         ledger.DeclareLenderDepositCommand(
             actor=admin_user,
@@ -1562,6 +1568,15 @@ def test_originator_lifecycle_scan_uses_day_5_and_day_16_boundaries(
     result.loan.refresh_from_db()
     result.profile.refresh_from_db()
     assert result.loan.status == expected_status
+    risk_tasks = import_module("backend.apps.admin_ops.models").AdminTask.objects.filter(
+        task_type="loan_risk_review",
+        related_object_type="LoanDefault",
+        related_object_id=str(result.loan.id),
+    )
+    assert risk_tasks.count() == (1 if expected_status == "defaulted" else 0)
+    assert OutboxMessage.objects.filter(topic="email.loan_defaulted").count() == (
+        1 if expected_status == "defaulted" else 0
+    )
     if expected_close_reason:
         assert result.profile.opportunity_status == OriginatorOpportunityStatus.CLOSED
         assert result.profile.close_reason == expected_close_reason
@@ -3460,3 +3475,254 @@ def test_originator_story_is_validated_and_exposed_on_marketplace_detail(
     payload = originator_marketplace_payload(profile, include_detail=True)
     assert payload["story"]["blocks"][0]["runs"][1] == {"text": "2009", "bold": True}
     assert "story" not in originator_marketplace_payload(profile, include_detail=False)
+
+
+@pytest.mark.django_db
+def test_qa_clock_stamps_subscription_order_and_claim_purchase_alike(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    # QA row 53: the order activity used the real date while the claim purchase used the
+    # QA clock. Both must follow the platform clock for the same investment.
+    qa_time = datetime(2026, 9, 9, 15, 46, tzinfo=business_timezone())
+    real_time = datetime(2026, 9, 16, 11, 0, tzinfo=business_timezone())
+    with wall_clock(real_time), qa_clock(qa_time):
+        today = business_date(qa_time)
+        result = _create_par_subscription_loan(admin_user=admin_user, today=today, suffix="QACLK")
+        order = _allocate_par_subscription(
+            admin_user=admin_user,
+            investor=investor,
+            loan=result.loan,
+            today=today,
+            amount_minor=800_000,
+            suffix="QACLK",
+        )
+        activity = import_module("backend.apps.investor_portal.services").get_investor_activity(
+            actor=investor
+        )
+
+    order.refresh_from_db()
+    purchase = OriginatorClaimPurchase.objects.get(loan_profile=result.profile)
+    assert order.created_at == qa_time
+    assert order.allocated_at == qa_time
+    assert purchase.purchased_at == qa_time
+    by_type = {entry["activity_type"]: entry for entry in activity["entries"]}
+    assert by_type["primary_order"]["occurred_at"] == qa_time
+    assert by_type["originator_claim_purchase"]["occurred_at"] == qa_time
+
+
+@pytest.mark.django_db
+def test_qa_clock_lo_resale_lot_is_yours_since_the_purchase_not_activation(
+    admin_user: Model,
+    investor: Model,
+    other_investor: Model,
+) -> None:
+    # QA row 87: the bought lot must carry the purchase date ("Yours since"), while the
+    # seller's and the buyer's original lots keep their activation date.
+    activated_at = datetime(2026, 9, 12, 12, 0, tzinfo=business_timezone())
+    with qa_clock(activated_at):
+        today = business_date(activated_at)
+        result = _create_par_subscription_loan(admin_user=admin_user, today=today, suffix="R87")
+        for buyer, amount, suffix in (
+            (investor, 450_000, "R87-SELLER"),
+            (other_investor, 350_000, "R87-BUYER"),
+        ):
+            _allocate_par_subscription(
+                admin_user=admin_user,
+                investor=buyer,
+                loan=result.loan,
+                today=today,
+                amount_minor=amount,
+                suffix=suffix,
+            )
+    holdings_model = import_module("backend.apps.holdings.models").InvestorLoanHolding
+    seller_lot = holdings_model.objects.get(loan=result.loan, investor_user_id=investor.pk)
+    buyer_original_lot = holdings_model.objects.get(
+        loan=result.loan, investor_user_id=other_investor.pk
+    )
+    assert seller_lot.assignment_effective_at == activated_at
+
+    purchased_at = activated_at + timedelta(days=10)
+    secondary = import_module("backend.apps.secondary_market.services")
+    with qa_clock(purchased_at):
+        _record_subscription_boundary(
+            admin_user=admin_user, result=result, today=today, suffix="R87"
+        )
+        listing_code = issue_sensitive_action_test_code(investor, "secondary_market_listing")
+        listing = secondary.create_secondary_market_listing(
+            secondary.CreateSecondaryMarketListingCommand(
+                actor=investor,
+                holding_id=str(seller_lot.id),
+                price_bps=9_900,
+                document_acceptance_id=str(
+                    _secondary_acceptance(
+                        investor,
+                        category="secondary_market_listing",
+                        context_type="secondary_market_listing",
+                        context_id=str(seller_lot.id),
+                        suffix="r87-listing",
+                    ).pk
+                ),
+                sensitive_action_code_id=listing_code.code_id,
+                sensitive_action_code=listing_code.raw_code,
+                idempotency_key="r87-listing",
+            )
+        )
+        _declare_originator_test_deposit(
+            admin_user=admin_user,
+            investor=other_investor,
+            amount_minor=500_000,
+            today=business_date(purchased_at),
+            suffix="R87-BUYER-CASH",
+        )
+        purchase_code = issue_sensitive_action_test_code(
+            other_investor, "secondary_market_purchase"
+        )
+        resale = secondary.purchase_secondary_market_listing(
+            secondary.PurchaseSecondaryMarketListingCommand(
+                actor=other_investor,
+                listing_id=str(listing.id),
+                document_acceptance_id=str(
+                    _secondary_acceptance(
+                        other_investor,
+                        category="secondary_market_purchase",
+                        context_type="secondary_market_purchase",
+                        context_id=str(listing.id),
+                        suffix="r87-purchase",
+                    ).pk
+                ),
+                sensitive_action_code_id=purchase_code.code_id,
+                sensitive_action_code=purchase_code.raw_code,
+                idempotency_key="r87-purchase",
+            )
+        )
+        portfolio = import_module("backend.apps.investor_portal.services").get_investor_portfolio(
+            actor=other_investor
+        )
+
+    seller_lot.refresh_from_db()
+    buyer_original_lot.refresh_from_db()
+    bought_lot = resale.buyer_holding
+    assert bought_lot.assignment_effective_at == purchased_at
+    assert bought_lot.economic_entitlement_start_at == seller_lot.economic_entitlement_start_at
+    assert seller_lot.assignment_effective_at == activated_at
+    assert buyer_original_lot.assignment_effective_at == activated_at
+    yours_since = {row["id"]: row["assignment_effective_at"] for row in portfolio["holdings"]}
+    assert yours_since == {
+        str(buyer_original_lot.id): activated_at,
+        str(bought_lot.id): purchased_at,
+    }
+
+
+@pytest.mark.django_db
+def test_lo_investment_agreement_pdf_states_claim_amount_terms_and_transaction_type(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    # QA row 92: LO and Direct agreements were indistinguishable and carried no terms.
+    today = business_date(timezone.now())
+    result = _create_par_subscription_loan(admin_user=admin_user, today=today, suffix="DOC92")
+    order = _allocate_par_subscription(
+        admin_user=admin_user,
+        investor=investor,
+        loan=result.loan,
+        today=today,
+        amount_minor=160_000,
+        suffix="DOC92",
+    )
+    documents = import_module("backend.apps.documents.services")
+    artifact = documents.render_document_acceptance_artifact(
+        documents.RenderDocumentAcceptanceArtifactCommand(
+            actor=investor,
+            acceptance_id=str(order.document_acceptance_id),
+            output_format="pdf",
+        )
+    )
+    pdf = base64.b64decode(artifact.content.encode("ascii"))
+    pdf_text = " ".join(
+        " ".join(page.extract_text() for page in PdfReader(io.BytesIO(pdf)).pages).split()
+    ).replace("’", "'")
+
+    loan_reference = f"LOAN-{str(result.loan.id)[:8].upper()}"
+    assert "Loan Originator claim purchase agreement - accepted document evidence" in pdf_text
+    assert "Transaction Loan Originator claim purchase" in pdf_text
+    assert f"Loan Par subscription DOC92 ({loan_reference})" in pdf_text
+    assert "Amount invested CHF 1'600.00" in pdf_text
+    assert "Investor yield 8.40% p.a. (12.00% borrower rate, 70.00% interest share)" in pdf_text
+    assert f"Term {result.loan.term_months} months, maturity " in pdf_text
+    assert "Borrower Subscription borrower DOC92" in pdf_text
+    assert "Subscription Borrower DOC92 AG" not in pdf_text
+    assert "Loan Originator Subscription Originator DOC92 AG" in pdf_text
+    assert "Direct loan investment" not in pdf_text
+    history_item = documents.acceptance_history_item(order.document_acceptance)
+    assert history_item["document_type"] == "Loan Originator claim agreement"
+
+
+@pytest.mark.django_db
+def test_originator_edit_without_changes_is_rejected_like_borrower_edits(
+    admin_user: Model,
+) -> None:
+    from django.test import Client
+
+    from backend.apps.originator_claims.models import OriginatorClaimEvent, OriginatorClaimEventType
+
+    originator = create_loan_originator(
+        CreateLoanOriginatorCommand(
+            actor=admin_user,
+            legal_name="No-op Originator AG",
+            public_name="No-op Originator",
+            registration_number="CHE-NOOP-1",
+            jurisdiction="CH",
+            registered_address="Zurich, Switzerland",
+            settlement_account_name="No-op Originator AG",
+            settlement_iban="CH9300762011623852957",
+            settlement_bic="UBSWCHZH80A",
+            status=LoanOriginatorStatus.ACTIVE,
+            investor_story={
+                "version": 1,
+                "blocks": [{"type": "paragraph", "runs": [{"text": "Lender", "italic": True}]}],
+            },
+        )
+    )
+    # The admin edit form always sends every field, unchanged ones included.
+    unchanged_form = {
+        "legal_name": " No-op Originator AG ",
+        "public_name": "No-op Originator",
+        "registration_number": "CHE-NOOP-1",
+        "jurisdiction": "CH",
+        "registered_address": "Zurich, Switzerland",
+        "contact_info": "",
+        "settlement_account_name": "No-op Originator AG",
+        "settlement_iban": "CH93 0076 2011 6238 5295 7",
+        "settlement_bic": "UBSWCHZH80A",
+        "kyb_evidence_reference": "",
+        "kyb_aml_observations": "",
+        "risk_observations": "",
+        "status": LoanOriginatorStatus.ACTIVE,
+        "default_premium_fee_bps": originator.default_premium_fee_bps,
+        "investor_story": {
+            "version": 1,
+            "blocks": [{"type": "paragraph", "runs": [{"text": "Lender", "italic": True}]}],
+        },
+    }
+    client = Client()
+    client.force_login(cast(Any, admin_user))
+    url = f"/api/v1/originator-claims/admin/originators/{originator.id}/"
+    response = client.patch(url, unchanged_form, content_type="application/json")
+    assert response.status_code == 400
+    assert response.json() == {"detail": "No Loan Originator changes were provided."}
+    assert not OriginatorClaimEvent.objects.filter(
+        originator=originator, event_type=OriginatorClaimEventType.ORIGINATOR_UPDATED
+    ).exists()
+
+    response = client.patch(
+        url,
+        {**unchanged_form, "contact_info": "ops@noop.example"},
+        content_type="application/json",
+    )
+    assert response.status_code == 200
+    assert response.json()["contact_info"] == "ops@noop.example"
+    event = OriginatorClaimEvent.objects.get(
+        originator=originator, event_type=OriginatorClaimEventType.ORIGINATOR_UPDATED
+    )
+    assert event.metadata == {"changed_fields": ["contact_info"]}

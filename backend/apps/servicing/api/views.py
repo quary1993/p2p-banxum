@@ -88,7 +88,7 @@ class BorrowerRepaymentRecordView(APIView):
                     value_date=data["value_date"],
                     collection_account_identifier=data.get("collection_account_identifier", ""),
                     payer_name=data["payer_name"],
-                    payer_account_identifier=data.get("payer_account_identifier", ""),
+                    payer_account_identifier=data["payer_account_identifier"],
                     bank_reference=data.get("bank_reference", ""),
                     payment_reference=data.get("payment_reference", ""),
                     evidence_reference=data.get("evidence_reference", ""),
@@ -233,6 +233,7 @@ class LoanRiskNoteAdminListCreateView(APIView):
                     evidence_reference=data.get("evidence_reference", ""),
                     metadata=data.get("metadata", {}),
                     idempotency_key=data["idempotency_key"],
+                    email_affected_investors=bool(data.get("email_affected_investors", False)),
                 )
             )
         except ServicingAuthorizationError as exc:
@@ -360,7 +361,7 @@ class LoanRecoveryPaymentRecordView(APIView):
                     penalties_due_minor=data["penalties_due_minor"],
                     booking_date=data["booking_date"],
                     value_date=data["value_date"],
-                    collection_account_identifier=data["collection_account_identifier"],
+                    collection_account_identifier=data.get("collection_account_identifier", ""),
                     payer_name=data["payer_name"],
                     payer_account_identifier=data.get("payer_account_identifier", ""),
                     bank_reference=data.get("bank_reference", ""),

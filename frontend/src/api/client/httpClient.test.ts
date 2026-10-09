@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { ApiClientError, httpClient } from "./httpClient";
+import { hasSessionExpiredNotice, onSessionExpired } from "./sessionExpiry";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -103,6 +104,38 @@ describe("httpClient", () => {
         data: { email: "investor@example.test" }
       })
     ).resolves.toBeUndefined();
+  });
+
+  test("reports an expired session once the API answers 401 session_expired", async () => {
+    const listener = vi.fn();
+    const unsubscribe = onSessionExpired(listener);
+    const respond = (status: number, body: Record<string, string>) =>
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response(JSON.stringify(body), {
+              headers: { "Content-Type": "application/json" },
+              status
+            })
+        )
+      );
+    try {
+      respond(403, { detail: "Authentication credentials were not provided." });
+      await expect(httpClient({ url: "/api/v1/auth/me/", method: "GET" })).rejects.toMatchObject({ status: 403 });
+      expect(listener).not.toHaveBeenCalled();
+      expect(hasSessionExpiredNotice()).toBe(false);
+
+      respond(401, { detail: "Your session has expired. Please log in again.", code: "session_expired" });
+      await expect(httpClient({ url: "/api/v1/auth/me/", method: "GET" })).rejects.toMatchObject({
+        status: 401,
+        message: "Your session has expired. Please log in again."
+      });
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(hasSessionExpiredNotice()).toBe(true);
+    } finally {
+      unsubscribe();
+    }
   });
 
   test("normalizes field validation errors", async () => {

@@ -4,6 +4,8 @@ from typing import Any
 
 from rest_framework import serializers
 
+from backend.apps.investor_portal.services import NOTIFICATION_TARGET_TYPES
+
 
 class PortalLimitQuerySerializer(serializers.Serializer[Any]):
     limit = serializers.IntegerField(required=False, min_value=1, max_value=250, default=50)
@@ -26,7 +28,15 @@ class BalanceSummarySerializer(serializers.Serializer[Any]):
     withdraw_only_minor = serializers.IntegerField()
     overdue_minor = serializers.IntegerField()
     frozen_minor = serializers.IntegerField()
-    penalty_mode_minor = serializers.IntegerField()
+    penalty_mode_minor = serializers.IntegerField(
+        help_text="Remaining balance of lots in penalty mode: blocked until withdrawn."
+    )
+    penalty_charged_minor = serializers.IntegerField(
+        help_text=(
+            "Balance-ageing penalties charged so far on this currency's lots; already deducted "
+            "and not included in any balance figure."
+        )
+    )
     lot_count = serializers.IntegerField()
     active_lot_count = serializers.IntegerField()
     next_investment_deadline_at = serializers.DateTimeField(
@@ -53,7 +63,9 @@ class BalanceLotSerializer(serializers.Serializer[Any]):
     invested_amount_minor = serializers.IntegerField()
     converted_amount_minor = serializers.IntegerField()
     withdrawn_amount_minor = serializers.IntegerField()
-    penalized_amount_minor = serializers.IntegerField()
+    penalized_amount_minor = serializers.IntegerField(
+        help_text="Balance-ageing penalty charged on this lot so far."
+    )
     requires_withdrawal = serializers.BooleanField()
     blocks_financial_actions = serializers.BooleanField()
 
@@ -156,11 +168,26 @@ class InvestorNotificationSerializer(serializers.Serializer[Any]):
     created_at = serializers.DateTimeField()
     sent_at = serializers.DateTimeField(allow_null=True)
     unread = serializers.BooleanField()
+    navigation_target = serializers.ChoiceField(
+        choices=list(NOTIFICATION_TARGET_TYPES),
+        help_text="Portal page the notification opens; none opens the Notifications page.",
+    )
+    navigation_target_id = serializers.CharField(
+        allow_blank=True,
+        help_text="Loan or holding UUID for the loan and holding targets; blank otherwise.",
+    )
     metadata = serializers.JSONField()
 
 
 class InvestorNotificationsSerializer(serializers.Serializer[Any]):
     notifications = InvestorNotificationSerializer(many=True)
+    unread_count = serializers.IntegerField()
+
+
+class InvestorNotificationReadResponseSerializer(serializers.Serializer[Any]):
+    marked_count = serializers.IntegerField(
+        help_text="Notifications newly marked as read by this request (0 when already read)."
+    )
     unread_count = serializers.IntegerField()
 
 

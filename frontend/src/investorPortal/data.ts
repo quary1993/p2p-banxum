@@ -1,10 +1,15 @@
+import { useQueryClient } from "@tanstack/react-query";
+
 import {
+  getV1InvestorPortalNotificationsRetrieveQueryKey,
   useV1InvestorPortalActivityRetrieve,
   useV1InvestorPortalBalancesRetrieve,
   useV1InvestorPortalDashboardRetrieve,
   useV1InvestorPortalDepositInstructionsRetrieve,
   useV1InvestorPortalDocumentsRetrieve,
   useV1InvestorPortalFxRetrieve,
+  useV1InvestorPortalNotificationsReadAllCreate,
+  useV1InvestorPortalNotificationsReadCreate,
   useV1InvestorPortalNotificationsRetrieve,
   useV1InvestorPortalPortfolioRetrieve,
   useV1InvestorPortalPrimaryOrdersRetrieve,
@@ -35,6 +40,7 @@ import {
   smartInvestFixture
 } from "./fixtures";
 import { portalFixture } from "./fixtures";
+import { markNotificationsRead } from "./notifications";
 
 export const isFixturePreview =
   import.meta.env.VITE_PREVIEW === "true" || import.meta.env.MODE === "test";
@@ -112,12 +118,14 @@ const notificationsFixture: InvestorNotifications = {
     id: notification.id,
     notification_source: "preview",
     topic: "email.preview",
-    status: notification.unread ? "pending" : "sent",
+    status: "sent",
     title: notification.title,
     body: notification.body,
     created_at: `${portalFixture.today}T00:00:00Z`,
-    sent_at: notification.unread ? null : `${portalFixture.today}T00:00:00Z`,
+    sent_at: `${portalFixture.today}T00:00:00Z`,
     unread: notification.unread,
+    navigation_target: notification.target ?? "none",
+    navigation_target_id: notification.targetId ?? "",
     metadata: { tone: notification.tone, time: notification.time }
   })),
   unread_count: portalFixture.notifications.filter((notification) => notification.unread).length
@@ -147,11 +155,64 @@ export function useDocumentsData(enabled = true) {
   });
 }
 
+// Preview mode keeps "mark as read" per session in the query client, so lists opened later agree.
+const previewNotificationReadsKey = ["preview", "notification-reads"] as const;
+type PreviewNotificationReads = { all: boolean; ids: string[] };
+
 export function useNotificationsData(limit = 50, enabled = true) {
+  const queryClient = useQueryClient();
+  const previewReads = isFixturePreview
+    ? queryClient.getQueryData<PreviewNotificationReads>(previewNotificationReadsKey)
+    : undefined;
+  const fixture = previewReads
+    ? markNotificationsRead(notificationsFixture, previewReads.all ? "all" : previewReads.ids)
+    : notificationsFixture;
   return useV1InvestorPortalNotificationsRetrieve(
     { limit },
-    { query: previewQuery(notificationsFixture, enabled) }
+    { query: previewQuery(fixture, enabled) }
   );
+}
+
+/**
+ * Mark-as-read actions for the header menu and the Notifications page. Both lists and the unread
+ * counter update at once; live mode then refetches the server state, preview mode keeps it locally.
+ */
+export function useNotificationReadActions() {
+  const queryClient = useQueryClient();
+  const markOne = useV1InvestorPortalNotificationsReadCreate();
+  const markAll = useV1InvestorPortalNotificationsReadAllCreate();
+  const notificationsKey = getV1InvestorPortalNotificationsRetrieveQueryKey().slice(0, 1);
+  const applyLocally = (ids: string[] | "all") => {
+    queryClient.setQueriesData<InvestorNotifications>({ queryKey: notificationsKey }, (current) =>
+      markNotificationsRead(current ?? notificationsFixture, ids)
+    );
+    if (isFixturePreview) {
+      queryClient.setQueryDefaults(previewNotificationReadsKey, { gcTime: Infinity });
+      queryClient.setQueryData<PreviewNotificationReads>(previewNotificationReadsKey, (current) => ({
+        all: ids === "all" || Boolean(current?.all),
+        ids: ids === "all" ? current?.ids ?? [] : [...(current?.ids ?? []), ...ids]
+      }));
+    }
+  };
+  const sync = async (request: () => Promise<unknown>) => {
+    if (isFixturePreview) return;
+    try {
+      await request();
+    } finally {
+      await queryClient.invalidateQueries({ queryKey: notificationsKey });
+    }
+  };
+  return {
+    markRead: (notificationId: string) => {
+      applyLocally([notificationId]);
+      return sync(() => markOne.mutateAsync({ notificationId }));
+    },
+    markAllRead: () => {
+      applyLocally("all");
+      return sync(() => markAll.mutateAsync());
+    },
+    pending: markOne.isPending || markAll.isPending
+  };
 }
 
 export function usePortfolioData(includeInactive = true, enabled = true) {

@@ -294,10 +294,9 @@ Examples:
 Launch session policy:
 
 - Investor magic links are single-use and expire after 15 minutes.
-- Investor sessions are long-lived and do not use a short idle timeout. They remain valid until explicit logout, admin restriction, session revocation, or a security event requiring re-authentication.
-- Investor sensitive-action email codes are required for sensitive/financial actions. Codes expire after 10 minutes, allow 3 attempts, and require resend throttling.
+- Investor and admin sessions end 2 hours after login (absolute, not idle-based; `AUTH_SESSION_MAX_AGE_SECONDS`), enforced server-side, or earlier on explicit logout, admin restriction, session revocation, or a security event requiring re-authentication. Updated 2026-10-09 from the QA regression; this replaces the earlier long-lived investor session and the 15-minute idle / 8-hour admin defaults.
+- Investor sensitive-action email codes are required for sensitive/financial actions. Codes expire after 10 minutes, allow 3 attempts (`AUTH_SENSITIVE_CODE_MAX_ATTEMPTS`), and require resend throttling.
 - Admin email codes expire after 10 minutes.
-- Admin sessions expire after 15 minutes of inactivity and no later than 8 hours after login.
 - Failed login/code attempts and magic-link requests are rate-limited by account, IP, and email address.
 
 These defaults balance investor usability with action-level controls for money-moving and legally binding actions.

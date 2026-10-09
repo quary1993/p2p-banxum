@@ -24,6 +24,8 @@ from backend.apps.ledger.api.serializers import (
     InvestorWithdrawalCancelResponseSerializer,
     InvestorWithdrawalFinalizeRequestSerializer,
     InvestorWithdrawalFinalizeResponseSerializer,
+    InvestorWithdrawalHistoryQuerySerializer,
+    InvestorWithdrawalHistoryResponseSerializer,
     InvestorWithdrawalRequestCreateRequestSerializer,
     InvestorWithdrawalRequestCreateResponseSerializer,
     LenderDepositDeclareRequestSerializer,
@@ -39,6 +41,7 @@ from backend.apps.ledger.api.serializers import (
     serialize_reconciliation_snapshot,
     serialize_withdrawal_request,
 )
+from backend.apps.ledger.selectors import list_closed_investor_withdrawals
 from backend.apps.ledger.services import (
     CancelInvestorWithdrawalCommand,
     CreateReconciliationSnapshotCommand,
@@ -46,6 +49,7 @@ from backend.apps.ledger.services import (
     FinalizeBorrowerDisbursementCommand,
     FinalizeInvestorWithdrawalCommand,
     LedgerAuthorizationError,
+    LedgerDuplicateDepositError,
     LedgerValidationError,
     RegisterInvestorPayoutInstructionCommand,
     RegisterInvestorSelfServicePayoutInstructionCommand,
@@ -103,10 +107,21 @@ class LenderDepositDeclareView(APIView):
                     evidence_reference=data.get("evidence_reference", ""),
                     notes=data.get("notes", ""),
                     idempotency_key=data["idempotency_key"],
+                    confirm_repeat_deposit=data["confirm_repeat_deposit"],
                 )
             )
         except LedgerAuthorizationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except LedgerDuplicateDepositError as exc:
+            # 409 tells the admin console to offer the explicit repeat confirmation.
+            return Response(
+                {
+                    "detail": str(exc),
+                    "code": "duplicate_lender_deposit",
+                    "duplicate_bank_operation_id": exc.duplicate_bank_operation_id,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
         except LedgerValidationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(
@@ -218,6 +233,35 @@ class InvestorBalanceSummaryView(APIView):
         except LedgerValidationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(serialize_balance_summary(summary), status=status.HTTP_200_OK)
+
+
+class InvestorWithdrawalHistoryView(APIView):
+    """Read-only admin history of finalized and cancelled investor withdrawals."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        parameters=[InvestorWithdrawalHistoryQuerySerializer],
+        responses={200: InvestorWithdrawalHistoryResponseSerializer},
+    )
+    def get(self, request: Request) -> Response:
+        if not is_admin_actor(request.user):
+            return _admin_forbidden_response()
+        serializer = InvestorWithdrawalHistoryQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        data: dict[str, Any] = serializer.validated_data
+        payload = list_closed_investor_withdrawals(
+            status=str(data.get("status") or ""),
+            currency=str(data.get("currency") or ""),
+            is_forced=data.get("is_forced"),
+            query=str(data.get("q") or ""),
+            limit=cast(int, data.get("limit", 50)),
+            offset=cast(int, data.get("offset", 0)),
+        )
+        return Response(
+            InvestorWithdrawalHistoryResponseSerializer(payload).data,
+            status=status.HTTP_200_OK,
+        )
 
 
 class InvestorWithdrawalRequestCreateView(APIView):

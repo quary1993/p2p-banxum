@@ -13,15 +13,19 @@ from backend.apps.accounts_auth.models import (
     AccountAccessReason,
     AccountStatus,
     AccountType,
+    EmailLoginToken,
     User,
 )
 from backend.apps.accounts_auth.services import (
     AccountAccessControlError,
     AdminAuthorizationError,
     ChangeAccountAccessCommand,
+    InvalidOrExpiredTokenError,
+    MagicLinkRequestCommand,
     change_account_access,
+    issue_magic_link,
 )
-from backend.apps.platform_core.models import AuditEvent, DomainEvent
+from backend.apps.platform_core.models import AuditEvent, DomainEvent, OutboxMessage
 from backend.apps.platform_core.models.base import AppendOnlyViolation
 from backend.apps.platform_core.services.currencies import seed_launch_currencies
 
@@ -338,3 +342,107 @@ def test_account_access_events_are_append_only(admin_user: User, investor: User)
                 "DELETE FROM accounts_auth_accountaccessevent WHERE id = %s",
                 [event.id],
             )
+
+
+def _restrict(admin_user: User, investor: User, new_status: AccountStatus) -> None:
+    change_account_access(
+        ChangeAccountAccessCommand(
+            actor=admin_user,
+            user_id=str(investor.id),
+            new_status=new_status,
+            reason_code=AccountAccessReason.COMPLIANCE_HOLD,
+            note="Compliance review.",
+        )
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("new_status", "status_word"),
+    [(AccountStatus.RESTRICTED, "restricted"), (AccountStatus.LOCKED, "locked")],
+)
+def test_blocked_account_login_request_emails_a_reason_without_revealing_it(
+    client: Client,
+    admin_user: User,
+    investor: User,
+    new_status: AccountStatus,
+    status_word: str,
+) -> None:
+    _restrict(admin_user, investor, new_status)
+
+    response = client.post(
+        "/api/v1/auth/magic-link/request/",
+        data={"email": investor.email},
+        content_type="application/json",
+    )
+
+    # Same answer as for an unknown address, so account existence stays private.
+    assert response.status_code == 202
+    assert response.content == b""
+    assert not EmailLoginToken.objects.filter(user=investor).exists()
+    notice = OutboxMessage.objects.get(topic="email.account_login_blocked")
+    assert notice.payload["email"] == investor.email
+    assert notice.payload["subject"] == f"Your BANXUM account is {status_word}"
+    assert f"currently {status_word}" in notice.payload["body_text"]
+    assert "support@banxum.com" in notice.payload["body_text"]
+    assert AuditEvent.objects.filter(
+        action="auth.login_blocked_notice_requested",
+        target_id=str(investor.id),
+    ).exists()
+
+    # Repeated requests within the hour reuse the same notice.
+    with pytest.raises(InvalidOrExpiredTokenError):
+        issue_magic_link(MagicLinkRequestCommand(email=investor.email))
+    assert OutboxMessage.objects.filter(topic="email.account_login_blocked").count() == 1
+
+
+@pytest.mark.django_db
+def test_login_request_for_unknown_or_active_account_sends_no_blocked_notice(
+    investor: User,
+) -> None:
+    with pytest.raises(InvalidOrExpiredTokenError):
+        issue_magic_link(MagicLinkRequestCommand(email="missing@example.test"))
+    issue_magic_link(MagicLinkRequestCommand(email=investor.email))
+
+    assert not OutboxMessage.objects.filter(topic="email.account_login_blocked").exists()
+
+
+@pytest.mark.django_db
+def test_login_link_of_restricted_account_explains_the_restriction(
+    client: Client,
+    admin_user: User,
+    investor: User,
+) -> None:
+    link = issue_magic_link(MagicLinkRequestCommand(email=investor.email))
+    _restrict(admin_user, investor, AccountStatus.RESTRICTED)
+
+    response = client.post(
+        "/api/v1/auth/magic-link/consume/",
+        data={"token": link.raw_token},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {
+        "detail": (
+            "Your account is restricted. Please contact support at support@banxum.com "
+            "for further details."
+        ),
+        "code": "account_restricted",
+    }
+    assert client.get("/api/v1/auth/me/").status_code == 403
+
+
+@pytest.mark.django_db
+def test_existing_session_of_restricted_account_reports_the_status(
+    client: Client,
+    admin_user: User,
+    investor: User,
+) -> None:
+    client.force_login(investor)
+    _restrict(admin_user, investor, AccountStatus.RESTRICTED)
+
+    response = client.get("/api/v1/auth/me/")
+
+    assert response.status_code == 200
+    assert response.json()["user"]["status"] == AccountStatus.RESTRICTED

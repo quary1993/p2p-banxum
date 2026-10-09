@@ -47,7 +47,28 @@ type IconName =
   | "menu"
   | "wallet"
   | "trend"
-  | "refresh";
+  | "refresh"
+  | "briefcase"
+  | "user"
+  | "help"
+  | "grid"
+  | "list"
+  | "building"
+  | "more"
+  | "arrowUpRight"
+  | "arrowDownLeft"
+  | "eye"
+  | "calendar"
+  | "globe"
+  | "mail"
+  | "external"
+  | "home"
+  | "pin"
+  | "percent"
+  | "chart"
+  | "upload"
+  | "star"
+  | "minus";
 
 const icons: Record<IconName, string> = {
   dashboard: "M3 3h7v7H3zM14 3h7v4h-7zM14 10h7v11h-7zM3 13h7v8H3z",
@@ -84,8 +105,83 @@ const icons: Record<IconName, string> = {
   menu: "M3 6h18M3 12h18M3 18h18",
   wallet: "M3 7h18v12H3zM3 7l2-3h14l2 3M16 13h2",
   trend: "M3 17l6-6 4 4 7-7M14 8h7v7",
-  refresh: "M21 12a9 9 0 11-2.6-6.4M21 4v6h-6"
+  refresh: "M21 12a9 9 0 11-2.6-6.4M21 4v6h-6",
+  briefcase: "M3 8h18v12H3zM8 8V5h8v3M3 13h18",
+  user: "M12 12a4 4 0 100-8 4 4 0 000 8zM4 21a8 8 0 0116 0",
+  help: "M12 22a10 10 0 100-20 10 10 0 000 20zM9.1 9a3 3 0 015.8 1c0 2-3 3-3 3M12 17h.01",
+  grid: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z",
+  list: "M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01",
+  building: "M4 21V5l8-3v19M12 8l8 3v10M2 21h20M8 9h.01M8 13h.01M8 17h.01M16 14h.01M16 18h.01",
+  more: "M5 12h.01M12 12h.01M19 12h.01",
+  arrowUpRight: "M7 17L17 7M8 7h9v9",
+  arrowDownLeft: "M17 7L7 17M16 17H7V8",
+  eye: "M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12zM12 15a3 3 0 100-6 3 3 0 000 6z",
+  calendar: "M4 5h16v16H4zM4 10h16M8 3v4M16 3v4",
+  globe: "M12 22a10 10 0 100-20 10 10 0 000 20zM2 12h20M12 2a15 15 0 010 20M12 2a15 15 0 000 20",
+  mail: "M3 5h18v14H3zM3 6l9 7 9-7",
+  external: "M14 4h6v6M20 4l-9 9M18 14v6H4V6h6",
+  home: "M3 11l9-8 9 8M5 9.5V21h14V9.5",
+  pin: "M12 22s7-7.2 7-12.5a7 7 0 10-14 0C5 14.8 12 22 12 22zM12 12a2.5 2.5 0 100-5 2.5 2.5 0 000 5z",
+  percent: "M19 5L5 19M7 9a2 2 0 100-4 2 2 0 000 4zM17 19a2 2 0 100-4 2 2 0 000 4z",
+  chart: "M4 20V10M10 20V4M16 20v-7M22 20H2",
+  upload: "M12 21V9m0 0l-4 4m4-4l4 4M5 3h14",
+  star: "M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3 6.4 20.2l1.1-6.2L3 9.6l6.2-.9z",
+  minus: "M5 12h14"
 };
+
+export type { IconName };
+
+// The user-facing skin is scoped by a class on <html>, so portal content such as
+// tooltips gets it as well. The admin console never mounts this wrapper.
+let userSkinMounts = 0;
+
+export function UserSkin({ children }: { children: ReactNode }) {
+  useLayoutEffect(() => {
+    userSkinMounts += 1;
+    document.documentElement.classList.add("bxm");
+    return () => {
+      userSkinMounts -= 1;
+      if (userSkinMounts <= 0) {
+        userSkinMounts = 0;
+        document.documentElement.classList.remove("bxm");
+      }
+    };
+  }, []);
+  return <>{children}</>;
+}
+
+export function PageHead({
+  title,
+  description,
+  eyebrow,
+  back,
+  actions,
+  className = ""
+}: {
+  title: ReactNode;
+  description?: ReactNode;
+  eyebrow?: ReactNode;
+  back?: { label: string; onClick: () => void };
+  actions?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`page-head ${className}`}>
+      <div className="page-head-main">
+        {back ? (
+          <button className="page-back" onClick={back.onClick} type="button">
+            <Icon name="arrowL" size={18} />
+            <span>{back.label}</span>
+          </button>
+        ) : null}
+        {eyebrow ? <div className="eyebrow page-eyebrow">{eyebrow}</div> : null}
+        <h1>{title}</h1>
+        {description ? <div className="ph-sub">{description}</div> : null}
+      </div>
+      {actions ? <div className="page-actions">{actions}</div> : null}
+    </div>
+  );
+}
 
 export function Icon({
   name,
@@ -322,7 +418,7 @@ export function Chip({
   const accessibleLabel = tooltip && typeof label === "string" ? `${label}. ${tooltip}` : undefined;
   const chip = (
     <span
-      className={`chip chip-${finalTone} ${square ? "chip-square" : ""}`}
+      className={`chip chip-${finalTone} ${square ? "chip-square" : ""} ${status ? `chip-status-${status}` : ""}`}
     >
       {dot ? <span className="dot" /> : null}
       {label}
@@ -429,16 +525,18 @@ export function Check({
   checked,
   onChange,
   children,
+  disabled = false,
   id
 }: {
   checked: boolean;
   onChange: (checked: boolean) => void;
   children: ReactNode;
+  disabled?: boolean;
   id: string;
 }) {
   return (
-    <label className="check" htmlFor={id}>
-      <input checked={checked} id={id} onChange={(event) => onChange(event.target.checked)} type="checkbox" />
+    <label className={`check${disabled ? " disabled" : ""}`} htmlFor={id}>
+      <input checked={checked} disabled={disabled} id={id} onChange={(event) => onChange(event.target.checked)} type="checkbox" />
       <span className="box">
         <Icon name="check" size={12} strokeWidth={2.6} />
       </span>

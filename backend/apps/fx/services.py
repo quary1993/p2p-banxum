@@ -32,7 +32,12 @@ from backend.apps.platform_core.domain.access import (
     user_can_access_financial_features,
 )
 from backend.apps.platform_core.domain.money import Money, MoneyError, normalize_currency
-from backend.apps.platform_core.domain.time import business_timezone, now_utc, to_business_time
+from backend.apps.platform_core.domain.time import (
+    business_timezone,
+    now_utc,
+    to_business_time,
+    to_wall_clock,
+)
 from backend.apps.platform_core.models import Currency
 from backend.apps.platform_core.selectors.settings import get_platform_setting_value
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
@@ -55,6 +60,14 @@ class FxAuthorizationError(FxError):
 
 class FxValidationError(FxError):
     pass
+
+
+class FxProviderRateUnavailableError(FxValidationError):
+    """A live provider rate was rejected; ``detail`` is for logs, not for investors."""
+
+    def __init__(self, message: str, *, detail: str) -> None:
+        super().__init__(message)
+        self.detail = detail
 
 
 MAX_IDEMPOTENCY_KEY_LENGTH = 160
@@ -669,8 +682,8 @@ def _is_configured_fx_market_holiday(business_day: date) -> bool:
     return business_day.isoformat() in holidays or business_day.strftime("%m-%d") in holidays
 
 
-def _stale_provider_rate_message(as_of: datetime) -> str:
-    business_day = _business_date_for_timestamp(as_of)
+def _stale_provider_rate_message(checked_at: datetime) -> str:
+    business_day = _business_date_for_timestamp(checked_at)
     if business_day.weekday() >= 5:
         return FX_WEEKEND_UNAVAILABLE_MESSAGE
     if _is_configured_fx_market_holiday(business_day):
@@ -701,10 +714,23 @@ def _validate_provider_rate(
         )
         or DEFAULT_PROVIDER_RATE_FRESHNESS_SECONDS
     )
-    age_seconds = abs((as_of - observed_at).total_seconds())
+    # Provider rates are real market data stamped with real time, so their age and the
+    # market-closed reason are judged on the wall clock. This equals ``as_of`` unless a
+    # QA clock override pins the platform clock; quote, expiry, limit and ledger times
+    # keep using ``as_of``.
+    checked_at = to_wall_clock(as_of)
+    age_seconds = abs((checked_at - observed_at).total_seconds())
     if age_seconds > max_age:
-        raise FxValidationError(_stale_provider_rate_message(as_of))
-    sanity["checks"].append({"name": "freshness", "age_seconds": age_seconds})
+        raise FxProviderRateUnavailableError(
+            _stale_provider_rate_message(checked_at),
+            detail=(
+                f"{pair} rate observed at {observed_at.isoformat()} is {age_seconds:.0f}s "
+                f"old at {checked_at.isoformat()} (limit {max_age}s)."
+            ),
+        )
+    sanity["checks"].append(
+        {"name": "freshness", "age_seconds": age_seconds, "checked_at": checked_at.isoformat()}
+    )
     bounds = _pair_rate_bounds(pair)
     if bounds is not None:
         minimum, maximum = bounds
@@ -1672,7 +1698,8 @@ def configured_mock_provider_rate(
     if not isinstance(configured, dict):
         configured = default_rates
     rate = _as_decimal(configured.get(pair, default_rates.get(pair, "0")), "Mock FX rate")
-    timestamp = as_of or now_utc()
+    # Stamp like a live provider: real time, even while a QA clock override is active.
+    timestamp = to_wall_clock(as_of or now_utc())
     return ProviderRate(
         provider="mock",
         rate=rate,

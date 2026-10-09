@@ -12,6 +12,7 @@ import re
 import textwrap
 import uuid
 from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, cast
 
 from django.apps import apps
@@ -582,7 +583,12 @@ def acceptance_history_item(acceptance: DocumentAcceptanceEvidence) -> dict[str,
         "document_kind": "acceptance_evidence",
         "title": title,
         "template_title": str(acceptance.template_version.title),
-        "document_type": _document_type_for_category(category),
+        "document_type": (
+            "Loan Originator claim agreement"
+            if category == DocumentCategory.PRIMARY_MARKET_INVESTMENT
+            and _is_originator_claim_investment(acceptance)
+            else _document_type_for_category(category)
+        ),
         "category": category,
         "version": f"v{acceptance.template_version_number}",
         "date": acceptance.accepted_at,
@@ -791,6 +797,7 @@ def _primary_order_context_snapshot(*, context_type: str, context_id: str) -> di
                 )
             ),
             "repayment_type": _display_choice(loan, "repayment_type"),
+            "term_months": int(loan_ref.term_months),
             "minimum_subscription_bps": int(loan_ref.minimum_subscription_bps),
             "minimum_subscription_percent": _format_bps_percent_for_document(
                 int(loan_ref.minimum_subscription_bps)
@@ -878,6 +885,7 @@ def _originator_claim_context_snapshot(
             ),
             "maturity_date": profile.maturity_date.isoformat(),
             "repayment_type": _display_choice(loan, "repayment_type"),
+            "term_months": int(loan.term_months),
             "collateral_security": (
                 str(loan.collateral_description).strip() or _display_choice(loan, "collateral_type")
             ),
@@ -1811,6 +1819,100 @@ def _pdf_key_value_box(
     return y - height
 
 
+DIRECT_INVESTMENT_TRANSACTION_LABEL = "Direct loan investment"
+ORIGINATOR_CLAIM_TRANSACTION_LABEL = "Loan Originator claim purchase"
+
+
+def _percent_label(value: Any, suffix: str = "% p.a.") -> str:
+    text = str(value or "").strip()
+    return f"{text}{suffix}" if text else ""
+
+
+def _is_originator_claim_investment(acceptance: DocumentAcceptanceEvidence) -> bool:
+    snapshot = _snapshot_dict(acceptance.data_snapshot)
+    return (
+        acceptance.context_type == "originator_claim_quote"
+        or _snapshot_get(snapshot, "loan", "product_type") == "originator_claim"
+        or bool(_snapshot_dict(snapshot.get("originator")))
+    )
+
+
+def _investment_summary(
+    acceptance: DocumentAcceptanceEvidence,
+) -> tuple[str, list[tuple[str, str]]] | None:
+    """Transaction details an investment agreement evidences, from its acceptance snapshot."""
+    if str(acceptance.category) != DocumentCategory.PRIMARY_MARKET_INVESTMENT:
+        return None
+    snapshot = _snapshot_dict(acceptance.data_snapshot)
+    loan = _snapshot_dict(snapshot.get("loan"))
+    order = _snapshot_dict(snapshot.get("order"))
+    originator = _snapshot_dict(snapshot.get("originator"))
+    borrower = _snapshot_dict(snapshot.get("borrower"))
+    is_originator_claim = _is_originator_claim_investment(acceptance)
+    transaction = (
+        ORIGINATOR_CLAIM_TRANSACTION_LABEL
+        if is_originator_claim
+        else DIRECT_INVESTMENT_TRANSACTION_LABEL
+    )
+    title = _loan_title_from_snapshot(snapshot)
+    loan_reference = str(loan.get("agreement_no") or "").strip()
+    currency = order.get("currency") or loan.get("currency") or snapshot.get("currency")
+    amount_minor = (
+        order.get("allocated_amount_minor")
+        or order.get("requested_amount_minor")
+        or snapshot.get("amount_minor")
+    )
+    items: list[tuple[str, str]] = [
+        ("Transaction", transaction),
+        ("Loan", f"{title} ({loan_reference})" if loan_reference else title),
+        ("Amount invested", _document_money_label(amount_minor, currency)),
+    ]
+    assigned_principal_minor = order.get("assigned_principal_minor")
+    if assigned_principal_minor and assigned_principal_minor != amount_minor:
+        items.append(("Claim principal", _document_money_label(assigned_principal_minor, currency)))
+    subscription = _snapshot_dict(snapshot.get("originator_subscription"))
+    if subscription:
+        coupon_bps = int(subscription.get("underlying_coupon_bps") or 0)
+        participation_bps = int(subscription.get("investor_interest_participation_bps") or 0)
+        investor_yield_bps = int(
+            (Decimal(coupon_bps) * Decimal(participation_bps) / Decimal(10_000)).quantize(
+                Decimal("1"), rounding=ROUND_HALF_UP
+            )
+        )
+        items.append(
+            (
+                "Investor yield",
+                f"{_format_bps_percent_for_document(investor_yield_bps)}% p.a. "
+                f"({_format_bps_percent_for_document(coupon_bps)}% borrower rate, "
+                f"{_format_bps_percent_for_document(participation_bps)}% interest share)",
+            )
+        )
+    elif is_originator_claim:
+        target_yield = order.get("target_yield_percent") or loan.get("target_yield_percent")
+        items.append(("Target yield", _percent_label(target_yield)))
+        items.append(("Borrower rate", _percent_label(loan.get("interest_rate_percent"))))
+    else:
+        items.append(("Interest rate", _percent_label(loan.get("interest_rate_percent"))))
+    term_months = loan.get("term_months")
+    maturity_date = str(loan.get("maturity_date") or "").strip()
+    term_parts = [f"{term_months} months" if term_months else "", maturity_date]
+    if maturity_date:
+        term_parts[1] = f"maturity {maturity_date}"
+    items.append(("Term", ", ".join(part for part in term_parts if part)))
+    items.append(("Repayment", str(loan.get("repayment_type") or "")))
+    borrower_name = str(borrower.get("legal_name") or borrower.get("display_name") or "")
+    items.append(("Borrower", borrower_name))
+    if is_originator_claim:
+        items.append(
+            (
+                "Loan Originator",
+                str(originator.get("legal_name") or originator.get("public_name") or ""),
+            )
+        )
+    items.append(("Agreement no.", str(order.get("agreement_no") or "")))
+    return transaction, [(label, value or "Not recorded") for label, value in items]
+
+
 def _render_acceptance_cover_page(
     canvas: _PdfDocumentCanvas,
     *,
@@ -1823,14 +1925,31 @@ def _render_acceptance_cover_page(
     for line in title_lines:
         canvas.text(x=PDF_MARGIN_X, y=title_y, text=line, size=17.2, font="F2")
         title_y -= 19.0
+    investment = _investment_summary(acceptance)
     canvas.text(
         x=PDF_MARGIN_X,
         y=title_y - 2,
-        text="Accepted document evidence package",
+        text=(
+            f"{investment[0]} agreement - accepted document evidence package"
+            if investment is not None
+            else "Accepted document evidence package"
+        ),
         size=10.5,
         color=PDF_MUTED,
     )
     y = title_y - 35
+    if investment is not None:
+        y = (
+            _pdf_key_value_box(
+                canvas,
+                x=PDF_MARGIN_X,
+                y=y,
+                width=PDF_CONTENT_WIDTH,
+                title="Investment",
+                items=investment[1],
+            )
+            - 14
+        )
     snapshot = acceptance.data_snapshot if isinstance(acceptance.data_snapshot, dict) else {}
     raw_user_snapshot = snapshot.get("user")
     user_snapshot: dict[str, Any] = raw_user_snapshot if isinstance(raw_user_snapshot, dict) else {}

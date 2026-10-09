@@ -1,0 +1,2181 @@
+/* IP of Webby-Soft SRL. */
+/* User-side skin: investments. All rules are scoped with .bxm (see banxumSkin.css). */
+
+/* ==========================================================================
+   Shared bits: project tile, card heads and figures used by My investments,
+   the investment page and the secondary market
+   ========================================================================== */
+
+.bxm .inv-tile {
+  align-items: center;
+  background: var(--ink);
+  color: #fff;
+  display: inline-flex;
+  flex: none;
+  height: 40px;
+  justify-content: center;
+  width: 40px;
+}
+
+.bxm .pf-page .card-title,
+.bxm .sm-page .card-title {
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.35;
+  margin: 0;
+}
+
+/* ==========================================================================
+   My investments (portfolio)
+   ========================================================================== */
+
+.bxm .app .pf-page,
+.bxm .app .sm-page {
+  max-width: none;
+}
+
+.bxm .pf-page .page-head .ph-sub {
+  max-width: 70ch;
+}
+
+/* Pill segmented controls (currency, Focused/Detailed, Bar/Ring) */
+.bxm .pf-page .seg {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  gap: 0;
+  padding: 2px;
+}
+
+.bxm .pf-page .seg button {
+  align-items: center;
+  border-radius: 999px;
+  color: var(--ink-3);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 600;
+  height: 30px;
+  letter-spacing: 0.02em;
+  padding: 0 14px;
+}
+
+.bxm .pf-page .seg button:hover {
+  color: var(--ink);
+}
+
+.bxm .pf-page .seg button.on {
+  background: var(--ink);
+  color: #fff;
+}
+
+/* Tabs: design underline tabs. The Orders tab carries an info button. */
+.bxm .pf-page .pf-tabs-row {
+  display: block;
+  margin-bottom: 24px;
+}
+
+.bxm .pf-page .pf-tabs {
+  overflow: visible;
+}
+
+.bxm .pf-page .pf-tab-item {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+  position: relative;
+}
+
+.bxm .pf-page .pf-tab-info {
+  display: inline-flex;
+  position: relative;
+}
+
+.bxm .pf-page .pf-tabs .pf-tab-info-trigger {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--ink-4);
+  border-radius: 999px;
+  color: var(--ink-3);
+  display: inline-flex;
+  font-weight: 400;
+  height: 18px;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  width: 18px;
+}
+
+.bxm .pf-page .pf-tabs .pf-tab-info-trigger::after {
+  display: none;
+}
+
+.bxm .pf-page .pf-tabs .pf-tab-info-trigger:hover,
+.bxm .pf-page .pf-tabs .pf-tab-info-trigger:focus-visible {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.bxm .pf-page .pf-tab-info-tooltip {
+  background: var(--ink);
+  border-radius: 0;
+  box-shadow: var(--shadow-pop);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 12px 14px;
+  top: 30px;
+}
+
+/* Insight widgets: four white stat-like cards, two per row. A card opens its
+   panel under its own row. */
+.bxm .pf-page .pf-insights {
+  margin: 0 0 28px;
+}
+
+.bxm .pf-page .pf-cards {
+  gap: 28px;
+  margin: 0;
+}
+
+.bxm .pf-page .pf-widget-pair {
+  gap: 28px;
+}
+
+.bxm .pf-page .pf-widget-pair > .pf-panel {
+  margin: 0;
+}
+
+.bxm .pf-page .card471 {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  box-shadow: none;
+  padding: 24px;
+  transition: border-color 0.15s ease;
+}
+
+.bxm .pf-page .card471:hover {
+  border-color: var(--line-strong);
+}
+
+.bxm .pf-page .card471.open {
+  border-color: var(--ink);
+}
+
+.bxm .pf-page .card471 .head {
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.bxm .pf-page .card471 .lab {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-label-track);
+  line-height: 1.4;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+}
+
+.bxm .pf-page .card471 .tt {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.35;
+}
+
+.bxm .pf-page .card471 .sig {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  font-size: 15px;
+  height: 28px;
+  width: 28px;
+}
+
+.bxm .pf-page .card471:hover .sig,
+.bxm .pf-page .card471.open .sig {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+
+.bxm .pf-page .card471 .foot {
+  align-items: baseline;
+  border-top: 1px solid var(--line);
+  gap: 10px;
+  padding-top: 16px;
+}
+
+.bxm .pf-page .card471 .foot .big {
+  font-size: 24px !important;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.bxm .pf-page .card471 .foot .note {
+  color: var(--ink-3);
+  font-size: 13px !important;
+  line-height: 1.5;
+}
+
+/* Widget panels: one white card with a card head. */
+.bxm .pf-page .pf-panel {
+  background: #fff;
+  border: 1px solid var(--line);
+  margin: 0;
+  min-width: 0;
+  padding: 0 24px 24px;
+}
+
+.bxm .pf-page .pf-panel > .sect,
+.bxm .pf-page .pf-panel > .pf-sect-row {
+  border-bottom: 1px solid var(--line);
+  margin: 0 -24px 20px;
+  padding: 16px 24px;
+}
+
+.bxm .pf-page .pf-panel > .pf-sect-row {
+  align-items: center;
+  display: flex;
+  gap: 12px 18px;
+}
+
+.bxm .pf-page .pf-panel .sect {
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.35;
+}
+
+.bxm .pf-page .pf-panel > .pf-sect-row .sect {
+  margin: 0 0 2px;
+}
+
+.bxm .pf-page .pf-panel .sect-sub {
+  color: var(--ink-3);
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0 0 20px !important;
+}
+
+.bxm .pf-page .pf-panel .pf-sect-note {
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: 640px;
+}
+
+.bxm .pf-page .pf-panel .panel-block {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  margin-bottom: 0 !important;
+  padding: 0 !important;
+}
+
+.bxm .pf-page .pf-risk-block {
+  gap: 24px;
+}
+
+.bxm .pf-page .pf-risk-cap,
+.bxm .pf-page .microlabel {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-label-track);
+  text-transform: uppercase;
+}
+
+.bxm .pf-page .pf-risk-copy {
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.bxm .pf-page .serif-note {
+  color: var(--ink-2);
+  font-family: var(--font-sans);
+  font-style: normal;
+}
+
+.bxm .pf-page .serif-note span {
+  font-size: 15px !important;
+}
+
+.bxm .pf-page .kv-row {
+  border-top-color: var(--line);
+  font-size: 14px;
+}
+
+.bxm .pf-page .leader {
+  border-bottom-color: var(--line-strong);
+}
+
+/* Earnings calendar panel */
+.bxm .pf-page .cal-strip {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  gap: 0;
+  margin-bottom: 20px;
+  padding: 2px;
+}
+
+.bxm .pf-page .cal-strip button {
+  border-radius: 999px;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 5px 0 6px;
+}
+
+.bxm .pf-page .cal-strip button:hover {
+  color: var(--ink);
+}
+
+.bxm .pf-page .cal-strip button.on {
+  background: var(--ink);
+  color: #fff;
+}
+
+.bxm .pf-page .cal-box {
+  border: 1px solid var(--line);
+  border-radius: 0;
+  margin-bottom: 0;
+}
+
+.bxm .pf-page .cal-head {
+  padding: 14px 20px;
+}
+
+.bxm .pf-page .cal-title {
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
+
+.bxm .pf-page .cal-nav,
+.bxm .pf-page .cal-x {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  height: 30px;
+  width: 30px;
+}
+
+.bxm .pf-page .cal-nav:hover,
+.bxm .pf-page .cal-x:hover {
+  background: var(--bxm-paper);
+}
+
+.bxm .pf-page .cal-nav:disabled {
+  background: #fff;
+  border-color: var(--line);
+  color: var(--line-strong);
+}
+
+.bxm .pf-page .cal-dows span {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-tag-track);
+}
+
+.bxm .pf-page .cal-cell {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 0;
+}
+
+.bxm .pf-page .cal-cell .bar span {
+  border-radius: 0;
+}
+
+.bxm .pf-page .cal-cell.late {
+  background: #fff;
+  border-color: var(--bxm-signal);
+}
+
+.bxm .pf-page .cal-cell.sel {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.bxm .pf-page .cal-detail,
+.bxm .pf-page .cal-footnote {
+  background: var(--bxm-paper);
+}
+
+.bxm .pf-page .cal-legend span {
+  border-radius: 0 !important;
+}
+
+.bxm .pf-page .pf-cal-kv {
+  border-top-color: var(--line);
+}
+
+/* Collateral panel view switch */
+.bxm .pf-page .pf-panel .seg {
+  flex: none;
+}
+
+/* Card shell for the tab content */
+.bxm .pf-page .pf-loans.card,
+.bxm .pf-page .pf-data-section,
+.bxm .pf-page .pf-empty-state {
+  background: #fff;
+  border: 1px solid var(--line);
+  min-width: 0;
+}
+
+.bxm .pf-page .pf-sect-row {
+  align-items: center;
+  margin: 0;
+}
+
+.bxm .pf-page .pf-loans > .pf-sect-row {
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  justify-content: space-between;
+  padding: 16px 24px;
+}
+
+.bxm .pf-page .pf-loans > .pf-sect-row {
+  align-items: center;
+  flex-direction: row;
+}
+
+.bxm .pf-page .pf-sect-title {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.bxm .pf-page .pf-sect-tools {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.bxm .pf-page .pf-loans .sect,
+.bxm .pf-page .pf-data-heading .sect {
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.35;
+  margin: 0 0 2px;
+}
+
+.bxm .pf-page .pf-loans .pf-sect-note,
+.bxm .pf-page .pf-data-heading p {
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 0;
+  max-width: 720px;
+}
+
+/* Sort pill and menu (shared markup, styled here only on this page) */
+.bxm .pf-page .fs-pill {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  gap: 8px;
+  height: 34px;
+  letter-spacing: 0.02em;
+  padding: 0 16px;
+}
+
+.bxm .pf-page .fs-pill:hover {
+  background: var(--bxm-paper);
+  border-color: var(--line);
+}
+
+.bxm .pf-page .fs-pill.on {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+
+.bxm .pf-page .fs-menu {
+  border: 1px solid var(--line);
+  border-radius: 0;
+  box-shadow: var(--shadow-pop);
+  padding: 6px 0;
+}
+
+.bxm .pf-page .fs-menu-cap {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-label-track);
+  padding: 8px 16px 6px;
+}
+
+.bxm .pf-page .fs-menu-item {
+  border-radius: 0;
+  color: var(--ink-2);
+  font-size: 13px;
+  padding: 9px 16px;
+}
+
+.bxm .pf-page .fs-menu-item:hover {
+  background: var(--bxm-paper);
+}
+
+.bxm .pf-page .fs-clear-link {
+  border-bottom: 1px solid currentColor;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.bxm .pf-page .fs-clear-link:hover {
+  color: var(--ink);
+}
+
+.bxm .pf-page .fs-th:hover {
+  color: var(--ink);
+}
+
+.bxm .pf-page .fs-th .fs-th-label {
+  border-bottom: 1px dotted var(--line-strong);
+  padding-bottom: 1px;
+}
+
+.bxm .pf-page .fs-th.on .fs-th-label {
+  border-bottom: 1px solid var(--ink);
+}
+
+/* The loans list: design "nk-tb-list" inside the card */
+.bxm .pf-page .pf-table {
+  margin: 0;
+  overflow-x: auto;
+}
+
+.bxm .pf-page .pf-thead {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: 13px;
+  font-weight: 700;
+  gap: 16px;
+  letter-spacing: 0;
+  padding: 10px 24px;
+  text-transform: none;
+}
+
+.bxm .pf-page .pf-row {
+  align-items: center;
+  background: #fff;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  gap: 16px;
+  margin: 0;
+  min-height: 73px;
+  padding: 14px 24px;
+  transition: background-color 0.15s ease;
+}
+
+.bxm .pf-page .pf-row:hover {
+  background: #f7f7f7;
+}
+
+.bxm .pf-page .pf-company {
+  align-items: center;
+  gap: 16px;
+}
+
+.bxm .pf-page .pf-company-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.bxm .pf-page .pf-company-line {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  min-width: 0;
+}
+
+.bxm .pf-page .pf-company-name {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.35;
+}
+
+.bxm .pf-page .pf-company-name.late {
+  color: var(--bxm-signal);
+}
+
+.bxm .pf-page .pf-company-sub {
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.45;
+  max-width: none;
+}
+
+.bxm .pf-page .pf-tag {
+  align-items: center;
+  border: 1px solid var(--ink);
+  color: var(--ink);
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 600;
+  height: 20px;
+  letter-spacing: var(--bxm-tag-track);
+  line-height: 1;
+  padding: 0 7px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.bxm .pf-page .pf-tag.late {
+  border-color: var(--bxm-signal);
+  color: var(--bxm-signal);
+}
+
+.bxm .pf-page .pf-tag.late.default {
+  background: var(--bxm-signal);
+  color: #fff;
+}
+
+.bxm .pf-page .pf-row .pf-col-rate,
+.bxm .pf-page .pf-row .pf-col-term,
+.bxm .pf-page .pf-row .pf-col-pays,
+.bxm .pf-page .pf-row .pf-col-collateral,
+.bxm .pf-page .pf-row .pf-col-next,
+.bxm .pf-page .pf-row .pf-col-share {
+  font-size: 13px;
+}
+
+.bxm .pf-page .pf-row .mut {
+  color: var(--ink-3);
+}
+
+.bxm .pf-page .pf-col-next.late {
+  color: var(--bxm-signal);
+}
+
+.bxm .pf-page .pf-amount {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  padding-bottom: 6px;
+}
+
+.bxm .pf-page .pf-amount.late {
+  color: var(--bxm-signal);
+}
+
+.bxm .pf-page .pf-share-track {
+  background: var(--line);
+  height: 3px;
+}
+
+.bxm .pf-page .pf-share-track > span {
+  height: 3px;
+}
+
+.bxm .pf-page .pf-share-track > span.late {
+  background: var(--bxm-signal);
+}
+
+.bxm .pf-page .pf-col-amount {
+  width: 140px;
+}
+
+.bxm .pf-page .pf-col-chev {
+  align-items: center;
+  color: var(--ink);
+  display: inline-flex;
+  flex: none;
+  justify-content: flex-end;
+  width: 20px;
+}
+
+.bxm .pf-page .tfoot {
+  align-items: baseline;
+  background: #fff;
+  border-top: 0;
+  gap: 16px;
+  margin: 0;
+  padding: 16px 24px;
+}
+
+.bxm .pf-page .pf-tfoot-count {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.bxm .pf-page .pf-tfoot-note {
+  font-size: 13px;
+}
+
+.bxm .pf-page .pf-tfoot-total {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.bxm .pf-page .pf-tfoot-ccy {
+  margin-right: -8px;
+}
+
+.bxm .pf-page .pf-tfoot-cents {
+  font-size: 14px;
+  margin-left: -16px;
+}
+
+/* Activity and orders tables */
+.bxm .pf-page .pf-data-heading {
+  border-bottom: 1px solid var(--line);
+  margin: 0;
+  padding: 16px 24px;
+}
+
+.bxm .pf-page .pf-data-table {
+  border-top: 0;
+  font-size: 13px;
+}
+
+.bxm .pf-page .pf-data-table th {
+  background: var(--bxm-paper);
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-tag-track);
+  padding: 10px 16px;
+}
+
+.bxm .pf-page .pf-data-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 14px 16px;
+}
+
+.bxm .pf-page .pf-data-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.bxm .pf-page .pf-data-table th:first-child,
+.bxm .pf-page .pf-data-table td:first-child {
+  padding-left: 24px;
+}
+
+.bxm .pf-page .pf-data-table th:last-child,
+.bxm .pf-page .pf-data-table td:last-child {
+  padding-right: 24px;
+}
+
+.bxm .pf-page .pf-data-table tbody tr:hover {
+  background: #fafafa;
+}
+
+.bxm .pf-page .pf-data-table .col-strong {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* Withdrawal outcome (Pending / Finalized / Cancelled / Returned to balance) after the activity title. */
+.bxm .activity-status-tag {
+  display: inline-flex;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.bxm .pf-page .pf-data-table .sub {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+/* Empty states */
+.bxm .pf-page .pf-empty-state {
+  border-top: 1px solid var(--line);
+  min-height: 0;
+  padding-bottom: 32px;
+}
+
+.bxm .pf-page .pf-data-section .pf-empty-state {
+  border: 0;
+}
+
+.bxm .pf-page .pf-pending-orders-empty {
+  padding: 0 24px 32px;
+}
+
+.bxm .pf-page .pf-pending-orders-empty .stat {
+  background: #fff;
+  border: 1px solid var(--line);
+  padding: 24px;
+}
+
+.bxm .pf-page .pf-pending-orders-empty .grid-2 {
+  gap: 28px;
+}
+
+/* "How BANXUM loans work" */
+.bxm .pf-page .pf-howlink {
+  margin: 28px 0 0;
+}
+
+.bxm .pf-page .pf-howlink button {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+  gap: 10px;
+}
+
+.bxm .pf-page .pf-howlink-i {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-style: normal;
+  height: 18px;
+  width: 18px;
+}
+
+.bxm .pf-page .pf-howlink-text {
+  border-bottom: 1px solid currentColor;
+}
+
+@media (max-width: 1200px) {
+  /* The detailed list scrolls inside its card rather than cutting names. */
+  .bxm .pf-page .pf-table.detailed .pf-thead,
+  .bxm .pf-page .pf-table.detailed .pf-row,
+  .bxm .pf-page .pf-table.detailed .tfoot {
+    min-width: 980px;
+  }
+}
+
+@media (max-width: 860px) {
+  .bxm .pf-page .pf-widget-pair {
+    gap: 16px;
+  }
+
+  .bxm .pf-page .pf-cards {
+    gap: 16px;
+  }
+
+  .bxm .pf-page .pf-widget-pair > .pf-panel {
+    margin: 0;
+  }
+
+  .bxm .pf-page .pf-thead,
+  .bxm .pf-page .pf-row,
+  .bxm .pf-page .tfoot {
+    min-width: 560px;
+  }
+
+  .bxm .pf-page .pf-table.detailed .pf-thead,
+  .bxm .pf-page .pf-table.detailed .pf-row,
+  .bxm .pf-page .pf-table.detailed .tfoot {
+    min-width: 980px;
+  }
+
+  .bxm .pf-page .pf-panel > .pf-sect-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 560px) {
+  .bxm .pf-page .card471 {
+    padding: 20px;
+  }
+
+  .bxm .pf-page .pf-panel {
+    padding: 0 16px 20px;
+  }
+
+  .bxm .pf-page .pf-panel > .sect,
+  .bxm .pf-page .pf-panel > .pf-sect-row {
+    margin: 0 -16px 16px;
+    padding: 14px 16px;
+  }
+
+  .bxm .pf-page .pf-loans > .pf-sect-row,
+  .bxm .pf-page .pf-data-heading {
+    padding: 14px 16px;
+  }
+
+  .bxm .pf-page .pf-thead,
+  .bxm .pf-page .pf-row,
+  .bxm .pf-page .tfoot {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .bxm .pf-page .pf-row .inv-tile {
+    display: none;
+  }
+
+  /* Focused list on a phone: the company takes the first line, share and
+     amount sit under it in the header's columns, so nothing scrolls. */
+  .bxm .pf-page .pf-table.focused .pf-thead,
+  .bxm .pf-page .pf-table.focused .pf-row,
+  .bxm .pf-page .pf-table.focused .tfoot {
+    min-width: 0;
+  }
+
+  .bxm .pf-page .pf-table.focused .pf-row {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .bxm .pf-page .pf-table.focused .pf-row .pf-company {
+    flex: 1 1 100%;
+  }
+
+  .bxm .pf-page .pf-table.focused .pf-row .pf-col-share {
+    margin-left: auto;
+  }
+
+  .bxm .pf-page .pf-table.focused .pf-col-amount {
+    width: 120px;
+  }
+
+  .bxm .pf-page .pf-table.focused .tfoot {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  .bxm .pf-page .pf-table.focused .pf-tfoot-count {
+    margin-right: auto;
+  }
+
+  .bxm .pf-page .pf-table.focused .pf-tfoot-note {
+    flex: 1 1 100%;
+    order: 9;
+  }
+
+  .bxm .pf-page .pf-data-table th:first-child,
+  .bxm .pf-page .pf-data-table td:first-child {
+    padding-left: 16px;
+  }
+
+  .bxm .pf-page .pf-data-table th:last-child,
+  .bxm .pf-page .pf-data-table td:last-child {
+    padding-right: 16px;
+  }
+
+  /* On a phone the orders tooltip spans the tab row. */
+  .bxm .pf-page .pf-tabs-row {
+    position: relative;
+  }
+
+  .bxm .pf-page .pf-tab-item,
+  .bxm .pf-page .pf-tab-info {
+    position: static;
+  }
+
+  .bxm .pf-page .pf-tab-info-tooltip {
+    left: 0;
+    right: 0;
+    top: calc(100% - 4px);
+    transform: none;
+    width: auto;
+  }
+
+  .bxm .pf-page .cal-strip {
+    overflow-x: auto;
+  }
+
+  .bxm .pf-page .cal-strip button {
+    flex: 0 0 auto;
+    min-width: 46px;
+  }
+
+  .bxm .pf-page .cal-head {
+    padding: 12px;
+  }
+
+  .bxm .pf-page .cal-grid {
+    gap: 3px;
+    padding: 8px 8px 12px;
+  }
+
+  .bxm .pf-page .cal-dows {
+    padding: 12px 8px 4px;
+  }
+
+  .bxm .pf-page .cal-dows span {
+    font-size: 10px;
+    letter-spacing: 0.04em;
+  }
+
+  .bxm .pf-page .cal-cell {
+    padding: 5px 4px 6px;
+  }
+
+  .bxm .pf-page .cal-cell .amt {
+    font-size: 11px;
+    letter-spacing: -0.01em;
+  }
+
+  .bxm .pf-page .cal-footnote {
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    padding: 16px;
+  }
+
+  .bxm .pf-page .cal-footnote > span:first-child {
+    flex: 1 1 100%;
+  }
+
+  .bxm .pf-page .cal-footnote .grow {
+    display: none;
+  }
+
+  .bxm .pf-page .cal-detail {
+    padding: 20px 16px;
+  }
+
+  .bxm .pf-page .cal-detail > div:first-child {
+    flex-wrap: wrap;
+    gap: 8px 16px !important;
+  }
+
+  .bxm .pf-page .cal-detail > div:first-child > div:first-child {
+    flex: 1 1 100% !important;
+    order: 3;
+  }
+
+  .bxm .pf-page .cal-detail > div:first-child > div:nth-child(2) {
+    margin-right: auto;
+  }
+
+  .bxm .pf-page .cal-detail > div:last-child {
+    gap: 20px !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+.bxm .pf-page .pf-col-pays {
+  white-space: nowrap;
+  width: 76px;
+}
+
+/* ==========================================================================
+   Investment page (/portfolio/:holdingId), design "investment"
+   ========================================================================== */
+
+.bxm .inv-page .inv-head .ph-sub {
+  margin-top: 10px;
+  max-width: none;
+}
+
+.bxm .inv-head-sub {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+
+.bxm .inv-page .inv-borrower {
+  color: var(--ink-2);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1.7;
+  margin: 0;
+}
+
+.bxm .inv-head-tags {
+  align-items: center;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.bxm .inv-head-tags .copy-id-btn {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink-3);
+  height: 22px;
+  min-width: 22px;
+  padding: 0;
+  width: 22px;
+}
+
+.bxm .inv-head-tags .copy-id-btn:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.bxm .inv-page > .inv-alert,
+.bxm .inv-page > .card,
+.bxm .inv-page > .inv-detail-grid {
+  margin-bottom: 28px;
+}
+
+.bxm .inv-page > :last-child {
+  margin-bottom: 0;
+}
+
+/* Late, default and other impaired states: red alert under the head */
+.bxm .inv-page .inv-alert {
+  background: #fff;
+}
+
+.bxm .inv-page .inv-alert-lead {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.bxm .inv-page .inv-alert-lead strong {
+  color: var(--bxm-signal);
+  font-weight: 600;
+}
+
+.bxm .inv-page .inv-alert p {
+  color: var(--ink);
+  margin-top: 2px;
+}
+
+/* Figures card: big numbers left and right, then key facts */
+.bxm .inv-page .inv-figures {
+  overflow: hidden;
+}
+
+.bxm .inv-page .inv-figures-top {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px 48px;
+  justify-content: space-between;
+  padding: 24px 24px 20px;
+}
+
+.bxm .inv-page .inv-fig-group {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 36px;
+}
+
+.bxm .inv-page .inv-fig {
+  display: flex;
+  flex-direction: column;
+  min-width: 150px;
+}
+
+.bxm .inv-page .inv-fig > strong {
+  color: var(--ink);
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+  order: 1;
+  white-space: nowrap;
+}
+
+.bxm .inv-page .inv-fig > strong .muted {
+  color: var(--ink-3);
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.bxm .inv-page .inv-fig > span {
+  color: var(--ink-3);
+  font-size: 14px;
+  line-height: 1.5;
+  margin-top: 2px;
+  order: 2;
+}
+
+.bxm .inv-page .inv-fig > small {
+  color: var(--ink-4);
+  font-size: 12px;
+  line-height: 1.45;
+  order: 3;
+}
+
+.bxm .inv-page .inv-fig-plus {
+  color: var(--ink-3);
+  display: inline-flex;
+  margin: 10px -16px 0;
+}
+
+.bxm .inv-page .inv-lifetime {
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 0 24px 20px;
+}
+
+.bxm .inv-page .inv-lifetime strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.bxm .inv-page .inv-facts {
+  border-top: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0 0 -1px;
+}
+
+.bxm .inv-page .inv-facts > div {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 8px 24px;
+}
+
+.bxm .inv-page .inv-facts dt {
+  color: var(--ink-3);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.bxm .inv-page .inv-facts dd {
+  color: var(--ink);
+  font-size: 13px;
+  margin: 0;
+  text-align: right;
+}
+
+/* Cards on the page */
+.bxm .inv-page .inv-card .card-head {
+  min-height: 52px;
+}
+
+.bxm .inv-page .inv-card-sub {
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.5;
+  margin-top: 2px;
+}
+
+.bxm .inv-page .inv-card-body {
+  padding: 24px;
+}
+
+.bxm .inv-page .inv-sell-body {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  justify-content: space-between;
+  padding: 20px 24px;
+}
+
+.bxm .inv-page .inv-sell-copy {
+  color: var(--ink-3);
+  flex: 1 1 320px;
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* Payments recorded + timeline */
+.bxm .inv-page .holding-v9-progress-toggle {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--ink);
+  font-size: 14px;
+  gap: 16px;
+  padding: 16px 24px 12px;
+}
+
+.bxm .inv-page .holding-v9-progress-toggle strong {
+  font-weight: 600;
+}
+
+.bxm .inv-page .holding-v9-progress-toggle > .inv-link {
+  border-bottom: 1px solid currentColor;
+  flex: none;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.bxm .inv-page .inv-progress-body {
+  padding: 0 24px 24px;
+}
+
+.bxm .inv-page .holding-v9-progress-bar {
+  background: var(--line);
+  border-radius: 0;
+  height: 3px;
+}
+
+.bxm .inv-page .holding-v9-progress-bar > span {
+  background: var(--ink);
+}
+
+.bxm .inv-page .holding-v9-timeline-wrap {
+  margin-top: 24px;
+}
+
+.bxm .inv-page .holding-v9-year-label,
+.bxm .inv-page .holding-v9-month-label {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-tag-track);
+}
+
+.bxm .inv-page .holding-v9-year-label {
+  color: var(--ink);
+  letter-spacing: 0;
+}
+
+.bxm .inv-page .holding-v9-payment-cell {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  color: var(--ink-2);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.bxm .inv-page .holding-v9-payment-cell.empty {
+  border-color: transparent;
+  padding: 0 2px;
+}
+
+.bxm .inv-page .holding-v9-payment-cell.paid {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+
+.bxm .inv-page .holding-v9-payment-cell.next {
+  border: 2px solid var(--ink);
+  color: var(--ink);
+}
+
+.bxm .inv-page .holding-v9-payment-cell.overdue {
+  background: var(--bxm-signal);
+  border-color: var(--bxm-signal);
+  color: #fff;
+}
+
+.bxm .inv-page .holding-v9-payment-cell.selected {
+  box-shadow: 0 0 0 2px #fff, 0 0 0 3px var(--ink);
+}
+
+.bxm .inv-page .holding-v9-legend {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.bxm .inv-page .holding-v9-legend i {
+  border: 1px solid var(--line);
+  border-radius: 0;
+}
+
+.bxm .inv-page .holding-v9-legend i.paid {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.bxm .inv-page .holding-v9-legend i.next {
+  border: 2px solid var(--ink);
+}
+
+.bxm .inv-page .holding-v9-legend i.overdue {
+  background: var(--bxm-signal);
+  border-color: var(--bxm-signal);
+}
+
+/* Selected payment and collateral */
+.bxm .inv-page .inv-detail-grid {
+  display: grid;
+  gap: 28px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.bxm .inv-page .inv-detail-grid > .card {
+  min-width: 0;
+}
+
+.bxm .inv-page .inv-payment-head strong {
+  color: var(--ink-3);
+  display: block;
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.bxm .inv-page .holding-v9-selected-total {
+  font-family: var(--font-sans);
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  margin: 0 0 14px;
+}
+
+.bxm .inv-page .holding-v9-selected-total .muted {
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.bxm .inv-page .holding-v9-split-bar {
+  background: var(--ink);
+  border-radius: 0;
+  height: 4px;
+  margin-bottom: 16px;
+}
+
+.bxm .inv-page .holding-v9-split-bar span {
+  background: var(--bxm-success);
+}
+
+.bxm .inv-page .holding-v9-note {
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.6;
+  margin-top: 14px;
+}
+
+.bxm .inv-page .holding-v9-collateral-copy {
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0 0 16px;
+}
+
+.bxm .inv-page .holding-v9-ltv-bar {
+  background: var(--line);
+  border-radius: 0;
+  height: 3px;
+}
+
+.bxm .inv-page .holding-v9-ltv-bar span {
+  background: var(--ink);
+}
+
+.bxm .inv-page .holding-v9-ltv-label {
+  color: var(--ink-3);
+  font-size: 13px;
+  margin-top: 10px;
+}
+
+.bxm .inv-page .holding-v9-ltv-label strong {
+  font-weight: 600;
+}
+
+.bxm .inv-page .holding-v9-originator {
+  border-left: 2px solid var(--ink);
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.6;
+  margin-top: 16px;
+  padding-left: 14px;
+}
+
+.bxm .inv-page .inv-note p {
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0 0 4px;
+}
+
+.bxm .inv-page .inv-note small {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+/* Your future schedule */
+.bxm .inv-page .inv-schedule .empty {
+  padding: 40px 24px;
+}
+
+.bxm .inv-page .schedule-totals th {
+  background: #fff;
+  border-top: 1px solid var(--ink);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 12px 16px;
+  text-align: left;
+}
+
+.bxm .inv-page .schedule-totals th.num {
+  text-align: right;
+}
+
+.bxm .inv-page .inv-missing .pf-empty-action {
+  display: flex;
+  justify-content: center;
+  padding: 0 24px 32px;
+}
+
+@media (max-width: 1080px) {
+  .bxm .inv-page .inv-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .bxm .inv-page .inv-detail-grid {
+    gap: 16px;
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 860px) {
+  .bxm .inv-page > .inv-alert,
+  .bxm .inv-page > .card,
+  .bxm .inv-page > .inv-detail-grid {
+    margin-bottom: 16px;
+  }
+}
+
+@media (max-width: 560px) {
+  .bxm .inv-page .inv-figures-top {
+    flex-direction: column;
+    gap: 16px;
+    padding: 20px 16px 16px;
+  }
+
+  .bxm .inv-page .inv-fig-group {
+    display: grid;
+    gap: 16px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .bxm .inv-page .inv-fig {
+    min-width: 0;
+  }
+
+  .bxm .inv-page .inv-fig > strong {
+    font-size: 22px;
+    white-space: normal;
+  }
+
+  .bxm .inv-page .inv-fig-plus {
+    display: none;
+  }
+
+  .bxm .inv-page .inv-lifetime {
+    padding: 0 16px 16px;
+  }
+
+  .bxm .inv-page .inv-facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .bxm .inv-page .inv-facts > div {
+    padding: 8px 16px;
+  }
+
+  .bxm .inv-page .card-head,
+  .bxm .inv-page .holding-v9-progress-toggle {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .bxm .inv-page .holding-v9-progress-toggle {
+    align-items: flex-start;
+  }
+
+  .bxm .inv-page .inv-progress-body,
+  .bxm .inv-page .inv-card-body {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .bxm .inv-page .inv-sell-body {
+    padding: 16px;
+  }
+
+  .bxm .inv-page .inv-sell-body .ui-tooltip-anchor,
+  .bxm .inv-page .inv-sell-body .btn {
+    width: 100%;
+  }
+
+  .bxm .inv-page .holding-v9-ltv-label {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+}
+
+@media (min-width: 861px) {
+  /* Line the page buttons up with the title, below the back link. */
+  .bxm .inv-page .inv-head .page-actions {
+    margin-top: 42px;
+  }
+}
+
+/* ==========================================================================
+   Secondary market, design "secondary"
+   ========================================================================== */
+
+.bxm .sm-page .sm-alerts {
+  margin-bottom: 24px;
+}
+
+.bxm .sm-page .sm-tabs {
+  margin-bottom: 24px;
+}
+
+.bxm .sm-page .sm-forsale {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.bxm .sm-page .sm-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  min-width: 0;
+}
+
+.bxm .sm-page .sm-card-head {
+  display: block;
+  padding: 16px 24px;
+}
+
+.bxm .sm-page .sm-card .sect {
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.35;
+  margin: 0 0 2px;
+}
+
+.bxm .sm-page .sm-card .sect-sub,
+.bxm .sm-page .sm-sell-note {
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 0;
+  max-width: 760px;
+}
+
+.bxm .sm-page .sm-sell-count {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* For-sale list: design list table with project tiles and Buy pills */
+.bxm .sm-page .sm-table {
+  margin: 0;
+  overflow-x: auto;
+}
+
+.bxm .sm-page .sm-thead,
+.bxm .sm-page .sm-row {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  padding-left: 24px;
+  padding-right: 24px;
+}
+
+.bxm .sm-page .sm-thead {
+  border-bottom: 1px solid var(--line);
+  letter-spacing: 0;
+  padding-bottom: 10px;
+  padding-top: 10px;
+  text-transform: none;
+}
+
+.bxm .sm-page .sm-thead > span {
+  color: var(--ink-3);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.bxm .sm-page .sm-row {
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+  min-height: 73px;
+  padding-bottom: 14px;
+  padding-top: 14px;
+  transition: background-color 0.15s ease;
+}
+
+.bxm .sm-page .sm-row:last-child {
+  border-bottom: 0;
+}
+
+.bxm .sm-page .sm-row:hover {
+  background: #f7f7f7;
+}
+
+.bxm .sm-page .sm-row:hover .sm-loan-title {
+  text-decoration: none;
+}
+
+.bxm .sm-page .sm-col-loan {
+  align-items: center;
+  display: flex;
+  flex: 1 1 auto;
+  gap: 16px;
+  min-width: 220px;
+  width: auto;
+}
+
+.bxm .sm-page .sm-thead .sm-col-loan {
+  display: block;
+}
+
+.bxm .sm-page .sm-loan-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.bxm .sm-page .sm-loan-title {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.35;
+}
+
+.bxm .sm-page .sm-loan-sub {
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.45;
+  margin-top: 3px;
+}
+
+.bxm .sm-page .sm-nonstandard {
+  color: var(--bxm-signal);
+  font-weight: 600;
+}
+
+.bxm .sm-page .sm-col-outstanding,
+.bxm .sm-page .sm-col-asking,
+.bxm .sm-page .sm-col-discount,
+.bxm .sm-page .sm-col-left,
+.bxm .sm-page .sm-col-cost,
+.bxm .sm-page .sm-col-cta {
+  flex: none;
+  text-align: right;
+}
+
+.bxm .sm-page .sm-col-outstanding {
+  font-size: 13px;
+  width: 112px;
+}
+
+.bxm .sm-page .sm-col-asking {
+  font-size: 13px;
+  font-weight: 600;
+  width: 112px;
+}
+
+.bxm .sm-page .sm-col-discount {
+  font-size: 13px;
+  width: 76px;
+}
+
+.bxm .sm-page .sm-col-discount.good {
+  color: var(--ink);
+}
+
+.bxm .sm-page .sm-col-left {
+  color: var(--ink-3);
+  font-size: 13px;
+  width: 84px;
+}
+
+.bxm .sm-page .sm-col-cost {
+  font-size: 13px;
+  font-weight: 600;
+  width: 120px;
+}
+
+.bxm .sm-page .sm-col-cta {
+  width: 56px;
+}
+
+.bxm .sm-page .sm-buy-pill {
+  align-items: center;
+  background: var(--ink);
+  border-radius: 999px;
+  color: #fff;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 600;
+  height: 30px;
+  justify-content: center;
+  letter-spacing: 0.02em;
+  padding: 0 14px;
+}
+
+.bxm .sm-page .sm-row:hover .sm-buy-pill {
+  background: var(--bxm-graphite);
+}
+
+.bxm .sm-page .sm-empty {
+  border: 0;
+  margin: 0;
+}
+
+/* Discount / par / premium: a bordered three-column band */
+.bxm .sm-page .sm-band {
+  background: #fff;
+  border: 0;
+  border-radius: 0;
+  margin: 0;
+}
+
+.bxm .sm-page .sm-band .cell {
+  padding: 24px;
+}
+
+.bxm .sm-page .sm-band .cell + .cell {
+  border-left: 1px solid var(--line);
+}
+
+.bxm .sm-page .sm-band .microlabel {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--bxm-label-track);
+  margin-bottom: 12px;
+  text-transform: uppercase;
+}
+
+.bxm .sm-page .sm-band-price {
+  color: var(--ink);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  margin-bottom: 4px;
+}
+
+.bxm .sm-page .sm-band-yield {
+  color: var(--ink-3);
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 12px;
+}
+
+.bxm .sm-page .sm-band-copy {
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* Selling your own: the caution is an alert */
+.bxm .sm-page .sm-selling-body {
+  padding: 24px;
+}
+
+.bxm .sm-page .sm-caution-card {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--ink);
+  border-radius: 0;
+  display: grid;
+  gap: 12px 14px;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  margin: 0 0 12px;
+  padding: 16px 20px;
+}
+
+.bxm .sm-page .sm-caution-card .b-ico {
+  align-self: flex-start;
+}
+
+.bxm .sm-page .sm-caution-copy {
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.bxm .sm-page .sm-caution-lead {
+  font-weight: 600;
+  margin-right: 4px;
+}
+
+.bxm .sm-page .sm-choose-btn {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  flex: none;
+  font-size: 13px;
+  height: 36px;
+  padding: 0 18px;
+}
+
+.bxm .sm-page .sm-choose-btn:hover {
+  background: var(--bxm-paper);
+}
+
+.bxm .sm-page .sm-anon-note {
+  color: var(--ink-3);
+  font-size: 12px;
+  margin: 0;
+}
+
+/* Sell a holding and activity tables: inside a card */
+.bxm .sm-page .portal-data-surface {
+  background: #fff;
+  border: 1px solid var(--line);
+}
+
+.bxm .sm-page .portal-table-empty {
+  background: #fff;
+}
+
+.bxm .sm-page table.portal-data-table th:first-child,
+.bxm .sm-page table.portal-data-table td:first-child {
+  padding-left: 24px;
+}
+
+.bxm .sm-page table.portal-data-table th:last-child,
+.bxm .sm-page table.portal-data-table td:last-child {
+  padding-right: 24px;
+}
+
+.bxm .sm-page table.portal-data-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.bxm .sm-page .sm-holding-cell {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  min-width: 0;
+}
+
+.bxm .sm-page .sm-holding-cell .col-strong {
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
+
+.bxm .sm-page .secondary-sell-table .sub {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.bxm .sm-page .sm-tab-panel > .col > .card .section-head {
+  margin-bottom: 12px;
+}
+
+.bxm .sm-page .sm-tab-panel > .col > .card .section-head h2 {
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
+
+.bxm .sm-page .sm-tab-panel > .col {
+  gap: 28px;
+}
+
+.bxm .sm-page .sm-tab-panel .ph-sub {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+@media (max-width: 860px) {
+  .bxm .sm-page .sm-forsale {
+    gap: 16px;
+  }
+
+  .bxm .sm-page .sm-thead,
+  .bxm .sm-page .sm-row {
+    min-width: 820px;
+  }
+
+  .bxm .sm-page .sm-band {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .bxm .sm-page .sm-band .cell + .cell {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .bxm .sm-page .sm-caution-card {
+    grid-template-columns: 18px minmax(0, 1fr);
+  }
+
+  .bxm .sm-page .sm-caution-card .sm-choose-btn {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+
+@media (max-width: 560px) {
+  .bxm .sm-page .sm-card-head,
+  .bxm .sm-page .sm-selling-body {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  /* For-sale list on a phone: each listing becomes a small block with the
+     column names written next to the figures. */
+  .bxm .sm-page .sm-thead {
+    display: none;
+  }
+
+  .bxm .sm-page .sm-row {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    min-width: 0;
+    padding: 16px;
+  }
+
+  .bxm .sm-page .sm-row .sm-col-loan {
+    grid-column: 1 / -1;
+    min-width: 0;
+  }
+
+  .bxm .sm-page .sm-row > [data-label] {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    text-align: left;
+    width: auto;
+  }
+
+  .bxm .sm-page .sm-row > [data-label]::before {
+    color: var(--ink-3);
+    content: attr(data-label);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+
+  .bxm .sm-page .sm-row .sm-col-cta {
+    align-self: end;
+    text-align: right;
+    width: auto;
+  }
+
+  .bxm .sm-page .sm-row .inv-tile,
+  .bxm .sm-page .sm-holding-cell .inv-tile {
+    display: none;
+  }
+
+  .bxm .sm-page .sm-band .cell {
+    padding: 20px 16px;
+  }
+
+  .bxm .sm-page table.portal-data-table th:first-child,
+  .bxm .sm-page table.portal-data-table td:first-child {
+    padding-left: 16px;
+  }
+
+  .bxm .sm-page table.portal-data-table th:last-child,
+  .bxm .sm-page table.portal-data-table td:last-child {
+    padding-right: 16px;
+  }
+}
+
+/* ==========================================================================
+   Dialogs of this area (buy, list, cancel listing) and their schedule panels
+   ========================================================================== */
+
+.bxm .holding-schedule .card.section {
+  margin-top: 0;
+}
+
+.bxm .holding-schedule .tabs {
+  margin-bottom: 0;
+}
+
+.bxm .holding-schedule-panel {
+  padding-top: 20px;
+}
+
+.bxm .holding-schedule .section-head h2 {
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
+
+.bxm .holding-schedule .section-head .ph-sub {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.bxm .holding-schedule .schedule-totals th,
+.bxm .sm-page .modal .schedule-totals th {
+  background: #fff;
+  border-top: 1px solid var(--ink);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 12px 16px;
+}
+
+.bxm .sm-page .modal textarea.textarea {
+  border: 1px solid #8a8a8a;
+  border-radius: 20px;
+  color: var(--ink-2);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  padding: 12px 18px;
+  resize: vertical;
+  width: 100%;
+}
+
+.bxm .sm-page .modal textarea.textarea:focus {
+  border-color: var(--ink);
+  outline: none;
+}
+
+.bxm .inv-page .holding-v9-schedule-table td,
+.bxm .inv-page .holding-v9-schedule-table th {
+  white-space: nowrap;
+}
+
+@media (max-width: 560px) {
+  .bxm .sm-page .modal .grid-4,
+  .bxm .sm-page .modal .holding-schedule .grid-3 {
+    gap: 12px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .bxm .sm-page .modal .grid-4 > .card-pad,
+  .bxm .sm-page .modal .holding-schedule .grid-3 > .card-pad {
+    padding: 16px;
+  }
+
+  .bxm .sm-page .modal .grid-4 .stat-value,
+  .bxm .sm-page .modal .holding-schedule .grid-3 .stat-value {
+    font-size: 18px;
+  }
+
+  .bxm .sm-page .modal .grid-4 .stat-label,
+  .bxm .sm-page .modal .holding-schedule .grid-3 .stat-label {
+    letter-spacing: 0.12em;
+  }
+}

@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
   AccountAccessChangeRequestReasonCodeEnum,
@@ -140,6 +141,7 @@ import {
   type V1EntitiesAdminBorrowersListKybStatus as BorrowerListKybStatus,
   type V1LoansAdminLoansListStatus as LoanListStatus
 } from "../api/generated/banxumApi";
+import { ApiClientError } from "../api/client/httpClient";
 import { writeReadonlyImpersonation } from "../api/client/impersonation";
 import { isFixturePreview } from "../investorPortal/data";
 import { formatDate, formatDateTime, formatMoneyMinor, formatRateBps } from "../investorPortal/format";
@@ -147,8 +149,12 @@ import { Banner, Button, Card, Chip, Empty, Field, Modal, Money, Tooltip, type T
 import { adminFormDefaults } from "./adminFixtures";
 import { StoryEditor } from "./StoryEditor";
 import { emptyStory, type StoryDocument } from "../investorPortal/story";
+import { useAdminParam, useAdminSegments } from "./adminRoute";
 import {
   isWithdrawalQueueItem,
+  taskTypeLabel,
+  uniqueQueueItems,
+  useAdminWithdrawalHistoryData,
   useAuditEventsData,
   useAdminBorrowerLookupData,
   useAdminDocumentTemplateVersionLookupData,
@@ -168,6 +174,7 @@ import {
   useFxRealizedSettlementReportData,
   useInvestorBalanceSummaryData,
   useKycManualReviewsData,
+  useAdminLoanData,
   useLoansData
 } from "./data";
 import { useAdminBusinessDate } from "./adminBusinessDate";
@@ -1080,7 +1087,7 @@ function SelectInput<T extends string>({
 }) {
   return (
     <Field hint={hint} label={label}>
-      <select onChange={(event) => onChange(event.target.value as T)} value={value}>
+      <select aria-label={label} onChange={(event) => onChange(event.target.value as T)} value={value}>
         {options.map((option) => (
           <option key={option} value={option}>
             {optionLabel(option)}
@@ -1111,6 +1118,7 @@ function TextAreaInput({
   return (
     <Field hint={hint} label={label}>
       <textarea
+        aria-label={label}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         required={required}
@@ -1301,18 +1309,18 @@ function UnsupportedRemoveNote({ label }: { label: string }) {
 export function CompliancePanel() {
   const kycQuery = useKycManualReviewsData();
   const cases = useMemo(() => kycQuery.data ?? [], [kycQuery.data]);
-  const [selectedCaseId, setSelectedCaseId] = useState("");
-  const [page, setPage] = useState(0);
+  // The selected case and page live in the URL (?case=<id>&page=2).
+  const [caseParam, setSelectedCaseId] = useAdminParam("case");
+  const selectedCaseId = caseParam || cases[0]?.id || "";
+  const [pageParam, setPageParam] = useAdminParam("page");
   const pageSize = 10;
-
-  useEffect(() => {
-    if (!selectedCaseId && cases[0]) setSelectedCaseId(cases[0].id);
-  }, [cases, selectedCaseId]);
-
   const pageCount = Math.max(1, Math.ceil(cases.length / pageSize));
-  useEffect(() => {
-    if (page > pageCount - 1) setPage(0);
-  }, [page, pageCount]);
+  const requestedPage = Math.max(0, intValue(pageParam, 1) - 1);
+  const page = requestedPage > pageCount - 1 ? 0 : requestedPage;
+  const setPage = (update: (current: number) => number) => {
+    const next = update(page);
+    setPageParam(next > 0 ? String(next + 1) : "");
+  };
   const pageCases = cases.slice(page * pageSize, page * pageSize + pageSize);
 
   return (
@@ -1624,14 +1632,15 @@ function FinancePendingTasksTable({
   const dashboardQuery = useAdminOperationsDashboardData({ due_window_days: 7, limit: 50 });
   const tasks = taskQuery.data ?? [];
   const queues = dashboardQuery.data?.queues;
+  // Forced withdrawals appear in both withdrawal queues; list each one once.
   const queueItems: AdminDashboardQueueItem[] = queues
-    ? [
+    ? uniqueQueueItems([
         ...queues.bank_operations_pending,
         ...queues.withdrawals_requested,
         ...queues.forced_withdrawals_requested,
         ...queues.fx_settlement_deltas,
         ...queues.reconciliation_breaks
-      ]
+      ])
     : [];
 
   function selectWithdrawal(item: AdminDashboardQueueItem) {
@@ -1685,7 +1694,7 @@ function FinancePendingTasksTable({
                 <tr key={`task-${task.id}`}>
                   <td>
                     <strong>{task.title}</strong>
-                    <span className="mono muted">{labelize(task.task_type)}</span>
+                    <span className="mono muted">{taskTypeLabel(task.task_type)}</span>
                   </td>
                   <td><Chip status={task.status}>{labelize(task.status)}</Chip></td>
                   <td><Chip dot={false} tone={task.priority === "high" || task.priority === "urgent" ? "warn" : "neutral"}>{labelize(task.priority)}</Chip></td>
@@ -1726,19 +1735,24 @@ function FinancePendingTasksTable({
 }
 
 export function FinanceOpsPanel() {
-  const [selectedWithdrawalId, setSelectedWithdrawalId] = useState("");
+  const queryClient = useQueryClient();
+  const [selectedWithdrawalId, setSelectedWithdrawalId] = useAdminParam("withdrawal");
   return (
     <div className="admin-content">
       <PreviewNotice>Finance forms use dummy IDs in preview. Live submissions post to the ledger, FX and reconciliation services.</PreviewNotice>
       <FinancePendingTasksTable onSelectWithdrawal={setSelectedWithdrawalId} />
+      <WithdrawalHistoryCard />
       <OriginatorSettlementQueue />
       <section className="admin-module-grid">
         <DepositForm />
-        <PayoutInstructionForm />
+        <IbanVerificationForm />
         <BalanceSummaryLookup />
         <BalanceAgeingScanForm />
         <ReconciliationSnapshotForm />
-        <WithdrawalOpsForm initialWithdrawalId={selectedWithdrawalId} />
+        <WithdrawalOpsForm
+          initialWithdrawalId={selectedWithdrawalId}
+          onCompleted={() => void queryClient.invalidateQueries()}
+        />
         <BorrowerDisbursementForm />
         <FxAdminOps />
       </section>
@@ -1838,6 +1852,29 @@ function OriginatorSettlementQueue() {
   );
 }
 
+type DepositMovement = Pick<
+  LenderDepositDeclareRequest,
+  "investor_user_id" | "amount_minor" | "currency" | "value_date" | "collection_account_identifier" | "payer_account_identifier"
+>;
+
+// Same bank-movement key the ledger uses for duplicate detection.
+function depositMovementKey(movement: DepositMovement) {
+  return [
+    movement.investor_user_id,
+    movement.amount_minor,
+    movement.currency.trim().toUpperCase(),
+    movement.value_date,
+    movement.collection_account_identifier.trim().toUpperCase(),
+    movement.payer_account_identifier.replace(/\s/g, "").toUpperCase()
+  ].join("|");
+}
+
+function duplicateDepositConflict(error: unknown): boolean {
+  if (!(error instanceof ApiClientError) || error.status !== 409) return false;
+  const payload = error.payload as { code?: unknown } | null | undefined;
+  return payload?.code === "duplicate_lender_deposit";
+}
+
 function DepositForm() {
   const businessDate = useAdminBusinessDate();
   const [investorUserId, setInvestorUserId] = useState(adminFormDefaults.investorUserId);
@@ -1850,11 +1887,35 @@ function DepositForm() {
   const [payerName, setPayerName] = useState("");
   const [sourceIban, setSourceIban] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
+  const [duplicateMovementKey, setDuplicateMovementKey] = useState<string | null>(null);
+  const [confirmRepeat, setConfirmRepeat] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | undefined>();
   const mutation = useV1LedgerAdminLenderDepositsCreate({
-    mutation: { onSuccess: () => setSuccess("Deposit was ledgered and its source IBAN was added as a verified payout account.") }
+    mutation: {
+      onSuccess: () => {
+        setDuplicateMovementKey(null);
+        setConfirmRepeat(false);
+        setSuccess("Deposit was ledgered and its source IBAN was added as a verified payout account.");
+      },
+      onError: (error, variables) => {
+        setConfirmRepeat(false);
+        setDuplicateMovementKey(duplicateDepositConflict(error) ? depositMovementKey(variables.data) : null);
+      }
+    }
   });
+  // The repeat confirmation applies only to the exact movement the ledger rejected.
+  const duplicatePending =
+    duplicateMovementKey !== null &&
+    duplicateMovementKey ===
+      depositMovementKey({
+        investor_user_id: investorUserId,
+        amount_minor: intValue(amountMinor),
+        currency,
+        value_date: valueDate,
+        collection_account_identifier: collectionAccount,
+        payer_account_identifier: sourceIban
+      });
 
   function updateInvestorQuery(value: string) {
     setInvestorQuery(compactInvestorReference(value) || value);
@@ -1883,6 +1944,7 @@ function DepositForm() {
       payer_name: payerName || undefined,
       payer_account_identifier: sourceIban,
       payment_reference: paymentReference || undefined,
+      confirm_repeat_deposit: duplicatePending && confirmRepeat ? true : undefined,
       idempotency_key: idempotencyKey("deposit")
     };
     if (isFixturePreview) {
@@ -1924,13 +1986,27 @@ function DepositForm() {
           />
           <TextInput label="Payment reference" onChange={updatePaymentReference} value={paymentReference} />
         </FieldGrid>
-        <ActionFooter mutation={mutation} previewMessage={preview} successMessage={success} submitLabel="Declare deposit" />
+        {duplicatePending ? (
+          <Banner tone="warn" title="Possible duplicate deposit">
+            {errorMessage(mutation.error)}
+            <label className="check-row" style={{ marginTop: 10 }}>
+              <input checked={confirmRepeat} onChange={(event) => setConfirmRepeat(event.target.checked)} type="checkbox" />
+              The investor sent a second, separate transfer with these details. Credit it again.
+            </label>
+          </Banner>
+        ) : null}
+        <ActionFooter
+          mutation={{ isPending: mutation.isPending, error: duplicatePending ? null : mutation.error }}
+          previewMessage={preview}
+          successMessage={success}
+          submitLabel={duplicatePending && confirmRepeat ? "Declare repeat deposit" : "Declare deposit"}
+        />
       </form>
     </Card>
   );
 }
 
-function PayoutInstructionForm() {
+function IbanVerificationForm() {
   const [investorUserId, setInvestorUserId] = useState(adminFormDefaults.investorUserId);
   const [investorQuery, setInvestorQuery] = useState(adminFormDefaults.investorUserId);
   const [investorMatches, setInvestorMatches] = useState<AdminLookupResult[]>([]);
@@ -1969,7 +2045,7 @@ function PayoutInstructionForm() {
 
   return (
     <Card padded>
-      <h2>Payout instruction</h2>
+      <h2>IBAN verification</h2>
       <p>Verify an additional IBAN used for withdrawals and day-60 forced returns. Existing verified IBANs remain usable.</p>
       <form className="admin-action-form" onSubmit={submit}>
         <FieldGrid>
@@ -1989,7 +2065,7 @@ function PayoutInstructionForm() {
         </FieldGrid>
         {ibanCollisionCount > 1 ? (
           <Banner tone="warn" title="IBAN matches multiple investors">
-            Review the matching investors before saving this payout instruction.
+            Review the matching investors before saving this IBAN verification.
           </Banner>
         ) : null}
         <label className="check-row">
@@ -1997,7 +2073,7 @@ function PayoutInstructionForm() {
           IBAN is usable and verified for this investor.
         </label>
         <TextAreaInput label="Notes" onChange={setNotes} value={notes} />
-        <ActionFooter mutation={mutation} previewMessage={preview} successMessage={success} submitLabel="Register payout instruction" />
+        <ActionFooter mutation={mutation} previewMessage={preview} successMessage={success} submitLabel="Save IBAN verification" />
       </form>
     </Card>
   );
@@ -2132,12 +2208,145 @@ function ReconciliationSnapshotForm() {
   );
 }
 
-function WithdrawalOpsForm({ initialWithdrawalId = "" }: { initialWithdrawalId?: string }) {
+function WithdrawalOpsForm({
+  initialWithdrawalId = "",
+  onCompleted
+}: {
+  initialWithdrawalId?: string;
+  onCompleted?: () => void;
+}) {
   return (
     <Card id="admin-withdrawal-execution" padded>
       <h2>Withdrawal execution</h2>
       <p>Finalize executed withdrawals or cancel requested withdrawals before bank execution.</p>
-      <WithdrawalExecutionForm initialWithdrawalId={initialWithdrawalId} />
+      <WithdrawalExecutionForm initialWithdrawalId={initialWithdrawalId} onCompleted={onCompleted} />
+    </Card>
+  );
+}
+
+const withdrawalHistoryPageSize = 25;
+
+/** Finalized and cancelled withdrawals: they leave the live queue but stay visible here. */
+function WithdrawalHistoryCard() {
+  const [status, setStatus] = useAdminParam("history_status");
+  const [currency, setCurrency] = useAdminParam("history_currency");
+  const [search, setSearch] = useAdminParam("history_q");
+  const [pageParam, setPageParam] = useAdminParam("history_page");
+  const page = Math.max(0, intValue(pageParam, 1) - 1);
+  const debouncedSearch = useDebouncedValue(search);
+  const historyQuery = useAdminWithdrawalHistoryData({
+    status: (status || undefined) as "finalized" | "cancelled" | undefined,
+    currency: currency || undefined,
+    q: debouncedSearch || undefined,
+    limit: withdrawalHistoryPageSize,
+    offset: page * withdrawalHistoryPageSize
+  });
+  const rows = historyQuery.data?.results ?? [];
+  const total = historyQuery.data?.count ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / withdrawalHistoryPageSize));
+
+  function setFilter(update: (value: string) => void) {
+    return (value: string) => {
+      update(value);
+      setPageParam("");
+    };
+  }
+
+  function goToPage(nextPage: number) {
+    setPageParam(nextPage > 0 ? String(nextPage + 1) : "");
+  }
+
+  return (
+    <Card padded>
+      <EntityTableHeader
+        action={<Button icon="refresh" onClick={() => refetchLive(historyQuery.refetch)} size="sm">Refresh</Button>}
+        description="Finalized and cancelled investor withdrawals, newest first. Requested withdrawals stay in the pending list above."
+        filters={
+          <>
+            <select aria-label="Filter withdrawal history by status" onChange={(event) => setFilter(setStatus)(event.target.value)} value={status}>
+              <option value="">Finalized and cancelled</option>
+              <option value="finalized">Finalized</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+            <select aria-label="Filter withdrawal history by currency" onChange={(event) => setFilter(setCurrency)(event.target.value)} value={currency}>
+              <option value="">All currencies</option>
+              <option value="CHF">CHF</option>
+              <option value="EUR">EUR</option>
+            </select>
+          </>
+        }
+        onSearch={setFilter(setSearch)}
+        search={search}
+        searchPlaceholder="Investor, reference, IBAN, withdrawal ID"
+        title="Withdrawals history"
+      />
+      {historyQuery.error ? <Banner tone="bad" title="Could not load withdrawal history">{errorMessage(historyQuery.error)}</Banner> : null}
+      {rows.length ? (
+        <>
+          <div className="table-wrap admin-table-wrap">
+            <table aria-label="Withdrawals history" className="admin-table">
+              <thead>
+                <tr>
+                  <th>Closed</th>
+                  <th>Investor</th>
+                  <th>Status</th>
+                  <th>Amount</th>
+                  <th>Payout IBAN</th>
+                  <th>Requested</th>
+                  <th>Bank reference / reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.id}>
+                    <td className="mono">{row.closed_at ? formatDateTime(row.closed_at) : "-"}</td>
+                    <td>
+                      <div className="col gap-4">
+                        <strong>{row.investor_name || row.investor_email || row.investor_user_id}</strong>
+                        <span className="mono muted">{row.investor_reference || row.investor_email || "-"}</span>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="row gap-4 wrap">
+                        <Chip status={row.status} tone={row.status === "finalized" ? "ok" : "neutral"}>{labelize(row.status)}</Chip>
+                        {row.is_forced ? <Chip dot={false} tone="warn">Forced return</Chip> : null}
+                      </div>
+                    </td>
+                    <td><Money amountMinor={row.amount_minor} currency={row.currency} /></td>
+                    <td>
+                      <div className="col gap-4">
+                        <span>{row.destination_account_name || "-"}</span>
+                        <span className="mono muted">{row.destination_iban}</span>
+                      </div>
+                    </td>
+                    <td className="mono">{formatDateTime(row.requested_at)}</td>
+                    <td>
+                      <div className="col gap-4">
+                        <span>{row.status === "cancelled" ? row.cancellation_reason || "-" : row.bank_reference || "-"}</span>
+                        <span className="mono muted">{row.id}</span>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="admin-pager">
+            <span className="muted">
+              Showing {page * withdrawalHistoryPageSize + 1}&ndash;{Math.min(total, (page + 1) * withdrawalHistoryPageSize)} of {total}
+            </span>
+            <div className="row gap-8">
+              <Button disabled={page === 0} onClick={() => goToPage(page - 1)} size="sm">Previous</Button>
+              <span className="muted">Page {page + 1} of {pageCount}</span>
+              <Button disabled={page >= pageCount - 1} onClick={() => goToPage(page + 1)} size="sm">Next</Button>
+            </div>
+          </div>
+        </>
+      ) : (
+        <Empty icon="clock" title={status || currency || search ? "No withdrawals match these filters" : "No closed withdrawals yet"}>
+          Finalized and cancelled withdrawals appear here.
+        </Empty>
+      )}
     </Card>
   );
 }
@@ -2432,11 +2641,17 @@ function FxAdminOps() {
 }
 
 export function LoansPanel() {
-  const [borrowerSearch, setBorrowerSearch] = useState("");
-  const [originatorSearch, setOriginatorSearch] = useState("");
-  const [borrowerKybStatus, setBorrowerKybStatus] = useState<BorrowerListKybStatus | "">("");
-  const [loanSearch, setLoanSearch] = useState("");
-  const [loanStatus, setLoanStatus] = useState<LoanListStatus | "">("");
+  // Filters, the selected rows and the open Manage view live in the URL:
+  // /admin/loans/<loanId>/manage/<action>?q=...&status=...&borrower=...
+  const [borrowerSearch, setBorrowerSearch] = useAdminParam("borrower_q");
+  const [originatorSearch, setOriginatorSearch] = useAdminParam("originator_q");
+  const [borrowerKybParam, setBorrowerKybStatus] = useAdminParam("kyb");
+  const borrowerKybStatus = (Object.values(BorrowerKybStatusEnum) as string[]).includes(borrowerKybParam)
+    ? (borrowerKybParam as BorrowerListKybStatus)
+    : "";
+  const [loanSearch, setLoanSearch] = useAdminParam("q");
+  const [loanStatusParam, setLoanStatus] = useAdminParam("status");
+  const loanStatus = (loanStatusParam || "") as LoanListStatus | "";
   const debouncedBorrowerSearch = useDebouncedValue(borrowerSearch);
   const debouncedOriginatorSearch = useDebouncedValue(originatorSearch);
   const debouncedLoanSearch = useDebouncedValue(loanSearch);
@@ -2458,9 +2673,27 @@ export function LoansPanel() {
   const loans = useMemo(() => loansQuery.data ?? [], [loansQuery.data]);
   const originators = useMemo(() => originatorsQuery.data ?? [], [originatorsQuery.data]);
   const filteredOriginators = originators;
-  const [selectedBorrowerId, setSelectedBorrowerId] = useState("");
-  const [selectedLoanId, setSelectedLoanId] = useState("");
-  const [managingLoan, setManagingLoan] = useState<Loan | null>(null);
+  const [borrowerParam, setSelectedBorrowerId] = useAdminParam("borrower");
+  const [loanParam, setSelectedLoanId] = useAdminParam("loan");
+  const selectedBorrowerId = borrowerParam || borrowers[0]?.id || "";
+  const selectedLoanId = loanParam || loans[0]?.id || "";
+  const [loanSegments, setLoanSegments] = useAdminSegments("loans");
+  const managingLoanId = loanSegments[1] === "manage" ? loanSegments[0] ?? "" : "";
+  const manageAction = (loanSegments[2] ?? null) as ManageLoanActionId | null;
+  // A reloaded Manage link may point at a loan outside the current filters.
+  const managedLoanLookup = useAdminLoanData(
+    managingLoanId,
+    Boolean(managingLoanId) && !loans.some((loan) => loan.id === managingLoanId) && !loansQuery.isFetching
+  );
+  const managingLoan =
+    loans.find((loan) => loan.id === managingLoanId)
+    ?? (managedLoanLookup.data?.id === managingLoanId ? managedLoanLookup.data : null);
+  const openManage = (loanId: string | null, action: ManageLoanActionId | null = null) =>
+    setLoanSegments(loanId ? [loanId, "manage", ...(action ? [action] : [])] : []);
+  const refetchManagedLoan = () => {
+    refetchLive(loansQuery.refetch);
+    if (managingLoanId && !loans.some((loan) => loan.id === managingLoanId)) refetchLive(managedLoanLookup.refetch);
+  };
   const [showBorrowerCreate, setShowBorrowerCreate] = useState(false);
   const [showLoanCreate, setShowLoanCreate] = useState(false);
   const [showOriginatorCreate, setShowOriginatorCreate] = useState(false);
@@ -2478,14 +2711,6 @@ export function LoansPanel() {
     }
     return [...totals.entries()];
   }, [loans]);
-
-  useEffect(() => {
-    if (!selectedBorrowerId && borrowers[0]) setSelectedBorrowerId(borrowers[0].id);
-  }, [borrowers, selectedBorrowerId]);
-
-  useEffect(() => {
-    if (!selectedLoanId && loans[0]) setSelectedLoanId(loans[0].id);
-  }, [loans, selectedLoanId]);
 
   return (
     <div className="admin-content">
@@ -2714,7 +2939,7 @@ export function LoansPanel() {
                             variant="primary"
                             onClick={() => {
                               setSelectedLoanId(loan.id);
-                              setManagingLoan(loan);
+                              openManage(loan.id);
                             }}
                           >
                             Manage
@@ -2745,16 +2970,18 @@ export function LoansPanel() {
       {managingLoan ? (
         managingLoan.product_type === "originator_claim" ? (
           <OriginatorLoanManageModal
-            loan={loans.find((item) => item.id === managingLoan.id) ?? managingLoan}
+            loan={managingLoan}
             originators={originators}
-            onChanged={() => refetchLive(loansQuery.refetch)}
-            onClose={() => setManagingLoan(null)}
+            onChanged={refetchManagedLoan}
+            onClose={() => openManage(null)}
           />
         ) : (
           <ManageLoanModal
-            loan={loans.find((item) => item.id === managingLoan.id) ?? managingLoan}
-            onChanged={() => refetchLive(loansQuery.refetch)}
-            onClose={() => setManagingLoan(null)}
+            action={manageAction}
+            loan={managingLoan}
+            onActionChange={(action) => openManage(managingLoan.id, action)}
+            onChanged={refetchManagedLoan}
+            onClose={() => openManage(null)}
           />
         )
       ) : null}
@@ -3870,6 +4097,36 @@ function RefinancingFields({
   );
 }
 
+/** Interest-only months sent with a direct loan: only "interest only then amortizing" uses a chosen value. */
+function interestOnlyMonthsPayload(repaymentType: LoanRepaymentType, value: string) {
+  return repaymentType === RepaymentTypeEnum.interest_only_then_amortizing ? intValue(value) : 0;
+}
+
+function InterestOnlyMonthsInput({
+  repaymentType,
+  termMonths,
+  value,
+  onChange
+}: {
+  repaymentType: LoanRepaymentType;
+  termMonths: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  if (repaymentType !== RepaymentTypeEnum.interest_only_then_amortizing) return null;
+  const term = intValue(termMonths);
+  return (
+    <TextInput
+      hint={term > 1 ? `Months with interest only before amortizing: 1 to ${term - 1}.` : "Months with interest only before amortizing: at least 1 and less than the term."}
+      label="Interest-only months"
+      onChange={onChange}
+      required
+      type="number"
+      value={value}
+    />
+  );
+}
+
 function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: string; onCreated?: () => void }) {
   const [borrowerId, setBorrowerId] = useState(defaultBorrowerId);
   const [borrowerQuery, setBorrowerQuery] = useState(defaultBorrowerId);
@@ -3881,6 +4138,7 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
   const [termMonths, setTermMonths] = useState("12");
   const [purpose, setPurpose] = useState<LoanPurpose>(PurposeEnum.bridge_financing);
   const [repaymentType, setRepaymentType] = useState<LoanRepaymentType>(RepaymentTypeEnum.equal_installments);
+  const [interestOnlyMonths, setInterestOnlyMonths] = useState("");
   const [collateralType, setCollateralType] = useState<LoanCollateralType>(CollateralTypeEnum.real_estate);
   const [collateralValue, setCollateralValue] = useState(isFixturePreview ? "160000000" : "");
   const [riskRating, setRiskRating] = useState<LoanRiskRating>(RiskRatingEnum.BBB);
@@ -3916,6 +4174,7 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
       interest_rate_bps: intValue(rateBps),
       term_months: intValue(termMonths),
       repayment_type: repaymentType,
+      interest_only_months: interestOnlyMonthsPayload(repaymentType, interestOnlyMonths),
       loan_start_date: loanStartDate || undefined,
       funding_deadline: fundingDeadline || undefined,
       collateral_type: collateralType,
@@ -3953,6 +4212,7 @@ function LoanCreateForm({ defaultBorrowerId, onCreated }: { defaultBorrowerId: s
           <TextInput label="Term months" onChange={setTermMonths} required value={termMonths} />
           <SelectInput label="Purpose" onChange={setPurpose} options={Object.values(PurposeEnum)} value={purpose} />
           <SelectInput label="Repayment type" onChange={setRepaymentType} options={Object.values(RepaymentTypeEnum)} value={repaymentType} />
+          <InterestOnlyMonthsInput onChange={setInterestOnlyMonths} repaymentType={repaymentType} termMonths={termMonths} value={interestOnlyMonths} />
           <SelectInput label="Collateral type" onChange={setCollateralType} options={Object.values(CollateralTypeEnum)} value={collateralType} />
           <MoneyMinorInput currency={currency} label="Collateral value minor" onChange={setCollateralValue} required value={collateralValue} />
           <SelectInput label="Risk rating" onChange={setRiskRating} options={Object.values(RiskRatingEnum)} value={riskRating} />
@@ -4006,6 +4266,9 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
   const [termMonths, setTermMonths] = useState(String(loan.term_months));
   const [purpose, setPurpose] = useState<LoanPurpose>(loan.purpose as LoanPurpose);
   const [repaymentType, setRepaymentType] = useState<LoanRepaymentType>(loan.repayment_type as LoanRepaymentType);
+  const [interestOnlyMonths, setInterestOnlyMonths] = useState(
+    loan.repayment_type === RepaymentTypeEnum.interest_only_then_amortizing ? String(loan.interest_only_months) : ""
+  );
   const [collateralType, setCollateralType] = useState<LoanCollateralType>(loan.collateral_type as LoanCollateralType);
   const [collateralValue, setCollateralValue] = useState(String(loan.collateral_value_minor));
   const [riskRating, setRiskRating] = useState<LoanRiskRating>(loan.risk_rating as LoanRiskRating);
@@ -4048,6 +4311,12 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
       interest_rate_bps: intValue(rateBps),
       term_months: intValue(termMonths),
       repayment_type: repaymentType,
+      // Leave the stored value alone unless this type uses it or a stale value must be cleared.
+      ...(repaymentType === RepaymentTypeEnum.interest_only_then_amortizing || (
+        repaymentType !== RepaymentTypeEnum.interest_only_then_bullet && loan.interest_only_months !== 0
+      )
+        ? { interest_only_months: interestOnlyMonthsPayload(repaymentType, interestOnlyMonths) }
+        : {}),
       loan_start_date: loanStartDate,
       funding_deadline: fundingDeadline || undefined,
       ...(loan.status === "draft"
@@ -4101,6 +4370,7 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
           <TextInput label="Term months" onChange={setTermMonths} required value={termMonths} />
           <SelectInput label="Purpose" onChange={setPurpose} options={Object.values(PurposeEnum)} value={purpose} />
           <SelectInput label="Repayment type" onChange={setRepaymentType} options={Object.values(RepaymentTypeEnum)} value={repaymentType} />
+          <InterestOnlyMonthsInput onChange={setInterestOnlyMonths} repaymentType={repaymentType} termMonths={termMonths} value={interestOnlyMonths} />
           <SelectInput label="Collateral type" onChange={setCollateralType} options={Object.values(CollateralTypeEnum)} value={collateralType} />
           <MoneyMinorInput currency={loan.currency} label="Collateral value minor" onChange={setCollateralValue} required value={collateralValue} />
           <SelectInput label="Risk rating" onChange={setRiskRating} options={Object.values(RiskRatingEnum)} value={riskRating} />
@@ -4155,7 +4425,7 @@ function LoanEditForm({ loan, onSaved }: { loan: Loan; onSaved?: () => void }) {
   );
 }
 
-type ManageLoanActionId = "publish" | "cancel" | "expiry" | "release" | "disburse" | "servicing" | "recovery";
+type ManageLoanActionId = "publish" | "cancel" | "expiry" | "release" | "disburse" | "servicing" | "recovery" | "note";
 
 const MANAGE_LOAN_ACTIONS: Array<{
   id: ManageLoanActionId;
@@ -4214,8 +4484,26 @@ const MANAGE_LOAN_ACTIONS: Array<{
       "For a defaulted loan: record recovered funds and distribute them to lenders through the recovery waterfall.",
     statuses: ["defaulted"],
     danger: true
+  },
+  {
+    id: "note",
+    title: "Publish a loan note",
+    description:
+      "Tell lenders about a material change: a public note on the loan page, an email to current lenders, or both.",
+    // Backend rule: public notes and investor emails only for portfolio loans.
+    statuses: ["funded", "active", "late", "defaulted", "repaid", "written_off"]
   }
 ];
+
+type LoanNoteChannel = "public" | "email" | "both";
+
+const loanNoteChannels: Array<{ id: LoanNoteChannel; label: string }> = [
+  { id: "public", label: "Public note on the loan page only" },
+  { id: "email", label: "Email to current lenders only" },
+  { id: "both", label: "Public note and email" }
+];
+
+const loanNoteTypes = [NoteTypeEnum.public_update, NoteTypeEnum.default_update, NoteTypeEnum.recovery_update] as const;
 
 function LoanScheduleReadonlyReview({
   loan,
@@ -4503,15 +4791,38 @@ function OriginalScheduleReview({
 
 function ManageLoanModal({
   loan,
+  action: actionProp,
+  onActionChange,
   onChanged,
   onClose
 }: {
   loan: Loan;
+  /** Chosen action when the parent keeps it (in the URL); otherwise local state. */
+  action?: ManageLoanActionId | null;
+  onActionChange?: (action: ManageLoanActionId | null) => void;
   onChanged: () => void;
   onClose: () => void;
 }) {
   const businessDate = useAdminBusinessDate();
-  const [action, setAction] = useState<ManageLoanActionId | null>(null);
+  const [localAction, setLocalAction] = useState<ManageLoanActionId | null>(null);
+  const requestedAction = actionProp !== undefined ? actionProp : localAction;
+  const setAction = (next: ManageLoanActionId | null) => {
+    if (onActionChange) onActionChange(next);
+    else setLocalAction(next);
+  };
+  const [noteChannel, setNoteChannel] = useState<LoanNoteChannel>("public");
+  const [noteType, setNoteType] = useState<(typeof loanNoteTypes)[number]>(
+    loan.status === "defaulted" || loan.status === "written_off" ? NoteTypeEnum.default_update : NoteTypeEnum.public_update
+  );
+  const [noteTitle, setNoteTitle] = useState("");
+  const [noteBody, setNoteBody] = useState("");
+  const [noteEvidence, setNoteEvidence] = useState("");
+  // An action from the URL only opens when it is valid for the loan's status.
+  const action = requestedAction && MANAGE_LOAN_ACTIONS.some(
+    (item) => item.id === requestedAction && item.statuses.includes(loan.status)
+  )
+    ? requestedAction
+    : null;
   const [note, setNote] = useState("");
   const [cancelReason, setCancelReason] = useState("Campaign cancelled before funding close.");
   const [cancelInvestorMessage, setCancelInvestorMessage] = useState(
@@ -4603,6 +4914,19 @@ function ManageLoanModal({
   const recordRecovery = useV1ServicingAdminRecoveriesCreate({
     mutation: { onSuccess: () => succeed("The recovery payment was distributed to lenders.") }
   });
+  const riskNote = useV1ServicingAdminRiskNotesCreate({
+    mutation: {
+      onSuccess: (note) => {
+        const recipients = Number((note.metadata as Record<string, unknown> | null)?.email_recipient_count ?? 0);
+        const emailed = recipients > 0 ? `Update email queued for ${recipients} current lender${recipients === 1 ? "" : "s"}.` : "";
+        const published = note.visibility === "public" ? "The note is published on the loan page." : "";
+        succeed([published, emailed].filter(Boolean).join(" "));
+        setNoteTitle("");
+        setNoteBody("");
+        setNoteEvidence("");
+      }
+    }
+  });
 
   useEffect(() => {
     if (action !== "publish" || !loan.is_refinancing || originalScheduleRows.length === 0) return;
@@ -4642,9 +4966,10 @@ function ManageLoanModal({
     item.statuses.includes(loan.status)
     && !(fundingEnded && ["cancel", "release"].includes(item.id))
   );
-  const active = MANAGE_LOAN_ACTIONS.find((item) => item.id === action) ?? null;
+  const active = available.find((item) => item.id === action) ?? null;
   const anyError =
-    publish.error || cancelFunding.error || expiryScan.error || releaseOrder.error || recordRecovery.error;
+    publish.error || cancelFunding.error || expiryScan.error || releaseOrder.error || recordRecovery.error
+    || riskNote.error;
 
   function choose(id: ManageLoanActionId) {
     setPreview(null);
@@ -4724,7 +5049,8 @@ function ManageLoanModal({
       penalties_due_minor: intValue(recPenaltiesDue),
       booking_date: recBookingDate,
       value_date: recValueDate,
-      collection_account_identifier: defaultCollectionAccount,
+      // No collection account: the server books recoveries to the configured
+      // collection account for the loan currency, like borrower repayments.
       payer_name: recPayerName,
       idempotency_key: idempotencyKey("recovery")
     };
@@ -4733,6 +5059,30 @@ function ManageLoanModal({
       return;
     }
     recordRecovery.mutate({ data });
+  }
+
+  function publishLoanNote() {
+    const data: LoanRiskNoteCreateRequest = {
+      loan_id: loanId,
+      visibility: noteChannel === "email" ? VisibilityEnum.internal : VisibilityEnum.public,
+      note_type: noteType,
+      title: noteTitle,
+      body: noteBody,
+      evidence_reference: noteEvidence,
+      email_affected_investors: noteChannel !== "public",
+      idempotency_key: idempotencyKey("loan-note")
+    };
+    if (isFixturePreview) {
+      setPreview(
+        noteChannel === "public"
+          ? `A public note would be published on ${loan.title}.`
+          : noteChannel === "email"
+            ? `An update email would be sent to the current lenders of ${loan.title}.`
+            : `A public note would be published and emailed to the current lenders of ${loan.title}.`
+      );
+      return;
+    }
+    riskNote.mutate({ data });
   }
 
   function releaseBalance() {
@@ -4781,7 +5131,7 @@ function ManageLoanModal({
             </div>
           ) : (
             <Empty icon="docs" title="No manage actions for this status">
-              {labelize(loan.status)} loans have no manage operations. Status scans and risk notes live in the
+              {labelize(loan.status)} loans have no manage operations. Status scans live in the
               Servicing operations panel below the loan table.
             </Empty>
           )
@@ -4958,6 +5308,56 @@ function ManageLoanModal({
               </>
             ) : null}
 
+            {action === "note" ? (
+              <>
+                <p className="muted admin-manage-hint">
+                  Public notes appear on the loan page for lenders who hold or held this loan. Emails go to
+                  its current lenders. Each note is kept as audit evidence and cannot be edited later.
+                </p>
+                <Field label="Send as">
+                  <div className="col gap-4" role="radiogroup" aria-label="Send as">
+                    {loanNoteChannels.map((channel) => (
+                      <label className="check-row" key={channel.id}>
+                        <input
+                          checked={noteChannel === channel.id}
+                          name={`loan-note-channel-${loanId}`}
+                          onChange={() => setNoteChannel(channel.id)}
+                          type="radio"
+                        />
+                        {channel.label}
+                      </label>
+                    ))}
+                  </div>
+                </Field>
+                <FieldGrid>
+                  <SelectInput label="Note type" onChange={setNoteType} options={loanNoteTypes} value={noteType} />
+                  <TextInput label="Title" onChange={setNoteTitle} placeholder="e.g. Default and recovery steps" value={noteTitle} />
+                </FieldGrid>
+                <TextAreaInput label="Message to lenders" onChange={setNoteBody} required rows={5} value={noteBody} />
+                <TextInput hint="Internal only. Never shown to lenders." label="Evidence reference" onChange={setNoteEvidence} value={noteEvidence} />
+                <OperationConfirmButton
+                  confirmLabel={noteChannel === "public" ? "Publish note" : "Publish and send"}
+                  description={
+                    noteChannel === "public"
+                      ? "The note is shown on the loan page to lenders who hold or held this loan. It cannot be edited or removed later."
+                      : "The message is emailed to every current lender of this loan now. Sent emails cannot be recalled."
+                  }
+                  details={[
+                    { label: "Loan", value: loan.title },
+                    { label: "Send as", value: loanNoteChannels.find((channel) => channel.id === noteChannel)?.label ?? noteChannel },
+                    { label: "Note type", value: labelize(noteType) },
+                    { label: "Title", value: noteTitle || "-" }
+                  ]}
+                  disabled={riskNote.isPending || !noteBody.trim()}
+                  onConfirm={publishLoanNote}
+                  title="Confirm loan note"
+                  variant="primary"
+                >
+                  {noteChannel === "email" ? "Send email to lenders" : "Publish loan note"}
+                </OperationConfirmButton>
+              </>
+            ) : null}
+
             {action === "disburse" ? <ManageDisbursementForm loan={loan} onDone={onChanged} /> : null}
 
             {action === "servicing" ? <ManageBorrowerRepaymentForm loan={loan} onDone={onChanged} /> : null}
@@ -5010,7 +5410,13 @@ function ManageLoanModal({
                 </p>
                 <FieldGrid>
                   <TextInput label="Booking date" onChange={setRecBookingDate} type="date" value={recBookingDate} />
-                  <TextInput label="Value date" onChange={setRecValueDate} type="date" value={recValueDate} />
+                  <TextInput
+                    hint={`Date the funds reached Garanta's configured ${loan.currency} collection account.`}
+                    label="Value date"
+                    onChange={setRecValueDate}
+                    type="date"
+                    value={recValueDate}
+                  />
                 </FieldGrid>
                 <TextInput label="Payer name" onChange={setRecPayerName} value={recPayerName} />
                 <OperationConfirmButton
@@ -5037,9 +5443,17 @@ function ManageLoanModal({
           </>
         )}
 
-        {anyError ? <Banner tone="bad" title="Marketplace operation failed">{errorMessage(anyError)}</Banner> : null}
+        {anyError ? (
+          <Banner tone="bad" title={recordRecovery.error ? "Recovery payment failed" : "Marketplace operation failed"}>
+            {errorMessage(anyError)}
+          </Banner>
+        ) : null}
         {preview ? <Banner tone="info" title="Preview action recorded">{preview}</Banner> : null}
-        {success ? <Banner tone="ok" title="Marketplace operation submitted">{success}</Banner> : null}
+        {success ? (
+          <Banner tone="ok" title={action === "recovery" ? "Recovery payment recorded" : "Marketplace operation submitted"}>
+            {success}
+          </Banner>
+        ) : null}
       </div>
     </Modal>
   );
@@ -5272,6 +5686,7 @@ function ManageBorrowerRepaymentForm({ loan, onDone }: { loan: Loan; onDone: () 
   const [bankDate, setBankDate] = useState(businessDate);
   const [payerName, setPayerName] = useState(adminFormDefaults.borrowerName);
   const [payerAccount, setPayerAccount] = useState("");
+  const [showPayerAccountError, setShowPayerAccountError] = useState(false);
   const [bookingDate, setBookingDate] = useState(businessDate);
   const [valueDate, setValueDate] = useState(businessDate);
   const [bankReference, setBankReference] = useState("");
@@ -5297,6 +5712,12 @@ function ManageBorrowerRepaymentForm({ loan, onDone }: { loan: Loan; onDone: () 
   });
 
   const amountMinorValue = advance ? intValue(advanceAmountMinor) : defaultAmountMinor;
+  // The account the borrower paid from is the bank evidence for the receipt.
+  const payerAccountMissing = !payerAccount.trim();
+  const payerAccountError =
+    showPayerAccountError && payerAccountMissing
+      ? "Enter the account the borrower paid from (IBAN or account number)."
+      : undefined;
   const regularPaymentDaysEarly = nextInstallment
     ? dateDifferenceDays(nextInstallment.due_date, valueDate)
     : 0;
@@ -5327,7 +5748,7 @@ function ManageBorrowerRepaymentForm({ loan, onDone }: { loan: Loan; onDone: () 
       booking_date: bookingDate,
       value_date: valueDate,
       payer_name: payerName,
-      payer_account_identifier: payerAccount || undefined,
+      payer_account_identifier: payerAccount.trim(),
       bank_reference: bankReference || undefined,
       payment_reference: paymentReference || undefined,
       evidence_reference: evidenceReference || undefined,
@@ -5342,7 +5763,13 @@ function ManageBorrowerRepaymentForm({ loan, onDone }: { loan: Loan; onDone: () 
     };
   }
 
+  function payerAccountReady() {
+    setShowPayerAccountError(true);
+    return !payerAccountMissing;
+  }
+
   function recordRegular() {
+    if (!payerAccountReady()) return;
     if (isFixturePreview) {
       setPreview(
         `Borrower repayment of ${formatMoneyMinor(amountMinorValue, loan.currency)} ${loan.currency} would be recorded against the next due installment of ${loan.id}.`
@@ -5353,6 +5780,7 @@ function ManageBorrowerRepaymentForm({ loan, onDone }: { loan: Loan; onDone: () 
   }
 
   function requestAdvancePreview() {
+    if (!payerAccountReady()) return;
     if (isFixturePreview) {
       setPreview(
         `Advance repayment of ${formatMoneyMinor(amountMinorValue, loan.currency)} ${loan.currency} with bank date ${bankDate} would be previewed for ${loan.id}.`
@@ -5450,9 +5878,29 @@ function ManageBorrowerRepaymentForm({ loan, onDone }: { loan: Loan; onDone: () 
           value={advance ? advanceAmountMinor : String(defaultAmountMinor)}
         />
         <TextInput label="Payer name" onChange={setPayerName} required value={payerName} />
-        <TextInput label="Payer account" onChange={setPayerAccount} value={payerAccount} />
+        <Field
+          error={payerAccountError}
+          hint="Required. The IBAN or account number the borrower paid from, as shown on the bank statement."
+          label="Payer account"
+        >
+          <input
+            aria-invalid={payerAccountError ? true : undefined}
+            aria-label="Payer account"
+            onBlur={() => setShowPayerAccountError(true)}
+            onChange={(event) => setPayerAccount(event.target.value)}
+            required
+            value={payerAccount}
+          />
+        </Field>
         <TextInput label="Booking date" onChange={setBookingDate} required type="date" value={bookingDate} />
-        <TextInput label="Value date" onChange={setValueDate} required type="date" value={valueDate} />
+        <TextInput
+          hint={`Date the funds reached Garanta's configured ${loan.currency} collection account.`}
+          label="Value date"
+          onChange={setValueDate}
+          required
+          type="date"
+          value={valueDate}
+        />
         <TextInput label="Bank reference" onChange={setBankReference} value={bankReference} />
         <TextInput label="Payment reference" onChange={setPaymentReference} value={paymentReference} />
         <TextInput label="Evidence reference" onChange={setEvidenceReference} value={evidenceReference} />
@@ -6034,8 +6482,11 @@ export function ReportsPanel() {
 }
 
 export function SettingsPanel() {
-  const [category, setCategory] = useState<DocumentCategory>(CategoryEnum.registration);
-  const [templateSearch, setTemplateSearch] = useState("");
+  const [categoryParam, setCategory] = useAdminParam("category", CategoryEnum.registration);
+  const category = ((Object.values(CategoryEnum) as string[]).includes(categoryParam)
+    ? categoryParam
+    : CategoryEnum.registration) as DocumentCategory;
+  const [templateSearch, setTemplateSearch] = useAdminParam("q");
   const [showTemplateForm, setShowTemplateForm] = useState(false);
   const [defaultTemplateVersionId, setDefaultTemplateVersionId] = useState("");
   const debouncedTemplateSearch = useDebouncedValue(templateSearch);
@@ -6617,13 +7068,24 @@ function DocumentTemplateForm({
 }
 
 export function UserAccountsPanel() {
-  const [search, setSearch] = useState("");
-  const [accountType, setAccountType] = useState("");
-  const [status, setStatus] = useState("");
-  const [page, setPage] = useState(0);
+  // Filters, page and the open user dialog live in the URL:
+  // /admin/users/<userId>/access?q=...&type=...&status=...&page=2
+  const [search, setSearchParam] = useAdminParam("q");
+  const [accountType, setAccountTypeParam] = useAdminParam("type");
+  const [status, setStatusParam] = useAdminParam("status");
+  const [pageParam, setPageParam] = useAdminParam("page");
+  const page = Math.max(0, intValue(pageParam, 1) - 1);
+  const setPage = (update: number | ((current: number) => number)) => {
+    const next = typeof update === "function" ? update(page) : update;
+    setPageParam(next > 0 ? String(next + 1) : "");
+  };
+  const setSearch = (value: string) => { setSearchParam(value); setPageParam(""); };
+  const setAccountType = (value: string) => { setAccountTypeParam(value); setPageParam(""); };
+  const setStatus = (value: string) => { setStatusParam(value); setPageParam(""); };
   const [showCreate, setShowCreate] = useState(false);
-  const [accessUser, setAccessUser] = useState<AdminUserDirectoryRow | null>(null);
-  const [documentsUser, setDocumentsUser] = useState<AdminUserDirectoryRow | null>(null);
+  const [userSegments, setUserSegments] = useAdminSegments("users");
+  const dialogUserId = userSegments[0] ?? "";
+  const dialog = userSegments[1] === "access" || userSegments[1] === "documents" ? userSegments[1] : "";
   const [impersonationNotice, setImpersonationNotice] = useState("");
   const debouncedSearch = useDebouncedValue(search);
   const pageSize = 25;
@@ -6638,10 +7100,20 @@ export function UserAccountsPanel() {
   const total = usersQuery.data?.count ?? 0;
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const impersonationMutation = useV1AdminOpsUsersReadonlyImpersonationCreate();
-
-  useEffect(() => {
-    setPage(0);
-  }, [accountType, debouncedSearch, status]);
+  // A reloaded dialog link may name a user who is not on the current page.
+  const dialogUserLookup = useAdminUsersDirectoryData(
+    { q: dialogUserId, limit: 1, offset: 0 },
+    Boolean(dialog && dialogUserId) && !users.some((user) => user.id === dialogUserId) && !usersQuery.isFetching
+  );
+  const dialogUser = dialog
+    ? users.find((user) => user.id === dialogUserId)
+      ?? dialogUserLookup.data?.results.find((user) => user.id === dialogUserId)
+      ?? null
+    : null;
+  const accessUser = dialog === "access" ? dialogUser : null;
+  const documentsUser = dialog === "documents" ? dialogUser : null;
+  const openUserDialog = (user: AdminUserDirectoryRow | null, kind: "access" | "documents" = "access") =>
+    setUserSegments(user ? [user.id, kind] : []);
 
   function userDisplay(user: AdminUserDirectoryRow) {
     return user.full_name || user.email || user.id;
@@ -6733,8 +7205,8 @@ export function UserAccountsPanel() {
                       <td>{formatDateTime(user.date_joined)}</td>
                       <td>
                         <div className="row gap-8 wrap">
-                          <Button onClick={() => setAccessUser(user)} size="sm">Access controls</Button>
-                          <Button onClick={() => setDocumentsUser(user)} size="sm" variant="ghost">Documents</Button>
+                          <Button onClick={() => openUserDialog(user, "access")} size="sm">Access controls</Button>
+                          <Button onClick={() => openUserDialog(user, "documents")} size="sm" variant="ghost">Documents</Button>
                           <Button
                             disabled={!user.can_impersonate_readonly || impersonationMutation.isPending}
                             onClick={() => startReadOnlyImpersonation(user)}
@@ -6778,7 +7250,7 @@ export function UserAccountsPanel() {
         </Modal>
       ) : null}
       {accessUser ? (
-        <Modal title={`Account access - ${userDisplay(accessUser)}`} onClose={() => setAccessUser(null)}>
+        <Modal title={`Account access - ${userDisplay(accessUser)}`} onClose={() => openUserDialog(null)}>
           <AccountAccessForm
             defaultUserId={accessUser.id}
             defaultUserQuery={`${userDisplay(accessUser)} ${accessUser.email}`}
@@ -6787,7 +7259,7 @@ export function UserAccountsPanel() {
       ) : null}
       {documentsUser ? (
         <UserDocumentsModal
-          onClose={() => setDocumentsUser(null)}
+          onClose={() => openUserDialog(null)}
           user={documentsUser}
         />
       ) : null}

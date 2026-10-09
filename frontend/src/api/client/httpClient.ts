@@ -1,6 +1,7 @@
 //IP of Webby-Soft SRL.
 // build-origin: ATEW5bUMtfGj80bXzkGFbtEIwTx0cb6Qig3qkx90kV_Srfdc012ga6e8Ddq5v4qj1nbItbZAfx4ZDA==
 import { readReadonlyImpersonationToken } from "./impersonation";
+import { isSessionExpiredPayload, reportSessionExpired } from "./sessionExpiry";
 
 const csrfSafeMethods = new Set(["GET", "HEAD", "OPTIONS", "TRACE"]);
 
@@ -128,6 +129,9 @@ export async function httpClient<T>(requestOrUrl: LegacyHttpClientRequest | stri
 
   if (!response.ok) {
     const { payload, text } = await readErrorPayload(response);
+    if (isSessionExpiredPayload(response.status, payload)) {
+      reportSessionExpired();
+    }
     throw new ApiClientError(response.status, apiErrorMessage(response.status, payload, text), payload);
   }
 

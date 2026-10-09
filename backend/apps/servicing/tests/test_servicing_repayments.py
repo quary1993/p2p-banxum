@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, timedelta
 from importlib import import_module
 from typing import Any, cast
 
 import pytest
 from django.apps import apps
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import DatabaseError, connection, transaction
 from django.db.models import Model
@@ -1413,6 +1415,78 @@ def test_status_scan_marks_loan_defaulted_on_day_sixteen_and_blocks_normal_repay
 
 
 @pytest.mark.django_db
+def test_default_transition_opens_one_loan_risk_review_task_and_operations_alert(
+    client: Client,
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+    admin_task_model = apps.get_model("admin_ops", "AdminTask")
+    risk_tasks = admin_task_model.objects.filter(
+        task_type="loan_risk_review",
+        related_object_type="LoanDefault",
+        related_object_id=str(loan.pk),
+    )
+    default_alerts = OutboxMessage.objects.filter(topic="email.loan_defaulted")
+
+    # Late is not a default: no risk task and no alert yet.
+    scan_loan_servicing_statuses(
+        ScanLoanServicingStatusesCommand(
+            actor=admin_user,
+            as_of_date=date(2026, 3, 5),
+            loan_ids=(str(loan.pk),),
+        )
+    )
+    assert not risk_tasks.exists()
+    assert not default_alerts.exists()
+
+    # Manual path: the admin status-scan API runs the same transition.
+    client.force_login(cast(Any, admin_user))
+    response = client.post(
+        "/api/v1/servicing/admin/status-scan/",
+        data={"as_of_date": "2026-03-16", "loan_ids": [str(loan.pk)]},
+        content_type="application/json",
+    )
+    assert response.status_code == 200
+    assert response.json()["changes"][0]["new_status"] == "defaulted"
+
+    task = risk_tasks.get()
+    assert task.status == "open"
+    assert task.priority == "high"
+    assert task.title == "Loan defaulted: Servicing Loan"
+    assert task.due_at is not None
+    assert "Days past due: 16" in task.notes
+    assert "Overdue installment outstanding: CHF 3'300.00" in task.notes
+    assert "Missed installment due date: 2026-02-28" in task.notes
+    assert "Record a recovery payment" in task.notes
+    assert task.events.filter(event_type="created").count() == 1
+
+    alert = default_alerts.get()
+    assert alert.payload["email"] == settings.OPERATIONS_ALERT_EMAIL
+    assert alert.payload["subject"].endswith("loan defaulted: Servicing Loan")
+    assert alert.payload["metadata"]["admin_task_id"] == str(task.id)
+    assert alert.payload["metadata"]["days_past_due"] == 16
+
+    # The task is listed in the admin Tasks queue.
+    tasks_response = client.get(
+        "/api/v1/admin-ops/tasks/",
+        {"task_type": "loan_risk_review", "pending_only": "true"},
+    )
+    assert tasks_response.status_code == 200
+    assert [row["id"] for row in tasks_response.json()] == [str(task.id)]
+
+    # Daily scheduled reruns do not duplicate the task or the alert.
+    for as_of_date in (date(2026, 3, 16), date(2026, 3, 17), date(2026, 4, 30)):
+        result = scan_loan_servicing_statuses(
+            ScanLoanServicingStatusesCommand(actor=admin_user, as_of_date=as_of_date)
+        )
+        assert result.changes == []
+    assert risk_tasks.count() == 1
+    assert default_alerts.count() == 1
+
+
+@pytest.mark.django_db
 def test_status_scan_admin_api(
     client: Client,
     admin_user: Model,
@@ -1517,6 +1591,7 @@ def test_repayment_admin_api(
             "value_date": "2026-03-01",
             "collection_account_identifier": "CH00GARANTALEDGER",
             "payer_name": "Servicing Borrower AG",
+            "payer_account_identifier": "CH22BORROWER",
             "idempotency_key": "servicing-api-mismatch",
         },
         content_type="application/json",
@@ -1715,6 +1790,90 @@ def test_admin_adds_internal_and_public_risk_notes_with_investor_visibility(
         )
     with pytest.raises(ServicingAuthorizationError, match="Investor can only view"):
         list_public_loan_risk_notes(actor=unrelated_investor, loan_id=str(loan.pk))
+
+
+@pytest.mark.django_db
+def test_defaulted_loan_notes_can_be_public_email_only_or_both(
+    client: Client,
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    _approve_financial_access(investor_one)
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+    scan_loan_servicing_statuses(
+        ScanLoanServicingStatusesCommand(
+            actor=admin_user,
+            as_of_date=date(2026, 3, 16),
+            loan_ids=(str(loan.pk),),
+        )
+    )
+    loan.refresh_from_db()
+    assert cast(Any, loan).status == "defaulted"
+    client.force_login(cast(Any, admin_user))
+
+    def post_note(**overrides: Any) -> Any:
+        return client.post(
+            "/api/v1/servicing/admin/risk-notes/",
+            data={
+                "loan_id": str(loan.pk),
+                "visibility": "public",
+                "note_type": "default_update",
+                "title": "Default update",
+                "body": "Garanta has started recovery steps.",
+                **overrides,
+            },
+            content_type="application/json",
+        )
+
+    def note_emails() -> Any:
+        return OutboxMessage.objects.filter(topic="email.loan_risk_note_published")
+
+    public_only = post_note(idempotency_key="default-note-public")
+    assert public_only.status_code == 201
+    assert note_emails().count() == 0
+
+    email_only = post_note(
+        visibility="internal",
+        email_affected_investors=True,
+        body="Email-only update for current lenders.",
+        idempotency_key="default-note-email",
+    )
+    assert email_only.status_code == 201
+    assert email_only.json()["metadata"]["email_recipient_count"] == 2
+    emails = list(note_emails())
+    assert {message.payload["user_id"] for message in emails} == {
+        str(investor_one.pk),
+        str(investor_two.pk),
+    }
+    assert "Email-only update for current lenders." in emails[0].payload["body_text"]
+    assert emails[0].payload["subject"].endswith(": Default update")
+
+    both = post_note(email_affected_investors=True, idempotency_key="default-note-both")
+    assert both.status_code == 201
+    assert note_emails().count() == 4
+    # A replay does not send the emails again.
+    assert post_note(
+        email_affected_investors=True, idempotency_key="default-note-both"
+    ).json()["id"] == both.json()["id"]
+    assert note_emails().count() == 4
+
+    public_ids = {
+        str(note.id)
+        for note in list_public_loan_risk_notes(actor=investor_one, loan_id=str(loan.pk))
+    }
+    assert public_ids == {str(public_only.json()["id"]), str(both.json()["id"])}
+
+    internal_email = post_note(
+        visibility="internal",
+        note_type="internal_note",
+        email_affected_investors=True,
+        idempotency_key="default-note-internal-email",
+    )
+    assert internal_email.status_code == 400
+    assert internal_email.json()["detail"] == (
+        "Internal/document notes cannot be emailed to investors."
+    )
 
 
 @pytest.mark.django_db
@@ -2029,6 +2188,172 @@ def test_recovery_payment_admin_api(
     assert payload["recovery_event"]["loan_id"] == str(loan.pk)
     assert payload["recovery_event"]["net_available_for_distribution_minor"] == 3_000_00
     assert sum(line["principal_minor"] for line in payload["distribution_lines"]) == 3_000_00
+
+
+def _admin_recovery_request(loan: Model, idempotency_key: str) -> dict[str, Any]:
+    # Mirrors the admin console form, which has no collection-account field.
+    return {
+        "loan_id": str(loan.pk),
+        "gross_recovered_minor": 1_000_00,
+        "externally_deducted_costs_minor": 50_00,
+        "third_party_costs_from_received_minor": 0,
+        "recovery_fee_applied": True,
+        "recovery_fee_bps": 500,
+        "contractual_interest_due_minor": 66_67,
+        "default_interest_due_minor": 100_00,
+        "penalties_due_minor": 0,
+        "booking_date": "2026-03-20",
+        "value_date": "2026-03-20",
+        "payer_name": "Recovery counsel",
+        "idempotency_key": idempotency_key,
+    }
+
+
+@pytest.mark.django_db
+def test_recovery_admin_api_books_to_configured_collection_account_when_form_omits_it(
+    client: Client,
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+    scan_loan_servicing_statuses(
+        ScanLoanServicingStatusesCommand(
+            actor=admin_user,
+            as_of_date=date(2026, 3, 16),
+            loan_ids=(str(loan.pk),),
+        )
+    )
+    client.force_login(cast(Any, admin_user))
+
+    # Without a configured collection account the receipt cannot be booked, and
+    # the error says so instead of blaming a field the form does not show.
+    unconfigured = client.post(
+        "/api/v1/servicing/admin/recoveries/",
+        data=_admin_recovery_request(loan, "servicing-recovery-unconfigured"),
+        content_type="application/json",
+    )
+    assert unconfigured.status_code == 400
+    assert unconfigured.json() == {"detail": "The CHF collection account is not configured."}
+    assert not LoanRecoveryEvent.objects.exists()
+
+    PlatformSetting.objects.create(
+        key="payments.deposit_instructions_by_currency",
+        value={"CHF": {"collection_account_identifier": "Garanta_CHF"}},
+    )
+    blank_field_request = {
+        **_admin_recovery_request(loan, "servicing-recovery-blank-account"),
+        "collection_account_identifier": "",
+    }
+    response = client.post(
+        "/api/v1/servicing/admin/recoveries/",
+        data=blank_field_request,
+        content_type="application/json",
+    )
+    assert response.status_code == 201, response.json()
+    payload = response.json()
+    # 1000 gross - 50 external costs = 950 net; 5% fee = 47.50; 902.50 distributed
+    # as penalty 100.00, interest 66.67, principal 735.83.
+    assert payload["recovery_event"]["recovery_fee_minor"] == 47_50
+    assert payload["recovery_event"]["net_available_for_distribution_minor"] == 902_50
+    assert payload["recovery_event"]["default_interest_recovered_minor"] == 100_00
+    assert payload["recovery_event"]["contractual_interest_recovered_minor"] == 66_67
+    assert payload["recovery_event"]["principal_recovered_minor"] == 735_83
+    recovery_event = LoanRecoveryEvent.objects.get(id=payload["recovery_event"]["id"])
+    assert recovery_event.bank_operation.collection_account_identifier == "Garanta_CHF"
+    assert recovery_event.bank_operation.payee_account_identifier == "Garanta_CHF"
+
+    # A retry stays idempotent even if the configured account changes later.
+    PlatformSetting.objects.filter(key="payments.deposit_instructions_by_currency").update(
+        value={"CHF": {"collection_account_identifier": "Garanta_CHF_NEW"}}
+    )
+    replay = client.post(
+        "/api/v1/servicing/admin/recoveries/",
+        data=blank_field_request,
+        content_type="application/json",
+    )
+    assert replay.status_code == 201
+    assert replay.json()["recovery_event"]["id"] == payload["recovery_event"]["id"]
+    assert LoanRecoveryEvent.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_borrower_repayment_requires_payer_account_and_positive_amount(
+    client: Client,
+    admin_user: Model,
+    investor_one: Model,
+    investor_two: Model,
+) -> None:
+    loan = _funded_loan_with_holdings(admin_user, investor_one, investor_two)
+    PlatformSetting.objects.create(
+        key="payments.deposit_instructions_by_currency",
+        value={"CHF": {"collection_account_identifier": "Garanta_CHF"}},
+    )
+    client.force_login(cast(Any, admin_user))
+    base_request = {
+        "loan_id": str(loan.pk),
+        "amount_minor": 3_300_00,
+        "booking_date": "2026-03-01",
+        "value_date": "2026-03-01",
+        "payer_name": "Servicing Borrower AG",
+        "idempotency_key": "servicing-api-no-payer-account",
+    }
+
+    for payer_account in (None, "", "   "):
+        request = dict(base_request)
+        if payer_account is not None:
+            request["payer_account_identifier"] = payer_account
+        response = client.post(
+            "/api/v1/servicing/admin/borrower-repayments/",
+            data=request,
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        assert response.json() == {"payer_account_identifier": ["Payer account is required."]}
+
+    # The service enforces the same rule for any non-API caller.
+    with pytest.raises(ServicingValidationError, match="Payer account is required"):
+        record_borrower_repayment(
+            replace(
+                _repayment_command(admin_user, loan, idempotency_key="no-payer"),
+                payer_account_identifier=" ",
+            )
+        )
+    assert not BorrowerRepaymentEvent.objects.exists()
+
+    for amount in (0, -100):
+        for path, payload in (
+            (
+                "/api/v1/servicing/admin/borrower-repayments/",
+                {
+                    **base_request,
+                    "payer_account_identifier": "CH22BORROWER",
+                    "amount_minor": amount,
+                    "repayment_in_advance": True,
+                    "borrower_repayment_bank_date": "2026-03-01",
+                },
+            ),
+            (
+                "/api/v1/servicing/admin/borrower-repayments/advance-preview/",
+                {
+                    "loan_id": str(loan.pk),
+                    "amount_minor": amount,
+                    "borrower_repayment_bank_date": "2026-03-01",
+                },
+            ),
+        ):
+            response = client.post(path, data=payload, content_type="application/json")
+            assert response.status_code == 400
+            assert response.json() == {"amount_minor": ["Amount must be greater than zero."]}
+
+    response = client.post(
+        "/api/v1/servicing/admin/borrower-repayments/",
+        data={**base_request, "payer_account_identifier": " CH22BORROWER "},
+        content_type="application/json",
+    )
+    assert response.status_code == 201
+    repayment_event = BorrowerRepaymentEvent.objects.get()
+    assert repayment_event.bank_operation.payer_account_identifier == "CH22BORROWER"
 
 
 @pytest.mark.django_db

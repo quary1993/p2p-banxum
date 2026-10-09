@@ -1,5 +1,31 @@
 # Claude Design TODO
 
+## 2026-10-09: Public Project Routes And Page Titles
+
+- Screen or component: public project list/detail routes and browser page titles.
+- Current behavior: each public project preview uses `/projects/{loan-id}`, survives reload, and returns to `/projects`. Public, authentication, and investor routes update the browser title from the application router, including after sign-out.
+- Suggested improvement: add per-project title and description metadata if server rendering or social link previews are introduced.
+- Priority: nice-to-have.
+
+## 2026-10-08: Banxum Design Re-skin (User Side)
+
+- Screen or component: all public, sign-in, registration and investor-portal screens. Source: the Banxum prototype (DashLite layout, Archivo, black/white palette) and the Banxum public-site prototype.
+- Current behavior: user-side styles live in `frontend/src/banxumSkin.css` (tokens, shell, base components, Overview) and `frontend/src/skin/*.css` (one file per area). Every rule is scoped by the `bxm` class that `UserSkin` sets on `<html>`, so the admin console keeps its own look. Sidebar uses the design names (Overview, Projects > Primary/Secondary market, My investments, Smart Invest, Wallet > Account/FX, Profile & Settings, Documents, Notifications, Help). Header has a user menu, a notifications menu (5 latest, "View all") and an "Open now" line. The primary market has a Cards view (default) and the existing table as List. Investing and the holding detail are pages (`/marketplace/:loanId/invest`, `/portfolio/:holdingId`) instead of dialogs. The new home page is at `/`; the public loan preview moved to `/projects`.
+- Suggested improvement:
+  - Confirm the company facts that the home page copies from the design: VQF membership, FINOS affiliation, yearly independent audit, CHF 1,100,000 share capital, registered trademark, "not protected by the Swiss deposit insurance", and the 0.25% seller fee wording.
+  - Public loan cards follow MKT-DEC-002 (borrower, amount, interest, period, type, status, currency); the design also shows funded %, days left and minimum. Decide if the public preview fields should change.
+  - The "Open now" header line shows the open loan that closes last, because the public loan list has no publication date. Add a published-at field if "newest" is wanted.
+  - Not built because there is no backend or data: password/2FA/passkey sign-in, language switcher (DE/FR), cookie notice, newsletter form, "Mark all as read", help contact form, loan description/investor count/"new loan vs existing claim" on cards, quick-amount buttons on the invest page, auto-invest without approval, transactions and reports pages.
+  - Review the new pages with real (non-fixture) data, long names and empty states.
+- Priority: important.
+
+## 2026-10-09: Multi-Select Filters And Smart Invest Criteria
+
+- Screen or component: primary-market filter panel, Smart Invest rule editor and setup wizard (steps 1 and 2), rule summary.
+- Current behavior: source, collateral, currency, risk rating, purpose and loan type are multi-select (QA row 37). The filter panel keeps its pill chips as toggles; the rule editor and wizard use square `.check` checkboxes. The combined "Either", "Both", "CHF and EUR", "Anyone" and "Any" options are gone: nothing ticked means no restriction and is labelled ("Any currency", "With or without collateral"). Collateral offers "Any collateral" (every secured loan, including types added later), each collateral type, and "No collateral (unsecured)"; while "Any collateral" is ticked the types show ticked and disabled. The rule editor offers the full rating scale, purpose list and collateral catalog, not only values on today's loans.
+- Suggested improvement: the collateral and purpose lists are long on phones (one column of 13 types); consider collapsing the types under "Any collateral" or a "Show types" toggle. Unused `.si-cond-pills` and `.si-wiz-option` rules can be removed from `skin/projects.css` and `styles.css` once no other screen needs them.
+- Priority: nice-to-have.
+
 ## 2026-09-09: Borrower and Originator Stories
 
 - Screen or component: opportunity calculator, borrower/originator story and separate schedule pages.
@@ -510,3 +536,10 @@ Before launch, Claude Design should produce or implement:
 - Remaining backend/API dependency: none for the current disclosure. Any future comparison of originator and investor realized losses or recoveries requires a dedicated server projection and approved legal wording.
 - Suggested improvement: validate the disclosure with legal/compliance and test 0%, fractional percentages, 99.99%, long originator names, and narrow screens without promoting the retention percentage into an implied credit rating.
 - Priority: important.
+
+## 2026-10-09: Session Expiry, Blocked Accounts, Logo Home Link
+
+- Screen or component: investor log-in screen, expired-link screen, portal "Account access" page, site/sign-in/registration logos.
+- Current behavior: sessions end 2 hours after login; the next API call returns the investor to Log in with a "Your session has expired" notice (kept until a new link is requested). A restricted, locked or closed account with an open session sees an "Account access" page with the status and support address instead of portal screens; a valid link of a restricted or locked account shows "Your account is restricted/locked" with a Contact support button. The expired-link screen keeps its email field while typing and sends only on Enter or the button. Every logo outside the portal links to the Overview when an investor is signed in and to the home page otherwise.
+- Suggested improvement: decide whether to warn shortly before the 2-hour limit (the API does not expose the expiry time yet), and review the Account access page copy with compliance for each status.
+- Priority: nice-to-have.

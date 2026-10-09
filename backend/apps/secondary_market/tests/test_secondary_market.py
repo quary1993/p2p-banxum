@@ -13,6 +13,7 @@ from django.db.models import Model
 from django.test import Client
 from django.utils import timezone
 
+from backend.apps.platform_core.domain.time import now_utc
 from backend.apps.platform_core.models import AuditEvent, Currency, DomainEvent, OutboxMessage
 from backend.apps.platform_core.models.base import AppendOnlyViolation
 from backend.apps.platform_core.services.impersonation import (
@@ -23,6 +24,7 @@ from backend.apps.platform_core.tests.factories import (
     SensitiveActionCodePayload,
     issue_sensitive_action_test_code,
 )
+from backend.apps.platform_core.tests.qa_clock import qa_clock
 from backend.apps.secondary_market.models import (
     SecondaryMarketListingEvent,
     SecondaryMarketListingEventType,
@@ -1922,3 +1924,65 @@ def test_secondary_market_purchase_has_app_and_db_append_only_guards(
                 [1, db_record_id],
             )
     assert "append-only" in str(update_error.value)
+
+
+@pytest.mark.django_db
+def test_qa_clock_direct_resale_lot_is_yours_since_the_purchase_not_activation(
+    admin_user: Model,
+    investor: Model,
+    other_investor: Model,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # QA row 87: the bought lot carries the purchase date ("Yours since"); the seller's
+    # lot and the buyer's own original lot keep their original assignment date.
+    import backend.apps.secondary_market.services as secondary_services
+
+    monkeypatch.setattr(secondary_services, "now_utc", now_utc)
+    purchased_at = datetime(2026, 1, 16, 12, 0, tzinfo=ZoneInfo("Europe/Zurich"))
+    original_at = datetime.combine(date(2026, 1, 1), time.min, tzinfo=ZoneInfo("Europe/Zurich"))
+    _approve_financial_access(investor)
+    _approve_financial_access(other_investor)
+    loan = _create_funded_loan(admin_user)
+    seller_lot = _create_holding(admin_user, investor, loan)
+    buyer_original_lot = _create_holding(
+        admin_user,
+        other_investor,
+        loan,
+        idempotency_key="secondary-holding-buyer-original",
+    )
+    with qa_clock(purchased_at):
+        listing = create_secondary_market_listing(
+            CreateSecondaryMarketListingCommand(
+                actor=investor,
+                holding_id=str(cast(Any, seller_lot).id),
+                price_bps=10_000,
+                document_acceptance_id=str(_create_listing_acceptance(investor, seller_lot).pk),
+                idempotency_key="secondary-r87-listing",
+                **_sensitive_code_payload(investor, "secondary_market_listing"),
+            )
+        )
+        _declare_deposit(admin_user, other_investor, idempotency_key="secondary-r87-deposit")
+        purchase = purchase_secondary_market_listing(
+            PurchaseSecondaryMarketListingCommand(
+                actor=other_investor,
+                listing_id=str(listing.id),
+                document_acceptance_id=str(_create_purchase_acceptance(other_investor, listing).pk),
+                idempotency_key="secondary-r87-purchase",
+                **_sensitive_code_payload(other_investor, "secondary_market_purchase"),
+            )
+        )
+        portfolio = import_module("backend.apps.investor_portal.services").get_investor_portfolio(
+            actor=other_investor
+        )
+
+    cast(Any, seller_lot).refresh_from_db()
+    cast(Any, buyer_original_lot).refresh_from_db()
+    assert purchase.purchased_at == purchased_at
+    assert purchase.buyer_holding.assignment_effective_at == purchased_at
+    assert cast(Any, seller_lot).assignment_effective_at == original_at
+    assert cast(Any, buyer_original_lot).assignment_effective_at == original_at
+    yours_since = {row["id"]: row["assignment_effective_at"] for row in portfolio["holdings"]}
+    assert yours_since == {
+        str(cast(Any, buyer_original_lot).id): original_at,
+        str(purchase.buyer_holding.id): purchased_at,
+    }

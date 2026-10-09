@@ -15,6 +15,7 @@ from django.db import DatabaseError, connection, transaction
 from django.db.models import Model
 from django.test import Client
 from freezegun import freeze_time
+from pypdf import PdfReader
 
 from backend.apps.platform_core.domain.time import business_timezone
 from backend.apps.platform_core.models import AuditEvent, Currency, DomainEvent, OutboxMessage
@@ -1051,3 +1052,94 @@ def test_same_source_report_is_reproducible_by_content_checksum(
     assert first.content == second.content
     assert first.report_run.content_sha256 == second.report_run.content_sha256
     assert ReportRun.objects.count() == 2
+
+
+def _approve_lender(investor: Model) -> None:
+    from django.apps import apps
+    from django.utils import timezone
+
+    now = timezone.now()
+    cast(Any, investor).phone_verified_at = now
+    investor.save(update_fields=["phone_verified_at"])
+    apps.get_model("kyc_compliance", "KycVerificationCase").objects.update_or_create(
+        user_id=investor.pk,
+        defaults={
+            "subject_reference": f"user:{investor.pk}",
+            "provider_environment": "test",
+            "workflow_id": "test-workflow",
+            "vendor_data": f"user:{investor.pk}",
+            "status": "approved",
+            "decision_at": now,
+        },
+    )
+
+
+def _investor_tax_statement(investor: Model, start: date, end: date, output_format: str) -> Any:
+    reporting = import_module("backend.apps.reporting.services")
+    return reporting.generate_investor_self_service_report(
+        reporting.GenerateInvestorSelfServiceReportCommand(
+            actor=investor,
+            report_type=ReportType.ANNUAL_TAX_INFORMATION,
+            start_date=start,
+            end_date=end,
+            output_format=output_format,
+        )
+    )
+
+
+def _report_pdf_text(artifact: Any) -> str:
+    pdf = base64.b64decode(artifact.content.encode("ascii"))
+    text = " ".join(page.extract_text() for page in PdfReader(io.BytesIO(pdf)).pages)
+    return " ".join(text.split()).replace("’", "'")
+
+
+@pytest.mark.django_db
+def test_lender_tax_statement_reports_own_principal_at_period_end_not_current(
+    admin_user: Model,
+    investor: Model,
+) -> None:
+    # QA row 92: a 2025 statement showed today's outstanding principal (in cents, under a
+    # raw key) although every holding was bought in 2026.
+    other_investor = get_user_model().objects.create_user(
+        email="reporting-other-investor@example.test",
+        full_name="Other Investor",
+        account_type="natural_person_lender",
+        status="active",
+        is_staff=False,
+    )
+    _approve_lender(investor)
+    servicing = import_module("backend.apps.servicing.services")
+    factory = import_module("backend.apps.servicing.tests.test_servicing_repayments")
+    with freeze_time("2026-02-01T12:00:00Z"):
+        loan = factory._funded_loan_with_holdings(admin_user, investor, other_investor)
+    with freeze_time("2026-03-01T12:00:00Z"):
+        servicing.record_borrower_repayment(factory._repayment_command(admin_user, loan))
+
+    def amounts(start: date, end: date) -> dict[str, int]:
+        rows = _csv_rows(_investor_tax_statement(investor, start, end, "csv").content)
+        return {row["category"]: int(row["amount_minor"]) for row in rows}
+
+    year_2025 = amounts(date(2025, 1, 1), date(2025, 12, 31))
+    february = amounts(date(2026, 2, 1), date(2026, 2, 28))
+    first_quarter = amounts(date(2026, 1, 1), date(2026, 3, 31))
+
+    assert set(year_2025) == {"no_account_activity_in_period", "informational_only_not_tax_advice"}
+    assert "current_outstanding_principal" not in february
+    # Only this investor's 10'000 lot (not the other investor's 20'000), before the repayment.
+    assert february["outstanding_principal_at_period_end"] == 10_000_00
+    assert first_quarter["outstanding_principal_at_period_end"] == 9_000_00
+    assert first_quarter["principal_repaid"] == 1_000_00
+
+    empty_pdf = _report_pdf_text(
+        _investor_tax_statement(investor, date(2025, 1, 1), date(2025, 12, 31), "pdf")
+    )
+    assert "No account activity in this period" in empty_pdf
+    assert "Outstanding principal" not in empty_pdf
+    february_pdf = _report_pdf_text(
+        _investor_tax_statement(investor, date(2026, 2, 1), date(2026, 2, 28), "pdf")
+    )
+    assert "Outstanding principal at period end" in february_pdf
+    assert "10'000.00" in february_pdf
+    assert "1'000'000" not in february_pdf
+    assert "outstanding_principal_at_period_end" not in february_pdf
+    assert "Amount Minor" not in february_pdf

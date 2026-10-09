@@ -197,6 +197,8 @@ Inactive accounts are not automatically locked at launch. They remain accessible
 
 Restricted and locked account statuses are intentionally equivalent in the current backend access gate: both block login and financial actions. If Garanta later wants "restricted" to mean read-only portal access while "locked" means no portal access, that distinction should be implemented in the account lifecycle UI and access-control policy.
 
+Updated 2026-10-09: the user is told why. An open portal session of a restricted, locked or closed account shows an "Account access" page naming the status and the support address instead of the portal screens. A login-link request for a restricted or locked account still gets the generic response (account existence stays private) but emails the owner an `email.account_login_blocked` notice with the status and support address, at most once per hour; a link issued before the restriction answers 403 `account_restricted`/`account_locked` and the login screen explains it.
+
 Rationale:
 Closure must not interfere with open financial, regulatory, tax, or audit obligations.
 
@@ -244,6 +246,8 @@ Long-lived investor access reduces login friction while email-code confirmation 
 
 Follow-ups:
 Define exact resend cooldown/window, global rate limits, session revocation behavior, trusted-device behavior, and whether any low-risk actions can be exempted.
+
+Updated 2026-10-09 (QA regression decision): investor and admin sessions now end a fixed time after login, default 2 hours (`AUTH_SESSION_MAX_AGE_SECONDS`), absolute rather than idle-based. The login time is kept in the server-side session and enforced by `accounts_auth.middleware.SessionLifetimeMiddleware`; after expiry every authenticated API call from that browser answers 401 `{"code": "session_expired"}` until the next login or sign-out, and the investor portal and admin console return to their login screen with a "session expired" notice. Read-only superadmin impersonation ends with the superadmin's session. The real clock is used, so the QA simulated clock never ends or extends sessions. The per-code attempt limit is configurable through `AUTH_SENSITIVE_CODE_MAX_ATTEMPTS` (default 3).
 
 ## Permission Model
 

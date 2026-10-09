@@ -29,7 +29,7 @@ from backend.apps.platform_core.domain.time import (
     calendar_day_difference,
     now_utc,
 )
-from backend.apps.platform_core.models import AuditEvent
+from backend.apps.platform_core.models import AuditEvent, Currency
 from backend.apps.platform_core.services.audit import AuditCommand, record_audit_event
 from backend.apps.platform_core.services.events import DomainEventCommand, record_domain_event
 from backend.apps.reporting.models import (
@@ -63,6 +63,12 @@ TEXT_CONTENT_ENCODING = "text"
 BASE64_CONTENT_ENCODING = "base64"
 CSV_FORMULA_PREFIXES = ("=", "+", "-", "@")
 CSV_FORMULA_LEADING_CHARS = ("\t", "\r", "\n")
+NO_ACCOUNT_ACTIVITY_CATEGORY = "no_account_activity_in_period"
+HOLDING_PRINCIPAL_REDUCTION_KEYS = (
+    "principal_repaid_minor",
+    "principal_recovered_minor",
+    "principal_loss_minor",
+)
 ANNUAL_TAX_INFORMATION_DISCLAIMER = (
     "This report is informational only and is not tax advice. Final tax treatment remains "
     "the responsibility of the participant and its advisors."
@@ -2243,6 +2249,21 @@ def _participant_account_statement_dataset(
     )
 
 
+def _holding_principal_at_period_end(holding: Any, events: list[Any]) -> int:
+    """Principal of one lot after its holding events up to the period end."""
+    principal = int(holding.original_principal_minor)
+    for event in events:
+        metadata = event.metadata if isinstance(event.metadata, dict) else {}
+        if str(event.event_type) == "transferred":
+            principal = 0
+        elif "current_principal_after_minor" in metadata:
+            principal = int(metadata["current_principal_after_minor"])
+        elif str(event.event_type) in {"principal_updated", "closed"}:
+            for key in HOLDING_PRINCIPAL_REDUCTION_KEYS:
+                principal -= int(metadata.get(key) or 0)
+    return max(principal, 0)
+
+
 def _annual_tax_information_dataset(
     *,
     start_date: date,
@@ -2311,6 +2332,7 @@ def _annual_tax_information_dataset(
         fx_exchange_model = _external_model("fx", "FxExchange")
         purchase_model = _external_model("secondary_market", "SecondaryMarketPurchase")
         holding_model = _external_model("holdings", "InvestorLoanHolding")
+        holding_event_model = _external_model("holdings", "InvestorLoanHoldingEvent")
         start_dt, end_dt = _date_time_bounds(start_date, end_date)
 
         repayment_queryset = repayment_line_model.objects.select_related("currency").filter(
@@ -2344,7 +2366,10 @@ def _annual_tax_information_dataset(
             purchased_at__gte=start_dt,
             purchased_at__lte=end_dt,
         )
-        holding_queryset = holding_model.objects.select_related("currency").all()
+        # Only lots owned by the end of the period can have principal outstanding at its end.
+        holding_queryset = holding_model.objects.select_related("currency").filter(
+            assignment_effective_at__lte=end_dt
+        )
         if participant_id:
             repayment_queryset = repayment_queryset.filter(investor_user_id=participant_id)
             originator_repayment_queryset = originator_repayment_queryset.filter(
@@ -2473,21 +2498,36 @@ def _annual_tax_information_dataset(
                     "secondary_market_seller_net_proceeds",
                     purchase.seller_net_proceeds_minor,
                 )
-        outstanding_by_currency: dict[str, int] = {}
-        for holding in list(holding_queryset):
-            outstanding_by_currency[holding.currency.code] = outstanding_by_currency.get(
-                holding.currency.code,
-                0,
-            ) + int(holding.current_principal_minor)
-        for currency, amount in outstanding_by_currency.items():
+        holdings = list(holding_queryset)
+        events_by_holding: dict[str, list[Any]] = {}
+        for event in holding_event_model.objects.filter(
+            holding_id__in=[holding.pk for holding in holdings],
+            occurred_at__lte=end_dt,
+        ).order_by("occurred_at", "id"):
+            events_by_holding.setdefault(str(event.holding_id), []).append(event)
+        outstanding_by_currency: dict[str, dict[str, int]] = {}
+        for holding in holdings:
+            principal = _holding_principal_at_period_end(
+                holding,
+                events_by_holding.get(str(holding.pk), []),
+            )
+            if principal <= 0:
+                continue
+            totals = outstanding_by_currency.setdefault(
+                holding.currency.code, {"amount": 0, "count": 0}
+            )
+            totals["amount"] += principal
+            totals["count"] += 1
+        for currency, totals in sorted(outstanding_by_currency.items()):
             add_row(
                 currency=currency,
                 section="information_only",
-                category="current_outstanding_principal",
-                amount_minor=amount,
-                source_count=1,
+                category="outstanding_principal_at_period_end",
+                amount_minor=totals["amount"],
+                source_count=totals["count"],
                 tax_relevant=False,
                 income_or_cost="information_only",
+                notes=f"Principal outstanding on {end_date.isoformat()}.",
             )
         for (currency, section, category), value in sorted(grouped.items()):
             add_row(
@@ -2498,6 +2538,20 @@ def _annual_tax_information_dataset(
                 source_count=value["count"],
                 tax_relevant=section == "tax_summary",
                 income_or_cost="income_or_cost" if section == "tax_summary" else "information_only",
+            )
+        if not rows:
+            add_row(
+                currency="",
+                section="information_only",
+                category=NO_ACCOUNT_ACTIVITY_CATEGORY,
+                amount_minor=0,
+                source_count=0,
+                tax_relevant=False,
+                income_or_cost="information_only",
+                notes=(
+                    "No interest, fees, repayments, purchases, sales, FX or outstanding "
+                    "principal in this period."
+                ),
             )
     elif participant_type == "borrower":
         repayment_model = _external_model("servicing", "BorrowerRepaymentEvent")
@@ -3240,6 +3294,87 @@ def _render_csv(
     )
 
 
+TAX_INFORMATION_ITEM_LABELS = {
+    "interest_received_or_credited": "Interest received",
+    "lender_payment_fees_paid": "Payment fees paid",
+    "principal_repaid": "Principal repaid",
+    "originator_claim_interest_received_or_credited": "Loan Originator claim interest received",
+    "originator_claim_penalties_received_or_credited": "Loan Originator claim penalties received",
+    "originator_claim_principal_repaid": "Loan Originator claim principal repaid",
+    "originator_claim_cash_consideration": "Loan Originator claims bought (price paid)",
+    "originator_claim_principal_assigned": "Loan Originator claim principal acquired",
+    "principal_recovered": "Principal recovered",
+    "contractual_interest_recovered": "Contractual interest recovered",
+    "default_interest_recovered": "Default interest recovered",
+    "penalties_recovered": "Penalties recovered",
+    "other_recovery_costs": "Recovery costs",
+    "fx_fees_paid": "FX fees paid",
+    "fx_source_converted": "FX amount converted",
+    "fx_target_credited": "FX amount received",
+    "secondary_market_taker_fees_paid": "Secondary market buyer fees paid",
+    "secondary_market_purchase_price": "Secondary market purchases (price paid)",
+    "secondary_market_maker_fees_paid": "Secondary market seller fees paid",
+    "secondary_market_seller_net_proceeds": "Secondary market sales (net proceeds)",
+    "outstanding_principal_at_period_end": "Outstanding principal at period end",
+    NO_ACCOUNT_ACTIVITY_CATEGORY: "No account activity in this period",
+    "informational_only_not_tax_advice": "Informational only, not tax advice",
+}
+TAX_INFORMATION_SECTION_LABELS = {
+    "tax_summary": "Tax summary",
+    "information_only": "Information",
+    "disclaimer": "Disclaimer",
+}
+
+
+def _readable_key(value: str) -> str:
+    text = value.replace(":", ": ").replace("_", " ").strip()
+    return text[:1].upper() + text[1:]
+
+
+def _major_amount_text(amount_minor: int, minor_units: int) -> str:
+    sign = "-" if amount_minor < 0 else ""
+    if minor_units <= 0:
+        return f"{sign}{abs(amount_minor):,}".replace(",", "'")
+    major, minor = divmod(abs(amount_minor), 10**minor_units)
+    return f"{sign}{major:,}".replace(",", "'") + f".{minor:0{minor_units}d}"
+
+
+def _annual_tax_information_pdf_dataset(dataset: ReportDataset) -> ReportDataset:
+    """Readable PDF presentation: labelled items and amounts in currency units, not cents."""
+    minor_units = {
+        str(code): int(units) for code, units in Currency.objects.values_list("code", "minor_units")
+    }
+    rows: list[dict[str, Any]] = []
+    for row in dataset.rows:
+        currency = str(row.get("currency") or "")
+        category = str(row.get("category") or "")
+        section = str(row.get("section") or "")
+        has_amount = bool(currency) and section != "disclaimer"
+        rows.append(
+            {
+                "currency": currency,
+                "section": TAX_INFORMATION_SECTION_LABELS.get(section, _readable_key(section)),
+                "item": TAX_INFORMATION_ITEM_LABELS.get(category, _readable_key(category)),
+                "amount": (
+                    _major_amount_text(
+                        int(row.get("amount_minor") or 0), minor_units.get(currency, 2)
+                    )
+                    if has_amount
+                    else ""
+                ),
+                "entries": str(row.get("source_count") or 0) if has_amount else "",
+                "tax_relevant": "Yes" if row.get("tax_relevant") else "No",
+                "notes": str(row.get("notes") or ""),
+            }
+        )
+    return ReportDataset(
+        columns=["currency", "section", "item", "amount", "entries", "tax_relevant", "notes"],
+        rows=rows,
+        source_counts=dataset.source_counts,
+        notes=dataset.notes,
+    )
+
+
 def _render_pdf(
     *,
     report_type: str,
@@ -3254,6 +3389,8 @@ def _render_pdf(
         end_date=end_date,
         extension="pdf",
     )
+    if report_type == ReportType.ANNUAL_TAX_INFORMATION:
+        dataset = _annual_tax_information_pdf_dataset(dataset)
     pdf_bytes = _report_pdf_bytes(manifest=manifest, dataset=dataset)
     checksum = _content_checksum_bytes(pdf_bytes)
     return RenderedReport(

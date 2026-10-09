@@ -1,8 +1,11 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { expect, test, vi } from "vitest";
 
 import { StoryEditor } from "./StoryEditor";
-import type { StoryDocument } from "../investorPortal/story";
+import { normalizeStory, type StoryDocument } from "../investorPortal/story";
+import { StoryView } from "../investorPortal/StoryView";
 
 function typeInto(element: HTMLElement, text: string) {
   element.replaceChildren(document.createTextNode(text));
@@ -152,4 +155,56 @@ test("unfinished or failed image uploads prevent the containing form from saving
   expect(ready).toHaveBeenLastCalledWith(false);
   fireEvent.click(screen.getByRole("button", { name: "Remove image block" }));
   expect(ready).toHaveBeenLastCalledWith(true);
+});
+
+test("italic from the toolbar is kept in the story and shown in italics to investors", () => {
+  const onChange = vi.fn<(next: StoryDocument) => void>();
+  render(<StoryEditor onChange={onChange} value={{ version: 1, blocks: [{ type: "paragraph", runs: [{ text: "Plain then slanted" }] }] }} />);
+  const editor = screen.getByRole("textbox", { name: "Tell investors the story…" });
+  fireEvent.focus(editor);
+  const text = editor.firstChild as Text;
+  const range = document.createRange();
+  range.setStart(text, "Plain then ".length);
+  range.setEnd(text, text.length);
+  range.getBoundingClientRect = () => new DOMRect(40, 80, 100, 20);
+  const selection = window.getSelection()!;
+  selection.removeAllRanges();
+  selection.addRange(range);
+  fireEvent(document, new Event("selectionchange"));
+
+  // jsdom has no editing commands; emulate the browser's italic command on the selection.
+  const execCommand = vi.fn((command: string) => {
+    if (command !== "italic") return false;
+    const current = window.getSelection()!.getRangeAt(0);
+    const italic = document.createElement("i");
+    italic.appendChild(current.extractContents());
+    current.insertNode(italic);
+    return true;
+  });
+  Object.defineProperty(document, "execCommand", { configurable: true, value: execCommand });
+  try {
+    fireEvent.click(screen.getByRole("button", { name: "Italic" }));
+  } finally {
+    delete (document as { execCommand?: unknown }).execCommand;
+    selection.removeAllRanges();
+  }
+
+  expect(execCommand).toHaveBeenCalledWith("italic", false, undefined);
+  const saved = onChange.mock.calls.at(-1)?.[0];
+  expect(saved?.blocks[0]).toEqual({ type: "paragraph", runs: [{ text: "Plain then " }, { text: "slanted", italic: true }] });
+
+  // The investor page renders the saved (normalized) story with real <em> markup.
+  render(<StoryView story={normalizeStory(JSON.parse(JSON.stringify(saved)))} />);
+  expect(screen.getByText("slanted", { selector: ".story em" })).toBeInTheDocument();
+});
+
+test("every self-hosted font has its italic face, because faux italics are disabled", () => {
+  const css = readFileSync(resolve(process.cwd(), "src/styles.css"), "utf8");
+  expect(css).toMatch(/font-synthesis:\s*none/);
+  const main = readFileSync(resolve(process.cwd(), "src/main.tsx"), "utf8");
+  const families = [...main.matchAll(/import "@fontsource-variable\/([a-z-]+)(?:\/[^"]*)?";/g)].map((match) => match[1]);
+  expect(families).toContain("instrument-sans");
+  for (const family of new Set(families)) {
+    expect(main, `${family} needs an italic face`).toMatch(new RegExp(`@fontsource-variable/${family}/[a-z-]*italic\\.css`));
+  }
 });

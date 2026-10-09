@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from django.contrib.auth import login, logout
+from django.contrib.auth import logout
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -50,6 +50,7 @@ from backend.apps.accounts_auth.models import (
 )
 from backend.apps.accounts_auth.services import (
     AccountAccessControlError,
+    AccountLoginBlockedError,
     AccountsAuthError,
     AdminAuthorizationError,
     AdminLoginConfirmCommand,
@@ -86,6 +87,7 @@ from backend.apps.accounts_auth.services import (
     start_admin_login,
     update_marketing_consent,
 )
+from backend.apps.accounts_auth.session_lifetime import start_authenticated_session
 from backend.apps.platform_core.domain.time import business_date, now_utc
 
 
@@ -200,14 +202,15 @@ class MagicLinkConsumeView(APIView):
                     user_agent=user_agent(request),
                 )
             )
+        except AccountLoginBlockedError as exc:
+            return Response(
+                {"detail": str(exc), "code": f"account_{exc.account_status}"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         except InvalidOrExpiredTokenError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        login(
-            request._request,  # noqa: SLF001
-            user,
-            backend="django.contrib.auth.backends.ModelBackend",
-        )
+        start_authenticated_session(request._request, user)  # noqa: SLF001
         return Response({"user": serialize_user(user)})
 
 
@@ -275,11 +278,7 @@ class AdminLoginConfirmView(APIView):
         except TooManyCodeAttemptsError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
 
-        login(
-            request._request,  # noqa: SLF001
-            user,
-            backend="django.contrib.auth.backends.ModelBackend",
-        )
+        start_authenticated_session(request._request, user)  # noqa: SLF001
         return Response({"user": serialize_user(user)})
 
 

@@ -5,6 +5,7 @@ import type {
   AuditEvent,
   BorrowerEntity,
   DocumentTemplateVersion,
+  InvestorWithdrawalHistoryRow,
   KycAdminCase,
   Loan
 } from "../api/generated/banxumApi";
@@ -50,6 +51,8 @@ export const auditEventsFixture: AuditEvent[] = [];
 export const adminSecondaryListingsFixture: never[] = [];
 
 export const adminUserDirectoryFixture = { count: 0, limit: 25, offset: 0, results: [] };
+
+export const adminWithdrawalHistoryFixture: InvestorWithdrawalHistoryRow[] = [];
 
 export const adminFormDefaults = {
   investorUserId: "",

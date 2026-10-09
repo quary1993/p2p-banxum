@@ -341,6 +341,9 @@ class AddLoanRiskNoteCommand:
     title: str = ""
     evidence_reference: str = ""
     metadata: dict[str, Any] | None = None
+    # Bulk email to the loan's current lenders (COMMS-DEC-005: public note only,
+    # email only, or both). Internal visibility plus email means "email only".
+    email_affected_investors: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -369,6 +372,10 @@ def _secondary_market_services() -> Any:
 
 def _schedule_domain() -> Any:
     return import_module("backend.apps.loans.domain.schedules")
+
+
+def _admin_ops_services() -> Any:
+    return import_module("backend.apps.admin_ops.services")
 
 
 def _require_admin_actor(actor: Model) -> None:
@@ -599,7 +606,9 @@ def _recovery_payment_fingerprint(
             "penalties_due_minor": command.penalties_due_minor,
             "booking_date": command.booking_date.isoformat(),
             "value_date": command.value_date.isoformat(),
-            "collection_account_identifier": command.collection_account_identifier.strip(),
+            "collection_account_identifier": _repayment_collection_account_fingerprint(
+                command.collection_account_identifier
+            ),
             "payer_name": command.payer_name.strip(),
             "payer_account_identifier": command.payer_account_identifier.strip(),
             "bank_reference": command.bank_reference.strip(),
@@ -643,18 +652,20 @@ def _risk_note_fingerprint(
     evidence_reference: str,
     idempotency_key: str,
 ) -> str:
-    return _stable_json_fingerprint(
-        {
-            "loan_id": str(command.loan_id),
-            "visibility": visibility,
-            "note_type": note_type,
-            "title": title,
-            "body": body,
-            "evidence_reference": evidence_reference,
-            "metadata": command.metadata or {},
-            "idempotency_key": idempotency_key,
-        }
-    )
+    payload: dict[str, Any] = {
+        "loan_id": str(command.loan_id),
+        "visibility": visibility,
+        "note_type": note_type,
+        "title": title,
+        "body": body,
+        "evidence_reference": evidence_reference,
+        "metadata": command.metadata or {},
+        "idempotency_key": idempotency_key,
+    }
+    if command.email_affected_investors:
+        # Only added when set, so fingerprints of earlier note requests are unchanged.
+        payload["email_affected_investors"] = True
+    return _stable_json_fingerprint(payload)
 
 
 def _existing_risk_note_for_idempotency(
@@ -1180,6 +1191,21 @@ def _record_loan_servicing_status_change(
             ),
         )
     )
+    if new_status == LOAN_STATUS_DEFAULTED:
+        admin_ops = _admin_ops_services()
+        admin_ops.ensure_loan_default_review_task(
+            admin_ops.EnsureLoanDefaultReviewTaskCommand(
+                actor=actor,
+                loan_id=str(loan_ref.id),
+                loan_title=str(loan_ref.title),
+                product_type=str(getattr(loan_ref, "product_type", "direct")),
+                currency=str(loan_ref.currency_id),
+                as_of_date=as_of_date,
+                days_past_due=days_past_due,
+                outstanding_minor=outstanding_minor,
+                triggering_due_date=triggering_due_date,
+            )
+        )
     return LoanServicingStatusChange(
         loan_id=str(loan_ref.id),
         previous_status=previous_status,
@@ -1452,6 +1478,22 @@ def _loss_recognition_plan(
     ):
         raise ServicingValidationError("Loss recognition plan does not reconcile.")
     return plan
+
+
+def _current_lender_ids_for_loan(loan_id: str) -> list[str]:
+    """Investors who hold the loan now: the recipients of investor update emails."""
+    holding_model = apps.get_model("holdings", "InvestorLoanHolding")
+    investor_ids = (
+        holding_model.objects.filter(
+            loan_id=loan_id,
+            status="active",
+            current_principal_minor__gt=0,
+        )
+        .order_by("investor_user_id")
+        .values_list("investor_user_id", flat=True)
+        .distinct()
+    )
+    return [str(investor_id) for investor_id in investor_ids]
 
 
 def _actor_has_loan_holding_history(actor: Model, loan_id: str) -> bool:
@@ -2066,6 +2108,8 @@ def record_borrower_repayment(
     )
     if existing is not None:
         return existing
+    # The account the borrower paid from is the bank evidence for this receipt.
+    payer_account_identifier = _clean_required(command.payer_account_identifier, "Payer account")
 
     loan = _locked_repayable_loan(command.loan_id)
     existing_after_lock = _existing_repayment_for_idempotency(
@@ -2182,7 +2226,7 @@ def record_borrower_repayment(
                     )
                     for line in distribution_plan
                 ],
-                payer_account_identifier=command.payer_account_identifier,
+                payer_account_identifier=payer_account_identifier,
                 bank_reference=command.bank_reference,
                 payment_reference=command.payment_reference,
                 evidence_reference=command.evidence_reference,
@@ -2551,6 +2595,12 @@ def record_loan_recovery_payment(
             "before final loss recognition."
         )
     currency = _enabled_currency(str(loan_ref.currency_id))
+    # Recovered funds arrive in Garanta's collection account for the loan currency,
+    # exactly like regular borrower repayments; the platform owns that setting.
+    collection_account_identifier = _resolve_repayment_collection_account_identifier(
+        currency=currency.code,
+        supplied_identifier=command.collection_account_identifier,
+    )
     holdings = _active_holdings_for_loan(loan)
     outstanding_principal_minor = sum(
         int(cast(Any, holding).current_principal_minor) for holding in holdings
@@ -2620,7 +2670,7 @@ def record_loan_recovery_payment(
                 currency=currency.code,
                 booking_date=command.booking_date,
                 value_date=command.value_date,
-                collection_account_identifier=command.collection_account_identifier,
+                collection_account_identifier=collection_account_identifier,
                 payer_name=command.payer_name,
                 source_type="loan_recovery_event",
                 source_id=str(event_id),
@@ -2944,12 +2994,28 @@ def add_loan_risk_note(command: AddLoanRiskNoteCommand) -> LoanRiskNote:
         LoanRiskNoteType.DOCUMENT_NOTE,
     }:
         raise ServicingValidationError("Internal/document notes cannot be marked public.")
+    if command.email_affected_investors and note_type in {
+        LoanRiskNoteType.INTERNAL_NOTE,
+        LoanRiskNoteType.DOCUMENT_NOTE,
+    }:
+        raise ServicingValidationError("Internal/document notes cannot be emailed to investors.")
     loan = _locked_loan(command.loan_id)
     loan_ref = cast(Any, loan)
     if visibility == LoanRiskNoteVisibility.PUBLIC and str(loan_ref.status) not in (
         PUBLIC_NOTE_LOAN_STATUSES
     ):
         raise ServicingValidationError("Public notes can only be added to active portfolio loans.")
+    if command.email_affected_investors and str(loan_ref.status) not in (
+        PUBLIC_NOTE_LOAN_STATUSES
+    ):
+        raise ServicingValidationError(
+            "Investor update emails can only be sent for active portfolio loans."
+        )
+    email_recipient_ids: list[str] = []
+    if command.email_affected_investors:
+        email_recipient_ids = _current_lender_ids_for_loan(str(loan_ref.id))
+        if not email_recipient_ids:
+            raise ServicingValidationError("This loan has no current lenders to email.")
     request_fingerprint = _risk_note_fingerprint(
         command,
         visibility=visibility,
@@ -2972,6 +3038,9 @@ def add_loan_risk_note(command: AddLoanRiskNoteCommand) -> LoanRiskNote:
         "loan_status": str(loan_ref.status),
         **(command.metadata or {}),
     }
+    if command.email_affected_investors:
+        metadata["emailed_affected_investors"] = True
+        metadata["email_recipient_count"] = len(email_recipient_ids)
     occurred_at = now_utc()
     try:
         with transaction.atomic():
@@ -3005,7 +3074,30 @@ def add_loan_risk_note(command: AddLoanRiskNoteCommand) -> LoanRiskNote:
         "note_type": note_type,
         "title": title,
         "evidence_reference": evidence_reference,
+        "emailed_affected_investors": bool(command.email_affected_investors),
+        "email_recipient_count": len(email_recipient_ids),
     }
+    for investor_user_id in email_recipient_ids:
+        _enqueue_investor_email(
+            investor_user_id=investor_user_id,
+            topic="email.loan_risk_note_published",
+            subject=(
+                f"{settings.PLATFORM_BRAND_NAME} update on {loan_ref.title}"
+                + (f": {title}" if title else "")
+            ),
+            body_text=(
+                f"There is an update on loan {loan_ref.title}, which is in your "
+                f"{settings.PLATFORM_BRAND_NAME} portfolio.\n\n{body}"
+            ),
+            template_key="servicing.loan_risk_note_published.v1",
+            idempotency_key=f"email:loan-risk-note:{note.id}:{investor_user_id}",
+            metadata={
+                "risk_note_id": str(note.id),
+                "loan_id": str(loan_ref.id),
+                "note_type": note_type,
+                "visibility": visibility,
+            },
+        )
     record_audit_event(
         AuditCommand(
             actor=actor_ref,
